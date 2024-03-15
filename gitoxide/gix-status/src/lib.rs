@@ -2,10 +2,23 @@
 //! of the repository state, like comparisons between…
 //!
 //! * index and working tree
-//! * index and tree
-//! * find untracked files
+//! * *tree and index*
 //!
-//! While also being able to check check if the working tree is dirty, quickly.
+//! …while also being able to check if the working tree is dirty, quickly, by instructing the operation to stop once the first
+//! change was found.
+//!
+//! ### Tree-Index Status
+//!
+//! This status is not actually implemented here as it's not implemented directly. Instead, one creates an Index from a tree
+//! and then diffs two indices with `gix_diff::index(index_from_tree, usually_dot_git_index)`. This adds about 15% to the runtime
+//! and comes at the cost of another index in memory.
+//! Once there are generators implementing depth-first tree iteration should become trivial, but for now it's very hard if one
+//! wants to return referenced state of the iterator (which is not possible).
+//!
+//! ### Difference to `gix-diff`
+//!
+//! Technically, `status` is just another form of diff between different kind of sides, i.e. an index and a working tree.
+//! This is the difference to `gix-diff`, which compares only similar items.
 //!
 //! ### Feature Flags
 #![cfg_attr(
