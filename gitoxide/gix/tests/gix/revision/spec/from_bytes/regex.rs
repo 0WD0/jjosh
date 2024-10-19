@@ -95,7 +95,7 @@ mod find_youngest_matching_commit {
     fn regex_matches() {
         let repo = repo("complex_graph").unwrap();
 
-        // On the CI linux workflow, archived baseline aren't used - instead fixtures will be re-evaluated.
+        // On the full linux CI `test` workflow, archived baseline aren't used - instead fixtures will be re-evaluated.
         // As of Git 2.47, its behaviour changed which makes the following assertion fail.
         // We decided to just ignore it until it's clear that this isn't a bug - obviously the traversal order changed.
         let is_in_test_ci_workflow = is_ci::cached() && std::env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some();
