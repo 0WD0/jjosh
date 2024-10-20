@@ -159,7 +159,7 @@ impl crate::Repository {
         Ok(match head.inner.target {
             Target::Symbolic(branch) => match self.find_reference(&branch) {
                 Ok(r) => crate::head::Kind::Symbolic(r.detach()),
-                Err(reference::find::existing::Error::NotFound) => crate::head::Kind::Unborn(branch),
+                Err(reference::find::existing::Error::NotFound { .. }) => crate::head::Kind::Unborn(branch),
                 Err(err) => return Err(err),
             },
             Target::Object(target) => crate::head::Kind::Detached {
@@ -222,11 +222,19 @@ impl crate::Repository {
     /// without that being considered an error.
     pub fn find_reference<'a, Name, E>(&self, name: Name) -> Result<Reference<'_>, reference::find::existing::Error>
     where
-        Name: TryInto<&'a PartialNameRef, Error = E>,
+        Name: TryInto<&'a PartialNameRef, Error = E> + Clone,
         gix_ref::file::find::Error: From<E>,
     {
+        // TODO: is there a way to just pass `partial_name` to `try_find_reference()`? Compiler freaks out then
+        //       as it still wants to see `E` there, not `Infallible`.
+        let partial_name = name
+            .clone()
+            .try_into()
+            .map_err(|err| reference::find::Error::Find(gix_ref::file::find::Error::from(err)))?;
         self.try_find_reference(name)?
-            .ok_or(reference::find::existing::Error::NotFound)
+            .ok_or_else(|| reference::find::existing::Error::NotFound {
+                name: partial_name.to_owned(),
+            })
     }
 
     /// Return a platform for iterating references.
@@ -249,8 +257,7 @@ impl crate::Repository {
         Name: TryInto<&'a PartialNameRef, Error = E>,
         gix_ref::file::find::Error: From<E>,
     {
-        let state = self;
-        match state.refs.try_find(name) {
+        match self.refs.try_find(name) {
             Ok(r) => match r {
                 Some(r) => Ok(Some(Reference::from_ref(r, self))),
                 None => Ok(None),

@@ -110,14 +110,16 @@ pub mod head_tree_id {
 pub mod find {
     ///
     pub mod existing {
+        use gix_ref::PartialName;
+
         /// The error returned by [`find_reference(…)`][crate::Repository::find_reference()], and others.
         #[derive(Debug, thiserror::Error)]
         #[allow(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             Find(#[from] crate::reference::find::Error),
-            #[error("The reference did not exist")]
-            NotFound,
+            #[error("The reference '{}' did not exist", name.as_ref().as_bstr())]
+            NotFound { name: PartialName },
         }
     }
 
@@ -127,7 +129,5 @@ pub mod find {
     pub enum Error {
         #[error(transparent)]
         Find(#[from] gix_ref::file::find::Error),
-        #[error(transparent)]
-        PackedRefsOpen(#[from] gix_ref::packed::buffer::open::Error),
     }
 }
