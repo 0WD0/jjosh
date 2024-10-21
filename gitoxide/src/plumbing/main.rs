@@ -106,8 +106,12 @@ pub fn main() -> Result<()> {
             };
             mapping.full.modify(to_match_settings);
             mapping.reduced.modify(to_match_settings);
-            let mut repo = gix::ThreadSafeRepository::discover_opts(repository, Default::default(), mapping)
-                .map(gix::Repository::from)?;
+            let mut repo = gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
+                repository,
+                Default::default(),
+                mapping,
+            )
+            .map(gix::Repository::from)?;
             if !config.is_empty() {
                 repo.config_snapshot_mut()
                     .append_config(config.iter(), gix::config::Source::Cli)

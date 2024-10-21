@@ -99,7 +99,7 @@ impl ThreadSafeRepository {
     }
 
     /// Try to open a git repository in `fallback_directory` (can be worktree or `.git` directory) only if there is no override
-    /// from of the `gitdir` using git environment variables.
+    /// of the `gitdir` using git environment variables.
     ///
     /// Use the `trust_map` to apply options depending in the trust level for `directory` or the directory it's overridden with.
     /// The `.git` directory whether given or computed is used for trust checks.
@@ -135,7 +135,7 @@ impl ThreadSafeRepository {
             }
         };
 
-        // The be altered later based on `core.precomposeUnicode`.
+        // To be altered later based on `core.precomposeUnicode`.
         let cwd = gix_fs::current_dir(false)?;
         let (git_dir, worktree_dir) = gix_discover::repository::Path::from_dot_git_dir(path, path_kind, &cwd)
             .expect("we have sanitized path with is_git()")
@@ -258,7 +258,20 @@ impl ThreadSafeRepository {
 
         // core.worktree might be used to overwrite the worktree directory
         if !config.is_bare {
-            if let Some(wt) = config.resolved.path_filter(Core::WORKTREE, &mut filter_config_section) {
+            let mut key_source = None;
+            let worktree_path = config
+                .resolved
+                .path_filter(Core::WORKTREE, {
+                    |section| {
+                        let res = filter_config_section(section);
+                        if res {
+                            key_source = Some(section.source);
+                        }
+                        res
+                    }
+                })
+                .zip(key_source);
+            if let Some((wt, key_source)) = worktree_path {
                 let wt_clone = wt.clone();
                 let wt_path = wt
                     .interpolate(interpolate_context(git_install_dir.as_deref(), home.as_deref()))
@@ -266,7 +279,14 @@ impl ThreadSafeRepository {
                         path: wt_clone.value.into_owned(),
                         source: err,
                     })?;
-                worktree_dir = gix_path::normalize(git_dir.join(wt_path).into(), current_dir).map(Cow::into_owned);
+                let wt_path = match key_source {
+                    gix_config::Source::Env
+                    | gix_config::Source::Cli
+                    | gix_config::Source::Api
+                    | gix_config::Source::EnvOverride => wt_path,
+                    _ => git_dir.join(wt_path).into(),
+                };
+                worktree_dir = gix_path::normalize(wt_path, current_dir).map(Cow::into_owned);
                 #[allow(unused_variables)]
                 if let Some(worktree_path) = worktree_dir.as_deref().filter(|wtd| !wtd.is_dir()) {
                     gix_trace::warn!("The configured worktree path '{}' is not a directory or doesn't exist - `core.worktree` may be misleading", worktree_path.display());
@@ -284,7 +304,7 @@ impl ThreadSafeRepository {
         }
 
         match worktree_dir {
-            None if !config.is_bare && refs.git_dir().extension() == Some(OsStr::new(gix_discover::DOT_GIT_DIR)) => {
+            None if !config.is_bare && refs.git_dir().file_name() == Some(OsStr::new(gix_discover::DOT_GIT_DIR)) => {
                 worktree_dir = Some(git_dir.parent().expect("parent is always available").to_owned());
             }
             Some(_) => {

@@ -90,7 +90,7 @@ pub(super) mod function {
         mut url: gix_url::Url,
         config: &gix_config::File<'_>,
         is_lenient_config: bool,
-        filter: &mut gix_config::file::MetadataFilter,
+        mut filter: impl FnMut(&gix_config::file::Metadata) -> bool,
         environment: crate::open::permissions::Environment,
         mut use_http_path: bool,
     ) -> Result<
@@ -105,7 +105,7 @@ pub(super) mod function {
         let url_had_user_initially = url.user().is_some();
         normalize(&mut url);
 
-        if let Some(credential_sections) = config.sections_by_name_and_filter("credential", filter) {
+        if let Some(credential_sections) = config.sections_by_name_and_filter("credential", &mut filter) {
             for section in credential_sections {
                 let section = match section.header().subsection_name() {
                     Some(pattern) => gix_url::parse(pattern).ok().and_then(|mut pattern| {
@@ -181,7 +181,7 @@ pub(super) mod function {
             askpass: crate::config::cache::access::trusted_file_path(
                 config,
                 &Core::ASKPASS,
-                filter,
+                &mut filter,
                 is_lenient_config,
                 environment,
             )

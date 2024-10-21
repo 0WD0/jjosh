@@ -327,6 +327,15 @@ fn apply_environment_overrides(
     let mut env_override = gix_config::File::new(gix_config::file::Metadata::from(gix_config::Source::EnvOverride));
     for (section_name, subsection_name, permission, data) in [
         (
+            "core",
+            None,
+            git_prefix,
+            &[{
+                let key = &Core::WORKTREE;
+                (env(key), key.name)
+            }][..],
+        ),
+        (
             "http",
             None,
             http_transport,

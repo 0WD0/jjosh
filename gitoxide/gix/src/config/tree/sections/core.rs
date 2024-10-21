@@ -58,7 +58,7 @@ impl Core {
     /// The `core.worktree` key.
     pub const WORKTREE: keys::Any = keys::Any::new("worktree", &config::Tree::CORE)
         .with_environment_override("GIT_WORK_TREE")
-        .with_deviation("Overriding the worktree with environment variables is supported using `ThreadSafeRepository::open_with_environment_overrides()");
+        .with_deviation("Command-line overrides also work, and they act lie an environment override. If set in the git configuration file, relative paths are relative to it.");
     /// The `core.askPass` key.
     pub const ASKPASS: keys::Executable = keys::Executable::new_executable("askPass", &config::Tree::CORE)
         .with_environment_override("GIT_ASKPASS")

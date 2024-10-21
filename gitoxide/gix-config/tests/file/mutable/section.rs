@@ -16,7 +16,7 @@ fn section_mut_or_create_new_is_infallible() -> crate::Result {
 #[test]
 fn section_mut_or_create_new_filter_may_reject_existing_sections() -> crate::Result {
     let mut config = multi_value_section();
-    let section = config.section_mut_or_create_new_filter("a", None, &mut |_| false)?;
+    let section = config.section_mut_or_create_new_filter("a", None, |_| false)?;
     assert_eq!(section.header().name(), "a");
     assert_eq!(section.header().subsection_name(), None);
     assert_eq!(section.to_bstring(), "[a]\n");
