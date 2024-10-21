@@ -20,8 +20,7 @@ pub enum Sign {
 /// Various ways to describe a time format.
 #[derive(Debug, Clone, Copy)]
 pub enum Format {
-    /// A custom format limited to what's in the
-    /// [`format`](mod@crate::time::format) submodule.
+    /// A custom format limited to what's in the [`format`](mod@format) submodule.
     Custom(CustomFormat),
     /// The seconds since 1970, also known as unix epoch, like `1660874655`.
     Unix,
@@ -34,7 +33,7 @@ pub enum Format {
 pub struct CustomFormat(pub(crate) &'static str);
 
 impl CustomFormat {
-    /// Create a new custom format.
+    /// Create a new custom `format` suitable for use with the [`jiff`] crate.
     pub const fn new(format: &'static str) -> Self {
         Self(format)
     }
