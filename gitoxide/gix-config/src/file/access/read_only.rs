@@ -8,7 +8,7 @@ use crate::{
     file::{
         self,
         write::{extract_newline, platform_newline},
-        Metadata, MetadataFilter, SectionId,
+        Metadata, SectionId,
     },
     lookup,
     parse::Event,
@@ -232,7 +232,7 @@ impl<'event> File<'event> {
         name: &str,
         subsection_name: Option<&BStr>,
     ) -> Result<&file::Section<'event>, lookup::existing::Error> {
-        self.section_filter(name, subsection_name, &mut |_| true)?
+        self.section_filter(name, subsection_name, |_| true)?
             .ok_or(lookup::existing::Error::SectionMissing)
     }
 
@@ -252,7 +252,7 @@ impl<'event> File<'event> {
         &'a self,
         name: &str,
         subsection_name: Option<&BStr>,
-        filter: &mut MetadataFilter,
+        mut filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<&'a file::Section<'event>>, lookup::existing::Error> {
         Ok(self
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name)?
@@ -270,7 +270,7 @@ impl<'event> File<'event> {
     pub fn section_filter_by_key<'a>(
         &'a self,
         section_key: &BStr,
-        filter: &mut MetadataFilter,
+        filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<&'a file::Section<'event>>, lookup::existing::Error> {
         let key =
             crate::parse::section::unvalidated::Key::parse(section_key).ok_or(lookup::existing::Error::KeyMissing)?;
@@ -349,7 +349,7 @@ impl<'event> File<'event> {
     pub fn sections_by_name_and_filter<'a>(
         &'a self,
         name: &'a str,
-        filter: &'a mut MetadataFilter,
+        mut filter: impl FnMut(&Metadata) -> bool + 'a,
     ) -> Option<impl Iterator<Item = &'a file::Section<'event>> + 'a> {
         self.section_ids_by_name(name).ok().map(move |ids| {
             ids.filter_map(move |id| {

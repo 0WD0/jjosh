@@ -79,7 +79,7 @@ fn fuzz_mutable_section(
         subsection_name,
         Cow::Owned(renamed_section_name.clone()),
         renamed_subsection_name.clone(),
-        &mut |_| false,
+        |_| false,
     ));
 
     Ok(())

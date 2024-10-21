@@ -75,9 +75,6 @@ pub struct Section<'a> {
     id: SectionId,
 }
 
-/// A function to filter metadata, returning `true` if the corresponding but omitted value can be used.
-pub type MetadataFilter = dyn FnMut(&'_ Metadata) -> bool;
-
 /// A strongly typed index into some range.
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Clone, Copy)]
 pub(crate) struct Index(pub(crate) usize);

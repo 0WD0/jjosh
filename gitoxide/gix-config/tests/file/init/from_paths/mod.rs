@@ -165,21 +165,21 @@ fn multiple_paths_multi_value_and_filter() -> crate::Result {
     );
 
     assert_eq!(
-        config.string_filter("core.key", &mut |m| m.source == Source::System),
+        config.string_filter("core.key", |m| m.source == Source::System),
         Some(cow_str("a")),
         "the filter discards all values with higher priority"
     );
     assert_eq!(
-        config.string_filter("core.key", &mut |m| m.source == Source::System),
+        config.string_filter("core.key", |m| m.source == Source::System),
         Some(cow_str("a")),
     );
 
     assert_eq!(
-        config.strings_filter("core.key", &mut |m| m.source == Source::Git || m.source == Source::User),
+        config.strings_filter("core.key", |m| m.source == Source::Git || m.source == Source::User),
         Some(vec![cow_str("b"), cow_str("c")])
     );
     assert_eq!(
-        config.strings_filter("core.key", &mut |m| m.source == Source::Git || m.source == Source::User),
+        config.strings_filter("core.key", |m| m.source == Source::Git || m.source == Source::User),
         Some(vec![cow_str("b"), cow_str("c")])
     );
 
