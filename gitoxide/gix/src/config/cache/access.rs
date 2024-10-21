@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
-use std::{borrow::Cow, path::PathBuf, time::Duration};
-
+use gix_config::file::Metadata;
 use gix_lock::acquire::Fail;
+use std::{borrow::Cow, path::PathBuf, time::Duration};
 
 use crate::{
     config,
@@ -510,7 +510,7 @@ impl Cache {
 pub(crate) fn trusted_file_path<'config>(
     config: &'config gix_config::File<'_>,
     key: impl gix_config::AsKey,
-    filter: &mut gix_config::file::MetadataFilter,
+    filter: impl FnMut(&Metadata) -> bool,
     lenient_config: bool,
     environment: crate::open::permissions::Environment,
 ) -> Option<Result<Cow<'config, std::path::Path>, gix_config::path::interpolate::Error>> {

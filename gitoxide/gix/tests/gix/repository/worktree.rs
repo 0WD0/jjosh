@@ -44,7 +44,7 @@ mod with_core_worktree_config {
                 assert_eq!(
                     repo.work_dir().unwrap(),
                     repo.git_dir().parent().unwrap().parent().unwrap().join("worktree"),
-                    "work_dir is set to core.worktree config value, relative paths are appended to `git_dir() and made absolute`"
+                    "{name}|{is_relative}: work_dir is set to core.worktree config value, relative paths are appended to `git_dir() and made absolute`"
                 );
             } else {
                 assert_eq!(

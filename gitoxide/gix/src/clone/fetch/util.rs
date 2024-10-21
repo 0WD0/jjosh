@@ -50,7 +50,7 @@ fn write_to_local_config(config: &gix_config::File<'static>, mode: WriteMode) ->
         .append(matches!(mode, WriteMode::Append))
         .open(config.meta().path.as_deref().expect("local config with path set"))?;
     local_config.write_all(config.detect_newline_style())?;
-    config.write_to_filter(&mut local_config, &mut |s| s.meta().source == gix_config::Source::Local)
+    config.write_to_filter(&mut local_config, |s| s.meta().source == gix_config::Source::Local)
 }
 
 pub fn append_config_to_repo_config(repo: &mut Repository, config: gix_config::File<'static>) {
