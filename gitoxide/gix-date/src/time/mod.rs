@@ -33,6 +33,13 @@ pub enum Format {
 #[derive(Clone, Copy, Debug)]
 pub struct CustomFormat(pub(crate) &'static str);
 
+impl CustomFormat {
+    /// Create a new custom format.
+    pub const fn new(format: &'static str) -> Self {
+        Self(format)
+    }
+}
+
 impl From<CustomFormat> for Format {
     fn from(custom_format: CustomFormat) -> Format {
         Format::Custom(custom_format)
