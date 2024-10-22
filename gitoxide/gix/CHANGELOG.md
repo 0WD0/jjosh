@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.67.0 (2024-10-22)
 
+<csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
+<csr-id-743695fc345b59e30e75fb6b91357ab7e994bda2/>
+<csr-id-45b71554f6437fbfe3ead020ff182f77cd57e47f/>
+
 ### New Features
+
+<csr-id-b279957beaf581c16293343dbdb2121bd1d4dd1c/>
+<csr-id-7249291016253647c920852fb37eb9e29d615775/>
+<csr-id-3abf0432dad4d47d0fd70ae8a9fadea0ef82dba3/>
 
  - <csr-id-2b81e6c8bd30cc95e91cc92a89f0a0e6047eec6b/> add `Repository::diff_tree_to_tree()` for greater similarity to `git2`
  - <csr-id-3da2da9d7993adc16b19fc63e7524c768a6e2e7f/> add `gix merge-file` with similar features as `git merge-file`
@@ -17,15 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    This is done by three new `Repository` methods:
    
    * `empty_reusable_buffer()` - hook into the free-list yourself.
-   * `set_freelist()` - enable or initialize the free-list.
-   * `without_freelist()` - a builder to disable the freelist from the start.
- - <csr-id-b279957beaf581c16293343dbdb2121bd1d4dd1c/> add tree-editing capabilities to `Tree` and `Repository`.
-   Create a tree editor using `Tree::edit()` or `Repository::edit_tree(id)`.
- - <csr-id-7249291016253647c920852fb37eb9e29d615775/> `gix merge-base` for the CLI
-   For now it only supports the standard merge-base, but more derivatives
-   can be added easily on demand.
- - <csr-id-3abf0432dad4d47d0fd70ae8a9fadea0ef82dba3/> add `Repository::merge_base()`
-   A simple method to obtain the merge-base between two commits.
+* `set_freelist()` - enable or initialize the free-list.
+* `without_freelist()` - a builder to disable the freelist from the start.
 
 ### Bug Fixes
 
@@ -129,7 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 76 commits contributed to the release over the course of 60 calendar days.
+ - 77 commits contributed to the release over the course of 60 calendar days.
  - 60 days passed between releases.
  - 25 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1562](https://github.com/Byron/gitoxide/issues/1562)
@@ -149,6 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1562](https://github.com/Byron/gitoxide/issues/1562)**
     - Don't bail out if there are extra-refspecs. ([`977b81b`](https://github.com/Byron/gitoxide/commit/977b81bba9d6cf78104ced90531079346b39843f))
  * **Uncategorized**
+    - Release gix-date v0.9.1, gix-utils v0.1.13, gix-actor v0.33.0, gix-hash v0.15.0, gix-trace v0.1.11, gix-features v0.39.0, gix-hashtable v0.6.0, gix-validate v0.9.1, gix-object v0.45.0, gix-path v0.10.12, gix-glob v0.17.0, gix-quote v0.4.13, gix-attributes v0.23.0, gix-command v0.3.10, gix-packetline-blocking v0.18.0, gix-filter v0.14.0, gix-fs v0.12.0, gix-chunk v0.4.9, gix-commitgraph v0.25.0, gix-revwalk v0.16.0, gix-traverse v0.42.0, gix-worktree-stream v0.16.0, gix-archive v0.16.0, gix-config-value v0.14.9, gix-tempfile v15.0.0, gix-lock v15.0.0, gix-ref v0.48.0, gix-sec v0.10.9, gix-config v0.41.0, gix-prompt v0.8.8, gix-url v0.28.0, gix-credentials v0.25.0, gix-ignore v0.12.0, gix-bitmap v0.2.12, gix-index v0.36.0, gix-worktree v0.37.0, gix-diff v0.47.0, gix-discover v0.36.0, gix-pathspec v0.8.0, gix-dir v0.9.0, gix-mailmap v0.25.0, gix-merge v0.0.0, gix-negotiate v0.16.0, gix-pack v0.54.0, gix-odb v0.64.0, gix-packetline v0.18.0, gix-transport v0.43.0, gix-protocol v0.46.0, gix-revision v0.30.0, gix-refspec v0.26.0, gix-status v0.14.0, gix-submodule v0.15.0, gix-worktree-state v0.14.0, gix v0.67.0, gix-fsck v0.7.0, gitoxide-core v0.42.0, gitoxide v0.38.0, safety bump 41 crates ([`3f7e8ee`](https://github.com/Byron/gitoxide/commit/3f7e8ee2c5107aec009eada1a05af7941da9cb4d))
     - Merge pull request #1639 from cruessler/respect-env-variables ([`48aa74b`](https://github.com/Byron/gitoxide/commit/48aa74b911fb874986c244712b7fd5b5cc10070b))
     - Make `GIT_WORK_TREE` variable work as expected. ([`e9b3db8`](https://github.com/Byron/gitoxide/commit/e9b3db8021ad1f8bf7b2ee6ffecd5b1b1c8a38b9))
     - Merge pull request #1637 from GitoxideLabs/improve-error-message ([`b36d7ef`](https://github.com/Byron/gitoxide/commit/b36d7efb9743766338ac7bb7fb2399a06fae5e60))
@@ -225,6 +227,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Merge branch 'fixes' ([`46cd1ae`](https://github.com/Byron/gitoxide/commit/46cd1aed7815d27cdc818edb87641b20b82ba048))
     - Remove all workspace dependencies ([`1757377`](https://github.com/Byron/gitoxide/commit/17573779688e755a786546d5e42ab533088cd726))
 </details>
+
+<csr-unknown>
+ add tree-editing capabilities to Tree and Repository.Create a tree editor using Tree::edit() or Repository::edit_tree(id). gix merge-base for the CLIFor now it only supports the standard merge-base, but more derivativescan be added easily on demand. add Repository::merge_base()A simple method to obtain the merge-base between two commits.<csr-unknown/>
 
 ## 0.66.0 (2024-08-22)
 

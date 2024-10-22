@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.38.0 (2024-10-22)
 
 <csr-id-28ac6572722f7ea31795dc0417521c70bcb6ec8f/>
+<csr-id-786bfec7c2cf25a68705b6ef09ba6390600742b8/>
 
 ### New Features
 
@@ -68,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 28 commits contributed to the release over the course of 89 calendar days.
- - 90 days passed between releases.
+ - 91 days passed between releases.
  - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1572](https://github.com/Byron/gitoxide/issues/1572)
 
