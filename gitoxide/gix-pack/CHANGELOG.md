@@ -5,6 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.54.0 (2024-10-22)
+
+<csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 21 commits contributed to the release.
+ - 60 days passed between releases.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 2 times to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.9.1, gix-utils v0.1.13, gix-actor v0.33.0, gix-hash v0.15.0, gix-trace v0.1.11, gix-features v0.39.0, gix-hashtable v0.6.0, gix-validate v0.9.1, gix-object v0.45.0, gix-path v0.10.12, gix-glob v0.17.0, gix-quote v0.4.13, gix-attributes v0.23.0, gix-command v0.3.10, gix-packetline-blocking v0.18.0, gix-filter v0.14.0, gix-fs v0.12.0, gix-chunk v0.4.9, gix-commitgraph v0.25.0, gix-revwalk v0.16.0, gix-traverse v0.42.0, gix-worktree-stream v0.16.0, gix-archive v0.16.0, gix-config-value v0.14.9, gix-tempfile v15.0.0, gix-lock v15.0.0, gix-ref v0.48.0, gix-sec v0.10.9, gix-config v0.41.0, gix-prompt v0.8.8, gix-url v0.28.0, gix-credentials v0.25.0, gix-ignore v0.12.0, gix-bitmap v0.2.12, gix-index v0.36.0, gix-worktree v0.37.0, gix-diff v0.47.0, gix-discover v0.36.0, gix-pathspec v0.8.0, gix-dir v0.9.0, gix-mailmap v0.25.0, gix-merge v0.0.0, gix-negotiate v0.16.0, gix-pack v0.54.0, gix-odb v0.64.0, gix-packetline v0.18.0, gix-transport v0.43.0, gix-protocol v0.46.0, gix-revision v0.30.0, gix-refspec v0.26.0, gix-status v0.14.0, gix-submodule v0.15.0, gix-worktree-state v0.14.0, gix v0.67.0, gix-fsck v0.7.0, gitoxide-core v0.42.0, gitoxide v0.38.0, safety bump 41 crates ([`3f7e8ee`](https://github.com/Byron/gitoxide/commit/3f7e8ee2c5107aec009eada1a05af7941da9cb4d))
+    - Merge pull request #1637 from GitoxideLabs/improve-error-message ([`b36d7ef`](https://github.com/Byron/gitoxide/commit/b36d7efb9743766338ac7bb7fb2399a06fae5e60))
+    - Thanks clippy ([`2d1fbce`](https://github.com/Byron/gitoxide/commit/2d1fbce2877e0d4c64557f7feb5327d695d114a3))
+    - Merge pull request #1624 from EliahKagan/update-repo-url ([`795962b`](https://github.com/Byron/gitoxide/commit/795962b107d86f58b1f7c75006da256d19cc80ad))
+    - Update gitoxide repository URLs ([`64ff0a7`](https://github.com/Byron/gitoxide/commit/64ff0a77062d35add1a2dd422bb61075647d1a36))
+    - Merge pull request #1612 from Byron/merge ([`37c1e4c`](https://github.com/Byron/gitoxide/commit/37c1e4c919382c9d213bd5ca299ed659d63ab45d))
+    - Adapt to changes in `gix-diff` ([`3fd9fab`](https://github.com/Byron/gitoxide/commit/3fd9fabe0c0e74d54b5153c4f572eff76293f334))
+    - Thanks clippy ([`af03832`](https://github.com/Byron/gitoxide/commit/af0383254422b70d53f27572c415eea2e4154447))
+    - Adapt to chagnes in `gix-diff` ([`5c1f010`](https://github.com/Byron/gitoxide/commit/5c1f010851e40bf5b284ec82e6cd27cd41ab70bf))
+    - Merge pull request #1582 from Byron/gix-path-release ([`93e86f1`](https://github.com/Byron/gitoxide/commit/93e86f12a8d0ab59ad5d885ce552d0dec9a6fba6))
+    - Release gix-trace v0.1.10, gix-path v0.10.11 ([`012a754`](https://github.com/Byron/gitoxide/commit/012a75455edebc857ff13c97c1e7603ea5ea6cdc))
+    - Merge pull request #1566 from Byron/merge ([`d69c617`](https://github.com/Byron/gitoxide/commit/d69c6175574f34d6df92b4488ed2c9a85df12c89))
+    - Adapt to changes in `gix-features` ([`ee80b2b`](https://github.com/Byron/gitoxide/commit/ee80b2bd8c3be6f80f85987f8df32fa4a796247f))
+    - Merge pull request #1557 from Byron/merge-base ([`649f588`](https://github.com/Byron/gitoxide/commit/649f5882cbebadf1133fa5f310e09b4aab77217e))
+    - Allow empty-docs ([`beba720`](https://github.com/Byron/gitoxide/commit/beba7204a50a84b30e3eb81413d968920599e226))
+    - Merge branch 'global-lints' ([`37ba461`](https://github.com/Byron/gitoxide/commit/37ba4619396974ec9cc41d1e882ac5efaf3816db))
+    - Workspace Clippy lint management ([`2e0ce50`](https://github.com/Byron/gitoxide/commit/2e0ce506968c112b215ca0056bd2742e7235df48))
+    - Merge pull request #1547 from nyurik/cast-lossless ([`c3a7dcf`](https://github.com/Byron/gitoxide/commit/c3a7dcf859a8022468ea8289db837374d07d734f))
+    - Fix clippy::cast_lossless ([`29ad2df`](https://github.com/Byron/gitoxide/commit/29ad2df419c6d03f9f0160ca17cc94acdb30bcb7))
+    - Merge pull request #1546 from nyurik/semilocons ([`f992fb7`](https://github.com/Byron/gitoxide/commit/f992fb773b443454015bd14658cfaa2f3ac07997))
+    - Add missing semicolons ([`ec69c88`](https://github.com/Byron/gitoxide/commit/ec69c88fc119f3aa1967a7e7f5fca30e3ce97595))
+</details>
+
 ## 0.53.0 (2024-08-22)
 
 A maintenance release without user-facing changes.
@@ -13,7 +97,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 2 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +108,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-actor v0.32.0, gix-object v0.44.0, gix-filter v0.13.0, gix-revwalk v0.15.0, gix-traverse v0.41.0, gix-worktree-stream v0.15.0, gix-archive v0.15.0, gix-ref v0.47.0, gix-config v0.40.0, gix-index v0.35.0, gix-worktree v0.36.0, gix-diff v0.46.0, gix-discover v0.35.0, gix-dir v0.8.0, gix-mailmap v0.24.0, gix-negotiate v0.15.0, gix-pack v0.53.0, gix-odb v0.63.0, gix-revision v0.29.0, gix-refspec v0.25.0, gix-status v0.13.0, gix-submodule v0.14.0, gix-worktree-state v0.13.0, gix v0.66.0, gix-fsck v0.6.0, gitoxide-core v0.41.0, gitoxide v0.38.0, safety bump 26 crates ([`b3ff033`](https://github.com/Byron/gitoxide/commit/b3ff033b602f303433f0b2e4daa2dba90b619c9e))
     - Prepare changelog prior to (yet another) release ([`209b6de`](https://github.com/Byron/gitoxide/commit/209b6de0329dbaaf61b929d32d9d54cf13fe241e))
 </details>
 
@@ -82,7 +167,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 22 commits contributed to the release over the course of 51 calendar days.
+ - 22 commits contributed to the release.
  - 62 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1404](https://github.com/Byron/gitoxide/issues/1404)
@@ -173,7 +258,6 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release over the course of 5 calendar days.
- - 29 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -391,8 +475,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 29 commits contributed to the release over the course of 46 calendar days.
- - 54 days passed between releases.
+ - 29 commits contributed to the release.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1018,8 +1101,7 @@ A maintenance release without any user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 3 calendar days.
- - 11 days passed between releases.
+ - 3 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1476,7 +1558,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 717 commits contributed to the release over the course of 634 calendar days.
+ - 717 commits contributed to the release.
  - 75 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 27 unique issues were worked on: [#164](https://github.com/Byron/gitoxide/issues/164), [#198](https://github.com/Byron/gitoxide/issues/198), [#222](https://github.com/Byron/gitoxide/issues/222), [#247](https://github.com/Byron/gitoxide/issues/247), [#250](https://github.com/Byron/gitoxide/issues/250), [#254](https://github.com/Byron/gitoxide/issues/254), [#259](https://github.com/Byron/gitoxide/issues/259), [#260](https://github.com/Byron/gitoxide/issues/260), [#263](https://github.com/Byron/gitoxide/issues/263), [#266](https://github.com/Byron/gitoxide/issues/266), [#279](https://github.com/Byron/gitoxide/issues/279), [#287](https://github.com/Byron/gitoxide/issues/287), [#293](https://github.com/Byron/gitoxide/issues/293), [#298](https://github.com/Byron/gitoxide/issues/298), [#301](https://github.com/Byron/gitoxide/issues/301), [#329](https://github.com/Byron/gitoxide/issues/329), [#331](https://github.com/Byron/gitoxide/issues/331), [#333](https://github.com/Byron/gitoxide/issues/333), [#364](https://github.com/Byron/gitoxide/issues/364), [#384](https://github.com/Byron/gitoxide/issues/384), [#422](https://github.com/Byron/gitoxide/issues/422), [#427](https://github.com/Byron/gitoxide/issues/427), [#450](https://github.com/Byron/gitoxide/issues/450), [#470](https://github.com/Byron/gitoxide/issues/470), [#67](https://github.com/Byron/gitoxide/issues/67), [#691](https://github.com/Byron/gitoxide/issues/691), [#XXX](https://github.com/Byron/gitoxide/issues/XXX)
 

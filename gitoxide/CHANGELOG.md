@@ -5,13 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.38.0 (2024-08-22)
+## 0.38.0 (2024-10-22)
 
 <csr-id-28ac6572722f7ea31795dc0417521c70bcb6ec8f/>
+<csr-id-786bfec7c2cf25a68705b6ef09ba6390600742b8/>
 
 ### New Features
 
  - <csr-id-c7213bcf2cf6be4058a78dbd86bbab4c5ad4afa7/> support for listing worktrees with `gix worktree list`
+ - <csr-id-0c554e096cf2bf0a2bb91397143f524219693a3b/> add first 'debug' version of `gix diff tree`.
+   It's primarily meant to better understand `gix blame`.
+ - <csr-id-9c8bc03de99e6494abd9755deef7e7be5577bce2/> add new `gix cat` command.
+   It only prints things without fuzz.
+   
+   Inspired by https://youtu.be/JYH5ILv5g1g?si=bHLBPFJiZyRUTl6u&t=211.
+ - <csr-id-3da2da9d7993adc16b19fc63e7524c768a6e2e7f/> add `gix merge-file` with similar features as `git merge-file`
+ - <csr-id-7249291016253647c920852fb37eb9e29d615775/> `gix merge-base` for the CLI
+   For now it only supports the standard merge-base, but more derivatives
+   can be added easily on demand.
 
 ### Bug Fixes
 
@@ -33,14 +44,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    from the dependency tree. The last remaining use of `time` is in
    `prodash`, outside of the gitoxide project.
 
+### Other
+
+ - <csr-id-786bfec7c2cf25a68705b6ef09ba6390600742b8/> Unify style in config support info
+   This builds on b31d6b7 (#1531) by adjusting the capitalization and
+   quoting style of string arguments in `progress.rs` that help
+   document the status of what configuration options are and are not
+   planned.
+   
+   - Since I believe these strings are not usually rendered as
+     Markdown, and most places that code formatting in Markdown would
+     be used were already written with single quotes, this applies
+     that quoting style consistently.
+   
+   - This applies initial capitalization, which was sometimes but not
+     always done. It does not apply a consistent style for when a
+     string will end in a `.`, which seems already to differ
+     deliberately for reasons of clarity. That can be adjusted later.
+   
+   - A small amount of minor rewording for clarity is also included.
+
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 9 commits contributed to the release over the course of 28 calendar days.
- - 30 days passed between releases.
- - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
+ - 28 commits contributed to the release over the course of 89 calendar days.
+ - 91 days passed between releases.
+ - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1572](https://github.com/Byron/gitoxide/issues/1572)
 
 ### Commit Details
 
@@ -48,7 +79,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <details><summary>view details</summary>
 
+ * **[#1572](https://github.com/Byron/gitoxide/issues/1572)**
+    - Make clear what `gix commit-graph` is ([`49bca2a`](https://github.com/Byron/gitoxide/commit/49bca2abe4512180f080f678e73c0fa40885379a))
  * **Uncategorized**
+    - Merge pull request #1639 from cruessler/respect-env-variables ([`48aa74b`](https://github.com/Byron/gitoxide/commit/48aa74b911fb874986c244712b7fd5b5cc10070b))
+    - Respect env variables when running gix ([`0bebe52`](https://github.com/Byron/gitoxide/commit/0bebe524b75346edca219d13c10b52dee3273643))
+    - Merge pull request #1626 from cruessler/add-gix-diff ([`f186c23`](https://github.com/Byron/gitoxide/commit/f186c2381b91f350813076927bf988d253fe1ad0))
+    - Some minor modifications ([`6777ecb`](https://github.com/Byron/gitoxide/commit/6777ecb99306830a3353a0db24caaa69e348ca74))
+    - Add first 'debug' version of `gix diff tree`. ([`0c554e0`](https://github.com/Byron/gitoxide/commit/0c554e096cf2bf0a2bb91397143f524219693a3b))
+    - Merge pull request #1616 from Byron/git-cat ([`31bdd2e`](https://github.com/Byron/gitoxide/commit/31bdd2ecc6c800dc57faedc9250be6d5fbcc1133))
+    - Add new `gix cat` command. ([`9c8bc03`](https://github.com/Byron/gitoxide/commit/9c8bc03de99e6494abd9755deef7e7be5577bce2))
+    - Merge pull request #1611 from Byron/merge ([`5ffccd2`](https://github.com/Byron/gitoxide/commit/5ffccd2f08d70576347e3ae17a66ca5a60f1d81c))
+    - Add `gix merge-file` with similar features as `git merge-file` ([`3da2da9`](https://github.com/Byron/gitoxide/commit/3da2da9d7993adc16b19fc63e7524c768a6e2e7f))
+    - Add all keys for merge-configuration ([`e0b09d2`](https://github.com/Byron/gitoxide/commit/e0b09d2764fd02a2b69340d9b3aef9773ae899ce))
+    - Merge pull request #1566 from Byron/merge ([`d69c617`](https://github.com/Byron/gitoxide/commit/d69c6175574f34d6df92b4488ed2c9a85df12c89))
+    - Merge pull request #1557 from Byron/merge-base ([`649f588`](https://github.com/Byron/gitoxide/commit/649f5882cbebadf1133fa5f310e09b4aab77217e))
+    - `gix merge-base` for the CLI ([`7249291`](https://github.com/Byron/gitoxide/commit/7249291016253647c920852fb37eb9e29d615775))
+    - Allow empty-docs ([`beba720`](https://github.com/Byron/gitoxide/commit/beba7204a50a84b30e3eb81413d968920599e226))
+    - Merge pull request #1546 from nyurik/semilocons ([`f992fb7`](https://github.com/Byron/gitoxide/commit/f992fb773b443454015bd14658cfaa2f3ac07997))
+    - Add missing semicolons ([`ec69c88`](https://github.com/Byron/gitoxide/commit/ec69c88fc119f3aa1967a7e7f5fca30e3ce97595))
+    - Merge pull request #1537 from EliahKagan/progress-style ([`472fe5f`](https://github.com/Byron/gitoxide/commit/472fe5fa18d6d1b948e319919a48f965a1199929))
+    - Unify style in config support info ([`786bfec`](https://github.com/Byron/gitoxide/commit/786bfec7c2cf25a68705b6ef09ba6390600742b8))
     - Merge pull request #1531 from EliahKagan/progress-typos ([`25a3f1b`](https://github.com/Byron/gitoxide/commit/25a3f1b0b07c01dd44df254f46caa6f78a4d3014))
     - Fix typos in config support info ([`b31d6b7`](https://github.com/Byron/gitoxide/commit/b31d6b79fd9bc528deaf0e3027dcaae0229ff581))
     - Merge branch 'ag/jiff' ([`5871fb1`](https://github.com/Byron/gitoxide/commit/5871fb130b1a603c1e768f4b2371ac9d7cc56330))
@@ -87,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 13 commits contributed to the release over the course of 57 calendar days.
+ - 13 commits contributed to the release.
  - 62 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -212,8 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release over the course of 34 calendar days.
- - 47 days passed between releases.
+ - 11 commits contributed to the release.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -248,7 +298,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 20 commits contributed to the release over the course of 42 calendar days.
+ - 20 commits contributed to the release.
  - 58 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -358,8 +408,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 27 commits contributed to the release over the course of 54 calendar days.
- - 54 days passed between releases.
+ - 27 commits contributed to the release.
  - 10 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -778,8 +827,7 @@ A maintenance release without user-facing changes, just to fix installation
 
 <csr-read-only-do-not-edit/>
 
- - 25 commits contributed to the release over the course of 60 calendar days.
- - 61 days passed between releases.
+ - 25 commits contributed to the release.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#301](https://github.com/Byron/gitoxide/issues/301), [#790](https://github.com/Byron/gitoxide/issues/790)
 
@@ -891,7 +939,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release over the course of 7 calendar days.
+ - 7 commits contributed to the release.
  - 7 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -1156,8 +1204,7 @@ It's also an attempt to trigger CI to build binary releases.
 
 <csr-read-only-do-not-edit/>
 
- - 65 commits contributed to the release over the course of 47 calendar days.
- - 47 days passed between releases.
+ - 65 commits contributed to the release.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#450](https://github.com/Byron/gitoxide/issues/450), [#536](https://github.com/Byron/gitoxide/issues/536)
 
@@ -1826,7 +1873,7 @@ Maintenance release without any new features.
     - Merge branch 'main' into commit-graph ([`ca5b801`](https://github.com/Byron/gitoxide/commit/ca5b80174b73cc9ac162b3f33b5d3721ef936cb1))
 </details>
 
-## v0.4.3 (2020-09-21)
+## v0.4.3 (2020-09-22)
 
 ### Commit Statistics
 
@@ -1981,7 +2028,7 @@ Many small and possibly breaking changes are not mentioned here.
 
 <csr-read-only-do-not-edit/>
 
- - 54 commits contributed to the release over the course of 765 calendar days.
+ - 54 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
