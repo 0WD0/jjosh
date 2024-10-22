@@ -5,6 +5,127 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.42.0 (2024-10-22)
+
+### New Features
+
+ - <csr-id-0c554e096cf2bf0a2bb91397143f524219693a3b/> add first 'debug' version of `gix diff tree`.
+   It's primarily meant to better understand `gix blame`.
+ - <csr-id-2b81e6c8bd30cc95e91cc92a89f0a0e6047eec6b/> add `Repository::diff_tree_to_tree()` for greater similarity to `git2`
+ - <csr-id-9c8bc03de99e6494abd9755deef7e7be5577bce2/> add new `gix cat` command.
+   It only prints things without fuzz.
+   
+   Inspired by https://youtu.be/JYH5ILv5g1g?si=bHLBPFJiZyRUTl6u&t=211.
+ - <csr-id-3da2da9d7993adc16b19fc63e7524c768a6e2e7f/> add `gix merge-file` with similar features as `git merge-file`
+ - <csr-id-7249291016253647c920852fb37eb9e29d615775/> `gix merge-base` for the CLI
+   For now it only supports the standard merge-base, but more derivatives
+   can be added easily on demand.
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-17573779688e755a786546d5e42ab533088cd726/> remove all workspace dependencies
+   The problem is that with them, we don't notice anymore if the crate changes,
+   because a dependency changes. That also means that older versions of the dependency
+   may stay even though some other crates might pick up a newer version.
+   
+   Ultimately, this will lead to drift and subtle incompatibilities.
+   
+   We declare this breaking to enforce a proper re-release.
+
+### Refactor (BREAKING)
+
+ - <csr-id-45b71554f6437fbfe3ead020ff182f77cd57e47f/> Use the new `tree_with_rewrites` plumbing implementation.
+   This merges `object::tree::diff::change::Event` into `object::tree::diff::Change`
+   as well.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 29 commits contributed to the release over the course of 60 calendar days.
+ - 60 days passed between releases.
+ - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1626 from cruessler/add-gix-diff ([`f186c23`](https://github.com/Byron/gitoxide/commit/f186c2381b91f350813076927bf988d253fe1ad0))
+    - Some minor modifications ([`6777ecb`](https://github.com/Byron/gitoxide/commit/6777ecb99306830a3353a0db24caaa69e348ca74))
+    - Add first 'debug' version of `gix diff tree`. ([`0c554e0`](https://github.com/Byron/gitoxide/commit/0c554e096cf2bf0a2bb91397143f524219693a3b))
+    - Merge pull request #1624 from EliahKagan/update-repo-url ([`795962b`](https://github.com/Byron/gitoxide/commit/795962b107d86f58b1f7c75006da256d19cc80ad))
+    - Update gitoxide repository URLs ([`64ff0a7`](https://github.com/Byron/gitoxide/commit/64ff0a77062d35add1a2dd422bb61075647d1a36))
+    - Merge pull request #1612 from Byron/merge ([`37c1e4c`](https://github.com/Byron/gitoxide/commit/37c1e4c919382c9d213bd5ca299ed659d63ab45d))
+    - Add `Repository::diff_tree_to_tree()` for greater similarity to `git2` ([`2b81e6c`](https://github.com/Byron/gitoxide/commit/2b81e6c8bd30cc95e91cc92a89f0a0e6047eec6b))
+    - Use the new `tree_with_rewrites` plumbing implementation. ([`45b7155`](https://github.com/Byron/gitoxide/commit/45b71554f6437fbfe3ead020ff182f77cd57e47f))
+    - Thanks clippy ([`af03832`](https://github.com/Byron/gitoxide/commit/af0383254422b70d53f27572c415eea2e4154447))
+    - Merge pull request #1616 from Byron/git-cat ([`31bdd2e`](https://github.com/Byron/gitoxide/commit/31bdd2ecc6c800dc57faedc9250be6d5fbcc1133))
+    - Add new `gix cat` command. ([`9c8bc03`](https://github.com/Byron/gitoxide/commit/9c8bc03de99e6494abd9755deef7e7be5577bce2))
+    - Merge pull request #1611 from Byron/merge ([`5ffccd2`](https://github.com/Byron/gitoxide/commit/5ffccd2f08d70576347e3ae17a66ca5a60f1d81c))
+    - Add `gix merge-file` with similar features as `git merge-file` ([`3da2da9`](https://github.com/Byron/gitoxide/commit/3da2da9d7993adc16b19fc63e7524c768a6e2e7f))
+    - Merge pull request #1610 from nrdxp/traverse/oldest-first ([`20f9b3f`](https://github.com/Byron/gitoxide/commit/20f9b3f361b46226be102a065cbb0fbaa83ae2db))
+    - Adapt to changes in `gix-traverse` ([`6862c27`](https://github.com/Byron/gitoxide/commit/6862c27e671cbfd8caae549813ea01eeb753bd0b))
+    - Merge pull request #1564 from Byron/improvements ([`1cfe577`](https://github.com/Byron/gitoxide/commit/1cfe577d461293879e91538dbc4bbfe01722e1e8))
+    - When using the cache, allow using the entire graph. ([`0fe5133`](https://github.com/Byron/gitoxide/commit/0fe5133598c6f843fb3172a4e0c4f58932405647))
+    - Merge pull request #1557 from Byron/merge-base ([`649f588`](https://github.com/Byron/gitoxide/commit/649f5882cbebadf1133fa5f310e09b4aab77217e))
+    - `gix merge-base` for the CLI ([`7249291`](https://github.com/Byron/gitoxide/commit/7249291016253647c920852fb37eb9e29d615775))
+    - Merge branch 'global-lints' ([`37ba461`](https://github.com/Byron/gitoxide/commit/37ba4619396974ec9cc41d1e882ac5efaf3816db))
+    - Workspace Clippy lint management ([`2e0ce50`](https://github.com/Byron/gitoxide/commit/2e0ce506968c112b215ca0056bd2742e7235df48))
+    - Merge pull request #1547 from nyurik/cast-lossless ([`c3a7dcf`](https://github.com/Byron/gitoxide/commit/c3a7dcf859a8022468ea8289db837374d07d734f))
+    - Fix clippy::cast_lossless ([`29ad2df`](https://github.com/Byron/gitoxide/commit/29ad2df419c6d03f9f0160ca17cc94acdb30bcb7))
+    - Merge pull request #1546 from nyurik/semilocons ([`f992fb7`](https://github.com/Byron/gitoxide/commit/f992fb773b443454015bd14658cfaa2f3ac07997))
+    - Add missing semicolons ([`ec69c88`](https://github.com/Byron/gitoxide/commit/ec69c88fc119f3aa1967a7e7f5fca30e3ce97595))
+    - Merge branch 'improvements' ([`e82f795`](https://github.com/Byron/gitoxide/commit/e82f795a56c645088b59d2b9faa5984ea067ab5c))
+    - Adapt to changes in `gix` ([`dbb3576`](https://github.com/Byron/gitoxide/commit/dbb35767df8c6d8382bb06dcf9b31e2c74fcedd7))
+    - Merge branch 'fixes' ([`46cd1ae`](https://github.com/Byron/gitoxide/commit/46cd1aed7815d27cdc818edb87641b20b82ba048))
+    - Remove all workspace dependencies ([`1757377`](https://github.com/Byron/gitoxide/commit/17573779688e755a786546d5e42ab533088cd726))
+</details>
+
 ## 0.41.0 (2024-08-22)
 
 A maintenance release without user-facing changes.
@@ -13,7 +134,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 2 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +145,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-actor v0.32.0, gix-object v0.44.0, gix-filter v0.13.0, gix-revwalk v0.15.0, gix-traverse v0.41.0, gix-worktree-stream v0.15.0, gix-archive v0.15.0, gix-ref v0.47.0, gix-config v0.40.0, gix-index v0.35.0, gix-worktree v0.36.0, gix-diff v0.46.0, gix-discover v0.35.0, gix-dir v0.8.0, gix-mailmap v0.24.0, gix-negotiate v0.15.0, gix-pack v0.53.0, gix-odb v0.63.0, gix-revision v0.29.0, gix-refspec v0.25.0, gix-status v0.13.0, gix-submodule v0.14.0, gix-worktree-state v0.13.0, gix v0.66.0, gix-fsck v0.6.0, gitoxide-core v0.41.0, gitoxide v0.38.0, safety bump 26 crates ([`b3ff033`](https://github.com/Byron/gitoxide/commit/b3ff033b602f303433f0b2e4daa2dba90b619c9e))
     - Prepare changelog prior to (yet another) release ([`209b6de`](https://github.com/Byron/gitoxide/commit/209b6de0329dbaaf61b929d32d9d54cf13fe241e))
 </details>
 
@@ -38,7 +160,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 16 commits contributed to the release over the course of 27 calendar days.
+ - 16 commits contributed to the release.
  - 28 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -250,8 +372,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 28 commits contributed to the release over the course of 41 calendar days.
- - 47 days passed between releases.
+ - 28 commits contributed to the release.
  - 7 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1330](https://github.com/Byron/gitoxide/issues/1330)
 
@@ -437,8 +558,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 32 commits contributed to the release over the course of 53 calendar days.
- - 54 days passed between releases.
+ - 32 commits contributed to the release.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1036,8 +1156,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 44 commits contributed to the release over the course of 61 calendar days.
- - 61 days passed between releases.
+ - 44 commits contributed to the release.
  - 10 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#792](https://github.com/Byron/gitoxide/issues/792), [#814](https://github.com/Byron/gitoxide/issues/814)
 
@@ -1151,7 +1270,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 47 commits contributed to the release over the course of 6 calendar days.
+ - 47 commits contributed to the release.
  - 7 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -1444,8 +1563,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 82 commits contributed to the release over the course of 47 calendar days.
- - 47 days passed between releases.
+ - 82 commits contributed to the release.
  - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 3 unique issues were worked on: [#450](https://github.com/Byron/gitoxide/issues/450), [#536](https://github.com/Byron/gitoxide/issues/536), [#XXX](https://github.com/Byron/gitoxide/issues/XXX)
 

@@ -5,6 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.45.0 (2024-10-22)
+
+### New Features
+
+ - <csr-id-7c485561582c583ce0d929680e7f9abf5ceeea60/> `TreeRef::to_owned()` and `Tree::into_owned()` for a convenient way to get a fully-owned `Tree`
+ - <csr-id-14dfcf01dc4a6e48fbd363f4f1c8cf08c1e7f6e2/> add `tree::Editor`
+   With it it's easy to alter existing trees or build entirely new ones,
+   efficiently.
+ - <csr-id-71bf80883e010f242460e9e36d5ea27a14e6494b/> add `Default` implementation to `Tree`
+
+### Bug Fixes
+
+ - <csr-id-4a6bbb1b79991f400be814c68fb45e8e5980a00c/> keep multi-line header value newlines verbatim
+   Previously they were normalized to \n which made round-trips
+   degenerate information.
+   
+   It's notable that we explicitly do NOT normalize the newline
+   at the very last line of the multi-line header as its part
+   of that line, even though it's also relevant to make the header field
+   valid. The reason is that these *can* also be written with \r\n, and
+   we don't want to degenerate that information.
+ - <csr-id-cdac4a9b04959b0fc71009b5c828cdcb10a38828/> remove workspace lints from Cargo manifests of fuzz-projects.
+   They are not part of the parent workspace.
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-a085b7e435317f566f6763f4155243ba3309cd82/> `Tree|TreeRef::write_to()` will now assure the most basic sanity of entry names.
+   Previously, it would allow null-bytes in the name which would corrupt the written tree.
+   Now this is forbidden.
+   For some reason, it disallowed newlines, but that is now allowed as validation is should
+   be handled on a higher level.
+ - <csr-id-17573779688e755a786546d5e42ab533088cd726/> remove all workspace dependencies
+   The problem is that with them, we don't notice anymore if the crate changes,
+   because a dependency changes. That also means that older versions of the dependency
+   may stay even though some other crates might pick up a newer version.
+   
+   Ultimately, this will lead to drift and subtle incompatibilities.
+   
+   We declare this breaking to enforce a proper re-release.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 35 commits contributed to the release over the course of 60 calendar days.
+ - 60 days passed between releases.
+ - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1542](https://github.com/Byron/gitoxide/issues/1542)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1542](https://github.com/Byron/gitoxide/issues/1542)**
+    - Be lenient to missing timestamp in signature ([`059c9f9`](https://github.com/Byron/gitoxide/commit/059c9f9ece4edf631e3ca5f8298ce2660cba946b))
+    - Add test for tag missing timestamp in tagger ([`ce5d79c`](https://github.com/Byron/gitoxide/commit/ce5d79c181babfdb8aa4a0c4cc1db29bfb1dc21a))
+ * **Uncategorized**
+    - Merge pull request #1624 from EliahKagan/update-repo-url ([`795962b`](https://github.com/Byron/gitoxide/commit/795962b107d86f58b1f7c75006da256d19cc80ad))
+    - Update gitoxide repository URLs ([`64ff0a7`](https://github.com/Byron/gitoxide/commit/64ff0a77062d35add1a2dd422bb61075647d1a36))
+    - Merge pull request #1612 from Byron/merge ([`37c1e4c`](https://github.com/Byron/gitoxide/commit/37c1e4c919382c9d213bd5ca299ed659d63ab45d))
+    - Thanks clippy ([`af03832`](https://github.com/Byron/gitoxide/commit/af0383254422b70d53f27572c415eea2e4154447))
+    - Merge pull request #1617 from Byron/commit-roundtrip ([`f35b109`](https://github.com/Byron/gitoxide/commit/f35b1096c6db73842a55e089187d27d1287075ad))
+    - Modernize integration tests ([`7fcf91a`](https://github.com/Byron/gitoxide/commit/7fcf91aeeb05dc628979d3d0422922fd77592729))
+    - Keep multi-line header value newlines verbatim ([`4a6bbb1`](https://github.com/Byron/gitoxide/commit/4a6bbb1b79991f400be814c68fb45e8e5980a00c))
+    - Reproduce roundtrip failure for commit that looks good otherwise ([`9db3f9c`](https://github.com/Byron/gitoxide/commit/9db3f9c93edf9316c71a47a103cdf4047e9284b0))
+    - Merge pull request #1593 from Byron/fix-fuzz ([`72daa46`](https://github.com/Byron/gitoxide/commit/72daa46bad9d397ef2cc48a3cffda23f414ccd8a))
+    - Remove workspace lints from Cargo manifests of fuzz-projects. ([`cdac4a9`](https://github.com/Byron/gitoxide/commit/cdac4a9b04959b0fc71009b5c828cdcb10a38828))
+    - Merge pull request #1566 from Byron/merge ([`d69c617`](https://github.com/Byron/gitoxide/commit/d69c6175574f34d6df92b4488ed2c9a85df12c89))
+    - `TreeRef::to_owned()` and `Tree::into_owned()` for a convenient way to get a fully-owned `Tree` ([`7c48556`](https://github.com/Byron/gitoxide/commit/7c485561582c583ce0d929680e7f9abf5ceeea60))
+    - Use a standard HashMap instead of one based on SHA1 ([`39d8e03`](https://github.com/Byron/gitoxide/commit/39d8e03047df09db0102246071015505652bec8b))
+    - Add benchmarks for the tree editor and the tree-editor cursor ([`b5dc45f`](https://github.com/Byron/gitoxide/commit/b5dc45f2854012981cb6071f511e5d987020a003))
+    - `Tree|TreeRef::write_to()` will now assure the most basic sanity of entry names. ([`a085b7e`](https://github.com/Byron/gitoxide/commit/a085b7e435317f566f6763f4155243ba3309cd82))
+    - Add `tree::Editor::cursor()` to allow speedier creation of sub-trees. ([`91fa478`](https://github.com/Byron/gitoxide/commit/91fa4786df7fe25f2da3d78ef0fc14d53b69b846))
+    - Add `tree::Editor` ([`14dfcf0`](https://github.com/Byron/gitoxide/commit/14dfcf01dc4a6e48fbd363f4f1c8cf08c1e7f6e2))
+    - Add `Default` implementation to `Tree` ([`71bf808`](https://github.com/Byron/gitoxide/commit/71bf80883e010f242460e9e36d5ea27a14e6494b))
+    - Merge pull request #1557 from Byron/merge-base ([`649f588`](https://github.com/Byron/gitoxide/commit/649f5882cbebadf1133fa5f310e09b4aab77217e))
+    - Allow empty-docs ([`beba720`](https://github.com/Byron/gitoxide/commit/beba7204a50a84b30e3eb81413d968920599e226))
+    - Merge branch 'global-lints' ([`37ba461`](https://github.com/Byron/gitoxide/commit/37ba4619396974ec9cc41d1e882ac5efaf3816db))
+    - Workspace Clippy lint management ([`2e0ce50`](https://github.com/Byron/gitoxide/commit/2e0ce506968c112b215ca0056bd2742e7235df48))
+    - Merge pull request #1547 from nyurik/cast-lossless ([`c3a7dcf`](https://github.com/Byron/gitoxide/commit/c3a7dcf859a8022468ea8289db837374d07d734f))
+    - Fix clippy::cast_lossless ([`29ad2df`](https://github.com/Byron/gitoxide/commit/29ad2df419c6d03f9f0160ca17cc94acdb30bcb7))
+    - Merge pull request #1546 from nyurik/semilocons ([`f992fb7`](https://github.com/Byron/gitoxide/commit/f992fb773b443454015bd14658cfaa2f3ac07997))
+    - Add missing semicolons ([`ec69c88`](https://github.com/Byron/gitoxide/commit/ec69c88fc119f3aa1967a7e7f5fca30e3ce97595))
+    - Merge branch 'issue-1542' ([`c3f173c`](https://github.com/Byron/gitoxide/commit/c3f173c94968907ecc685c5383f2fe24c02dcfbf))
+    - Make binary-search based test more robust ([`1b600f3`](https://github.com/Byron/gitoxide/commit/1b600f31db5b5061764e7a845ac24def57faf144))
+    - Adjust expectation now that author parsing is more lenient. ([`bfd5009`](https://github.com/Byron/gitoxide/commit/bfd50091d7ec5784f0af8581d1c14c463e9e9417))
+    - Merge pull request #1540 from NobodyXu/patch-1 ([`f4898b9`](https://github.com/Byron/gitoxide/commit/f4898b986741934d0f5366ef9cf175446f621cec))
+    - Fix winnow version requirement in gix-object ([`0a3ce48`](https://github.com/Byron/gitoxide/commit/0a3ce48a1749247c0aa78988e2876acc5f230dad))
+    - Merge branch 'fixes' ([`46cd1ae`](https://github.com/Byron/gitoxide/commit/46cd1aed7815d27cdc818edb87641b20b82ba048))
+    - Remove all workspace dependencies ([`1757377`](https://github.com/Byron/gitoxide/commit/17573779688e755a786546d5e42ab533088cd726))
+</details>
+
 ## 0.44.0 (2024-08-22)
 
 A maintenance release without user-facing changes.
@@ -13,7 +148,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 2 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +159,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-actor v0.32.0, gix-object v0.44.0, gix-filter v0.13.0, gix-revwalk v0.15.0, gix-traverse v0.41.0, gix-worktree-stream v0.15.0, gix-archive v0.15.0, gix-ref v0.47.0, gix-config v0.40.0, gix-index v0.35.0, gix-worktree v0.36.0, gix-diff v0.46.0, gix-discover v0.35.0, gix-dir v0.8.0, gix-mailmap v0.24.0, gix-negotiate v0.15.0, gix-pack v0.53.0, gix-odb v0.63.0, gix-revision v0.29.0, gix-refspec v0.25.0, gix-status v0.13.0, gix-submodule v0.14.0, gix-worktree-state v0.13.0, gix v0.66.0, gix-fsck v0.6.0, gitoxide-core v0.41.0, gitoxide v0.38.0, safety bump 26 crates ([`b3ff033`](https://github.com/Byron/gitoxide/commit/b3ff033b602f303433f0b2e4daa2dba90b619c9e))
     - Prepare changelog prior to (yet another) release ([`209b6de`](https://github.com/Byron/gitoxide/commit/209b6de0329dbaaf61b929d32d9d54cf13fe241e))
 </details>
 
@@ -73,7 +209,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 13 commits contributed to the release over the course of 31 calendar days.
+ - 13 commits contributed to the release.
  - 42 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1438](https://github.com/Byron/gitoxide/issues/1438)
@@ -110,7 +246,6 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release over the course of 8 calendar days.
- - 65 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -373,8 +508,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 24 commits contributed to the release over the course of 46 calendar days.
- - 54 days passed between releases.
+ - 24 commits contributed to the release.
  - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1096](https://github.com/Byron/gitoxide/issues/1096)
 
@@ -872,7 +1006,6 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 6 calendar days.
- - 45 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#814](https://github.com/Byron/gitoxide/issues/814)
 
@@ -1138,7 +1271,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 574 commits contributed to the release over the course of 977 calendar days.
+ - 574 commits contributed to the release.
  - 30 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 20 unique issues were worked on: [#198](https://github.com/Byron/gitoxide/issues/198), [#222](https://github.com/Byron/gitoxide/issues/222), [#250](https://github.com/Byron/gitoxide/issues/250), [#254](https://github.com/Byron/gitoxide/issues/254), [#259](https://github.com/Byron/gitoxide/issues/259), [#266](https://github.com/Byron/gitoxide/issues/266), [#279](https://github.com/Byron/gitoxide/issues/279), [#293](https://github.com/Byron/gitoxide/issues/293), [#301](https://github.com/Byron/gitoxide/issues/301), [#329](https://github.com/Byron/gitoxide/issues/329), [#364](https://github.com/Byron/gitoxide/issues/364), [#389](https://github.com/Byron/gitoxide/issues/389), [#427](https://github.com/Byron/gitoxide/issues/427), [#450](https://github.com/Byron/gitoxide/issues/450), [#470](https://github.com/Byron/gitoxide/issues/470), [#63](https://github.com/Byron/gitoxide/issues/63), [#67](https://github.com/Byron/gitoxide/issues/67), [#691](https://github.com/Byron/gitoxide/issues/691), [#79](https://github.com/Byron/gitoxide/issues/79), [#XXX](https://github.com/Byron/gitoxide/issues/XXX)
 

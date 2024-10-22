@@ -5,6 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.12 (2024-10-22)
+
+### Bug Fixes
+
+ - <csr-id-eb72d31a64b5041170e5903c328b246dab522067/> Don't read "installation" config from `GIT_CONFIG`
+   When `gix-path` runs `git config -l ...` to obtain the path of a
+   configuration file to regard as being associated with the `git`
+   installation itself, it now no longer allows `GIT_CONFIG` to affect
+   this path.
+   
+   Previously, setting `GIT_CONFIG` would treat it as the path of a
+   `GitInstallation` configuration file. Although it is possible that
+   this may have been used intentionally, it was never documented, did
+   not work reliably on all platforms, and carried significant
+   disadvantages. This is most likely a non-breaking change.
+   
+   The disadvantages of treating a path in `GIT_CONFIG` as the path
+   to a configuration file associated with the `git` installation
+   were:
+   
+   - For `git`, the `GIT_CONFIG` environment variable *only* affects
+     `git config` commands, and not other commands that use
+     configuration variables (which are most `git` commands). But when
+     `gix-path` would obtain a path from `git config -l ...` that came
+     from `GIT_CONFIG`, that configuration file would be used
+     anywhere, and not only `gix config` commands.
+   
+   - Even for `gix config`, it is not at all clear that the
+     `GIT_CONFIG` environment variable ought to be honored, because
+     `gix config` has a different interface from and is not meant to
+     be a drop-in replacement for `git config`, and because this
+     environment variable is only even supported by `git config` for
+     historical reasons. (In `git config`, one should typically use
+     `--file` instead.)
+   
+   - The installation path is generally the path of a high-scoped
+     configuration file, usually the system scope or, with Apple Git
+     on macOS, the "unknown" scope even higher than that (of a file
+     located under `/Library` or `/Applications`). In contrast, the
+     `GIT_CONFIG` environment variable is really command scope, since
+     it is an alternative way of achieving the same goal as `--file`
+     when running `git config`, which `git` supports only for backward
+     compatibility.
+   
+   - On Windows, when `EXEPATH` is set in a way that indentifies a
+     Git for Windows installation directory, which is typically the
+     case in a Git Bash environment (and not otherwise), `GIT_CONFIG`
+     is not used by the public `gix-path` functions that ordinarily
+     get information from calling `git config -l ...`, because this
+     call is not performed and instead the location of a configuration
+     file associated with the installation is inferred from that
+     value.
+   
+     Although this also applies to some other ways the environment
+     affects the behavior of `git config -l ...`, it is much stranger
+     for `GIT_CONFIG`, because whether `GIT_CONFIG` should be used
+     does not intuitively seem like it should be related to what other
+     sources of information are available; the semantics of
+     `GIT_CONFIG` for `git` are to be ignored by most commands, but to
+     always be used commands (`git config`) that do not ignore it.
+   
+   - The effect on finding other files associated with the
+     installation, such as a gitattributes file, may be especially
+     hard to reason about for `GIT_CONFIG`. Such paths are sometimes
+     inferred from the path that `gix-path` reports. In particular,
+     this is how `installation_config_prefix()` works.
+   
+   This change only prevents `GIT_CONFIG` from specifying an
+   installation config file or suppressing the search for it. This
+   does not affect how other `GIT_CONFIG_*` environment variables are
+   used.
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 46 calendar days.
+ - 46 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1624 from EliahKagan/update-repo-url ([`795962b`](https://github.com/Byron/gitoxide/commit/795962b107d86f58b1f7c75006da256d19cc80ad))
+    - Update gitoxide repository URLs ([`64ff0a7`](https://github.com/Byron/gitoxide/commit/64ff0a77062d35add1a2dd422bb61075647d1a36))
+    - Merge pull request #1594 from EliahKagan/comments ([`ab8880f`](https://github.com/Byron/gitoxide/commit/ab8880fbdf0f7af7b483f4e1f9adbb8e374183ee))
+    - Expand and clarify "unkown" scope comment in `git_cmd` ([`1526b01`](https://github.com/Byron/gitoxide/commit/1526b018c45a4392f20d01e1df014395824bc3bf))
+    - Merge pull request #1583 from EliahKagan/config-origin-env ([`130db3b`](https://github.com/Byron/gitoxide/commit/130db3b1b4c969d64d734feba3a4decef79b10e2))
+    - Don't read "installation" config from `GIT_CONFIG` ([`eb72d31`](https://github.com/Byron/gitoxide/commit/eb72d31a64b5041170e5903c328b246dab522067))
+    - Fix the `never_from_git_config_env_var` test ([`f8e38d0`](https://github.com/Byron/gitoxide/commit/f8e38d0575e7e898133aa471539ad79b7508c88e))
+    - Start testing that installation config is not from `GIT_CONFIG` ([`340ff37`](https://github.com/Byron/gitoxide/commit/340ff371d181686afd80582f7d5c8f340aabd24c))
+    - Unset other `GIT_DIR` related env vars in `git config -l` ([`01a412f`](https://github.com/Byron/gitoxide/commit/01a412feb5abf201a7eb98901d81f73a83a820e6))
+    - Merge pull request #1582 from Byron/gix-path-release ([`93e86f1`](https://github.com/Byron/gitoxide/commit/93e86f12a8d0ab59ad5d885ce552d0dec9a6fba6))
+</details>
+
 ## 0.10.11 (2024-09-06)
 
 ### Bug Fixes
@@ -48,60 +183,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    - We are currently obtaining this information from environment
    variables, and it is possible for our own parent process to pass
    down an overly sanitized environment.
-   
-   Although this can be so sanitized we cannot find the Windows
-   directory, this is less likely to occur than being unable to find
-   the root of the system drive.
-   
-   This due to moderately broad awareness that the `SystemRoot`
-   environment variable (which, somewhat confusingly, holds the path
-   of the Windows directory, not the root of the system drive)
-   should be preserved even when clearing most other variables.
-   
-   Some libraries will even automatically preserve `SystemRoot` when
-   clearing others or restore it. For example:
-   
-   * https://go-review.googlesource.com/c/go/+/174318
-- Under the current behavior of `env::temp_dir()`, which is now a
-     fallback if we cannot determine the Windows directory, we already
-     fall back to the Windows directory evenutally, if temp dir
-     related environment variables are also unset.
-   
-     This is because `env::temp_dir()` usually calls `GetTempDir2` in
-     the Windows API, which implements that fallback behavior (after
-     first trying the user's user profile directory).
-   
-     Avoiding adding yet another place to fall back to that would not
-     otherwise be attempted slightly decreases behavioral complexity,
-     and there is no reason to think a directory like `C:\` would work
-     when a directory like `C:\Windows` doesn't.
-- The root of the system drive on a Windows system usually permits
-     limited user accounts to create new directories there, so a
-     directory like `C:\` on Windows actually has most of the
-     disadvantages of a location like `/tmp` on a Unix-like system.
-   
-     * https://github.com/git-for-windows/git/security/advisories/GHSA-vw2c-22j4-2fh2
-     * https://github.com/Byron/gitoxide/security/advisories/GHSA-mgvv-9p9g-3jv4
-   
-     This is actually a much less significant reason to prefer a
-     directory like `C:\Windows` to a directory like `C:\` than it
-     might seem. After all, if `C:\.git` exists and and `git` uses it
-     when run from `C:\`, then `git` would usually also use it when
-     run from `C:\Windows` (and from numerous other locations)!
-   
-     However, the reason there is still a small reason to prefer a
-     location like `C:\Windows` to a location like `C:\` is that, if a
-     system has a vulnerable `git` but a user or system administrator
-     has sought to work around it by listing `C:\` in
-     `GIT_CEILING_DIRECTORIES`, then that may keep `git` from
-     traversing upward into `C:\`, but it would not keep `C:\` from
-     being used if that is where we already are.
-   
-     An even more significant reason this motivation is a minor one is
-     that the other measures we are taking, including setting
-     `GIT_DIR`, should be sufficient to avoid at least the security
-     dimension of the problem, which arises from actually using the
-     configuration from a repo that is discovered.
+* https://go-review.googlesource.com/c/go/+/174318
+   * https://github.com/git-for-windows/git/security/advisories/GHSA-vw2c-22j4-2fh2
+   * https://github.com/Byron/gitoxide/security/advisories/GHSA-mgvv-9p9g-3jv4
 * https://github.com/Byron/gitoxide/security/advisories/GHSA-mgvv-9p9g-3jv4
 - The user profile directory may be more deeply nested.
 - The user profile directory may sometimes be on slow network
@@ -155,7 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 56 commits contributed to the release.
+ - 57 commits contributed to the release.
  - 14 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -167,6 +251,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-trace v0.1.10, gix-path v0.10.11 ([`012a754`](https://github.com/Byron/gitoxide/commit/012a75455edebc857ff13c97c1e7603ea5ea6cdc))
     - Prepare changelogs prior to release. ([`c759819`](https://github.com/Byron/gitoxide/commit/c759819666fdad1ba743eed8e9458517f5cdf63c))
     - Merge pull request #1569 from EliahKagan/config-origin-naming ([`3cf9694`](https://github.com/Byron/gitoxide/commit/3cf969487e07c4bf5d5b89b4e372d70b95ebbe36))
     - Rename to `GIT_HIGHEST_SCOPE_CONFIG_PATH` ([`0672576`](https://github.com/Byron/gitoxide/commit/067257684918f2802f56eb3933f5e324bf35f914))
@@ -226,7 +311,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 </details>
 
 <csr-unknown>
-As far as I know, such treatment of SystemDrive is less common.And also these two considerations, which are minor by comparison:This is actually a much less significant reason to prefer adirectory like C:\Windows to a directory like C:\ than itmight seem. After all, if C:\.git exists and and git uses itwhen run from C:\, then git would usually also use it whenrun from C:\Windows (and from numerous other locations)!However, the reason there is still a small reason to prefer alocation like C:\Windows to a location like C:\ is that, if asystem has a vulnerable git but a user or system administratorhas sought to work around it by listing C:\ inGIT_CEILING_DIRECTORIES, then that may keep git fromtraversing upward into C:\, but it would not keep C:\ frombeing used if that is where we already are.An even more significant reason this motivation is a minor one isthat the other measures we are taking, including settingGIT_DIR, should be sufficient to avoid at least the securitydimension of the problem, which arises from actually using theconfiguration from a repo that is discovered.The reason we do not prefer the user’s user profile directory is: More robustly ensure “installation” config is not localWhen invoking git to find the configuration file path associatedwith the git installation itself, this sets GIT_DIR to a paththat cannot be a .git directory for any repository, to keepgit config -l from including any local scope entries in theoutput of the git config -l ... command that is used to find theorigin for the first Git configuration variable.Specifically, a path to the null device is used. This is/dev/null on Unix and NUL on Windows. This is not a directory,and when treated as a file it is always treated as empty: readingfrom it, if successful, reaches end-of-file immediately.This problem is unlikely since #1523, which caused this gitinvocation to use a /tmp-like location (varying by system andenvironment) as its current working directory. Although the goal ofthat change was just to improve performance, it pretty much fixedthe bug where local-scope configuration could be treated asinstallation-level configuration when no configuration variablesare available from higher scopes.This change further hardens against two edge cases:Any path guaranteed to point to a nonexistent entry or one that isguaranteed to be (or to be treated as) an empty file or directoryshould be sufficient here. Using the null device, even though it isnot directory-like, seems like a reasonably intuitive way to do it.A note for Windows: There is more than one reasonable path to thenull device. One is DOS-style relative path NUL, as used here.One of the others, which NUL in effect resolves to when opened,is the fully qualified Windows device namespace path \\.\NUL. Iused the former here to ensure we avoid any situation where gitwould misinterpret a \ in \\.\NUL in a POSIX-like fashion. Thisseems unlikely, and it could be looked into further if reasonssurface to prefer \\.\NUL.One possible reason to prefer \\.\NUL is that which names aretreated as reserved legacy DOS device names changes from version toversion of Windows, with Windows 11 treating some of them asordinary filenames. However, while this affects names such asCON, it does not affect NUL, at least written unsuffixed. I’mnot sure if any Microsoft documentation has yet been updated toexplain this in detail, but see:At least historically, it has been possible on Windows, thoughrare, for the null device to be absent. This was the case onWindows Fundamentals for Legacy PCs (WinFPE). Even if that somehowwere ever to happen today, this usage should be okay, becauseattempting to open the device would still fail rather than opensome other file (as may even be happening in Git for Windowsalready), the name NUL would still presumably be reserved (muchas the names COM? where ? is replaced with a Unicodesuperscript 1, 2, or 3 are reserved even though those devices don’treally exist), and I think git config -l commands should stillshrug off the error opening the file and give non-local-scopeconfiguration, as it does when GIT_DIR is set to a nonexistentlocation. Parse installation config path more robustlyThis adds the -z/--null and --name-only options in the gitinvocation that tries to obtain the configuration file pathassociated with the git installation itself. The benefits are:git has supported the -z/--null and --name-only optionseven before support for --show-origin was added in Git 2.8.0, sothis change should have no effect on Git version compatibility.<csr-unknown/>
+Although this can be so sanitized we cannot find the Windowsdirectory, this is less likely to occur than being unable to findthe root of the system drive.This due to moderately broad awareness that the SystemRootenvironment variable (which, somewhat confusingly, holds the pathof the Windows directory, not the root of the system drive)should be preserved even when clearing most other variables.Some libraries will even automatically preserve SystemRoot whenclearing others or restore it. For example:Under the current behavior of env::temp_dir(), which is now afallback if we cannot determine the Windows directory, we alreadyfall back to the Windows directory evenutally, if temp dirrelated environment variables are also unset.This is because env::temp_dir() usually calls GetTempDir2 inthe Windows API, which implements that fallback behavior (afterfirst trying the user’s user profile directory).Avoiding adding yet another place to fall back to that would nototherwise be attempted slightly decreases behavioral complexity,and there is no reason to think a directory like C:\ would workwhen a directory like C:\Windows doesn’t.The root of the system drive on a Windows system usually permitslimited user accounts to create new directories there, so adirectory like C:\ on Windows actually has most of thedisadvantages of a location like /tmp on a Unix-like system.This is actually a much less significant reason to prefer adirectory like C:\Windows to a directory like C:\ than itmight seem. After all, if C:\.git exists and and git uses itwhen run from C:\, then git would usually also use it whenrun from C:\Windows (and from numerous other locations)!However, the reason there is still a small reason to prefer alocation like C:\Windows to a location like C:\ is that, if asystem has a vulnerable git but a user or system administratorhas sought to work around it by listing C:\ inGIT_CEILING_DIRECTORIES, then that may keep git fromtraversing upward into C:\, but it would not keep C:\ frombeing used if that is where we already are.An even more significant reason this motivation is a minor one isthat the other measures we are taking, including settingGIT_DIR, should be sufficient to avoid at least the securitydimension of the problem, which arises from actually using theconfiguration from a repo that is discovered.<csr-unknown/>
 
 ## 0.10.10 (2024-08-22)
 

@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-hashtable"
-version = "0.5.2"
+version = "0.6.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate that provides hashtable based data structures optimized to utilize ObjectId keys"
@@ -20,4 +20,4 @@ hashbrown = { version = "0.14.0", default-features = false, features = [
     "inline-more",
     "raw"
 ] }
-gix-hash = { version = "^0.14.2", path = "../gix-hash" }
+gix-hash = { version = "^0.15.0", path = "../gix-hash" }

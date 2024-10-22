@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-fs"
-version = "0.11.3"
+version = "0.12.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate providing file system specific utilities to `gitoxide`"
@@ -19,8 +19,8 @@ doctest = false
 serde = ["dep:serde"]
 
 [dependencies]
-gix-features = { version = "^0.38.2", path = "../gix-features", features = ["fs-read-dir"] }
-gix-utils = { version = "^0.1.12", path = "../gix-utils" }
+gix-features = { version = "^0.39.0", path = "../gix-features", features = ["fs-read-dir"] }
+gix-utils = { version = "^0.1.13", path = "../gix-utils" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["std", "derive"] }
 
 # For `Capabilities` to assure parallel operation works.

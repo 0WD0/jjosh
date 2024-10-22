@@ -5,6 +5,227 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.67.0 (2024-10-22)
+
+### New Features
+
+ - <csr-id-2b81e6c8bd30cc95e91cc92a89f0a0e6047eec6b/> add `Repository::diff_tree_to_tree()` for greater similarity to `git2`
+ - <csr-id-3da2da9d7993adc16b19fc63e7524c768a6e2e7f/> add `gix merge-file` with similar features as `git merge-file`
+ - <csr-id-c02adc736c9c150d2eb71307a13adfa5f35e9d47/> add `Repository::blob_merge_options()` to obtain options for merging blobs and `Repository::diff_algorithm()`
+ - <csr-id-19374800ebfa19b0ddc5c2f30d1c42324732a34e/> `Repository::merge_resource_cache()` to obtain the foundation for merging files directly.
+ - <csr-id-0cac69077e738cb22914e77a9a9dd3fd712d5670/> make implicit free-list more controllable
+   This is done by three new `Repository` methods:
+   
+   * `empty_reusable_buffer()` - hook into the free-list yourself.
+   * `set_freelist()` - enable or initialize the free-list.
+   * `without_freelist()` - a builder to disable the freelist from the start.
+ - <csr-id-b279957beaf581c16293343dbdb2121bd1d4dd1c/> add tree-editing capabilities to `Tree` and `Repository`.
+   Create a tree editor using `Tree::edit()` or `Repository::edit_tree(id)`.
+ - <csr-id-7249291016253647c920852fb37eb9e29d615775/> `gix merge-base` for the CLI
+   For now it only supports the standard merge-base, but more derivatives
+   can be added easily on demand.
+ - <csr-id-3abf0432dad4d47d0fd70ae8a9fadea0ef82dba3/> add `Repository::merge_base()`
+   A simple method to obtain the merge-base between two commits.
+
+### Bug Fixes
+
+ - <csr-id-e9b3db8021ad1f8bf7b2ee6ffecd5b1b1c8a38b9/> make `GIT_WORK_TREE` variable work as expected.
+   Now it's picked up durign initialization.
+ - <csr-id-53fa8abda6cf96e2afd8082db0d7a9f686d82752/> improve directory matching
+   Previously the sorting wasn't accounted for, so an assumption about
+   the order of changes weren't actually true.
+ - <csr-id-f8952e4cbfaf9ab7ddc12a028a1cdb821ac9a3b1/> don't be too generous when extrapolating worktree directories.
+   Previously it was possible that a non-bare repository that didn't have
+   worktree directory incorrectly claimed it had one.
+ - <csr-id-877f4d2091a24d691f2c88a5841a6e4eb357aca3/> don't unconditionally stuff fetch-specs if these are already present.
+   Previously, we'd always add 'default' refspecs, even though ref-specs
+   might already have been present.
+   Now we only do this if there were no refspecs prior, and that might
+   still be more than Git does. I wonder where this requirement came from,
+   except that it might help with tests.
+ - <csr-id-977b81bba9d6cf78104ced90531079346b39843f/> Don't bail out if there are extra-refspecs.
+ - <csr-id-c515edd97370f2dff2f63a44fccbd72a0f70c00f/> make `rev_walk` available even without the `revision` feature.
+   Technically it doesn't depend on it.
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
+
+### New Features (BREAKING)
+
+ - <csr-id-7be142d087a736339af54f2cb894edc7c36cdc90/> optional rename tracking for directories.
+   Depending on the source of the rename-information, items that are children
+   of renamed parents may be provided to enable rename tracking based on these
+   containers, instead of always resorting to tracking leaf nodes (i.e. blobs).
+ - <csr-id-14d6bb92b42cb882b0fd6d0ae3c38fa634eacdaa/> Support for 'fast-tracking' reaching the beginning of the commit-graph during traversals.
+   It's implemented by sorting commits oldest first when choosing the next one to traverse,
+   which can greatly reduce the time it takes to reach the first commit of a graph.
+ - <csr-id-dfbc732effc0fd1c90aba9c736a670d244c042e0/> optionally store objects new objects in memory only.
+   The default object database changed to a version that allows to
+   keep objects in memory. This needs a mutable `Repository` instance
+   to setup.
+ - <csr-id-d63ec06500386450f6f7b9e3b9d23ad759371832/> Do not let `revision::walk::Platform` rely on plumbing crate types.
+   This is a step towards a more stable API, but also, will allow using
+   different implementations.
+   
+   Notably, this replaces `gix_traverse::commit::simple::Sorting` with
+   `gix::revision::walk::Sorting`.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-206f5d70fa74c23c56c6cbecc5625234fde930fc/> improve error messages when failing to find references.
+   It's breaking due to changes in the error type.
+ - <csr-id-9e79ba37cf5dc7c0c295218b2de67b4b2eeff443/> unify location of error type of `Repository::diff_resource_cache()`.
+ - <csr-id-c545d71ebfd4ac7d960fc75aae5558b341d8ecf2/> `Tree::lookup_entry()` looses its `buf` argument.
+   The buffer will now be previded from the free-list of the repository.
+ - <csr-id-17573779688e755a786546d5e42ab533088cd726/> remove all workspace dependencies
+   The problem is that with them, we don't notice anymore if the crate changes,
+   because a dependency changes. That also means that older versions of the dependency
+   may stay even though some other crates might pick up a newer version.
+   
+   Ultimately, this will lead to drift and subtle incompatibilities.
+   
+   We declare this breaking to enforce a proper re-release.
+
+### Refactor (BREAKING)
+
+ - <csr-id-743695fc345b59e30e75fb6b91357ab7e994bda2/> always trackt he full path when producing diffs, but allow to disable it.
+ - <csr-id-45b71554f6437fbfe3ead020ff182f77cd57e47f/> Use the new `tree_with_rewrites` plumbing implementation.
+   This merges `object::tree::diff::change::Event` into `object::tree::diff::Change`
+   as well.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 76 commits contributed to the release over the course of 60 calendar days.
+ - 60 days passed between releases.
+ - 25 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1562](https://github.com/Byron/gitoxide/issues/1562)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1562](https://github.com/Byron/gitoxide/issues/1562)**
+    - Don't bail out if there are extra-refspecs. ([`977b81b`](https://github.com/Byron/gitoxide/commit/977b81bba9d6cf78104ced90531079346b39843f))
+ * **Uncategorized**
+    - Merge pull request #1639 from cruessler/respect-env-variables ([`48aa74b`](https://github.com/Byron/gitoxide/commit/48aa74b911fb874986c244712b7fd5b5cc10070b))
+    - Make `GIT_WORK_TREE` variable work as expected. ([`e9b3db8`](https://github.com/Byron/gitoxide/commit/e9b3db8021ad1f8bf7b2ee6ffecd5b1b1c8a38b9))
+    - Merge pull request #1637 from GitoxideLabs/improve-error-message ([`b36d7ef`](https://github.com/Byron/gitoxide/commit/b36d7efb9743766338ac7bb7fb2399a06fae5e60))
+    - Improve error messages when failing to find references. ([`206f5d7`](https://github.com/Byron/gitoxide/commit/206f5d70fa74c23c56c6cbecc5625234fde930fc))
+    - Merge pull request #1635 from GitoxideLabs/fix-ci ([`2622936`](https://github.com/Byron/gitoxide/commit/2622936e77d938d6cb441b4e7001dd55374328cd))
+    - Improve wording of comment in test ([`e51fcd0`](https://github.com/Byron/gitoxide/commit/e51fcd0772e087b5692f632ff8785b43d299a3f6))
+    - Fix CI for now by excluding the failing assertion from running. ([`c949030`](https://github.com/Byron/gitoxide/commit/c9490300b116cf468cca82d87c65c9190e9a6696))
+    - Merge pull request #1630 from GitoxideLabs/diff-fix ([`155b5e1`](https://github.com/Byron/gitoxide/commit/155b5e1c3691852b08dc81241423597dc34fa2dc))
+    - Improve directory matching ([`53fa8ab`](https://github.com/Byron/gitoxide/commit/53fa8abda6cf96e2afd8082db0d7a9f686d82752))
+    - Reproduce ordering issue when finding parents ([`ddc99b5`](https://github.com/Byron/gitoxide/commit/ddc99b5ae53dee19b53b67168ee45274c43b2d95))
+    - Merge pull request #1624 from EliahKagan/update-repo-url ([`795962b`](https://github.com/Byron/gitoxide/commit/795962b107d86f58b1f7c75006da256d19cc80ad))
+    - Update gitoxide repository URLs ([`64ff0a7`](https://github.com/Byron/gitoxide/commit/64ff0a77062d35add1a2dd422bb61075647d1a36))
+    - Merge pull request #1620 from Byron/fix-discovery ([`6487269`](https://github.com/Byron/gitoxide/commit/64872690e60efdd9267d517f4d9971eecd3b875c))
+    - Silently re-add `diff::tree::ChangeDetached` ([`c18ebbe`](https://github.com/Byron/gitoxide/commit/c18ebbeabb3e4bd775cf59bd90e6672749ce9549))
+    - Don't be too generous when extrapolating worktree directories. ([`f8952e4`](https://github.com/Byron/gitoxide/commit/f8952e4cbfaf9ab7ddc12a028a1cdb821ac9a3b1))
+    - Merge pull request #1612 from Byron/merge ([`37c1e4c`](https://github.com/Byron/gitoxide/commit/37c1e4c919382c9d213bd5ca299ed659d63ab45d))
+    - Refactor integration tests for a more modern look ([`3745212`](https://github.com/Byron/gitoxide/commit/3745212abf0353f15fec41556c55ee1d30d69f0a))
+    - Add `Repository::diff_tree_to_tree()` for greater similarity to `git2` ([`2b81e6c`](https://github.com/Byron/gitoxide/commit/2b81e6c8bd30cc95e91cc92a89f0a0e6047eec6b))
+    - Always trackt he full path when producing diffs, but allow to disable it. ([`743695f`](https://github.com/Byron/gitoxide/commit/743695fc345b59e30e75fb6b91357ab7e994bda2))
+    - Use the new `tree_with_rewrites` plumbing implementation. ([`45b7155`](https://github.com/Byron/gitoxide/commit/45b71554f6437fbfe3ead020ff182f77cd57e47f))
+    - Adapt to changes in `gix-diff` ([`3fd9fab`](https://github.com/Byron/gitoxide/commit/3fd9fabe0c0e74d54b5153c4f572eff76293f334))
+    - Thanks clippy ([`af03832`](https://github.com/Byron/gitoxide/commit/af0383254422b70d53f27572c415eea2e4154447))
+    - Adapt to changes in `gix-diff` ([`2bf1e5f`](https://github.com/Byron/gitoxide/commit/2bf1e5f15a60ef57c7c15279124d3eb227e585e0))
+    - Optional rename tracking for directories. ([`7be142d`](https://github.com/Byron/gitoxide/commit/7be142d087a736339af54f2cb894edc7c36cdc90))
+    - Adapt to chagnes in `gix-diff` ([`5c1f010`](https://github.com/Byron/gitoxide/commit/5c1f010851e40bf5b284ec82e6cd27cd41ab70bf))
+    - Merge pull request #1611 from Byron/merge ([`5ffccd2`](https://github.com/Byron/gitoxide/commit/5ffccd2f08d70576347e3ae17a66ca5a60f1d81c))
+    - Add `gix merge-file` with similar features as `git merge-file` ([`3da2da9`](https://github.com/Byron/gitoxide/commit/3da2da9d7993adc16b19fc63e7524c768a6e2e7f))
+    - Add `Repository::blob_merge_options()` to obtain options for merging blobs and `Repository::diff_algorithm()` ([`c02adc7`](https://github.com/Byron/gitoxide/commit/c02adc736c9c150d2eb71307a13adfa5f35e9d47))
+    - Unify location of error type of `Repository::diff_resource_cache()`. ([`9e79ba3`](https://github.com/Byron/gitoxide/commit/9e79ba37cf5dc7c0c295218b2de67b4b2eeff443))
+    - `Repository::merge_resource_cache()` to obtain the foundation for merging files directly. ([`1937480`](https://github.com/Byron/gitoxide/commit/19374800ebfa19b0ddc5c2f30d1c42324732a34e))
+    - Add all keys for merge-configuration ([`e0b09d2`](https://github.com/Byron/gitoxide/commit/e0b09d2764fd02a2b69340d9b3aef9773ae899ce))
+    - Merge pull request #1585 from Byron/merge ([`2261de4`](https://github.com/Byron/gitoxide/commit/2261de470aeb77be080f9e423e1513bde85d9cc0))
+    - Use new `WorktreeRoot` API provided by `gix-diff` ([`25c6806`](https://github.com/Byron/gitoxide/commit/25c68067d87ddcb476f973af6d7e29f9533166a8))
+    - Merge pull request #1610 from nrdxp/traverse/oldest-first ([`20f9b3f`](https://github.com/Byron/gitoxide/commit/20f9b3f361b46226be102a065cbb0fbaa83ae2db))
+    - Support for 'fast-tracking' reaching the beginning of the commit-graph during traversals. ([`14d6bb9`](https://github.com/Byron/gitoxide/commit/14d6bb92b42cb882b0fd6d0ae3c38fa634eacdaa))
+    - Merge pull request #1604 from Byron/protocol-shallow-v1 ([`612896d`](https://github.com/Byron/gitoxide/commit/612896d7ec15c153d3d48012c75aaf85d10a5abe))
+    - Adapt to changes in `gix-protocol` ([`0d3b480`](https://github.com/Byron/gitoxide/commit/0d3b480e5e7d27c308fb5f76f36831dfc7af3e8f))
+    - Merge pull request #1603 from Byron/freelist ([`73a7d15`](https://github.com/Byron/gitoxide/commit/73a7d15fb9030081a64803aacfd8d2ac7babf904))
+    - Make implicit free-list more controllable ([`0cac690`](https://github.com/Byron/gitoxide/commit/0cac69077e738cb22914e77a9a9dd3fd712d5670))
+    - Merge pull request #1589 from EliahKagan/maintenance ([`7c2af44`](https://github.com/Byron/gitoxide/commit/7c2af442748f7245734ec1f987b6d839f2a795bd))
+    - Add missing executable bits ([`694ebad`](https://github.com/Byron/gitoxide/commit/694ebadb2d11d25c5b1285c61cef5df03685701a))
+    - Merge pull request #1587 from jayvdb/typos ([`c2bdda4`](https://github.com/Byron/gitoxide/commit/c2bdda4f1ad85ee3705b464d1a951f3c9ec50147))
+    - Fix typos ([`b12c7c9`](https://github.com/Byron/gitoxide/commit/b12c7c931672203380413a2faa5c21dc311e987e))
+    - Merge pull request #1586 from Byron/fix-ci ([`22fbe70`](https://github.com/Byron/gitoxide/commit/22fbe705968689acdc08e7472a1345cf690d1b19))
+    - Update crate-status to inform about tree-editing capabilities ([`fe1eb97`](https://github.com/Byron/gitoxide/commit/fe1eb9740c66ccb49d1c43a269f2970a721b1a34))
+    - Merge pull request #1584 from EliahKagan/jj-realistic-ignore ([`5242aad`](https://github.com/Byron/gitoxide/commit/5242aad86ce30fe8e99d53959a255058ea72cd54))
+    - Don't test `jj_realistic_needs_to_be_more_clever` on Windows ([`3adcfc5`](https://github.com/Byron/gitoxide/commit/3adcfc53b17a1daa1299949ae6ed3424d5357f30))
+    - Merge pull request #1582 from Byron/gix-path-release ([`93e86f1`](https://github.com/Byron/gitoxide/commit/93e86f12a8d0ab59ad5d885ce552d0dec9a6fba6))
+    - Release gix-trace v0.1.10, gix-path v0.10.11 ([`012a754`](https://github.com/Byron/gitoxide/commit/012a75455edebc857ff13c97c1e7603ea5ea6cdc))
+    - Merge pull request #1566 from Byron/merge ([`d69c617`](https://github.com/Byron/gitoxide/commit/d69c6175574f34d6df92b4488ed2c9a85df12c89))
+    - Optionally store objects new objects in memory only. ([`dfbc732`](https://github.com/Byron/gitoxide/commit/dfbc732effc0fd1c90aba9c736a670d244c042e0))
+    - Add tree-editing capabilities to `Tree` and `Repository`. ([`b279957`](https://github.com/Byron/gitoxide/commit/b279957beaf581c16293343dbdb2121bd1d4dd1c))
+    - `Tree::lookup_entry()` looses its `buf` argument. ([`c545d71`](https://github.com/Byron/gitoxide/commit/c545d71ebfd4ac7d960fc75aae5558b341d8ecf2))
+    - Merge pull request #1564 from Byron/improvements ([`1cfe577`](https://github.com/Byron/gitoxide/commit/1cfe577d461293879e91538dbc4bbfe01722e1e8))
+    - When using the cache, allow using the entire graph. ([`0fe5133`](https://github.com/Byron/gitoxide/commit/0fe5133598c6f843fb3172a4e0c4f58932405647))
+    - Adapt to changes in `gix-revwalk` ([`ea403a4`](https://github.com/Byron/gitoxide/commit/ea403a42cab97ee803b700cdd47bbfd5ce3fbcd6))
+    - Merge pull request #1563 from Byron/fixes ([`750e268`](https://github.com/Byron/gitoxide/commit/750e26876fd4cb94fa84b48c0ad21f862a64cb65))
+    - Don't unconditionally stuff fetch-specs if these are already present. ([`877f4d2`](https://github.com/Byron/gitoxide/commit/877f4d2091a24d691f2c88a5841a6e4eb357aca3))
+    - Merge pull request #1557 from Byron/merge-base ([`649f588`](https://github.com/Byron/gitoxide/commit/649f5882cbebadf1133fa5f310e09b4aab77217e))
+    - `gix merge-base` for the CLI ([`7249291`](https://github.com/Byron/gitoxide/commit/7249291016253647c920852fb37eb9e29d615775))
+    - Add `Repository::merge_base()` ([`3abf043`](https://github.com/Byron/gitoxide/commit/3abf0432dad4d47d0fd70ae8a9fadea0ef82dba3))
+    - Adapt to changes in `gix-revision` ([`ce5a320`](https://github.com/Byron/gitoxide/commit/ce5a3204c9ed6a48364bf17d7898178555724e81))
+    - Allow empty-docs ([`beba720`](https://github.com/Byron/gitoxide/commit/beba7204a50a84b30e3eb81413d968920599e226))
+    - Merge branch 'global-lints' ([`37ba461`](https://github.com/Byron/gitoxide/commit/37ba4619396974ec9cc41d1e882ac5efaf3816db))
+    - A few more missing semicolons ([`fc45c93`](https://github.com/Byron/gitoxide/commit/fc45c931c132ac8b6ea4f2e4c3d5f0d19727f46f))
+    - Workspace Clippy lint management ([`2e0ce50`](https://github.com/Byron/gitoxide/commit/2e0ce506968c112b215ca0056bd2742e7235df48))
+    - Merge pull request #1547 from nyurik/cast-lossless ([`c3a7dcf`](https://github.com/Byron/gitoxide/commit/c3a7dcf859a8022468ea8289db837374d07d734f))
+    - Fix clippy::cast_lossless ([`29ad2df`](https://github.com/Byron/gitoxide/commit/29ad2df419c6d03f9f0160ca17cc94acdb30bcb7))
+    - Merge pull request #1546 from nyurik/semilocons ([`f992fb7`](https://github.com/Byron/gitoxide/commit/f992fb773b443454015bd14658cfaa2f3ac07997))
+    - Add missing semicolons ([`ec69c88`](https://github.com/Byron/gitoxide/commit/ec69c88fc119f3aa1967a7e7f5fca30e3ce97595))
+    - Merge branch 'improvements' ([`e82f795`](https://github.com/Byron/gitoxide/commit/e82f795a56c645088b59d2b9faa5984ea067ab5c))
+    - Do not let `revision::walk::Platform` rely on plumbing crate types. ([`d63ec06`](https://github.com/Byron/gitoxide/commit/d63ec06500386450f6f7b9e3b9d23ad759371832))
+    - Make `rev_walk` available even without the `revision` feature. ([`c515edd`](https://github.com/Byron/gitoxide/commit/c515edd97370f2dff2f63a44fccbd72a0f70c00f))
+    - Merge branch 'fixes' ([`46cd1ae`](https://github.com/Byron/gitoxide/commit/46cd1aed7815d27cdc818edb87641b20b82ba048))
+    - Remove all workspace dependencies ([`1757377`](https://github.com/Byron/gitoxide/commit/17573779688e755a786546d5e42ab533088cd726))
+</details>
+
 ## 0.66.0 (2024-08-22)
 
 A maintenance release without user-facing changes.
@@ -13,7 +234,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 2 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +245,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-actor v0.32.0, gix-object v0.44.0, gix-filter v0.13.0, gix-revwalk v0.15.0, gix-traverse v0.41.0, gix-worktree-stream v0.15.0, gix-archive v0.15.0, gix-ref v0.47.0, gix-config v0.40.0, gix-index v0.35.0, gix-worktree v0.36.0, gix-diff v0.46.0, gix-discover v0.35.0, gix-dir v0.8.0, gix-mailmap v0.24.0, gix-negotiate v0.15.0, gix-pack v0.53.0, gix-odb v0.63.0, gix-revision v0.29.0, gix-refspec v0.25.0, gix-status v0.13.0, gix-submodule v0.14.0, gix-worktree-state v0.13.0, gix v0.66.0, gix-fsck v0.6.0, gitoxide-core v0.41.0, gitoxide v0.38.0, safety bump 26 crates ([`b3ff033`](https://github.com/Byron/gitoxide/commit/b3ff033b602f303433f0b2e4daa2dba90b619c9e))
     - Prepare changelog prior to (yet another) release ([`209b6de`](https://github.com/Byron/gitoxide/commit/209b6de0329dbaaf61b929d32d9d54cf13fe241e))
 </details>
 
@@ -309,7 +531,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 24 commits contributed to the release over the course of 38 calendar days.
+ - 24 commits contributed to the release.
  - 38 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1352](https://github.com/Byron/gitoxide/issues/1352), [#1370](https://github.com/Byron/gitoxide/issues/1370)
@@ -378,8 +600,7 @@ Details can be found [in the advisory](https://github.com/Byron/gitoxide/securit
 
 <csr-read-only-do-not-edit/>
 
- - 17 commits contributed to the release over the course of 20 calendar days.
- - 22 days passed between releases.
+ - 17 commits contributed to the release.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1328](https://github.com/Byron/gitoxide/issues/1328)
 
@@ -428,7 +649,7 @@ This release also updates `reqwest` to v0.12, bringing hyper 1.0 and a more rece
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release over the course of 2 calendar days.
+ - 8 commits contributed to the release.
  - 3 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -467,7 +688,7 @@ This release also updates `reqwest` to v0.12, bringing hyper 1.0 and a more rece
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release over the course of 3 calendar days.
+ - 8 commits contributed to the release.
  - 3 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -934,8 +1155,7 @@ This release also updates `reqwest` to v0.12, bringing hyper 1.0 and a more rece
 
 <csr-read-only-do-not-edit/>
 
- - 69 commits contributed to the release over the course of 53 calendar days.
- - 54 days passed between releases.
+ - 69 commits contributed to the release.
  - 23 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 6 unique issues were worked on: [#1061](https://github.com/Byron/gitoxide/issues/1061), [#1076](https://github.com/Byron/gitoxide/issues/1076), [#1090](https://github.com/Byron/gitoxide/issues/1090), [#1125](https://github.com/Byron/gitoxide/issues/1125), [#1129](https://github.com/Byron/gitoxide/issues/1129), [#972](https://github.com/Byron/gitoxide/issues/972)
 
@@ -1241,7 +1461,7 @@ open a new issue to help us making Gitoxide even more correct.
 
 <csr-read-only-do-not-edit/>
 
- - 31 commits contributed to the release over the course of 15 calendar days.
+ - 31 commits contributed to the release.
  - 15 days passed between releases.
  - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -2330,8 +2550,7 @@ A maintenance release without user-facing changes. It's meant to fix breakage th
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 5 calendar days.
- - 11 days passed between releases.
+ - 6 commits contributed to the release.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#787](https://github.com/Byron/gitoxide/issues/787), [#790](https://github.com/Byron/gitoxide/issues/790)
 
