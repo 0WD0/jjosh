@@ -34,7 +34,7 @@ mod ask {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     fn askpass_only() {
         let mut cmd = std::process::Command::new(env!("CARGO"));
         cmd.args(["build", "--example", "use-askpass", "--example", "askpass"]);
@@ -48,7 +48,7 @@ mod ask {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     fn username_password() {
         let mut cmd = std::process::Command::new(env!("CARGO"));
         cmd.args(["build", "--example", "credentials"]);
@@ -65,7 +65,7 @@ mod ask {
     }
 
     #[test]
-    #[cfg(not(unix))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos")))]
     #[ignore]
     fn username_password_not_available() {}
 }

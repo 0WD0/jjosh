@@ -27,4 +27,6 @@ parking_lot = "0.12.1"
 [dev-dependencies]
 gix-testtools = { path = "../tests/tools" }
 serial_test = { version = "3.1.0", default-features = false }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))'.dev-dependencies]
 expectrl = "0.7.0"
