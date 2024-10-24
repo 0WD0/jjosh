@@ -280,7 +280,7 @@ git init expendable-and-precious-nested-in-ignored-dir
   echo 'ignored/' > .gitignore
   git add .gitignore && git commit -m "init"
   mkdir -p ignored/other
-  cp -Rv ../expendable-and-precious ignored/d
+  cp -R ../expendable-and-precious ignored/d
   rm -Rf ignored/d/*-by-filematch ignored/d/some-*
   mkdir -p other/ignored && >other/ignored/a
 )
