@@ -63,9 +63,4 @@ mod ask {
         p.expect("\" password with space \"").unwrap();
         p.expect(expectrl::Eof).unwrap();
     }
-
-    #[test]
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos")))]
-    #[ignore]
-    fn username_password_not_available() {}
 }
