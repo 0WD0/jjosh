@@ -287,10 +287,70 @@ mod find {
                     .ok_or_else(|| find::existing::Error::NotFound { oid: id.to_owned() })
             }
 
+            /// Like [`find(…)`][Self::find()], but flattens the `Result<Option<_>>` into a single `Result` making a non-existing object an error
+            /// while returning the desired object type.
+            fn find_blob<'a>(
+                &self,
+                id: &gix_hash::oid,
+                buffer: &'a mut Vec<u8>,
+            ) -> Result<BlobRef<'a>, find::existing_object::Error> {
+                if id == gix_hash::ObjectId::empty_blob(id.kind()) {
+                    return Ok(BlobRef { data: &[] });
+                }
+                self.try_find(id, buffer)
+                    .map_err(find::existing_object::Error::Find)?
+                    .ok_or_else(|| find::existing_object::Error::NotFound {
+                        oid: id.as_ref().to_owned(),
+                    })
+                    .and_then(|o| {
+                        o.decode().map_err(|err| find::existing_object::Error::Decode {
+                            source: err,
+                            oid: id.as_ref().to_owned(),
+                        })
+                    })
+                    .and_then(|o| match o {
+                        ObjectRef::Blob(o) => Ok(o),
+                        o => Err(find::existing_object::Error::ObjectKind {
+                            oid: id.as_ref().to_owned(),
+                            actual: o.kind(),
+                            expected: Kind::Blob,
+                        }),
+                    })
+            }
+
+            /// Like [`find(…)`][Self::find()], but flattens the `Result<Option<_>>` into a single `Result` making a non-existing object an error
+            /// while returning the desired object type.
+            fn find_tree<'a>(
+                &self,
+                id: &gix_hash::oid,
+                buffer: &'a mut Vec<u8>,
+            ) -> Result<TreeRef<'a>, find::existing_object::Error> {
+                if id == gix_hash::ObjectId::empty_tree(id.kind()) {
+                    return Ok(TreeRef { entries: Vec::new() });
+                }
+                self.try_find(id, buffer)
+                    .map_err(find::existing_object::Error::Find)?
+                    .ok_or_else(|| find::existing_object::Error::NotFound {
+                        oid: id.as_ref().to_owned(),
+                    })
+                    .and_then(|o| {
+                        o.decode().map_err(|err| find::existing_object::Error::Decode {
+                            source: err,
+                            oid: id.as_ref().to_owned(),
+                        })
+                    })
+                    .and_then(|o| match o {
+                        ObjectRef::Tree(o) => Ok(o),
+                        o => Err(find::existing_object::Error::ObjectKind {
+                            oid: id.as_ref().to_owned(),
+                            actual: o.kind(),
+                            expected: Kind::Tree,
+                        }),
+                    })
+            }
+
             make_obj_lookup!(find_commit, ObjectRef::Commit, Kind::Commit, CommitRef<'a>);
-            make_obj_lookup!(find_tree, ObjectRef::Tree, Kind::Tree, TreeRef<'a>);
             make_obj_lookup!(find_tag, ObjectRef::Tag, Kind::Tag, TagRef<'a>);
-            make_obj_lookup!(find_blob, ObjectRef::Blob, Kind::Blob, BlobRef<'a>);
             make_iter_lookup!(find_commit_iter, Kind::Commit, CommitRefIter<'a>, try_into_commit_iter);
             make_iter_lookup!(find_tree_iter, Kind::Tree, TreeRefIter<'a>, try_into_tree_iter);
             make_iter_lookup!(find_tag_iter, Kind::Tag, TagRefIter<'a>, try_into_tag_iter);
