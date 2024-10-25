@@ -1,4 +1,6 @@
+use crate::tree::visit::ChangeId;
 use crate::Rewrites;
+use std::collections::BTreeSet;
 
 /// Types related to the rename tracker for renames, rewrites and copies.
 pub mod tracker;
@@ -12,6 +14,8 @@ pub struct Tracker<T> {
     path_backing: Vec<u8>,
     /// How to track copies and/or rewrites.
     rewrites: Rewrites,
+    /// Previously emitted relation ids of rewrite pairs, with `(deleted source, added destination)`.
+    child_renames: BTreeSet<(ChangeId, ChangeId)>,
 }
 
 /// Determine in which set of files to search for copies.

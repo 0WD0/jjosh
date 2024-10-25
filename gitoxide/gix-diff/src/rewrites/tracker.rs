@@ -10,6 +10,7 @@ use std::ops::Range;
 use bstr::{BStr, ByteSlice};
 use gix_object::tree::{EntryKind, EntryMode};
 
+use crate::rewrites::tracker::visit::SourceKind;
 use crate::tree::visit::{Action, ChangeId, Relation};
 use crate::{
     blob::{platform::prepare_diff::Operation, DiffLineStats, ResourceKind},
@@ -155,6 +156,7 @@ impl<T: Change> Tracker<T> {
             items: vec![],
             path_backing: vec![],
             rewrites,
+            child_renames: Default::default(),
         }
     }
 }
@@ -244,8 +246,9 @@ impl<T: Change> Tracker<T> {
         };
         self.items.sort_by(by_id_and_location);
 
-        // Rewrites by directory can be pruned out quickly, quickly pruning candidates
-        // for the following per-item steps.
+        // Rewrites by directory (without local changes) can be pruned out quickly,
+        // by finding only parents, their counterpart, and then all children can be matched by
+        // relationship ID.
         self.match_pairs_of_kind(
             visit::SourceKind::Rename,
             &mut cb,
@@ -265,6 +268,8 @@ impl<T: Change> Tracker<T> {
             objects,
             None,
         )?;
+
+        self.match_renamed_directories(&mut cb)?;
 
         if let Some(copies) = self.rewrites.copies {
             self.match_pairs_of_kind(
@@ -387,6 +392,7 @@ impl<T: Change> Tracker<T> {
         }) {
             dest_idx += dest_ofs;
             dest_ofs = dest_idx + 1;
+            self.items[dest_idx].location(&self.path_backing);
             let src = find_match(
                 &self.items,
                 dest,
@@ -434,11 +440,17 @@ impl<T: Change> Tracker<T> {
                 return Ok(Action::Cancel);
             }
 
-            if let Some((Relation::Parent(src), Relation::Parent(dst))) = relations {
-                let res = self.emit_child_renames_matching_identity(cb, kind, src, dst)?;
-                if res == Action::Cancel {
-                    return Ok(Action::Cancel);
+            match relations {
+                Some((Relation::Parent(src), Relation::Parent(dst))) => {
+                    let res = self.emit_child_renames_matching_identity(cb, kind, src, dst)?;
+                    if res == Action::Cancel {
+                        return Ok(Action::Cancel);
+                    }
                 }
+                Some((Relation::ChildOfParent(src), Relation::ChildOfParent(dst))) => {
+                    self.child_renames.insert((src, dst));
+                }
+                _ => {}
             }
         }
         Ok(Action::Continue)
@@ -446,6 +458,7 @@ impl<T: Change> Tracker<T> {
 
     /// Emit the children of `src_parent_id` and `dst_parent_id` as pairs of exact matches, which are assumed
     /// as `src` and `dst` were an exact match (so all children have to match exactly).
+    /// Note that we intentionally do not record them as their parents will be emitted, too.
     fn emit_child_renames_matching_identity(
         &mut self,
         cb: &mut impl FnMut(visit::Destination<'_, T>, Option<visit::Source<'_, T>>) -> Action,
@@ -503,6 +516,56 @@ impl<T: Change> Tracker<T> {
             }
         }
         Ok(Action::Continue)
+    }
+
+    /// Find directories with relation id that haven't been emitted yet and store them for lookup.
+    /// Then use the previously stored emitted renames with relation id to learn which directories they 'link'
+    /// and emit them, too.
+    /// Note that this works whenever top-level directories are renamed because they are always added and deleted,
+    /// and we only match those. Thus, one rewrite inside the directory is enough.
+    fn match_renamed_directories(
+        &mut self,
+        cb: &mut impl FnMut(visit::Destination<'_, T>, Option<visit::Source<'_, T>>) -> Action,
+    ) -> Result<(), emit::Error> {
+        fn unemitted_directory_matching_relation_id<T: Change>(items: &[Item<T>], child_id: ChangeId) -> Option<usize> {
+            items.iter().position(|i| {
+                !i.emitted && matches!(i.change.relation(), Some(Relation::Parent(pid)) if pid == child_id)
+            })
+        }
+        for (deleted_child_id, added_child_id) in &self.child_renames {
+            let Some(src_idx) = unemitted_directory_matching_relation_id(&self.items, *deleted_child_id) else {
+                continue;
+            };
+            let Some(dst_idx) = unemitted_directory_matching_relation_id(&self.items, *added_child_id) else {
+                // This could go wrong in case there are mismatches, so be defensive here.
+                // But generally, we'd expect the destination item to exist.
+                continue;
+            };
+
+            let (src_item, dst_item) = (&self.items[src_idx], &self.items[dst_idx]);
+            let entry_mode = src_item.change.entry_mode();
+            let location = src_item.location(&self.path_backing);
+            let src = visit::Source {
+                entry_mode,
+                id: src_item.change.id().to_owned(),
+                kind: SourceKind::Rename,
+                location,
+                change: &src_item.change,
+                diff: None,
+            };
+            let location = dst_item.location(&self.path_backing);
+            let change = dst_item.change.clone();
+            let dst = visit::Destination { change, location };
+            let res = cb(dst, Some(src));
+
+            self.items[src_idx].emitted = true;
+            self.items[dst_idx].emitted = true;
+
+            if res == Action::Cancel {
+                return Ok(());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -572,8 +635,8 @@ fn find_match<'a, T: Change>(
     let (item_id, item_mode) = item.change.id_and_entry_mode();
     if needs_exact_match(percentage) || item_mode.is_link() {
         let first_idx = items.partition_point(|a| a.change.id() < item_id);
-        let range = items.get(first_idx..).map(|items| {
-            let end = items
+        let range = items.get(first_idx..).map(|slice| {
+            let end = slice
                 .iter()
                 .position(|a| a.change.id() != item_id)
                 .map_or(items.len(), |idx| first_idx + idx);
