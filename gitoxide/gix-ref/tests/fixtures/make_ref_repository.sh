@@ -7,6 +7,7 @@ git checkout -q -b main
 git commit -q --allow-empty -m c1
 git branch dt1
 git branch d1
+git branch A
 
 mkdir -p .git/refs/remotes/origin
 

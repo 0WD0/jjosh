@@ -253,7 +253,7 @@ fn no_packed_available_thus_no_iteration_possible() -> crate::Result {
 #[test]
 fn packed_file_iter() -> crate::Result {
     let store = store_with_packed_refs()?;
-    assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 8);
+    assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 9);
     Ok(())
 }
 
@@ -262,7 +262,7 @@ fn loose_iter_with_broken_refs() -> crate::Result {
     let store = store()?;
 
     let mut actual: Vec<_> = store.loose_iter()?.collect();
-    assert_eq!(actual.len(), 15);
+    assert_eq!(actual.len(), 16);
     actual.sort_by_key(Result::is_err);
     let first_error = actual
         .iter()
@@ -271,7 +271,7 @@ fn loose_iter_with_broken_refs() -> crate::Result {
         .expect("there is an error");
 
     assert_eq!(
-        first_error, 14,
+        first_error, 15,
         "there is exactly one invalid item, and it didn't abort the iterator most importantly"
     );
     #[cfg(not(windows))]
@@ -291,6 +291,7 @@ fn loose_iter_with_broken_refs() -> crate::Result {
         ref_paths,
         vec![
             "d1",
+            "heads/A",
             "heads/d1",
             "heads/dt1",
             "heads/main",
@@ -343,6 +344,7 @@ fn loose_iter_with_prefix() -> crate::Result {
     assert_eq!(
         actual,
         vec![
+            "refs/heads/A",
             "refs/heads/d1",
             "refs/heads/dt1",
             "refs/heads/main",
@@ -394,7 +396,8 @@ fn overlay_iter() -> crate::Result {
     assert_eq!(
         ref_names,
         vec![
-            (b"refs/heads/main".as_bstr().to_owned(), Object(c1)),
+            (b"refs/heads/A".as_bstr().to_owned(), Object(c1)),
+            (b"refs/heads/main".into(), Object(c1)),
             ("refs/heads/newer-as-loose".into(), Object(c2)),
             (
                 "refs/remotes/origin/HEAD".into(),
@@ -440,7 +443,8 @@ fn overlay_prefixed_iter() -> crate::Result {
     assert_eq!(
         ref_names,
         vec![
-            (b"refs/heads/main".as_bstr().to_owned(), Object(c1)),
+            (b"refs/heads/A".as_bstr().to_owned(), Object(c1)),
+            (b"refs/heads/main".into(), Object(c1)),
             ("refs/heads/newer-as-loose".into(), Object(c2)),
         ]
     );

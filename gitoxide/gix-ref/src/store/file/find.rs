@@ -6,6 +6,7 @@ use std::{
 
 pub use error::Error;
 
+use crate::name::is_pseudo_ref;
 use crate::{
     file,
     store_impl::{file::loose, packed},
@@ -103,13 +104,28 @@ impl file::Store {
         let precomposed_partial_name = precomposed_partial_name_storage
             .as_ref()
             .map(std::convert::AsRef::as_ref);
-        for inbetween in &["", "tags", "heads", "remotes"] {
-            match self.find_inner(inbetween, partial_name, precomposed_partial_name, packed, &mut buf) {
-                Ok(Some(r)) => return Ok(Some(decompose_if(r, precomposed_partial_name.is_some()))),
-                Ok(None) => {
-                    continue;
+        for consider_pseudo_ref in [true, false] {
+            if !consider_pseudo_ref && !is_pseudo_ref(partial_name.as_bstr()) {
+                break;
+            }
+            'try_directories: for inbetween in &["", "tags", "heads", "remotes"] {
+                match self.find_inner(
+                    inbetween,
+                    partial_name,
+                    precomposed_partial_name,
+                    packed,
+                    &mut buf,
+                    consider_pseudo_ref,
+                ) {
+                    Ok(Some(r)) => return Ok(Some(decompose_if(r, precomposed_partial_name.is_some()))),
+                    Ok(None) => {
+                        if consider_pseudo_ref && is_pseudo_ref(partial_name.as_bstr()) {
+                            break 'try_directories;
+                        }
+                        continue;
+                    }
+                    Err(err) => return Err(err),
                 }
-                Err(err) => return Err(err),
             }
         }
         if partial_name.as_bstr() != "HEAD" {
@@ -129,6 +145,7 @@ impl file::Store {
                     .map(std::convert::AsRef::as_ref),
                 None,
                 &mut buf,
+                true, /* consider-pseudo-ref */
             )
             .map(|res| res.map(|r| decompose_if(r, precomposed_partial_name_storage.is_some())))
         } else {
@@ -143,10 +160,11 @@ impl file::Store {
         precomposed_partial_name: Option<&PartialNameRef>,
         packed: Option<&packed::Buffer>,
         path_buf: &mut BString,
+        consider_pseudo_ref: bool,
     ) -> Result<Option<Reference>, Error> {
         let full_name = precomposed_partial_name
             .unwrap_or(partial_name)
-            .construct_full_name_ref(inbetween, path_buf);
+            .construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
         let content_buf = self.ref_contents(full_name).map_err(|err| Error::ReadFileContents {
             source: err,
             path: self.reference_path(full_name),
