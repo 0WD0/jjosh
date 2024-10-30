@@ -266,6 +266,8 @@ pub(super) mod inner {
 
     ///
     pub mod builtin_merge {
+        use crate::blob::platform::resource;
+        use crate::blob::platform::resource::Data;
         use crate::blob::{builtin_driver, BuiltinDriver, PlatformRef, Resolution};
 
         /// An identifier to tell us how a merge conflict was resolved by [builtin_merge](PlatformRef::builtin_merge).
@@ -307,11 +309,13 @@ pub(super) mod inner {
                 input: &mut imara_diff::intern::InternedInput<&'parent [u8]>,
                 labels: builtin_driver::text::Labels<'_>,
             ) -> (Pick, Resolution) {
-                let base = self.ancestor.data.as_slice();
-                let ours = self.current.data.as_slice();
-                let theirs = self.other.data.as_slice();
+                let base = self.ancestor.data.as_slice().unwrap_or_default();
+                let ours = self.current.data.as_slice().unwrap_or_default();
+                let theirs = self.other.data.as_slice().unwrap_or_default();
                 let driver = if driver != BuiltinDriver::Binary
-                    && (is_binary_buf(ours) || is_binary_buf(theirs) || is_binary_buf(base))
+                    && (is_binary_buf(self.ancestor.data)
+                        || is_binary_buf(self.other.data)
+                        || is_binary_buf(self.current.data))
                 {
                     BuiltinDriver::Binary
                 } else {
@@ -319,7 +323,6 @@ pub(super) mod inner {
                 };
                 match driver {
                     BuiltinDriver::Text => {
-                        let ((base, ours), theirs) = base.zip(ours).zip(theirs).expect("would use binary if missing");
                         let resolution =
                             builtin_driver::text(out, input, labels, ours, base, theirs, self.options.text);
                         (Pick::Buffer, resolution)
@@ -334,7 +337,6 @@ pub(super) mod inner {
                         (pick, resolution)
                     }
                     BuiltinDriver::Union => {
-                        let ((base, ours), theirs) = base.zip(ours).zip(theirs).expect("would use binary if missing");
                         let resolution = builtin_driver::text(
                             out,
                             input,
@@ -353,11 +355,15 @@ pub(super) mod inner {
             }
         }
 
-        fn is_binary_buf(buf: Option<&[u8]>) -> bool {
-            buf.map_or(true, |buf| {
-                let buf = &buf[..buf.len().min(8000)];
-                buf.contains(&0)
-            })
+        fn is_binary_buf(data: resource::Data<'_>) -> bool {
+            match data {
+                Data::Missing => false,
+                Data::Buffer(buf) => {
+                    let buf = &buf[..buf.len().min(8000)];
+                    buf.contains(&0)
+                }
+                Data::TooLarge { .. } => true,
+            }
         }
     }
 }
@@ -412,13 +418,45 @@ impl<'parent> PlatformRef<'parent> {
     }
 
     /// Using a `pick` obtained from [`merge()`](Self::merge), obtain the respective buffer suitable for reading or copying.
-    /// Return `None` if the buffer is too large, or if the `pick` corresponds to a buffer (that was written separately).
-    pub fn buffer_by_pick(&self, pick: inner::builtin_merge::Pick) -> Option<&'parent [u8]> {
+    /// Return `Ok(None)`  if the `pick` corresponds to a buffer (that was written separately).
+    /// Return `Err(())` if the buffer is *too large*, so it was never read.
+    #[allow(clippy::result_unit_err)]
+    pub fn buffer_by_pick(&self, pick: inner::builtin_merge::Pick) -> Result<Option<&'parent [u8]>, ()> {
         match pick {
-            inner::builtin_merge::Pick::Ancestor => self.ancestor.data.as_slice(),
-            inner::builtin_merge::Pick::Ours => self.current.data.as_slice(),
-            inner::builtin_merge::Pick::Theirs => self.other.data.as_slice(),
-            inner::builtin_merge::Pick::Buffer => None,
+            inner::builtin_merge::Pick::Ancestor => self.ancestor.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Ours => self.current.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Theirs => self.other.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Buffer => Ok(None),
+        }
+    }
+
+    /// Use `pick` to return the object id of the merged result, assuming that `buf` was passed as `out` to [merge()](Self::merge).
+    /// In case of binary or large files, this will simply be the existing ID of the resource.
+    /// In case of resources available in the object DB for binary merges, the object ID will be returned.
+    /// If new content was produced due to a content merge, `buf` will be written out
+    /// to the object database using `write_blob`.
+    /// Beware that the returned ID could be `Ok(None)` if the underlying resource was loaded
+    /// from the worktree *and* was too large so it was never loaded from disk.
+    /// `Ok(None)` will also be returned if one of the resources was missing.
+    /// `write_blob()` is used to turn buffers.
+    pub fn id_by_pick<E>(
+        &self,
+        pick: inner::builtin_merge::Pick,
+        buf: &[u8],
+        mut write_blob: impl FnMut(&[u8]) -> Result<gix_hash::ObjectId, E>,
+    ) -> Result<Option<gix_hash::ObjectId>, E> {
+        let field = match pick {
+            inner::builtin_merge::Pick::Ancestor => &self.ancestor,
+            inner::builtin_merge::Pick::Ours => &self.current,
+            inner::builtin_merge::Pick::Theirs => &self.other,
+            inner::builtin_merge::Pick::Buffer => return write_blob(buf).map(Some),
+        };
+        use crate::blob::platform::resource::Data;
+        match field.data {
+            Data::TooLarge { .. } | Data::Missing if !field.id.is_null() => Ok(Some(field.id.to_owned())),
+            Data::TooLarge { .. } | Data::Missing => Ok(None),
+            Data::Buffer(buf) if field.id.is_null() => write_blob(buf).map(Some),
+            Data::Buffer(_) => Ok(Some(field.id.to_owned())),
         }
     }
 }

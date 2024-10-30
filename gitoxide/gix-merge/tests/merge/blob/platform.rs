@@ -5,12 +5,14 @@ use gix_merge::blob::Platform;
 mod merge {
     use crate::blob::platform::new_platform;
     use crate::blob::util::ObjectDb;
+    use crate::hex_to_id;
     use bstr::{BStr, ByteSlice};
     use gix_merge::blob::builtin_driver::text::ConflictStyle;
     use gix_merge::blob::platform::builtin_merge::Pick;
     use gix_merge::blob::platform::DriverChoice;
     use gix_merge::blob::{builtin_driver, pipeline, platform, BuiltinDriver, Resolution, ResourceKind};
     use gix_object::tree::EntryKind;
+    use std::convert::Infallible;
     use std::process::Stdio;
 
     #[test]
@@ -66,8 +68,9 @@ mod merge {
     #[test]
     fn builtin_with_conflict() -> crate::Result {
         let mut platform = new_platform(None, pipeline::Mode::ToGit);
+        let non_existing_ancestor_id = hex_to_id("ffffffffffffffffffffffffffffffffffffffff");
         platform.set_resource(
-            gix_hash::Kind::Sha1.null(),
+            non_existing_ancestor_id,
             EntryKind::Blob,
             "b".into(),
             ResourceKind::CommonAncestorOrBase,
@@ -152,20 +155,56 @@ theirs
         );
         assert!(buf.is_empty(), "it tells us where to get the content from");
         assert_eq!(
-            platform_ref.buffer_by_pick(res.0).unwrap().as_bstr(),
+            platform_ref.buffer_by_pick(res.0).unwrap().unwrap().as_bstr(),
             "ours",
             "getting access to the content is simplified"
         );
+        assert_eq!(
+            platform_ref
+                .id_by_pick(res.0, &buf, |_buf| -> Result<_, Infallible> {
+                    panic!("no need to write buffer")
+                })
+                .unwrap()
+                .unwrap(),
+            hex_to_id("424860eef4edb9f5a2dacbbd6dc8c2d2e7645035"),
+            "there is no need to write a buffer here, it just returns one of our inputs"
+        );
 
-        for (expected, expected_pick, resolve) in [
-            ("ours", Pick::Ours, builtin_driver::binary::ResolveWith::Ours),
-            ("theirs", Pick::Theirs, builtin_driver::binary::ResolveWith::Theirs),
-            ("b\n", Pick::Ancestor, builtin_driver::binary::ResolveWith::Ancestor),
+        for (expected, expected_pick, resolve, expected_id) in [
+            (
+                "ours",
+                Pick::Ours,
+                builtin_driver::binary::ResolveWith::Ours,
+                hex_to_id("424860eef4edb9f5a2dacbbd6dc8c2d2e7645035"),
+            ),
+            (
+                "theirs",
+                Pick::Theirs,
+                builtin_driver::binary::ResolveWith::Theirs,
+                hex_to_id("228068dbe790983c15535164cd483eb77ade97e4"),
+            ),
+            (
+                "b\n",
+                Pick::Ancestor,
+                builtin_driver::binary::ResolveWith::Ancestor,
+                non_existing_ancestor_id,
+            ),
         ] {
             platform_ref.options.resolve_binary_with = Some(resolve);
             let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
             assert_eq!(res, (expected_pick, Resolution::Complete));
-            assert_eq!(platform_ref.buffer_by_pick(res.0).unwrap().as_bstr(), expected);
+            assert_eq!(platform_ref.buffer_by_pick(res.0).unwrap().unwrap().as_bstr(), expected);
+
+            assert_eq!(
+                platform_ref
+                    .id_by_pick(res.0, &buf, |_buf| -> Result<_, Infallible> {
+                        panic!("no need to write buffer")
+                    })
+                    .unwrap()
+                    .unwrap(),
+                expected_id,
+                "{expected}: each input has an id, so it's just returned as is without handling buffers"
+            );
         }
 
         Ok(())
@@ -233,6 +272,18 @@ theirs
             res,
             (Pick::Buffer, Resolution::Complete),
             "merge drivers deal with binary themselves"
+        );
+        assert_eq!(
+            platform_ref.buffer_by_pick(res.0),
+            Ok(None),
+            "This indicates the buffer must be read"
+        );
+
+        let marker = hex_to_id("ffffffffffffffffffffffffffffffffffffffff");
+        assert_eq!(
+            platform_ref.id_by_pick(res.0, &buf, |_buf| Ok::<_, Infallible>(marker)),
+            Ok(Some(marker)),
+            "the id is created by hashing the merge buffer"
         );
         let mut lines = cleaned_driver_lines(&buf)?;
         for tmp_file in lines.by_ref().take(3) {
