@@ -18,8 +18,6 @@ pub struct Options {
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
-    #[error("At least one resource was too large to be processed")]
-    ResourceTooLarge,
     #[error(transparent)]
     PrepareExternalDriver(#[from] inner::prepare_external_driver::Error),
     #[error("Failed to launch external merge driver: {cmd}")]
@@ -299,16 +297,19 @@ pub(super) mod inner {
             /// Returns `None` if one of the buffers is too large, making a merge impossible.
             /// Note that if the *pick* wasn't [`Pick::Buffer`], then `out` will not have been cleared,
             /// and one has to take the data from the respective resource.
+            ///
+            /// If there is no buffer loaded as the resource is too big, we will automatically perform a binary merge
+            /// which effectively chooses our side by default.
             pub fn builtin_merge(
                 &self,
                 driver: BuiltinDriver,
                 out: &mut Vec<u8>,
                 input: &mut imara_diff::intern::InternedInput<&'parent [u8]>,
                 labels: builtin_driver::text::Labels<'_>,
-            ) -> Option<(Pick, Resolution)> {
-                let base = self.ancestor.data.as_slice()?;
-                let ours = self.current.data.as_slice()?;
-                let theirs = self.other.data.as_slice()?;
+            ) -> (Pick, Resolution) {
+                let base = self.ancestor.data.as_slice();
+                let ours = self.current.data.as_slice();
+                let theirs = self.other.data.as_slice();
                 let driver = if driver != BuiltinDriver::Binary
                     && (is_binary_buf(ours) || is_binary_buf(theirs) || is_binary_buf(base))
                 {
@@ -316,8 +317,9 @@ pub(super) mod inner {
                 } else {
                     driver
                 };
-                Some(match driver {
+                match driver {
                     BuiltinDriver::Text => {
+                        let ((base, ours), theirs) = base.zip(ours).zip(theirs).expect("would use binary if missing");
                         let resolution =
                             builtin_driver::text(out, input, labels, ours, base, theirs, self.options.text);
                         (Pick::Buffer, resolution)
@@ -332,6 +334,7 @@ pub(super) mod inner {
                         (pick, resolution)
                     }
                     BuiltinDriver::Union => {
+                        let ((base, ours), theirs) = base.zip(ours).zip(theirs).expect("would use binary if missing");
                         let resolution = builtin_driver::text(
                             out,
                             input,
@@ -346,13 +349,15 @@ pub(super) mod inner {
                         );
                         (Pick::Buffer, resolution)
                     }
-                })
+                }
             }
         }
 
-        fn is_binary_buf(buf: &[u8]) -> bool {
-            let buf = &buf[..buf.len().min(8000)];
-            buf.contains(&0)
+        fn is_binary_buf(buf: Option<&[u8]>) -> bool {
+            buf.map_or(true, |buf| {
+                let buf = &buf[..buf.len().min(8000)];
+                buf.contains(&0)
+            })
         }
     }
 }
@@ -400,9 +405,7 @@ impl<'parent> PlatformRef<'parent> {
             Err(builtin) => {
                 let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
                 out.clear();
-                let (pick, resolution) = self
-                    .builtin_merge(builtin, out, &mut input, labels)
-                    .ok_or(Error::ResourceTooLarge)?;
+                let (pick, resolution) = self.builtin_merge(builtin, out, &mut input, labels);
                 Ok((pick, resolution))
             }
         }

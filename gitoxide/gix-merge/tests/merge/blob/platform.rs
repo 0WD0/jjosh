@@ -295,11 +295,7 @@ theirs
 
         let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
         let res = platform_ref.builtin_merge(BuiltinDriver::Text, &mut buf, &mut input, Default::default());
-        assert_eq!(
-            res,
-            Some((Pick::Buffer, Resolution::Complete)),
-            "both versions are deleted"
-        );
+        assert_eq!(res, (Pick::Buffer, Resolution::Complete), "both versions are deleted");
         assert!(buf.is_empty(), "the result is the same on direct invocation");
 
         let print_all = "for arg in $@ %O %A %B %L %P %S %X %Y %F; do echo $arg; done";
@@ -358,24 +354,27 @@ theirs
         assert_eq!(platform_ref.other.data, platform::resource::Data::TooLarge { size: 12 });
 
         let mut out = Vec::new();
-        let err = platform_ref
-            .merge(&mut out, Default::default(), &Default::default())
-            .unwrap_err();
-        assert!(matches!(err, platform::merge::Error::ResourceTooLarge));
+        let res = platform_ref.merge(&mut out, Default::default(), &Default::default())?;
+        assert_eq!(
+            res,
+            (Pick::Ours, Resolution::Conflict),
+            "this is the default for binary merges, which are used in this case"
+        );
 
         let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
         assert_eq!(
             platform_ref.builtin_merge(BuiltinDriver::Text, &mut out, &mut input, Default::default(),),
-            None
+            res,
+            "we can't enforce it, it will just default to using binary"
         );
 
         let err = platform_ref
             .prepare_external_driver("bogus".into(), Default::default(), Default::default())
             .unwrap_err();
-        assert!(matches!(
-            err,
-            platform::prepare_external_driver::Error::ResourceTooLarge { .. }
-        ));
+        assert!(
+            matches!(err, platform::prepare_external_driver::Error::ResourceTooLarge { .. }),
+            "however, for external drivers, resources can still be too much to handle, until we learn how to stream them"
+        );
         Ok(())
     }
 
