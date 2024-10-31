@@ -1,5 +1,6 @@
 use gix::bstr::{BString, ByteSlice};
 use gix::objs::tree::EntryMode;
+use gix::odb::store::RefreshMode;
 use gix::prelude::ObjectIdExt;
 
 pub fn tree(
@@ -9,6 +10,7 @@ pub fn tree(
     new_treeish: BString,
 ) -> anyhow::Result<()> {
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
+    repo.objects.refresh = RefreshMode::Never;
 
     let old_tree_id = repo.rev_parse_single(old_treeish.as_bstr())?;
     let new_tree_id = repo.rev_parse_single(new_treeish.as_bstr())?;
