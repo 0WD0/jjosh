@@ -338,14 +338,21 @@ Check out the [performance discussion][gix-diff-performance] as well.
 
 ### gix-merge
 
-* [x] three-way merge analysis of **blobs** with choice of how to resolve conflicts
+* [x] three-way content-merge analysis of **blobs** with choice of how to resolve conflicts
+    - [x] respect git attributes and drivers.
     - [ ] choose how to resolve conflicts on the data-structure
-    - [ ] produce a new blob based on data-structure containing possible resolutions
+    - [ ] more efficient handling of paths with `merge=binary` attributes (do not load them into memory)
+    - [x] produce a new blob based on data-structure containing possible resolutions
         - [x] `merge` style
         - [x] `diff3` style
         - [x] `zdiff` style
+    - [ ] various newlines-related options during the merge (see https://git-scm.com/docs/git-merge#Documentation/git-merge.txt-ignore-space-change).
     - [ ] a way to control inter-hunk merging based on proximity (maybe via `gix-diff` feature which could use the same)
-* [ ] diff-heuristics match Git perfectly
+* [x] **tree**-diff-heuristics match Git for its test-cases
+    - [ ] a way to generate an index with stages 
+        - *currently the data it provides won't generate index entries, and possibly can't be used for it yet*
+    - [ ] submodule merges (*right now they count as conflicts if they differ*)
+* [x] **commits** - with handling of multiple merge bases by recursive merge-base merge
 * [x] API documentation
     * [ ] Examples
 
