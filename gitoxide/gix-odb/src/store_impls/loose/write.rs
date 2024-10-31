@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 use super::Store;
 use crate::store_impls::loose;
 
-/// Returned by the [`crate::Write`] trait implementation of [`Store`]
+/// Returned by the [`gix_object::Write`] trait implementation of [`Store`]
 #[derive(thiserror::Error, Debug)]
 #[allow(missing_docs)]
 pub enum Error {

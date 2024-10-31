@@ -9,7 +9,8 @@ use anyhow::{anyhow, Result};
 use gix::{
     hash::ObjectId,
     object, objs, odb,
-    odb::{loose, pack, Write},
+    odb::{loose, pack},
+    prelude::Write,
     NestedProgress,
 };
 
@@ -96,8 +97,8 @@ enum OutputWriter {
     Sink(odb::Sink),
 }
 
-impl gix::odb::Write for OutputWriter {
-    fn write_buf(&self, kind: object::Kind, from: &[u8]) -> Result<ObjectId, gix::odb::write::Error> {
+impl gix::objs::Write for OutputWriter {
+    fn write_buf(&self, kind: object::Kind, from: &[u8]) -> Result<ObjectId, gix::objs::write::Error> {
         match self {
             OutputWriter::Loose(db) => db.write_buf(kind, from),
             OutputWriter::Sink(db) => db.write_buf(kind, from),
@@ -109,7 +110,7 @@ impl gix::odb::Write for OutputWriter {
         kind: object::Kind,
         size: u64,
         from: &mut dyn Read,
-    ) -> Result<ObjectId, gix::odb::write::Error> {
+    ) -> Result<ObjectId, gix::objs::write::Error> {
         match self {
             OutputWriter::Loose(db) => db.write_stream(kind, size, from),
             OutputWriter::Sink(db) => db.write_stream(kind, size, from),

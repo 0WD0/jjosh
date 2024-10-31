@@ -8,7 +8,7 @@ use crate::store;
 mod error {
     use crate::{loose, store};
 
-    /// The error returned by the [dynamic Store's][crate::Store] [`Write`][crate::Write] implementation.
+    /// The error returned by the [dynamic Store's][crate::Store] [`Write`](gix_object::Write) implementation.
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
