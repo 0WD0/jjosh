@@ -202,16 +202,16 @@ where
     }
 }
 
-impl<T> crate::Write for Proxy<T>
+impl<T> gix_object::Write for Proxy<T>
 where
-    T: crate::Write,
+    T: gix_object::Write,
 {
     fn write_stream(
         &self,
         kind: gix_object::Kind,
         size: u64,
         from: &mut dyn std::io::Read,
-    ) -> Result<gix_hash::ObjectId, crate::write::Error> {
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let Some(map) = self.memory.as_ref() else {
             return self.inner.write_stream(kind, size, from);
         };
