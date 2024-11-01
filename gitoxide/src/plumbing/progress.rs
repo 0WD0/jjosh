@@ -29,7 +29,7 @@ impl Display for Usage {
             }
             InUse(deviation) => {
                 if !deviation.is_empty() {
-                    write!(f, "❗️❗️❗️{deviation}")?;
+                    write!(f, "❗️{deviation}")?;
                 }
             }
         }
@@ -411,12 +411,12 @@ static GIT_CONFIG: &[Record] = &[
         usage: Planned("Required for big monorepos, and typically used in conjunction with sparse indices")
     },
     Record {
-        config: "merge.renameLimit",
-        usage: Planned("The same as 'diff.renameLimit'")
+        config: "merge.directoryRenames",
+        usage: NotPlanned("On demand")
     },
     Record {
-        config: "merge.renames",
-        usage: Planned("The same as 'diff.renames'")
+        config: "merge.verbosity",
+        usage: NotApplicable("Only useful for Git CLI")
     },
     Record {
         config: "status.renameLimit",
@@ -431,7 +431,7 @@ static GIT_CONFIG: &[Record] = &[
         usage: Planned("Currently we are likely to expose passwords in errors or in other places, and it's better to by default not do that")
     },
     Record {
-        config: "diff.*.cachetextconv",
+        config: "diff.*.cacheTextConv",
         usage: NotPlanned("It seems to slow to do that, and persisting results to save a relatively cheap computation doesn't seem right")
     },
 ];
