@@ -357,6 +357,16 @@ pub mod merge {
         Theirs,
     }
 
+    impl From<ResolveWith> for gix::merge::blob::builtin_driver::text::Conflict {
+        fn from(value: ResolveWith) -> Self {
+            match value {
+                ResolveWith::Union => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithUnion,
+                ResolveWith::Ours => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithOurs,
+                ResolveWith::Theirs => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithTheirs,
+            }
+        }
+    }
+
     #[derive(Debug, clap::Parser)]
     #[command(about = "perform merges of various kinds")]
     pub struct Platform {
@@ -379,6 +389,28 @@ pub mod merge {
             #[clap(value_name = "BASE", value_parser = crate::shared::AsBString)]
             base: BString,
             /// A path or revspec to their file.
+            #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
+            theirs: BString,
+        },
+
+        /// Merge a tree by specifying ours, base and theirs, writing it to the object database.
+        Tree {
+            /// Keep all objects to be written in memory to avoid any disk IO.
+            ///
+            /// Note that the resulting tree won't be available or inspectable.
+            #[clap(long, short = 'm')]
+            in_memory: bool,
+            /// Decide how to resolve content conflicts. If unset, write conflict markers and fail.
+            #[clap(long, short = 'c')]
+            resolve_content_with: Option<ResolveWith>,
+
+            /// A revspec to our treeish.
+            #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
+            ours: BString,
+            /// A revspec to the base as treeish for both ours and theirs.
+            #[clap(value_name = "BASE", value_parser = crate::shared::AsBString)]
+            base: BString,
+            /// A revspec to their treeish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
             theirs: BString,
         },

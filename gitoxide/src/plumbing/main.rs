@@ -164,20 +164,39 @@ pub fn main() -> Result<()> {
                         repository(Mode::Lenient)?,
                         out,
                         format,
-                        resolve_with.map(|c| match c {
-                            merge::ResolveWith::Union => {
-                                gix::merge::blob::builtin_driver::text::Conflict::ResolveWithUnion
-                            }
-                            merge::ResolveWith::Ours => {
-                                gix::merge::blob::builtin_driver::text::Conflict::ResolveWithOurs
-                            }
-                            merge::ResolveWith::Theirs => {
-                                gix::merge::blob::builtin_driver::text::Conflict::ResolveWithTheirs
-                            }
-                        }),
+                        resolve_with.map(Into::into),
                         base,
                         ours,
                         theirs,
+                    )
+                },
+            ),
+            merge::SubCommands::Tree {
+                in_memory,
+                resolve_content_with,
+                ours,
+                base,
+                theirs,
+            } => prepare_and_run(
+                "merge-tree",
+                trace,
+                verbose,
+                progress,
+                progress_keep_open,
+                None,
+                move |_progress, out, err| {
+                    core::repository::merge::tree(
+                        repository(Mode::Lenient)?,
+                        out,
+                        err,
+                        base,
+                        ours,
+                        theirs,
+                        core::repository::merge::tree::Options {
+                            format,
+                            resolve_content_merge: resolve_content_with.map(Into::into),
+                            in_memory,
+                        },
                     )
                 },
             ),
