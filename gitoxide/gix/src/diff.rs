@@ -122,7 +122,7 @@ pub mod rename {
 
 ///
 #[cfg(feature = "blob-diff")]
-mod utils {
+pub(crate) mod utils {
     use gix_diff::{rewrites::Copies, Rewrites};
 
     use crate::{
@@ -172,10 +172,18 @@ mod utils {
         config: &gix_config::File<'static>,
         lenient: bool,
     ) -> Result<Option<Rewrites>, new_rewrites::Error> {
-        let key = "diff.renames";
+        new_rewrites_inner(config, lenient, &Diff::RENAMES, &Diff::RENAME_LIMIT)
+    }
+
+    pub fn new_rewrites_inner(
+        config: &gix_config::File<'static>,
+        lenient: bool,
+        renames: &'static crate::config::tree::diff::Renames,
+        rename_limit: &'static crate::config::tree::keys::UnsignedInteger,
+    ) -> Result<Option<Rewrites>, new_rewrites::Error> {
         let copies = match config
-            .boolean(key)
-            .map(|value| Diff::RENAMES.try_into_renames(value))
+            .boolean(renames)
+            .map(|value| renames.try_into_renames(value))
             .transpose()
             .with_leniency(lenient)?
         {
@@ -191,8 +199,8 @@ mod utils {
         Ok(Rewrites {
             copies,
             limit: config
-                .integer("diff.renameLimit")
-                .map(|value| Diff::RENAME_LIMIT.try_into_usize(value))
+                .integer(rename_limit)
+                .map(|value| rename_limit.try_into_usize(value))
                 .transpose()
                 .with_leniency(lenient)?
                 .unwrap_or(default.limit),

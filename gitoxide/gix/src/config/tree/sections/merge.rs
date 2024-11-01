@@ -1,7 +1,7 @@
 use crate::config;
 use crate::config::tree::SubSectionRequirement;
 use crate::config::{
-    tree::{diff, keys, Key, Merge, Section},
+    tree::{keys, Key, Merge, Section},
     Tree,
 };
 
@@ -15,7 +15,8 @@ impl Merge {
         "The limit is actually squared, so 1000 stands for up to 1 million diffs if fuzzy rename tracking is enabled",
     );
     /// The `merge.renames` key.
-    pub const RENAMES: diff::Renames = diff::Renames::new_renames("renames", &config::Tree::MERGE);
+    #[cfg(feature = "blob-merge")]
+    pub const RENAMES: super::diff::Renames = super::diff::Renames::new_renames("renames", &config::Tree::MERGE);
     /// The `merge.renormalize` key
     pub const RENORMALIZE: keys::Boolean = keys::Boolean::new_boolean("renormalize", &Tree::MERGE);
     /// The `merge.default` key
@@ -43,6 +44,7 @@ impl Section for Merge {
     fn keys(&self) -> &[&dyn Key] {
         &[
             &Self::RENAME_LIMIT,
+            #[cfg(feature = "blob-merge")]
             &Self::RENAMES,
             &Self::RENORMALIZE,
             &Self::DEFAULT,

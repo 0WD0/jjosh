@@ -1,8 +1,9 @@
 use crate::config::cache::util::ApplyLeniencyDefault;
 use crate::config::tree;
-use crate::repository::{blob_merge_options, merge_resource_cache};
+use crate::repository::{blob_merge_options, merge_resource_cache, merge_trees, tree_merge_options};
 use crate::Repository;
 use gix_merge::blob::builtin_driver::text;
+use gix_object::Write;
 use std::borrow::Cow;
 
 /// Merge-utilities
@@ -10,7 +11,7 @@ impl Repository {
     /// Create a resource cache that can hold the three resources needed for a three-way merge. `worktree_roots`
     /// determines which side of the merge is read from the worktree, or from which worktree.
     ///
-    /// The platform can be used to setup resources and finally perform a merge.
+    /// The platform can be used to set up resources and finally perform a merge among blobs.
     ///
     /// Note that the current index is used for attribute queries.
     pub fn merge_resource_cache(
@@ -55,7 +56,8 @@ impl Repository {
         Ok(gix_merge::blob::Platform::new(filter, mode, attrs, drivers, options))
     }
 
-    /// Return options for use with [`gix_merge::blob::PlatformRef::merge()`].
+    /// Return options for use with [`gix_merge::blob::PlatformRef::merge()`], accessible through
+    /// [merge_resource_cache()](Self::merge_resource_cache).
     pub fn blob_merge_options(&self) -> Result<gix_merge::blob::platform::merge::Options, blob_merge_options::Error> {
         Ok(gix_merge::blob::platform::merge::Options {
             is_virtual_ancestor: false,
@@ -78,5 +80,59 @@ impl Repository {
                 },
             },
         })
+    }
+
+    /// Read all relevant configuration options to instantiate options for use in [`merge_trees()`](Self::merge_trees).
+    pub fn tree_merge_options(&self) -> Result<gix_merge::tree::Options, tree_merge_options::Error> {
+        Ok(gix_merge::tree::Options {
+            rewrites: crate::diff::utils::new_rewrites_inner(
+                &self.config.resolved,
+                self.config.lenient_config,
+                &tree::Merge::RENAMES,
+                &tree::Merge::RENAME_LIMIT,
+            )?,
+            blob_merge: self.blob_merge_options()?,
+            blob_merge_command_ctx: self.command_context()?,
+            fail_on_conflict: None,
+            marker_size_multiplier: 0,
+            symlink_conflicts: None,
+            allow_lossy_resolution: false,
+        })
+    }
+
+    /// Merge `our_tree` and `their_tree` together, assuming they have the same `ancestor_tree`, to yield a new tree
+    /// which is provided as [tree editor](gix_object::tree::Editor) to inspect and finalize results at will.
+    /// No change to the worktree or index is made, but objects may be written to the object database as merge results
+    /// are stored.
+    /// If these changes should not be observable outside of this instance, consider [enabling object memory](Self::with_object_memory).
+    ///
+    /// Note that `ancestor_tree` can be the [empty tree hash](gix_hash::ObjectId::empty_tree) to indicate no common ancestry.
+    ///
+    /// `labels` are typically chosen to identify the refs or names for `our_tree` and `their_tree` and `ancestor_tree` respectively.
+    ///
+    /// `options` should be initialized with [`tree_merge_options()`](Self::tree_merge_options()).
+    // TODO: Use `crate::merge::Options` here and add niceties such as setting the resolution strategy.
+    pub fn merge_trees(
+        &self,
+        ancestor_tree: impl AsRef<gix_hash::oid>,
+        our_tree: impl AsRef<gix_hash::oid>,
+        their_tree: impl AsRef<gix_hash::oid>,
+        labels: gix_merge::blob::builtin_driver::text::Labels<'_>,
+        options: gix_merge::tree::Options,
+    ) -> Result<gix_merge::tree::Outcome<'_>, merge_trees::Error> {
+        let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
+        let mut blob_merge = self.merge_resource_cache(Default::default())?;
+        Ok(gix_merge::tree(
+            ancestor_tree.as_ref(),
+            our_tree.as_ref(),
+            their_tree.as_ref(),
+            labels,
+            self,
+            |buf| self.write_buf(gix_object::Kind::Blob, buf),
+            &mut Default::default(),
+            &mut diff_cache,
+            &mut blob_merge,
+            options,
+        )?)
     }
 }
