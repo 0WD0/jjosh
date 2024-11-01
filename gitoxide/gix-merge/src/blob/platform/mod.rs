@@ -95,7 +95,7 @@ impl Platform {
             attr_stack,
             attrs: {
                 let mut out = attributes::search::Outcome::default();
-                out.initialize_with_selection(&Default::default(), Some("merge"));
+                out.initialize_with_selection(&Default::default(), ["merge", "conflict-marker-size"]);
                 out
             },
             options,

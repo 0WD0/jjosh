@@ -514,7 +514,7 @@ mod prepare_merge {
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
             EntryKind::Blob,
-            "just-set".into(),
+            "ancestor does not matter for attributes".into(),
             ResourceKind::CommonAncestorOrBase,
             &gix_object::find::Never,
         )?;
@@ -522,7 +522,7 @@ mod prepare_merge {
         platform.set_resource(
             gix_hash::Kind::Sha1.null(),
             EntryKind::Blob,
-            "does not matter for driver".into(),
+            "just-set".into(),
             ResourceKind::CurrentOrOurs,
             &gix_object::find::Never,
         )?;
@@ -539,6 +539,11 @@ mod prepare_merge {
             prepared.driver,
             DriverChoice::BuiltIn(BuiltinDriver::Text),
             "`merge` attribute means text"
+        );
+        assert_eq!(
+            prepared.options.text.conflict.marker_size(),
+            Some(32),
+            "marker sizes are picked up from attributes as well"
         );
 
         platform.set_resource(
