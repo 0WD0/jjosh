@@ -11,7 +11,7 @@ echo unset > unset
 echo unspecified > unspecified
 
 cat <<EOF >.gitattributes
-just-set merge
+just-set merge conflict-marker-size=32
 b merge=b
 union merge=union
 missing merge=missing

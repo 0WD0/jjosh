@@ -113,6 +113,38 @@ pub mod merge_resource_cache {
 }
 
 ///
+#[cfg(feature = "blob-merge")]
+pub mod merge_trees {
+    /// The error returned by [Repository::merge_trees()](crate::Repository::merge_trees()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        MergeResourceCache(#[from] super::merge_resource_cache::Error),
+        #[error(transparent)]
+        DiffResourceCache(#[from] super::diff_resource_cache::Error),
+        #[error(transparent)]
+        TreeMerge(#[from] gix_merge::tree::Error),
+    }
+}
+
+///
+#[cfg(feature = "blob-merge")]
+pub mod tree_merge_options {
+    /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        BlobMergeOptions(#[from] super::blob_merge_options::Error),
+        #[error(transparent)]
+        RewritesConfig(#[from] crate::diff::new_rewrites::Error),
+        #[error(transparent)]
+        CommandContext(#[from] crate::config::command_context::Error),
+    }
+}
+
+///
 #[cfg(feature = "blob-diff")]
 pub mod diff_resource_cache {
     /// The error returned by [Repository::diff_resource_cache()](crate::Repository::diff_resource_cache()).

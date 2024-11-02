@@ -1,7 +1,10 @@
+use crate::blob::builtin_driver::text::Conflict;
 use crate::blob::platform::{merge, DriverChoice, ResourceRef};
 use crate::blob::{BuiltinDriver, Platform, PlatformRef, ResourceKind};
 use bstr::{BStr, BString, ByteSlice};
 use gix_filter::attributes;
+use std::num::NonZeroU8;
+use std::str::FromStr;
 
 /// The error returned by [Platform::prepare_merge_state()](Platform::prepare_merge()).
 #[derive(Debug, thiserror::Error)]
@@ -45,12 +48,14 @@ impl Platform {
                 rela_path: current.rela_path.clone(),
             })?;
         entry.matching_attributes(&mut self.attrs);
-        let attr = self.attrs.iter_selected().next().expect("pre-initialized with 'diff'");
-        let mut driver = match attr.assignment.state {
+        let mut attrs = self.attrs.iter_selected();
+        let merge_attr = attrs.next().expect("pre-initialized with 'merge'");
+        let marker_size_attr = attrs.next().expect("pre-initialized with 'conflict-marker-size'");
+        let mut driver = match merge_attr.assignment.state {
             attributes::StateRef::Set => DriverChoice::BuiltIn(BuiltinDriver::Text),
             attributes::StateRef::Unset => DriverChoice::BuiltIn(BuiltinDriver::Binary),
             attributes::StateRef::Value(_) | attributes::StateRef::Unspecified => {
-                let name = match attr.assignment.state {
+                let name = match merge_attr.assignment.state {
                     attributes::StateRef::Value(name) => Some(name.as_bstr()),
                     attributes::StateRef::Unspecified => {
                         self.options.default_driver.as_ref().map(|name| name.as_bstr())
@@ -60,6 +65,17 @@ impl Platform {
                 self.find_driver_by_name(name)
             }
         };
+        if let attributes::StateRef::Value(value) = marker_size_attr.assignment.state {
+            if let Some(value) = u8::from_str(value.as_bstr().to_str_lossy().as_ref())
+                .ok()
+                .and_then(NonZeroU8::new)
+            {
+                match &mut options.text.conflict {
+                    Conflict::Keep { marker_size, .. } => *marker_size = value,
+                    Conflict::ResolveWithOurs | Conflict::ResolveWithTheirs | Conflict::ResolveWithUnion => {}
+                }
+            }
+        }
         if let Some(recursive_driver_name) = match driver {
             DriverChoice::Index(idx) => self.drivers.get(idx),
             _ => None,

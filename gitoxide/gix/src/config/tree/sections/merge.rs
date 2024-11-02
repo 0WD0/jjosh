@@ -6,6 +6,17 @@ use crate::config::{
 };
 
 impl Merge {
+    /// The `merge.renameLimit` key.
+    pub const RENAME_LIMIT: keys::UnsignedInteger = keys::UnsignedInteger::new_unsigned_integer(
+        "renameLimit",
+        &config::Tree::MERGE,
+    )
+    .with_note(
+        "The limit is actually squared, so 1000 stands for up to 1 million diffs if fuzzy rename tracking is enabled",
+    );
+    /// The `merge.renames` key.
+    #[cfg(feature = "blob-merge")]
+    pub const RENAMES: super::diff::Renames = super::diff::Renames::new_renames("renames", &config::Tree::MERGE);
     /// The `merge.renormalize` key
     pub const RENORMALIZE: keys::Boolean = keys::Boolean::new_boolean("renormalize", &Tree::MERGE);
     /// The `merge.default` key
@@ -32,11 +43,16 @@ impl Section for Merge {
 
     fn keys(&self) -> &[&dyn Key] {
         &[
+            &Self::RENAME_LIMIT,
+            #[cfg(feature = "blob-merge")]
+            &Self::RENAMES,
             &Self::RENORMALIZE,
             &Self::DEFAULT,
             &Self::DRIVER_NAME,
             &Self::DRIVER_COMMAND,
             &Self::DRIVER_RECURSIVE,
+            #[cfg(feature = "blob-merge")]
+            &Self::CONFLICT_STYLE,
         ]
     }
 }

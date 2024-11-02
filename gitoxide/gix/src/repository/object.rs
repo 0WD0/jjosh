@@ -2,8 +2,8 @@
 use std::ops::DerefMut;
 
 use gix_hash::ObjectId;
-use gix_object::{Exists, Find, FindExt};
-use gix_odb::{Header, HeaderExt, Write};
+use gix_object::{Exists, Find, FindExt, Write};
+use gix_odb::{Header, HeaderExt};
 use gix_ref::{
     transaction::{LogChange, PreviousValue, RefLog},
     FullName,

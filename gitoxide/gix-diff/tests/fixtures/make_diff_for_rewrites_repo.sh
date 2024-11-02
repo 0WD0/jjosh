@@ -794,4 +794,16 @@ git -c diff.renames=1 show HEAD~2 > baseline-2.with-renames
 git -c diff.renames=0 show HEAD~4 > baseline.no-renames
 git -c diff.renames=1 show HEAD~4 > baseline.with-renames
 
+echo 1 >src/plumbing/main.rs
+echo 2 >src/plumbing/mod.rs
+echo 3 >src/plumbing/options.rs
+git add src/plumbing && git commit -m "r4-base"
+store_tree "r4-base"
+
+mkdir src/plumbing/options
+git mv src/plumbing/options.rs src/plumbing/options/mod.rs
+git mv src/plumbing src/plumbing-renamed
+git commit -m "r4-dir-rename-non-identity"
+store_tree "r4-dir-rename-non-identity"
+
 mv ../*.tree .

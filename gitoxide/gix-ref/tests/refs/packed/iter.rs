@@ -18,7 +18,7 @@ fn packed_refs_with_header() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_read_only_standalone("make_packed_ref_repository.sh")?;
     let buf = std::fs::read(dir.join(".git").join("packed-refs"))?;
     let iter = packed::Iter::new(&buf)?;
-    assert_eq!(iter.count(), 8, "it finds the right amount of items");
+    assert_eq!(iter.count(), 9, "it finds the right amount of items");
     Ok(())
 }
 
@@ -31,7 +31,8 @@ fn iter_prefix() -> crate::Result {
             .map(|r| r.map(|r| r.name.as_bstr()))
             .collect::<Result<Vec<_>, _>>()?,
         vec![
-            "refs/heads/d1".as_bytes().as_bstr(),
+            "refs/heads/A".as_bytes().as_bstr(),
+            "refs/heads/d1".into(),
             "refs/heads/dt1".into(),
             "refs/heads/main".into()
         ]

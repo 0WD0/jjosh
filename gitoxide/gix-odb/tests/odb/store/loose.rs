@@ -45,7 +45,8 @@ fn verify_integrity() {
 }
 
 mod write {
-    use gix_odb::{loose, Write};
+    use gix_object::Write;
+    use gix_odb::loose;
 
     use crate::store::loose::{locate_oid, object_ids};
 

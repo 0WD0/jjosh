@@ -33,8 +33,14 @@ pub mod data;
 ///
 pub mod find;
 
+///
+pub mod write {
+    /// The error type returned by the [`Write`](crate::Write) trait.
+    pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+}
+
 mod traits;
-pub use traits::{Exists, Find, FindExt, FindObjectOrHeader, Header as FindHeader, HeaderExt, WriteTo};
+pub use traits::{Exists, Find, FindExt, FindObjectOrHeader, Header as FindHeader, HeaderExt, Write, WriteTo};
 
 pub mod encode;
 pub(crate) mod parse;

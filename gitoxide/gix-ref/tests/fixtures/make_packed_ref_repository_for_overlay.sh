@@ -6,6 +6,7 @@ git init -q
 git checkout -q -b main
 git commit -q --allow-empty -m c1
 git branch newer-as-loose
+git branch A
 git tag -m "tag object" tag-object
 
 mkdir -p .git/refs/remotes/origin

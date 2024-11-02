@@ -34,7 +34,7 @@ impl Platform {
     ///   If an `id` is known, as the hash of the object as (would) be stored in `git`, then it should be provided
     ///   for completeness. Note that it's not expected to be in `objects` if `rela_path` is set and a worktree-root
     ///   is available for `kind`.
-    /// * `mode` is the kind of object (only blobs and links are allowed)
+    /// * `mode` is the kind of object (only blobs and executables are allowed)
     /// * `rela_path` is the relative path as seen from the (work)tree root.
     /// * `kind` identifies the side of the merge this resource will be used for.
     /// * `objects` provides access to the object database in case the resource can't be read from a worktree.
@@ -46,7 +46,6 @@ impl Platform {
         kind: ResourceKind,
         objects: &impl gix_object::FindObjectOrHeader,
     ) -> Result<(), Error> {
-        gix_trace::detail!("gix_merge::blob::Platform::set_resource()", %id, %rela_path);
         if !matches!(
             mode,
             gix_object::tree::EntryKind::Blob | gix_object::tree::EntryKind::BlobExecutable

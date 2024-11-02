@@ -15,6 +15,19 @@ fn a_lock_file_would_not_be_a_valid_partial_name() {
 }
 
 #[test]
+fn capitalized_branch() -> crate::Result {
+    let store = store_with_packed_refs()?;
+    let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");
+
+    assert_eq!(
+        packed_refs.find("A")?.name.as_bstr(),
+        "refs/heads/A",
+        "fully capitalized refs aren't just considered pseudorefs"
+    );
+    Ok(())
+}
+
+#[test]
 fn all_iterable_refs_can_be_found() -> crate::Result {
     let store = store_with_packed_refs()?;
     let packed_refs = store.open_packed_buffer()?.expect("packed-refs exist");

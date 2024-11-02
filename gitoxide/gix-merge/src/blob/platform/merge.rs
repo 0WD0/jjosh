@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub struct Options {
     /// If `true`, the resources being merged are contained in a virtual ancestor,
     /// which is the case when merge bases are merged into one.
+    /// This flag affects the choice of merge drivers.
     pub is_virtual_ancestor: bool,
     /// Determine how to resolve conflicts. If `None`, no conflict resolution is possible, and it picks a side.
     pub resolve_binary_with: Option<builtin_driver::binary::ResolveWith>,
@@ -18,8 +19,6 @@ pub struct Options {
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
-    #[error("At least one resource was too large to be processed")]
-    ResourceTooLarge,
     #[error(transparent)]
     PrepareExternalDriver(#[from] inner::prepare_external_driver::Error),
     #[error("Failed to launch external merge driver: {cmd}")]
@@ -268,6 +267,8 @@ pub(super) mod inner {
 
     ///
     pub mod builtin_merge {
+        use crate::blob::platform::resource;
+        use crate::blob::platform::resource::Data;
         use crate::blob::{builtin_driver, BuiltinDriver, PlatformRef, Resolution};
 
         /// An identifier to tell us how a merge conflict was resolved by [builtin_merge](PlatformRef::builtin_merge).
@@ -299,24 +300,29 @@ pub(super) mod inner {
             /// Returns `None` if one of the buffers is too large, making a merge impossible.
             /// Note that if the *pick* wasn't [`Pick::Buffer`], then `out` will not have been cleared,
             /// and one has to take the data from the respective resource.
+            ///
+            /// If there is no buffer loaded as the resource is too big, we will automatically perform a binary merge
+            /// which effectively chooses our side by default.
             pub fn builtin_merge(
                 &self,
                 driver: BuiltinDriver,
                 out: &mut Vec<u8>,
                 input: &mut imara_diff::intern::InternedInput<&'parent [u8]>,
                 labels: builtin_driver::text::Labels<'_>,
-            ) -> Option<(Pick, Resolution)> {
-                let base = self.ancestor.data.as_slice()?;
-                let ours = self.current.data.as_slice()?;
-                let theirs = self.other.data.as_slice()?;
+            ) -> (Pick, Resolution) {
+                let base = self.ancestor.data.as_slice().unwrap_or_default();
+                let ours = self.current.data.as_slice().unwrap_or_default();
+                let theirs = self.other.data.as_slice().unwrap_or_default();
                 let driver = if driver != BuiltinDriver::Binary
-                    && (is_binary_buf(ours) || is_binary_buf(theirs) || is_binary_buf(base))
+                    && (is_binary_buf(self.ancestor.data)
+                        || is_binary_buf(self.other.data)
+                        || is_binary_buf(self.current.data))
                 {
                     BuiltinDriver::Binary
                 } else {
                     driver
                 };
-                Some(match driver {
+                match driver {
                     BuiltinDriver::Text => {
                         let resolution =
                             builtin_driver::text(out, input, labels, ours, base, theirs, self.options.text);
@@ -346,13 +352,19 @@ pub(super) mod inner {
                         );
                         (Pick::Buffer, resolution)
                     }
-                })
+                }
             }
         }
 
-        fn is_binary_buf(buf: &[u8]) -> bool {
-            let buf = &buf[..buf.len().min(8000)];
-            buf.contains(&0)
+        fn is_binary_buf(data: resource::Data<'_>) -> bool {
+            match data {
+                Data::Missing => false,
+                Data::Buffer(buf) => {
+                    let buf = &buf[..buf.len().min(8000)];
+                    buf.contains(&0)
+                }
+                Data::TooLarge { .. } => true,
+            }
         }
     }
 }
@@ -374,15 +386,11 @@ impl<'parent> PlatformRef<'parent> {
         &self,
         out: &mut Vec<u8>,
         labels: builtin_driver::text::Labels<'_>,
-        context: gix_command::Context,
+        context: &gix_command::Context,
     ) -> Result<(inner::builtin_merge::Pick, Resolution), Error> {
-        let _span = gix_trace::coarse!(
-            "gix_merge::blob::PlatformRef::merge()",
-            current_rela_path = %self.current.rela_path
-        );
         match self.configured_driver() {
             Ok(driver) => {
-                let mut cmd = self.prepare_external_driver(driver.command.clone(), labels, context)?;
+                let mut cmd = self.prepare_external_driver(driver.command.clone(), labels, context.clone())?;
                 let status = cmd.status().map_err(|err| Error::SpawnExternalDriver {
                     cmd: format!("{:?}", cmd.cmd),
                     source: err,
@@ -400,22 +408,52 @@ impl<'parent> PlatformRef<'parent> {
             Err(builtin) => {
                 let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
                 out.clear();
-                let (pick, resolution) = self
-                    .builtin_merge(builtin, out, &mut input, labels)
-                    .ok_or(Error::ResourceTooLarge)?;
+                let (pick, resolution) = self.builtin_merge(builtin, out, &mut input, labels);
                 Ok((pick, resolution))
             }
         }
     }
 
     /// Using a `pick` obtained from [`merge()`](Self::merge), obtain the respective buffer suitable for reading or copying.
-    /// Return `None` if the buffer is too large, or if the `pick` corresponds to a buffer (that was written separately).
-    pub fn buffer_by_pick(&self, pick: inner::builtin_merge::Pick) -> Option<&'parent [u8]> {
+    /// Return `Ok(None)`  if the `pick` corresponds to a buffer (that was written separately).
+    /// Return `Err(())` if the buffer is *too large*, so it was never read.
+    #[allow(clippy::result_unit_err)]
+    pub fn buffer_by_pick(&self, pick: inner::builtin_merge::Pick) -> Result<Option<&'parent [u8]>, ()> {
         match pick {
-            inner::builtin_merge::Pick::Ancestor => self.ancestor.data.as_slice(),
-            inner::builtin_merge::Pick::Ours => self.current.data.as_slice(),
-            inner::builtin_merge::Pick::Theirs => self.other.data.as_slice(),
-            inner::builtin_merge::Pick::Buffer => None,
+            inner::builtin_merge::Pick::Ancestor => self.ancestor.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Ours => self.current.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Theirs => self.other.data.as_slice().map(Some).ok_or(()),
+            inner::builtin_merge::Pick::Buffer => Ok(None),
+        }
+    }
+
+    /// Use `pick` to return the object id of the merged result, assuming that `buf` was passed as `out` to [merge()](Self::merge).
+    /// In case of binary or large files, this will simply be the existing ID of the resource.
+    /// In case of resources available in the object DB for binary merges, the object ID will be returned.
+    /// If new content was produced due to a content merge, `buf` will be written out
+    /// to the object database using `write_blob`.
+    /// Beware that the returned ID could be `Ok(None)` if the underlying resource was loaded
+    /// from the worktree *and* was too large so it was never loaded from disk.
+    /// `Ok(None)` will also be returned if one of the resources was missing.
+    /// `write_blob()` is used to turn buffers.
+    pub fn id_by_pick<E>(
+        &self,
+        pick: inner::builtin_merge::Pick,
+        buf: &[u8],
+        mut write_blob: impl FnMut(&[u8]) -> Result<gix_hash::ObjectId, E>,
+    ) -> Result<Option<gix_hash::ObjectId>, E> {
+        let field = match pick {
+            inner::builtin_merge::Pick::Ancestor => &self.ancestor,
+            inner::builtin_merge::Pick::Ours => &self.current,
+            inner::builtin_merge::Pick::Theirs => &self.other,
+            inner::builtin_merge::Pick::Buffer => return write_blob(buf).map(Some),
+        };
+        use crate::blob::platform::resource::Data;
+        match field.data {
+            Data::TooLarge { .. } | Data::Missing if !field.id.is_null() => Ok(Some(field.id.to_owned())),
+            Data::TooLarge { .. } | Data::Missing => Ok(None),
+            Data::Buffer(buf) if field.id.is_null() => write_blob(buf).map(Some),
+            Data::Buffer(_) => Ok(Some(field.id.to_owned())),
         }
     }
 }

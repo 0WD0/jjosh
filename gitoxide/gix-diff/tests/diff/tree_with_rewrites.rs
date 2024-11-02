@@ -1904,6 +1904,137 @@ rename to gix-sec/tests/sec.rs
     Ok(())
 }
 
+#[test]
+fn realistic_renames_3_without_identity() -> crate::Result {
+    let (changes, out) = collect_changes_opts(
+        "r4-base",
+        "r4-dir-rename-non-identity",
+        Options {
+            location: Some(Location::Path),
+            rewrites: Some(Rewrites {
+                copies: None,
+                percentage: None,
+                limit: 0,
+            }),
+        },
+    )?;
+
+    // Look how nicely it captures and associates this directory rename.
+    insta::assert_debug_snapshot!(changes.into_iter()
+                                     .filter(|c| !c.entry_mode().is_tree() ||
+                                                  c.relation().map_or(false, |r| matches!(r, Relation::Parent(_)))
+                                     ).collect::<Vec<_>>(), @r#"
+    [
+        Rewrite {
+            source_location: "src/plumbing/options.rs",
+            source_entry_mode: EntryMode(
+                33188,
+            ),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
+            diff: None,
+            entry_mode: EntryMode(
+                33188,
+            ),
+            id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
+            location: "src/plumbing-renamed/options/mod.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing/mod.rs",
+            source_entry_mode: EntryMode(
+                33188,
+            ),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
+            diff: None,
+            entry_mode: EntryMode(
+                33188,
+            ),
+            id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
+            location: "src/plumbing-renamed/mod.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing/main.rs",
+            source_entry_mode: EntryMode(
+                33188,
+            ),
+            source_relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            source_id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
+            diff: None,
+            entry_mode: EntryMode(
+                33188,
+            ),
+            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
+            location: "src/plumbing-renamed/main.rs",
+            relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "src/plumbing",
+            source_entry_mode: EntryMode(
+                16384,
+            ),
+            source_relation: Some(
+                Parent(
+                    2,
+                ),
+            ),
+            source_id: Sha1(b9d41dcdbd92fcab2fb6594d04f2ad99b3472621),
+            diff: None,
+            entry_mode: EntryMode(
+                16384,
+            ),
+            id: Sha1(202702465d7bb291153629dc2e8b353afe9cbdae),
+            location: "src/plumbing-renamed",
+            relation: Some(
+                Parent(
+                    1,
+                ),
+            ),
+            copy: false,
+        },
+    ]
+    "#);
+
+    let out = out.expect("tracking enabled");
+    assert_eq!(
+        out.num_similarity_checks, 0,
+        "similarity checks disabled, and not necessary"
+    );
+    assert_eq!(out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0);
+    assert_eq!(out.num_similarity_checks_skipped_for_copy_tracking_due_to_limit, 0);
+
+    Ok(())
+}
+
 mod util {
     use gix_diff::rewrites;
     use gix_object::{FindExt, TreeRefIter};

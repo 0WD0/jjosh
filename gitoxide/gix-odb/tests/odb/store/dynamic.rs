@@ -1,8 +1,8 @@
 use std::process::Command;
 
 use gix_hash::ObjectId;
-use gix_object::{Exists, FindExt};
-use gix_odb::{store, store::iter::Ordering, Header, Write};
+use gix_object::{Exists, FindExt, Write};
+use gix_odb::{store, store::iter::Ordering, Header};
 use gix_testtools::fixture_path_standalone;
 
 use crate::{hex_to_id, odb::db};

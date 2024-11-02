@@ -525,17 +525,19 @@ fn rename_by_50_percent_similarity() -> crate::Result {
 #[test]
 fn directories_without_relation_are_ignored() -> crate::Result {
     let mut track = util::new_tracker(Default::default());
-    let tree_without_relation = Change {
-        id: NULL_ID,
-        kind: ChangeKind::Deletion,
-        mode: EntryKind::Tree.into(),
-        relation: None,
-    };
-    assert_eq!(
-        track.try_push_change(tree_without_relation, "dir".into()),
-        Some(tree_without_relation),
-        "trees, or non-blobs, are ignored, particularly when they have no relation"
-    );
+    for mode in [EntryKind::Tree, EntryKind::Commit] {
+        let tree_without_relation = Change {
+            id: NULL_ID,
+            kind: ChangeKind::Deletion,
+            mode: mode.into(),
+            relation: None,
+        };
+        assert_eq!(
+            track.try_push_change(tree_without_relation, "dir".into()),
+            Some(tree_without_relation),
+            "trees and submodules are ignored, particularly when they have no relation"
+        );
+    }
     Ok(())
 }
 
@@ -586,6 +588,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
             (Change::addition(), "b", "firt\nsecond\n"),
         ],
     );
+
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
         &mut track,
@@ -598,10 +601,17 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
                     assert_eq!(src.location, expected_src);
                     assert_eq!(dst.location, expected_dst);
                 }
-                3..=6 => {
+                3 => {
+                    assert_eq!(src.unwrap().location, "d");
+                    assert_eq!(
+                        dst.location, "d-renamed",
+                        "it can now track modified and renamed directories"
+                    );
+                }
+                4 => {
                     assert_eq!(src, None);
-                    let expected_dst = ["d", "d-renamed", "d/subdir/d"][calls - 3];
-                    assert_eq!(dst.location, expected_dst);
+                    assert_eq!(dst.change.kind, ChangeKind::Deletion);
+                    assert_eq!(dst.location, "d/subdir/d");
                 }
                 _ => unreachable!("Should have expected emission call {calls}"),
             }
@@ -618,7 +628,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
             ..Default::default()
         }
     );
-    assert_eq!(calls, 6, "Should not have too few calls");
+    assert_eq!(calls, 5, "Should not have too few calls");
     Ok(())
 }
 

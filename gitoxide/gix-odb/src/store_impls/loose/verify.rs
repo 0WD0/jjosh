@@ -5,7 +5,7 @@ use std::{
 
 use gix_features::progress::{Count, DynNestedProgress, Progress};
 
-use crate::{loose::Store, Write};
+use crate::loose::Store;
 
 ///
 pub mod integrity {
@@ -64,6 +64,7 @@ impl Store {
         progress: &mut dyn DynNestedProgress,
         should_interrupt: &AtomicBool,
     ) -> Result<integrity::Statistics, integrity::Error> {
+        use gix_object::Write;
         let mut buf = Vec::new();
         let sink = crate::sink(self.object_hash);
 

@@ -17,7 +17,7 @@ serde = ["gix-ref/serde"]
 
 [[test]]
 name = "refs"
-path = "refs.rs"
+path = "refs/main.rs"
 
 [dev-dependencies]
 gix-ref = { path = ".." }

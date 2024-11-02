@@ -1,4 +1,4 @@
-use gix_odb::Write;
+use gix_object::Write;
 
 use crate::store::loose::{locate_oid, object_ids};
 

@@ -2,12 +2,22 @@ mod existing {
     use crate::{file::store_at, hex_to_id};
 
     #[test]
-    fn with_packed_refs() -> crate::Result {
-        let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
-        let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
-        let r = store.find("main")?;
-        assert_eq!(r.target.into_id(), c1);
-        assert_eq!(r.name.as_bstr(), "refs/heads/main");
+    fn various_repositories() -> crate::Result {
+        for fixture in [
+            "make_ref_repository.sh",
+            "make_packed_ref_repository.sh",
+            "make_packed_ref_repository_for_overlay.sh",
+        ] {
+            let store = store_at(fixture)?;
+            let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
+            let r = store.find("main")?;
+            assert_eq!(r.target.into_id(), c1);
+            assert_eq!(r.name.as_bstr(), "refs/heads/main");
+            let r = store
+                .find("A")
+                .unwrap_or_else(|_| panic!("{fixture}: should find capitalized refs"));
+            assert_eq!(r.target.into_id(), c1);
+        }
         Ok(())
     }
 
@@ -97,6 +107,17 @@ mod loose {
         use std::path::Path;
 
         use crate::file::store;
+
+        #[test]
+        fn capitalized_branch() -> crate::Result {
+            let store = store()?;
+            assert_eq!(
+                store.find("A")?.name.as_bstr(),
+                "refs/heads/A",
+                "capitalized loose refs can be found fine"
+            );
+            Ok(())
+        }
 
         #[test]
         fn success_and_failure() -> crate::Result {

@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 use super::Store;
 use crate::store_impls::loose;
 
-/// Returned by the [`crate::Write`] trait implementation of [`Store`]
+/// Returned by the [`gix_object::Write`] trait implementation of [`Store`]
 #[derive(thiserror::Error, Debug)]
 #[allow(missing_docs)]
 pub enum Error {
@@ -26,8 +26,8 @@ pub enum Error {
     },
 }
 
-impl crate::traits::Write for Store {
-    fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId, crate::write::Error> {
+impl gix_object::Write for Store {
+    fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let mut to = self.dest()?;
         to.write_all(&object.loose_header()).map_err(|err| Error::Io {
             source: err,
@@ -46,7 +46,7 @@ impl crate::traits::Write for Store {
     /// Write the given buffer in `from` to disk in one syscall at best.
     ///
     /// This will cost at least 4 IO operations.
-    fn write_buf(&self, kind: gix_object::Kind, from: &[u8]) -> Result<gix_hash::ObjectId, crate::write::Error> {
+    fn write_buf(&self, kind: gix_object::Kind, from: &[u8]) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, from.len() as u64))
             .map_err(|err| Error::Io {
@@ -72,7 +72,7 @@ impl crate::traits::Write for Store {
         kind: gix_object::Kind,
         size: u64,
         mut from: &mut dyn io::Read,
-    ) -> Result<gix_hash::ObjectId, crate::write::Error> {
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, size))
             .map_err(|err| Error::Io {
