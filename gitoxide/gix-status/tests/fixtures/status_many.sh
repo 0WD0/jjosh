@@ -12,6 +12,7 @@ git init -q changed-and-untracked
   echo "different content" > dir/content2
 
   git add -A
+  git update-index --chmod=+x executable  # For Windows.
   git commit -m "Commit"
   echo "change" >> executable
 
