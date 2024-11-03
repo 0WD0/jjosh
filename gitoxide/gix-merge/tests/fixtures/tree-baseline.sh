@@ -475,8 +475,8 @@ git init same-rename-different-mode
 
   git checkout A
   write_lines 1 2 3 4 5 >a/x.f
-  chmod +x a/x.f
-  chmod +x a/w
+  chmod +x a/x.f a/w
+  git update-index --chmod=+x a/x.f a/w
   git mv a a-renamed
   git commit -am "changed all content, add +x, renamed a -> a-renamed"
 
@@ -486,8 +486,8 @@ git init same-rename-different-mode
   git commit -am "changed all content, renamed a -> a-renamed"
 
   git checkout expected
-  chmod +x a/x.f
-  chmod +x a/w
+  chmod +x a/x.f a/w
+  git update-index --chmod=+x a/x.f a/w
   write_lines 1 2 3 4 5 6 >a/x.f
   git mv a a-renamed
   git commit -am "Git, when branches are reversed, doesn't keep the +x flag on a/w so we specify our own expectation"
