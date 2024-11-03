@@ -62,7 +62,11 @@ mod from_tree {
                     ),
                     (
                         "extra-exe".into(),
-                        if cfg!(windows) { EntryKind::Blob } else { EntryKind::BlobExecutable },
+                        if cfg!(windows) {
+                            EntryKind::Blob
+                        } else {
+                            EntryKind::BlobExecutable
+                        },
                         hex_to_id("0000000000000000000000000000000000000000")
                     ),
                     (
@@ -114,7 +118,12 @@ mod from_tree {
                     ("prefix/dir/b", EntryType::Regular, 3, 420),
                     ("prefix/dir/subdir/exe", EntryType::Regular, 0, 493),
                     ("prefix/extra-file", EntryType::Regular, 21, 420),
-                    ("prefix/extra-exe", EntryType::Regular, 0, if cfg!(windows) { 420 } else { 493 }),
+                    (
+                        "prefix/extra-exe",
+                        EntryType::Regular,
+                        0,
+                        if cfg!(windows) { 420 } else { 493 }
+                    ),
                     ("prefix/extra-dir-empty", EntryType::Directory, 0, 420),
                     ("prefix/extra-dir/symlink-to-extra", EntryType::Symlink, 0, 420)
                 ]
