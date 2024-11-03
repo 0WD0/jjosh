@@ -530,13 +530,13 @@ git init added-file-changed-content-and-mode
   git checkout B
   write_lines original 1 2 3 4 5 6 >new
   chmod +x new
-  git add .
+  git add --chmod=+x new
   git commit -m "add new with content B and +x"
 
   git checkout expected
   echo -n $'<<<<<<< A\n1\n2\n3\n4\n5\n=======\noriginal\n1\n2\n3\n4\n5\n6\n>>>>>>> B\n' >new
   chmod +x new
-  git add new
+  git add --chmod=+x new
   git commit -m "Git has a better merge here, but that's due to better hunk handling/hunk splitting. We, however, consistently use +x"
 )
 
