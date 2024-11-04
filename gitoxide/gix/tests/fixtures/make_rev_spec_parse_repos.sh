@@ -53,7 +53,7 @@ git init --bare blob.corrupt
   echo bnkxmdwz | git hash-object -w --stdin
   oid=$(echo bmwsjxzi | git hash-object -w --stdin)
   oidf=objects/$(oid_to_path "$oid")
-  chmod 644 -- "$oidf"
+  chmod -- 644 "$oidf"
   echo broken >"$oidf"
 
   baseline "cafea"
