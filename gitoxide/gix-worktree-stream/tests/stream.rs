@@ -165,7 +165,11 @@ mod from_tree {
                 ),
                 (
                     "extra-exe".into(),
-                    if cfg!(windows) { EntryKind::Blob } else { EntryKind::BlobExecutable },
+                    if cfg!(windows) {
+                        EntryKind::Blob
+                    } else {
+                        EntryKind::BlobExecutable
+                    },
                     hex_to_id("0000000000000000000000000000000000000000")
                 ),
                 (
