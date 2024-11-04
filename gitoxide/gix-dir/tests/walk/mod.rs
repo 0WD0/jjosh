@@ -19,7 +19,6 @@ use gix_dir::walk::ForDeletionMode;
 use gix_ignore::Kind::*;
 
 #[test]
-#[cfg_attr(windows, ignore = "symlinks the way they are organized don't yet work on windows")]
 fn symlink_to_dir_can_be_excluded() -> crate::Result {
     let root = fixture_in("many-symlinks", "excluded-symlinks-to-dir");
     let ((out, _root), entries) = collect(&root, None, |keep, ctx| {
@@ -94,7 +93,6 @@ fn symlink_to_dir_can_be_excluded() -> crate::Result {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "symlinks the way they are organized don't yet work on windows")]
 fn root_may_not_lead_through_symlinks() -> crate::Result {
     for (name, intermediate, expected) in [
         ("immediate-breakout-symlink", "", 0),
@@ -121,7 +119,6 @@ fn root_may_not_lead_through_symlinks() -> crate::Result {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "symlinks the way they are organized don't yet work on windows")]
 fn root_may_be_a_symlink_if_it_is_the_worktree() -> crate::Result {
     let root = fixture_in("many-symlinks", "worktree-root-is-symlink");
     let ((_out, _root), entries) = collect(&root, None, |keep, ctx| {
@@ -2702,7 +2699,6 @@ fn decomposed_unicode_in_directory_is_returned_precomposed() -> crate::Result {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "symlinks the way they are organized don't yet work on windows")]
 fn worktree_root_can_be_symlink() -> crate::Result {
     let root = fixture_in("many-symlinks", "symlink-to-breakout-symlink");
     let troot = root.join("file");
