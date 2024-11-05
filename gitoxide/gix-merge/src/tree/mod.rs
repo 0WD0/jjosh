@@ -61,7 +61,7 @@ impl Outcome<'_> {
     /// Return `true` if there is any conflict that would still need to be resolved as they would yield undesirable trees.
     /// This is based on `how` to determine what should be considered unresolved.
     pub fn has_unresolved_conflicts(&self, how: UnresolvedConflict) -> bool {
-        function::is_unresolved(&self.conflicts, how)
+        self.conflicts.iter().any(|c| c.is_unresolved(how))
     }
 }
 
@@ -108,6 +108,28 @@ impl ConflictMapping {
 }
 
 impl Conflict {
+    /// Return `true` if this instance is considered unresolved based on the criterion specified by `how`.
+    pub fn is_unresolved(&self, how: UnresolvedConflict) -> bool {
+        match how {
+            UnresolvedConflict::ConflictMarkers => {
+                self.resolution.is_err()
+                    || self.content_merge().map_or(false, |info| {
+                        matches!(info.resolution, crate::blob::Resolution::Conflict)
+                    })
+            }
+            UnresolvedConflict::Renames => match &self.resolution {
+                Ok(success) => match success {
+                    Resolution::SourceLocationAffectedByRename { .. }
+                    | Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
+                    Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
+                        matches!(merged_blob.resolution, crate::blob::Resolution::Conflict)
+                    }
+                },
+                Err(_failure) => true,
+            },
+        }
+    }
+
     /// Returns the changes of fields `ours` and `theirs` so they match their description in the
     /// [`Resolution`] or [`ResolutionFailure`] respectively.
     /// Without this, the sides may appear swapped as `ours|theirs` is treated the same as `theirs/ours`
