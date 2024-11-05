@@ -111,6 +111,11 @@ impl Repository {
     /// `labels` are typically chosen to identify the refs or names for `our_tree` and `their_tree` and `ancestor_tree` respectively.
     ///
     /// `options` should be initialized with [`tree_merge_options()`](Self::tree_merge_options()).
+    ///
+    /// ### Performance
+    ///
+    /// It's highly recommended to [set an object cache](crate::Repository::compute_object_cache_size_for_tree_diffs)
+    /// to avoid extracting the same object multiple times.
     // TODO: Use `crate::merge::Options` here and add niceties such as setting the resolution strategy.
     pub fn merge_trees(
         &self,
