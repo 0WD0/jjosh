@@ -27,12 +27,6 @@ mod from_tree {
                 entry.read_to_end(&mut buf).expect("stream can always be read");
             }
 
-            let expected_link_mode = EntryKind::Link;
-            let expected_exe_mode = if cfg!(windows) {
-                EntryKind::Blob
-            } else {
-                EntryKind::BlobExecutable
-            };
             assert_eq!(
                 paths_and_modes,
                 &[
@@ -48,7 +42,7 @@ mod from_tree {
                     ),
                     (
                         "symlink-to-a".into(),
-                        expected_link_mode,
+                        EntryKind::Link,
                         hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e")
                     ),
                     (
@@ -58,7 +52,7 @@ mod from_tree {
                     ),
                     (
                         "dir/subdir/exe".into(),
-                        expected_exe_mode,
+                        EntryKind::BlobExecutable,
                         hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
                     ),
                     (
@@ -68,7 +62,11 @@ mod from_tree {
                     ),
                     (
                         "extra-exe".into(),
-                        expected_exe_mode,
+                        if cfg!(windows) {
+                            EntryKind::Blob
+                        } else {
+                            EntryKind::BlobExecutable
+                        },
                         hex_to_id("0000000000000000000000000000000000000000")
                     ),
                     (
@@ -78,7 +76,7 @@ mod from_tree {
                     ),
                     (
                         "extra-dir/symlink-to-extra".into(),
-                        expected_link_mode,
+                        EntryKind::Link,
                         hex_to_id("0000000000000000000000000000000000000000")
                     )
                 ]
@@ -111,20 +109,23 @@ mod from_tree {
                     header.mode()?,
                 ));
             }
-            let expected_symlink_type = EntryType::Symlink;
-            let expected_exe_mode = if cfg!(windows) { 420 } else { 493 };
             assert_eq!(
                 out,
                 [
                     ("prefix/.gitattributes", EntryType::Regular, 56, 420),
                     ("prefix/a", EntryType::Regular, 3, 420),
-                    ("prefix/symlink-to-a", expected_symlink_type, 0, 420),
+                    ("prefix/symlink-to-a", EntryType::Symlink, 0, 420),
                     ("prefix/dir/b", EntryType::Regular, 3, 420),
-                    ("prefix/dir/subdir/exe", EntryType::Regular, 0, expected_exe_mode),
+                    ("prefix/dir/subdir/exe", EntryType::Regular, 0, 493),
                     ("prefix/extra-file", EntryType::Regular, 21, 420),
-                    ("prefix/extra-exe", EntryType::Regular, 0, expected_exe_mode),
+                    (
+                        "prefix/extra-exe",
+                        EntryType::Regular,
+                        0,
+                        if cfg!(windows) { 420 } else { 493 }
+                    ),
                     ("prefix/extra-dir-empty", EntryType::Directory, 0, 420),
-                    ("prefix/extra-dir/symlink-to-extra", expected_symlink_type, 0, 420)
+                    ("prefix/extra-dir/symlink-to-extra", EntryType::Symlink, 0, 420)
                 ]
                 .into_iter()
                 .map(|(path, b, c, d)| (bstr::BStr::new(path).to_owned(), b, c, d))

@@ -475,8 +475,8 @@ git init same-rename-different-mode
 
   git checkout A
   write_lines 1 2 3 4 5 >a/x.f
-  chmod +x a/x.f
-  chmod +x a/w
+  chmod +x a/x.f a/w
+  git update-index --chmod=+x a/x.f a/w
   git mv a a-renamed
   git commit -am "changed all content, add +x, renamed a -> a-renamed"
 
@@ -486,8 +486,8 @@ git init same-rename-different-mode
   git commit -am "changed all content, renamed a -> a-renamed"
 
   git checkout expected
-  chmod +x a/x.f
-  chmod +x a/w
+  chmod +x a/x.f a/w
+  git update-index --chmod=+x a/x.f a/w
   write_lines 1 2 3 4 5 6 >a/x.f
   git mv a a-renamed
   git commit -am "Git, when branches are reversed, doesn't keep the +x flag on a/w so we specify our own expectation"
@@ -530,13 +530,13 @@ git init added-file-changed-content-and-mode
   git checkout B
   write_lines original 1 2 3 4 5 6 >new
   chmod +x new
-  git add .
+  git add --chmod=+x new
   git commit -m "add new with content B and +x"
 
   git checkout expected
   echo -n $'<<<<<<< A\n1\n2\n3\n4\n5\n=======\noriginal\n1\n2\n3\n4\n5\n6\n>>>>>>> B\n' >new
   chmod +x new
-  git add new
+  git add --chmod=+x new
   git commit -m "Git has a better merge here, but that's due to better hunk handling/hunk splitting. We, however, consistently use +x"
 )
 

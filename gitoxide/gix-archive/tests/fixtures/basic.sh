@@ -20,6 +20,7 @@ echo "/dir-ignored/ export-ignore" > .gitattributes
 echo "/file-ignored export-ignore" >> .gitattributes
 
 git add .
+git update-index --chmod=+x dir/subdir/exe  # For Windows.
 git commit -m "init"
 
 echo "extra to be streamed" > extra-file
@@ -28,4 +29,3 @@ mkdir extra-dir-empty extra-dir
 ln -s ../extra-file extra-dir/symlink-to-extra
 
 git rev-parse @^{tree} > head.hex
-

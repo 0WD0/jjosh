@@ -17,4 +17,5 @@ mkdir dir/sub-dir
 echo "even other content" > dir/sub-dir/file
 
 git add -A
+git update-index --chmod=+x executable  # For Windows.
 git commit -m "Commit"

@@ -173,20 +173,13 @@ fn delayed_driver_process() -> crate::Result {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "on windows, the symlink to a directory doesn't seem to work and we really want to test with symlinks"
-)]
 fn overwriting_files_and_lone_directories_works() -> crate::Result {
     for delay in [
         gix_filter::driver::apply::Delay::Allow,
         gix_filter::driver::apply::Delay::Forbid,
     ] {
         let mut opts = opts_from_probe();
-        assert!(
-            opts.fs.symlink,
-            "BUG: the probe must detect to be able to generate symlinks"
-        );
+        assert!(opts.fs.symlink, "The probe must detect to be able to generate symlinks");
         opts.overwrite_existing = true;
         opts.filter_process_delay = delay;
         opts.destination_is_initially_empty = false;
@@ -244,8 +237,7 @@ fn overwriting_files_and_lone_directories_works() -> crate::Result {
         );
 
         let symlink = destination.path().join("dir/sub-dir/symlink");
-        // on windows, git won't create symlinks as its probe won't detect the capability, even though we do.
-        assert_eq!(std::fs::symlink_metadata(&symlink)?.is_symlink(), cfg!(unix));
+        assert!(std::fs::symlink_metadata(&symlink)?.is_symlink());
         assert_eq!(
             std::fs::read(symlink)?.as_bstr(),
             "➡other content\r\n",
@@ -270,10 +262,7 @@ fn symlinks_become_files_if_disabled() -> crate::Result {
 #[test]
 fn symlinks_to_directories_are_usable() -> crate::Result {
     let opts = opts_from_probe();
-    if !opts.fs.symlink {
-        eprintln!("Skipping directory symlink test on filesystem that doesn't support it");
-        return Ok(());
-    }
+    assert!(opts.fs.symlink, "The probe must detect to be able to generate symlinks");
 
     let (_source_tree, destination, _index, outcome) =
         checkout_index_in_tmp_dir(opts.clone(), "make_dir_symlink", None)?;
@@ -298,10 +287,7 @@ fn symlinks_to_directories_are_usable() -> crate::Result {
 #[test]
 fn dangling_symlinks_can_be_created() -> crate::Result {
     let opts = opts_from_probe();
-    if !opts.fs.symlink {
-        eprintln!("Skipping dangling symlink test on filesystem that doesn't support it");
-        return Ok(());
-    }
+    assert!(opts.fs.symlink, "The probe must detect to be able to generate symlinks");
 
     for (fixture, symlink_name, target_name) in [
         ("make_dangling_symlink", "dangling", "non-existing-target"),

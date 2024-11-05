@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-# Nothing here may use symlinks so these fixtures can be used on windows as well.
+# These fixtures don't use symlinks. See `many-symlinks.sh` for some that do.
 
 git init with-nested-dot-git
 (cd with-nested-dot-git

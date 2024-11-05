@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-# Note that symlink creation fails on Windows for some reason,
-# so these tests shouldn't be run there.
+# These fixtures use symlinks. See `many.sh` for some that don't.
 
 git init breakout-symlink
 (cd breakout-symlink
@@ -20,7 +19,7 @@ git init immediate-breakout-symlink
 
 git init excluded-symlinks-to-dir
 (cd excluded-symlinks-to-dir
-  cat <<EOF >.gitignore
+  cat <<'EOF' >.gitignore
 src1
 src2/
 file1

@@ -14,6 +14,7 @@ mkdir dir/sub-dir
 (cd dir/sub-dir && ln -sf ../content symlink)
 
 git add -A
+git update-index --chmod=+x executable  # For Windows.
 git commit -m "Commit"
 
 chmod +x dir/content
@@ -23,4 +24,4 @@ echo -n "foo" > executable
 
 rm empty
 ln -sf dir/content empty
-git reset 
+git reset

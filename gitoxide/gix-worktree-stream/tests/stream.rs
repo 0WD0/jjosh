@@ -110,12 +110,6 @@ mod from_tree {
             }
         }
 
-        let expected_exe_mode = if cfg!(windows) {
-            EntryKind::Blob
-        } else {
-            EntryKind::BlobExecutable
-        };
-        let expected_link_mode = EntryKind::Link;
         assert_eq!(
             paths_and_modes,
             &[
@@ -136,7 +130,7 @@ mod from_tree {
                 ),
                 (
                     "symlink-to-a".into(),
-                    expected_link_mode,
+                    EntryKind::Link,
                     hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e")
                 ),
                 (
@@ -151,7 +145,7 @@ mod from_tree {
                 ),
                 (
                     "dir/subdir/exe".into(),
-                    expected_exe_mode,
+                    EntryKind::BlobExecutable,
                     hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
                 ),
                 (
@@ -171,7 +165,11 @@ mod from_tree {
                 ),
                 (
                     "extra-exe".into(),
-                    expected_exe_mode,
+                    if cfg!(windows) {
+                        EntryKind::Blob
+                    } else {
+                        EntryKind::BlobExecutable
+                    },
                     hex_to_id("0000000000000000000000000000000000000000")
                 ),
                 (
@@ -181,7 +179,7 @@ mod from_tree {
                 ),
                 (
                     "extra-dir/symlink-to-extra".into(),
-                    expected_link_mode,
+                    EntryKind::Link,
                     hex_to_id("0000000000000000000000000000000000000000")
                 )
             ]

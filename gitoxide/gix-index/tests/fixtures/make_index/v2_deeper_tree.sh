@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-export GIT_INDEX_VERSION=2;
+export GIT_INDEX_VERSION=2
 
 mkdir sub
 (cd sub
@@ -25,4 +25,5 @@ mkdir d
 )
 
 git add .
+git update-index --chmod=+x b  # For Windows.
 git commit -m "init"

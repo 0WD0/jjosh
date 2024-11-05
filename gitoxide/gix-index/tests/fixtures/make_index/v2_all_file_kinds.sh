@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-export GIT_INDEX_VERSION=2;
+export GIT_INDEX_VERSION=2
 
 git init -q sub
 (cd sub
-
   touch a b c
   git add .
   git commit -m "init"
@@ -21,6 +20,7 @@ mkdir d
 (cd d && touch a b c)
 
 git add .
+git update-index --chmod=+x b  # For Windows.
 git commit -m "init"
 
 git rev-parse @^{tree} > head.tree
