@@ -365,7 +365,7 @@ mod diff {
     }
 }
 
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 mod merge {
     use crate::config::tree::bcow;
     use gix::config::tree::{Key, Merge};

@@ -29,7 +29,7 @@ pub enum Error {
 /// The outcome produced by [`tree()`](crate::tree()).
 #[derive(Clone)]
 pub struct Outcome<'a> {
-    /// The ready-made (but unwritten) which is the *base* tree, including all non-conflicting changes, and the changes that had
+    /// The ready-made (but unwritten) *base* tree, including all non-conflicting changes, and the changes that had
     /// conflicts which could be resolved automatically.
     ///
     /// This means, if all of their changes were conflicting, this will be equivalent to the *base* tree.
@@ -61,7 +61,7 @@ impl Outcome<'_> {
     /// Return `true` if there is any conflict that would still need to be resolved as they would yield undesirable trees.
     /// This is based on `how` to determine what should be considered unresolved.
     pub fn has_unresolved_conflicts(&self, how: UnresolvedConflict) -> bool {
-        function::is_unresolved(&self.conflicts, how)
+        self.conflicts.iter().any(|c| c.is_unresolved(how))
     }
 }
 
@@ -70,7 +70,7 @@ impl Outcome<'_> {
 #[derive(Debug, Clone)]
 pub struct Conflict {
     /// A record on how the conflict resolution succeeded with `Ok(_)` or failed with `Err(_)`.
-    /// In case of `Err(_)`, no write
+    /// Note that in case of `Err(_)`, edits may still have been made to the tree to aid resolution.
     /// On failure, one can examine `ours` and `theirs` to potentially find a custom solution.
     /// Note that the descriptions of resolutions or resolution failures may be swapped compared
     /// to the actual changes. This is due to changes like `modification|deletion` being treated the
@@ -81,13 +81,17 @@ pub struct Conflict {
     pub ours: Change,
     /// The change representing *their* side.
     pub theirs: Change,
+    /// Determine how to interpret the `ours` and `theirs` fields. This is used to implement [`Self::changes_in_resolution()`]
+    /// and [`Self::into_parts_by_resolution()`].
     map: ConflictMapping,
 }
 
-/// A utility to help define which side is what.
+/// A utility to help define which side is what in the [`Conflict`] type.
 #[derive(Debug, Clone, Copy)]
 enum ConflictMapping {
+    /// The sides are as described in the field documentation, i.e. `ours` is `ours`.
     Original,
+    /// The sides are the opposite of the field documentation. i.e. `ours` is `theirs` and `theirs` is `ours`.
     Swapped,
 }
 
@@ -104,6 +108,28 @@ impl ConflictMapping {
 }
 
 impl Conflict {
+    /// Return `true` if this instance is considered unresolved based on the criterion specified by `how`.
+    pub fn is_unresolved(&self, how: UnresolvedConflict) -> bool {
+        match how {
+            UnresolvedConflict::ConflictMarkers => {
+                self.resolution.is_err()
+                    || self.content_merge().map_or(false, |info| {
+                        matches!(info.resolution, crate::blob::Resolution::Conflict)
+                    })
+            }
+            UnresolvedConflict::Renames => match &self.resolution {
+                Ok(success) => match success {
+                    Resolution::SourceLocationAffectedByRename { .. }
+                    | Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
+                    Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
+                        matches!(merged_blob.resolution, crate::blob::Resolution::Conflict)
+                    }
+                },
+                Err(_failure) => true,
+            },
+        }
+    }
+
     /// Returns the changes of fields `ours` and `theirs` so they match their description in the
     /// [`Resolution`] or [`ResolutionFailure`] respectively.
     /// Without this, the sides may appear swapped as `ours|theirs` is treated the same as `theirs/ours`
@@ -236,11 +262,8 @@ pub struct Options {
     /// The context to use when invoking merge-drivers.
     pub blob_merge_command_ctx: gix_command::Context,
     /// If `Some(what-is-unresolved)`, the first unresolved conflict will cause the entire merge to stop.
-    /// This is useful to see if there is any conflict, without performing the whole operation.
-    // TODO: Maybe remove this if the cost of figuring out conflicts is so low - after all, the data structures
-    //       and initial diff is the expensive thing right now, which are always done upfront.
-    //       However, this could change once we know do everything during the traversal, which probably doesn't work
-    //       without caching stuff and is too complicated to actually do.
+    /// This is useful to see if there is any conflict, without performing the whole operation, something
+    /// that can be very relevant during merges that would cause a lot of blob-diffs.
     pub fail_on_conflict: Option<UnresolvedConflict>,
     /// This value also affects the size of merge-conflict markers, to allow differentiating
     /// merge conflicts on each level, for any value greater than 0, with values `N` causing `N*2`

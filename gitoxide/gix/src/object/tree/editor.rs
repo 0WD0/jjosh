@@ -63,6 +63,12 @@ impl<'repo> super::Editor<'repo> {
             repo,
         })
     }
+
+    /// Detach all extras and return the underlying plumbing editor, which won't perform validation
+    /// when writing the tree.
+    pub fn detach(self) -> gix_object::tree::Editor<'repo> {
+        self.inner
+    }
 }
 
 /// Tree editing

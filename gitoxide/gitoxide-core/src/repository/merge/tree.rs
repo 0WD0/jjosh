@@ -2,7 +2,7 @@ use crate::OutputFormat;
 
 pub struct Options {
     pub format: OutputFormat,
-    pub resolve_content_merge: Option<gix::merge::blob::builtin_driver::text::Conflict>,
+    pub file_favor: Option<gix::merge::tree::FileFavor>,
     pub in_memory: bool,
 }
 
@@ -12,8 +12,6 @@ pub(super) mod function {
     use anyhow::{anyhow, bail, Context};
     use gix::bstr::BString;
     use gix::bstr::ByteSlice;
-    use gix::merge::blob::builtin_driver::binary;
-    use gix::merge::blob::builtin_driver::text::Conflict;
     use gix::merge::tree::UnresolvedConflict;
     use gix::prelude::Write;
 
@@ -29,7 +27,7 @@ pub(super) mod function {
         theirs: BString,
         Options {
             format,
-            resolve_content_merge,
+            file_favor,
             in_memory,
         }: Options,
     ) -> anyhow::Result<()> {
@@ -44,17 +42,7 @@ pub(super) mod function {
         let (ours_ref, ours_id) = refname_and_tree(&repo, ours)?;
         let (theirs_ref, theirs_id) = refname_and_tree(&repo, theirs)?;
 
-        let mut options = repo.tree_merge_options()?;
-        if let Some(resolve) = resolve_content_merge {
-            options.blob_merge.text.conflict = resolve;
-            options.blob_merge.resolve_binary_with = match resolve {
-                Conflict::Keep { .. } => None,
-                Conflict::ResolveWithOurs => Some(binary::ResolveWith::Ours),
-                Conflict::ResolveWithTheirs => Some(binary::ResolveWith::Theirs),
-                Conflict::ResolveWithUnion => None,
-            };
-        }
-
+        let options = repo.tree_merge_options()?.with_file_favor(file_favor);
         let base_id_str = base_id.to_string();
         let ours_id_str = ours_id.to_string();
         let theirs_id_str = theirs_id.to_string();
@@ -72,12 +60,15 @@ pub(super) mod function {
                 .map_or(theirs_id_str.as_str().into(), |n| n.as_bstr())
                 .into(),
         };
-        let mut res = repo.merge_trees(base_id, ours_id, theirs_id, labels, options)?;
+        let res = repo.merge_trees(base_id, ours_id, theirs_id, labels, options)?;
+        let has_conflicts = res.conflicts.is_empty();
+        let has_unresolved_conflicts = res.has_unresolved_conflicts(UnresolvedConflict::Renames);
         {
             let _span = gix::trace::detail!("Writing merged tree");
             let mut written = 0;
             let tree_id = res
                 .tree
+                .detach()
                 .write(|tree| {
                     written += 1;
                     repo.write(tree)
@@ -86,10 +77,10 @@ pub(super) mod function {
             writeln!(out, "{tree_id} (wrote {written} trees)")?;
         }
 
-        if !res.conflicts.is_empty() {
+        if !has_conflicts {
             writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;
         }
-        if res.has_unresolved_conflicts(UnresolvedConflict::Renames) {
+        if has_unresolved_conflicts {
             bail!("Tree conflicted")
         }
         Ok(())

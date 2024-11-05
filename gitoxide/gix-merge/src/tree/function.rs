@@ -3,9 +3,7 @@ use crate::tree::utils::{
     to_components, track, unique_path_in_tree, ChangeList, ChangeListRef, PossibleConflict, TrackedChange, TreeNodes,
 };
 use crate::tree::ConflictMapping::{Original, Swapped};
-use crate::tree::{
-    Conflict, ConflictMapping, ContentMerge, Error, Options, Outcome, Resolution, ResolutionFailure, UnresolvedConflict,
-};
+use crate::tree::{Conflict, ConflictMapping, ContentMerge, Error, Options, Outcome, Resolution, ResolutionFailure};
 use bstr::{BString, ByteSlice};
 use gix_diff::tree::recorder::Location;
 use gix_diff::tree_with_rewrites::Change;
@@ -129,7 +127,7 @@ where
     let mut failed_on_first_conflict = false;
     let mut should_fail_on_conflict = |conflict: Conflict| -> bool {
         if let Some(how) = options.fail_on_conflict {
-            if conflict.resolution.is_err() || is_unresolved(std::slice::from_ref(&conflict), how) {
+            if conflict.resolution.is_err() || conflict.is_unresolved(how) {
                 failed_on_first_conflict = true;
             }
         }
@@ -1000,27 +998,6 @@ where
         conflicts,
         failed_on_first_unresolved_conflict: failed_on_first_conflict,
     })
-}
-
-pub(super) fn is_unresolved(conflicts: &[Conflict], how: UnresolvedConflict) -> bool {
-    match how {
-        UnresolvedConflict::ConflictMarkers => conflicts.iter().any(|c| {
-            c.resolution.is_err()
-                || c.content_merge().map_or(false, |info| {
-                    matches!(info.resolution, crate::blob::Resolution::Conflict)
-                })
-        }),
-        UnresolvedConflict::Renames => conflicts.iter().any(|c| match &c.resolution {
-            Ok(success) => match success {
-                Resolution::SourceLocationAffectedByRename { .. }
-                | Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
-                Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
-                    matches!(merged_blob.resolution, crate::blob::Resolution::Conflict)
-                }
-            },
-            Err(_failure) => true,
-        }),
-    }
 }
 
 fn involves_submodule(a: &EntryMode, b: &EntryMode) -> bool {

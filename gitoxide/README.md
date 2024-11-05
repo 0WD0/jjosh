@@ -46,7 +46,7 @@ What follows is a high-level list of features and those which are planned:
 * [x] blob-diff
 * [ ] merge
     - [x] blobs
-    - [ ] trees
+    - [x] trees
     - [ ] commits
 * [ ] rebase
 * [ ] commit

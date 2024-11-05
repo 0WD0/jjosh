@@ -15,7 +15,7 @@ impl Merge {
         "The limit is actually squared, so 1000 stands for up to 1 million diffs if fuzzy rename tracking is enabled",
     );
     /// The `merge.renames` key.
-    #[cfg(feature = "blob-merge")]
+    #[cfg(feature = "merge")]
     pub const RENAMES: super::diff::Renames = super::diff::Renames::new_renames("renames", &config::Tree::MERGE);
     /// The `merge.renormalize` key
     pub const RENORMALIZE: keys::Boolean = keys::Boolean::new_boolean("renormalize", &Tree::MERGE);
@@ -31,7 +31,7 @@ impl Merge {
     pub const DRIVER_RECURSIVE: keys::String = keys::String::new_string("recursive", &config::Tree::MERGE)
         .with_subsection_requirement(Some(SubSectionRequirement::Parameter("driver")));
     /// The `merge.conflictStyle` key.
-    #[cfg(feature = "blob-merge")]
+    #[cfg(feature = "merge")]
     pub const CONFLICT_STYLE: ConflictStyle =
         ConflictStyle::new_with_validate("conflictStyle", &config::Tree::MERGE, validate::ConflictStyle);
 }
@@ -44,24 +44,24 @@ impl Section for Merge {
     fn keys(&self) -> &[&dyn Key] {
         &[
             &Self::RENAME_LIMIT,
-            #[cfg(feature = "blob-merge")]
+            #[cfg(feature = "merge")]
             &Self::RENAMES,
             &Self::RENORMALIZE,
             &Self::DEFAULT,
             &Self::DRIVER_NAME,
             &Self::DRIVER_COMMAND,
             &Self::DRIVER_RECURSIVE,
-            #[cfg(feature = "blob-merge")]
+            #[cfg(feature = "merge")]
             &Self::CONFLICT_STYLE,
         ]
     }
 }
 
 /// The `merge.conflictStyle` key.
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub type ConflictStyle = keys::Any<validate::ConflictStyle>;
 
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 mod conflict_style {
     use crate::{bstr::BStr, config, config::tree::sections::merge::ConflictStyle};
     use gix_merge::blob::builtin_driver::text;
@@ -87,7 +87,7 @@ mod conflict_style {
     }
 }
 
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 mod validate {
     use crate::{
         bstr::BStr,

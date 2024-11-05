@@ -18,7 +18,7 @@ impl Repository {
         &self,
         worktree_roots: gix_merge::blob::pipeline::WorktreeRoots,
     ) -> Result<gix_merge::blob::Platform, merge_resource_cache::Error> {
-        let index = self.index_or_load_from_head()?;
+        let index = self.index_or_load_from_head_or_empty()?;
         let mode = {
             let renormalize = self
                 .config
@@ -83,7 +83,7 @@ impl Repository {
     }
 
     /// Read all relevant configuration options to instantiate options for use in [`merge_trees()`](Self::merge_trees).
-    pub fn tree_merge_options(&self) -> Result<gix_merge::tree::Options, tree_merge_options::Error> {
+    pub fn tree_merge_options(&self) -> Result<crate::merge::tree::Options, tree_merge_options::Error> {
         Ok(gix_merge::tree::Options {
             rewrites: crate::diff::utils::new_rewrites_inner(
                 &self.config.resolved,
@@ -97,7 +97,8 @@ impl Repository {
             marker_size_multiplier: 0,
             symlink_conflicts: None,
             allow_lossy_resolution: false,
-        })
+        }
+        .into())
     }
 
     /// Merge `our_tree` and `their_tree` together, assuming they have the same `ancestor_tree`, to yield a new tree
@@ -111,18 +112,26 @@ impl Repository {
     /// `labels` are typically chosen to identify the refs or names for `our_tree` and `their_tree` and `ancestor_tree` respectively.
     ///
     /// `options` should be initialized with [`tree_merge_options()`](Self::tree_merge_options()).
-    // TODO: Use `crate::merge::Options` here and add niceties such as setting the resolution strategy.
+    ///
+    /// ### Performance
+    ///
+    /// It's highly recommended to [set an object cache](crate::Repository::compute_object_cache_size_for_tree_diffs)
+    /// to avoid extracting the same object multiple times.
     pub fn merge_trees(
         &self,
         ancestor_tree: impl AsRef<gix_hash::oid>,
         our_tree: impl AsRef<gix_hash::oid>,
         their_tree: impl AsRef<gix_hash::oid>,
         labels: gix_merge::blob::builtin_driver::text::Labels<'_>,
-        options: gix_merge::tree::Options,
-    ) -> Result<gix_merge::tree::Outcome<'_>, merge_trees::Error> {
+        options: crate::merge::tree::Options,
+    ) -> Result<crate::merge::tree::Outcome<'_>, merge_trees::Error> {
         let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
         let mut blob_merge = self.merge_resource_cache(Default::default())?;
-        Ok(gix_merge::tree(
+        let gix_merge::tree::Outcome {
+            tree,
+            conflicts,
+            failed_on_first_unresolved_conflict,
+        } = gix_merge::tree(
             ancestor_tree.as_ref(),
             our_tree.as_ref(),
             their_tree.as_ref(),
@@ -132,7 +141,18 @@ impl Repository {
             &mut Default::default(),
             &mut diff_cache,
             &mut blob_merge,
-            options,
-        )?)
+            options.into(),
+        )?;
+
+        let validate = self.config.protect_options()?;
+        Ok(crate::merge::tree::Outcome {
+            tree: crate::object::tree::Editor {
+                inner: tree,
+                validate,
+                repo: self,
+            },
+            conflicts,
+            failed_on_first_unresolved_conflict,
+        })
     }
 }

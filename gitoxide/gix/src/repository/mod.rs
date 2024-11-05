@@ -43,7 +43,7 @@ mod location;
 #[cfg(feature = "mailmap")]
 mod mailmap;
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 mod merge;
 mod object;
 #[cfg(feature = "attributes")]
@@ -75,7 +75,7 @@ pub mod diff_tree_to_tree {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod blob_merge_options {
     /// The error returned by [Repository::blob_merge_options()](crate::Repository::blob_merge_options()).
     #[derive(Debug, thiserror::Error)]
@@ -89,7 +89,7 @@ pub mod blob_merge_options {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod merge_resource_cache {
     /// The error returned by [Repository::merge_resource_cache()](crate::Repository::merge_resource_cache()).
     #[derive(Debug, thiserror::Error)]
@@ -100,7 +100,7 @@ pub mod merge_resource_cache {
         #[error(transparent)]
         PipelineOptions(#[from] crate::config::merge::pipeline_options::Error),
         #[error(transparent)]
-        Index(#[from] crate::repository::index_or_load_from_head::Error),
+        Index(#[from] crate::repository::index_or_load_from_head_or_empty::Error),
         #[error(transparent)]
         AttributeStack(#[from] crate::config::attribute_stack::Error),
         #[error(transparent)]
@@ -113,7 +113,7 @@ pub mod merge_resource_cache {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod merge_trees {
     /// The error returned by [Repository::merge_trees()](crate::Repository::merge_trees()).
     #[derive(Debug, thiserror::Error)]
@@ -125,11 +125,13 @@ pub mod merge_trees {
         DiffResourceCache(#[from] super::diff_resource_cache::Error),
         #[error(transparent)]
         TreeMerge(#[from] gix_merge::tree::Error),
+        #[error(transparent)]
+        ValidationOptions(#[from] crate::config::boolean::Error),
     }
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod tree_merge_options {
     /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
     #[derive(Debug, thiserror::Error)]
@@ -154,7 +156,7 @@ pub mod diff_resource_cache {
         #[error("Could not obtain resource cache for diffing")]
         ResourceCache(#[from] crate::diff::resource_cache::Error),
         #[error(transparent)]
-        Index(#[from] crate::repository::index_or_load_from_head::Error),
+        Index(#[from] crate::repository::index_or_load_from_head_or_empty::Error),
         #[error(transparent)]
         AttributeStack(#[from] crate::config::attribute_stack::Error),
     }
@@ -289,7 +291,7 @@ pub mod pathspec_defaults_ignore_case {
 ///
 #[cfg(feature = "index")]
 pub mod index_or_load_from_head {
-    /// The error returned by [`Repository::index_or_load_from_head()`][crate::Repository::index_or_load_from_head()].
+    /// The error returned by [`Repository::index_or_load_from_head()`](crate::Repository::index_or_load_from_head()).
     #[derive(thiserror::Error, Debug)]
     #[allow(missing_docs)]
     pub enum Error {
@@ -305,9 +307,31 @@ pub mod index_or_load_from_head {
 }
 
 ///
+#[cfg(feature = "index")]
+pub mod index_or_load_from_head_or_empty {
+    /// The error returned by [`Repository::index_or_load_from_head_or_empty()`](crate::Repository::index_or_load_from_head_or_empty()).
+    #[derive(thiserror::Error, Debug)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        ReadHead(#[from] crate::reference::find::existing::Error),
+        #[error(transparent)]
+        FindCommit(#[from] crate::object::find::existing::Error),
+        #[error(transparent)]
+        PeelToTree(#[from] crate::object::peel::to_kind::Error),
+        #[error(transparent)]
+        TreeId(#[from] gix_object::decode::Error),
+        #[error(transparent)]
+        TraverseTree(#[from] crate::repository::index_from_tree::Error),
+        #[error(transparent)]
+        OpenIndex(#[from] crate::worktree::open_index::Error),
+    }
+}
+
+///
 #[cfg(feature = "worktree-stream")]
 pub mod worktree_stream {
-    /// The error returned by [`Repository::worktree_stream()`][crate::Repository::worktree_stream()].
+    /// The error returned by [`Repository::worktree_stream()`](crate::Repository::worktree_stream()).
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
@@ -332,6 +356,6 @@ pub mod worktree_stream {
 ///
 #[cfg(feature = "worktree-archive")]
 pub mod worktree_archive {
-    /// The error returned by [`Repository::worktree_archive()`][crate::Repository::worktree_archive()].
+    /// The error returned by [`Repository::worktree_archive()`](crate::Repository::worktree_archive()).
     pub type Error = gix_archive::Error;
 }

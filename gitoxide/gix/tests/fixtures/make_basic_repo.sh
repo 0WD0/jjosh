@@ -42,3 +42,5 @@ git clone --bare . non-bare-without-worktree
 (cd non-bare-without-worktree
   git config core.bare false
 )
+
+git init unborn;
