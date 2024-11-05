@@ -125,6 +125,8 @@ pub mod merge_trees {
         DiffResourceCache(#[from] super::diff_resource_cache::Error),
         #[error(transparent)]
         TreeMerge(#[from] gix_merge::tree::Error),
+        #[error(transparent)]
+        ValidationOptions(#[from] crate::config::boolean::Error),
     }
 }
 

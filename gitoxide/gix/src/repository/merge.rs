@@ -124,10 +124,14 @@ impl Repository {
         their_tree: impl AsRef<gix_hash::oid>,
         labels: gix_merge::blob::builtin_driver::text::Labels<'_>,
         options: gix_merge::tree::Options,
-    ) -> Result<gix_merge::tree::Outcome<'_>, merge_trees::Error> {
+    ) -> Result<crate::merge::tree::Outcome<'_>, merge_trees::Error> {
         let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
         let mut blob_merge = self.merge_resource_cache(Default::default())?;
-        Ok(gix_merge::tree(
+        let gix_merge::tree::Outcome {
+            tree,
+            conflicts,
+            failed_on_first_unresolved_conflict,
+        } = gix_merge::tree(
             ancestor_tree.as_ref(),
             our_tree.as_ref(),
             their_tree.as_ref(),
@@ -138,6 +142,17 @@ impl Repository {
             &mut diff_cache,
             &mut blob_merge,
             options,
-        )?)
+        )?;
+
+        let validate = self.config.protect_options()?;
+        Ok(crate::merge::tree::Outcome {
+            tree: crate::object::tree::Editor {
+                inner: tree,
+                validate,
+                repo: self,
+            },
+            conflicts,
+            failed_on_first_unresolved_conflict,
+        })
     }
 }

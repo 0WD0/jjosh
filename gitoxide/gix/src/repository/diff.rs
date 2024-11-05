@@ -49,7 +49,7 @@ impl Repository {
         old_tree: impl Into<Option<&'a Tree<'old_repo>>>,
         new_tree: impl Into<Option<&'a Tree<'new_repo>>>,
         options: impl Into<Option<crate::diff::Options>>,
-    ) -> Result<Vec<gix_diff::tree_with_rewrites::Change>, diff_tree_to_tree::Error> {
+    ) -> Result<Vec<crate::object::tree::diff::ChangeDetached>, diff_tree_to_tree::Error> {
         let mut cache = self.diff_resource_cache(gix_diff::blob::pipeline::Mode::ToGit, Default::default())?;
         let opts = options
             .into()

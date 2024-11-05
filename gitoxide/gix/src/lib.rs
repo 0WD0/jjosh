@@ -120,8 +120,6 @@ pub use gix_ignore as ignore;
 #[cfg(feature = "index")]
 pub use gix_index as index;
 pub use gix_lock as lock;
-#[cfg(feature = "blob-merge")]
-pub use gix_merge as merge;
 #[cfg(feature = "credentials")]
 pub use gix_negotiate as negotiate;
 pub use gix_object as objs;
@@ -203,6 +201,9 @@ pub mod push;
 
 ///
 pub mod diff;
+
+///
+pub mod merge;
 
 /// See [`ThreadSafeRepository::discover()`], but returns a [`Repository`] instead.
 ///
