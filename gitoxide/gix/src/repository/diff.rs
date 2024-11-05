@@ -19,7 +19,7 @@ impl Repository {
         mode: gix_diff::blob::pipeline::Mode,
         worktree_roots: gix_diff::blob::pipeline::WorktreeRoots,
     ) -> Result<gix_diff::blob::Platform, diff_resource_cache::Error> {
-        let index = self.index_or_load_from_head()?;
+        let index = self.index_or_load_from_head_or_empty()?;
         Ok(crate::diff::resource_cache(
             self,
             mode,

@@ -18,7 +18,7 @@ impl Repository {
         &self,
         worktree_roots: gix_merge::blob::pipeline::WorktreeRoots,
     ) -> Result<gix_merge::blob::Platform, merge_resource_cache::Error> {
-        let index = self.index_or_load_from_head()?;
+        let index = self.index_or_load_from_head_or_empty()?;
         let mode = {
             let renormalize = self
                 .config

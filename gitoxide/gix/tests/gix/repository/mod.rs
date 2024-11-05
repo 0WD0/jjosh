@@ -17,6 +17,23 @@ mod state;
 mod submodule;
 mod worktree;
 
+#[cfg(feature = "index")]
+mod index {
+    #[test]
+    fn basics() -> crate::Result {
+        let repo = crate::named_subrepo_opts("make_basic_repo.sh", "unborn", gix::open::Options::isolated())?;
+        assert!(
+            repo.index_or_load_from_head().is_err(),
+            "can't read index if `HEAD^{{tree}}` can't be resolved"
+        );
+        assert!(
+            repo.index_or_load_from_head_or_empty()?.entries().is_empty(),
+            "an empty index is created on the fly"
+        );
+        Ok(())
+    }
+}
+
 #[cfg(feature = "dirwalk")]
 mod dirwalk {
     use gix_dir::entry::Kind::*;
@@ -44,6 +61,7 @@ mod dirwalk {
             ("non-bare-repo-without-index".into(), Repository),
             ("non-bare-without-worktree".into(), Directory),
             ("some".into(), Directory),
+            ("unborn".into(), Repository),
         ];
         assert_eq!(
             collect
