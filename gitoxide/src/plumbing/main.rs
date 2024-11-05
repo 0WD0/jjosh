@@ -173,7 +173,7 @@ pub fn main() -> Result<()> {
             ),
             merge::SubCommands::Tree {
                 in_memory,
-                resolve_content_with,
+                file_favor,
                 ours,
                 base,
                 theirs,
@@ -194,7 +194,7 @@ pub fn main() -> Result<()> {
                         theirs,
                         core::repository::merge::tree::Options {
                             format,
-                            resolve_content_merge: resolve_content_with.map(Into::into),
+                            file_favor: file_favor.map(Into::into),
                             in_memory,
                         },
                     )

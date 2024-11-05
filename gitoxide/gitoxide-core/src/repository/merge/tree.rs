@@ -2,7 +2,7 @@ use crate::OutputFormat;
 
 pub struct Options {
     pub format: OutputFormat,
-    pub resolve_content_merge: Option<gix::merge::blob::builtin_driver::text::Conflict>,
+    pub file_favor: Option<gix::merge::tree::FileFavor>,
     pub in_memory: bool,
 }
 
@@ -12,8 +12,6 @@ pub(super) mod function {
     use anyhow::{anyhow, bail, Context};
     use gix::bstr::BString;
     use gix::bstr::ByteSlice;
-    use gix::merge::blob::builtin_driver::binary;
-    use gix::merge::blob::builtin_driver::text::Conflict;
     use gix::merge::tree::UnresolvedConflict;
     use gix::prelude::Write;
 
@@ -29,7 +27,7 @@ pub(super) mod function {
         theirs: BString,
         Options {
             format,
-            resolve_content_merge,
+            file_favor,
             in_memory,
         }: Options,
     ) -> anyhow::Result<()> {
@@ -44,17 +42,7 @@ pub(super) mod function {
         let (ours_ref, ours_id) = refname_and_tree(&repo, ours)?;
         let (theirs_ref, theirs_id) = refname_and_tree(&repo, theirs)?;
 
-        let mut options = repo.tree_merge_options()?;
-        if let Some(resolve) = resolve_content_merge {
-            options.blob_merge.text.conflict = resolve;
-            options.blob_merge.resolve_binary_with = match resolve {
-                Conflict::Keep { .. } => None,
-                Conflict::ResolveWithOurs => Some(binary::ResolveWith::Ours),
-                Conflict::ResolveWithTheirs => Some(binary::ResolveWith::Theirs),
-                Conflict::ResolveWithUnion => None,
-            };
-        }
-
+        let options = repo.tree_merge_options()?.with_file_favor(file_favor);
         let base_id_str = base_id.to_string();
         let ours_id_str = ours_id.to_string();
         let theirs_id_str = theirs_id.to_string();

@@ -367,6 +367,23 @@ pub mod merge {
         }
     }
 
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+    pub enum FileFavor {
+        /// Use only ours in case of conflict.
+        Ours,
+        /// Use only theirs in case of conflict.
+        Theirs,
+    }
+
+    impl From<FileFavor> for gix::merge::tree::FileFavor {
+        fn from(value: FileFavor) -> Self {
+            match value {
+                FileFavor::Ours => gix::merge::tree::FileFavor::Ours,
+                FileFavor::Theirs => gix::merge::tree::FileFavor::Theirs,
+            }
+        }
+    }
+
     #[derive(Debug, clap::Parser)]
     #[command(about = "perform merges of various kinds")]
     pub struct Platform {
@@ -400,9 +417,9 @@ pub mod merge {
             /// Note that the resulting tree won't be available or inspectable.
             #[clap(long, short = 'm')]
             in_memory: bool,
-            /// Decide how to resolve content conflicts. If unset, write conflict markers and fail.
-            #[clap(long, short = 'c')]
-            resolve_content_with: Option<ResolveWith>,
+            /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
+            #[clap(long, short = 'f')]
+            file_favor: Option<FileFavor>,
 
             /// A revspec to our treeish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
