@@ -72,12 +72,15 @@ pub(super) mod function {
                 .map_or(theirs_id_str.as_str().into(), |n| n.as_bstr())
                 .into(),
         };
-        let mut res = repo.merge_trees(base_id, ours_id, theirs_id, labels, options)?;
+        let res = repo.merge_trees(base_id, ours_id, theirs_id, labels, options)?;
+        let has_conflicts = res.conflicts.is_empty();
+        let has_unresolved_conflicts = res.has_unresolved_conflicts(UnresolvedConflict::Renames);
         {
             let _span = gix::trace::detail!("Writing merged tree");
             let mut written = 0;
             let tree_id = res
                 .tree
+                .detach()
                 .write(|tree| {
                     written += 1;
                     repo.write(tree)
@@ -86,10 +89,10 @@ pub(super) mod function {
             writeln!(out, "{tree_id} (wrote {written} trees)")?;
         }
 
-        if !res.conflicts.is_empty() {
+        if !has_conflicts {
             writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;
         }
-        if res.has_unresolved_conflicts(UnresolvedConflict::Renames) {
+        if has_unresolved_conflicts {
             bail!("Tree conflicted")
         }
         Ok(())
