@@ -203,6 +203,7 @@ pub mod push;
 pub mod diff;
 
 ///
+#[cfg(feature = "merge")]
 pub mod merge;
 
 /// See [`ThreadSafeRepository::discover()`], but returns a [`Repository`] instead.

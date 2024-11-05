@@ -100,7 +100,7 @@ impl Cache {
         Ok(out)
     }
 
-    #[cfg(feature = "blob-merge")]
+    #[cfg(feature = "merge")]
     pub(crate) fn merge_drivers(&self) -> Result<Vec<gix_merge::blob::Driver>, config::merge::drivers::Error> {
         let mut out = Vec::<gix_merge::blob::Driver>::new();
         for section in self
@@ -136,7 +136,7 @@ impl Cache {
         Ok(out)
     }
 
-    #[cfg(feature = "blob-merge")]
+    #[cfg(feature = "merge")]
     pub(crate) fn merge_pipeline_options(
         &self,
     ) -> Result<gix_merge::blob::pipeline::Options, config::merge::pipeline_options::Error> {

@@ -43,7 +43,7 @@ mod location;
 #[cfg(feature = "mailmap")]
 mod mailmap;
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 mod merge;
 mod object;
 #[cfg(feature = "attributes")]
@@ -75,7 +75,7 @@ pub mod diff_tree_to_tree {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod blob_merge_options {
     /// The error returned by [Repository::blob_merge_options()](crate::Repository::blob_merge_options()).
     #[derive(Debug, thiserror::Error)]
@@ -89,7 +89,7 @@ pub mod blob_merge_options {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod merge_resource_cache {
     /// The error returned by [Repository::merge_resource_cache()](crate::Repository::merge_resource_cache()).
     #[derive(Debug, thiserror::Error)]
@@ -113,7 +113,7 @@ pub mod merge_resource_cache {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod merge_trees {
     /// The error returned by [Repository::merge_trees()](crate::Repository::merge_trees()).
     #[derive(Debug, thiserror::Error)]
@@ -131,7 +131,7 @@ pub mod merge_trees {
 }
 
 ///
-#[cfg(feature = "blob-merge")]
+#[cfg(feature = "merge")]
 pub mod tree_merge_options {
     /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
     #[derive(Debug, thiserror::Error)]
