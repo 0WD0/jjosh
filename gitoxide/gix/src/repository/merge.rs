@@ -83,7 +83,7 @@ impl Repository {
     }
 
     /// Read all relevant configuration options to instantiate options for use in [`merge_trees()`](Self::merge_trees).
-    pub fn tree_merge_options(&self) -> Result<gix_merge::tree::Options, tree_merge_options::Error> {
+    pub fn tree_merge_options(&self) -> Result<crate::merge::tree::Options, tree_merge_options::Error> {
         Ok(gix_merge::tree::Options {
             rewrites: crate::diff::utils::new_rewrites_inner(
                 &self.config.resolved,
@@ -97,7 +97,8 @@ impl Repository {
             marker_size_multiplier: 0,
             symlink_conflicts: None,
             allow_lossy_resolution: false,
-        })
+        }
+        .into())
     }
 
     /// Merge `our_tree` and `their_tree` together, assuming they have the same `ancestor_tree`, to yield a new tree
@@ -116,14 +117,13 @@ impl Repository {
     ///
     /// It's highly recommended to [set an object cache](crate::Repository::compute_object_cache_size_for_tree_diffs)
     /// to avoid extracting the same object multiple times.
-    // TODO: Use `crate::merge::Options` here and add niceties such as setting the resolution strategy.
     pub fn merge_trees(
         &self,
         ancestor_tree: impl AsRef<gix_hash::oid>,
         our_tree: impl AsRef<gix_hash::oid>,
         their_tree: impl AsRef<gix_hash::oid>,
         labels: gix_merge::blob::builtin_driver::text::Labels<'_>,
-        options: gix_merge::tree::Options,
+        options: crate::merge::tree::Options,
     ) -> Result<crate::merge::tree::Outcome<'_>, merge_trees::Error> {
         let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
         let mut blob_merge = self.merge_resource_cache(Default::default())?;
@@ -141,7 +141,7 @@ impl Repository {
             &mut Default::default(),
             &mut diff_cache,
             &mut blob_merge,
-            options,
+            options.into(),
         )?;
 
         let validate = self.config.protect_options()?;
