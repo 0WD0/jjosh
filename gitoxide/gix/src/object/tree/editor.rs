@@ -263,7 +263,7 @@ fn write_cursor<'repo>(cursor: &mut Cursor<'_, 'repo>) -> Result<Id<'repo>, writ
                     id: entry.oid,
                     source: err,
                 })?;
-                if !cursor.repo.has_object(entry.oid) {
+                if !entry.mode.is_commit() && !cursor.repo.has_object(entry.oid) {
                     return Err(write::Error::MissingObject {
                         filename: entry.filename.clone(),
                         kind: entry.mode.into(),
