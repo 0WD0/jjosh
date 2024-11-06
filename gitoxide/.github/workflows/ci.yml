@@ -67,14 +67,14 @@ jobs:
           brew install tree openssl gnu-sed
       - name: "cargo check default features"
         if: startsWith(matrix.os, 'windows')
-        run: cargo check --all --bins --examples
+        run: cargo check --workspace --bins --examples
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: "Test (nextest)"
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: 1
-        run: cargo nextest run --all --no-fail-fast
+        run: cargo nextest run --workspace --no-fail-fast
       - name: Doctest
         run: cargo test --doc
       - name: Check that tracked archives are up to date
