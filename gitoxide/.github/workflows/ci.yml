@@ -97,8 +97,7 @@ jobs:
         env:
           GIX_TEST_IGNORE_ARCHIVES: 1
         run: |
-          stdbuf -oL -- cargo nextest --color=always run --workspace --no-fail-fast |&
-            tee nextest.log
+          cargo nextest --color=always run --workspace --no-fail-fast |& tee nextest.log
         continue-on-error: true
       - name: Check how many tests failed
         if: steps.nextest.outcome == 'failure'
