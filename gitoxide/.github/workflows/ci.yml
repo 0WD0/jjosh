@@ -80,6 +80,37 @@ jobs:
       - name: Check that tracked archives are up to date
         run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
 
+  test-fixtures-windows:
+    runs-on: windows-latest
+    env:
+      # FIXME: Change to 15 after verifying that the last step can fail.
+      # See https://github.com/GitoxideLabs/gitoxide/issues/1358.
+      EXPECTED_FAILURE_COUNT: 13
+    defaults:
+      run:
+        shell: bash  # Includes `-o pipefail`.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: "Test (nextest)"
+        env:
+          GIX_TEST_IGNORE_ARCHIVES: 1
+        run: |
+          cargo nextest --color=always run --workspace --no-fail-fast |& tee nextest.log
+        continue-on-error: true
+      - name: Allow up to ${{ env.EXPECTED_FAILURE_COUNT }} failures
+        if: failure()
+        run: |
+          set -x
+          sed -Ei 's/\x1B\[[[:digit:];]*m//g' nextest.log  # Remove ANSI color codes.
+          pattern='\n-{10,}\r?\n[ \t]+Summary\b[^\n]+[ \t]\K\d+(?= failed\b)'
+          count="$(grep -zoP "$pattern" nextest.log)"
+          ((count <= EXPECTED_FAILURE_COUNT))
+
   test-32bit:
     runs-on: ubuntu-latest
     strategy:
