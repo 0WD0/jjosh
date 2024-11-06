@@ -8,20 +8,21 @@ pub enum ConflictStyle {
     /// Only show the zealously minified conflicting lines of the local changes and the incoming (other) changes,
     /// hiding the base version entirely.
     ///
-    /// ```
+    /// ```text
     /// line1-changed-by-both
     /// <<<<<<< local
     /// line2-to-be-changed-in-incoming
     /// =======
     /// line2-changed
     /// >>>>>>> incoming
-    ///```
+    /// ```
     #[default]
     Merge,
     /// Show non-minimized hunks of local changes, the base, and the incoming (other) changes.
     ///
     /// This mode does not hide any information.
-    /// ```
+    ///
+    /// ```text
     /// <<<<<<< local
     /// line1-changed-by-both
     /// line2-to-be-changed-in-incoming
@@ -32,12 +33,12 @@ pub enum ConflictStyle {
     /// line1-changed-by-both
     /// line2-changed
     /// >>>>>>> incoming
-    ///```
+    /// ```
     Diff3,
     /// Like [`Diff3](Self::Diff3), but will show *minimized* hunks of local change and the incoming (other) changes,
     /// as well as non-minimized hunks of the base.
     ///
-    /// ```
+    /// ```text
     /// line1-changed-by-both
     /// <<<<<<< local
     /// line2-to-be-changed-in-incoming

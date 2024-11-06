@@ -38,7 +38,7 @@ clippy-fix:
 
 # Build all code in suitable configurations
 check:
-    cargo check --all
+    cargo check --workspace
     cargo check --no-default-features --features small
     # assure compile error occurs
     if cargo check --features lean-async 2>/dev/null; then false; else true; fi
@@ -146,8 +146,8 @@ check:
 
 # Run cargo doc on all crates
 doc $RUSTDOCFLAGS="-D warnings":
-    cargo doc --all --no-deps --features need-more-recent-msrv
-    cargo doc --features=max,lean,small --all --no-deps --features need-more-recent-msrv
+    cargo doc --workspace --no-deps --features need-more-recent-msrv
+    cargo doc --features=max,lean,small --workspace --no-deps --features need-more-recent-msrv
 
 # run all unit tests
 unit-tests:
