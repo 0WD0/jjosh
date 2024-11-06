@@ -9,6 +9,7 @@ use gix_testtools::tempfile::tempdir;
 use crate::file::{cow_str, init::from_paths::escape_backslashes};
 
 mod gitdir;
+mod hasconfig;
 mod onbranch;
 
 #[test]

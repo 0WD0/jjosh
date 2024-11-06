@@ -747,7 +747,7 @@ See its [README.md](https://github.com/GitoxideLabs/gitoxide/blob/main/gix-lock/
     * all config values as per the `gix-config-value` crate
     * **includeIf**
       * [x] `gitdir`,  `gitdir/i`, and `onbranch`
-      * [ ] `hasconfig`
+      * [x] `hasconfig:remote.*.url`
 * [x] access values and sections by name and sub-section
 * [x] edit configuration in memory, non-destructively
     * cross-platform newline handling
