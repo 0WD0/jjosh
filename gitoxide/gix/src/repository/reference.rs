@@ -215,6 +215,16 @@ impl crate::Repository {
         Ok(self.head_commit()?.tree_id()?)
     }
 
+    /// Return the tree object the `HEAD^{tree}` reference currently points to after peeling it fully,
+    /// following symbolic references and tags until a tree is found.
+    ///
+    /// Note that this may fail for various reasons, most notably because the repository
+    /// is freshly initialized and doesn't have any commits yet. It could also fail if the
+    /// head does not point to a tree, unlikely but possible.
+    pub fn head_tree(&self) -> Result<crate::Tree<'_>, reference::head_tree::Error> {
+        Ok(self.head_commit()?.tree()?)
+    }
+
     /// Find the reference with the given partial or full `name`, like `main`, `HEAD`, `heads/branch` or `origin/other`,
     /// or return an error if it wasn't found.
     ///

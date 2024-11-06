@@ -107,6 +107,19 @@ pub mod head_tree_id {
 }
 
 ///
+pub mod head_tree {
+    /// The error returned by [`Repository::head_tree`(…)](crate::Repository::head_tree()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        HeadCommit(#[from] crate::reference::head_commit::Error),
+        #[error(transparent)]
+        CommitTree(#[from] crate::object::commit::Error),
+    }
+}
+
+///
 pub mod find {
     ///
     pub mod existing {

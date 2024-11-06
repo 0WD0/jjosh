@@ -119,6 +119,20 @@ mod edit_tree {
     }
 
     #[test]
+    fn submodules_are_not_checked_for_existence() -> crate::Result {
+        let repo = crate::named_subrepo_opts("make_submodules.sh", "with-submodules", gix::open::Options::isolated())?
+            .with_object_memory();
+        let mut editor = repo.head_tree()?.edit()?;
+        let actual = editor.write()?;
+        assert_eq!(
+            actual,
+            repo.head_tree_id()?,
+            "Nothing changed, but it did validate the root tree that it would want to write"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn missing_objects_and_illformed_path_components_trigger_error() -> crate::Result {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let tree = repo.head_tree_id()?.object()?.into_tree();
