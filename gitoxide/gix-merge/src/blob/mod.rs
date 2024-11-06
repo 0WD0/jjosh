@@ -96,7 +96,7 @@ pub struct Driver {
     ///
     /// A typical invocation with all arguments substituted could then look like this:
     ///
-    /// ```
+    /// ```sh
     /// <driver-program> .merge_file_nR2Qs1 .merge_file_WYXCJe .merge_file_UWbzrm 7 file e2a2970 HEAD feature
     /// ```
     ///
