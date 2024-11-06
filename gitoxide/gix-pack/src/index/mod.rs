@@ -1,5 +1,5 @@
 //! an index into the pack file
-//!
+
 /// From itertools
 /// Create an iterator running multiple iterators in lockstep.
 ///
@@ -21,7 +21,7 @@
 ///
 /// [`multizip`]: fn.multizip.html
 ///
-/// ```
+/// ```ignore
 /// # use itertools::izip;
 /// #
 /// # fn main() {
@@ -37,6 +37,9 @@
 /// assert_eq!(results, [0 + 3, 10 + 7, 29, 36]);
 /// # }
 /// ```
+///
+/// (The above is vendored from [itertools](https://github.com/rust-itertools/itertools),
+/// including the original doctest, though it has been marked `ignore` here.)
 macro_rules! izip {
     // @closure creates a tuple-flattening closure for .map() call. usage:
     // @closure partial_pattern => partial_tuple , rest , of , iterators
