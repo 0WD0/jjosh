@@ -14,7 +14,7 @@ publish = false
 
 [[test]]
 name = "config"
-path = "config.rs"
+path = "config/mod.rs"
 
 [[test]]
 name = "mem"
