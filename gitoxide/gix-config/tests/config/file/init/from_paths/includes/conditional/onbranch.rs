@@ -6,10 +6,7 @@ use gix_config::file::{
     includes::conditional,
     init::{self},
 };
-use gix_ref::{
-    transaction::{Change, PreviousValue, RefEdit},
-    FullName, Target,
-};
+use gix_ref::FullName;
 use gix_testtools::tempfile::tempdir;
 
 use crate::file::{cow_str, init::from_paths::includes::conditional::git_init};
@@ -24,7 +21,7 @@ fn literal_branch_names_match() -> Result {
             branch_name: "refs/heads/literal-match",
             expect: Value::OverrideByInclude,
         },
-        GitEnv::new()?,
+        &mut GitEnv::new()?,
     )?;
     Ok(())
 }
@@ -37,7 +34,7 @@ fn full_ref_names_do_not_match() -> Result {
             branch_name: "refs/heads/simple",
             expect: Value::Base,
         },
-        GitEnv::new()?,
+        &mut GitEnv::new()?,
     )?;
     Ok(())
 }
@@ -50,7 +47,7 @@ fn non_branches_never_match() -> Result {
             branch_name: "refs/bisect/good",
             expect: Value::Base,
         },
-        GitEnv::new()?,
+        &mut GitEnv::new()?,
     )?;
     Ok(())
 }
@@ -58,21 +55,21 @@ fn non_branches_never_match() -> Result {
 #[test]
 fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
     let mut env = GitEnv::new()?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "feature/b/",
             branch_name: "refs/heads/feature/b/start",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "feature/",
             branch_name: "refs/heads/feature/b/start",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
     assert_section_value_msg(
         Options {
@@ -80,7 +77,7 @@ fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
             branch_name: "refs/heads/feature/b/start",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
         "just for good measure, we would expect branch paths to work as well".into(),
     )?;
     Ok(())
@@ -89,38 +86,38 @@ fn patterns_ending_with_slash_match_subdirectories_recursively() -> Result {
 #[test]
 fn simple_glob_patterns() -> Result {
     let mut env = GitEnv::new()?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "prefix*",
             branch_name: "refs/heads/prefixsuffix",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
-    env = assert_section_value_msg(
+    assert_section_value_msg(
         Options {
             condition: "prefix*",
             branch_name: "refs/heads/prefix/suffix",
             expect: Value::Base,
         },
-        env,
+        &mut env,
         "single-stars do not cross component boundaries".into(),
     )?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "*suffix",
             branch_name: "refs/heads/prefixsuffix",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "*/suffix",
             branch_name: "refs/heads/prefix/suffix",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
     assert_section_value_msg(
         Options {
@@ -128,7 +125,7 @@ fn simple_glob_patterns() -> Result {
             branch_name: "refs/heads/prefix/suffix",
             expect: Value::Base,
         },
-        env,
+        &mut env,
         "single-stars do not cross component boundaries".into(),
     )?;
     Ok(())
@@ -137,13 +134,13 @@ fn simple_glob_patterns() -> Result {
 #[test]
 fn simple_globs_do_not_cross_component_boundary() -> Result {
     let mut env = GitEnv::new()?;
-    env = assert_section_value(
+    assert_section_value(
         Options {
             condition: "feature/*/start",
             branch_name: "refs/heads/feature/a/start",
             expect: Value::OverrideByInclude,
         },
-        env,
+        &mut env,
     )?;
     assert_section_value_msg(
         Options {
@@ -151,7 +148,7 @@ fn simple_globs_do_not_cross_component_boundary() -> Result {
             branch_name: "refs/heads/feature/a/b/start",
             expect: Value::Base,
         },
-        env,
+        &mut env,
         "path matching would never match 'a/b' as it cannot cross /".into(),
     )?;
     Ok(())
@@ -165,7 +162,7 @@ fn double_star_globs_cross_component_boundaries() -> Result {
             branch_name: "refs/heads/feature/a/b/start",
             expect: Value::OverrideByInclude,
         },
-        GitEnv::new()?,
+        &mut GitEnv::new()?,
     )?;
     Ok(())
 }
@@ -177,15 +174,14 @@ enum Value {
 
 #[derive(Debug)]
 struct GitEnv {
-    repo: gix::Repository,
     dir: gix_testtools::tempfile::TempDir,
 }
 
 impl GitEnv {
     fn new() -> crate::Result<Self> {
         let dir = tempdir()?;
-        let repo = git_init(dir.path(), true)?;
-        Ok(GitEnv { repo, dir })
+        git_init(dir.path(), true)?;
+        Ok(GitEnv { dir })
     }
 }
 
@@ -195,7 +191,7 @@ struct Options<'a> {
     expect: Value,
 }
 
-fn assert_section_value(opts: Options, env: GitEnv) -> crate::Result<GitEnv> {
+fn assert_section_value(opts: Options, env: &mut GitEnv) -> crate::Result {
     assert_section_value_msg(opts, env, None)
 }
 
@@ -205,9 +201,9 @@ fn assert_section_value_msg(
         branch_name,
         expect,
     }: Options,
-    GitEnv { repo, dir }: GitEnv,
+    GitEnv { dir }: &mut GitEnv,
     message: Option<&str>,
-) -> crate::Result<GitEnv> {
+) -> crate::Result<()> {
     let root_config = dir.path().join("config");
     let included_config = dir.path().join("include.config");
 
@@ -264,36 +260,23 @@ value = branch-override-by-include
                 "the base value is overridden by an included file because the condition matches",
         },
         message,
-        dir.into_path()
+        {
+            let dir = std::mem::replace(
+                dir,
+                gix_testtools::tempfile::TempDir::new().expect("substitute can be created"),
+            );
+            dir.into_path()
+        }
     );
 
-    repo.refs
-        .transaction()
-        .prepare(
-            Some(RefEdit {
-                name: "HEAD".try_into()?,
-                change: Change::Update {
-                    log: Default::default(),
-                    expected: PreviousValue::Any,
-                    new: Target::Symbolic(branch_name),
-                },
-                deref: false,
-            }),
-            gix::lock::acquire::Fail::Immediately,
-            gix::lock::acquire::Fail::Immediately,
-        )?
-        .commit(repo.committer().transpose()?)?;
-
-    let dir = assure_git_agrees(expect, dir)?;
-    Ok(GitEnv { repo, dir })
+    std::fs::write(dir.path().join("HEAD"), format!("ref: {}", branch_name.as_bstr()))?;
+    assure_git_agrees(expect, dir)?;
+    Ok(())
 }
 
-fn assure_git_agrees(
-    expected: Value,
-    dir: gix_testtools::tempfile::TempDir,
-) -> crate::Result<gix_testtools::tempfile::TempDir> {
+fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir) -> crate::Result {
     let git_dir = dir.path();
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(gix_path::env::exe_invocation())
         .args(["config", "--get", "section.value"])
         .env("GIT_DIR", git_dir)
         .env("HOME", git_dir)
@@ -302,11 +285,18 @@ fn assure_git_agrees(
         .current_dir(git_dir)
         .output()?;
 
+    let mut keep_dir_on_disk = || {
+        let dir = std::mem::replace(
+            dir,
+            gix_testtools::tempfile::TempDir::new().expect("substitute can be created"),
+        );
+        dir.into_path()
+    };
     assert!(
         output.status.success(),
         "{:?}, {:?} for debugging",
         output,
-        dir.into_path()
+        keep_dir_on_disk()
     );
     let git_output: BString = output.stdout.trim_end().into();
     assert_eq!(
@@ -316,7 +306,7 @@ fn assure_git_agrees(
             Value::OverrideByInclude => "branch-override-by-include",
         },
         "git disagrees with gix-config, {:?} for debugging",
-        dir.into_path()
+        keep_dir_on_disk()
     );
-    Ok(dir)
+    Ok(())
 }

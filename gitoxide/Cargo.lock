@@ -1586,7 +1586,6 @@ dependencies = [
  "bstr",
  "bytesize",
  "cap",
- "gix",
  "gix-config",
  "gix-path 0.10.12",
  "gix-ref 0.48.0",
