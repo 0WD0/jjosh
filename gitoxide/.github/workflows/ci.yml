@@ -103,7 +103,7 @@ jobs:
       - name: Check how many tests failed
         if: steps.nextest.outcome == 'failure'
         env:
-          LC_ALL: C
+          LC_ALL: C.utf8
           # FIXME: Change to 15 after verifying that the last step can fail.
           # See https://github.com/GitoxideLabs/gitoxide/issues/1358.
           EXPECTED_FAILURE_COUNT: 13
