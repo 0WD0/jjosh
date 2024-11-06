@@ -76,7 +76,7 @@ jobs:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: 1
         run: cargo nextest run --workspace --no-fail-fast
       - name: Doctest
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --doc --no-fail-fast
       - name: Check that tracked archives are up to date
         run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
 
