@@ -428,7 +428,25 @@ pub mod merge {
             #[clap(value_name = "BASE", value_parser = crate::shared::AsBString)]
             base: BString,
             /// A revspec to their treeish.
+            #[clap(value_name = "THEIRS", value_parser = crate::shared::AsBString)]
+            theirs: BString,
+        },
+        /// Merge a commits by specifying ours, and theirs, writing the tree to the object database.
+        Commit {
+            /// Keep all objects to be written in memory to avoid any disk IO.
+            ///
+            /// Note that the resulting tree won't be available or inspectable.
+            #[clap(long, short = 'm')]
+            in_memory: bool,
+            /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
+            #[clap(long, short = 'f')]
+            file_favor: Option<FileFavor>,
+
+            /// A revspec to our committish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
+            ours: BString,
+            /// A revspec to their committish.
+            #[clap(value_name = "THEIRS", value_parser = crate::shared::AsBString)]
             theirs: BString,
         },
     }

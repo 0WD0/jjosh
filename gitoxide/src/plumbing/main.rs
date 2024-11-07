@@ -200,6 +200,33 @@ pub fn main() -> Result<()> {
                     )
                 },
             ),
+            merge::SubCommands::Commit {
+                in_memory,
+                file_favor,
+                ours,
+                theirs,
+            } => prepare_and_run(
+                "merge-commit",
+                trace,
+                verbose,
+                progress,
+                progress_keep_open,
+                None,
+                move |_progress, out, err| {
+                    core::repository::merge::commit(
+                        repository(Mode::Lenient)?,
+                        out,
+                        err,
+                        ours,
+                        theirs,
+                        core::repository::merge::tree::Options {
+                            format,
+                            file_favor: file_favor.map(Into::into),
+                            in_memory,
+                        },
+                    )
+                },
+            ),
         },
         Subcommands::MergeBase(crate::plumbing::options::merge_base::Command { first, others }) => prepare_and_run(
             "merge-base",
