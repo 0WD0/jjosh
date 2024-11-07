@@ -30,7 +30,7 @@ mod open {
 #[test]
 fn fuzzed_stackoverflow() {
     let file = File::from_bytes_no_includes(
-        include_bytes!("../fixtures/fuzzed/stackoverflow-01.config"),
+        include_bytes!("../../fixtures/fuzzed/stackoverflow-01.config"),
         gix_config::file::Metadata::default(),
         Default::default(),
     )

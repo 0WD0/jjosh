@@ -9,6 +9,7 @@ use gix_testtools::tempfile::tempdir;
 use crate::file::{cow_str, init::from_paths::escape_backslashes};
 
 mod gitdir;
+mod hasconfig;
 mod onbranch;
 
 #[test]
@@ -137,18 +138,21 @@ fn options_with_git_dir(git_dir: &Path) -> init::Options<'_> {
     }
 }
 
-fn git_init(path: impl AsRef<std::path::Path>, bare: bool) -> crate::Result<gix::Repository> {
-    Ok(gix::ThreadSafeRepository::init_opts(
-        path,
-        if bare {
-            gix::create::Kind::Bare
-        } else {
-            gix::create::Kind::WithWorktree
-        },
-        gix::create::Options::default(),
-        gix::open::Options::isolated().config_overrides(["user.name=gitoxide", "user.email=gitoxide@localhost"]),
-    )?
-    .to_thread_local())
+fn git_init(dir: impl AsRef<std::path::Path>, bare: bool) -> crate::Result {
+    let dir = dir.as_ref();
+    let mut args = vec!["init"];
+    if bare {
+        args.push("--bare");
+    }
+    let output = std::process::Command::new(gix_path::env::exe_invocation())
+        .args(args)
+        .arg(dir)
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("XDG_CONFIG_HOME")
+        .output()?;
+
+    assert!(output.status.success(), "{output:?}, {dir:?}");
+    Ok(())
 }
 
 fn create_symlink(from: impl AsRef<Path>, to: impl AsRef<Path>) {
