@@ -1,6 +1,10 @@
 use crate::config::cache::util::ApplyLeniencyDefault;
 use crate::config::tree;
-use crate::repository::{blob_merge_options, merge_resource_cache, merge_trees, tree_merge_options};
+use crate::prelude::ObjectIdExt;
+use crate::repository::{
+    blob_merge_options, merge_commits, merge_resource_cache, merge_trees, tree_merge_options, virtual_merge_base,
+    virtual_merge_base_with_graph,
+};
 use crate::Repository;
 use gix_merge::blob::builtin_driver::text;
 use gix_object::Write;
@@ -102,7 +106,7 @@ impl Repository {
     }
 
     /// Merge `our_tree` and `their_tree` together, assuming they have the same `ancestor_tree`, to yield a new tree
-    /// which is provided as [tree editor](gix_object::tree::Editor) to inspect and finalize results at will.
+    /// which is provided as [tree editor](crate::object::tree::Editor) to inspect and finalize results at will.
     /// No change to the worktree or index is made, but objects may be written to the object database as merge results
     /// are stored.
     /// If these changes should not be observable outside of this instance, consider [enabling object memory](Self::with_object_memory).
@@ -115,7 +119,7 @@ impl Repository {
     ///
     /// ### Performance
     ///
-    /// It's highly recommended to [set an object cache](crate::Repository::compute_object_cache_size_for_tree_diffs)
+    /// It's highly recommended to [set an object cache](Repository::compute_object_cache_size_for_tree_diffs)
     /// to avoid extracting the same object multiple times.
     pub fn merge_trees(
         &self,
@@ -153,6 +157,138 @@ impl Repository {
             },
             conflicts,
             failed_on_first_unresolved_conflict,
+        })
+    }
+
+    /// Merge `our_commit` and `their_commit` together to yield a new tree which is provided as [tree editor](crate::object::tree::Editor)
+    /// to inspect and finalize results at will. The merge-base will be determined automatically between both commits, along with special
+    /// handling in case there are multiple merge-bases.
+    /// No change to the worktree or index is made, but objects may be written to the object database as merge results
+    /// are stored.
+    /// If these changes should not be observable outside of this instance, consider [enabling object memory](Self::with_object_memory).
+    ///
+    /// `labels` are typically chosen to identify the refs or names for `our_commit` and `their_commit`, with the ancestor being set
+    /// automatically as part of the merge-base handling.
+    ///
+    /// `options` should be initialized with [`Repository::tree_merge_options().into()`](Self::tree_merge_options()).
+    ///
+    /// ### Performance
+    ///
+    /// It's highly recommended to [set an object cache](Repository::compute_object_cache_size_for_tree_diffs)
+    /// to avoid extracting the same object multiple times.
+    pub fn merge_commits(
+        &self,
+        our_commit: impl Into<gix_hash::ObjectId>,
+        their_commit: impl Into<gix_hash::ObjectId>,
+        labels: gix_merge::blob::builtin_driver::text::Labels<'_>,
+        options: crate::merge::commit::Options,
+    ) -> Result<crate::merge::commit::Outcome<'_>, merge_commits::Error> {
+        let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
+        let mut blob_merge = self.merge_resource_cache(Default::default())?;
+        let commit_graph = self.commit_graph_if_enabled()?;
+        let mut graph = self.revision_graph(commit_graph.as_ref());
+        let gix_merge::commit::Outcome {
+            tree_merge:
+                gix_merge::tree::Outcome {
+                    tree,
+                    conflicts,
+                    failed_on_first_unresolved_conflict,
+                },
+            merge_base_tree_id,
+            merge_bases,
+            virtual_merge_bases,
+        } = gix_merge::commit(
+            our_commit.into(),
+            their_commit.into(),
+            labels,
+            &mut graph,
+            &mut diff_cache,
+            &mut blob_merge,
+            self,
+            &mut |id| id.to_owned().attach(self).shorten_or_id().to_string(),
+            options.into(),
+        )?;
+
+        let validate = self.config.protect_options()?;
+        let tree_merge = crate::merge::tree::Outcome {
+            tree: crate::object::tree::Editor {
+                inner: tree,
+                validate,
+                repo: self,
+            },
+            conflicts,
+            failed_on_first_unresolved_conflict,
+        };
+        Ok(crate::merge::commit::Outcome {
+            tree_merge,
+            merge_base_tree_id,
+            merge_bases,
+            virtual_merge_bases,
+        })
+    }
+
+    /// Create a single virtual merge-base by merging all `merge_bases` into one.
+    /// If the list is empty, an error will be returned as the histories are then unrelated.
+    /// If there is only one commit in the list, it is returned directly with this case clearly marked in the outcome.
+    ///
+    /// Note that most of `options` are overwritten to match the requirements of a merge-base merge, but they can be useful
+    /// to control the diff algorithm or rewrite tracking, for example.
+    // TODO: test
+    pub fn virtual_merge_base(
+        &self,
+        merge_bases: impl IntoIterator<Item = impl Into<gix_hash::ObjectId>>,
+        options: crate::merge::tree::Options,
+    ) -> Result<crate::merge::virtual_merge_base::Outcome<'_>, virtual_merge_base::Error> {
+        let commit_graph = self.commit_graph_if_enabled()?;
+        let mut graph = self.revision_graph(commit_graph.as_ref());
+        Ok(self.virtual_merge_base_with_graph(merge_bases, &mut graph, options)?)
+    }
+
+    /// Like [`Self::virtual_merge_base()`], but also allows to reuse a `graph` for faster merge-base calculation,
+    /// particularly if `graph` was used to find the `merge_bases`.
+    pub fn virtual_merge_base_with_graph(
+        &self,
+        merge_bases: impl IntoIterator<Item = impl Into<gix_hash::ObjectId>>,
+        graph: &mut gix_revwalk::Graph<'_, '_, gix_revwalk::graph::Commit<gix_revision::merge_base::Flags>>,
+        options: crate::merge::tree::Options,
+    ) -> Result<crate::merge::virtual_merge_base::Outcome<'_>, virtual_merge_base_with_graph::Error> {
+        let mut merge_bases: Vec<_> = merge_bases.into_iter().map(Into::into).collect();
+        let first = merge_bases
+            .pop()
+            .ok_or(virtual_merge_base_with_graph::Error::MissingCommit)?;
+        let Some(second) = merge_bases.pop() else {
+            let tree_id = self.find_commit(first)?.tree_id()?;
+            let commit_id = first.attach(self);
+            return Ok(crate::merge::virtual_merge_base::Outcome {
+                virtual_merge_bases: Vec::new(),
+                commit_id,
+                tree_id,
+            });
+        };
+
+        let mut diff_cache = self.diff_resource_cache_for_tree_diff()?;
+        let mut blob_merge = self.merge_resource_cache(Default::default())?;
+
+        let gix_merge::commit::virtual_merge_base::Outcome {
+            virtual_merge_bases,
+            commit_id,
+            tree_id,
+        } = gix_merge::commit::virtual_merge_base(
+            first,
+            second,
+            merge_bases,
+            graph,
+            &mut diff_cache,
+            &mut blob_merge,
+            self,
+            &mut |id| id.to_owned().attach(self).shorten_or_id().to_string(),
+            options.into(),
+        )?;
+
+        Ok(crate::merge::virtual_merge_base::Outcome {
+            virtual_merge_bases: virtual_merge_bases.into_iter().map(|id| id.attach(self)).collect(),
+            commit_id: commit_id.attach(self),
+            tree_id: tree_id.attach(self),
         })
     }
 }
