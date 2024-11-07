@@ -1,10 +1,24 @@
-use std::path::Path;
-
+use crate::named_repo;
+use crate::util::named_subrepo_opts;
 use gix_sec::Permission;
 use gix_testtools::Env;
 use serial_test::serial;
+use std::path::Path;
 
-use crate::named_repo;
+#[test]
+#[serial]
+fn author_included_by_hasconfig() -> crate::Result {
+    let repo = named_subrepo_opts("make_config_repos.sh", "with-hasconfig", gix::open::Options::isolated())?;
+    let _env = Env::new().set(
+        "GIT_CONFIG_SYSTEM",
+        repo.git_dir().join("system.config").display().to_string(),
+    );
+    let repo = gix::open_opts(repo.git_dir(), allow_system_options(repo.open_options().clone()))?;
+    let author = repo.author().expect("set in system config via include")?;
+    assert_eq!(author.name, "works");
+    assert_eq!(author.email, "works@example.com");
+    Ok(())
+}
 
 #[test]
 #[serial]
@@ -29,17 +43,7 @@ fn author_and_committer_and_fallback() -> crate::Result {
             .set("GIT_CONFIG_VALUE_0", work_dir.join("c.config").display().to_string());
         let repo = gix::open_opts(
             repo.git_dir(),
-            repo.open_options()
-                .clone()
-                .with(trust)
-                .permissions(gix::open::Permissions {
-                    env: gix::open::permissions::Environment {
-                        xdg_config_home: Permission::Deny,
-                        home: Permission::Deny,
-                        ..gix::open::permissions::Environment::all()
-                    },
-                    ..Default::default()
-                }),
+            allow_system_options(repo.open_options().clone().with(trust)),
         )?;
 
         assert_eq!(
@@ -147,18 +151,12 @@ fn author_from_different_config_sections() -> crate::Result {
 
     let repo = gix::open_opts(
         repo.git_dir(),
-        repo.open_options()
-            .clone()
-            .config_overrides(None::<&str>)
-            .with(gix_sec::Trust::Full)
-            .permissions(gix::open::Permissions {
-                env: gix::open::permissions::Environment {
-                    xdg_config_home: Permission::Deny,
-                    home: Permission::Deny,
-                    ..gix::open::permissions::Environment::all()
-                },
-                ..Default::default()
-            }),
+        allow_system_options(
+            repo.open_options()
+                .clone()
+                .config_overrides(None::<&str>)
+                .with(gix_sec::Trust::Full),
+        ),
     )?;
 
     assert_eq!(
@@ -190,4 +188,15 @@ fn author_from_different_config_sections() -> crate::Result {
          but committer email comes from global config"
     );
     Ok(())
+}
+
+fn allow_system_options(opts: gix::open::Options) -> gix::open::Options {
+    opts.permissions(gix::open::Permissions {
+        env: gix::open::permissions::Environment {
+            xdg_config_home: Permission::Deny,
+            home: Permission::Deny,
+            ..gix::open::permissions::Environment::all()
+        },
+        ..Default::default()
+    })
 }
