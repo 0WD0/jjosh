@@ -104,6 +104,40 @@ impl crate::Repository {
             .collect())
     }
 
+    /// Return the best merge-base among all `commits`, or fail if `commits` yields no commit or no merge-base was found.
+    ///
+    /// Use `graph` to speed up repeated calls.
+    #[cfg(feature = "revision")]
+    pub fn merge_base_octopus_with_graph(
+        &self,
+        commits: impl IntoIterator<Item = impl Into<gix_hash::ObjectId>>,
+        graph: &mut gix_revwalk::Graph<'_, '_, gix_revwalk::graph::Commit<gix_revision::merge_base::Flags>>,
+    ) -> Result<Id<'_>, crate::repository::merge_base_octopus_with_graph::Error> {
+        use crate::prelude::ObjectIdExt;
+        use crate::repository::merge_base_octopus_with_graph;
+        let commits: Vec<_> = commits.into_iter().map(Into::into).collect();
+        let first = commits
+            .first()
+            .copied()
+            .ok_or(merge_base_octopus_with_graph::Error::MissingCommit)?;
+        gix_revision::merge_base::octopus(first, &commits[1..], graph)?
+            .ok_or(merge_base_octopus_with_graph::Error::NoMergeBase)
+            .map(|id| id.attach(self))
+    }
+
+    /// Return the best merge-base among all `commits`, or fail if `commits` yields no commit or no merge-base was found.
+    ///
+    /// For repeated calls, prefer [`Self::merge_base_octopus_with_graph()`] for cache-reuse.
+    #[cfg(feature = "revision")]
+    pub fn merge_base_octopus(
+        &self,
+        commits: impl IntoIterator<Item = impl Into<gix_hash::ObjectId>>,
+    ) -> Result<Id<'_>, crate::repository::merge_base_octopus::Error> {
+        let cache = self.commit_graph_if_enabled()?;
+        let mut graph = self.revision_graph(cache.as_ref());
+        Ok(self.merge_base_octopus_with_graph(commits, &mut graph)?)
+    }
+
     /// Create the baseline for a revision walk by initializing it with the `tips` to start iterating on.
     ///
     /// It can be configured further before starting the actual walk.

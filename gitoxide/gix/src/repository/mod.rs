@@ -171,7 +171,7 @@ pub mod virtual_merge_base_with_graph {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("Not commit was provided as merge-base")]
+        #[error("No commit was provided as merge-base")]
         MissingCommit,
         #[error(transparent)]
         MergeResourceCache(#[from] super::merge_resource_cache::Error),
@@ -183,6 +183,36 @@ pub mod virtual_merge_base_with_graph {
         FindCommit(#[from] crate::object::find::existing::with_conversion::Error),
         #[error(transparent)]
         DecodeCommit(#[from] gix_object::decode::Error),
+    }
+}
+
+///
+#[cfg(feature = "revision")]
+pub mod merge_base_octopus_with_graph {
+    /// The error returned by [Repository::merge_base_octopus_with_graph()](crate::Repository::merge_base_octopus_with_graph()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error("No commit was provided")]
+        MissingCommit,
+        #[error("No merge base was found between the given commits")]
+        NoMergeBase,
+        #[error(transparent)]
+        MergeBase(#[from] gix_revision::merge_base::Error),
+    }
+}
+
+///
+#[cfg(feature = "revision")]
+pub mod merge_base_octopus {
+    /// The error returned by [Repository::merge_base_octopus()](crate::Repository::merge_base_octopus()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
+        #[error(transparent)]
+        MergeBaseOctopus(#[from] super::merge_base_octopus_with_graph::Error),
     }
 }
 

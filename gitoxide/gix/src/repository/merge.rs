@@ -233,6 +233,8 @@ impl Repository {
     ///
     /// Note that most of `options` are overwritten to match the requirements of a merge-base merge, but they can be useful
     /// to control the diff algorithm or rewrite tracking, for example.
+    ///
+    /// This method is useful in conjunction with [`Self::merge_trees()`], as the ancestor tree can be produced here.
     // TODO: test
     pub fn virtual_merge_base(
         &self,
