@@ -3,6 +3,24 @@ pub use gix_merge as plumbing;
 pub use gix_merge::blob;
 
 ///
+pub mod virtual_merge_base {
+    use crate::Id;
+
+    /// The outcome produced by [`Repository::virtual_merge_base()`](crate::Repository::virtual_merge_base()).
+    pub struct Outcome<'repo> {
+        /// The commit ids of all the virtual merge bases we have produced in the process of recursively merging the merge-bases.
+        /// As they have been written to the object database, they are still available until they are garbage collected.
+        /// The last one is the most recently produced and the one returned as `commit_id`.
+        /// If this list is empty, this means that there was only one merge-base, which itself is already suitable the final merge-base.
+        pub virtual_merge_bases: Vec<Id<'repo>>,
+        /// The id of the commit that was created to hold the merged tree.
+        pub commit_id: Id<'repo>,
+        /// The hash of the merged tree.
+        pub tree_id: Id<'repo>,
+    }
+}
+
+///
 pub mod commit {
     /// The outcome produced by [`Repository::merge_commits()`](crate::Repository::merge_commits()).
     #[derive(Clone)]

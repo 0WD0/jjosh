@@ -152,6 +152,42 @@ pub mod merge_commits {
 
 ///
 #[cfg(feature = "merge")]
+pub mod virtual_merge_base {
+    /// The error returned by [Repository::virtual_merge_base()](crate::Repository::virtual_merge_base()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        OpenCommitGraph(#[from] super::commit_graph_if_enabled::Error),
+        #[error(transparent)]
+        VirtualMergeBase(#[from] super::virtual_merge_base_with_graph::Error),
+    }
+}
+
+///
+#[cfg(feature = "merge")]
+pub mod virtual_merge_base_with_graph {
+    /// The error returned by [Repository::virtual_merge_base_with_graph()](crate::Repository::virtual_merge_base_with_graph()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error("Not commit was provided as merge-base")]
+        MissingCommit,
+        #[error(transparent)]
+        MergeResourceCache(#[from] super::merge_resource_cache::Error),
+        #[error(transparent)]
+        DiffResourceCache(#[from] super::diff_resource_cache::Error),
+        #[error(transparent)]
+        CommitMerge(#[from] gix_merge::commit::Error),
+        #[error(transparent)]
+        FindCommit(#[from] crate::object::find::existing::with_conversion::Error),
+        #[error(transparent)]
+        DecodeCommit(#[from] gix_object::decode::Error),
+    }
+}
+
+///
+#[cfg(feature = "merge")]
 pub mod tree_merge_options {
     /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
     #[derive(Debug, thiserror::Error)]
