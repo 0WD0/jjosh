@@ -621,6 +621,8 @@ Make it the best-performing implementation and the most convenient one.
 
 ### gix-revision
 * [x] `describe()` (similar to `git name-rev`)
+* [x] merge-base
+* [x] merge-base octopus
 * parse specifications
     * [x] parsing and navigation
     * [x] revision ranges
