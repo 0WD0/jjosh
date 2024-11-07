@@ -98,9 +98,8 @@ jobs:
       - name: Check how many tests failed
         if: steps.nextest.outcome == 'failure'
         env:
-          # FIXME: Change to 15 after verifying that the last step can fail.
           # See https://github.com/GitoxideLabs/gitoxide/issues/1358.
-          EXPECTED_FAILURE_COUNT: 13
+          EXPECTED_FAILURE_COUNT: 14
         run: |
           [xml]$junit = Get-Content -Path 'target/nextest/with-xml/junit.xml'
           if ($junit.testsuites.errors -ne 0) { exit 1 }
