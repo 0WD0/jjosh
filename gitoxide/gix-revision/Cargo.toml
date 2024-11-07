@@ -44,6 +44,7 @@ document-features = { version = "0.2.1", optional = true }
 [dev-dependencies]
 gix-odb = { path = "../gix-odb" }
 gix-testtools = { path = "../tests/tools" }
+permutohedron = "0.2.4"
 
 [package.metadata.docs.rs]
 all-features = true

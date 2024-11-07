@@ -2465,6 +2465,7 @@ dependencies = [
  "gix-revwalk 0.16.0",
  "gix-testtools",
  "gix-trace 0.1.11",
+ "permutohedron",
  "serde",
  "thiserror",
 ]
@@ -3779,6 +3780,12 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "permutohedron"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b687ff7b5da449d39e418ad391e5e08da53ec334903ddbb921db208908fc372c"
 
 [[package]]
 name = "pin-project"
