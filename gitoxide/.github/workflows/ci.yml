@@ -82,9 +82,6 @@ jobs:
 
   test-fixtures-windows:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash  # Includes `-o pipefail`.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -96,22 +93,18 @@ jobs:
         id: nextest
         env:
           GIX_TEST_IGNORE_ARCHIVES: 1
-        run: |
-          cargo nextest --color=always run --workspace --no-fail-fast |& tee nextest.log
+        run: cargo nextest --profile=with-xml run --workspace --no-fail-fast
         continue-on-error: true
       - name: Check how many tests failed
         if: steps.nextest.outcome == 'failure'
         env:
-          LC_ALL: C.utf8
           # FIXME: Change to 15 after verifying that the last step can fail.
           # See https://github.com/GitoxideLabs/gitoxide/issues/1358.
           EXPECTED_FAILURE_COUNT: 13
         run: |
-          set -x
-          sed -Ei 's/\x1B\[[[:digit:];]*m//g' nextest.log  # Remove ANSI color codes.
-          pattern='\n-{10,}\r?\n[ \t]+Summary\b[^\n]+[ \t]\K\d+(?= failed\b)'
-          count="$(grep -zoP "$pattern" nextest.log)"
-          ((count <= EXPECTED_FAILURE_COUNT))
+          [xml]$junit = Get-Content -Path 'target/nextest/with-xml/junit.xml'
+          if ($junit.testsuites.errors -ne 0) { exit 1 }
+          if ($junit.testsuites.failures -gt $env:EXPECTED_FAILURE_COUNT) { exit 1 }
 
   test-32bit:
     runs-on: ubuntu-latest
