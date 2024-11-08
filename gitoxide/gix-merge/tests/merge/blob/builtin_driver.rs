@@ -25,7 +25,7 @@ fn binary() {
 
 mod text {
     use bstr::ByteSlice;
-    use gix_merge::blob::builtin_driver::text::Conflict;
+    use gix_merge::blob::builtin_driver::text::{Conflict, ConflictStyle};
     use gix_merge::blob::{builtin_driver, Resolution};
     use pretty_assertions::assert_str_eq;
 
@@ -160,10 +160,17 @@ mod text {
                 if is_case_diverging(&case, diverging) {
                     num_diverging += 1;
                 } else {
-                    let expected_resolution = if case.expected.contains_str("<<<<<<<") {
-                        Resolution::Conflict
+                    if case.expected.contains_str("<<<<<<<") {
+                        assert_eq!(actual, Resolution::Conflict, "{}: resolution mismatch", case.name,);
                     } else {
-                        Resolution::Complete
+                        assert!(
+                            matches!(
+                                actual,
+                                Resolution::Complete | Resolution::CompleteWithAutoResolvedConflict
+                            ),
+                            "{}: resolution mismatch",
+                            case.name
+                        );
                     };
                     assert_str_eq!(
                         out.as_bstr().to_str_lossy(),
@@ -173,7 +180,6 @@ mod text {
                         out.as_bstr()
                     );
                     assert_eq!(out.as_bstr(), case.expected);
-                    assert_eq!(actual, expected_resolution, "{}: resolution mismatch", case.name,);
                 }
             }
 
@@ -189,6 +195,100 @@ mod text {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn both_sides_same_changes_are_conflict_free() {
+        for conflict in [
+            builtin_driver::text::Conflict::Keep {
+                style: ConflictStyle::Merge,
+                marker_size: 7.try_into().unwrap(),
+            },
+            builtin_driver::text::Conflict::Keep {
+                style: ConflictStyle::Diff3,
+                marker_size: 7.try_into().unwrap(),
+            },
+            builtin_driver::text::Conflict::Keep {
+                style: ConflictStyle::ZealousDiff3,
+                marker_size: 7.try_into().unwrap(),
+            },
+            builtin_driver::text::Conflict::ResolveWithOurs,
+            builtin_driver::text::Conflict::ResolveWithTheirs,
+            builtin_driver::text::Conflict::ResolveWithUnion,
+        ] {
+            let options = builtin_driver::text::Options {
+                conflict,
+                ..Default::default()
+            };
+            let mut input = imara_diff::intern::InternedInput::default();
+            let mut out = Vec::new();
+            let actual = builtin_driver::text(
+                &mut out,
+                &mut input,
+                Default::default(),
+                b"1\n3\nother",
+                b"1\n2\n3",
+                b"1\n3\nother",
+                options,
+            );
+            assert_eq!(actual, Resolution::Complete, "{conflict:?}");
+        }
+    }
+
+    #[test]
+    fn both_differ_partially_resolution_is_conflicting() {
+        for (conflict, expected) in [
+            (
+                builtin_driver::text::Conflict::Keep {
+                    style: ConflictStyle::Merge,
+                    marker_size: 7.try_into().unwrap(),
+                },
+                Resolution::Conflict,
+            ),
+            (
+                builtin_driver::text::Conflict::Keep {
+                    style: ConflictStyle::Diff3,
+                    marker_size: 7.try_into().unwrap(),
+                },
+                Resolution::Conflict,
+            ),
+            (
+                builtin_driver::text::Conflict::Keep {
+                    style: ConflictStyle::ZealousDiff3,
+                    marker_size: 7.try_into().unwrap(),
+                },
+                Resolution::Conflict,
+            ),
+            (
+                builtin_driver::text::Conflict::ResolveWithOurs,
+                Resolution::CompleteWithAutoResolvedConflict,
+            ),
+            (
+                builtin_driver::text::Conflict::ResolveWithTheirs,
+                Resolution::CompleteWithAutoResolvedConflict,
+            ),
+            (
+                builtin_driver::text::Conflict::ResolveWithUnion,
+                Resolution::CompleteWithAutoResolvedConflict,
+            ),
+        ] {
+            let options = builtin_driver::text::Options {
+                conflict,
+                ..Default::default()
+            };
+            let mut input = imara_diff::intern::InternedInput::default();
+            let mut out = Vec::new();
+            let actual = builtin_driver::text(
+                &mut out,
+                &mut input,
+                Default::default(),
+                b"1\n3\nours",
+                b"1\n2\n3",
+                b"1\n3\ntheirs",
+                options,
+            );
+            assert_eq!(actual, expected, "{conflict:?}");
+        }
     }
 
     mod baseline {

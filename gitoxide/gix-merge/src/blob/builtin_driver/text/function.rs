@@ -31,14 +31,17 @@ pub fn merge<'a>(
     current: &'a [u8],
     ancestor: &'a [u8],
     other: &'a [u8],
-    opts: Options,
+    Options {
+        diff_algorithm,
+        conflict,
+    }: Options,
 ) -> Resolution {
     out.clear();
     input.update_before(tokens(ancestor));
     input.update_after(tokens(current));
 
     let hunks = imara_diff::diff(
-        opts.diff_algorithm,
+        diff_algorithm,
         input,
         CollectHunks {
             side: Side::Current,
@@ -50,7 +53,7 @@ pub fn merge<'a>(
     input.update_after(tokens(other));
 
     let mut hunks = imara_diff::diff(
-        opts.diff_algorithm,
+        diff_algorithm,
         input,
         CollectHunks {
             side: Side::Other,
@@ -86,7 +89,7 @@ pub fn merge<'a>(
             fill_ancestor(&extended_range, &mut current_hunks);
             fill_ancestor(&extended_range, &mut intersecting);
         }
-        match opts.conflict {
+        match conflict {
             Conflict::Keep { style, marker_size } => {
                 let marker_size = marker_size.get();
                 let (hunks_front_and_back, num_hunks_front) = match style {
@@ -177,7 +180,10 @@ pub fn merge<'a>(
                         unreachable!("initial hunks are never ancestors")
                     }
                 };
-                let hunks_to_write = if opts.conflict == Conflict::ResolveWithOurs {
+                if hunks_differ_in_diff3(ConflictStyle::Diff3, our_hunks, their_hunks, input, &current_tokens) {
+                    resolution = Resolution::CompleteWithAutoResolvedConflict;
+                }
+                let hunks_to_write = if conflict == Conflict::ResolveWithOurs {
                     our_hunks
                 } else {
                     their_hunks
@@ -201,6 +207,9 @@ pub fn merge<'a>(
                         unreachable!("initial hunks are never ancestors")
                     }
                 };
+                if hunks_differ_in_diff3(ConflictStyle::Diff3, our_hunks, their_hunks, input, &current_tokens) {
+                    resolution = Resolution::CompleteWithAutoResolvedConflict;
+                }
                 let (front_hunks, back_hunks) = hunks_front_and_back.split_at(num_hunks_front);
                 let first_hunk = first_hunk(front_hunks, our_hunks, their_hunks, back_hunks);
                 write_ancestor(input, ancestor_integrated_until, first_hunk.before.start as usize, out);
