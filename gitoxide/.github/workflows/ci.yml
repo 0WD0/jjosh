@@ -95,15 +95,41 @@ jobs:
           GIX_TEST_IGNORE_ARCHIVES: 1
         run: cargo nextest --profile=with-xml run --workspace --no-fail-fast
         continue-on-error: true
-      - name: Check how many tests failed
-        if: steps.nextest.outcome == 'failure'
-        env:
-          # See https://github.com/GitoxideLabs/gitoxide/issues/1358.
-          EXPECTED_FAILURE_COUNT: 14
+      - name: Check for errors
         run: |
-          [xml]$junit = Get-Content -Path 'target/nextest/with-xml/junit.xml'
-          if ($junit.testsuites.errors -ne 0) { exit 1 }
-          if ($junit.testsuites.failures -gt $env:EXPECTED_FAILURE_COUNT) { exit 1 }
+          [xml]$junit_xml = Get-Content -Path 'target/nextest/with-xml/junit.xml'
+          if ($junit_xml.testsuites.errors -ne 0) { exit 1 }
+      - name: Collect actual failures
+        run: |
+          [xml]$junit_xml = Get-Content 'target/nextest/with-xml/junit.xml'
+
+          $actual_failures = $junit_xml.SelectNodes("//testcase[failure]") |
+              ForEach-Object { "$($_.classname) $($_.name)" } |
+              Sort-Object
+
+          Write-Output $actual_failures
+          Set-Content -Path 'actual-failures.txt' -Value $actual_failures
+      - name: Collect expected failures
+        run: |
+          $issue = 1358  # https://github.com/GitoxideLabs/gitoxide/issues/1358
+
+          $match_info = gh issue --repo GitoxideLabs/gitoxide view $issue --json body --jq .body |
+              Out-String |
+              Select-String -Pattern '(?s)```text\r?\n(.*?)```'
+
+          # FIXME: Check that the diff can fail, then filter out performance tests in Where-Object.
+          $expected_failures = $match_info.Matches.Groups[1].Value -split "`n" |
+              Where-Object { $_ -match '^\s*FAIL \[' } |
+              ForEach-Object { $_ -replace '^\s*FAIL \[\s*\d+\.\d+s\]\s*', '' -replace '\s+$', '' } |
+              Sort-Object
+
+          Write-Output $expected_failures
+          Set-Content -Path 'expected-failures.txt' -Value $expected_failures
+      - name: Compare expected and actual failures
+        run: |
+          # Fail the check if there are any differences, even unexpectedly passing tests, so they can be
+          # investigated. (If this check is made blocking for PRs, this exact check may need to be changed.)
+          git --no-pager diff --no-index --exit-code -U1000000 -- expected-failures.txt actual-failures.txt
 
   test-32bit:
     runs-on: ubuntu-latest
