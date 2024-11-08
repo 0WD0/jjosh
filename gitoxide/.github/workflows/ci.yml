@@ -110,6 +110,8 @@ jobs:
           Write-Output $actual_failures
           Set-Content -Path 'actual-failures.txt' -Value $actual_failures
       - name: Collect expected failures
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $issue = 1358  # https://github.com/GitoxideLabs/gitoxide/issues/1358
 
