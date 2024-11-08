@@ -12,7 +12,7 @@ pub(super) mod function {
     use anyhow::{anyhow, bail, Context};
     use gix::bstr::BString;
     use gix::bstr::ByteSlice;
-    use gix::merge::tree::UnresolvedConflict;
+    use gix::merge::tree::TreatAsUnresolved;
     use gix::prelude::Write;
 
     use super::Options;
@@ -62,7 +62,7 @@ pub(super) mod function {
         };
         let res = repo.merge_trees(base_id, ours_id, theirs_id, labels, options)?;
         let has_conflicts = res.conflicts.is_empty();
-        let has_unresolved_conflicts = res.has_unresolved_conflicts(UnresolvedConflict::Renames);
+        let has_unresolved_conflicts = res.has_unresolved_conflicts(TreatAsUnresolved::Renames);
         {
             let _span = gix::trace::detail!("Writing merged tree");
             let mut written = 0;

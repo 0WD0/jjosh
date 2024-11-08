@@ -107,7 +107,7 @@ pub mod commit {
 ///
 pub mod tree {
     use gix_merge::blob::builtin_driver;
-    pub use gix_merge::tree::{Conflict, ContentMerge, Resolution, ResolutionFailure, UnresolvedConflict};
+    pub use gix_merge::tree::{Conflict, ContentMerge, Resolution, ResolutionFailure, TreatAsUnresolved};
 
     /// The outcome produced by [`Repository::merge_trees()`](crate::Repository::merge_trees()).
     #[derive(Clone)]
@@ -130,7 +130,7 @@ pub mod tree {
     impl Outcome<'_> {
         /// Return `true` if there is any conflict that would still need to be resolved as they would yield undesirable trees.
         /// This is based on `how` to determine what should be considered unresolved.
-        pub fn has_unresolved_conflicts(&self, how: UnresolvedConflict) -> bool {
+        pub fn has_unresolved_conflicts(&self, how: TreatAsUnresolved) -> bool {
             self.conflicts.iter().any(|c| c.is_unresolved(how))
         }
     }
@@ -206,7 +206,7 @@ pub mod tree {
         /// If `Some(what-is-unresolved)`, the first unresolved conflict will cause the entire merge to stop.
         /// This is useful to see if there is any conflict, without performing the whole operation, something
         /// that can be very relevant during merges that would cause a lot of blob-diffs.
-        pub fn with_fail_on_conflict(mut self, fail_on_conflict: Option<UnresolvedConflict>) -> Self {
+        pub fn with_fail_on_conflict(mut self, fail_on_conflict: Option<TreatAsUnresolved>) -> Self {
             self.inner.fail_on_conflict = fail_on_conflict;
             self
         }

@@ -2,7 +2,7 @@ use crate::OutputFormat;
 use anyhow::{anyhow, bail, Context};
 use gix::bstr::BString;
 use gix::bstr::ByteSlice;
-use gix::merge::tree::UnresolvedConflict;
+use gix::merge::tree::TreatAsUnresolved;
 use gix::prelude::Write;
 
 use super::tree::Options;
@@ -48,7 +48,7 @@ pub fn commit(
         .merge_commits(ours_id, theirs_id, labels, options.into())?
         .tree_merge;
     let has_conflicts = res.conflicts.is_empty();
-    let has_unresolved_conflicts = res.has_unresolved_conflicts(UnresolvedConflict::Renames);
+    let has_unresolved_conflicts = res.has_unresolved_conflicts(TreatAsUnresolved::Renames);
     {
         let _span = gix::trace::detail!("Writing merged tree");
         let mut written = 0;
