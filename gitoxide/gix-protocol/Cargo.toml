@@ -56,7 +56,7 @@ gix-date = { version = "^0.9.1", path = "../gix-date" }
 gix-credentials = { version = "^0.25.0", path = "../gix-credentials" }
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }
 
-thiserror = "1.0.32"
+thiserror = "2.0.0"
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
     "derive",
 ] }

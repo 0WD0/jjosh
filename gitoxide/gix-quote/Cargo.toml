@@ -18,4 +18,4 @@ doctest = false
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }
 
 bstr = { version = "1.3.0", default-features = false, features = ["std"] }
-thiserror = "1.0.38"
+thiserror = "2.0.0"

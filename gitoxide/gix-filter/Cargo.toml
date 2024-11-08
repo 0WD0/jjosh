@@ -27,7 +27,7 @@ gix-attributes = { version = "^0.23.0", path = "../gix-attributes" }
 
 encoding_rs = "0.8.32"
 bstr = { version = "1.5.0", default-features = false, features = ["std"] }
-thiserror = "1.0.38"
+thiserror = "2.0.0"
 smallvec = "1.10.0"
 
 

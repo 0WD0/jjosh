@@ -33,7 +33,7 @@ gix-revision = { version = "^0.30.0", path = "../gix-revision", default-features
 gix-revwalk = { version = "^0.16.0", path = "../gix-revwalk" }
 gix-diff = { version = "^0.47.0", path = "../gix-diff", default-features = false, features = ["blob"] }
 
-thiserror = "1.0.63"
+thiserror = "2.0.0"
 imara-diff = { version = "0.1.7" }
 bstr = { version = "1.5.0", default-features = false }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }

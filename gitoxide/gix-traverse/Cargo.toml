@@ -23,5 +23,5 @@ gix-hashtable = { version = "^0.6.0", path = "../gix-hashtable" }
 gix-revwalk = { version = "^0.16.0", path = "../gix-revwalk" }
 gix-commitgraph = { version = "^0.25.0", path = "../gix-commitgraph" }
 smallvec = "1.10.0"
-thiserror = "1.0.32"
+thiserror = "2.0.0"
 bitflags = "2"

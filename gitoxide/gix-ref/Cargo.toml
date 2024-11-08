@@ -32,7 +32,7 @@ gix-actor = { version = "^0.33.0", path = "../gix-actor" }
 gix-lock = { version = "^15.0.0", path = "../gix-lock" }
 gix-tempfile = { version = "^15.0.0", default-features = false, path = "../gix-tempfile" }
 
-thiserror = "1.0.34"
+thiserror = "2.0.0"
 winnow = { version = "0.6", features = ["simd"] }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 
