@@ -57,7 +57,7 @@ gix-status = { version = "^0.14.0", path = "../gix-status" }
 gix-fsck = { version = "^0.7.0", path = "../gix-fsck" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 anyhow = "1.0.42"
-thiserror = "1.0.34"
+thiserror = "2.0.0"
 bytesize = "1.0.1"
 tempfile = "3.1.0"
 

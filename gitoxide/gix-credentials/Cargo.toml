@@ -27,7 +27,7 @@ gix-config-value = { version = "^0.14.9", path = "../gix-config-value" }
 gix-prompt = { version = "^0.8.8", path = "../gix-prompt" }
 gix-trace = { version = "^0.1.11", path = "../gix-trace" }
 
-thiserror = "1.0.32"
+thiserror = "2.0.0"
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 bstr = { version = "1.3.0", default-features = false, features = ["std"] }
 

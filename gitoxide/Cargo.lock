@@ -320,7 +320,7 @@ checksum = "721cae7de5c34fbb2acd27e21e6d2cf7b886dce0c27388d46c4e6c47ea4318dd"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -540,7 +540,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -880,7 +880,7 @@ checksum = "67e77553c4162a157adbf834ebae5b415acbecbeafc7a74b0e886657506a7611"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -907,7 +907,7 @@ checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -1308,7 +1308,7 @@ dependencies = [
  "smallvec",
  "sysinfo",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.0",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
@@ -1382,7 +1382,7 @@ dependencies = [
  "signal-hook",
  "smallvec",
  "termtree",
- "thiserror",
+ "thiserror 2.0.0",
  "walkdir",
 ]
 
@@ -1396,7 +1396,7 @@ dependencies = [
  "gix-date 0.8.7",
  "gix-utils 0.1.12",
  "itoa",
- "thiserror",
+ "thiserror 1.0.63",
  "winnow",
 ]
 
@@ -1413,7 +1413,7 @@ dependencies = [
  "itoa",
  "pretty_assertions",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
  "winnow",
 ]
 
@@ -1436,7 +1436,7 @@ dependencies = [
  "gix-worktree-stream",
  "jiff",
  "tar",
- "thiserror",
+ "thiserror 2.0.0",
  "zip",
 ]
 
@@ -1453,7 +1453,7 @@ dependencies = [
  "gix-trace 0.1.10",
  "kstring",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
  "unicode-bom",
 ]
 
@@ -1472,7 +1472,7 @@ dependencies = [
  "kstring",
  "serde",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
  "unicode-bom",
 ]
 
@@ -1482,7 +1482,7 @@ version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a371db66cbd4e13f0ed9dc4c0fea712d7276805fccc877f77e96374d317e87ae"
 dependencies = [
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -1490,7 +1490,7 @@ name = "gix-bitmap"
 version = "0.2.12"
 dependencies = [
  "gix-testtools",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1506,14 +1506,14 @@ version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45c8751169961ba7640b513c3b24af61aa962c967aaf04116734975cd5af0c52"
 dependencies = [
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
 name = "gix-chunk"
 version = "0.4.9"
 dependencies = [
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1538,7 +1538,7 @@ dependencies = [
  "gix-features 0.38.2",
  "gix-hash 0.14.2",
  "memmap2",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -1554,7 +1554,7 @@ dependencies = [
  "gix-testtools",
  "memmap2",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1574,7 +1574,7 @@ dependencies = [
  "once_cell",
  "serde",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
  "unicode-bom",
  "winnow",
 ]
@@ -1604,7 +1604,7 @@ dependencies = [
  "gix-path 0.10.12",
  "libc",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1623,7 +1623,7 @@ dependencies = [
  "gix-url",
  "once_cell",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1634,7 +1634,7 @@ checksum = "9eed6931f21491ee0aeb922751bd7ec97b4b2fe8fbfedcb678e2a2dce5f3b8c0"
 dependencies = [
  "bstr",
  "itoa",
- "thiserror",
+ "thiserror 1.0.63",
  "time",
 ]
 
@@ -1650,7 +1650,7 @@ dependencies = [
  "jiff",
  "once_cell",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1672,7 +1672,7 @@ dependencies = [
  "gix-worktree 0.37.0",
  "imara-diff",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1710,7 +1710,7 @@ dependencies = [
  "gix-utils 0.1.13",
  "gix-worktree 0.37.0",
  "pretty_assertions",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1726,7 +1726,7 @@ dependencies = [
  "gix-path 0.10.11",
  "gix-ref 0.44.1",
  "gix-sec 0.10.8",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -1745,7 +1745,7 @@ dependencies = [
  "is_ci",
  "serial_test",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1784,7 +1784,7 @@ dependencies = [
  "prodash 29.0.0",
  "sha1",
  "sha1_smol",
- "thiserror",
+ "thiserror 2.0.0",
  "walkdir",
 ]
 
@@ -1811,7 +1811,7 @@ dependencies = [
  "gix-worktree 0.37.0",
  "serial_test",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1880,7 +1880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f93d7df7366121b5018f947a04d37f034717e113dcf9ccd85c34b58e57a74d5e"
 dependencies = [
  "faster-hex",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -1892,7 +1892,7 @@ dependencies = [
  "gix-features 0.39.0",
  "gix-testtools",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -1968,7 +1968,7 @@ dependencies = [
  "memmap2",
  "rustix 0.38.34",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -1996,7 +1996,7 @@ dependencies = [
  "rustix 0.38.34",
  "serde",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2025,7 +2025,7 @@ checksum = "e3bc7fe297f1f4614774989c00ec8b1add59571dc9b024b4c00acb7dedd4e19d"
 dependencies = [
  "gix-tempfile 14.0.2",
  "gix-utils 0.1.12",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2035,7 +2035,7 @@ dependencies = [
  "gix-tempfile 15.0.0",
  "gix-utils 0.1.13",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2044,7 +2044,7 @@ version = "0.1.5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
  "trybuild",
 ]
 
@@ -2058,7 +2058,7 @@ dependencies = [
  "gix-date 0.9.1",
  "gix-testtools",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2087,7 +2087,7 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "termtree",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2104,7 +2104,7 @@ dependencies = [
  "gix-revwalk 0.16.0",
  "gix-testtools",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2126,7 +2126,7 @@ dependencies = [
  "gix-validate 0.8.5",
  "itoa",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
  "winnow",
 ]
 
@@ -2151,7 +2151,7 @@ dependencies = [
  "serde",
  "smallvec",
  "termtree",
- "thiserror",
+ "thiserror 2.0.0",
  "winnow",
 ]
 
@@ -2173,7 +2173,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2214,7 +2214,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
  "uluru",
 ]
 
@@ -2251,7 +2251,7 @@ dependencies = [
  "maybe-async",
  "pin-project-lite",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2263,7 +2263,7 @@ dependencies = [
  "faster-hex",
  "gix-trace 0.1.11",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2276,7 +2276,7 @@ dependencies = [
  "gix-trace 0.1.10",
  "home",
  "once_cell",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2290,7 +2290,7 @@ dependencies = [
  "known-folders",
  "once_cell",
  "serial_test",
- "thiserror",
+ "thiserror 2.0.0",
  "windows 0.58.0",
  "winreg",
 ]
@@ -2308,7 +2308,7 @@ dependencies = [
  "gix-testtools",
  "once_cell",
  "serial_test",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2322,7 +2322,7 @@ dependencies = [
  "parking_lot",
  "rustix 0.38.34",
  "serial_test",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2345,7 +2345,7 @@ dependencies = [
  "gix-utils 0.1.13",
  "maybe-async",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
  "winnow",
 ]
 
@@ -2357,7 +2357,7 @@ checksum = "cbff4f9b9ea3fa7a25a70ee62f545143abef624ac6aa5884344e70c8b0a1d9ff"
 dependencies = [
  "bstr",
  "gix-utils 0.1.12",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2366,7 +2366,7 @@ version = "0.4.13"
 dependencies = [
  "bstr",
  "gix-utils 0.1.13",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2391,7 +2391,7 @@ dependencies = [
  "gix-utils 0.1.12",
  "gix-validate 0.8.5",
  "memmap2",
- "thiserror",
+ "thiserror 1.0.63",
  "winnow",
 ]
 
@@ -2414,7 +2414,7 @@ dependencies = [
  "gix-validate 0.9.1",
  "memmap2",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
  "winnow",
 ]
 
@@ -2446,7 +2446,7 @@ dependencies = [
  "gix-testtools",
  "gix-validate 0.9.1",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2467,7 +2467,7 @@ dependencies = [
  "gix-trace 0.1.11",
  "permutohedron",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2482,7 +2482,7 @@ dependencies = [
  "gix-hashtable 0.5.2",
  "gix-object 0.42.3",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2495,7 +2495,7 @@ dependencies = [
  "gix-hashtable 0.6.0",
  "gix-object 0.45.0",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2546,7 +2546,7 @@ dependencies = [
  "gix-pathspec",
  "gix-worktree 0.37.0",
  "portable-atomic",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2584,7 +2584,7 @@ dependencies = [
  "gix-refspec",
  "gix-testtools",
  "gix-url",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2686,7 +2686,7 @@ dependencies = [
  "pin-project-lite",
  "reqwest",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2703,7 +2703,7 @@ dependencies = [
  "gix-object 0.42.3",
  "gix-revwalk 0.13.2",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2718,7 +2718,7 @@ dependencies = [
  "gix-object 0.45.0",
  "gix-revwalk 0.16.0",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2748,7 +2748,7 @@ dependencies = [
  "gix-path 0.10.12",
  "gix-testtools",
  "serde",
- "thiserror",
+ "thiserror 2.0.0",
  "url",
 ]
 
@@ -2778,7 +2778,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82c27dd34a49b1addf193c92070bcbf3beaf6e10f16a78544de6372e146a0acf"
 dependencies = [
  "bstr",
- "thiserror",
+ "thiserror 1.0.63",
 ]
 
 [[package]]
@@ -2787,7 +2787,7 @@ version = "0.9.1"
 dependencies = [
  "bstr",
  "gix-testtools",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2843,7 +2843,7 @@ dependencies = [
  "gix-path 0.10.12",
  "gix-worktree 0.37.0",
  "io-close",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -2881,7 +2881,7 @@ dependencies = [
  "gix-traverse 0.42.0",
  "gix-worktree 0.37.0",
  "parking_lot",
- "thiserror",
+ "thiserror 2.0.0",
 ]
 
 [[package]]
@@ -3504,7 +3504,7 @@ checksum = "5cf92c10c7e361d6b99666ec1c6f9805b0bea2c3bd8c78dc6fe98ac5bd78db11"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -3707,7 +3707,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -3804,7 +3804,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -3987,7 +3987,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2 0.5.7",
- "thiserror",
+ "thiserror 1.0.63",
  "tokio",
  "tracing",
 ]
@@ -4004,7 +4004,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "slab",
- "thiserror",
+ "thiserror 1.0.63",
  "tinyvec",
  "tracing",
 ]
@@ -4402,7 +4402,7 @@ checksum = "24008e81ff7613ed8e5ba0cfaf24e2c2f1e5b8a0495711e44fcd4882fca62bcf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -4460,7 +4460,7 @@ checksum = "82fe9db325bcef1fbcde82e078a5cc4efdf787e96b3b9cf45b50b529f2083d67"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -4604,7 +4604,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d904e7009df136af5297832a3ace3370cd14ff1546a232f4f185036c2736fcac"
 dependencies = [
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -4638,7 +4638,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -4666,9 +4666,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.75"
+version = "2.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6af063034fc1935ede7be0122941bafa9bacb949334d090b77ca98b5817c7d9"
+checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4773,7 +4773,16 @@ version = "1.0.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0342370b38b6a11b6cc11d6a805569958d54cfa061a29969c3b5ce2ea405724"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.63",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15291287e9bff1bc6f9ff3409ed9af665bec7a5fc8ac079ea96be07bca0e2668"
+dependencies = [
+ "thiserror-impl 2.0.0",
 ]
 
 [[package]]
@@ -4784,7 +4793,18 @@ checksum = "a4558b58466b9ad7ca0f102865eccc95938dca1a74a856f2b57b6629050da261"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22efd00f33f93fa62848a7cab956c3d38c8d43095efda1decfc2b3a5dc0b8972"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -4984,7 +5004,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5005,7 +5025,7 @@ checksum = "ee40835db14ddd1e3ba414292272eddde9dad04d3d4b65509656414d1c42592f"
 dependencies = [
  "serde",
  "smallvec",
- "thiserror",
+ "thiserror 1.0.63",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5232,7 +5252,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
  "wasm-bindgen-shared",
 ]
 
@@ -5266,7 +5286,7 @@ checksum = "afc340c74d9005395cf9dd098506f7f44e38f2b4a21c6aaacf9a105ea5e1e836"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -5389,7 +5409,7 @@ checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5400,7 +5420,7 @@ checksum = "2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5411,7 +5431,7 @@ checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5422,7 +5442,7 @@ checksum = "053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5732,7 +5752,7 @@ checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -5754,7 +5774,7 @@ dependencies = [
  "flate2",
  "indexmap",
  "memchr",
- "thiserror",
+ "thiserror 1.0.63",
  "zopfli",
 ]
 
