@@ -131,7 +131,8 @@ jobs:
         run: |
           # Fail the check if there are any differences, even unexpectedly passing tests, so they can be
           # investigated. (If this check is made blocking for PRs, this exact check may need to be changed.)
-          git --no-pager diff --no-index --exit-code -U1000000 -- expected-failures.txt actual-failures.txt
+          git --no-pager diff --no-index --exit-code --unified=1000000 --color=always -- `
+              expected-failures.txt actual-failures.txt
 
   test-32bit:
     runs-on: ubuntu-latest
