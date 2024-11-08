@@ -47,20 +47,38 @@ pub struct Outcome<'a> {
 
 /// Determine what should be considered an unresolved conflict.
 ///
-/// Note that no matter which variant, [conflicts](Conflict) with [resolution failure](`ResolutionFailure`)
-/// will always be unresolved.
+/// Note that no matter which variant, [conflicts](Conflict) with
+/// [resolution failure](`ResolutionFailure`) will always be unresolved.
+///
+/// Also, when one side was modified but the other side renamed it, this will not
+/// be considered a conflict, even if a non-conflicting merge happened.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum UnresolvedConflict {
+pub enum TreatAsUnresolved {
     /// Only consider content merges with conflict markers as unresolved.
+    ///
+    /// Auto-resolved tree conflicts will *not* be considered unresolved.
     ConflictMarkers,
-    /// Whenever there was any rename, or conflict markers, it is unresolved.
+    /// Consider content merges with conflict markers as unresolved, and content
+    /// merges where conflicts where auto-resolved in any way, like choosing
+    /// *ours*, *theirs*  or by their *union*.
+    ///
+    /// Auto-resolved tree conflicts will *not* be considered unresolved.
+    ConflictMarkersAndAutoResolved,
+    /// Whenever there were conflicting renames, or conflict markers, it is unresolved.
+    /// Note that auto-resolved content merges will *not* be considered unresolved.
+    ///
+    /// Also note that files that were changed in one and renamed in another will
+    /// be moved into place, which will be considered resolved.
     Renames,
+    /// Similar to [`Self::Renames`], but auto-resolved content-merges will
+    /// also be considered unresolved.
+    RenamesAndAutoResolvedContent,
 }
 
 impl Outcome<'_> {
     /// Return `true` if there is any conflict that would still need to be resolved as they would yield undesirable trees.
     /// This is based on `how` to determine what should be considered unresolved.
-    pub fn has_unresolved_conflicts(&self, how: UnresolvedConflict) -> bool {
+    pub fn has_unresolved_conflicts(&self, how: TreatAsUnresolved) -> bool {
         self.conflicts.iter().any(|c| c.is_unresolved(how))
     }
 }
@@ -109,20 +127,29 @@ impl ConflictMapping {
 
 impl Conflict {
     /// Return `true` if this instance is considered unresolved based on the criterion specified by `how`.
-    pub fn is_unresolved(&self, how: UnresolvedConflict) -> bool {
-        match how {
-            UnresolvedConflict::ConflictMarkers => {
-                self.resolution.is_err()
-                    || self.content_merge().map_or(false, |info| {
-                        matches!(info.resolution, crate::blob::Resolution::Conflict)
-                    })
+    pub fn is_unresolved(&self, how: TreatAsUnresolved) -> bool {
+        use crate::blob;
+        let content_merge_matches = |info: &ContentMerge| match how {
+            TreatAsUnresolved::ConflictMarkers | TreatAsUnresolved::Renames => {
+                matches!(info.resolution, blob::Resolution::Conflict)
             }
-            UnresolvedConflict::Renames => match &self.resolution {
+            TreatAsUnresolved::RenamesAndAutoResolvedContent | TreatAsUnresolved::ConflictMarkersAndAutoResolved => {
+                matches!(
+                    info.resolution,
+                    blob::Resolution::Conflict | blob::Resolution::CompleteWithAutoResolvedConflict
+                )
+            }
+        };
+        match how {
+            TreatAsUnresolved::ConflictMarkers | TreatAsUnresolved::ConflictMarkersAndAutoResolved => {
+                self.resolution.is_err() || self.content_merge().map_or(false, |info| content_merge_matches(&info))
+            }
+            TreatAsUnresolved::Renames | TreatAsUnresolved::RenamesAndAutoResolvedContent => match &self.resolution {
                 Ok(success) => match success {
-                    Resolution::SourceLocationAffectedByRename { .. }
-                    | Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
+                    Resolution::SourceLocationAffectedByRename { .. } => false,
+                    Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
                     Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
-                        matches!(merged_blob.resolution, crate::blob::Resolution::Conflict)
+                        content_merge_matches(merged_blob)
                     }
                 },
                 Err(_failure) => true,
@@ -264,7 +291,7 @@ pub struct Options {
     /// If `Some(what-is-unresolved)`, the first unresolved conflict will cause the entire merge to stop.
     /// This is useful to see if there is any conflict, without performing the whole operation, something
     /// that can be very relevant during merges that would cause a lot of blob-diffs.
-    pub fail_on_conflict: Option<UnresolvedConflict>,
+    pub fail_on_conflict: Option<TreatAsUnresolved>,
     /// This value also affects the size of merge-conflict markers, to allow differentiating
     /// merge conflicts on each level, for any value greater than 0, with values `N` causing `N*2`
     /// markers to be added to the configured value.

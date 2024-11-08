@@ -30,7 +30,7 @@ pub enum Error {
 pub(super) mod function {
     use super::Error;
     use crate::blob::builtin_driver;
-    use crate::tree::UnresolvedConflict;
+    use crate::tree::TreatAsUnresolved;
     use gix_object::FindExt;
 
     /// Create a single virtual merge-base by merging `first_commit`, `second_commit` and `others` into one.
@@ -88,7 +88,7 @@ pub(super) mod function {
             // This shouldn't happen, but if for some buggy reason it does, we rather bail.
             if out
                 .tree_merge
-                .has_unresolved_conflicts(UnresolvedConflict::ConflictMarkers)
+                .has_unresolved_conflicts(TreatAsUnresolved::ConflictMarkers)
             {
                 return Err(Error::VirtualMergeBaseConflict.into());
             }
