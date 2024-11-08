@@ -22,9 +22,8 @@ $match_info = gh issue --repo GitoxideLabs/gitoxide view $issue --json body --jq
     Out-String |
     Select-String -Pattern '(?s)```text\r?\n(.*?)```'
 
-# FIXME: Check that the diff can fail, then filter out performance tests in Where-Object.
 $expected_failures = $match_info.Matches.Groups[1].Value -split "`n" |
-    Where-Object { $_ -match '^\s*FAIL \[' } |
+    Where-Object { ($_ -match '^\s*FAIL \[') -and ($_ -notmatch '\bperformance\b') } |
     ForEach-Object { $_ -replace '^\s*FAIL \[\s*\d+\.\d+s\]\s*', '' -replace '\s+$', '' } |
     Sort-Object
 
