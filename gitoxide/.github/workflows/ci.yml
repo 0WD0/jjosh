@@ -1,9 +1,5 @@
 name: ci
 
-env:
-  CARGO_TERM_COLOR: always
-  CLICOLOR: 1
-
 on:
   push:
     branches:
@@ -17,10 +13,16 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+  CLICOLOR: 1
+
 jobs:
   pure-rust-build:
     runs-on: ubuntu-latest
+
     container: debian:stable-slim
+
     steps:
       - uses: actions/checkout@v4
       - name: Prerequisites
@@ -47,13 +49,13 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies
-        run:
-          sudo apt-get install -y --no-install-recommends liblzma-dev tree
+        run: sudo apt-get install -y --no-install-recommends liblzma-dev tree
       - uses: extractions/setup-just@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -71,7 +73,9 @@ jobs:
           - windows-latest
           - macos-latest
           - ubuntu-latest
+
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -97,6 +101,7 @@ jobs:
 
   test-fixtures-windows:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -133,9 +138,11 @@ jobs:
 
   test-32bit:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         target: [ armv7-linux-androideabi ]
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -157,6 +164,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -181,6 +189,7 @@ jobs:
 
   cargo-deny:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         checks:
@@ -198,11 +207,15 @@ jobs:
 
   wasm:
     name: WebAssembly
+
     runs-on: ubuntu-latest
+
     continue-on-error: true
+
     strategy:
       matrix:
         target: [ wasm32-unknown-unknown, wasm32-wasi ]
+
     steps:
       - uses: actions/checkout@master
       - name: Install Rust
@@ -230,10 +243,13 @@ jobs:
           # However, when changes are made to `etc/copy-packetline.sh`, re-enable the other platforms for testing.
     #       - macos-latest
     #       - windows-latest
+
     runs-on: ${{ matrix.os }}
+
     defaults:
       run:
         shell: bash
+
     steps:
       - uses: actions/checkout@v4
       - name: Check that working tree is initially clean
@@ -252,6 +268,7 @@ jobs:
   # Dummy job to have a stable name for the "all tests pass" requirement
   tests-pass:
     name: Tests pass
+
     needs:
       - pure-rust-build
       - test
@@ -261,8 +278,11 @@ jobs:
       - cargo-deny
       - wasm
       - check-packetline
+
     if: always() # always run even if dependencies fail
+
     runs-on: ubuntu-latest
+
     steps:
       # fail if ANY dependency has failed or cancelled
       - if: "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"

@@ -435,7 +435,9 @@ jobs:
             os: windows-latest
             rust: stable
             target: i686-pc-windows-gnu
+
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -449,7 +451,7 @@ jobs:
           pacboy: cc:p
           path-type: inherit
       - name: "Install prerequisites"
-        run: vcpkg install  zlib:x64-windows-static-md
+        run: vcpkg install zlib:x64-windows-static-md
       - name: "Installation from crates.io: gitoxide"
         run: cargo +${{ matrix.rust }} install --target ${{ matrix.target }} --no-default-features --features max-pure --target-dir install-artifacts --debug --force gitoxide
         shell: msys2 {0}

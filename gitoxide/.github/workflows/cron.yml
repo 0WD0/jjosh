@@ -1,15 +1,16 @@
 name: cron
 
 on:
-  schedule: 
+  schedule:
     - cron: '0 13,1 * * *'
   workflow_dispatch:
 
 jobs:
   stress:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
-    - name: stress
-      run: make stress
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: stress
+        run: make stress
