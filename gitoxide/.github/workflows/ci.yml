@@ -89,10 +89,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: "Test (nextest)"
+      - name: Test (nextest)
         id: nextest
         env:
-          GIX_TEST_IGNORE_ARCHIVES: 1
+          GIX_TEST_IGNORE_ARCHIVES: '1'
         run: cargo nextest --profile=with-xml run --workspace --no-fail-fast
         continue-on-error: true
       - name: Check for errors
@@ -101,7 +101,7 @@ jobs:
           if ($junit_xml.testsuites.errors -ne 0) { exit 1 }
       - name: Collect actual failures
         run: |
-          [xml]$junit_xml = Get-Content 'target/nextest/with-xml/junit.xml'
+          [xml]$junit_xml = Get-Content -Path 'target/nextest/with-xml/junit.xml'
 
           $actual_failures = $junit_xml.SelectNodes("//testcase[failure]") |
               ForEach-Object { "$($_.classname) $($_.name)" } |
@@ -128,8 +128,8 @@ jobs:
           Set-Content -Path 'expected-failures.txt' -Value $expected_failures
       - name: Compare expected and actual failures
         run: |
-          # Fail the check if there are any differences, even unexpectedly passing tests, so they can be
-          # investigated. (If this check is made blocking for PRs, this exact check may need to be changed.)
+          # Fail on any differences, even unexpectedly passing tests, so they can be investigated.
+          # (If the job is made blocking for PRs, it may make sense to make this less stringent.)
           git --no-pager diff --no-index --exit-code --unified=1000000 --color=always -- `
               expected-failures.txt actual-failures.txt
 
