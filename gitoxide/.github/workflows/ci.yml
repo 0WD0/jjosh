@@ -20,7 +20,7 @@ on:
 jobs:
   pure-rust-build:
     runs-on: ubuntu-latest
-    container: debian:bookworm-slim
+    container: debian:stable-slim
     steps:
       - uses: actions/checkout@v4
       - name: Prerequisites
