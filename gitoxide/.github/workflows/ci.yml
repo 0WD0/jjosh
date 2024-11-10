@@ -20,13 +20,28 @@ on:
 jobs:
   pure-rust-build:
     runs-on: ubuntu-latest
-    container: debian:bookworm
+    container: debian:stable-slim
     steps:
       - uses: actions/checkout@v4
       - name: Prerequisites
-        run: apt-get update && apt-get install --no-install-recommends -y ca-certificates curl gcc libc-dev # gcc is required as OS abstraction
-      - name: install Rust via Rustup
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal;
+        run: |
+          apt-get update
+          apt-get install --no-install-recommends -y ca-certificates curl gcc libc-dev # gcc is required as OS abstraction
+      - name: Verify environment is sufficiently minimal for the test
+        run: |
+          set -x
+          for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
+              if dpkg-query --status -- "$pattern"; then
+                  exit 1
+              fi
+          done
+          for cmd in cmake g++ make pkgconf pkg-config; do
+              if command -v -- "$cmd"; then
+                  exit 1
+              fi
+          done
+      - name: Install Rust via Rustup
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - uses: Swatinem/rust-cache@v2
       - run: /github/home/.cargo/bin/cargo install --debug --locked --no-default-features --features max-pure --path .
 
