@@ -289,6 +289,42 @@ jobs:
           git status
           git diff --exit-code
 
+  # Check that only jobs intended not to block PR auto-merge are omitted as
+  # dependencies of the `tests-pass` job below, so that whenever a job is
+  # added, a decision is made about whether it must pass for PRs to merge.
+  check-blocking:
+    runs-on: ubuntu-latest
+
+    env:
+      # List all jobs that are intended NOT to block PR auto-merge here.
+      # FIXME: After ensuring this can fail, add `test-pass` below to fix it.
+      EXPECTED_NONBLOCKING_JOBS: |-
+        test-fixtures-windows
+      #  tests-pass
+
+    defaults:
+      run:
+        shell: bash  # Without specifying this, we don't get `-o pipefail`.
+
+    steps:
+      - name: Find this workflow
+        run: |
+          relative_workflow_with_ref="${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}"
+          echo "WORKFLOW_PATH=${relative_workflow_with_ref%@*}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ${{ env.WORKFLOW_PATH }}
+      - name: Get all jobs
+        run: yq '.jobs | keys.[]' -- "$WORKFLOW_PATH" | sort > all-jobs.txt
+      - name: Get blocking jobs
+        run: yq '.jobs.tests-pass.needs.[]' -- "$WORKFLOW_PATH" | sort > blocking-jobs.txt
+      - name: Get jobs we intend do not block
+        run: sort <<<"$EXPECTED_NONBLOCKING_JOBS" > expected-nonblocking-jobs.txt
+      - name: Check that each job blocks PRs xor intentionally doesn't
+        run: |
+          sort -m blocking-jobs.txt expected-nonblocking-jobs.txt |
+            diff --color=always -U1000 -- - all-jobs.txt
+
   # Dummy job to have a stable name for the "all tests pass" requirement
   tests-pass:
     name: Tests pass
@@ -302,6 +338,7 @@ jobs:
       - cargo-deny
       - wasm
       - check-packetline
+      - check-blocking
 
     if: always() # always run even if dependencies fail
 
