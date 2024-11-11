@@ -180,14 +180,17 @@ jobs:
         run: just doc
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
-      - name: Run cargo diet
+      - name: Install cargo diet
+        env:
+          CARGO_DIET_TAG: v1.2.7
         run: |
-          curl -LSfs https://raw.githubusercontent.com/the-lean-crate/cargo-diet/master/ci/install.sh |
-            sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag v1.2.4
-
-          # Let's not fail CI for this, it will fail locally often enough, and a crate a little bigger
-          # than allows is no problem either if it comes to that.
-          just check-size || true
+          curl -LSfs "https://raw.githubusercontent.com/the-lean-crate/cargo-diet/refs/tags/$CARGO_DIET_TAG/ci/install.sh" |
+            sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag "$CARGO_DIET_TAG"
+      - name: Run cargo diet
+        run: just check-size
+        # Let's not fail CI for this, it will fail locally often enough, and a crate a little bigger
+        # than allows is no problem either if it comes to that.
+        continue-on-error: true
 
   cargo-deny:
     runs-on: ubuntu-latest
