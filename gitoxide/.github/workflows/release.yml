@@ -266,7 +266,7 @@ jobs:
       - name: Pre-populate directory for archive
         run: |
           mkdir -- "$ARCHIVE"
-          cp {README.md,LICENSE-*,CHANGELOG.md} "$ARCHIVE/"
+          cp -- {README.md,LICENSE-*,CHANGELOG.md} "$ARCHIVE/"
 
       - name: Build archive (Windows)
         if: matrix.os == 'windows-latest'
@@ -274,7 +274,7 @@ jobs:
           file -- "$TARGET_DIR/$PROFILE"/{ein,gix}.exe
           cp -- "$TARGET_DIR/$PROFILE"/{ein,gix}.exe "$ARCHIVE/"
           7z a "$ARCHIVE.zip" "$ARCHIVE"
-          /usr/bin/core_perl/shasum --algorithm=256 --binary "$ARCHIVE.zip" > "$ARCHIVE.zip.sha256"
+          /usr/bin/core_perl/shasum --algorithm=256 --binary -- "$ARCHIVE.zip" > "$ARCHIVE.zip.sha256"
           echo "ASSET=$ARCHIVE.zip" >> "$GITHUB_ENV"
           echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> "$GITHUB_ENV"
 
@@ -283,8 +283,8 @@ jobs:
         run: |
           file -- "$TARGET_DIR/$PROFILE"/{ein,gix}
           cp -- "$TARGET_DIR/$PROFILE"/{ein,gix} "$ARCHIVE/"
-          tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
-          shasum --algorithm=256 --binary "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+          tar czf "$ARCHIVE.tar.gz" -- "$ARCHIVE"
+          shasum --algorithm=256 --binary -- "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
           echo "ASSET=$ARCHIVE.tar.gz" >> "$GITHUB_ENV"
           echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> "$GITHUB_ENV"
 
@@ -329,7 +329,7 @@ jobs:
 
       - name: Unpack single-architecture releases
         run: |
-          shasum --check "$(name aarch64).tar.gz.sha256" "$(name x86_64).tar.gz.sha256"
+          shasum --check -- "$(name aarch64).tar.gz.sha256" "$(name x86_64).tar.gz.sha256"
           tar xf "$(name aarch64).tar.gz"
           tar xf "$(name x86_64).tar.gz"
 
@@ -350,8 +350,8 @@ jobs:
 
       - name: Build archive
         run: |
-          tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
-          shasum --algorithm=256 --binary "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+          tar czf "$ARCHIVE.tar.gz" -- "$ARCHIVE"
+          shasum --algorithm=256 --binary -- "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
           echo "ASSET=$ARCHIVE.tar.gz" >> "$GITHUB_ENV"
           echo "ASSET_SUM=$ARCHIVE.tar.gz.sha256" >> "$GITHUB_ENV"
 
@@ -389,12 +389,12 @@ jobs:
       - name: Extract macOS asset names by architecture
         run: |
           for arch in aarch64 x86_64 universal; do
-            grep -Fw "$arch-apple-darwin" assets.txt | sort | tee -- "$arch.txt"
+            grep -Fwe "$arch-apple-darwin" assets.txt | sort | tee -- "$arch.txt"
           done
 
       - name: Check macOS archive features
         run: |
-          mask() { sed -r 's/\w+-apple-darwin/<arch>-apple-darwin/' -- "$1.txt"; }
+          mask() { sed -E 's/\w+-apple-darwin/<arch>-apple-darwin/' -- "$1.txt"; }
           diff -- <(mask aarch64) <(mask universal)
           diff -- <(mask x86_64) <(mask universal)
 
@@ -432,7 +432,7 @@ jobs:
   installation:
     strategy:
       matrix:
-        build: [win-msvc, win-gnu, win32-msvc, win32-gnu]
+        build: [ win-msvc, win-gnu, win32-msvc, win32-gnu ]
         include:
           - build: win-msvc
             os: windows-latest
@@ -465,8 +465,8 @@ jobs:
           msystem: MINGW${{ startsWith(matrix.target, 'i686-') && '32' || '64' }}
           pacboy: cc:p
           path-type: inherit
-      - name: "Install prerequisites"
+      - name: Install prerequisites
         run: vcpkg install zlib:x64-windows-static-md
-      - name: "Installation from crates.io: gitoxide"
+      - name: 'Installation from crates.io: gitoxide'
         run: cargo +${{ matrix.rust }} install --target ${{ matrix.target }} --no-default-features --features max-pure --target-dir install-artifacts --debug --force gitoxide
         shell: msys2 {0}

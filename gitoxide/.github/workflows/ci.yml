@@ -18,7 +18,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CLICOLOR: 1
+  CLICOLOR: '1'
 
 jobs:
   pure-rust-build:
@@ -36,14 +36,14 @@ jobs:
         run: |
           set -x
           for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
-              if dpkg-query --status -- "$pattern"; then
-                  exit 1
-              fi
+            if dpkg-query --status -- "$pattern"; then
+              exit 1
+            fi
           done
           for cmd in cmake g++ make pkgconf pkg-config; do
-              if command -v -- "$cmd"; then
-                  exit 1
-              fi
+            if command -v -- "$cmd"; then
+              exit 1
+            fi
           done
       - name: Install Rust via Rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
@@ -65,8 +65,7 @@ jobs:
           tool: nextest
       - name: test
         env:
-          CI: true
-          GIX_TEST_IGNORE_ARCHIVES: 1
+          GIX_TEST_IGNORE_ARCHIVES: '1'
         run: just ci-test
 
   test-fast:
@@ -95,7 +94,7 @@ jobs:
           tool: nextest
       - name: "Test (nextest)"
         env:
-          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: 1
+          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
         run: cargo nextest run --workspace --no-fail-fast
       - name: Doctest
         run: cargo test --workspace --doc --no-fail-fast
@@ -127,8 +126,8 @@ jobs:
           [xml]$junit_xml = Get-Content -Path 'target/nextest/with-xml/junit.xml'
 
           $actual_failures = $junit_xml.SelectNodes("//testcase[failure]") |
-              ForEach-Object { "$($_.classname) $($_.name)" } |
-              Sort-Object
+            ForEach-Object { "$($_.classname) $($_.name)" } |
+            Sort-Object
 
           Write-Output $actual_failures
           Set-Content -Path 'actual-failures.txt' -Value $actual_failures
@@ -137,7 +136,7 @@ jobs:
           # Fail on any differences, even unexpectedly passing tests, so they can be investigated.
           # (If the job is made blocking for PRs, it may make sense to make this less stringent.)
           git --no-pager diff --no-index --exit-code --unified=1000000 --color=always -- `
-              etc/test-fixtures-windows-expected-failures-see-issue-1358.txt actual-failures.txt
+            etc/test-fixtures-windows-expected-failures-see-issue-1358.txt actual-failures.txt
 
   test-32bit:
     runs-on: ubuntu-latest
@@ -183,8 +182,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run cargo diet
         run: |
-          curl -LSfs https://raw.githubusercontent.com/the-lean-crate/cargo-diet/master/ci/install.sh | \
-           sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag v1.2.4
+          curl -LSfs https://raw.githubusercontent.com/the-lean-crate/cargo-diet/master/ci/install.sh |
+            sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag v1.2.4
 
           # Let's not fail CI for this, it will fail locally often enough, and a crate a little bigger
           # than allows is no problem either if it comes to that.
@@ -219,22 +218,44 @@ jobs:
       matrix:
         target: [ wasm32-unknown-unknown, wasm32-wasi ]
 
+    env:
+      TARGET: ${{ matrix.target }}
+
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v4
       - name: Install Rust
-        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add "$TARGET"
       - uses: Swatinem/rust-cache@v2
-      - run: set +x; for name in gix-sec; do (cd $name && cargo build --target ${{ matrix.target }}); done
-        name: "WASI only: crates without feature toggle"
+      - name: 'WASI only: crates without feature toggle'
         if: endsWith(matrix.target, '-wasi')
-      - run: set +x; for name in gix-actor gix-attributes gix-bitmap gix-chunk gix-command gix-commitgraph gix-config-value gix-date gix-glob gix-hash gix-hashtable gix-mailmap gix-object gix-packetline gix-path gix-pathspec gix-prompt gix-quote gix-refspec gix-revision gix-traverse gix-url gix-validate; do (cd $name && cargo build --target ${{ matrix.target }}); done
-        name: crates without feature toggles
-      - run: set +x; for feature in progress fs-walkdir-parallel parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do (cd gix-features && cargo build --features $feature --target ${{ matrix.target }}); done
-        name: features of gix-features
-      - run: set +x; for name in gix-pack; do (cd $name && cargo build --features wasm --target ${{ matrix.target }}); done
-        name: crates with 'wasm' feature
-      - run: cd gix-pack && cargo build --all-features --target ${{ matrix.target }}
-        name: gix-pack with all features (including wasm)
+        run: |
+          set +x
+          for name in gix-sec; do
+            (cd -- "$name" && cargo build --target "$TARGET")
+          done
+      - name: crates without feature toggles
+        run: |
+          set +x
+          for name in gix-actor gix-attributes gix-bitmap gix-chunk gix-command gix-commitgraph gix-config-value gix-date gix-glob gix-hash gix-hashtable gix-mailmap gix-object gix-packetline gix-path gix-pathspec gix-prompt gix-quote gix-refspec gix-revision gix-traverse gix-url gix-validate; do
+            (cd -- "$name" && cargo build --target "$TARGET")
+          done
+      - name: features of gix-features
+        run: |
+          set +x
+          for feature in progress fs-walkdir-parallel parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do
+            (cd gix-features && cargo build --features "$feature" --target "$TARGET")
+          done
+      - name: crates with 'wasm' feature
+        run: |
+          set +x
+          for name in gix-pack; do
+            (cd -- "$name" && cargo build --features wasm --target "$TARGET")
+          done
+      - name: gix-pack with all features (including wasm)
+        run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
   check-packetline:
     strategy:
