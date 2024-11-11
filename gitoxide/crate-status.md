@@ -462,6 +462,7 @@ Check out the [performance discussion][gix-traverse-performance] as well.
         * [x] delegate can support for all fetch features, including shallow, deepen, etc.
         * [x] receive parsed shallow refs
 * [ ] push
+* [ ] remote helper protocol and integration
 * [x] API documentation
     * [ ] Some examples
 
