@@ -215,8 +215,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    continue-on-error: true
-
     strategy:
       matrix:
         target: [ wasm32-unknown-unknown, wasm32-wasi ]
@@ -302,6 +300,7 @@ jobs:
       # List all jobs that are intended NOT to block PR auto-merge here.
       EXPECTED_NONBLOCKING_JOBS: |-
         test-fixtures-windows
+        wasm
         tests-pass
 
     defaults:
@@ -338,7 +337,6 @@ jobs:
       - test-32bit
       - lint
       - cargo-deny
-      - wasm
       - check-packetline
       - check-blocking
 
