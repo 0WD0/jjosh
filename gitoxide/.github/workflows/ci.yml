@@ -315,12 +315,12 @@ jobs:
         with:
           sparse-checkout: ${{ env.WORKFLOW_PATH }}
       - name: Get all jobs
-        run: yq '.jobs | keys.[]' -- "$WORKFLOW_PATH" | sort > all-jobs.txt
+        run: yq '.jobs | keys.[]' -- "$WORKFLOW_PATH" | sort | tee all-jobs.txt
       - name: Get blocking jobs
-        run: yq '.jobs.tests-pass.needs.[]' -- "$WORKFLOW_PATH" | sort > blocking-jobs.txt
+        run: yq '.jobs.tests-pass.needs.[]' -- "$WORKFLOW_PATH" | sort | tee blocking-jobs.txt
       - name: Get jobs we intend do not block
-        run: sort <<<"$EXPECTED_NONBLOCKING_JOBS" > expected-nonblocking-jobs.txt
-      - name: Check that each job blocks PRs xor intentionally doesn't
+        run: sort <<<"$EXPECTED_NONBLOCKING_JOBS" | tee expected-nonblocking-jobs.txt
+      - name: Each job must block PRs or be declared not to
         run: |
           sort -m blocking-jobs.txt expected-nonblocking-jobs.txt |
             diff --color=always -U1000 -- - all-jobs.txt
