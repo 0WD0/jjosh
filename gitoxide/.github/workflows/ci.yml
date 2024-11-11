@@ -297,10 +297,9 @@ jobs:
 
     env:
       # List all jobs that are intended NOT to block PR auto-merge here.
-      # FIXME: After ensuring this can fail, add `test-pass` below to fix it.
       EXPECTED_NONBLOCKING_JOBS: |-
         test-fixtures-windows
-      #  tests-pass
+        tests-pass
 
     defaults:
       run:
