@@ -84,15 +84,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies (macos)
         if: startsWith(matrix.os, 'macos')
-        run:
-          brew install tree openssl gnu-sed
+        run: brew install tree openssl gnu-sed
       - name: "cargo check default features"
         if: startsWith(matrix.os, 'windows')
         run: cargo check --workspace --bins --examples
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: "Test (nextest)"
+      - name: Test (nextest)
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
         run: cargo nextest run --workspace --no-fail-fast
@@ -157,9 +156,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: "check"
+      - name: check
         run: cross check -p gix --target ${{ matrix.target }}
-      - name: "Test (unit)"
+      - name: Test (unit)
         # run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
         # TODO: figure out why `git` doesn't pick up environment configuration so build scripts fail when using `-p gix`.
         run: cross test -p gix-hashtable --target ${{ matrix.target }}
@@ -275,7 +274,7 @@ jobs:
 
     defaults:
       run:
-        shell: bash
+        shell: bash  # Use bash even on Windows, if we ever reenable windows-latest for testing.
 
     steps:
       - uses: actions/checkout@v4
@@ -327,7 +326,7 @@ jobs:
       - name: Each job must block PRs or be declared not to
         run: |
           sort -m blocking-jobs.txt expected-nonblocking-jobs.txt |
-            diff --color=always -U1000 -- - all-jobs.txt
+            diff --color=always -U1000 - all-jobs.txt
 
   # Dummy job to have a stable name for the "all tests pass" requirement
   tests-pass:
@@ -349,7 +348,7 @@ jobs:
 
     steps:
       - name: Fail if ANY dependency has failed or cancelled
-        if: "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
       - name: OK
         run: exit 0
