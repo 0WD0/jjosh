@@ -31,7 +31,7 @@ jobs:
       - name: Prerequisites
         run: |
           apt-get update
-          apt-get install --no-install-recommends -y ca-certificates curl gcc libc-dev # gcc is required as OS abstraction
+          apt-get install --no-install-recommends -y ca-certificates curl gcc  # rustc invokes gcc for linking
       - name: Verify environment is sufficiently minimal for the test
         run: |
           set -x
