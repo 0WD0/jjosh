@@ -200,7 +200,14 @@ jobs:
 
     strategy:
       matrix:
-        target: [ i686-unknown-linux-musl, armv7-linux-androideabi ]
+        target:
+          - i686-unknown-linux-musl
+          - armv7-linux-androideabi
+        include:
+          - target: i686-unknown-linux-musl
+            cargo: cargo
+          - target: armv7-linux-androideabi
+            cargo: cross
 
     steps:
       - uses: actions/checkout@v4
@@ -211,15 +218,17 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
+      - name: Install cross
+        if: matrix.cargo == 'cross'
+        uses: taiki-e/install-action@v2
         with:
           tool: cross
       - name: check
-        run: cross check -p gix --target ${{ matrix.target }}
+        run: ${{ matrix.cargo }} check -p gix --target ${{ matrix.target }}
       - name: Test (unit)
         # run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
         # TODO: figure out why `git` doesn't pick up environment configuration so build scripts fail when using `-p gix`.
-        run: cross test -p gix-hashtable --target ${{ matrix.target }}
+        run: ${{ matrix.cargo }} test -p gix-hashtable --target ${{ matrix.target }}
 
   lint:
     runs-on: ubuntu-latest
