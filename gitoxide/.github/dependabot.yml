@@ -1,9 +1,12 @@
 version: 2
 updates:
-- package-ecosystem: github-actions
-  directory: "/"
-  schedule:
-    interval: weekly
-  groups:
-    github-actions:
-      patterns: ["*"]
+  # We only use Dependabot *version* updates for GitHub Actions. Rust dependencies are checked via
+  # `cargo deny` and manually updated (see https://github.com/GitoxideLabs/gitoxide/issues/144), or
+  # by Dependabot *security* updates (which don't need the `cargo` ecosystem to be listed here).
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']

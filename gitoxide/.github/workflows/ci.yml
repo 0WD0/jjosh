@@ -1,9 +1,5 @@
 name: ci
 
-env:
-  CARGO_TERM_COLOR: always
-  CLICOLOR: 1
-
 on:
   push:
     branches:
@@ -17,10 +13,19 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CLICOLOR: '1'
+
 jobs:
   pure-rust-build:
     runs-on: ubuntu-latest
+
     container: debian:stable-slim
+
     steps:
       - uses: actions/checkout@v4
       - name: Prerequisites
@@ -31,14 +36,14 @@ jobs:
         run: |
           set -x
           for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
-              if dpkg-query --status -- "$pattern"; then
-                  exit 1
-              fi
+            if dpkg-query --status -- "$pattern"; then
+              exit 1
+            fi
           done
           for cmd in cmake g++ make pkgconf pkg-config; do
-              if command -v -- "$cmd"; then
-                  exit 1
-              fi
+            if command -v -- "$cmd"; then
+              exit 1
+            fi
           done
       - name: Install Rust via Rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
@@ -47,21 +52,20 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies
-        run:
-          sudo apt-get install -y --no-install-recommends liblzma-dev tree
+        run: sudo apt-get install -y --no-install-recommends liblzma-dev tree
       - uses: extractions/setup-just@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: test
         env:
-          CI: true
-          GIX_TEST_IGNORE_ARCHIVES: 1
+          GIX_TEST_IGNORE_ARCHIVES: '1'
         run: just ci-test
 
   test-fast:
@@ -71,7 +75,9 @@ jobs:
           - windows-latest
           - macos-latest
           - ubuntu-latest
+
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -88,7 +94,7 @@ jobs:
           tool: nextest
       - name: "Test (nextest)"
         env:
-          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: 1
+          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
         run: cargo nextest run --workspace --no-fail-fast
       - name: Doctest
         run: cargo test --workspace --doc --no-fail-fast
@@ -97,6 +103,7 @@ jobs:
 
   test-fixtures-windows:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -119,8 +126,8 @@ jobs:
           [xml]$junit_xml = Get-Content -Path 'target/nextest/with-xml/junit.xml'
 
           $actual_failures = $junit_xml.SelectNodes("//testcase[failure]") |
-              ForEach-Object { "$($_.classname) $($_.name)" } |
-              Sort-Object
+            ForEach-Object { "$($_.classname) $($_.name)" } |
+            Sort-Object
 
           Write-Output $actual_failures
           Set-Content -Path 'actual-failures.txt' -Value $actual_failures
@@ -129,13 +136,15 @@ jobs:
           # Fail on any differences, even unexpectedly passing tests, so they can be investigated.
           # (If the job is made blocking for PRs, it may make sense to make this less stringent.)
           git --no-pager diff --no-index --exit-code --unified=1000000 --color=always -- `
-              etc/test-fixtures-windows-expected-failures-see-issue-1358.txt actual-failures.txt
+            etc/test-fixtures-windows-expected-failures-see-issue-1358.txt actual-failures.txt
 
   test-32bit:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         target: [ armv7-linux-androideabi ]
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -157,6 +166,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -170,17 +180,21 @@ jobs:
         run: just doc
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
-      - name: Run cargo diet
+      - name: Install cargo diet
+        env:
+          CARGO_DIET_TAG: v1.2.7
         run: |
-          curl -LSfs https://raw.githubusercontent.com/the-lean-crate/cargo-diet/master/ci/install.sh | \
-           sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag v1.2.4
-
-          # Let's not fail CI for this, it will fail locally often enough, and a crate a little bigger
-          # than allows is no problem either if it comes to that.
-          just check-size || true
+          curl -LSfs "https://raw.githubusercontent.com/the-lean-crate/cargo-diet/refs/tags/$CARGO_DIET_TAG/ci/install.sh" |
+            sh -s -- --git the-lean-crate/cargo-diet --target x86_64-unknown-linux-musl --tag "$CARGO_DIET_TAG"
+      - name: Run cargo diet
+        run: just check-size
+        # Let's not fail CI for this, it will fail locally often enough, and a crate a little bigger
+        # than allows is no problem either if it comes to that.
+        continue-on-error: true
 
   cargo-deny:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
         checks:
@@ -198,27 +212,51 @@ jobs:
 
   wasm:
     name: WebAssembly
+
     runs-on: ubuntu-latest
-    continue-on-error: true
+
     strategy:
       matrix:
         target: [ wasm32-unknown-unknown, wasm32-wasi ]
+
+    env:
+      TARGET: ${{ matrix.target }}
+
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v4
       - name: Install Rust
-        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add "$TARGET"
       - uses: Swatinem/rust-cache@v2
-      - run: set +x; for name in gix-sec; do (cd $name && cargo build --target ${{ matrix.target }}); done
-        name: "WASI only: crates without feature toggle"
+      - name: 'WASI only: crates without feature toggle'
         if: endsWith(matrix.target, '-wasi')
-      - run: set +x; for name in gix-actor gix-attributes gix-bitmap gix-chunk gix-command gix-commitgraph gix-config-value gix-date gix-glob gix-hash gix-hashtable gix-mailmap gix-object gix-packetline gix-path gix-pathspec gix-prompt gix-quote gix-refspec gix-revision gix-traverse gix-url gix-validate; do (cd $name && cargo build --target ${{ matrix.target }}); done
-        name: crates without feature toggles
-      - run: set +x; for feature in progress fs-walkdir-parallel parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do (cd gix-features && cargo build --features $feature --target ${{ matrix.target }}); done
-        name: features of gix-features
-      - run: set +x; for name in gix-pack; do (cd $name && cargo build --features wasm --target ${{ matrix.target }}); done
-        name: crates with 'wasm' feature
-      - run: cd gix-pack && cargo build --all-features --target ${{ matrix.target }}
-        name: gix-pack with all features (including wasm)
+        run: |
+          set +x
+          for name in gix-sec; do
+            (cd -- "$name" && cargo build --target "$TARGET")
+          done
+      - name: crates without feature toggles
+        run: |
+          set +x
+          for name in gix-actor gix-attributes gix-bitmap gix-chunk gix-command gix-commitgraph gix-config-value gix-date gix-glob gix-hash gix-hashtable gix-mailmap gix-object gix-packetline gix-path gix-pathspec gix-prompt gix-quote gix-refspec gix-revision gix-traverse gix-url gix-validate; do
+            (cd -- "$name" && cargo build --target "$TARGET")
+          done
+      - name: features of gix-features
+        run: |
+          set +x
+          for feature in progress fs-walkdir-parallel parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do
+            (cd gix-features && cargo build --features "$feature" --target "$TARGET")
+          done
+      - name: crates with 'wasm' feature
+        run: |
+          set +x
+          for name in gix-pack; do
+            (cd -- "$name" && cargo build --features wasm --target "$TARGET")
+          done
+      - name: gix-pack with all features (including wasm)
+        run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
   check-packetline:
     strategy:
@@ -230,10 +268,13 @@ jobs:
           # However, when changes are made to `etc/copy-packetline.sh`, re-enable the other platforms for testing.
     #       - macos-latest
     #       - windows-latest
+
     runs-on: ${{ matrix.os }}
+
     defaults:
       run:
         shell: bash
+
     steps:
       - uses: actions/checkout@v4
       - name: Check that working tree is initially clean
@@ -249,9 +290,46 @@ jobs:
           git status
           git diff --exit-code
 
+  # Check that only jobs intended not to block PR auto-merge are omitted as
+  # dependencies of the `tests-pass` job below, so that whenever a job is
+  # added, a decision is made about whether it must pass for PRs to merge.
+  check-blocking:
+    runs-on: ubuntu-latest
+
+    env:
+      # List all jobs that are intended NOT to block PR auto-merge here.
+      EXPECTED_NONBLOCKING_JOBS: |-
+        test-fixtures-windows
+        wasm
+        tests-pass
+
+    defaults:
+      run:
+        shell: bash  # Without specifying this, we don't get `-o pipefail`.
+
+    steps:
+      - name: Find this workflow
+        run: |
+          relative_workflow_with_ref="${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}"
+          echo "WORKFLOW_PATH=${relative_workflow_with_ref%@*}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ${{ env.WORKFLOW_PATH }}
+      - name: Get all jobs
+        run: yq '.jobs | keys.[]' -- "$WORKFLOW_PATH" | sort | tee all-jobs.txt
+      - name: Get blocking jobs
+        run: yq '.jobs.tests-pass.needs.[]' -- "$WORKFLOW_PATH" | sort | tee blocking-jobs.txt
+      - name: Get jobs we intend do not block
+        run: sort <<<"$EXPECTED_NONBLOCKING_JOBS" | tee expected-nonblocking-jobs.txt
+      - name: Each job must block PRs or be declared not to
+        run: |
+          sort -m blocking-jobs.txt expected-nonblocking-jobs.txt |
+            diff --color=always -U1000 -- - all-jobs.txt
+
   # Dummy job to have a stable name for the "all tests pass" requirement
   tests-pass:
     name: Tests pass
+
     needs:
       - pure-rust-build
       - test
@@ -259,12 +337,16 @@ jobs:
       - test-32bit
       - lint
       - cargo-deny
-      - wasm
       - check-packetline
+      - check-blocking
+
     if: always() # always run even if dependencies fail
+
     runs-on: ubuntu-latest
+
     steps:
-      # fail if ANY dependency has failed or cancelled
-      - if: "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
+      - name: Fail if ANY dependency has failed or cancelled
+        if: "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
         run: exit 1
-      - run: exit 0
+      - name: OK
+        run: exit 0
