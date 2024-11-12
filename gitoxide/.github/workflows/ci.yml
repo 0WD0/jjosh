@@ -30,8 +30,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prerequisites
         run: |
+          prerequisites=(
+            ca-certificates
+            curl
+            gcc  # rustc calls gcc to invoke the linker.
+            libc-dev  # rustc, in the toolchain we are using, dynamically links to the system libc.
+          )
           apt-get update
-          apt-get install --no-install-recommends -y ca-certificates curl gcc  # rustc invokes gcc for linking
+          apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
+        shell: bash
       - name: Verify environment is sufficiently minimal for the test
         run: |
           set -x
