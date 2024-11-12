@@ -228,7 +228,7 @@ jobs:
       - name: Test (unit)
         # run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
         # TODO: figure out why `git` doesn't pick up environment configuration so build scripts fail when using `-p gix`.
-        run: ${{ matrix.cargo }} test -p gix-hashtable --target ${{ matrix.target }}
+        run: ${{ matrix.cargo }} test -p gix --target ${{ matrix.target }}
 
   lint:
     runs-on: ubuntu-latest
