@@ -13,7 +13,7 @@ alias nt := nextest
 test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
 # run all tests, without clippy, including journey tests, try building docs (and clear target on CI)
-ci-test: check doc unit-tests ci-journey-tests
+ci-test: check doc unit-tests clear-target ci-journey-tests
 
 # run all journey tests, but assure these are running after `cargo clean` (and workaround a just-issue of deduplicating targets)
 ci-journey-tests: journey-tests-pure journey-tests-small journey-tests-async journey-tests
