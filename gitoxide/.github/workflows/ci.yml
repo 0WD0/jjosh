@@ -200,7 +200,7 @@ jobs:
 
     strategy:
       matrix:
-        target: [ armv7-linux-androideabi ]
+        target: [ i686-unknown-linux-gnu, armv7-linux-androideabi ]
 
     steps:
       - uses: actions/checkout@v4
