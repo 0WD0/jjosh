@@ -192,23 +192,25 @@ jobs:
         # than allows is no problem either if it comes to that.
         continue-on-error: true
 
-  cargo-deny:
+  # This job is not required for PR auto-merge, so that sudden announcement of a
+  # new advisory does not keep otherwise OK pull requests from being integrated.
+  cargo-deny-advisories:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        checks:
-          - advisories
-          - bans licenses sources
-
-    # Prevent sudden announcement of a new advisory from failing ci:
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check ${{ matrix.checks }}
+          command: check advisories
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses sources
 
   wasm:
     name: WebAssembly
@@ -300,6 +302,7 @@ jobs:
       # List all jobs that are intended NOT to block PR auto-merge here.
       EXPECTED_NONBLOCKING_JOBS: |-
         test-fixtures-windows
+        cargo-deny-advisories
         wasm
         tests-pass
 
