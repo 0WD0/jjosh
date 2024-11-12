@@ -208,6 +208,7 @@ jobs:
             cargo: cargo
           - target: armv7-linux-androideabi
             cargo: cross
+      fail-fast: false  # FIXME: Remove this after testing.
 
     steps:
       - uses: actions/checkout@v4
