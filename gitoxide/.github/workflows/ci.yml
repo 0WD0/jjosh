@@ -198,21 +198,23 @@ jobs:
   test-32bit:
     runs-on: ubuntu-latest
 
-    env:
-      TARGET: i686-unknown-linux-musl
+    container: i386/debian:stable-slim
 
     steps:
+      - name: Prerequisites
+        run: |
+          apt-get update
+          apt-get install --no-install-recommends -y build-essential ca-certificates cmake curl git jq libssl-dev pkgconf
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          targets: ${{ env.TARGET }}
+          toolchain: stable-i686-unknown-linux-gnu  # Otherwise it may misdetect based on the amd64 kernel.
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Test (nextest)
-        run: cargo nextest run --target "$TARGET" --workspace --no-fail-fast
+        run: cargo nextest run --workspace --no-fail-fast
 
   test-32bit-cross:
     runs-on: ubuntu-latest
