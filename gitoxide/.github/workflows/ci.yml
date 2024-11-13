@@ -203,11 +203,9 @@ jobs:
     steps:
       - name: Prerequisites
         run: |
+          dpkg --add-architecture amd64  # For 64-bit Node.js, for actions.
           apt-get update
-          apt-get install --no-install-recommends -y build-essential ca-certificates cmake curl git jq libssl-dev nodejs pkgconf
-          #mkdir -p /__e/node20/bin
-          #ln -s /usr/bin/node /__e/node20/bin/node
-          file /__e/node20/bin/node
+          apt-get install --no-install-recommends -y build-essential ca-certificates cmake curl git jq libssl-dev nodejs:amd64 pkgconf
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
