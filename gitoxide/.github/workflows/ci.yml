@@ -206,8 +206,10 @@ jobs:
         include:
           - target: i686-unknown-linux-musl
             cargo: cargo
+            package-to-test: gix  # Without cross, can test gix. Fixture scripts use amd64 git.
           - target: armv7-linux-androideabi
             cargo: cross
+            package-to-test: gix-hashtable  # With cross, can't test gix. Fixture scripts need armv7 git.
       fail-fast: false  # FIXME: Remove this after testing.
 
     steps:
@@ -227,9 +229,8 @@ jobs:
       - name: check
         run: ${{ matrix.cargo }} check -p gix --target ${{ matrix.target }}
       - name: Test (unit)
-        # run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
-        # TODO: figure out why `git` doesn't pick up environment configuration so build scripts fail when using `-p gix`.
-        run: ${{ matrix.cargo }} test -p gix --target ${{ matrix.target }}
+        # Run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
+        run: ${{ matrix.cargo }} test -p ${{ matrix.package-to-test }} --target ${{ matrix.target }}
 
   lint:
     runs-on: ubuntu-latest
