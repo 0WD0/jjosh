@@ -198,19 +198,28 @@ jobs:
   test-32bit:
     runs-on: ubuntu-latest
 
+    env:
+      TARGET: i686-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: ${{ env.TARGET }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Test (nextest)
+        run: cargo nextest run --target "$TARGET" --workspace --no-fail-fast
+
+  test-32bit-cross:
+    runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        target:
-          - i686-unknown-linux-musl
-          - armv7-linux-androideabi
-        include:
-          - target: i686-unknown-linux-musl
-            cargo: cargo
-            package-to-test: gix  # Without cross, can test gix. Fixture scripts use amd64 git.
-          - target: armv7-linux-androideabi
-            cargo: cross
-            package-to-test: gix-hashtable  # With cross, can't test gix. Fixture scripts need armv7 git.
-      fail-fast: false  # FIXME: Remove this after testing.
+        target: [ armv7-linux-androideabi ]
 
     steps:
       - uses: actions/checkout@v4
@@ -222,15 +231,16 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
       - name: Install cross
-        if: matrix.cargo == 'cross'
         uses: taiki-e/install-action@v2
         with:
           tool: cross
       - name: check
-        run: ${{ matrix.cargo }} check -p gix --target ${{ matrix.target }}
+        run: cross check -p gix --target ${{ matrix.target }}
       - name: Test (unit)
-        # Run high-level unit tests that exercise a lot of code while being pure Rust to ease building test binaries.
-        run: ${{ matrix.cargo }} test -p ${{ matrix.package-to-test }} --target ${{ matrix.target }}
+        run: |
+          # Run some high-level unit tests that exercise various pure Rust code to ease building test binaries.
+          # We would prefer `-p gix`. But with `cross`, fixture scripts try to run amd64 `git` as an armv7 binary.
+          cross test -p gix-hashtable --target ${{ matrix.target }}
 
   lint:
     runs-on: ubuntu-latest
@@ -407,6 +417,7 @@ jobs:
       - test-journey
       - test-fast
       - test-32bit
+      - test-32bit-cross
       - lint
       - cargo-deny
       - check-packetline
