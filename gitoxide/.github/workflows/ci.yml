@@ -205,8 +205,9 @@ jobs:
         run: |
           apt-get update
           apt-get install --no-install-recommends -y build-essential ca-certificates cmake curl git jq libssl-dev nodejs pkgconf
-          mkdir -p /__e/node20/bin
-          ln -s /usr/bin/node /__e/node20/bin/node
+          #mkdir -p /__e/node20/bin
+          #ln -s /usr/bin/node /__e/node20/bin/node
+          file /__e/node20/bin/node
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
