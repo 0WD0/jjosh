@@ -219,6 +219,12 @@ jobs:
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash
       - uses: actions/checkout@v4
+      - name: Take ownership of repo
+        # FIXME: Eliminate the need for this by improving the test suite not to rely on ownership
+        # of preexisting files, nor on whether, where, or how we are contained in a repo (except
+        # where gix-testtools checks ignores to suppress archives). Note that `safe.directory`
+        # isn't a fix, due to config and environment sanitization when running fixture scripts.
+        run: chown -R "$(whoami)" -- "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable-i686-unknown-linux-gnu  # Otherwise it may misdetect based on the amd64 kernel.
