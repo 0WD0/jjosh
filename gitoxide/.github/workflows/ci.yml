@@ -75,6 +75,17 @@ jobs:
           GIX_TEST_IGNORE_ARCHIVES: '1'
         run: just ci-test
 
+  test-journey:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v2
+      - name: Run journey tests
+        run: just ci-journey-tests
+
   test-fast:
     strategy:
       matrix:
@@ -342,6 +353,7 @@ jobs:
     needs:
       - pure-rust-build
       - test
+      - test-journey
       - test-fast
       - test-32bit
       - lint

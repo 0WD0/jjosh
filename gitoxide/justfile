@@ -12,10 +12,15 @@ alias nt := nextest
 # run all tests, clippy, including journey tests, try building docs
 test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
-# run all tests, without clippy, including journey tests, try building docs (and clear target on CI)
-ci-test: check doc unit-tests clear-target ci-journey-tests
+# run all tests, without clippy, including journey tests, try building docs (and clear target)
+ci-test-full: check doc unit-tests clear-target ci-journey-tests
 
-# run all journey tests, but assure these are running after `cargo clean` (and workaround a just-issue of deduplicating targets)
+# run all tests, without clippy, and try building docs (without clearing the target)
+ci-test: check doc unit-tests
+
+# run all journey tests
+# these should be run in a fresh clone or after `cargo clean`
+# (and workaround a just-issue of deduplicating targets)
 ci-journey-tests: journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
 clear-target:
