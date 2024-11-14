@@ -28,7 +28,7 @@ title "Porcelain ${kind}"
     )
   )
   snapshot="$snapshot/porcelain"
-  (with_program tree
+  (with_program find
     (when "using the 'tool' subcommand"
       title "ein tool"
       (with "a repo with a tiny commit history"

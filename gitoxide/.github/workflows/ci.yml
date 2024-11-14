@@ -65,7 +65,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies
-        run: sudo apt-get install -y --no-install-recommends liblzma-dev tree
+        run: sudo apt-get install -y --no-install-recommends liblzma-dev
       - uses: extractions/setup-just@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -74,6 +74,17 @@ jobs:
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
         run: just ci-test
+
+  test-journey:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v2
+      - name: Run journey tests
+        run: just ci-journey-tests
 
   test-fast:
     strategy:
@@ -91,8 +102,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies (macos)
         if: startsWith(matrix.os, 'macos')
-        run: brew install tree openssl gnu-sed
-      - name: "cargo check default features"
+        run: brew install openssl gnu-sed
+      - name: cargo check default features
         if: startsWith(matrix.os, 'windows')
         run: cargo check --workspace --bins --examples
       - uses: taiki-e/install-action@v2
@@ -342,6 +353,7 @@ jobs:
     needs:
       - pure-rust-build
       - test
+      - test-journey
       - test-fast
       - test-32bit
       - lint
