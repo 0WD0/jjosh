@@ -549,20 +549,17 @@ title "gix commit-graph"
                   expect_run $WITH_FAILURE test -e "${PACK_FILE}".idx
                 }
 
-                (with_program find
-
-                  if test "$kind" = "small" ; then
-                    suffix=miniz-oxide
-                  elif test "$kind" = "max-pure"; then
-                    suffix=miniz-oxide-max
-                  else
-                    suffix=zlib-ng
-                  fi
-                  it "creates all pack objects, but the broken ones" && {
-                    WITH_SNAPSHOT="$snapshot/broken-with-objects-dir-skip-checks-success-tree-$suffix" \
-                    expect_run_sh $SUCCESSFULLY 'find . -type f | sort'
-                  }
-                )
+                if test "$kind" = "small" ; then
+                  suffix=miniz-oxide
+                elif test "$kind" = "max-pure"; then
+                  suffix=miniz-oxide-max
+                else
+                  suffix=zlib-ng
+                fi
+                it "creates all pack objects, but the broken ones" && {
+                  WITH_SNAPSHOT="$snapshot/broken-with-objects-dir-skip-checks-success-tree-$suffix" \
+                  expect_run_sh $SUCCESSFULLY 'find . -type f | sort'
+                }
               )
             )
           )
@@ -582,12 +579,10 @@ title "gix commit-graph"
                                                      "${PACK_FILE}.pack" .
           }
 
-          (with_program find
-            it "creates all pack objects" && {
-              WITH_SNAPSHOT="$snapshot/with-objects-dir-success-tree" \
-              expect_run_sh $SUCCESSFULLY 'find . -type f | sort'
-            }
-          )
+          it "creates all pack objects" && {
+            WITH_SNAPSHOT="$snapshot/with-objects-dir-success-tree" \
+            expect_run_sh $SUCCESSFULLY 'find . -type f | sort'
+          }
         )
       )
     )
