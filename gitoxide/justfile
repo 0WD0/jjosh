@@ -12,15 +12,10 @@ alias nt := nextest
 # run all tests, clippy, including journey tests, try building docs
 test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
-# run all tests, without clippy, including journey tests, try building docs (and clear target)
-ci-test-full: check doc unit-tests clear-target ci-journey-tests
-
-# run all tests, without clippy, and try building docs (without clearing the target)
+# run all tests, without clippy, and try building docs
 ci-test: check doc unit-tests
 
-# run all journey tests
-# these should be run in a fresh clone or after `cargo clean`
-# (and workaround a just-issue of deduplicating targets)
+# run all journey tests - should be run in a fresh clone or after `cargo clean`
 ci-journey-tests: journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
 clear-target:
@@ -191,7 +186,7 @@ unit-tests:
     cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv
     cargo nextest run -p gix --features async-network-client
     cargo nextest run -p gix --features blocking-network-client
-    cargo nextest run -p gitoxide-core --lib
+    cargo nextest run -p gitoxide-core --lib --no-tests=warn
 
 # These tests aren't run by default as they are flaky (even locally)
 unit-tests-flaky:
@@ -245,10 +240,10 @@ audit:
     cargo deny check advisories bans licenses sources
 
 # run tests with `cargo nextest` (all unit-tests, no doc-tests, faster)
-nextest *FLAGS="--all":
+nextest *FLAGS="--workspace":
     cargo nextest run {{ FLAGS }}
 
-summarize EXPRESSION="all()": (nextest "--all --run-ignored all --no-fail-fast --status-level none --final-status-level none -E '" EXPRESSION "'")
+summarize EXPRESSION="all()": (nextest "--workspace --run-ignored all --no-fail-fast --status-level none --final-status-level none -E '" EXPRESSION "'")
 
 # run nightly rustfmt for its extra features, but check that it won't upset stable rustfmt
 fmt:
