@@ -1,3 +1,4 @@
+use crate::util::named_subrepo_opts;
 use gix_testtools::tempfile;
 
 #[cfg(feature = "tree-editor")]
@@ -220,11 +221,11 @@ mod edit_tree {
     use utils::display_tree;
 }
 mod write_object {
-    use crate::repository::object::empty_bare_repo;
+    use crate::repository::object::empty_bare_in_memory_repo;
 
     #[test]
     fn empty_tree() -> crate::Result {
-        let (_tmp, repo) = empty_bare_repo()?;
+        let repo = empty_bare_in_memory_repo()?;
         let oid = repo.write_object(gix::objs::TreeRef::empty())?;
         assert_eq!(
             oid,
@@ -233,12 +234,38 @@ mod write_object {
         );
         Ok(())
     }
+
+    #[test]
+    fn commit_with_invalid_author() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let actor = gix::actor::Signature {
+            name: "1 < 0".into(),
+            email: Default::default(),
+            time: Default::default(),
+        };
+        let commit = gix::objs::Commit {
+            tree: gix::hash::ObjectId::empty_tree(repo.object_hash()),
+            author: actor.clone(),
+            committer: actor,
+            parents: Default::default(),
+            encoding: None,
+            message: Default::default(),
+            extra_headers: vec![],
+        };
+        assert_eq!(
+            repo.write_object(commit).unwrap_err().to_string(),
+            "Signature name or email must not contain '<', '>' or \\n",
+            "the actor is invalid so triggers an error when persisting it"
+        );
+        Ok(())
+    }
 }
 
 mod write_blob {
     use std::io::{Seek, SeekFrom};
 
-    use crate::{repository::object::empty_bare_repo, util::hex_to_id};
+    use crate::repository::object::empty_bare_repo;
+    use crate::{repository::object::empty_bare_in_memory_repo, util::hex_to_id};
 
     #[test]
     fn from_slice() -> crate::Result {
@@ -266,7 +293,7 @@ mod write_blob {
 
     #[test]
     fn from_stream() -> crate::Result {
-        let (_tmp, repo) = empty_bare_repo()?;
+        let repo = empty_bare_in_memory_repo()?;
         let mut cursor = std::io::Cursor::new(b"hello world");
         let mut seek_cursor = cursor.clone();
         let mut repo = repo.without_freelist();
@@ -653,6 +680,10 @@ mod commit {
         );
         Ok(())
     }
+}
+
+fn empty_bare_in_memory_repo() -> crate::Result<gix::Repository> {
+    Ok(named_subrepo_opts("make_basic_repo.sh", "bare.git", gix::open::Options::isolated())?.with_object_memory())
 }
 
 fn empty_bare_repo() -> crate::Result<(tempfile::TempDir, gix::Repository)> {

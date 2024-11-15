@@ -164,7 +164,9 @@ impl crate::Repository {
     /// we avoid writing duplicate objects using slow disks that will eventually have to be garbage collected.
     pub fn write_object(&self, object: impl gix_object::WriteTo) -> Result<Id<'_>, object::write::Error> {
         let mut buf = self.empty_reusable_buffer();
-        object.write_to(buf.deref_mut()).expect("write to memory works");
+        object
+            .write_to(buf.deref_mut())
+            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync + 'static>)?;
 
         self.write_object_inner(&buf, object.kind())
     }
