@@ -254,7 +254,7 @@ mod write_object {
         };
         assert_eq!(
             repo.write_object(commit).unwrap_err().to_string(),
-            "TBD",
+            "Signature name or email must not contain '<', '>' or \\n",
             "the actor is invalid so triggers an error when persisting it"
         );
         Ok(())
