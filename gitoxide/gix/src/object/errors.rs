@@ -46,5 +46,5 @@ pub mod write {
     /// An error to indicate writing to the loose object store failed.
     #[derive(Debug, thiserror::Error)]
     #[error(transparent)]
-    pub struct Error(#[from] pub gix_object::find::Error);
+    pub struct Error(#[from] pub gix_object::write::Error);
 }
