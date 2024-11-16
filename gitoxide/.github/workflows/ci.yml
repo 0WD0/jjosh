@@ -55,8 +55,24 @@ jobs:
           done
       - name: Install Rust via Rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-      - uses: Swatinem/rust-cache@v2
-      - run: /github/home/.cargo/bin/cargo install --debug --locked --no-default-features --features max-pure --path .
+      - name: Add Rust tools to path
+        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+      - name: Generate dependency tree
+        run: cargo tree --locked --no-default-features --features max-pure > tree.txt
+      - name: Scan for dependencies that build C or C++ code
+        run: |
+          pattern='.*\b(-sys|cc|cmake|pkg-config|vcpkg)\b.*'
+          ! GREP_COLORS='ms=30;48;5;214' grep --color=always -Ex -C 1000000 -e "$pattern" tree.txt
+        continue-on-error: true
+      - name: Do max-pure build with minimal environment
+        run: cargo install --debug --locked --no-default-features --features max-pure --path .
+      - name: Clear target
+        run: cargo clean
+      - name: Break GCC's ability to compile C or C++
+        run: find /usr/lib/gcc \( -name cc1 -o -name cc1plus \) -print -delete
+      - name: Do max-pure build without being able to compile C or C++
+        run: cargo install --debug --locked --no-default-features --features max-pure --path .
+        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest
