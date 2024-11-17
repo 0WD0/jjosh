@@ -40,7 +40,7 @@ jobs:
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash
-      - name: Verify environment is sufficiently minimal for the test
+      - name: Verify that we are in an environment with limited dev tools
         run: |
           set -x
           for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
@@ -55,8 +55,47 @@ jobs:
           done
       - name: Install Rust via Rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-      - uses: Swatinem/rust-cache@v2
-      - run: /github/home/.cargo/bin/cargo install --debug --locked --no-default-features --features max-pure --path .
+      - name: Add Rust tools to path
+        run: echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+      - name: Generate dependency tree
+        run: cargo tree --locked --no-default-features --features max-pure > tree.txt
+      - name: Scan for dependencies that build C or C++ code
+        run: |
+          pattern='.*\b(-sys|cc|cmake|pkg-config|vcpkg)\b.*'
+          ! GREP_COLORS='ms=30;48;5;214' grep --color=always -Ex -C 1000000 -e "$pattern" tree.txt
+        continue-on-error: true
+      - name: Wrap cc1 (and cc1plus if present) to record calls
+        run: |
+          cat >/usr/local/bin/wrapper1 <<'EOF'
+          #!/bin/sh -e
+          printf '%s\n' "$0 $*" |
+            flock /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock \
+            tee -a -- /var/log/wrapper1.log ~/display >/dev/null  # We'll link ~/display later.
+          exec "$0.orig" "$@"
+          EOF
+
+          cat >/usr/local/bin/wrap1 <<'EOF'
+          #!/bin/sh -e
+          dir="$(dirname -- "$1")"
+          base="$(basename -- "$1")"
+          cd -- "$dir"
+          mv -- "$base" "$base.orig"
+          ln -s -- /usr/local/bin/wrapper1 "$base"
+          EOF
+
+          chmod +x /usr/local/bin/wrap1 /usr/local/bin/wrapper1
+          mkdir /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock
+
+          find /usr/lib/gcc \( -name cc1 -o -name cc1plus \) \
+            -print -exec /usr/local/bin/wrap1 {} \;
+      - name: Build max-pure with limited dev tools and log cc1
+        run: |
+          ln -s -- "/proc/$$/fd/1" ~/display  # Bypass `cc1` redirection.
+          cargo install --debug --locked --no-default-features --features max-pure --path .
+      - name: Show logged C and C++ compilations (should be none)
+        run: |
+          ! cat /var/log/wrapper1.log
+        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest
