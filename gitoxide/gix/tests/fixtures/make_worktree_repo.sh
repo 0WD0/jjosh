@@ -56,3 +56,11 @@ mkdir $worktree && touch $worktree/file
   git add file
   git commit -m "make sure na index exists"
 )
+
+git init non-bare-turned-bare
+(cd non-bare-turned-bare
+  git commit --allow-empty -m 'empty'
+  git config core.bare true
+
+  git worktree add ../worktree-of-bare-repo
+)

@@ -67,6 +67,37 @@ fn bare_repo_with_index() -> crate::Result {
 }
 
 #[test]
+fn non_bare_turned_bare() -> crate::Result {
+    let repo = named_subrepo_opts(
+        "make_worktree_repo.sh",
+        "non-bare-turned-bare",
+        gix::open::Options::isolated(),
+    )?;
+    assert!(
+        repo.is_bare(),
+        "the configuration dictates this, even though it looks like a main worktree"
+    );
+    assert_eq!(repo.work_dir(), None);
+    Ok(())
+}
+
+#[test]
+fn worktree_of_bare_repo() -> crate::Result {
+    let repo = named_subrepo_opts(
+        "make_worktree_repo.sh",
+        "worktree-of-bare-repo",
+        gix::open::Options::isolated(),
+    )?;
+    assert!(!repo.is_bare(), "even though the main worktree is bare, this isn't");
+    assert_ne!(
+        repo.work_dir(),
+        None,
+        "we have opened the repo through a worktree, which is never bare"
+    );
+    Ok(())
+}
+
+#[test]
 fn non_bare_non_git_repo_without_worktree() -> crate::Result {
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
@@ -182,12 +213,12 @@ mod missing_config_file {
             "worktree-no-config",
             gix::open::Options::isolated(),
         )?;
-        assert!(repo.work_dir().is_some());
-        assert!(repo.worktree().is_some());
         assert!(
             !repo.is_bare(),
             "without config, we can't really know what the repo is actually but can guess as there is a worktree"
         );
+        assert!(repo.work_dir().is_some());
+        assert!(repo.worktree().is_some());
         assert_eq!(
             repo.config_snapshot().meta().source,
             gix::config::Source::Local,
