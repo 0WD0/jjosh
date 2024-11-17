@@ -70,7 +70,7 @@ jobs:
           #!/bin/sh -e
           printf '%s\n' "$0 $*" |
             flock /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock \
-            tee -a /var/log/wrapper1.log /dev/tty >/dev/null
+            tee -a -- /var/log/wrapper1.log ~/ci-stdout >/dev/null
           exec "$0.orig" "$@"
           EOF
 
@@ -85,6 +85,7 @@ jobs:
 
           chmod +x /usr/local/bin/wrap1 /usr/local/bin/wrapper1
           mkdir /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock
+          ln -s -- "/proc/$$/fd/1" ~/ci-stdout
 
           find /usr/lib/gcc \( -name cc1 -o -name cc1plus \) \
             -print -exec /usr/local/bin/wrap1 {} \;
