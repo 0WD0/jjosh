@@ -303,15 +303,33 @@ impl ThreadSafeRepository {
             }
         }
 
-        match worktree_dir {
-            None if !config.is_bare && refs.git_dir().file_name() == Some(OsStr::new(gix_discover::DOT_GIT_DIR)) => {
-                worktree_dir = Some(git_dir.parent().expect("parent is always available").to_owned());
+        {
+            let looks_like_standard_git_dir =
+                || refs.git_dir().file_name() == Some(OsStr::new(gix_discover::DOT_GIT_DIR));
+            match worktree_dir {
+                None if !config.is_bare && looks_like_standard_git_dir() => {
+                    worktree_dir = Some(git_dir.parent().expect("parent is always available").to_owned());
+                }
+                Some(_) => {
+                    // We may assume that the presence of a worktree-dir means it's not bare, but only if there
+                    // is no configuration saying otherwise.
+                    // Thus, if we are here and the common-dir config claims it's bare and we have inferred a worktree anyway,
+                    // forget about it.
+                    if looks_like_standard_git_dir()
+                        && config
+                            .resolved
+                            .boolean_filter("core.bare", |md| md.source == gix_config::Source::Local)
+                            .transpose()
+                            .ok()
+                            .flatten()
+                            .is_some()
+                        && config.is_bare
+                    {
+                        worktree_dir = None;
+                    }
+                }
+                None => {}
             }
-            Some(_) => {
-                // note that we might be bare even with a worktree directory - work trees don't have to be
-                // the parent of a non-bare repository.
-            }
-            None => {}
         }
 
         refs.write_reflog = config::cache::util::reflog_or_default(config.reflog, worktree_dir.is_some());
