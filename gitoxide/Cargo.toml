@@ -36,7 +36,7 @@ default = ["max"]
 ##
 ## As fast as possible, tracing, with TUI progress, progress line rendering with autoconfiguration, all transports based on their most mature implementation (HTTP), all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
 ## Can be amended with the `http-client-curl-rustls` feature to avoid `openssl` as backend.
-max = ["max-control", "fast", "gitoxide-core-blocking-client", "http-client-curl"]
+max = ["max-control", "fast", "gitoxide-core-tools-query", "gitoxide-core-tools-corpus", "gitoxide-core-blocking-client", "http-client-curl"]
 
 ## Like `max`, but only Rust is allowed.
 ##
@@ -47,9 +47,9 @@ max = ["max-control", "fast", "gitoxide-core-blocking-client", "http-client-curl
 max-pure = ["max-control", "gix-features/rustsha1", "gix-features/zlib-rust-backend", "http-client-reqwest", "gitoxide-core-blocking-client"]
 
 ## Like `max`, but with more control for configuration. See the *Package Maintainers* headline for more information.
-max-control = ["tracing", "fast-safe", "pretty-cli", "gitoxide-core-tools-query", "gitoxide-core-tools-corpus", "gitoxide-core-tools", "prodash-render-line", "prodash-render-tui", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
+max-control = ["tracing", "fast-safe", "pretty-cli", "gitoxide-core-tools", "prodash-render-line", "prodash-render-tui", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
 
-## All of the good stuff, with less fanciness for smaller binaries.
+## All the good stuff, with less fanciness for smaller binaries.
 ##
 ## As fast as possible, progress line rendering, all transports based on their most mature implementation (HTTP), all `ein` tools, CLI colors and local-time support, JSON output.
 lean = ["fast", "tracing", "pretty-cli", "http-client-curl", "gitoxide-core-tools-query", "gitoxide-core-tools-corpus", "gitoxide-core-tools", "gitoxide-core-blocking-client", "prodash-render-line"]
