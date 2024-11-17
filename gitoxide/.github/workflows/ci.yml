@@ -40,7 +40,7 @@ jobs:
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash
-      - name: Verify that we are in an environment with minimal dev tools
+      - name: Verify that we are in an environment with limited dev tools
         run: |
           set -x
           for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
@@ -88,7 +88,7 @@ jobs:
 
           find /usr/lib/gcc \( -name cc1 -o -name cc1plus \) \
             -print -exec /usr/local/bin/wrap1 {} \;
-      - name: Build max-pure with minimal dev tools and log cc1
+      - name: Build max-pure with limited dev tools and log cc1
         run: |
           ln -s -- "/proc/$$/fd/1" ~/display  # Bypass `cc1` redirection.
           cargo install --debug --locked --no-default-features --features max-pure --path .
