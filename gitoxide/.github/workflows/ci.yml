@@ -68,7 +68,9 @@ jobs:
         run: |
           cat >/usr/local/bin/wrapper1 <<'EOF'
           #!/bin/sh
-          printf '%s %s\n' "$0" "$*" >>/var/log/wrapper1.log
+          printf '%s %s\n' "$0" "$*" |
+            flock /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock \
+            tee -a /var/log/wrapper1.log >/dev/null  # TODO: Also log to terminal device?
           exec "$0.orig" "$@"
           EOF
 
@@ -82,6 +84,7 @@ jobs:
           EOF
 
           chmod +x /usr/local/bin/wrap1 /usr/local/bin/wrapper1
+          mkdir /run/lock/wrapper1.fbd136bd-9b1b-448d-84a9-e18be53ae63c.lock
 
           find /usr/lib/gcc \( -name cc1 -o -name cc1plus \) \
             -print -exec /usr/local/bin/wrap1 {} \;
