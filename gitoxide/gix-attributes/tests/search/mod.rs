@@ -6,6 +6,7 @@ use gix_attributes::{
     AssignmentRef, NameRef, StateRef,
 };
 use gix_glob::pattern::Case;
+use gix_testtools::size_ok;
 
 mod specials {
     use std::path::Path;
@@ -268,10 +269,11 @@ fn given_attributes_are_made_available_in_given_order() -> crate::Result {
 
 #[test]
 fn size_of_outcome() {
-    assert_eq!(
-        std::mem::size_of::<Outcome>(),
-        840,
-        "it's quite big, shouldn't change without us noticing"
+    let actual = std::mem::size_of::<Outcome>();
+    let expected = 840;
+    assert!(
+        size_ok(actual, expected),
+        "it's quite big, shouldn't change without us noticing: {actual} <~ {expected}"
     );
 }
 

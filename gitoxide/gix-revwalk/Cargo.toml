@@ -23,3 +23,6 @@ gix-commitgraph = { version = "^0.25.0", path = "../gix-commitgraph" }
 
 thiserror = "2.0.0"
 smallvec = "1.10.0"
+
+[dev-dependencies]
+gix-testtools = { path = "../tests/tools" }

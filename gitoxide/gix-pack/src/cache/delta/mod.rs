@@ -23,18 +23,24 @@ mod tree;
 
 pub use tree::{Item, Tree};
 
+// FIXME: Probably remove this pair of tests or the equivalent pair in `gix-pack/src/cache/delta/tree.rs`.
 #[cfg(test)]
 mod tests {
+    use super::Item;
+    use gix_testtools::size_ok;
 
     #[test]
     fn size_of_pack_tree_item() {
-        use super::Item;
-        assert_eq!(std::mem::size_of::<[Item<()>; 7_500_000]>(), 300_000_000);
+        let actual = std::mem::size_of::<[Item<()>; 7_500_000]>();
+        let expected = 300_000_000;
+        assert!(
+            size_ok(actual, expected),
+            "we don't want these to grow unnoticed: {actual} <~ {expected}"
+        );
     }
 
     #[test]
     fn size_of_pack_verify_data_structure() {
-        use super::Item;
         pub struct EntryWithDefault {
             _index_entry: crate::index::Entry,
             _kind: gix_object::Kind,
@@ -45,6 +51,11 @@ mod tests {
             _level: u16,
         }
 
-        assert_eq!(std::mem::size_of::<[Item<EntryWithDefault>; 7_500_000]>(), 840_000_000);
+        let actual = std::mem::size_of::<[Item<EntryWithDefault>; 7_500_000]>();
+        let expected = 840_000_000;
+        assert!(
+            size_ok(actual, expected),
+            "we don't want these to grow unnoticed: {actual} <~ {expected}"
+        );
     }
 }

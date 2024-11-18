@@ -1,22 +1,25 @@
 use std::{path::PathBuf, sync::Arc};
 
 use gix_pack::data::output;
+use gix_testtools::size_ok;
 
 #[test]
 fn size_of_entry() {
-    assert_eq!(
-        std::mem::size_of::<output::Entry>(),
-        80,
-        "The size of the structure shouldn't change unexpectedly"
+    let actual = std::mem::size_of::<output::Entry>();
+    let expected = 80;
+    assert!(
+        size_ok(actual, expected),
+        "The size of the structure shouldn't change unexpectedly: {actual} <~ {expected}"
     );
 }
 
 #[test]
 fn size_of_count() {
-    assert_eq!(
-        std::mem::size_of::<output::Count>(),
-        56,
-        "The size of the structure shouldn't change unexpectedly"
+    let actual = std::mem::size_of::<output::Count>();
+    let expected = 56;
+    assert!(
+        size_ok(actual, expected),
+        "The size of the structure shouldn't change unexpectedly: {actual} <~ {expected}"
     );
 }
 

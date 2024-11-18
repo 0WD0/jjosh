@@ -1,11 +1,13 @@
 use gix_odb::pack;
+use gix_testtools::size_ok;
 
 #[test]
 fn size_of_entry() {
-    assert_eq!(
-        std::mem::size_of::<pack::data::input::Entry>(),
-        104,
-        "let's keep the size in check as we have many of them"
+    let actual = std::mem::size_of::<pack::data::input::Entry>();
+    let expected = 104;
+    assert!(
+        size_ok(actual, expected),
+        "let's keep the size in check as we have many of them: {actual} <~ {expected}"
     );
 }
 

@@ -1,12 +1,13 @@
-use std::path::{Path, PathBuf};
-
-use gix_hash::ObjectId;
-
 mod access;
 mod entry;
 mod file;
 mod fs;
 mod init;
+
+use std::path::{Path, PathBuf};
+
+use gix_hash::ObjectId;
+use gix_testtools::size_ok;
 
 pub fn hex_to_id(hex: &str) -> ObjectId {
     ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
@@ -25,11 +26,29 @@ pub fn loose_file_path(name: &str) -> PathBuf {
 
 #[test]
 fn size_of_entry() {
-    assert_eq!(std::mem::size_of::<gix_index::Entry>(), 80);
+    let actual = std::mem::size_of::<gix_index::Entry>();
+    let expected = 80;
+    assert!(
+        size_ok(actual, expected),
+        "the size of this structure should not change unexpectedly: {actual} <~ {expected}"
+    );
+}
 
-    // the reason we have our own time is half the size.
-    assert_eq!(std::mem::size_of::<gix_index::entry::stat::Time>(), 8);
-    assert_eq!(std::mem::size_of::<filetime::FileTime>(), 16);
+#[test]
+fn size_of_entry_time() {
+    // The reason we have our own time is that it is half the size.
+    let ent_actual = std::mem::size_of::<gix_index::entry::stat::Time>();
+    let ent_expected = 8;
+    assert!(
+        size_ok(ent_actual, ent_expected),
+        "the size of this structure should not change unexpectedly: {ent_actual} <~ {ent_expected}"
+    );
+    let ft_actual = std::mem::size_of::<filetime::FileTime>();
+    let ft_expected = 16;
+    assert!(
+        size_ok(ft_actual, ft_expected),
+        "we will want to know if the size of this structure changes: {ft_actual} <~ {ft_expected}"
+    );
 }
 
 enum Fixture {

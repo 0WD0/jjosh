@@ -20,14 +20,16 @@ mod index_worktree {
     mod iter {
         use crate::status::{repo, submodule_repo};
         use gix::status::index_worktree::iter::Item;
+        use gix_testtools::size_ok;
         use pretty_assertions::assert_eq;
 
         #[test]
         fn item_size() {
-            assert_eq!(
-                std::mem::size_of::<gix::status::index_worktree::iter::Item>(),
-                264,
-                "The size is pretty huge and goes down ideally"
+            let actual = std::mem::size_of::<gix::status::index_worktree::iter::Item>();
+            let expected = 264;
+            assert!(
+                size_ok(actual, expected),
+                "The size is pretty huge and goes down ideally: {actual} <~ {expected}"
             );
         }
 

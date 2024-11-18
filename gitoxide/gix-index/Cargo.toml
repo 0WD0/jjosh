@@ -58,5 +58,8 @@ rustix = { version = "0.38.20", default-features = false, features = [
 ] }
 libc = { version = "0.2.149" }
 
+[dev-dependencies]
+gix-testtools = { path = "../tests/tools" }
+
 [package.metadata.docs.rs]
 features = ["document-features", "serde"]
