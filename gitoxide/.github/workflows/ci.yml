@@ -43,8 +43,8 @@ jobs:
       - name: Verify that we are in an environment with limited dev tools
         run: |
           set -x
-          for pattern in cmake g++ libssl-dev make pkgconf pkg-config; do
-            if dpkg-query --status -- "$pattern"; then
+          for package in cmake g++ libssl-dev make pkgconf pkg-config; do
+            if dpkg-query --status -- "$package"; then
               exit 1
             fi
           done
