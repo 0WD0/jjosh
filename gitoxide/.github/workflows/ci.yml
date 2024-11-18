@@ -64,6 +64,9 @@ jobs:
           pattern='.*\b(-sys|cc|cmake|pkg-config|vcpkg)\b.*'
           ! GREP_COLORS='ms=30;48;5;214' grep --color=always -Ex -C 1000000 -e "$pattern" tree.txt
         continue-on-error: true
+      - name: Check for unrecognized *-sys dependencies
+        run: |
+          ! grep -qP '(?<!\blinux-raw)-sys\b' tree.txt
       - name: Wrap cc1 (and cc1plus if present) to record calls
         run: |
           cat >/usr/local/bin/wrapper1 <<'EOF'
