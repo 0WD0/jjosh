@@ -1,5 +1,10 @@
 use gix_ref::bstr;
 
+#[cfg(target_pointer_width = "64")]
+const EXPECTED_BUFFER_LENGTH: usize = 102;
+#[cfg(target_pointer_width = "32")]
+const EXPECTED_BUFFER_LENGTH: usize = 86;
+
 #[test]
 #[cfg(feature = "worktree-stream")]
 fn stream() -> crate::Result {
@@ -7,7 +12,7 @@ fn stream() -> crate::Result {
     let mut stream = repo.worktree_stream(repo.head_commit()?.tree_id()?)?.0.into_read();
     assert_eq!(
         std::io::copy(&mut stream, &mut std::io::sink())?,
-        102,
+        EXPECTED_BUFFER_LENGTH as u64,
         "there is some content in the stream, it works"
     );
     Ok(())
@@ -27,7 +32,7 @@ fn archive() -> crate::Result {
         &std::sync::atomic::AtomicBool::default(),
         Default::default(),
     )?;
-    assert_eq!(buf.len(), 102, "default format is internal");
+    assert_eq!(buf.len(), EXPECTED_BUFFER_LENGTH, "default format is internal");
     Ok(())
 }
 

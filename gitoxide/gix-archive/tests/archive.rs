@@ -14,10 +14,15 @@ mod from_tree {
 
     use crate::hex_to_id;
 
+    #[cfg(target_pointer_width = "64")]
+    const EXPECTED_BUFFER_LENGTH: usize = 551;
+    #[cfg(target_pointer_width = "32")]
+    const EXPECTED_BUFFER_LENGTH: usize = 479;
+
     #[test]
     fn basic_usage_internal() -> gix_testtools::Result {
         basic_usage(gix_archive::Format::InternalTransientNonPersistable, |buf| {
-            assert_eq!(buf.len(), 551);
+            assert_eq!(buf.len(), EXPECTED_BUFFER_LENGTH);
 
             let mut stream = gix_worktree_stream::Stream::from_read(std::io::Cursor::new(buf));
             let mut paths_and_modes = Vec::new();
