@@ -882,6 +882,30 @@ impl Drop for Env<'_> {
     }
 }
 
+/// Check data structure size, comparing strictly on 64-bit targets.
+///
+/// - On 32-bit targets, checks if `actual_size` is at most `expected_64_bit_size`.
+/// - On 64-bit targets, checks if `actual_size` is exactly `expected_64_bit_size`.
+///
+/// This is for assertions about the size of data structures, when the goal is to keep them from
+/// growing too large even across breaking changes. Such assertions must always fail when data
+/// structures grow larger than they have ever been, for which `<=` is enough. But it also helps to
+/// know when they have shrunk unexpectedly. They may shrink, other changes may rely on the smaller
+/// size for acceptable performance, and then they may grow again to their earlier size.
+///
+/// The problem with `==` is that data structures are often smaller on 32-bit targets. This could
+/// be addressed by asserting separate exact 64-bit and 32-bit sizes. But sizes may also differ
+/// across 32-bit targets, due to ABI and layout/packing details. That can happen across 64-bit
+/// targets too, but it seems less common.
+///
+/// For those reasons, this function does a `==` on 64-bit targets, but a `<=` on 32-bit targets.
+pub fn size_ok(actual_size: usize, expected_64_bit_size: usize) -> bool {
+    #[cfg(target_pointer_width = "64")]
+    return actual_size == expected_64_bit_size;
+    #[cfg(target_pointer_width = "32")]
+    return actual_size <= expected_64_bit_size;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
