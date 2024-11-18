@@ -42,6 +42,52 @@ impl<'a> TreeRef<'a> {
             .map(|idx| self.entries[idx])
     }
 
+    /// Follow a sequence of `path` components starting from this instance, and look them up one by one until the last component
+    /// is looked up and its tree entry is returned.
+    ///
+    /// # Performance Notes
+    ///
+    /// Searching tree entries is currently done in sequence, which allows to the search to be allocation free. It would be possible
+    /// to reuse a vector and use a binary search instead, which might be able to improve performance over all.
+    /// However, a benchmark should be created first to have some data and see which trade-off to choose here.
+    ///
+    pub fn lookup_entry<I, P>(&self, path: I) -> Option<EntryRef<'a>>
+    where
+        I: IntoIterator<Item = P>,
+        P: PartialEq<BStr>,
+    {
+        let mut path = path.into_iter().peekable();
+
+        while let Some(component) = path.next() {
+            match self.entries.iter().find(|entry| component.eq(entry.filename)) {
+                Some(entry) => {
+                    if path.peek().is_none() {
+                        return Some(*entry);
+                    } else if !entry.mode.is_tree() {
+                        return None;
+                    }
+                }
+                None => return None,
+            }
+        }
+        None
+    }
+
+    /// Like [`Self::lookup_entry()`], but takes a `Path` directly via `relative_path`, a path relative to this tree.
+    ///
+    /// # Note
+    ///
+    /// If any path component contains illformed UTF-8 and thus can't be converted to bytes on platforms which can't do so natively,
+    /// the returned component will be empty which makes the lookup fail.
+    pub fn lookup_entry_by_path(&self, relative_path: impl AsRef<std::path::Path>) -> Option<EntryRef<'a>> {
+        use crate::bstr::ByteSlice;
+        self.lookup_entry(relative_path.as_ref().components().map(|c: std::path::Component<'_>| {
+            gix_path::os_str_into_bstr(c.as_os_str())
+                .unwrap_or_else(|_| "".into())
+                .as_bytes()
+        }))
+    }
+
     /// Create an instance of the empty tree.
     ///
     /// It's particularly useful as static part of a program.

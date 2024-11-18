@@ -50,6 +50,7 @@ gix-hashtable = { version = "^0.6.0", path = "../gix-hashtable" }
 gix-validate = { version = "^0.9.2", path = "../gix-validate" }
 gix-actor = { version = "^0.33.1", path = "../gix-actor" }
 gix-date = { version = "^0.9.2", path = "../gix-date" }
+gix-path = { version = "^0.10.12", path = "../gix-path" }
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }
 
 itoa = "1.0.1"
