@@ -84,7 +84,7 @@ check:
     cargo check -p gix-pack --features object-cache-dynamic
     cargo check -p gix-packetline --features blocking-io
     cargo check -p gix-packetline --features async-io
-    cargo check -p gix-index --features serde
+    cd gix-index && cargo check --features serde
     cargo check -p gix-credentials --features serde
     cargo check -p gix-sec --features serde
     cargo check -p gix-revision --features serde

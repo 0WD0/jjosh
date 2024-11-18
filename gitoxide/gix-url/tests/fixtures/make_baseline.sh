@@ -55,14 +55,21 @@ tests_windows+=("c:repo")
 tests_unix+=("${tests[@]}")
 tests_windows+=("${tests[@]}")
 
+# We will run `git fetch-pack` in this repo instead of the outer gitoxide repo,
+# for full isolation. This avoids assuming there *is* a gitoxide repo, and also
+# avoids `safe.directory` errors if the gitoxide repo has unusual ownership.
+git init -q temp-repo
+
 for url in "${tests_unix[@]}"
 do
   echo ";" # there are no `;` in the tested urls
-  git fetch-pack --diag-url "$url"
+  git -C temp-repo fetch-pack --diag-url "$url"
 done >git-baseline.unix
 
 for url in "${tests_windows[@]}"
 do
   echo ";" # there are no `;` in the tested urls
-  git fetch-pack --diag-url "$url"
+  git -C temp-repo fetch-pack --diag-url "$url"
 done >git-baseline.windows
+
+rm -rf temp-repo

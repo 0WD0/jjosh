@@ -420,13 +420,15 @@ impl File {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gix_testtools::size_ok;
 
     #[test]
     fn size_of_decode_entry_outcome() {
-        assert_eq!(
-            std::mem::size_of::<Outcome>(),
-            32,
-            "this shouldn't change without use noticing as it's returned a lot"
+        let actual = std::mem::size_of::<Outcome>();
+        let expected = 32;
+        assert!(
+            size_ok(actual, expected),
+            "this shouldn't change without use noticing as it's returned a lot: {actual} <~ {expected}"
         );
     }
 }

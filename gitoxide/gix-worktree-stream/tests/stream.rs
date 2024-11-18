@@ -58,6 +58,11 @@ mod from_tree {
         Ok(())
     }
 
+    #[cfg(target_pointer_width = "64")]
+    const EXPECTED_BUFFER_LENGTH: usize = 320302;
+    #[cfg(target_pointer_width = "32")]
+    const EXPECTED_BUFFER_LENGTH: usize = 320198;
+
     #[test]
     fn will_provide_all_information_and_respect_export_ignore() -> gix_testtools::Result {
         let (dir, head_tree, odb, mut cache) = basic()?;
@@ -186,7 +191,7 @@ mod from_tree {
         );
         assert_eq!(
             copy.lock().len(),
-            320302,
+            EXPECTED_BUFFER_LENGTH,
             "keep track of file size changes of the streaming format"
         );
 

@@ -13,9 +13,15 @@ mod write;
 
 #[cfg(test)]
 mod tests {
+    use gix_testtools::size_ok;
 
     #[test]
     fn size_of_tree() {
-        assert_eq!(std::mem::size_of::<crate::extension::Tree>(), 88);
+        let actual = std::mem::size_of::<crate::extension::Tree>();
+        let expected = 88;
+        assert!(
+            size_ok(actual, expected),
+            "the size of this structure should not change unexpectedly: {actual} <~ {expected}"
+        );
     }
 }

@@ -226,25 +226,38 @@ mod tests {
         }
     }
 
-    #[test]
-    fn size_of_pack_tree_item() {
-        use super::Item;
-        assert_eq!(std::mem::size_of::<[Item<()>; 7_500_000]>(), 300_000_000);
-    }
+    mod size {
+        use super::super::Item;
+        use gix_testtools::size_ok;
 
-    #[test]
-    fn size_of_pack_verify_data_structure() {
-        use super::Item;
-        pub struct EntryWithDefault {
-            _index_entry: crate::index::Entry,
-            _kind: gix_object::Kind,
-            _object_size: u64,
-            _decompressed_size: u64,
-            _compressed_size: u64,
-            _header_size: u16,
-            _level: u16,
+        #[test]
+        fn size_of_pack_tree_item() {
+            let actual = std::mem::size_of::<[Item<()>; 7_500_000]>();
+            let expected = 300_000_000;
+            assert!(
+                size_ok(actual, expected),
+                "we don't want these to grow unnoticed: {actual} <~ {expected}"
+            );
         }
 
-        assert_eq!(std::mem::size_of::<[Item<EntryWithDefault>; 7_500_000]>(), 840_000_000);
+        #[test]
+        fn size_of_pack_verify_data_structure() {
+            pub struct EntryWithDefault {
+                _index_entry: crate::index::Entry,
+                _kind: gix_object::Kind,
+                _object_size: u64,
+                _decompressed_size: u64,
+                _compressed_size: u64,
+                _header_size: u16,
+                _level: u16,
+            }
+
+            let actual = std::mem::size_of::<[Item<EntryWithDefault>; 7_500_000]>();
+            let expected = 840_000_000;
+            assert!(
+                size_ok(actual, expected),
+                "we don't want these to grow unnoticed: {actual} <~ {expected}"
+            );
+        }
     }
 }
