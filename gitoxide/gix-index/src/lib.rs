@@ -237,36 +237,3 @@ pub(crate) mod util {
         data.split_at(pos).into()
     }
 }
-
-// FIXME: Probably remove these in favor of the equivalent tests in `gix-index/tests/index/mod.rs`.
-#[cfg(test)]
-mod tests {
-    use gix_testtools::size_ok;
-
-    #[test]
-    fn size_of_entry() {
-        let actual = std::mem::size_of::<crate::Entry>();
-        let expected = 80;
-        assert!(
-            size_ok(actual, expected),
-            "the size of this structure should not change unexpectedly: {actual} <~ {expected}"
-        );
-    }
-
-    #[test]
-    fn size_of_entry_time() {
-        // The reason we have our own time is that it is half the size.
-        let ent_actual = std::mem::size_of::<crate::entry::stat::Time>();
-        let ent_expected = 8;
-        assert!(
-            size_ok(ent_actual, ent_expected),
-            "the size of this structure should not change unexpectedly: {ent_actual} <~ {ent_expected}"
-        );
-        let ft_actual = std::mem::size_of::<filetime::FileTime>();
-        let ft_expected = 16;
-        assert!(
-            size_ok(ft_actual, ft_expected),
-            "we will want to know if the size of this structure changes: {ft_actual} <~ {ft_expected}"
-        );
-    }
-}

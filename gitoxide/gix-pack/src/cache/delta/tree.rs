@@ -226,7 +226,6 @@ mod tests {
         }
     }
 
-    // FIXME: Probably remove this pair of tests or the equivalent pair in `gix-pack/src/cache/delta/mod.rs`.
     mod size {
         use super::super::Item;
         use gix_testtools::size_ok;
