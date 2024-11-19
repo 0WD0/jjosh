@@ -1,2 +1,2 @@
 # assure newlines aren't butchered as they matter for testing
-**/*.txt text crlf=input   eol=lf
+*.txt text eol=lf
