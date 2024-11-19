@@ -81,6 +81,17 @@ impl Outcome<'_> {
     pub fn has_unresolved_conflicts(&self, how: TreatAsUnresolved) -> bool {
         self.conflicts.iter().any(|c| c.is_unresolved(how))
     }
+
+    /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
+    /// conflict should be considered unresolved.
+    /// It's important that `index` is at the state of [`Self::tree`].
+    ///
+    /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
+    /// Also, the unconflicted stage of such entries will be removed merely by setting a flag, so the
+    /// in-memory entry is still present.
+    pub fn index_changed_after_applying_conflicts(&self, index: &mut gix_index::State, how: TreatAsUnresolved) -> bool {
+        apply_index_entries(&self.conflicts, how, index)
+    }
 }
 
 /// A description of a conflict (i.e. merge issue without an auto-resolution) as seen during a [tree-merge](crate::tree()).
@@ -99,9 +110,43 @@ pub struct Conflict {
     pub ours: Change,
     /// The change representing *their* side.
     pub theirs: Change,
+    /// An array to store an entry for each stage of the conflict.
+    ///
+    /// * `entries[0]`  => Base
+    /// * `entries[1]`  => Ours
+    /// * `entries[2]`  => Theirs
+    ///
+    /// Note that ours and theirs might be swapped, so one should access it through [`Self::entries()`] to compensate for that.
+    pub entries: [Option<ConflictIndexEntry>; 3],
     /// Determine how to interpret the `ours` and `theirs` fields. This is used to implement [`Self::changes_in_resolution()`]
     /// and [`Self::into_parts_by_resolution()`].
     map: ConflictMapping,
+}
+
+/// A conflicting entry for insertion into the index.
+/// It will always be either on stage 1 (ancestor/base), 2 (ours) or 3 (theirs)
+#[derive(Debug, Clone, Copy)]
+pub struct ConflictIndexEntry {
+    /// The kind of object at this stage.
+    /// Note that it's possible that this is a directory, for instance if a directory was replaced with a file.
+    pub mode: gix_object::tree::EntryMode,
+    /// The id defining the state of the object.
+    pub id: gix_hash::ObjectId,
+    /// Hidden, maybe one day we can do without?
+    path_hint: Option<ConflictIndexEntryPathHint>,
+}
+
+/// A hint for [`apply_index_entries()`] to know which paths to use for an entry.
+/// This is only used when necessary.
+#[derive(Debug, Clone, Copy)]
+enum ConflictIndexEntryPathHint {
+    /// Use the previous path, i.e. rename source.
+    Source,
+    /// Use the current path as it is in the tree.
+    Current,
+    /// Use the path of the final destination, or *their* name.
+    /// It's definitely finicky, as we don't store the actual path and instead refer to it.
+    RenamedOrTheirs,
 }
 
 /// A utility to help define which side is what in the [`Conflict`] type.
@@ -147,7 +192,11 @@ impl Conflict {
             TreatAsUnresolved::Renames | TreatAsUnresolved::RenamesAndAutoResolvedContent => match &self.resolution {
                 Ok(success) => match success {
                     Resolution::SourceLocationAffectedByRename { .. } => false,
-                    Resolution::OursModifiedTheirsRenamedAndChangedThenRename { .. } => true,
+                    Resolution::OursModifiedTheirsRenamedAndChangedThenRename {
+                        merged_blob,
+                        final_location,
+                        ..
+                    } => final_location.is_some() || merged_blob.as_ref().map_or(false, content_merge_matches),
                     Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
                         content_merge_matches(merged_blob)
                     }
@@ -175,6 +224,14 @@ impl Conflict {
         match self.map {
             ConflictMapping::Original => (self.resolution, self.ours, self.theirs),
             ConflictMapping::Swapped => (self.resolution, self.theirs, self.ours),
+        }
+    }
+
+    /// Return the index entries for insertion into the index, to match with what's returned by [`Self::changes_in_resolution()`].
+    pub fn entries(&self) -> [Option<ConflictIndexEntry>; 3] {
+        match self.map {
+            ConflictMapping::Original => self.entries,
+            ConflictMapping::Swapped => [self.entries[0], self.entries[2], self.entries[1]],
         }
     }
 
@@ -308,3 +365,136 @@ pub struct Options {
 
 pub(super) mod function;
 mod utils;
+pub mod apply_index_entries {
+
+    pub(super) mod function {
+        use crate::tree::{Conflict, ConflictIndexEntryPathHint, Resolution, ResolutionFailure, TreatAsUnresolved};
+        use bstr::{BStr, ByteSlice};
+        use std::collections::{hash_map, HashMap};
+
+        /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
+        /// conflict should be considered unresolved.
+        /// Once a stage of a path conflicts, the unconflicting stage is removed even though it might be the one
+        /// that is currently checked out.
+        /// This removal, however, is only done by flagging it with [gix_index::entry::Flags::REMOVE], which means
+        /// these entries won't be written back to disk but will still be present in the index.
+        /// It's important that `index` matches the tree that was produced as part of the merge that also
+        /// brought about `conflicts`, or else this function will fail if it cannot find the path matching
+        /// the conflicting entries.
+        ///
+        /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
+        /// Errors can only occour if `index` isn't the one created from the merged tree that produced the `conflicts`.
+        pub fn apply_index_entries(
+            conflicts: &[Conflict],
+            how: TreatAsUnresolved,
+            index: &mut gix_index::State,
+        ) -> bool {
+            if index.is_sparse() {
+                gix_trace::error!("Refusing to apply index entries to sparse index - it's not tested yet");
+                return false;
+            }
+            let len = index.entries().len();
+            let mut idx_by_path_stage = HashMap::<(gix_index::entry::Stage, &BStr), usize>::default();
+            for conflict in conflicts.iter().filter(|c| c.is_unresolved(how)) {
+                let (renamed_path, current_path): (Option<&BStr>, &BStr) = match &conflict.resolution {
+                    Ok(success) => match success {
+                        Resolution::SourceLocationAffectedByRename { final_location } => {
+                            (Some(final_location.as_bstr()), final_location.as_bstr())
+                        }
+                        Resolution::OursModifiedTheirsRenamedAndChangedThenRename { final_location, .. } => (
+                            final_location.as_ref().map(|p| p.as_bstr()),
+                            conflict.changes_in_resolution().1.location(),
+                        ),
+                        Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { .. } => {
+                            (None, conflict.ours.location())
+                        }
+                    },
+                    Err(failure) => match failure {
+                        ResolutionFailure::OursRenamedTheirsRenamedDifferently { .. } => {
+                            (Some(conflict.theirs.location()), conflict.ours.location())
+                        }
+                        ResolutionFailure::OursModifiedTheirsRenamedTypeMismatch
+                        | ResolutionFailure::OursDeletedTheirsRenamed
+                        | ResolutionFailure::OursModifiedTheirsDeleted
+                        | ResolutionFailure::Unknown => (None, conflict.ours.location()),
+                        ResolutionFailure::OursModifiedTheirsDirectoryThenOursRenamed {
+                            renamed_unique_path_to_modified_blob,
+                        } => (
+                            Some(renamed_unique_path_to_modified_blob.as_bstr()),
+                            conflict.ours.location(),
+                        ),
+                        ResolutionFailure::OursAddedTheirsAddedTypeMismatch { their_unique_location } => {
+                            (Some(their_unique_location.as_bstr()), conflict.ours.location())
+                        }
+                    },
+                };
+                let source_path = conflict.ours.source_location();
+
+                let entries_with_stage = conflict.entries().into_iter().enumerate().filter_map(|(idx, entry)| {
+                    entry.filter(|e| e.mode.is_no_tree()).map(|e| {
+                        (
+                            match idx {
+                                0 => gix_index::entry::Stage::Base,
+                                1 => gix_index::entry::Stage::Ours,
+                                2 => gix_index::entry::Stage::Theirs,
+                                _ => unreachable!("fixed size array with three items"),
+                            },
+                            match e.path_hint {
+                                None => renamed_path.unwrap_or(current_path),
+                                Some(ConflictIndexEntryPathHint::Source) => source_path,
+                                Some(ConflictIndexEntryPathHint::Current) => current_path,
+                                Some(ConflictIndexEntryPathHint::RenamedOrTheirs) => {
+                                    renamed_path.unwrap_or_else(|| conflict.changes_in_resolution().1.location())
+                                }
+                            },
+                            e,
+                        )
+                    })
+                });
+
+                if !entries_with_stage.clone().any(|(_, path, _)| {
+                    index
+                        .entry_index_by_path_and_stage_bounded(path, gix_index::entry::Stage::Unconflicted, len)
+                        .is_some()
+                }) {
+                    continue;
+                }
+
+                for (stage, path, entry) in entries_with_stage {
+                    if let Some(pos) =
+                        index.entry_index_by_path_and_stage_bounded(path, gix_index::entry::Stage::Unconflicted, len)
+                    {
+                        index.entries_mut()[pos].flags.insert(gix_index::entry::Flags::REMOVE);
+                    };
+                    match idx_by_path_stage.entry((stage, path)) {
+                        hash_map::Entry::Occupied(map_entry) => {
+                            // This can happen due to the way the algorithm works.
+                            // The same happens in Git, but it stores the index-related data as part of its deduplicating tree.
+                            // We store each conflict we encounter, which also may duplicate their index entries, sometimes, but
+                            // with different values. The most recent value wins.
+                            // Instead of trying to deduplicate the index entries when the merge runs, we put the cost
+                            // to the tree-assembly - there is no way around it.
+                            let index_entry = &mut index.entries_mut()[*map_entry.get()];
+                            index_entry.mode = entry.mode.into();
+                            index_entry.id = entry.id;
+                        }
+                        hash_map::Entry::Vacant(map_entry) => {
+                            map_entry.insert(index.entries().len());
+                            index.dangerously_push_entry(
+                                Default::default(),
+                                entry.id,
+                                stage.into(),
+                                entry.mode.into(),
+                                path,
+                            );
+                        }
+                    };
+                }
+            }
+
+            index.sort_entries();
+            index.entries().len() != len
+        }
+    }
+}
+pub use apply_index_entries::function::apply_index_entries;

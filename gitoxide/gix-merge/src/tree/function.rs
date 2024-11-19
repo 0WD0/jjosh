@@ -3,7 +3,10 @@ use crate::tree::utils::{
     to_components, track, unique_path_in_tree, ChangeList, ChangeListRef, PossibleConflict, TrackedChange, TreeNodes,
 };
 use crate::tree::ConflictMapping::{Original, Swapped};
-use crate::tree::{Conflict, ConflictMapping, ContentMerge, Error, Options, Outcome, Resolution, ResolutionFailure};
+use crate::tree::{
+    Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, ContentMerge, Error, Options, Outcome,
+    Resolution, ResolutionFailure,
+};
 use bstr::{BString, ByteSlice};
 use gix_diff::tree::recorder::Location;
 use gix_diff::tree_with_rewrites::Change;
@@ -190,11 +193,14 @@ where
                     }) {
                     None => {
                         if let Some((rewritten_location, ours_idx)) = rewritten_location {
+                            // `no_entry` to the index because that's not a conflict at all,
+                            // but somewhat advanced rename tracking.
                             if should_fail_on_conflict(Conflict::with_resolution(
                                 Resolution::SourceLocationAffectedByRename {
                                     final_location: rewritten_location.to_owned(),
                                 },
                                 (&our_changes[*ours_idx].inner, theirs, Original, outer_side),
+                                [None, None, None],
                             )) {
                                 break 'outer;
                             };
@@ -254,10 +260,12 @@ where
                             if let Some(ours) = ours {
                                 gix_trace::debug!("Turning a case we could probably handle into a conflict for now. theirs: {theirs:#?} ours: {ours:#?} kind: {match_kind:?}");
                                 if allow_resolution_failure
-                                    && should_fail_on_conflict(Conflict::without_resolution(
-                                        ResolutionFailure::Unknown,
-                                        (&ours.inner, theirs, Original, outer_side),
-                                    ))
+                                    && should_fail_on_conflict(Conflict::unknown((
+                                        &ours.inner,
+                                        theirs,
+                                        Original,
+                                        outer_side,
+                                    )))
                                 {
                                     break 'outer;
                                 };
@@ -328,7 +336,7 @@ where
                                         pick_our_changes(side, our_changes, their_changes),
                                     );
                                     let renamed_without_change = their_source_id == their_id;
-                                    let (our_id, resolution) = if renamed_without_change {
+                                    let (merged_blob_id, resolution) = if renamed_without_change {
                                         (*our_id, None)
                                     } else {
                                         let (our_location, our_id, our_mode, their_location, their_id, their_mode) =
@@ -373,18 +381,23 @@ where
                                         location: their_rewritten_location.unwrap_or_else(|| their_location.to_owned()),
                                         relation: None,
                                         entry_mode: merged_mode,
-                                        id: our_id,
+                                        id: merged_blob_id,
                                     };
                                     if should_fail_on_conflict(Conflict::with_resolution(
                                         Resolution::OursModifiedTheirsRenamedAndChangedThenRename {
                                             merged_mode: (merged_mode != *their_mode).then_some(merged_mode),
                                             merged_blob: resolution.map(|resolution| ContentMerge {
                                                 resolution,
-                                                merged_blob_id: our_id,
+                                                merged_blob_id,
                                             }),
                                             final_location,
                                         },
                                         (ours, theirs, side, outer_side),
+                                        [
+                                            index_entry(previous_entry_mode, previous_id),
+                                            index_entry(our_mode, our_id),
+                                            index_entry(their_mode, their_id),
+                                        ],
                                     )) {
                                         break 'outer;
                                     }
@@ -401,6 +414,19 @@ where
                                     if should_fail_on_conflict(Conflict::without_resolution(
                                         ResolutionFailure::OursModifiedTheirsRenamedTypeMismatch,
                                         (ours, theirs, side, outer_side),
+                                        [
+                                            index_entry_at_path(
+                                                previous_entry_mode,
+                                                previous_id,
+                                                ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                            ),
+                                            None,
+                                            index_entry_at_path(
+                                                their_mode,
+                                                their_id,
+                                                ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                            ),
+                                        ],
                                     )) {
                                         break 'outer;
                                     }
@@ -421,7 +447,7 @@ where
                                     ..
                                 },
                             ) if !involves_submodule(our_mode, their_mode)
-                                && our_mode.kind() == their_mode.kind()
+                                && merge_modes(*our_mode, *their_mode).is_some()
                                 && our_id != their_id =>
                             {
                                 let (merged_blob_id, resolution) = perform_blob_merge(
@@ -436,7 +462,11 @@ where
                                     (0, outer_side),
                                     &options,
                                 )?;
-                                editor.upsert(toc(location), our_mode.kind(), merged_blob_id)?;
+
+                                let merged_mode = merge_modes_prev(*our_mode, *their_mode, *previous_entry_mode)
+                                    .expect("BUG: merge_modes() reports a valid mode, this one should do too");
+
+                                editor.upsert(toc(location), merged_mode.kind(), merged_blob_id)?;
                                 if should_fail_on_conflict(Conflict::with_resolution(
                                     Resolution::OursModifiedTheirsModifiedThenBlobContentMerge {
                                         merged_blob: ContentMerge {
@@ -445,6 +475,11 @@ where
                                         },
                                     },
                                     (ours, theirs, Original, outer_side),
+                                    [
+                                        index_entry(previous_entry_mode, previous_id),
+                                        index_entry(our_mode, our_id),
+                                        index_entry(their_mode, their_id),
+                                    ],
                                 )) {
                                     break 'outer;
                                 };
@@ -489,27 +524,28 @@ where
                                             },
                                         },
                                         (ours, theirs, Original, outer_side),
+                                        [None, index_entry(our_mode, our_id), index_entry(their_mode, their_id)],
                                     ))
                                 } else if allow_resolution_failure {
                                     // Actually this has a preference, as symlinks are always left in place with the other side renamed.
                                     let (
                                         logical_side,
                                         label_of_side_to_be_moved,
-                                        (our_mode, our_id),
-                                        (their_mode, their_id),
+                                        (our_mode, our_id, our_path_hint),
+                                        (their_mode, their_id, their_path_hint),
                                     ) = if matches!(our_mode.kind(), EntryKind::Link | EntryKind::Tree) {
                                         (
                                             Original,
                                             labels.other.unwrap_or_default(),
-                                            (*our_mode, *our_id),
-                                            (*their_mode, *their_id),
+                                            (*our_mode, *our_id, ConflictIndexEntryPathHint::Current),
+                                            (*their_mode, *their_id, ConflictIndexEntryPathHint::RenamedOrTheirs),
                                         )
                                     } else {
                                         (
                                             Swapped,
                                             labels.current.unwrap_or_default(),
-                                            (*their_mode, *their_id),
-                                            (*our_mode, *our_id),
+                                            (*their_mode, *their_id, ConflictIndexEntryPathHint::RenamedOrTheirs),
+                                            (*our_mode, *our_id, ConflictIndexEntryPathHint::Current),
                                         )
                                     };
                                     let tree_with_rename = pick_our_tree(logical_side, their_tree, our_tree);
@@ -525,6 +561,11 @@ where
                                             their_unique_location: renamed_location.clone(),
                                         },
                                         (ours, theirs, logical_side, outer_side),
+                                        [
+                                            None,
+                                            index_entry_at_path(&our_mode, &our_id, our_path_hint),
+                                            index_entry_at_path(&their_mode, &their_id, their_path_hint),
+                                        ],
                                     );
 
                                     let new_change = Change::Addition {
@@ -554,7 +595,8 @@ where
                                     location,
                                     entry_mode,
                                     id,
-                                    ..
+                                    previous_entry_mode,
+                                    previous_id,
                                 },
                                 Change::Deletion { .. },
                             )
@@ -564,7 +606,8 @@ where
                                     location,
                                     entry_mode,
                                     id,
-                                    ..
+                                    previous_entry_mode,
+                                    previous_id,
                                 },
                             ) if allow_resolution_failure => {
                                 let (label_of_side_to_be_moved, side) = if matches!(ours, Change::Modification { .. }) {
@@ -606,6 +649,11 @@ where
                                             renamed_unique_path_to_modified_blob: renamed_path,
                                         },
                                         (ours, theirs, side, outer_side),
+                                        [
+                                            index_entry(previous_entry_mode, previous_id),
+                                            index_entry(entry_mode, id),
+                                            None,
+                                        ],
                                     ));
 
                                     // Since we move *our* side, our tree needs to be modified.
@@ -621,6 +669,11 @@ where
                                     let should_break = should_fail_on_conflict(Conflict::without_resolution(
                                         ResolutionFailure::OursModifiedTheirsDeleted,
                                         (ours, theirs, side, outer_side),
+                                        [
+                                            index_entry(previous_entry_mode, previous_id),
+                                            index_entry(entry_mode, id),
+                                            None,
+                                        ],
                                     ));
                                     editor.upsert(toc(location), entry_mode.kind(), *id)?;
                                     if should_break {
@@ -702,10 +755,9 @@ where
                                             // Pretend this is the end of the loop and keep this as conflict.
                                             // If this happens in the wild, we'd want to reproduce it.
                                             if allow_resolution_failure
-                                                && should_fail_on_conflict(Conflict::without_resolution(
-                                                    ResolutionFailure::Unknown,
-                                                    (ours, theirs, Original, outer_side),
-                                                ))
+                                                && should_fail_on_conflict(Conflict::unknown((
+                                                    ours, theirs, Original, outer_side,
+                                                )))
                                             {
                                                 break 'outer;
                                             };
@@ -738,6 +790,23 @@ where
                                                         }),
                                                     },
                                                     (ours, theirs, Original, outer_side),
+                                                    [
+                                                        index_entry_at_path(
+                                                            source_entry_mode,
+                                                            source_id,
+                                                            ConflictIndexEntryPathHint::Source,
+                                                        ),
+                                                        index_entry_at_path(
+                                                            our_mode,
+                                                            &merged_blob_id,
+                                                            ConflictIndexEntryPathHint::Current,
+                                                        ),
+                                                        index_entry_at_path(
+                                                            their_mode,
+                                                            &merged_blob_id,
+                                                            ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                                        ),
+                                                    ],
                                                 )) {
                                                     break 'outer;
                                                 };
@@ -767,6 +836,23 @@ where
                                             },
                                         },
                                         (ours, theirs, Original, outer_side),
+                                        [
+                                            index_entry_at_path(
+                                                source_entry_mode,
+                                                source_id,
+                                                ConflictIndexEntryPathHint::Source,
+                                            ),
+                                            index_entry_at_path(
+                                                our_mode,
+                                                &merged_blob_id,
+                                                ConflictIndexEntryPathHint::Current,
+                                            ),
+                                            index_entry_at_path(
+                                                their_mode,
+                                                &merged_blob_id,
+                                                ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                            ),
+                                        ],
                                     )) {
                                         break 'outer;
                                     };
@@ -824,6 +910,15 @@ where
                                 if should_fail_on_conflict(Conflict::without_resolution(
                                     ResolutionFailure::OursDeletedTheirsRenamed,
                                     (ours, theirs, side, outer_side),
+                                    [
+                                        None,
+                                        None,
+                                        index_entry_at_path(
+                                            rewritten_mode,
+                                            rewritten_id,
+                                            ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                        ),
+                                    ],
                                 )) {
                                     break 'outer;
                                 };
@@ -901,6 +996,7 @@ where
                                                 },
                                             },
                                             (ours, theirs, Original, outer_side),
+                                            [None, index_entry(our_mode, our_id), index_entry(their_mode, their_id)],
                                         )) {
                                             break 'outer;
                                         };
@@ -916,21 +1012,21 @@ where
                                     let (
                                         logical_side,
                                         label_of_side_to_be_moved,
-                                        (our_mode, our_id),
-                                        (their_mode, their_id),
+                                        (our_mode, our_id, our_path_hint),
+                                        (their_mode, their_id, their_path_hint),
                                     ) = if matches!(our_mode.kind(), EntryKind::Link | EntryKind::Tree) {
                                         (
                                             Original,
                                             labels.other.unwrap_or_default(),
-                                            (*our_mode, *our_id),
-                                            (*their_mode, *their_id),
+                                            (*our_mode, *our_id, ConflictIndexEntryPathHint::Current),
+                                            (*their_mode, *their_id, ConflictIndexEntryPathHint::RenamedOrTheirs),
                                         )
                                     } else {
                                         (
                                             Swapped,
                                             labels.current.unwrap_or_default(),
-                                            (*their_mode, *their_id),
-                                            (*our_mode, *our_id),
+                                            (*their_mode, *their_id, ConflictIndexEntryPathHint::RenamedOrTheirs),
+                                            (*our_mode, *our_id, ConflictIndexEntryPathHint::Current),
                                         )
                                     };
                                     let tree_with_rename = pick_our_tree(logical_side, their_tree, our_tree);
@@ -946,6 +1042,11 @@ where
                                             their_unique_location: renamed_location.clone(),
                                         },
                                         (ours, theirs, side, outer_side),
+                                        [
+                                            None,
+                                            index_entry_at_path(&our_mode, &our_id, our_path_hint),
+                                            index_entry_at_path(&their_mode, &their_id, their_path_hint),
+                                        ],
                                     );
 
                                     let new_change_with_rename = Change::Addition {
@@ -970,10 +1071,7 @@ where
                             }
                             _unknown => {
                                 if allow_resolution_failure
-                                    && should_fail_on_conflict(Conflict::without_resolution(
-                                        ResolutionFailure::Unknown,
-                                        (ours, theirs, Original, outer_side),
-                                    ))
+                                    && should_fail_on_conflict(Conflict::unknown((ours, theirs, Original, outer_side)))
                                 {
                                     break 'outer;
                                 };
@@ -1004,12 +1102,40 @@ fn involves_submodule(a: &EntryMode, b: &EntryMode) -> bool {
     a.is_commit() || b.is_commit()
 }
 
-/// Allows equal modes or preferes executables bits in case of blobs
+/// Allows equal modes or prefers executables bits in case of blobs
+///
+/// Note that this is often not correct as the previous mode of each side should be taken into account so that:
+///
+/// on | on = on
+/// off | off = off
+/// on | off || off | on = conflict
 fn merge_modes(a: EntryMode, b: EntryMode) -> Option<EntryMode> {
     match (a.kind(), b.kind()) {
+        (_, _) if a == b => Some(a),
         (EntryKind::BlobExecutable, EntryKind::BlobExecutable | EntryKind::Blob)
         | (EntryKind::Blob, EntryKind::BlobExecutable) => Some(EntryKind::BlobExecutable.into()),
+        _ => None,
+    }
+}
+
+/// Use this version if there is a single common `prev` value for both `a` and `b` to detect
+/// if the mode was turned on or off.
+fn merge_modes_prev(a: EntryMode, b: EntryMode, prev: EntryMode) -> Option<EntryMode> {
+    match (a.kind(), b.kind()) {
         (_, _) if a == b => Some(a),
+        (a @ EntryKind::BlobExecutable, b @ (EntryKind::BlobExecutable | EntryKind::Blob))
+        | (a @ EntryKind::Blob, b @ EntryKind::BlobExecutable) => {
+            let prev = prev.kind();
+            let changed = if a == prev { b } else { a };
+            Some(
+                match (prev, changed) {
+                    (EntryKind::Blob, EntryKind::BlobExecutable) => EntryKind::BlobExecutable,
+                    (EntryKind::BlobExecutable, EntryKind::Blob) => EntryKind::Blob,
+                    _ => unreachable!("upper match already assured we only deal with blobs"),
+                }
+                .into(),
+            )
+        }
         _ => None,
     }
 }
@@ -1065,4 +1191,24 @@ fn pick_our_changes_mut<'a>(
         Original => ours,
         Swapped => theirs,
     }
+}
+
+fn index_entry(mode: &gix_object::tree::EntryMode, id: &gix_hash::ObjectId) -> Option<ConflictIndexEntry> {
+    Some(ConflictIndexEntry {
+        mode: *mode,
+        id: *id,
+        path_hint: None,
+    })
+}
+
+fn index_entry_at_path(
+    mode: &gix_object::tree::EntryMode,
+    id: &gix_hash::ObjectId,
+    hint: ConflictIndexEntryPathHint,
+) -> Option<ConflictIndexEntry> {
+    Some(ConflictIndexEntry {
+        mode: *mode,
+        id: *id,
+        path_hint: Some(hint),
+    })
 }

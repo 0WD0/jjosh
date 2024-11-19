@@ -318,6 +318,8 @@ Check out the [performance discussion][gix-diff-performance] as well.
     * [x] find blobs by similarity check
     * [ ] heuristics to find best candidate
     * [ ] find by basename to support similarity check
+        - Not having it can lead to issues when files with the same or similar content are part of a move
+          as files can be lost that way.
     * [x] directory tracking
         - [x] by identity
         - [ ] by similarity
@@ -349,8 +351,7 @@ Check out the [performance discussion][gix-diff-performance] as well.
     - [ ] various newlines-related options during the merge (see https://git-scm.com/docs/git-merge#Documentation/git-merge.txt-ignore-space-change).
     - [ ] a way to control inter-hunk merging based on proximity (maybe via `gix-diff` feature which could use the same)
 * [x] **tree**-diff-heuristics match Git for its test-cases
-    - [ ] a way to generate an index with stages 
-        - *currently the data it provides won't generate index entries, and possibly can't be used for it yet*
+    - [x] a way to generate an index with stages, mostly conforming with Git.
     - [ ] submodule merges (*right now they count as conflicts if they differ*)
 * [x] **commits** - with handling of multiple merge bases by recursive merge-base merge
 * [x] API documentation

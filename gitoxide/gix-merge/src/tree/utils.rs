@@ -7,7 +7,10 @@
 //! contribute to finding a fix faster.
 use crate::blob::builtin_driver::binary::Pick;
 use crate::blob::ResourceKind;
-use crate::tree::{Conflict, ConflictMapping, Error, Options, Resolution, ResolutionFailure};
+use crate::tree::{
+    Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, Error, Options, Resolution,
+    ResolutionFailure,
+};
 use bstr::ByteSlice;
 use bstr::{BStr, BString, ByteVec};
 use gix_diff::tree_with_rewrites::{Change, ChangeRef};
@@ -98,6 +101,14 @@ pub fn perform_blob_merge<E>(
 where
     E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
 {
+    if our_id == their_id {
+        // This can happen if the merge modes are different.
+        debug_assert_ne!(
+            our_mode, their_mode,
+            "BUG: we must think anything has to be merged if the modes and the ids are the same"
+        );
+        return Ok((their_id, crate::blob::Resolution::Complete));
+    }
     if matches!(our_mode.kind(), EntryKind::Link) && matches!(their_mode.kind(), EntryKind::Link) {
         let (pick, resolution) = crate::blob::builtin_driver::binary(options.symlink_conflicts);
         let (our_id, their_id) = match outer_side {
@@ -544,29 +555,57 @@ impl Conflict {
     pub(super) fn without_resolution(
         resolution: ResolutionFailure,
         changes: (&Change, &Change, ConflictMapping, ConflictMapping),
+        entries: [Option<ConflictIndexEntry>; 3],
     ) -> Self {
-        Conflict::maybe_resolved(Err(resolution), changes)
+        Conflict::maybe_resolved(Err(resolution), changes, entries)
     }
 
     pub(super) fn with_resolution(
         resolution: Resolution,
         changes: (&Change, &Change, ConflictMapping, ConflictMapping),
+        entries: [Option<ConflictIndexEntry>; 3],
     ) -> Self {
-        Conflict::maybe_resolved(Ok(resolution), changes)
+        Conflict::maybe_resolved(Ok(resolution), changes, entries)
     }
 
-    pub(super) fn maybe_resolved(
+    fn maybe_resolved(
         resolution: Result<Resolution, ResolutionFailure>,
         (ours, theirs, map, outer_map): (&Change, &Change, ConflictMapping, ConflictMapping),
+        entries: [Option<ConflictIndexEntry>; 3],
     ) -> Self {
         Conflict {
             resolution,
             ours: ours.clone(),
             theirs: theirs.clone(),
+            entries,
             map: match outer_map {
                 ConflictMapping::Original => map,
                 ConflictMapping::Swapped => map.swapped(),
             },
         }
+    }
+
+    pub(super) fn unknown(changes: (&Change, &Change, ConflictMapping, ConflictMapping)) -> Self {
+        let (source_mode, source_id) = changes.0.source_entry_mode_and_id();
+        let (our_mode, our_id) = changes.0.entry_mode_and_id();
+        let (their_mode, their_id) = changes.1.entry_mode_and_id();
+        let entries = [
+            Some(ConflictIndexEntry {
+                mode: source_mode,
+                id: source_id.into(),
+                path_hint: Some(ConflictIndexEntryPathHint::Source),
+            }),
+            Some(ConflictIndexEntry {
+                mode: our_mode,
+                id: our_id.into(),
+                path_hint: Some(ConflictIndexEntryPathHint::Current),
+            }),
+            Some(ConflictIndexEntry {
+                mode: their_mode,
+                id: their_id.into(),
+                path_hint: Some(ConflictIndexEntryPathHint::RenamedOrTheirs),
+            }),
+        ];
+        Conflict::maybe_resolved(Err(ResolutionFailure::Unknown), changes, entries)
     }
 }

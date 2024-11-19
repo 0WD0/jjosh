@@ -6,7 +6,7 @@ use gix_object::FindExt;
 use std::path::{Path, PathBuf};
 
 /// An entry in the conflict
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Entry {
     /// The relative path in the repository
     pub location: String,
@@ -17,7 +17,7 @@ pub struct Entry {
 }
 
 /// Keep track of all the sides of a conflict. Some might not be set to indicate removal, including the ancestor.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Eq, PartialEq)]
 pub struct Conflict {
     pub ancestor: Option<Entry>,
     pub ours: Option<Entry>,
@@ -129,7 +129,7 @@ impl Iterator for Expectations<'_> {
         let mut tokens = line.split(' ');
         let (
             Some(subdir),
-            Some(conflict_style),
+            Some(conflict_style_name),
             Some(our_commit_id),
             Some(our_side_name),
             Some(their_commit_id),
@@ -160,7 +160,7 @@ impl Iterator for Expectations<'_> {
         });
 
         let subdir_path = self.root.join(subdir);
-        let conflict_style = match conflict_style {
+        let conflict_style = match conflict_style_name {
             "merge" => ConflictStyle::Merge,
             "diff3" => ConflictStyle::Diff3,
             unknown => unreachable!("Unknown conflict style: '{unknown}'"),
@@ -219,6 +219,10 @@ fn parse_merge_info(content: String) -> MergeInfo {
             Some(field) => field,
         };
         *field = Some(entry);
+    }
+
+    if conflict.any_location().is_some() && conflicts.last() != Some(&conflict) {
+        conflicts.push(conflict);
     }
 
     while lines.peek().is_some() {
@@ -285,6 +289,30 @@ fn parse_info<'a>(mut lines: impl Iterator<Item = &'a str>) -> Option<ConflictIn
     Some(ConflictInfo { paths, kind, message })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct DebugIndexEntry<'a> {
+    path: &'a BStr,
+    id: gix_hash::ObjectId,
+    mode: gix_index::entry::Mode,
+    stage: gix_index::entry::Stage,
+}
+
+pub fn clear_entries(state: &gix_index::State) -> Vec<DebugIndexEntry<'_>> {
+    state
+        .entries()
+        .iter()
+        .map(|entry| {
+            let path = entry.path(state);
+            DebugIndexEntry {
+                path,
+                id: entry.id,
+                mode: entry.mode,
+                stage: entry.stage(),
+            }
+        })
+        .collect()
+}
+
 pub fn visualize_tree(
     id: &gix_hash::oid,
     odb: &impl gix_object::Find,
@@ -341,4 +369,36 @@ pub fn show_diff_and_fail(
         actual.conflicts,
         expected.information
     );
+}
+
+pub(crate) fn apply_git_index_entries(conflicts: &[Conflict], state: &mut gix_index::State) {
+    let len = state.entries().len();
+    for Conflict { ours, theirs, ancestor } in conflicts {
+        for (entry, stage) in [
+            ancestor.as_ref().map(|e| (e, gix_index::entry::Stage::Base)),
+            ours.as_ref().map(|e| (e, gix_index::entry::Stage::Ours)),
+            theirs.as_ref().map(|e| (e, gix_index::entry::Stage::Theirs)),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(pos) = state.entry_index_by_path_and_stage_bounded(
+                entry.location.as_str().into(),
+                gix_index::entry::Stage::Unconflicted,
+                len,
+            ) {
+                state.entries_mut()[pos].flags.insert(gix_index::entry::Flags::REMOVE);
+            }
+
+            state.dangerously_push_entry(
+                Default::default(),
+                entry.id,
+                stage.into(),
+                entry.mode.into(),
+                entry.location.as_str().into(),
+            );
+        }
+    }
+    state.sort_entries();
+    state.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
 }
