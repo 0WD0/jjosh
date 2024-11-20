@@ -429,6 +429,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Comment in a locked discussion that notifies about only `gitoxide` (e.g. not `gix-*`) releases.
   announce-release:
     runs-on: ubuntu-latest
 
@@ -463,13 +464,12 @@ jobs:
 
           echo "DISCUSSION_ID=$id" >> "$GITHUB_ENV"
 
-      # FIXME: Uncomment name-checking case, after testing the draft-checking case!
       - name: Avoid announcing a test in a non-test thread
         run: |
           case "$VERSION" in
-          # TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
-          #   echo "The release name indicates testing, so we'll only post if the thread is for that."
-          #   ;;
+          TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
+            echo "The release name indicates testing, so we'll only post if the thread is for that."
+            ;;
           * )
             is_draft="$(gh release --repo="$REPOSITORY" view "$VERSION" --json isDraft --jq .isDraft)"
             if [ "$is_draft" = false ]; then
