@@ -435,7 +435,7 @@ jobs:
     needs: [ create-release, publish-release ]
 
     permissions:
-      contents: read
+      contents: write  # Needed to distinguish unpublished (still draft) from missing releases.
       discussions: write
 
     env:
