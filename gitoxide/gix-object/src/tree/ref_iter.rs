@@ -3,6 +3,9 @@ use winnow::{error::ParserError, prelude::*};
 
 use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 
+/// The error type returned by the [`Tree`](crate::Tree) trait.
+pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 impl<'a> TreeRefIter<'a> {
     /// Instantiate an iterator from the given tree data.
     pub fn from_bytes(data: &'a [u8]) -> TreeRefIter<'a> {
@@ -47,11 +50,16 @@ impl<'a> TreeRef<'a> {
     ///
     /// # Performance Notes
     ///
-    /// Searching tree entries is currently done in sequence, which allows to the search to be allocation free. It would be possible
+    /// Searching tree entries is currently done in sequence, which allows the search to be allocation free. It would be possible
     /// to reuse a vector and use a binary search instead, which might be able to improve performance over all.
     /// However, a benchmark should be created first to have some data and see which trade-off to choose here.
     ///
-    pub fn lookup_entry<I, P>(&self, path: I) -> Option<EntryRef<'a>>
+    pub fn lookup_entry<I, P>(
+        &self,
+        odb: impl crate::Find + crate::FindExt,
+        buffer: &'a mut Vec<u8>,
+        path: I,
+    ) -> Result<Option<EntryRef<'a>>, Error>
     where
         I: IntoIterator<Item = P>,
         P: PartialEq<BStr>,
@@ -62,15 +70,18 @@ impl<'a> TreeRef<'a> {
             match self.entries.iter().find(|entry| component.eq(entry.filename)) {
                 Some(entry) => {
                     if path.peek().is_none() {
-                        return Some(*entry);
-                    } else if !entry.mode.is_tree() {
-                        return None;
+                        return Ok(Some(*entry));
+                    } else {
+                        let next_id = entry.oid.to_owned();
+                        let obj = odb.find_tree(&next_id, buffer)?;
+
+                        return obj.lookup_entry(odb, buffer, path);
                     }
                 }
-                None => return None,
+                None => return Ok(None),
             }
         }
-        None
+        Ok(None)
     }
 
     /// Like [`Self::lookup_entry()`], but takes a `Path` directly via `relative_path`, a path relative to this tree.
@@ -79,13 +90,22 @@ impl<'a> TreeRef<'a> {
     ///
     /// If any path component contains illformed UTF-8 and thus can't be converted to bytes on platforms which can't do so natively,
     /// the returned component will be empty which makes the lookup fail.
-    pub fn lookup_entry_by_path(&self, relative_path: impl AsRef<std::path::Path>) -> Option<EntryRef<'a>> {
+    pub fn lookup_entry_by_path(
+        &self,
+        odb: impl crate::Find,
+        buffer: &'a mut Vec<u8>,
+        relative_path: impl AsRef<std::path::Path>,
+    ) -> Result<Option<EntryRef<'a>>, Error> {
         use crate::bstr::ByteSlice;
-        self.lookup_entry(relative_path.as_ref().components().map(|c: std::path::Component<'_>| {
-            gix_path::os_str_into_bstr(c.as_os_str())
-                .unwrap_or_else(|_| "".into())
-                .as_bytes()
-        }))
+        self.lookup_entry(
+            odb,
+            buffer,
+            relative_path.as_ref().components().map(|c: std::path::Component<'_>| {
+                gix_path::os_str_into_bstr(c.as_os_str())
+                    .unwrap_or_else(|_| "".into())
+                    .as_bytes()
+            }),
+        )
     }
 
     /// Create an instance of the empty tree.

@@ -1,4 +1,9 @@
-use gix_object::{bstr::ByteSlice, tree, tree::EntryRef, TreeRefIter};
+use gix_object::{
+    bstr::ByteSlice,
+    tree::{self, EntryRef},
+    FindExt, TreeRefIter,
+};
+use pretty_assertions::assert_eq;
 
 use crate::{fixture_name, hex_to_id};
 
@@ -51,4 +56,48 @@ fn everything() -> crate::Result {
         ]
     );
     Ok(())
+}
+
+#[test]
+fn lookup_entry_toplevel() -> crate::Result {
+    let odb = utils::tree_odb()?;
+    let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
+
+    let mut buf = Vec::new();
+    let root_tree = odb.find_tree(&root_tree_id, &mut buf)?;
+
+    let mut buf = Vec::new();
+    let entry = root_tree.lookup_entry_by_path(&odb, &mut buf, "bin").unwrap().unwrap();
+
+    assert!(matches!(entry, EntryRef { .. }));
+    assert_eq!(entry.filename, "bin");
+
+    Ok(())
+}
+
+#[test]
+fn lookup_entry_nested_path() -> crate::Result {
+    let odb = utils::tree_odb()?;
+    let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
+
+    let mut buf = Vec::new();
+    let root_tree = odb.find_tree(&root_tree_id, &mut buf)?;
+
+    let mut buf = Vec::new();
+    let entry = root_tree
+        .lookup_entry_by_path(&odb, &mut buf, "file/a")
+        .unwrap()
+        .unwrap();
+
+    assert!(matches!(entry, EntryRef { .. }));
+    assert_eq!(entry.filename, "a");
+
+    Ok(())
+}
+
+mod utils {
+    pub(super) fn tree_odb() -> gix_testtools::Result<gix_odb::Handle> {
+        let root = gix_testtools::scripted_fixture_read_only("make_trees.sh")?;
+        Ok(gix_odb::at(root.join(".git/objects"))?)
+    }
 }
