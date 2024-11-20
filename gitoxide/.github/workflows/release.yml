@@ -439,7 +439,10 @@ jobs:
       discussions: write
 
     env:
+      REPOSITORY: ${{ github.repository }}
       VERSION: ${{ needs.create-release.outputs.version }}
+      DISCUSSION_URL: ${{ vars.RELEASE_ANNOUNCEMENTS_URL }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Find the discussion ID
@@ -459,43 +462,40 @@ jobs:
           }' -F owner="$owner" -F name="$name" -F number="$number" --jq .data.repository.discussion.id)"
 
           echo "DISCUSSION_ID=$id" >> "$GITHUB_ENV"
-        env:
-          DISCUSSION_URL: ${{ vars.RELEASE_ANNOUNCEMENTS_URL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # FIXME: Also consider a release of any name as a test, if it has not been published!
+      # FIXME: Uncomment name-checking case, after testing the draft-checking case!
       - name: Avoid announcing a test in a non-test thread
         run: |
           case "$VERSION" in
-          TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
-            echo "Looks like we're testing releasing. Checking discussion title."
-
-            title="$(gh api graphql -f query='
-            query($id: ID!) {
-              node(id: $id) {
-                ... on Discussion {
-                  title
-                }
-              }
-            }' -F id="$DISCUSSION_ID" --jq .data.node.title)"
-
-            grep -Eiqz '^[[(]?test\b' <<<"$title"
+          # TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
+          #   echo "The release name indicates testing, so we'll only post if the thread is for that."
+          #   ;;
+          * )
+            is_draft="$(gh release --repo="$REPOSITORY" view "$VERSION" --json isDraft --jq .isDraft)"
+            if [ "$is_draft" = false ]; then
+              exit 0  # OK to post in a non-test announcement thread.
+            fi
+            echo "The release is not published, so we'll only post if the thread is for testing."
             ;;
           esac
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compose the comment
+          title="$(gh api graphql -f query='
+          query($id: ID!) {
+            node(id: $id) {
+              ... on Discussion {
+                title
+              }
+            }
+          }' -F id="$DISCUSSION_ID" --jq .data.node.title)"
+
+          grep -Eiqz '^[[(]?test\b' <<<"$title"
+
+      - name: Post the comment
         run: |
           grep -Eqx '[[:alnum:]._+-]+' <<<"$VERSION"  # Ensure the version needs no sanitization.
           release_url="https://github.com/$REPOSITORY/releases/tag/$VERSION"
           comment_body="\`gitoxide\` [$VERSION]($release_url) has been released."
-          echo "COMMENT_BODY=$comment_body" >> "$GITHUB_ENV"
-        env:
-          REPOSITORY: ${{ github.repository }}
 
-      - name: Post the comment
-        run: |
           gh api graphql -f query='
           mutation PostComment($discussionId: ID!, $body: String!) {
             addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
@@ -504,9 +504,7 @@ jobs:
                 body
               }
             }
-          }' -F discussionId="$DISCUSSION_ID" -F body="$COMMENT_BODY"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          }' -F discussionId="$DISCUSSION_ID" -F body="$comment_body"
 
   installation:
     strategy:
