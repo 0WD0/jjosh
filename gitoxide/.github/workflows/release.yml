@@ -51,7 +51,7 @@ jobs:
           "v$manifest_version" )
             echo 'OK: Release name/version agrees with Cargo.toml version.'
             ;;
-          TEST-* | *-DO-NOT-USE )
+          TEST-* | *-DO-NOT-USE )  # NOTE: If changed, change it in `announce-release` below, too.
             echo 'OK: Release name/version is strange but marked as such.'
             ;;
           "$manifest_version" )
@@ -426,6 +426,85 @@ jobs:
       - name: Publish the release
         if: vars.DRY_RUN_RELEASE != 'true' && vars.DRY_RUN_RELEASE != 'yes' && vars.DRY_RUN_RELEASE != '1'
         run: gh release --repo="$REPOSITORY" edit "$VERSION" --draft=false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  announce-release:
+    runs-on: ubuntu-latest
+
+    needs: [ create-release, publish-release ]
+
+    permissions:
+      contents: read
+      discussions: write
+
+    env:
+      VERSION: ${{ needs.create-release.outputs.version }}
+
+    steps:
+      - name: Find the discussion ID
+        run: |
+          [[ "$DISCUSSION_URL" =~ ^https://github\.com/([^/:@]+)/([^/:@]+)/discussions/([0-9]+)$ ]]
+          owner="${BASH_REMATCH[1]}"
+          name="${BASH_REMATCH[2]}"
+          number="${BASH_REMATCH[3]}"
+
+          id="$(gh api graphql -f query='
+          query GetDiscussionId($owner: String!, $name: String!, $number: Int!) {
+            repository(owner: $owner, name: $name) {
+              discussion(number: $number) {
+                id
+              }
+            }
+          }' -F owner="$owner" -F name="$name" -F number="$number" --jq .data.repository.discussion.id)"
+
+          echo "DISCUSSION_ID=$id" >> "$GITHUB_ENV"
+        env:
+          DISCUSSION_URL: ${{ vars.RELEASE_ANNOUNCEMENTS_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # FIXME: Also consider a release of any name as a test, if it has not been published!
+      - name: Avoid announcing a test in a non-test thread
+        run: |
+          case "$VERSION" in
+          TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
+            echo "Looks like we're testing releasing. Checking discussion title."
+
+            title="$(gh api graphql -f query='
+            query($id: ID!) {
+              node(id: $id) {
+                ... on Discussion {
+                  title
+                }
+              }
+            }' -F id="$DISCUSSION_ID" --jq .data.node.title)"
+
+            grep -Eiqz '^[[(]?test\b' <<<"$title"
+            ;;
+          esac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compose the comment
+        run: |
+          grep -Eqx '[[:alnum:]._+-]+' <<<"$VERSION"  # Ensure the version needs no sanitization.
+          release_url="https://github.com/$REPOSITORY/releases/tag/$VERSION"
+          comment_body="\`gitoxide\` [$VERSION]($release_url) has been released."
+          echo "COMMENT_BODY=$comment_body" >> "$GITHUB_ENV"
+        env:
+          REPOSITORY: ${{ github.repository }}
+
+      - name: Post the comment
+        run: |
+          gh api graphql -f query='
+          mutation PostComment($discussionId: ID!, $body: String!) {
+            addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
+              comment {
+                id
+                body
+              }
+            }
+          }' -F discussionId="$DISCUSSION_ID" -F body="$COMMENT_BODY"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
