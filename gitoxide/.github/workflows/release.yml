@@ -51,7 +51,7 @@ jobs:
           "v$manifest_version" )
             echo 'OK: Release name/version agrees with Cargo.toml version.'
             ;;
-          TEST-* | *-DO-NOT-USE )
+          TEST-* | *-DO-NOT-USE )  # NOTE: If changed, change it in `announce-release` below, too.
             echo 'OK: Release name/version is strange but marked as such.'
             ;;
           "$manifest_version" )
@@ -428,6 +428,83 @@ jobs:
         run: gh release --repo="$REPOSITORY" edit "$VERSION" --draft=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Comment in a locked discussion that notifies about only `gitoxide` (e.g. not `gix-*`) releases.
+  announce-release:
+    runs-on: ubuntu-latest
+
+    needs: [ create-release, publish-release ]
+
+    permissions:
+      contents: write  # Needed to distinguish unpublished (still draft) from missing releases.
+      discussions: write
+
+    env:
+      REPOSITORY: ${{ github.repository }}
+      VERSION: ${{ needs.create-release.outputs.version }}
+      DISCUSSION_URL: ${{ vars.RELEASE_ANNOUNCEMENTS_URL }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Find the discussion ID
+        run: |
+          [[ "$DISCUSSION_URL" =~ ^https://github\.com/([^/:@]+)/([^/:@]+)/discussions/([0-9]+)$ ]]
+          owner="${BASH_REMATCH[1]}"
+          name="${BASH_REMATCH[2]}"
+          number="${BASH_REMATCH[3]}"
+
+          id="$(gh api graphql -f query='
+          query GetDiscussionId($owner: String!, $name: String!, $number: Int!) {
+            repository(owner: $owner, name: $name) {
+              discussion(number: $number) {
+                id
+              }
+            }
+          }' -F owner="$owner" -F name="$name" -F number="$number" --jq .data.repository.discussion.id)"
+
+          echo "DISCUSSION_ID=$id" >> "$GITHUB_ENV"
+
+      - name: Avoid announcing a test in a non-test thread
+        run: |
+          case "$VERSION" in
+          TEST-* | *-DO-NOT-USE )  # NOTE: Should be the same pattern as in `create-release` above.
+            echo "The release name indicates testing, so we'll only post if the thread is for that."
+            ;;
+          * )
+            is_draft="$(gh release --repo="$REPOSITORY" view "$VERSION" --json isDraft --jq .isDraft)"
+            if [ "$is_draft" = false ]; then
+              exit 0  # OK to post in a non-test announcement thread.
+            fi
+            echo "The release is not published, so we'll only post if the thread is for testing."
+            ;;
+          esac
+
+          title="$(gh api graphql -f query='
+          query($id: ID!) {
+            node(id: $id) {
+              ... on Discussion {
+                title
+              }
+            }
+          }' -F id="$DISCUSSION_ID" --jq .data.node.title)"
+
+          grep -Eiqz '^[[(]?test\b' <<<"$title"
+
+      - name: Post the comment
+        run: |
+          grep -Eqx '[[:alnum:]._+-]+' <<<"$VERSION"  # Ensure the version needs no sanitization.
+          release_url="https://github.com/$REPOSITORY/releases/tag/$VERSION"
+          comment_body="\`gitoxide\` [$VERSION]($release_url) has been released."
+
+          gh api graphql -f query='
+          mutation PostComment($discussionId: ID!, $body: String!) {
+            addDiscussionComment(input: {discussionId: $discussionId, body: $body}) {
+              comment {
+                id
+                body
+              }
+            }
+          }' -F discussionId="$DISCUSSION_ID" -F body="$comment_body"
 
   installation:
     strategy:
