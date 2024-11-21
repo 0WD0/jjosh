@@ -1,6 +1,6 @@
 use gix_object::{
     bstr::ByteSlice,
-    tree::{self, EntryRef},
+    tree::{self, Entry, EntryRef},
     FindExt, TreeRefIter,
 };
 use pretty_assertions::assert_eq;
@@ -69,7 +69,7 @@ fn lookup_entry_toplevel() -> crate::Result {
     let mut buf = Vec::new();
     let entry = root_tree.lookup_entry_by_path(&odb, &mut buf, "bin").unwrap().unwrap();
 
-    assert!(matches!(entry, EntryRef { .. }));
+    assert!(matches!(entry, Entry { .. }));
     assert_eq!(entry.filename, "bin");
 
     Ok(())
@@ -89,7 +89,7 @@ fn lookup_entry_nested_path() -> crate::Result {
         .unwrap()
         .unwrap();
 
-    assert!(matches!(entry, EntryRef { .. }));
+    assert!(matches!(entry, Entry { .. }));
     assert_eq!(entry.filename, "a");
 
     Ok(())

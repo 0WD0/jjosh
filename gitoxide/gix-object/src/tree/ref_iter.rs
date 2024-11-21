@@ -59,23 +59,24 @@ impl<'a> TreeRef<'a> {
         odb: impl crate::Find + crate::FindExt,
         buffer: &'a mut Vec<u8>,
         path: I,
-    ) -> Result<Option<EntryRef<'a>>, Error>
+    ) -> Result<Option<tree::Entry>, Error>
     where
         I: IntoIterator<Item = P>,
         P: PartialEq<BStr>,
     {
         let mut path = path.into_iter().peekable();
+        let mut entries = self.entries.clone();
 
         while let Some(component) = path.next() {
-            match self.entries.iter().find(|entry| component.eq(entry.filename)) {
+            match entries.iter().find(|entry| component.eq(entry.filename)) {
                 Some(entry) => {
                     if path.peek().is_none() {
-                        return Ok(Some(*entry));
+                        return Ok(Some((*entry).into()));
                     } else {
                         let next_id = entry.oid.to_owned();
                         let obj = odb.find_tree(&next_id, buffer)?;
 
-                        return obj.lookup_entry(odb, buffer, path);
+                        entries = obj.entries;
                     }
                 }
                 None => return Ok(None),
@@ -95,7 +96,7 @@ impl<'a> TreeRef<'a> {
         odb: impl crate::Find,
         buffer: &'a mut Vec<u8>,
         relative_path: impl AsRef<std::path::Path>,
-    ) -> Result<Option<EntryRef<'a>>, Error> {
+    ) -> Result<Option<tree::Entry>, Error> {
         use crate::bstr::ByteSlice;
         self.lookup_entry(
             odb,
