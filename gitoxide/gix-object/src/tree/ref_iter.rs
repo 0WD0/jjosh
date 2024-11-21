@@ -56,7 +56,7 @@ impl<'a> TreeRef<'a> {
     ///
     pub fn lookup_entry<I, P>(
         &self,
-        odb: impl crate::Find + crate::FindExt,
+        odb: impl crate::FindExt,
         buffer: &'a mut Vec<u8>,
         path: I,
     ) -> Result<Option<tree::Entry>, Error>
