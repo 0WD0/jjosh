@@ -232,6 +232,8 @@ jobs:
       - name: Make `system` scope nonempty for "GitInstallation" tests
         run: git config --system gitoxide.imaginary.arbitraryVariable arbitraryValue
       - name: Test (nextest)
+        env:
+          GIX_TEST_IGNORE_ARCHIVES: '1'
         run: cargo nextest run --workspace --no-fail-fast
 
   test-32bit-cross:
