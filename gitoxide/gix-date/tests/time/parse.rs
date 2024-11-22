@@ -179,24 +179,34 @@ mod relative {
     #[test]
     fn various() {
         let now = SystemTime::now();
-        let two_weeks_ago = gix_date::parse("2 weeks ago", Some(now)).unwrap();
-        assert_eq!(Sign::Plus, two_weeks_ago.sign);
-        assert_eq!(0, two_weeks_ago.offset);
-        let expected = Zoned::try_from(now)
-            .unwrap()
-            // account for the loss of precision when creating `Time` with seconds
-            .round(
-                jiff::ZonedRound::new()
-                    .smallest(jiff::Unit::Second)
-                    .mode(jiff::RoundMode::Trunc),
-            )
-            .unwrap()
-            .saturating_sub(2.weeks());
-        assert_eq!(
-            jiff::Timestamp::from_second(two_weeks_ago.seconds).unwrap(),
-            expected.timestamp(),
-            "relative times differ"
+
+        let cases = [
+            ("2 weeks ago", 2.weeks()),
+            ("20160 minutes ago", 20_160.minutes()), // 2 weeks
+            ("20 weeks ago", 20.weeks()),
+            ("201600 minutes ago", 201_600.minutes()), // 20 weeks
+        ];
+
+        let times = cases.map(|(input, _)| gix_date::parse(input, Some(now)).unwrap());
+
+        assert_eq!(times.map(|_| Sign::Plus), times.map(|time| time.sign));
+        assert_eq!(times.map(|_| 0), times.map(|time| time.offset));
+
+        let expected = cases.map(|(_, span)|
+            Zoned::try_from(now)
+                .unwrap()
+                // account for the loss of precision when creating `Time` with seconds
+                .round(
+                    jiff::ZonedRound::new()
+                        .smallest(jiff::Unit::Second)
+                        .mode(jiff::RoundMode::Trunc),
+                )
+                .unwrap()
+                .saturating_sub(span)
+                .timestamp()
         );
+        let actual = times.map(|time| jiff::Timestamp::from_second(time.seconds).unwrap());
+        assert_eq!(actual, expected, "relative times differ");
     }
 }
 
