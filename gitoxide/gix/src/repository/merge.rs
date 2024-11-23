@@ -89,12 +89,20 @@ impl Repository {
     /// Read all relevant configuration options to instantiate options for use in [`merge_trees()`](Self::merge_trees).
     pub fn tree_merge_options(&self) -> Result<crate::merge::tree::Options, tree_merge_options::Error> {
         Ok(gix_merge::tree::Options {
-            rewrites: crate::diff::utils::new_rewrites_inner(
-                &self.config.resolved,
-                self.config.lenient_config,
-                &tree::Merge::RENAMES,
-                &tree::Merge::RENAME_LIMIT,
-            )?,
+            rewrites: Some(
+                crate::diff::utils::new_rewrites_inner(
+                    &self.config.resolved,
+                    self.config.lenient_config,
+                    &tree::Merge::RENAMES,
+                    &tree::Merge::RENAME_LIMIT,
+                )?
+                .map(Ok)
+                .or_else(|| {
+                    crate::diff::utils::new_rewrites(&self.config.resolved, self.config.lenient_config).transpose()
+                })
+                .transpose()?
+                .unwrap_or_default(),
+            ),
             blob_merge: self.blob_merge_options()?,
             blob_merge_command_ctx: self.command_context()?,
             fail_on_conflict: None,
