@@ -4,6 +4,7 @@ pub struct Options {
     pub format: OutputFormat,
     pub file_favor: Option<gix::merge::tree::FileFavor>,
     pub in_memory: bool,
+    pub debug: bool,
 }
 
 pub(super) mod function {
@@ -29,6 +30,7 @@ pub(super) mod function {
             format,
             file_favor,
             in_memory,
+            debug,
         }: Options,
     ) -> anyhow::Result<()> {
         if format != OutputFormat::Human {
@@ -77,6 +79,9 @@ pub(super) mod function {
             writeln!(out, "{tree_id} (wrote {written} trees)")?;
         }
 
+        if debug {
+            writeln!(err, "{:#?}", &res.conflicts)?;
+        }
         if !has_conflicts {
             writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;
         }

@@ -174,6 +174,7 @@ pub fn main() -> Result<()> {
             merge::SubCommands::Tree {
                 in_memory,
                 file_favor,
+                debug,
                 ours,
                 base,
                 theirs,
@@ -196,6 +197,7 @@ pub fn main() -> Result<()> {
                             format,
                             file_favor: file_favor.map(Into::into),
                             in_memory,
+                            debug,
                         },
                     )
                 },
@@ -203,6 +205,7 @@ pub fn main() -> Result<()> {
             merge::SubCommands::Commit {
                 in_memory,
                 file_favor,
+                debug,
                 ours,
                 theirs,
             } => prepare_and_run(
@@ -223,6 +226,7 @@ pub fn main() -> Result<()> {
                             format,
                             file_favor: file_favor.map(Into::into),
                             in_memory,
+                            debug,
                         },
                     )
                 },

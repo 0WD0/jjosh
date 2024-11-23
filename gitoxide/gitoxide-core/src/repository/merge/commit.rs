@@ -18,6 +18,7 @@ pub fn commit(
         format,
         file_favor,
         in_memory,
+        debug,
     }: Options,
 ) -> anyhow::Result<()> {
     if format != OutputFormat::Human {
@@ -63,6 +64,9 @@ pub fn commit(
         writeln!(out, "{tree_id} (wrote {written} trees)")?;
     }
 
+    if debug {
+        writeln!(err, "{:#?}", &res.conflicts)?;
+    }
     if !has_conflicts {
         writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;
     }

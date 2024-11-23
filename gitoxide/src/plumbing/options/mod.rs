@@ -420,6 +420,9 @@ pub mod merge {
             /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
             #[clap(long, short = 'f')]
             file_favor: Option<FileFavor>,
+            /// Print additional information about conflicts for debugging.
+            #[clap(long, short = 'd')]
+            debug: bool,
 
             /// A revspec to our treeish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
@@ -441,6 +444,9 @@ pub mod merge {
             /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
             #[clap(long, short = 'f')]
             file_favor: Option<FileFavor>,
+            /// Print additional information about conflicts for debugging.
+            #[clap(long, short = 'd')]
+            debug: bool,
 
             /// A revspec to our committish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
