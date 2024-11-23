@@ -1690,6 +1690,7 @@ dependencies = [
  "itoa",
  "jiff",
  "once_cell",
+ "pretty_assertions",
  "serde",
  "thiserror 2.0.3",
 ]

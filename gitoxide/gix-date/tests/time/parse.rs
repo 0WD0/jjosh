@@ -156,6 +156,7 @@ mod relative {
 
     use gix_date::time::Sign;
     use jiff::{ToSpan, Zoned};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn large_offsets() {
@@ -179,24 +180,40 @@ mod relative {
     #[test]
     fn various() {
         let now = SystemTime::now();
-        let two_weeks_ago = gix_date::parse("2 weeks ago", Some(now)).unwrap();
-        assert_eq!(Sign::Plus, two_weeks_ago.sign);
-        assert_eq!(0, two_weeks_ago.offset);
-        let expected = Zoned::try_from(now)
-            .unwrap()
-            // account for the loss of precision when creating `Time` with seconds
-            .round(
-                jiff::ZonedRound::new()
-                    .smallest(jiff::Unit::Second)
-                    .mode(jiff::RoundMode::Trunc),
-            )
-            .unwrap()
-            .saturating_sub(2.weeks());
-        assert_eq!(
-            jiff::Timestamp::from_second(two_weeks_ago.seconds).unwrap(),
-            expected.timestamp(),
-            "relative times differ"
-        );
+
+        let cases = [
+            ("2 weeks ago", 2.weeks()),
+            ("14 weeks ago", 14.weeks()),
+            ("26 weeks ago", 26.weeks()),
+            ("38 weeks ago", 38.weeks()),
+            ("50 weeks ago", 50.weeks()),
+            ("20160 minutes ago", 20_160.minutes()),   // 2 weeks
+            ("141120 minutes ago", 141_120.minutes()), // 14 weeks
+            ("262080 minutes ago", 262_080.minutes()), // 26 weeks
+            ("383040 minutes ago", 383_040.minutes()), // 38 weeks
+            ("504000 minutes ago", 504_000.minutes()), // 50 weeks
+        ];
+
+        let times = cases.map(|(input, _)| gix_date::parse(input, Some(now)).unwrap());
+
+        assert_eq!(times.map(|_| Sign::Plus), times.map(|time| time.sign));
+        assert_eq!(times.map(|_| 0), times.map(|time| time.offset));
+
+        let expected = cases.map(|(_, span)| {
+            Zoned::try_from(now)
+                .unwrap()
+                // account for the loss of precision when creating `Time` with seconds
+                .round(
+                    jiff::ZonedRound::new()
+                        .smallest(jiff::Unit::Second)
+                        .mode(jiff::RoundMode::Trunc),
+                )
+                .unwrap()
+                .saturating_sub(span)
+                .timestamp()
+        });
+        let actual = times.map(|time| jiff::Timestamp::from_second(time.seconds).unwrap());
+        assert_eq!(actual, expected, "relative times differ");
     }
 }
 
