@@ -434,6 +434,34 @@ impl<'a> ChangeRef<'a> {
         }
     }
 
+    /// Return the current mode of this instance, along with its object id.
+    pub fn entry_mode_and_id(&self) -> (gix_object::tree::EntryMode, &gix_hash::oid) {
+        match self {
+            ChangeRef::Addition { entry_mode, id, .. }
+            | ChangeRef::Deletion { entry_mode, id, .. }
+            | ChangeRef::Modification { entry_mode, id, .. }
+            | ChangeRef::Rewrite { entry_mode, id, .. } => (*entry_mode, id),
+        }
+    }
+
+    /// Return the *previous* mode and id of the resource where possible, i.e. the source of a rename or copy, or a modification.
+    pub fn source_entry_mode_and_id(&self) -> (gix_object::tree::EntryMode, &gix_hash::oid) {
+        match self {
+            ChangeRef::Addition { entry_mode, id, .. }
+            | ChangeRef::Deletion { entry_mode, id, .. }
+            | ChangeRef::Modification {
+                previous_entry_mode: entry_mode,
+                previous_id: id,
+                ..
+            }
+            | ChangeRef::Rewrite {
+                source_entry_mode: entry_mode,
+                source_id: id,
+                ..
+            } => (*entry_mode, id),
+        }
+    }
+
     /// Return the *current* location of the resource, i.e. the destination of a rename or copy, or the
     /// location at which an addition, deletion or modification took place.
     pub fn location(&self) -> &'a BStr {
@@ -475,6 +503,34 @@ impl Change {
             | Change::Deletion { entry_mode, .. }
             | Change::Modification { entry_mode, .. }
             | Change::Rewrite { entry_mode, .. } => *entry_mode,
+        }
+    }
+
+    /// Return the current mode of this instance, along with its object id.
+    pub fn entry_mode_and_id(&self) -> (gix_object::tree::EntryMode, &gix_hash::oid) {
+        match self {
+            Change::Addition { entry_mode, id, .. }
+            | Change::Deletion { entry_mode, id, .. }
+            | Change::Modification { entry_mode, id, .. }
+            | Change::Rewrite { entry_mode, id, .. } => (*entry_mode, id),
+        }
+    }
+
+    /// Return the *previous* mode and id of the resource where possible, i.e. the source of a rename or copy, or a modification.
+    pub fn source_entry_mode_and_id(&self) -> (gix_object::tree::EntryMode, &gix_hash::oid) {
+        match self {
+            Change::Addition { entry_mode, id, .. }
+            | Change::Deletion { entry_mode, id, .. }
+            | Change::Modification {
+                previous_entry_mode: entry_mode,
+                previous_id: id,
+                ..
+            }
+            | Change::Rewrite {
+                source_entry_mode: entry_mode,
+                source_id: id,
+                ..
+            } => (*entry_mode, id),
         }
     }
 
