@@ -36,6 +36,7 @@ FUTURE_DATE="@4147483646 +0000"
 git init
 git config commitGraph.generationVersion 2
 
+set -x
 commit future-1 "$FUTURE_DATE"
 commit old-1 "$UNIX_EPOCH_ZERO"
 git commit-graph write --reachable
