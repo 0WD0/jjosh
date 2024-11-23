@@ -156,6 +156,7 @@ mod relative {
 
     use gix_date::time::Sign;
     use jiff::{ToSpan, Zoned};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn large_offsets() {
@@ -182,11 +183,15 @@ mod relative {
 
         let cases = [
             ("2 weeks ago", 2.weeks()),
-            ("20160 minutes ago", 20_160.minutes()), // 2 weeks
-            ("20 weeks ago", 20.weeks()),
-            ("201600 minutes ago", 201_600.minutes()), // 20 weeks
-            ("40 weeks ago", 40.weeks()),
-            ("403200 minutes ago", 403_200.minutes()), // 40 weeks
+            ("14 weeks ago", 14.weeks()),
+            ("26 weeks ago", 26.weeks()),
+            ("38 weeks ago", 38.weeks()),
+            ("50 weeks ago", 50.weeks()),
+            ("20160 minutes ago", 20_160.minutes()),   // 2 weeks
+            ("141120 minutes ago", 141_120.minutes()), // 14 weeks
+            ("262080 minutes ago", 262_080.minutes()), // 26 weeks
+            ("383040 minutes ago", 383_040.minutes()), // 38 weeks
+            ("504000 minutes ago", 504_000.minutes()), // 50 weeks
         ];
 
         let times = cases.map(|(input, _)| gix_date::parse(input, Some(now)).unwrap());
