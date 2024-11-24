@@ -23,7 +23,7 @@ impl<'a> TreeRefIter<'a> {
     ///
     pub fn lookup_entry<I, P>(
         &self,
-        odb: impl crate::FindExt,
+        odb: impl crate::Find,
         buffer: &'a mut Vec<u8>,
         path: I,
     ) -> Result<Option<tree::Entry>, Error>
@@ -45,9 +45,11 @@ impl<'a> TreeRefIter<'a> {
                         return Ok(Some(entry.into()));
                     } else {
                         let next_id = entry.oid.to_owned();
-                        let obj = odb.find(&next_id, buffer)?;
-                        if !obj.kind.is_tree() {
-                            return Ok(None);
+                        let obj = odb.try_find(&next_id, buffer)?;
+                        if let Some(obj) = obj {
+                            if !obj.kind.is_tree() {
+                                return Ok(None);
+                            }
                         }
                     }
                 }
