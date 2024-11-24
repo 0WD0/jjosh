@@ -1,4 +1,5 @@
 use super::{traverse, Error};
+use crate::exact_vec;
 /// An item stored within the [`Tree`] whose data is stored in a pack file, identified by
 /// the offset of its first (`offset`) and last (`next_offset`) bytes.
 ///
@@ -61,8 +62,8 @@ impl<T> Tree<T> {
     /// Instantiate a empty tree capable of storing `num_objects` amounts of items.
     pub fn with_capacity(num_objects: usize) -> Result<Self, Error> {
         Ok(Tree {
-            root_items: Vec::with_capacity(num_objects / 2),
-            child_items: Vec::with_capacity(num_objects / 2),
+            root_items: exact_vec(num_objects / 2),
+            child_items: exact_vec(num_objects / 2),
             last_seen: None,
             future_child_offsets: Vec::new(),
         })

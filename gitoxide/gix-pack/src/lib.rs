@@ -69,3 +69,9 @@ fn read_u32(b: &[u8]) -> u32 {
 fn read_u64(b: &[u8]) -> u64 {
     u64::from_be_bytes(b.try_into().unwrap())
 }
+
+fn exact_vec<T>(capacity: usize) -> Vec<T> {
+    let mut v = Vec::new();
+    v.reserve_exact(capacity);
+    v
+}

@@ -2,7 +2,7 @@ use std::{cmp::Ordering, sync::atomic::AtomicBool, time::Instant};
 
 use gix_features::progress::{Count, DynNestedProgress, Progress};
 
-use crate::{index, multi_index::File};
+use crate::{exact_vec, index, multi_index::File};
 
 ///
 pub mod integrity {
@@ -166,7 +166,7 @@ impl File {
 
         let operation_start = Instant::now();
         let mut total_objects_checked = 0;
-        let mut pack_ids_and_offsets = Vec::with_capacity(self.num_objects as usize);
+        let mut pack_ids_and_offsets = exact_vec(self.num_objects as usize);
         {
             let order_start = Instant::now();
             let mut progress = progress.add_child_with_id("checking oid order".into(), gix_features::progress::UNKNOWN);
