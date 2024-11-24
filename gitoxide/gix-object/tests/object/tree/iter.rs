@@ -67,7 +67,7 @@ fn lookup_entry_toplevel() -> crate::Result {
     let filename: BString = "bin".into();
     let oid = hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
 
-    assert_eq!(entry, Entry { mode, filename, oid });
+    assert_eq!(entry, Some(Entry { mode, filename, oid }));
 
     Ok(())
 }
@@ -80,7 +80,16 @@ fn lookup_entry_nested_path() -> crate::Result {
     let filename: BString = "a".into();
     let oid = hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
 
-    assert_eq!(entry, Entry { mode, filename, oid });
+    assert_eq!(entry, Some(Entry { mode, filename, oid }));
+
+    Ok(())
+}
+
+#[test]
+fn lookup_entry_that_does_not_exist() -> crate::Result {
+    let entry = utils::lookup_entry_by_path("file/does-not-exist")?;
+
+    assert_eq!(entry, None);
 
     Ok(())
 }
@@ -95,7 +104,7 @@ mod utils {
         Ok(gix_odb::at(root.join(".git/objects"))?)
     }
 
-    pub(super) fn lookup_entry_by_path(path: &str) -> gix_testtools::Result<gix_object::tree::Entry> {
+    pub(super) fn lookup_entry_by_path(path: &str) -> gix_testtools::Result<Option<gix_object::tree::Entry>> {
         let odb = tree_odb()?;
         let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
 
@@ -103,6 +112,6 @@ mod utils {
         let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
 
         let mut buf = Vec::new();
-        Ok(root_tree.lookup_entry_by_path(&odb, &mut buf, path).unwrap().unwrap())
+        Ok(root_tree.lookup_entry_by_path(&odb, &mut buf, path).unwrap())
     }
 }
