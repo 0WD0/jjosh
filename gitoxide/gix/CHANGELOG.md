@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.68.0 (2024-11-24)
 
 ### New Features
 
@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 44 commits contributed to the release.
+ - 45 commits contributed to the release.
  - 18 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1678](https://github.com/GitoxideLabs/gitoxide/issues/1678), [#1683](https://github.com/GitoxideLabs/gitoxide/issues/1683)
 
@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1683](https://github.com/GitoxideLabs/gitoxide/issues/1683)**
     - Respect `core.bare=true` in conjunction with the main worktree ([`88d9d43`](https://github.com/GitoxideLabs/gitoxide/commit/88d9d4387287b7540a0f42b26c6a4adb4cd769a9))
  * **Uncategorized**
+    - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1661 from GitoxideLabs/merge ([`0b7abfb`](https://github.com/GitoxideLabs/gitoxide/commit/0b7abfbdebe8c5ab30b89499a70dd7727de41184))
     - Add support for `index` application in merge results via `merge::tree::Outcome::index_changed_after_applying_conflicts()` ([`71b0cea`](https://github.com/GitoxideLabs/gitoxide/commit/71b0ceaf02e022e83e6c24cfd0bdc26299dc95a0))
     - `Repository::tree_merge_options()` now comes with rewrite tracking. ([`b57be71`](https://github.com/GitoxideLabs/gitoxide/commit/b57be7189df216110adb52aa51c50a0f38692f2a))

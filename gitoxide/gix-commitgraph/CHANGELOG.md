@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.25.1 (2024-11-24)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release.
+ - 8 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +24,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1698 from EliahKagan/run-ci/32bit-next ([`cb3149f`](https://github.com/GitoxideLabs/gitoxide/commit/cb3149fec63dc9e366baf0399040d20161616b22))
     - Update generation_number_overflow archive ([`807c51e`](https://github.com/GitoxideLabs/gitoxide/commit/807c51efd6ce51bcc60e1b41c262bfbf29884918))
     - Manually create tag if 32-bit `git` rejects it ([`2a24250`](https://github.com/GitoxideLabs/gitoxide/commit/2a242503d22cfa6311ef1ad01a84904a025719f2))

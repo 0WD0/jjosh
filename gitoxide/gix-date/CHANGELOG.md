@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.9.2 (2024-11-24)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release.
+ - 8 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +24,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1697 from EliahKagan/run-ci/duration ([`438ee47`](https://github.com/GitoxideLabs/gitoxide/commit/438ee4718b67d0eba8f4c6ebdfac64bd39f68ec7))
     - Test 12-week increments from 2 to 50 ([`ac17b62`](https://github.com/GitoxideLabs/gitoxide/commit/ac17b62a5c9d63606e9c161c1533cdbebf2de977))
     - Add even longer duration to test; run `cargo fmt` ([`5d51bd1`](https://github.com/GitoxideLabs/gitoxide/commit/5d51bd10f67bf4099ca832a5ca13de4e87fe0681))

@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.1.0 (2024-11-24)
+
+<csr-id-2fdbcfe17cdcc480e320582d7c6b48f8b615bf3b/>
 
 ### New Features
 
@@ -75,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 26 commits contributed to the release.
+ - 27 commits contributed to the release.
  - 13 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -86,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1661 from GitoxideLabs/merge ([`0b7abfb`](https://github.com/GitoxideLabs/gitoxide/commit/0b7abfbdebe8c5ab30b89499a70dd7727de41184))
     - Provide a way to record and apply index changes. ([`3ee8b62`](https://github.com/GitoxideLabs/gitoxide/commit/3ee8b62dd025d6fdb0d9929dec7a561fa576f545))
     - Add more modes for checking for unresolved conflicts. ([`aff76f2`](https://github.com/GitoxideLabs/gitoxide/commit/aff76f291a52fc6806944d72d249a8bd1b804c39))

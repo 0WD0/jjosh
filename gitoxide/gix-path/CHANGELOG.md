@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.10.13 (2024-11-24)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release.
+ - 4 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +24,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1662 from paolobarbolini/thiserror-v2 ([`7a40648`](https://github.com/GitoxideLabs/gitoxide/commit/7a406481b072728cec089d7c05364f9dbba335a2))
     - Upgrade thiserror to v2.0.0 ([`0f0e4fe`](https://github.com/GitoxideLabs/gitoxide/commit/0f0e4fe121932a8a6302cf950b3caa4c8608fb61))
     - Merge pull request #1642 from GitoxideLabs/new-release ([`db5c9cf`](https://github.com/GitoxideLabs/gitoxide/commit/db5c9cfce93713b4b3e249cff1f8cc1ef146f470))
@@ -57,42 +58,6 @@ A maintenance release without user-facing changes.
    `gix-path` would obtain a path from `git config -l ...` that came
    from `GIT_CONFIG`, that configuration file would be used
    anywhere, and not only `gix config` commands.
-- Even for `gix config`, it is not at all clear that the
-     `GIT_CONFIG` environment variable ought to be honored, because
-     `gix config` has a different interface from and is not meant to
-     be a drop-in replacement for `git config`, and because this
-     environment variable is only even supported by `git config` for
-     historical reasons. (In `git config`, one should typically use
-     `--file` instead.)
-- The installation path is generally the path of a high-scoped
-     configuration file, usually the system scope or, with Apple Git
-     on macOS, the "unknown" scope even higher than that (of a file
-     located under `/Library` or `/Applications`). In contrast, the
-     `GIT_CONFIG` environment variable is really command scope, since
-     it is an alternative way of achieving the same goal as `--file`
-     when running `git config`, which `git` supports only for backward
-     compatibility.
-- On Windows, when `EXEPATH` is set in a way that indentifies a
-     Git for Windows installation directory, which is typically the
-     case in a Git Bash environment (and not otherwise), `GIT_CONFIG`
-     is not used by the public `gix-path` functions that ordinarily
-     get information from calling `git config -l ...`, because this
-     call is not performed and instead the location of a configuration
-     file associated with the installation is inferred from that
-     value.
-   
-     Although this also applies to some other ways the environment
-     affects the behavior of `git config -l ...`, it is much stranger
-     for `GIT_CONFIG`, because whether `GIT_CONFIG` should be used
-     does not intuitively seem like it should be related to what other
-     sources of information are available; the semantics of
-     `GIT_CONFIG` for `git` are to be ignored by most commands, but to
-     always be used commands (`git config`) that do not ignore it.
-- The effect on finding other files associated with the
-     installation, such as a gitattributes file, may be especially
-     hard to reason about for `GIT_CONFIG`. Such paths are sometimes
-     inferred from the path that `gix-path` reports. In particular,
-     this is how `installation_config_prefix()` works.
 
 ### Other
 
@@ -159,7 +124,7 @@ A maintenance release without user-facing changes.
 </details>
 
 <csr-unknown>
-This change only prevents GIT_CONFIG from specifying aninstallation config file or suppressing the search for it. Thisdoes not affect how other GIT_CONFIG_* environment variables areused.<csr-unknown/>
+Even for gix config, it is not at all clear that theGIT_CONFIG environment variable ought to be honored, becausegix config has a different interface from and is not meant tobe a drop-in replacement for git config, and because thisenvironment variable is only even supported by git config forhistorical reasons. (In git config, one should typically use--file instead.)The installation path is generally the path of a high-scopedconfiguration file, usually the system scope or, with Apple Giton macOS, the “unknown” scope even higher than that (of a filelocated under /Library or /Applications). In contrast, theGIT_CONFIG environment variable is really command scope, sinceit is an alternative way of achieving the same goal as --filewhen running git config, which git supports only for backwardcompatibility.On Windows, when EXEPATH is set in a way that indentifies aGit for Windows installation directory, which is typically thecase in a Git Bash environment (and not otherwise), GIT_CONFIGis not used by the public gix-path functions that ordinarilyget information from calling git config -l ..., because thiscall is not performed and instead the location of a configurationfile associated with the installation is inferred from thatvalue.Although this also applies to some other ways the environmentaffects the behavior of git config -l ..., it is much strangerfor GIT_CONFIG, because whether GIT_CONFIG should be useddoes not intuitively seem like it should be related to what othersources of information are available; the semantics ofGIT_CONFIG for git are to be ignored by most commands, but toalways be used commands (git config) that do not ignore it.The effect on finding other files associated with theinstallation, such as a gitattributes file, may be especiallyhard to reason about for GIT_CONFIG. Such paths are sometimesinferred from the path that gix-path reports. In particular,this is how installation_config_prefix() works.<csr-unknown/>
 
 ## 0.10.11 (2024-09-06)
 
