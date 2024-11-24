@@ -125,25 +125,25 @@ theirs
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
         assert_eq!(
             res,
-            (Pick::Buffer, Resolution::Complete),
-            "it's actually unclear now if there ever was a conflict, but we *could* compute it"
+            (Pick::Buffer, Resolution::CompleteWithAutoResolvedConflict),
+            "we can determine that there was a conflict, despite the resolution being complete"
         );
         assert_eq!(buf.as_bstr(), "ours");
 
         platform_ref.options.text.conflict = builtin_driver::text::Conflict::ResolveWithTheirs;
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
-        assert_eq!(res, (Pick::Buffer, Resolution::Complete));
+        assert_eq!(res, (Pick::Buffer, Resolution::CompleteWithAutoResolvedConflict));
         assert_eq!(buf.as_bstr(), "theirs");
 
         platform_ref.options.text.conflict = builtin_driver::text::Conflict::ResolveWithUnion;
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
-        assert_eq!(res, (Pick::Buffer, Resolution::Complete));
+        assert_eq!(res, (Pick::Buffer, Resolution::CompleteWithAutoResolvedConflict));
         assert_eq!(buf.as_bstr(), "ours\ntheirs");
 
         platform_ref.driver = DriverChoice::BuiltIn(BuiltinDriver::Union);
         platform_ref.options.text.conflict = builtin_driver::text::Conflict::default();
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
-        assert_eq!(res, (Pick::Buffer, Resolution::Complete));
+        assert_eq!(res, (Pick::Buffer, Resolution::CompleteWithAutoResolvedConflict));
         assert_eq!(buf.as_bstr(), "ours\ntheirs");
 
         platform_ref.driver = DriverChoice::BuiltIn(BuiltinDriver::Binary);

@@ -2,7 +2,7 @@ use crate::OutputFormat;
 use anyhow::{anyhow, bail, Context};
 use gix::bstr::BString;
 use gix::bstr::ByteSlice;
-use gix::merge::tree::UnresolvedConflict;
+use gix::merge::tree::TreatAsUnresolved;
 use gix::prelude::Write;
 
 use super::tree::Options;
@@ -18,6 +18,7 @@ pub fn commit(
         format,
         file_favor,
         in_memory,
+        debug,
     }: Options,
 ) -> anyhow::Result<()> {
     if format != OutputFormat::Human {
@@ -48,7 +49,7 @@ pub fn commit(
         .merge_commits(ours_id, theirs_id, labels, options.into())?
         .tree_merge;
     let has_conflicts = res.conflicts.is_empty();
-    let has_unresolved_conflicts = res.has_unresolved_conflicts(UnresolvedConflict::Renames);
+    let has_unresolved_conflicts = res.has_unresolved_conflicts(TreatAsUnresolved::Renames);
     {
         let _span = gix::trace::detail!("Writing merged tree");
         let mut written = 0;
@@ -63,6 +64,9 @@ pub fn commit(
         writeln!(out, "{tree_id} (wrote {written} trees)")?;
     }
 
+    if debug {
+        writeln!(err, "{:#?}", &res.conflicts)?;
+    }
     if !has_conflicts {
         writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;
     }

@@ -175,7 +175,7 @@ pub(crate) mod utils {
         new_rewrites_inner(config, lenient, &Diff::RENAMES, &Diff::RENAME_LIMIT)
     }
 
-    pub fn new_rewrites_inner(
+    pub(crate) fn new_rewrites_inner(
         config: &gix_config::File<'static>,
         lenient: bool,
         renames: &'static crate::config::tree::diff::Renames,

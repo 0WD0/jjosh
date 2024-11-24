@@ -15,13 +15,13 @@ pub mod platform;
 /// Define if a merge is conflicted or not.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Resolution {
-    /// Everything could be resolved during the merge.
-    ///
-    /// Conflicts may have been resolved automatically, depending on the options.
+    /// Everything could be resolved during the merge, and there was no conflict.
     Complete,
+    /// Conflicts were resolved automatically, even thought the result is complete
+    /// and free of conflict markers.
+    /// This can only be the case for text-file content merges.
+    CompleteWithAutoResolvedConflict,
     /// A conflict is still present in the form of conflict markers.
-    ///
-    /// Note that this won't be the case if conflicts were automatically resolved.
     Conflict,
 }
 

@@ -60,6 +60,11 @@ bitflags! {
 }
 
 impl Flags {
+    /// Create a new instance whose stage is set to `stage`.
+    pub fn from_stage(stage: Stage) -> Self {
+        Flags::from_bits((stage as u32) << 12).expect("stage can only be valid flags")
+    }
+
     /// Return the stage as extracted from the bits of this instance.
     pub fn stage(&self) -> Stage {
         match self.stage_raw() {
@@ -93,6 +98,12 @@ impl Flags {
             }
             .bits() as u16,
         )
+    }
+}
+
+impl From<Stage> for Flags {
+    fn from(value: Stage) -> Self {
+        Flags::from_stage(value)
     }
 }
 

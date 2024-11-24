@@ -31,6 +31,11 @@ function seq () {
 	done
 }
 
+function make_conflict_index() {
+  local identifier=${1:?The first argument is the name of the parent directory along with the output name}
+  cp .git/index .git/"${identifier}".index
+}
+
 function baseline () (
   local dir=${1:?the directory to enter}
   local output_name=${2:?the basename of the output of the merge}
@@ -170,6 +175,29 @@ git init rename-add
 		git add foo
 		git mv foo bar
 		git commit -m "rename foo to bar"
+)
+
+git init rename-add-exe-bit-conflict
+(cd rename-add-exe-bit-conflict
+		touch a b
+		chmod +x a
+    git add --chmod=+x a
+		git add b
+		git commit -m "original"
+
+		git branch A
+		git branch B
+
+		git checkout A
+		chmod -x a
+    git update-index --chmod=-x a
+		git commit -m "-x a"
+
+		git checkout B
+		git mv --force b a
+		chmod +x a
+    git update-index --chmod=+x a
+		git commit -m "mv b a; chmod +x a"
 )
 
 git init rename-add-symlink
@@ -317,6 +345,34 @@ git init super-2
   git add foo
   git mv foo olddir/bar
   git commit -m "Modify foo & rename foo -> olddir/bar"
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 78981922613b2afb6025042ff6bd878ac1994e85 0	newdir/a
+100644 61780798228d17af2d34fce4cfbdf35556832472 0	newdir/b
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	newdir/bar/file
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	newdir/bar~B
+100644 f2ad6c76f0115a6ba5b00456a849810e7ec0af20 0	newdir/c
+EOF
+  # Git also has
+  # 100644 b414108e81e5091fe0974a1858b4d0d22b107f70 1	newdir/bar~B
+  # which then looks like "deleted by us: newdir/bar-B`
+  # Our index here doesn't manage to track the base across so many renames, but it ends up looking like
+  # `added by them: newdir/bar~B` which to my mind is more helpful, in a situation where the index simply
+  # cannot properly show what happened.
+  make_conflict_index super-2-A-B
+  make_conflict_index super-2-A-B-diff3
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 78981922613b2afb6025042ff6bd878ac1994e85 0	newdir/a
+100644 61780798228d17af2d34fce4cfbdf35556832472 0	newdir/b
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	newdir/bar/file
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	newdir/bar~B
+100644 f2ad6c76f0115a6ba5b00456a849810e7ec0af20 0	newdir/c
+EOF
+  make_conflict_index super-2-A-B-reversed
+  make_conflict_index super-2-A-B-diff3-reversed
 )
 
 git init rename-within-rename
@@ -348,6 +404,10 @@ git init rename-within-rename
   git mv a/sub a/sub-renamed
   git mv a a-renamed
   git commit -am "tracked both renames, applied all modifications by merge"
+
+  # This means there are no conflicts actually.
+  make_conflict_index rename-within-rename-A-B-deviates
+  make_conflict_index rename-within-rename-A-B-deviates-reversed
 )
 
 git init rename-within-rename-2
@@ -380,6 +440,10 @@ git init rename-within-rename-2
   git mv a/sub a/sub-renamed
   git mv a a-renamed
   git commit -am "tracked both renames, applied all modifications by merge"
+
+  # This means there are no conflicts actually.
+  make_conflict_index rename-within-rename-2-A-B-deviates
+  make_conflict_index rename-within-rename-2-A-B-deviates-reversed
 )
 
 git init conflicting-rename
@@ -403,6 +467,43 @@ git init conflicting-rename
   write_lines original 1 2 3 4 5 6 >a/sub/y.f
   git mv a a-different
   git commit -am "changed all content, renamed a -> a-different"
+
+# Git only sees the files with content changes as conflicting, and somehow misses to add the
+# bases of the files without content changes. After all, these also have been renamed into
+# different places which must be a conflict just as much.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-different/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-different/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-different/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-different/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-renamed/x.f
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/x.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/w
+EOF
+  make_conflict_index conflicting-rename-A-B
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-different/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-different/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-different/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-different/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-renamed/x.f
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/x.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/w
+EOF
+  make_conflict_index conflicting-rename-A-B-reversed
 )
 
 git init conflicting-rename-2
@@ -426,6 +527,34 @@ git init conflicting-rename-2
   write_lines original 1 2 3 4 5 6 >a/sub/y.f
   git mv a/sub a/sub-different
   git commit -am "changed all content, renamed a/sub -> a/sub-different"
+
+# Here it's the same as above, i.e. Git doesn't list files as conflicting if
+# they didn't change, even though they have a conflicting rename.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a/sub-different/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a/sub-different/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a/sub-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a/x.f
+EOF
+  make_conflict_index conflicting-rename-2-A-B
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/sub-different/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a/sub-different/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a/sub-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a/x.f
+EOF
+  make_conflict_index conflicting-rename-2-A-B-reversed
 )
 
 git init conflicting-rename-complex
@@ -461,6 +590,27 @@ git init conflicting-rename-complex
   touch a-renamed/z a-renamed/sub/z
   git add .
   git commit -m "Close to what Git has, but different due to rename tracking (which looses 'a/w', and 'x.f' becomes y.f). But the merge is so 'erroneous' that it's beyond rescue"
+
+  # Since the whole state is very different, the expected index is as well, but at least it should make sense for what it is.
+  # The main issue here is that it finds a rename of a/w to a-renamed/z which completely erases `a/z`, and this happens because it has no basename based matching
+  # like Git during rename tracking.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 8a1218a1024a212bb3db30becd860315f9f3ac52 2	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/sub/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/z
+EOF
+  make_conflict_index conflicting-rename-complex-A-B
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 8a1218a1024a212bb3db30becd860315f9f3ac52 3	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/sub/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/z
+EOF
+  make_conflict_index conflicting-rename-complex-A-B-reversed
 )
 
 git init same-rename-different-mode
@@ -491,6 +641,29 @@ git init same-rename-different-mode
   write_lines 1 2 3 4 5 6 >a/x.f
   git mv a a-renamed
   git commit -am "Git, when branches are reversed, doesn't keep the +x flag on a/w so we specify our own expectation"
+  # Git sets +x and adds it as conflict, even though the merge is perfect, i.e. one side adds +x on top, perfectly additive.
+  make_conflict_index same-rename-different-mode-A-B
+  make_conflict_index same-rename-different-mode-A-B-reversed
+)
+
+git init remove-executable-mode
+(cd remove-executable-mode
+  touch w
+  chmod +x w
+  git add --chmod=+x w
+  git add . && git commit -m "original"
+
+  git branch A
+  git branch B
+
+  git checkout A
+  chmod -x w
+  git update-index --chmod=-x w
+  git commit -am "remove executable bit from w"
+
+  git checkout B
+  write_lines 1 2 3 4 5  >w
+  git commit -am "unrelated change to w"
 )
 
 git init renamed-symlink-with-conflict
@@ -614,6 +787,23 @@ git init submodule-both-modify
 	git add sub
 	tick
 	git commit -m b
+
+	# We cannot handle submodules yet and thus mark them as conflicted, always if they mismatch at least.
+	rm .git/index
+	git update-index --index-info <<EOF
+160000 e835c0c403c8e494c0ca98f3d25d0b8464c18d38 1	sub
+160000 64466ebdff775ad618d9cc993cf52840e0af528c 2	sub
+160000 ea6eb701e03c2497915c25a851f3da8f8e362ca0 3	sub
+EOF
+  make_conflict_index submodule-both-modify-A-B
+
+	rm .git/index
+	git update-index --index-info <<EOF
+160000 e835c0c403c8e494c0ca98f3d25d0b8464c18d38 1	sub
+160000 ea6eb701e03c2497915c25a851f3da8f8e362ca0 2	sub
+160000 64466ebdff775ad618d9cc993cf52840e0af528c 3	sub
+EOF
+  make_conflict_index submodule-both-modify-A-B-reversed
 )
 
 git init both-modify-union-attr
@@ -670,7 +860,7 @@ git init both-modify-file-with-binary-attr
 
 git init big-file-merge
 (cd big-file-merge
-  git config --local core.bigFileThreshold 80
+  git config --local core.bigFileThreshold 100
   mkdir a && write_lines original 1 2 3 4 5 >a/x.f
   git add . && git commit -m "original"
 
@@ -678,8 +868,8 @@ git init big-file-merge
   git branch B
 
   git checkout A
-  seq 30 >a/x.f
-  git commit -am "turn normal file into big one (81 bytes)"
+  seq 37 >a/x.f
+  git commit -am "turn normal file into big one (102 bytes)"
   git branch expected
 
   git checkout B
@@ -803,6 +993,9 @@ git init type-change-to-symlink
 
 
 
+# TODO: Git does not detect the conflict (one turns exe off, the other turns it on), and we do exactly the same.
+baseline rename-add-exe-bit-conflict A-B A B
+baseline remove-executable-mode A-B A B
 baseline simple side-1-3-without-conflict side1 side3
 baseline simple fast-forward side1 main
 baseline simple no-change main main
@@ -838,7 +1031,6 @@ baseline conflicting-rename-2 A-B A B
 baseline conflicting-rename-complex A-B A B "Git has different rename tracking which is why a-renamed/w disappears - it's still close enough"
 
 baseline same-rename-different-mode A-B A B "Git works for the A/B case, but for B/A it forgets to set the executable bit"
-baseline same-rename-different-mode A-B-diff3 A B "Git works for the A/B case, but for B/A it forgets to set the executable bit"
 baseline renamed-symlink-with-conflict A-B A B
 baseline added-file-changed-content-and-mode A-B A B "We improve on executable bit handling, but loose on diff quality as we are definitely missing some tweaks"
 

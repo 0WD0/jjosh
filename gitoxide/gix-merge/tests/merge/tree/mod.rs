@@ -1,6 +1,7 @@
 use crate::tree::baseline::Deviation;
 use gix_diff::Rewrites;
 use gix_merge::commit::Options;
+use gix_merge::tree::TreatAsUnresolved;
 use gix_object::Write;
 use gix_worktree::stack::state::attributes;
 use std::path::Path;
@@ -20,7 +21,7 @@ fn run_baseline() -> crate::Result {
     let root = gix_testtools::scripted_fixture_read_only("tree-baseline.sh")?;
     let cases = std::fs::read_to_string(root.join("baseline.cases"))?;
     let mut actual_cases = 0;
-    // let new_test = Some("simple-fast-forward");
+    // let new_test = Some("rename-add-symlink-A-B");
     let new_test = None;
     for baseline::Expectation {
         root,
@@ -98,10 +99,58 @@ fn run_baseline() -> crate::Result {
                 );
             }
         }
+
+        let mut actual_index = gix_index::State::from_tree(&actual_id, &odb, Default::default())?;
+        let expected_index = {
+            let derivative_index_path = root.join(".git").join(format!("{case_name}.index"));
+            if derivative_index_path.exists() {
+                gix_index::File::at(
+                    derivative_index_path,
+                    odb.store().object_hash(),
+                    true,
+                    Default::default(),
+                )?
+                .into()
+            } else {
+                let mut index = actual_index.clone();
+                if let Some(conflicts) = &merge_info.conflicts {
+                    baseline::apply_git_index_entries(conflicts, &mut index);
+                }
+                index
+            }
+        };
+        let conflicts_like_in_git = TreatAsUnresolved::Renames;
+        let did_change = actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git);
+        actual_index.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
+
+        pretty_assertions::assert_eq!(
+            baseline::clear_entries(&actual_index),
+            baseline::clear_entries(&expected_index),
+            "{case_name}: index mismatch\n{:#?}\n{:#?}",
+            actual.conflicts,
+            merge_info.conflicts
+        );
+        // if case_name.starts_with("submodule-both-modify-A-B") {
+        if false {
+            assert!(
+                !did_change,
+                "{case_name}: We can't handle submodules, so there is no index change"
+            );
+            assert!(
+                actual.has_unresolved_conflicts(conflicts_like_in_git),
+                "{case_name}: submodules currently result in an unresolved (unknown) conflict"
+            );
+        } else {
+            assert_eq!(
+                did_change,
+                actual.has_unresolved_conflicts(conflicts_like_in_git),
+                "{case_name}: If there is any kind of conflict, the index should have been changed"
+            );
+        }
     }
 
     assert_eq!(
-        actual_cases, 105,
+        actual_cases, 107,
         "BUG: update this number, and don't forget to remove a filter in the end"
     );
 

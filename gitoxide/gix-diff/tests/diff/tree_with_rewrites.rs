@@ -14,25 +14,19 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
         Addition {
             location: "a",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "b",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "d",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -42,9 +36,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(587ff082e0b98914788500eae5dd6a33f04883c9),
         },
         Addition {
@@ -54,9 +46,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
     ]
@@ -76,25 +66,19 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
         Addition {
             location: "a",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "b",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "d",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -104,9 +88,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(587ff082e0b98914788500eae5dd6a33f04883c9),
         },
         Addition {
@@ -116,9 +98,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
     ]
@@ -153,35 +133,23 @@ fn changes_against_modified_tree_with_filename_tracking() -> crate::Result {
     [
         Modification {
             location: "a",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(78981922613b2afb6025042ff6bd878ac1994e85),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(b4f17b61de71d9b2e54ac9e62b1629ae2d97a6a7),
         },
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(e5c63aefe4327cb1c780c71966b678ce8e4225da),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(c7ac5f82f536976f3561c9999b5f11e5893358be),
         },
         Modification {
             location: "dir/c",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(6695780ceb14b05e076a99bbd2babf34723b3464),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
         },
     ]
@@ -198,35 +166,23 @@ fn changes_against_modified_tree_with_filename_tracking() -> crate::Result {
     [
         Modification {
             location: "a",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(78981922613b2afb6025042ff6bd878ac1994e85),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(b4f17b61de71d9b2e54ac9e62b1629ae2d97a6a7),
         },
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(e5c63aefe4327cb1c780c71966b678ce8e4225da),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(c7ac5f82f536976f3561c9999b5f11e5893358be),
         },
         Modification {
             location: "c",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(6695780ceb14b05e076a99bbd2babf34723b3464),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
         },
     ]
@@ -340,40 +296,28 @@ fn rename_by_similarity() -> crate::Result {
         [
             Modification {
                 location: "b",
-                previous_entry_mode: EntryMode(
-                    33188,
-                ),
+                previous_entry_mode: EntryMode(0o100644),
                 previous_id: Sha1(61780798228d17af2d34fce4cfbdf35556832472),
-                entry_mode: EntryMode(
-                    33188,
-                ),
+                entry_mode: EntryMode(0o100644),
                 id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
             },
             Modification {
                 location: "dir",
-                previous_entry_mode: EntryMode(
-                    16384,
-                ),
+                previous_entry_mode: EntryMode(0o40000),
                 previous_id: Sha1(d1622e275dbb2cb3215a0bdcd2fc77273891f360),
-                entry_mode: EntryMode(
-                    16384,
-                ),
+                entry_mode: EntryMode(0o40000),
                 id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
             },
             Deletion {
                 location: "dir/c",
                 relation: None,
-                entry_mode: EntryMode(
-                    33188,
-                ),
+                entry_mode: EntryMode(0o100644),
                 id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
             },
             Addition {
                 location: "dir/c-moved",
                 relation: None,
-                entry_mode: EntryMode(
-                    33188,
-                ),
+                entry_mode: EntryMode(0o100644),
                 id: Sha1(f01e8ddf5adc56985b9a1cda6d7c7ef9e3abe034),
             },
         ]
@@ -404,31 +348,21 @@ fn rename_by_similarity() -> crate::Result {
     [
         Modification {
             location: "b",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(61780798228d17af2d34fce4cfbdf35556832472),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
         },
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(d1622e275dbb2cb3215a0bdcd2fc77273891f360),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
         },
         Rewrite {
             source_location: "dir/c",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
             diff: Some(
@@ -440,9 +374,7 @@ fn rename_by_similarity() -> crate::Result {
                     similarity: 0.65,
                 },
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f01e8ddf5adc56985b9a1cda6d7c7ef9e3abe034),
             location: "dir/c-moved",
             relation: None,
@@ -508,26 +440,18 @@ fn copies_by_identity() -> crate::Result {
     [
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f00c965d8307308469e537302baa73048488f162),
             location: "c1",
             relation: None,
@@ -535,15 +459,11 @@ fn copies_by_identity() -> crate::Result {
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f00c965d8307308469e537302baa73048488f162),
             location: "c2",
             relation: None,
@@ -551,15 +471,11 @@ fn copies_by_identity() -> crate::Result {
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f00c965d8307308469e537302baa73048488f162),
             location: "dir/c3",
             relation: None,
@@ -592,26 +508,18 @@ fn copies_by_similarity() -> crate::Result {
     [
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(1d7e20e07562a54af0408fd2669b0c56a6faa6f0),
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             location: "c4",
             relation: None,
@@ -619,9 +527,7 @@ fn copies_by_similarity() -> crate::Result {
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: Some(
@@ -633,9 +539,7 @@ fn copies_by_similarity() -> crate::Result {
                     similarity: 0.8888889,
                 },
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
             location: "c5",
             relation: None,
@@ -643,9 +547,7 @@ fn copies_by_similarity() -> crate::Result {
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: Some(
@@ -657,9 +559,7 @@ fn copies_by_similarity() -> crate::Result {
                     similarity: 0.8888889,
                 },
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
             location: "dir/c6",
             relation: None,
@@ -729,15 +629,11 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
     [
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             location: "c6",
             relation: None,
@@ -745,15 +641,11 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         },
         Rewrite {
             source_location: "dir/c6",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
             location: "c7",
             relation: None,
@@ -761,9 +653,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         },
         Rewrite {
             source_location: "c5",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
             diff: Some(
@@ -775,9 +665,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
                     similarity: 0.75,
                 },
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(97b3d1a5707f8a11fa5fa8bc6c3bd7b3965601fd),
             location: "newly-added",
             relation: None,
@@ -785,13 +673,9 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         },
         Modification {
             location: "b",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f198d0640214092732566fb00543163845c8252c),
         },
     ]
@@ -828,15 +712,11 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
     [
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             location: "c6",
             relation: None,
@@ -844,15 +724,11 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
         },
         Rewrite {
             source_location: "dir/c6",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
             location: "c7",
             relation: None,
@@ -860,21 +736,15 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
         },
         Modification {
             location: "b",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(f198d0640214092732566fb00543163845c8252c),
         },
         Addition {
             location: "newly-added",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(97b3d1a5707f8a11fa5fa8bc6c3bd7b3965601fd),
         },
     ]
@@ -910,26 +780,18 @@ fn copies_by_similarity_with_limit() -> crate::Result {
     [
         Modification {
             location: "dir",
-            previous_entry_mode: EntryMode(
-                16384,
-            ),
+            previous_entry_mode: EntryMode(0o40000),
             previous_id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(1d7e20e07562a54af0408fd2669b0c56a6faa6f0),
         },
         Rewrite {
             source_location: "base",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
             location: "c4",
             relation: None,
@@ -938,17 +800,13 @@ fn copies_by_similarity_with_limit() -> crate::Result {
         Addition {
             location: "c5",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
         },
         Addition {
             location: "dir/c6",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
         },
     ]
@@ -984,15 +842,11 @@ fn realistic_renames_by_identity() -> crate::Result {
     [
         Rewrite {
             source_location: "git-index/src/file.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "git-index/src/file/mod.rs",
             relation: None,
@@ -1001,20 +855,14 @@ fn realistic_renames_by_identity() -> crate::Result {
         Addition {
             location: "git-index/tests/index/file/access.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Modification {
             location: "git-index/tests/index/file/mod.rs",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(8ba3a16384aacc37d01564b28401755ce8053f51),
         },
     ]
@@ -1070,36 +918,26 @@ fn realistic_renames_disabled() -> crate::Result {
         Deletion {
             location: "git-index/src/file.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "git-index/src/file/mod.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "git-index/tests/index/file/access.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Modification {
             location: "git-index/tests/index/file/mod.rs",
-            previous_entry_mode: EntryMode(
-                33188,
-            ),
+            previous_entry_mode: EntryMode(0o100644),
             previous_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(8ba3a16384aacc37d01564b28401755ce8053f51),
         },
     ]
@@ -1161,9 +999,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
         },
         Addition {
@@ -1173,9 +1009,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
         },
         Deletion {
@@ -1185,9 +1019,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1197,9 +1029,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1209,9 +1039,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1221,9 +1049,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1233,9 +1059,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1245,9 +1069,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1257,9 +1079,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1269,9 +1089,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1281,9 +1099,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1293,9 +1109,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1305,9 +1119,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1317,9 +1129,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1329,9 +1139,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1341,9 +1149,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
@@ -1353,9 +1159,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     1,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
@@ -1365,9 +1169,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                     2,
                 ),
             ),
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
     ]
@@ -1456,33 +1258,25 @@ fn realistic_renames_disabled_3() -> crate::Result {
         Addition {
             location: "src/ein.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Addition {
             location: "src/gix.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
             location: "src/plumbing-cli.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
         Deletion {
             location: "src/porcelain-cli.rs",
             relation: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
         },
     ]
@@ -1539,15 +1333,11 @@ fn realistic_renames_by_identity_3() -> crate::Result {
     [
         Rewrite {
             source_location: "src/plumbing-cli.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "src/ein.rs",
             relation: None,
@@ -1555,15 +1345,11 @@ fn realistic_renames_by_identity_3() -> crate::Result {
         },
         Rewrite {
             source_location: "src/porcelain-cli.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: None,
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "src/gix.rs",
             relation: None,
@@ -1629,9 +1415,7 @@ fn realistic_renames_2() -> crate::Result {
     [
         Rewrite {
             source_location: "git-sec",
-            source_entry_mode: EntryMode(
-                16384,
-            ),
+            source_entry_mode: EntryMode(0o40000),
             source_relation: Some(
                 Parent(
                     1,
@@ -1639,9 +1423,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
             diff: None,
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
             location: "gix-sec",
             relation: Some(
@@ -1653,9 +1435,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/CHANGELOG.md",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1663,9 +1443,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/CHANGELOG.md",
             relation: Some(
@@ -1677,9 +1455,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/Cargo.toml",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1687,9 +1463,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/Cargo.toml",
             relation: Some(
@@ -1701,9 +1475,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/src/identity.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1711,9 +1483,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/src/identity.rs",
             relation: Some(
@@ -1725,9 +1495,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/src/lib.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1735,9 +1503,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/src/lib.rs",
             relation: Some(
@@ -1749,9 +1515,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/src/permission.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1759,9 +1523,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/src/permission.rs",
             relation: Some(
@@ -1773,9 +1535,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/src/trust.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1783,9 +1543,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/src/trust.rs",
             relation: Some(
@@ -1797,9 +1555,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/tests/sec.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1807,9 +1563,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/tests/sec.rs",
             relation: Some(
@@ -1821,9 +1575,7 @@ fn realistic_renames_2() -> crate::Result {
         },
         Rewrite {
             source_location: "git-sec/tests/identity/mod.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     1,
@@ -1831,9 +1583,7 @@ fn realistic_renames_2() -> crate::Result {
             ),
             source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
             location: "gix-sec/tests/identity/mod.rs",
             relation: Some(
@@ -1927,9 +1677,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
     [
         Rewrite {
             source_location: "src/plumbing/options.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     2,
@@ -1937,9 +1685,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
             ),
             source_id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
             location: "src/plumbing-renamed/options/mod.rs",
             relation: Some(
@@ -1951,9 +1697,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
         },
         Rewrite {
             source_location: "src/plumbing/mod.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     2,
@@ -1961,9 +1705,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
             ),
             source_id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
             location: "src/plumbing-renamed/mod.rs",
             relation: Some(
@@ -1975,9 +1717,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
         },
         Rewrite {
             source_location: "src/plumbing/main.rs",
-            source_entry_mode: EntryMode(
-                33188,
-            ),
+            source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
                 ChildOfParent(
                     2,
@@ -1985,9 +1725,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
             ),
             source_id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
             diff: None,
-            entry_mode: EntryMode(
-                33188,
-            ),
+            entry_mode: EntryMode(0o100644),
             id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
             location: "src/plumbing-renamed/main.rs",
             relation: Some(
@@ -1999,9 +1737,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
         },
         Rewrite {
             source_location: "src/plumbing",
-            source_entry_mode: EntryMode(
-                16384,
-            ),
+            source_entry_mode: EntryMode(0o40000),
             source_relation: Some(
                 Parent(
                     2,
@@ -2009,9 +1745,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
             ),
             source_id: Sha1(b9d41dcdbd92fcab2fb6594d04f2ad99b3472621),
             diff: None,
-            entry_mode: EntryMode(
-                16384,
-            ),
+            entry_mode: EntryMode(0o40000),
             id: Sha1(202702465d7bb291153629dc2e8b353afe9cbdae),
             location: "src/plumbing-renamed",
             relation: Some(

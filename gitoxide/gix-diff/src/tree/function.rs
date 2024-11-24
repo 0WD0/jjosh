@@ -377,7 +377,7 @@ fn handle_lhs_and_rhs_with_equal_filenames(
         (false, false) => {
             delegate.push_path_component(lhs.filename);
             debug_assert!(lhs.mode.is_no_tree() && lhs.mode.is_no_tree());
-            if lhs.oid != rhs.oid
+            if (lhs.oid != rhs.oid || lhs.mode != rhs.mode)
                 && delegate
                     .visit(Change::Modification {
                         previous_entry_mode: lhs.mode,

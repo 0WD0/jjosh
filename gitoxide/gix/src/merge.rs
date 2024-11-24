@@ -107,7 +107,7 @@ pub mod commit {
 ///
 pub mod tree {
     use gix_merge::blob::builtin_driver;
-    pub use gix_merge::tree::{Conflict, ContentMerge, Resolution, ResolutionFailure, UnresolvedConflict};
+    pub use gix_merge::tree::{Conflict, ContentMerge, Resolution, ResolutionFailure, TreatAsUnresolved};
 
     /// The outcome produced by [`Repository::merge_trees()`](crate::Repository::merge_trees()).
     #[derive(Clone)]
@@ -130,8 +130,28 @@ pub mod tree {
     impl Outcome<'_> {
         /// Return `true` if there is any conflict that would still need to be resolved as they would yield undesirable trees.
         /// This is based on `how` to determine what should be considered unresolved.
-        pub fn has_unresolved_conflicts(&self, how: UnresolvedConflict) -> bool {
+        pub fn has_unresolved_conflicts(&self, how: TreatAsUnresolved) -> bool {
             self.conflicts.iter().any(|c| c.is_unresolved(how))
+        }
+
+        /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
+        /// conflict should be considered unresolved.
+        /// It's important that `index` is at the state of [`Self::tree`].
+        ///
+        /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
+        ///
+        /// ### Important
+        ///
+        /// Also, the unconflicted stage of such entries will be removed merely by setting a flag, so the
+        /// in-memory entry is still present.
+        /// One can prune `index` [in-memory](gix_index::State::remove_entries()) or write it to disk, which will
+        /// cause entries marked for removal not to be persisted.
+        pub fn index_changed_after_applying_conflicts(
+            &self,
+            index: &mut gix_index::State,
+            how: TreatAsUnresolved,
+        ) -> bool {
+            gix_merge::tree::apply_index_entries(&self.conflicts, how, index)
         }
     }
 
@@ -206,7 +226,7 @@ pub mod tree {
         /// If `Some(what-is-unresolved)`, the first unresolved conflict will cause the entire merge to stop.
         /// This is useful to see if there is any conflict, without performing the whole operation, something
         /// that can be very relevant during merges that would cause a lot of blob-diffs.
-        pub fn with_fail_on_conflict(mut self, fail_on_conflict: Option<UnresolvedConflict>) -> Self {
+        pub fn with_fail_on_conflict(mut self, fail_on_conflict: Option<TreatAsUnresolved>) -> Self {
             self.inner.fail_on_conflict = fail_on_conflict;
             self
         }

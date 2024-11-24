@@ -64,9 +64,7 @@ pub fn chunk<'a>(
         .ok_or(decode::Error::Entry { index: idx })?;
 
         data = remaining;
-        if entry.mode.is_sparse() {
-            is_sparse = true;
-        }
+        is_sparse |= entry.mode.is_sparse();
         // TODO: entries are actually in an intrusive collection, with path as key. Could be set for us. This affects 'ignore_case' which we
         //       also don't yet handle but probably could, maybe even smartly with the collection.
         //       For now it's unclear to me how they access the index, they could iterate quickly, and have fast access by path.

@@ -5,6 +5,8 @@ mod config;
 mod excludes;
 #[cfg(feature = "attributes")]
 mod filter;
+#[cfg(feature = "merge")]
+mod merge;
 mod object;
 mod open;
 #[cfg(feature = "attributes")]
