@@ -79,10 +79,10 @@ path = "tests/async-transport.rs"
 required-features = ["async-client"]
 
 [dependencies]
-gix-command = { version = "^0.3.10", path = "../gix-command" }
+gix-command = { version = "^0.3.11", path = "../gix-command" }
 gix-features = { version = "^0.39.1", path = "../gix-features" }
 gix-url = { version = "^0.28.1", path = "../gix-url" }
-gix-sec = { version = "^0.10.9", path = "../gix-sec" }
+gix-sec = { version = "^0.10.10", path = "../gix-sec" }
 gix-packetline = { version = "^0.18.1", path = "../gix-packetline" }
 gix-credentials = { version = "^0.25.1", path = "../gix-credentials", optional = true }
 gix-quote = { version = "^0.4.14", path = "../gix-quote" }

@@ -22,9 +22,9 @@ serde = ["dep:serde", "bstr/serde", "gix-sec/serde", "gix-ref/serde", "gix-glob/
 gix-features = { version = "^0.39.1", path = "../gix-features" }
 gix-config-value = { version = "^0.14.10", path = "../gix-config-value" }
 gix-path = { version = "^0.10.13", path = "../gix-path" }
-gix-sec = { version = "^0.10.9", path = "../gix-sec" }
+gix-sec = { version = "^0.10.10", path = "../gix-sec" }
 gix-ref = { version = "^0.49.0", path = "../gix-ref" }
-gix-glob = { version = "^0.17.0", path = "../gix-glob" }
+gix-glob = { version = "^0.17.1", path = "../gix-glob" }
 
 winnow = { version = "0.6", features = ["simd"] }
 memchr = "2"

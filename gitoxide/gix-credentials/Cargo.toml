@@ -19,10 +19,10 @@ doctest = false
 serde = ["dep:serde", "bstr/serde", "gix-sec/serde"]
 
 [dependencies]
-gix-sec = { version = "^0.10.9", path = "../gix-sec" }
+gix-sec = { version = "^0.10.10", path = "../gix-sec" }
 gix-url = { version = "^0.28.1", path = "../gix-url" }
 gix-path = { version = "^0.10.13", path = "../gix-path" }
-gix-command = { version = "^0.3.10", path = "../gix-command" }
+gix-command = { version = "^0.3.11", path = "../gix-command" }
 gix-config-value = { version = "^0.14.10", path = "../gix-config-value" }
 gix-prompt = { version = "^0.8.9", path = "../gix-prompt" }
 gix-trace = { version = "^0.1.11", path = "../gix-trace" }
