@@ -1,7 +1,8 @@
+use bstr::BString;
 use gix_object::{
     bstr::ByteSlice,
     tree::{self, Entry, EntryRef},
-    FindExt, TreeRefIter,
+    TreeRefIter,
 };
 use pretty_assertions::assert_eq;
 
@@ -62,8 +63,11 @@ fn everything() -> crate::Result {
 fn lookup_entry_toplevel() -> crate::Result {
     let entry = utils::lookup_entry_by_path("bin")?;
 
-    assert!(matches!(entry, Entry { .. }));
-    assert_eq!(entry.filename, "bin");
+    let mode: tree::EntryMode = tree::EntryMode(33188);
+    let filename: BString = "bin".into();
+    let oid = hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+
+    assert_eq!(entry, Entry { mode, filename, oid });
 
     Ok(())
 }
@@ -72,8 +76,11 @@ fn lookup_entry_toplevel() -> crate::Result {
 fn lookup_entry_nested_path() -> crate::Result {
     let entry = utils::lookup_entry_by_path("file/a")?;
 
-    assert!(matches!(entry, Entry { .. }));
-    assert_eq!(entry.filename, "a");
+    let mode: tree::EntryMode = tree::EntryMode(33188);
+    let filename: BString = "a".into();
+    let oid = hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+
+    assert_eq!(entry, Entry { mode, filename, oid });
 
     Ok(())
 }
