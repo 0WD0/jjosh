@@ -64,7 +64,7 @@ fn lookup_entry_toplevel() -> crate::Result {
     let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
 
     let mut buf = Vec::new();
-    let root_tree = odb.find_tree(&root_tree_id, &mut buf)?;
+    let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
 
     let mut buf = Vec::new();
     let entry = root_tree.lookup_entry_by_path(&odb, &mut buf, "bin").unwrap().unwrap();
@@ -81,7 +81,7 @@ fn lookup_entry_nested_path() -> crate::Result {
     let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
 
     let mut buf = Vec::new();
-    let root_tree = odb.find_tree(&root_tree_id, &mut buf)?;
+    let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
 
     let mut buf = Vec::new();
     let entry = root_tree
