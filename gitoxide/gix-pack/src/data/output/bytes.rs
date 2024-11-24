@@ -3,6 +3,7 @@ use std::io::Write;
 use gix_features::hash;
 
 use crate::data::output;
+use crate::exact_vec;
 
 /// The error returned by `next()` in the [`FromEntriesIter`] iterator.
 #[allow(missing_docs)]
@@ -73,7 +74,7 @@ where
             output: hash::Write::new(output, object_hash),
             trailer: None,
             entry_version: version,
-            pack_offsets_and_validity: Vec::with_capacity(num_entries as usize),
+            pack_offsets_and_validity: exact_vec(num_entries as usize),
             written: 0,
             header_info: Some((version, num_entries)),
             is_done: false,

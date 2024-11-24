@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::exact_vec;
 use gix_features::progress::{self, Progress};
 
 pub(crate) fn index_entries_sorted_by_offset_ascending(
@@ -9,7 +10,7 @@ pub(crate) fn index_entries_sorted_by_offset_ascending(
     progress.init(Some(idx.num_objects as usize), progress::count("entries"));
     let start = Instant::now();
 
-    let mut v = Vec::with_capacity(idx.num_objects as usize);
+    let mut v = exact_vec(idx.num_objects as usize);
     for entry in idx.iter() {
         v.push(entry);
         progress.inc();
