@@ -133,6 +133,26 @@ pub mod tree {
         pub fn has_unresolved_conflicts(&self, how: TreatAsUnresolved) -> bool {
             self.conflicts.iter().any(|c| c.is_unresolved(how))
         }
+
+        /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
+        /// conflict should be considered unresolved.
+        /// It's important that `index` is at the state of [`Self::tree`].
+        ///
+        /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
+        ///
+        /// ### Important
+        ///
+        /// Also, the unconflicted stage of such entries will be removed merely by setting a flag, so the
+        /// in-memory entry is still present.
+        /// One can prune `index` [in-memory](gix_index::State::remove_entries()) or write it to disk, which will
+        /// cause entries marked for removal not to be persisted.
+        pub fn index_changed_after_applying_conflicts(
+            &self,
+            index: &mut gix_index::State,
+            how: TreatAsUnresolved,
+        ) -> bool {
+            gix_merge::tree::apply_index_entries(&self.conflicts, how, index)
+        }
     }
 
     /// A way to configure [`Repository::merge_trees()`](crate::Repository::merge_trees()).

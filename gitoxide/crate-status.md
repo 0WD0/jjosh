@@ -353,6 +353,7 @@ Check out the [performance discussion][gix-diff-performance] as well.
 * [x] **tree**-diff-heuristics match Git for its test-cases
     - [x] a way to generate an index with stages, mostly conforming with Git.
     - [ ] submodule merges (*right now they count as conflicts if they differ*)
+    - [ ] assure sparse indices are handled correctly during application - right now we refuse.
 * [x] **commits** - with handling of multiple merge bases by recursive merge-base merge
 * [x] API documentation
     * [ ] Examples
