@@ -2187,6 +2187,7 @@ dependencies = [
  "gix-hash 0.15.1",
  "gix-hashtable 0.6.0",
  "gix-odb",
+ "gix-path 0.10.13",
  "gix-testtools",
  "gix-utils 0.1.13",
  "gix-validate 0.9.2",
