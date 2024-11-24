@@ -153,7 +153,8 @@ mod relative {
             "hour" => Span::new().try_hours(units),
             "day" => Span::new().try_days(units),
             "week" => Span::new().try_weeks(units),
-            // TODO months & years? YES
+            "month" => Span::new().try_months(units),
+            "year" => Span::new().try_years(units),
             // Ignore values you don't know, assume seconds then (so does git)
             _ => return None,
         };

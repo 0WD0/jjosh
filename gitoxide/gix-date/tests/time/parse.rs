@@ -181,39 +181,75 @@ mod relative {
     fn various() {
         let now = SystemTime::now();
 
+        // For comparison, a few are the same as in: https://github.com/git/git/blob/master/t/t0006-date.sh
         let cases = [
-            ("2 weeks ago", 2.weeks()),
+            ("5 seconds ago", 5.seconds()),
+            ("5 minutes ago", 5.minutes()),
+            ("5 hours ago", 5.hours()),
+            ("5 days ago", 5.days()),
+            ("3 weeks ago", 3.weeks()),
+            ("21 days ago", 21.days()),              // 3 weeks
+            ("504 hours ago", 504.hours()),          // 3 weeks
+            ("30240 minutes ago", 30_240.minutes()), // 3 weeks
+            ("2 months ago", 2.months()),
+            ("1460 hours ago", 1460.hours()),        // 2 months
+            ("87600 minutes ago", 87_600.minutes()), // 2 months
             ("14 weeks ago", 14.weeks()),
-            ("26 weeks ago", 26.weeks()),
-            ("38 weeks ago", 38.weeks()),
-            ("50 weeks ago", 50.weeks()),
-            ("20160 minutes ago", 20_160.minutes()),   // 2 weeks
+            ("98 days ago", 98.days()),                // 14 weeks
+            ("2352 hours ago", 2352.hours()),          // 14 weeks
             ("141120 minutes ago", 141_120.minutes()), // 14 weeks
+            ("5 months ago", 5.months()),
+            ("3650 hours ago", 3650.hours()),          // 5 months
+            ("219000 minutes ago", 219_000.minutes()), // 5 months
+            ("26 weeks ago", 26.weeks()),
+            ("182 days ago", 182.days()),              // 26 weeks
+            ("4368 hours ago", 4368.hours()),          // 26 weeks
             ("262080 minutes ago", 262_080.minutes()), // 26 weeks
+            ("8 months ago", 8.months()),
+            ("5840 hours ago", 5840.hours()),          // 8 months
+            ("350400 minutes ago", 350_400.minutes()), // 8 months
+            ("38 weeks ago", 38.weeks()),
+            ("266 days ago", 266.days()),              // 38 weeks
+            ("6384 hours ago", 6384.hours()),          // 38 weeks
             ("383040 minutes ago", 383_040.minutes()), // 38 weeks
-            ("504000 minutes ago", 504_000.minutes()), // 50 weeks
+            ("11 months ago", 11.months()),
+            ("8030 hours ago", 8030.hours()),          // 11 months
+            ("481800 minutes ago", 481_800.minutes()), // 11 months
+            ("14 months ago", 14.months()),            // "1 year, 2 months ago" not yet supported.
+            ("21 months ago", 21.months()),            // "1 year, 9 months ago" not yet supported.
+            ("2 years ago", 2.years()),
+            ("20 years ago", 20.years()),
+            ("630720000 seconds ago", 630_720_000.seconds()), // 20 years
         ];
 
-        let times = cases.map(|(input, _)| gix_date::parse(input, Some(now)).unwrap());
+        let with_times = cases.map(|(input, _)| {
+            let time = gix_date::parse(input, Some(now)).expect("relative time string should parse to a Time");
+            (input, time)
+        });
+        assert_eq!(with_times.map(|_| Sign::Plus), with_times.map(|(_, time)| time.sign));
+        assert_eq!(with_times.map(|_| 0), with_times.map(|(_, time)| time.offset));
 
-        assert_eq!(times.map(|_| Sign::Plus), times.map(|time| time.sign));
-        assert_eq!(times.map(|_| 0), times.map(|time| time.offset));
-
-        let expected = cases.map(|(_, span)| {
-            Zoned::try_from(now)
-                .unwrap()
+        let with_expected = cases.map(|(input, span)| {
+            let expected = Zoned::try_from(now)
+                .expect("test needs to convert current time to a timestamp")
                 // account for the loss of precision when creating `Time` with seconds
                 .round(
                     jiff::ZonedRound::new()
                         .smallest(jiff::Unit::Second)
                         .mode(jiff::RoundMode::Trunc),
                 )
-                .unwrap()
+                .expect("test needs to truncate current timestamp to seconds")
                 .saturating_sub(span)
-                .timestamp()
+                .timestamp();
+
+            (input, expected)
         });
-        let actual = times.map(|time| jiff::Timestamp::from_second(time.seconds).unwrap());
-        assert_eq!(actual, expected, "relative times differ");
+        let with_actual = with_times.map(|(input, time)| {
+            let actual = jiff::Timestamp::from_second(time.seconds)
+                .expect("seconds obtained from a Time should convert to Timestamp");
+            (input, actual)
+        });
+        assert_eq!(with_actual, with_expected, "relative times differ");
     }
 }
 
