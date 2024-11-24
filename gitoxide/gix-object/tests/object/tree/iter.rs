@@ -60,14 +60,7 @@ fn everything() -> crate::Result {
 
 #[test]
 fn lookup_entry_toplevel() -> crate::Result {
-    let odb = utils::tree_odb()?;
-    let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
-
-    let mut buf = Vec::new();
-    let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
-
-    let mut buf = Vec::new();
-    let entry = root_tree.lookup_entry_by_path(&odb, &mut buf, "bin").unwrap().unwrap();
+    let entry = utils::lookup_entry_by_path("bin")?;
 
     assert!(matches!(entry, Entry { .. }));
     assert_eq!(entry.filename, "bin");
@@ -77,17 +70,7 @@ fn lookup_entry_toplevel() -> crate::Result {
 
 #[test]
 fn lookup_entry_nested_path() -> crate::Result {
-    let odb = utils::tree_odb()?;
-    let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
-
-    let mut buf = Vec::new();
-    let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
-
-    let mut buf = Vec::new();
-    let entry = root_tree
-        .lookup_entry_by_path(&odb, &mut buf, "file/a")
-        .unwrap()
-        .unwrap();
+    let entry = utils::lookup_entry_by_path("file/a")?;
 
     assert!(matches!(entry, Entry { .. }));
     assert_eq!(entry.filename, "a");
@@ -96,8 +79,23 @@ fn lookup_entry_nested_path() -> crate::Result {
 }
 
 mod utils {
+    use crate::hex_to_id;
+
+    use gix_object::FindExt;
+
     pub(super) fn tree_odb() -> gix_testtools::Result<gix_odb::Handle> {
         let root = gix_testtools::scripted_fixture_read_only("make_trees.sh")?;
         Ok(gix_odb::at(root.join(".git/objects"))?)
+    }
+
+    pub(super) fn lookup_entry_by_path(path: &str) -> gix_testtools::Result<gix_object::tree::Entry> {
+        let odb = tree_odb()?;
+        let root_tree_id = hex_to_id("ff7e7d2aecae1c3fb15054b289a4c58aa65b8646");
+
+        let mut buf = Vec::new();
+        let root_tree = odb.find_tree_iter(&root_tree_id, &mut buf)?;
+
+        let mut buf = Vec::new();
+        Ok(root_tree.lookup_entry_by_path(&odb, &mut buf, path).unwrap().unwrap())
     }
 }
