@@ -156,7 +156,7 @@ mod relative {
             "month" => Span::new().try_months(units),
             "year" => Span::new().try_years(units),
             // Ignore values you don't know, assume seconds then (so does git)
-            _ => return None,
+            _anything => Span::new().try_seconds(units),
         };
         Some(result.map_err(|_| Error::RelativeTimeConversion))
     }

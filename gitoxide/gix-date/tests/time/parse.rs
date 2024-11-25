@@ -184,6 +184,7 @@ mod relative {
         // For comparison, a few are the same as in: https://github.com/git/git/blob/master/t/t0006-date.sh
         let cases = [
             ("5 seconds ago", 5.seconds()),
+            ("12345 florx ago", 12_345.seconds()), // Anything parses as seconds
             ("5 minutes ago", 5.minutes()),
             ("5 hours ago", 5.hours()),
             ("5 days ago", 5.days()),
