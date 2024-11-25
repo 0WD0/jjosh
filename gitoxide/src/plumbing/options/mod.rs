@@ -406,7 +406,7 @@ pub mod merge {
             #[clap(value_name = "BASE", value_parser = crate::shared::AsBString)]
             base: BString,
             /// A path or revspec to their file.
-            #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
+            #[clap(value_name = "THEIRS", value_parser = crate::shared::AsBString)]
             theirs: BString,
         },
 
