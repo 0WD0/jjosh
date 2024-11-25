@@ -222,34 +222,46 @@ mod relative {
             ("630720000 seconds ago", 630_720_000.seconds()), // 20 years
         ];
 
-        let with_times = cases.map(|(input, _)| {
+        let cases_with_times = cases.map(|(input, _)| {
             let time = gix_date::parse(input, Some(now)).expect("relative time string should parse to a Time");
             (input, time)
         });
-        assert_eq!(with_times.map(|_| Sign::Plus), with_times.map(|(_, time)| time.sign));
-        assert_eq!(with_times.map(|_| 0), with_times.map(|(_, time)| time.offset));
+        assert_eq!(
+            cases_with_times.map(|(_, time)| time.sign),
+            cases_with_times.map(|_| Sign::Plus),
+            "Despite being in the past, the dates produced are positive, as they are still post-epoch"
+        );
+        assert_eq!(
+            cases_with_times.map(|(_, time)| time.offset),
+            cases_with_times.map(|_| 0),
+            "They don't pick up local time"
+        );
 
-        let with_expected = cases.map(|(input, span)| {
-            let expected = Zoned::try_from(now)
-                .expect("test needs to convert current time to a timestamp")
-                // account for the loss of precision when creating `Time` with seconds
-                .round(
-                    jiff::ZonedRound::new()
-                        .smallest(jiff::Unit::Second)
-                        .mode(jiff::RoundMode::Trunc),
-                )
-                .expect("test needs to truncate current timestamp to seconds")
-                .saturating_sub(span)
-                .timestamp();
+        let expected = cases.map(|(input, span)| {
+            let expected = Zoned::new(
+                now.try_into().expect("system time is representable"),
+                // As relative dates are always UTC in Git, we do the same, and must
+                // compare to UTC as well or else time might be off due to daylight savings, etc.
+                jiff::tz::TimeZone::UTC,
+            )
+            // account for the loss of precision when creating `Time` with seconds
+            .round(
+                jiff::ZonedRound::new()
+                    .smallest(jiff::Unit::Second)
+                    .mode(jiff::RoundMode::Trunc),
+            )
+            .expect("test needs to truncate current timestamp to seconds")
+            .saturating_sub(span)
+            .timestamp();
 
             (input, expected)
         });
-        let with_actual = with_times.map(|(input, time)| {
+        let actual = cases_with_times.map(|(input, time)| {
             let actual = jiff::Timestamp::from_second(time.seconds)
                 .expect("seconds obtained from a Time should convert to Timestamp");
             (input, actual)
         });
-        assert_eq!(with_actual, with_expected, "relative times differ");
+        assert_eq!(actual, expected);
     }
 }
 
