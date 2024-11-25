@@ -329,13 +329,21 @@ pub(super) mod inner {
                         (Pick::Buffer, resolution)
                     }
                     BuiltinDriver::Binary => {
-                        let (pick, resolution) = builtin_driver::binary(self.options.resolve_binary_with);
-                        let pick = match pick {
-                            builtin_driver::binary::Pick::Ours => Pick::Ours,
-                            builtin_driver::binary::Pick::Theirs => Pick::Theirs,
-                            builtin_driver::binary::Pick::Ancestor => Pick::Ancestor,
-                        };
-                        (pick, resolution)
+                        // easier to reason about the 'split' compared to merging both conditions
+                        #[allow(clippy::if_same_then_else)]
+                        if !(self.current.id.is_null() || self.other.id.is_null()) && self.current.id == self.other.id {
+                            (Pick::Ours, Resolution::Complete)
+                        } else if (self.current.id.is_null() || self.other.id.is_null()) && ours == theirs {
+                            (Pick::Ours, Resolution::Complete)
+                        } else {
+                            let (pick, resolution) = builtin_driver::binary(self.options.resolve_binary_with);
+                            let pick = match pick {
+                                builtin_driver::binary::Pick::Ours => Pick::Ours,
+                                builtin_driver::binary::Pick::Theirs => Pick::Theirs,
+                                builtin_driver::binary::Pick::Ancestor => Pick::Ancestor,
+                            };
+                            (pick, resolution)
+                        }
                     }
                     BuiltinDriver::Union => {
                         let resolution = builtin_driver::text(

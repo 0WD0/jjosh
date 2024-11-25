@@ -59,8 +59,57 @@ mod merge {
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
         assert_eq!(
             res,
-            (Pick::Theirs, Resolution::Complete),
+            (Pick::Theirs, Resolution::CompleteWithAutoResolvedConflict),
             "the auto-binary driver respects its own options"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn same_binaries_do_not_count_as_conflicted() -> crate::Result {
+        let mut platform = new_platform(None, pipeline::Mode::ToGit);
+        platform.set_resource(
+            gix_hash::Kind::Sha1.null(),
+            EntryKind::Blob,
+            "a".into(),
+            ResourceKind::CommonAncestorOrBase,
+            &gix_object::find::Never,
+        )?;
+
+        let mut db = ObjectDb::default();
+        for (content, kind) in [
+            ("any\0", ResourceKind::CurrentOrOurs),
+            ("any\0", ResourceKind::OtherOrTheirs),
+        ] {
+            let id = db.insert(content);
+            platform.set_resource(
+                id,
+                EntryKind::Blob,
+                "path matters only for attribute lookup".into(),
+                kind,
+                &db,
+            )?;
+        }
+        let platform_ref = platform.prepare_merge(&db, Default::default())?;
+        assert_eq!(
+            platform_ref.driver,
+            DriverChoice::BuiltIn(BuiltinDriver::Text),
+            "it starts out at the default text driver"
+        );
+
+        let mut buf = Vec::new();
+        let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
+        assert_eq!(
+            res,
+            (Pick::Ours, Resolution::Complete),
+            "as both are the same, it just picks ours, declaring it non-conflicting"
+        );
+
+        let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
+        assert_eq!(
+            platform_ref.builtin_merge(BuiltinDriver::Binary, &mut buf, &mut input, default_labels()),
+            res,
+            "no way to work around it - calling the built-in binary merge is the same"
         );
         Ok(())
     }
@@ -192,7 +241,7 @@ theirs
         ] {
             platform_ref.options.resolve_binary_with = Some(resolve);
             let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
-            assert_eq!(res, (expected_pick, Resolution::Complete));
+            assert_eq!(res, (expected_pick, Resolution::CompleteWithAutoResolvedConflict));
             assert_eq!(platform_ref.buffer_by_pick(res.0).unwrap().unwrap().as_bstr(), expected);
 
             assert_eq!(

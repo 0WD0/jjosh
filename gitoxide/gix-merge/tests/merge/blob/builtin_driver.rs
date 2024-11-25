@@ -10,16 +10,16 @@ fn binary() {
     );
     assert_eq!(
         builtin_driver::binary(Some(ResolveWith::Ancestor)),
-        (Pick::Ancestor, Resolution::Complete),
+        (Pick::Ancestor, Resolution::CompleteWithAutoResolvedConflict),
         "Otherwise we can pick anything and it will mark it as complete"
     );
     assert_eq!(
         builtin_driver::binary(Some(ResolveWith::Ours)),
-        (Pick::Ours, Resolution::Complete)
+        (Pick::Ours, Resolution::CompleteWithAutoResolvedConflict)
     );
     assert_eq!(
         builtin_driver::binary(Some(ResolveWith::Theirs)),
-        (Pick::Theirs, Resolution::Complete)
+        (Pick::Theirs, Resolution::CompleteWithAutoResolvedConflict)
     );
 }
 
