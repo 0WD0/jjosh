@@ -71,7 +71,8 @@ where
     let _span = gix_trace::coarse!("gix_merge::tree", ?base_tree, ?our_tree, ?their_tree, ?labels);
     let (mut base_buf, mut side_buf) = (Vec::new(), Vec::new());
     let ancestor_tree = objects.find_tree(base_tree, &mut base_buf)?;
-    let allow_resolution_failure = !options.allow_lossy_resolution;
+    // TODO: properly handle 'Ours' as well.
+    let allow_resolution_failure = !matches!(options.tree_conflicts, Some(crate::tree::ResolveWith::Ancestor));
 
     let mut editor = tree::Editor::new(ancestor_tree.to_owned(), objects, base_tree.kind());
     let ancestor_tree = gix_object::TreeRefIter::from_bytes(&base_buf);

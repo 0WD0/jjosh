@@ -30,7 +30,7 @@ pub enum Error {
 pub(super) mod function {
     use super::Error;
     use crate::blob::builtin_driver;
-    use crate::tree::TreatAsUnresolved;
+    use crate::tree::{treat_as_unresolved, TreatAsUnresolved};
     use gix_object::FindExt;
 
     /// Create a single virtual merge-base by merging `first_commit`, `second_commit` and `others` into one.
@@ -55,7 +55,7 @@ pub(super) mod function {
         let mut merged_commit_id = first_commit;
         others.push(second_commit);
 
-        options.allow_lossy_resolution = true;
+        options.tree_conflicts = Some(crate::tree::ResolveWith::Ancestor);
         options.blob_merge.is_virtual_ancestor = true;
         options.blob_merge.text.conflict = builtin_driver::text::Conflict::ResolveWithOurs;
         let favor_ancestor = Some(builtin_driver::binary::ResolveWith::Ancestor);
@@ -86,10 +86,10 @@ pub(super) mod function {
                 },
             )?;
             // This shouldn't happen, but if for some buggy reason it does, we rather bail.
-            if out
-                .tree_merge
-                .has_unresolved_conflicts(TreatAsUnresolved::ConflictMarkers)
-            {
+            if out.tree_merge.has_unresolved_conflicts(TreatAsUnresolved {
+                content_merge: treat_as_unresolved::ContentMerge::Markers,
+                tree_merge: treat_as_unresolved::TreeMerge::Undecidable,
+            }) {
                 return Err(Error::VirtualMergeBaseConflict.into());
             }
             let merged_tree_id = out

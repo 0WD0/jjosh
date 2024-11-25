@@ -222,6 +222,26 @@ git init rename-add-symlink
   git commit -m "rename foo to bar"
 )
 
+git init rename-add-same-symlink
+(cd rename-add-same-symlink
+  touch target
+  ln -s target link
+  git add .
+  git commit -m "original"
+
+  git branch A
+  git branch B
+
+  git checkout A
+  git mv link link-new
+  git commit -m "rename link to link-new"
+
+  git checkout B
+  ln -s target link-new
+  git add link-new
+  git commit -m "create link-new"
+)
+
 git init rename-rename-plus-content
 (cd rename-rename-plus-content
   write_lines 1 2 3 4 5 >foo
@@ -993,7 +1013,7 @@ git init type-change-to-symlink
 
 
 
-# TODO: Git does not detect the conflict (one turns exe off, the other turns it on), and we do exactly the same.
+baseline rename-add-same-symlink A-B A B
 baseline rename-add-exe-bit-conflict A-B A B
 baseline remove-executable-mode A-B A B
 baseline simple side-1-3-without-conflict side1 side3

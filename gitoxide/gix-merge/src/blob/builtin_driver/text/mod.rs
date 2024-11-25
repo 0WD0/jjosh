@@ -57,8 +57,11 @@ pub enum ConflictStyle {
 /// That way it becomes clearer where the content of conflicts are originating from.
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Labels<'a> {
+    /// The label for the common *ancestor*.
     pub ancestor: Option<&'a BStr>,
+    /// The label for the *current* (or *our*) side.
     pub current: Option<&'a BStr>,
+    /// The label for the *other* (or *their*) side.
     pub other: Option<&'a BStr>,
 }
 

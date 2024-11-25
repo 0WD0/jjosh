@@ -39,40 +39,47 @@ pub struct Outcome<'a> {
     /// Use [`has_unresolved_conflicts()`](Outcome::has_unresolved_conflicts()) to see if any action is needed
     /// before using [`tree`](Outcome::tree).
     pub conflicts: Vec<Conflict>,
-    /// `true` if `conflicts` contains only a single *unresolved* conflict in the last slot, but possibly more resolved ones.
+    /// `true` if `conflicts` contains only a single [*unresolved* conflict](ResolutionFailure) in the last slot, but
+    /// possibly more [resolved ones](Resolution) before that.
     /// This also makes this outcome a very partial merge that cannot be completed.
     /// Only set if [`fail_on_conflict`](Options::fail_on_conflict) is `true`.
     pub failed_on_first_unresolved_conflict: bool,
 }
 
 /// Determine what should be considered an unresolved conflict.
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TreatAsUnresolved {
+    /// Determine which content merges should be considered unresolved.
+    pub content_merge: treat_as_unresolved::ContentMerge,
+    /// Determine which tree merges should be considered unresolved.
+    pub tree_merge: treat_as_unresolved::TreeMerge,
+}
+
 ///
-/// Note that no matter which variant, [conflicts](Conflict) with
-/// [resolution failure](`ResolutionFailure`) will always be unresolved.
-///
-/// Also, when one side was modified but the other side renamed it, this will not
-/// be considered a conflict, even if a non-conflicting merge happened.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum TreatAsUnresolved {
-    /// Only consider content merges with conflict markers as unresolved.
-    ///
-    /// Auto-resolved tree conflicts will *not* be considered unresolved.
-    ConflictMarkers,
-    /// Consider content merges with conflict markers as unresolved, and content
-    /// merges where conflicts where auto-resolved in any way, like choosing
-    /// *ours*, *theirs*  or by their *union*.
-    ///
-    /// Auto-resolved tree conflicts will *not* be considered unresolved.
-    ConflictMarkersAndAutoResolved,
-    /// Whenever there were conflicting renames, or conflict markers, it is unresolved.
-    /// Note that auto-resolved content merges will *not* be considered unresolved.
-    ///
-    /// Also note that files that were changed in one and renamed in another will
-    /// be moved into place, which will be considered resolved.
-    Renames,
-    /// Similar to [`Self::Renames`], but auto-resolved content-merges will
-    /// also be considered unresolved.
-    RenamesAndAutoResolvedContent,
+pub mod treat_as_unresolved {
+    /// Which kind of content merges should be considered unresolved?
+    #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    pub enum ContentMerge {
+        /// Content merges that still show conflict markers.
+        #[default]
+        Markers,
+        /// Content merges who would have conflicted if it wasn't for a
+        /// [resolution strategy](crate::blob::builtin_driver::text::Conflict::ResolveWithOurs).
+        ForcedResolution,
+    }
+
+    /// Which kind of tree merges should be considered unresolved?
+    #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    pub enum TreeMerge {
+        /// All failed renames.
+        Undecidable,
+        /// All failed renames, and the ones where a tree item was renamed to avoid a clash.
+        #[default]
+        EvasiveRenames,
+        /// All of `EvasiveRenames`, and tree merges that would have conflicted but which were resolved
+        /// with a [resolution strategy](super::ResolveWith).
+        ForcedResolution,
+    }
 }
 
 impl Outcome<'_> {
@@ -174,35 +181,36 @@ impl Conflict {
     /// Return `true` if this instance is considered unresolved based on the criterion specified by `how`.
     pub fn is_unresolved(&self, how: TreatAsUnresolved) -> bool {
         use crate::blob;
-        let content_merge_matches = |info: &ContentMerge| match how {
-            TreatAsUnresolved::ConflictMarkers | TreatAsUnresolved::Renames => {
-                matches!(info.resolution, blob::Resolution::Conflict)
-            }
-            TreatAsUnresolved::RenamesAndAutoResolvedContent | TreatAsUnresolved::ConflictMarkersAndAutoResolved => {
+        let content_merge_matches = |info: &ContentMerge| match how.content_merge {
+            treat_as_unresolved::ContentMerge::Markers => matches!(info.resolution, blob::Resolution::Conflict),
+            treat_as_unresolved::ContentMerge::ForcedResolution => {
                 matches!(
                     info.resolution,
                     blob::Resolution::Conflict | blob::Resolution::CompleteWithAutoResolvedConflict
                 )
             }
         };
-        match how {
-            TreatAsUnresolved::ConflictMarkers | TreatAsUnresolved::ConflictMarkersAndAutoResolved => {
+        match how.tree_merge {
+            treat_as_unresolved::TreeMerge::Undecidable => {
                 self.resolution.is_err() || self.content_merge().map_or(false, |info| content_merge_matches(&info))
             }
-            TreatAsUnresolved::Renames | TreatAsUnresolved::RenamesAndAutoResolvedContent => match &self.resolution {
-                Ok(success) => match success {
-                    Resolution::SourceLocationAffectedByRename { .. } => false,
-                    Resolution::OursModifiedTheirsRenamedAndChangedThenRename {
-                        merged_blob,
-                        final_location,
-                        ..
-                    } => final_location.is_some() || merged_blob.as_ref().map_or(false, content_merge_matches),
-                    Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
-                        content_merge_matches(merged_blob)
-                    }
-                },
-                Err(_failure) => true,
-            },
+            treat_as_unresolved::TreeMerge::EvasiveRenames | treat_as_unresolved::TreeMerge::ForcedResolution => {
+                match &self.resolution {
+                    Ok(success) => match success {
+                        Resolution::SourceLocationAffectedByRename { .. } => false,
+                        Resolution::Forced(_) => how.tree_merge == treat_as_unresolved::TreeMerge::ForcedResolution,
+                        Resolution::OursModifiedTheirsRenamedAndChangedThenRename {
+                            merged_blob,
+                            final_location,
+                            ..
+                        } => final_location.is_some() || merged_blob.as_ref().map_or(false, content_merge_matches),
+                        Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
+                            content_merge_matches(merged_blob)
+                        }
+                    },
+                    Err(_failure) => true,
+                }
+            }
         }
     }
 
@@ -237,13 +245,8 @@ impl Conflict {
 
     /// Return information about the content merge if it was performed.
     pub fn content_merge(&self) -> Option<ContentMerge> {
-        match &self.resolution {
-            Ok(success) => match success {
-                Resolution::SourceLocationAffectedByRename { .. } => None,
-                Resolution::OursModifiedTheirsRenamedAndChangedThenRename { merged_blob, .. } => *merged_blob,
-                Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => Some(*merged_blob),
-            },
-            Err(failure) => match failure {
+        fn failure_merged_blob(failure: &ResolutionFailure) -> Option<ContentMerge> {
+            match failure {
                 ResolutionFailure::OursRenamedTheirsRenamedDifferently { merged_blob } => *merged_blob,
                 ResolutionFailure::Unknown
                 | ResolutionFailure::OursModifiedTheirsDeleted
@@ -253,7 +256,16 @@ impl Conflict {
                 }
                 | ResolutionFailure::OursAddedTheirsAddedTypeMismatch { .. }
                 | ResolutionFailure::OursDeletedTheirsRenamed => None,
+            }
+        }
+        match &self.resolution {
+            Ok(success) => match success {
+                Resolution::Forced(failure) => failure_merged_blob(failure),
+                Resolution::SourceLocationAffectedByRename { .. } => None,
+                Resolution::OursModifiedTheirsRenamedAndChangedThenRename { merged_blob, .. } => *merged_blob,
+                Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => Some(*merged_blob),
             },
+            Err(failure) => failure_merged_blob(failure),
         }
     }
 }
@@ -291,6 +303,9 @@ pub enum Resolution {
         /// The outcome of the content merge.
         merged_blob: ContentMerge,
     },
+    /// This is a resolution failure was forcefully turned into a usable resolution, i.e. [making a choice](ResolveWith)
+    /// is turned into a valid resolution.
+    Forced(ResolutionFailure),
 }
 
 /// Describes of a conflict involving *our* change and *their* failed to be resolved.
@@ -358,13 +373,26 @@ pub struct Options {
     /// If `None`, when symlinks clash *ours* will be chosen and a conflict will occur.
     /// Otherwise, the same logic applies as for the merge of binary resources.
     pub symlink_conflicts: Option<crate::blob::builtin_driver::binary::ResolveWith>,
-    /// If `true`, instead of issuing a conflict with [`ResolutionFailure`], do nothing and keep the base/ancestor
-    /// version. This is useful when one wants to avoid any kind of merge-conflict to have *some*, *lossy* resolution.
-    pub allow_lossy_resolution: bool,
+    /// If `None`, tree irreconcilable tree conflicts will result in [resolution failures](ResolutionFailure).
+    /// Otherwise, one can choose a side. Note that it's still possible to determine that auto-resolution happened
+    /// despite this choice, which allows carry forward the conflicting information, possibly for later resolution.
+    /// If `Some(…)`, irreconcilable conflicts are reconciled by making a choice. This mlso means that [`Conflict::entries()`]
+    /// won't be set as the conflict was officially resolved.
+    pub tree_conflicts: Option<ResolveWith>,
+}
+
+/// Decide how to resolve tree-related conflicts, but only those that have [no way of being correct](ResolutionFailure).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ResolveWith {
+    /// On irreconcilable conflict, choose neither *our* nor *their* state, but keep the common *ancestor* state instead.
+    Ancestor,
+    /// On irreconcilable conflict, choose *our* side
+    Ours,
 }
 
 pub(super) mod function;
 mod utils;
+///
 pub mod apply_index_entries {
 
     pub(super) mod function {
@@ -398,6 +426,7 @@ pub mod apply_index_entries {
             for conflict in conflicts.iter().filter(|c| c.is_unresolved(how)) {
                 let (renamed_path, current_path): (Option<&BStr>, &BStr) = match &conflict.resolution {
                     Ok(success) => match success {
+                        Resolution::Forced(_) => continue,
                         Resolution::SourceLocationAffectedByRename { final_location } => {
                             (Some(final_location.as_bstr()), final_location.as_bstr())
                         }

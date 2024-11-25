@@ -1,7 +1,7 @@
 use crate::tree::baseline::Deviation;
 use gix_diff::Rewrites;
 use gix_merge::commit::Options;
-use gix_merge::tree::TreatAsUnresolved;
+use gix_merge::tree::{treat_as_unresolved, TreatAsUnresolved};
 use gix_object::Write;
 use gix_worktree::stack::state::attributes;
 use std::path::Path;
@@ -119,7 +119,10 @@ fn run_baseline() -> crate::Result {
                 index
             }
         };
-        let conflicts_like_in_git = TreatAsUnresolved::Renames;
+        let conflicts_like_in_git = TreatAsUnresolved {
+            content_merge: treat_as_unresolved::ContentMerge::Markers,
+            tree_merge: treat_as_unresolved::TreeMerge::EvasiveRenames,
+        };
         let did_change = actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git);
         actual_index.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
 
@@ -130,27 +133,15 @@ fn run_baseline() -> crate::Result {
             actual.conflicts,
             merge_info.conflicts
         );
-        // if case_name.starts_with("submodule-both-modify-A-B") {
-        if false {
-            assert!(
-                !did_change,
-                "{case_name}: We can't handle submodules, so there is no index change"
-            );
-            assert!(
-                actual.has_unresolved_conflicts(conflicts_like_in_git),
-                "{case_name}: submodules currently result in an unresolved (unknown) conflict"
-            );
-        } else {
-            assert_eq!(
-                did_change,
-                actual.has_unresolved_conflicts(conflicts_like_in_git),
-                "{case_name}: If there is any kind of conflict, the index should have been changed"
-            );
-        }
+        assert_eq!(
+            did_change,
+            actual.has_unresolved_conflicts(conflicts_like_in_git),
+            "{case_name}: If there is any kind of conflict, the index should have been changed"
+        );
     }
 
     assert_eq!(
-        actual_cases, 107,
+        actual_cases, 109,
         "BUG: update this number, and don't forget to remove a filter in the end"
     );
 
@@ -163,6 +154,7 @@ fn basic_merge_options() -> Options {
         use_first_merge_base: false,
         tree_merge: gix_merge::tree::Options {
             symlink_conflicts: None,
+            tree_conflicts: None,
             rewrites: Some(Rewrites {
                 copies: None,
                 percentage: Some(0.5),
@@ -172,7 +164,6 @@ fn basic_merge_options() -> Options {
             blob_merge_command_ctx: Default::default(),
             fail_on_conflict: None,
             marker_size_multiplier: 0,
-            allow_lossy_resolution: false,
         },
     }
 }
