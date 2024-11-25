@@ -108,7 +108,7 @@ impl Repository {
             fail_on_conflict: None,
             marker_size_multiplier: 0,
             symlink_conflicts: None,
-            allow_lossy_resolution: false,
+            tree_conflicts: None,
         }
         .into())
     }
