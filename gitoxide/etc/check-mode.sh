@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 set -eu -o pipefail
-shopt -s lastpipe
 
 # Go to the worktree's root. (Even if the dir name ends in a newline.)
 root_padded="$(git rev-parse --show-toplevel && echo -n .)"
@@ -29,13 +28,13 @@ function check () {
   status=1
 }
 
-# For now, check just regular files named with a `.sh` suffix.
-git ls-files -sz -- '*.sh' | while read -rd '' mode oid _stage_number path; do
+# Check regular files named with a `.sh` suffix.
+while read -rd '' mode oid _stage_number path; do
   case "$mode" in
   100644 | 100755)
     check "$mode" "$oid" "$path"
     ;;
   esac
-done
+done < <(git ls-files -sz -- '*.sh')
 
 exit "$status"

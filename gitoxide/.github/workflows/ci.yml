@@ -359,7 +359,7 @@ jobs:
       - name: gix-pack with all features (including wasm)
         run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
-  check-modes:
+  check-mode:
     # FIXME: Only run this on ubuntu-latest (don't use a matrix).
     strategy:
       fail-fast: false
@@ -459,6 +459,7 @@ jobs:
       - test-32bit-cross
       - lint
       - cargo-deny
+      - check-mode
       - check-packetline
       - check-blocking
 
