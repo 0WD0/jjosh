@@ -10,7 +10,7 @@ cd -- "$root"
 symbolic_shebang="$(printf '#!' | od -An -ta)"
 status=0
 
-function check () {
+function check_item () {
   local mode="$1" oid="$2" path="$3" symbolic_magic
 
   # Extract the first two bytes (or less if shorter) and put in symbolic form.
@@ -28,11 +28,18 @@ function check () {
   status=1
 }
 
+readonly record_pattern='^([0-7]+) ([[:xdigit:]]+) [[:digit:]]+'$'\t''(.+)$'
+
 # Check regular files named with a `.sh` suffix.
-while read -rd '' mode oid _stage_number path; do
+while IFS= read -rd '' record; do
+  [[ $record =~ $record_pattern ]] || exit 2  # bash 3.2 `set -e` doesn't cover this.
+  mode="${BASH_REMATCH[1]}"
+  oid="${BASH_REMATCH[2]}"
+  path="${BASH_REMATCH[3]}"
+
   case "$mode" in
   100644 | 100755)
-    check "$mode" "$oid" "$path"
+    check_item "$mode" "$oid" "$path"
     ;;
   esac
 done < <(git ls-files -sz -- '*.sh')
