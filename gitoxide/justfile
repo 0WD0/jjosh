@@ -255,6 +255,10 @@ fmt:
 find-yanked:
     cargo install --debug --locked --no-default-features --features max-pure --path .
 
+# Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
+check-mode:
+    ./etc/check-mode.sh
+
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
     ./etc/copy-packetline.sh
