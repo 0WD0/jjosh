@@ -19,7 +19,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CLICOLOR: '1'
-  NEXTEST_NO_TESTS: fail
 
 jobs:
   pure-rust-build:
