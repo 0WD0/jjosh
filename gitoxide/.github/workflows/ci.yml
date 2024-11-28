@@ -359,6 +359,24 @@ jobs:
       - name: gix-pack with all features (including wasm)
         run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
+  check-modes:
+    # FIXME: Only run this on ubuntu-latest (don't use a matrix).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find scripts with mode/shebang mismatch
+        run: etc/check-mode.sh
+
   check-packetline:
     strategy:
       fail-fast: false
