@@ -32,14 +32,14 @@ readonly record_pattern='^([0-7]+) ([[:xdigit:]]+) [[:digit:]]+'$'\t''(.+)$'
 
 # Check regular files named with a `.sh` suffix.
 while IFS= read -rd '' record; do
-  [[ $record =~ $record_pattern ]]
+  [[ $record =~ $record_pattern ]] || exit 2  # bash 3.2 `set -e` doesn't cover this.
   mode="${BASH_REMATCH[1]}"
   oid="${BASH_REMATCH[2]}"
   path="${BASH_REMATCH[3]}"
 
   case "$mode" in
   100644 | 100755)
-    check_item "${BASH_REMATCH[@]:1:3}"
+    check_item "$mode" "$oid" "$path"
     ;;
   esac
 done < <(git ls-files -sz -- '*.sh')
