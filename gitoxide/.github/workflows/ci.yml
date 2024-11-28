@@ -360,17 +360,7 @@ jobs:
         run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
   check-mode:
-    # FIXME: Only run this on ubuntu-latest (don't use a matrix).
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-
-    runs-on: ${{ matrix.os }}
-
-    defaults:
-      run:
-        shell: bash
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
