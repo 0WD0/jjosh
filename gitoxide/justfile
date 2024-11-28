@@ -186,7 +186,7 @@ unit-tests:
     cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv
     cargo nextest run -p gix --features async-network-client
     cargo nextest run -p gix --features blocking-network-client
-    cargo nextest run -p gitoxide-core --lib
+    cargo nextest run -p gitoxide-core --lib --no-tests=warn
 
 # These tests aren't run by default as they are flaky (even locally)
 unit-tests-flaky:
