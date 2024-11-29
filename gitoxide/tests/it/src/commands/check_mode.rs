@@ -1,33 +1,41 @@
 pub(super) mod function {
     use anyhow::{bail, Context};
     use gix::bstr::ByteSlice;
-    use std::ffi::OsString;
-    use std::io::{BufRead, BufReader};
+    use once_cell::sync::Lazy;
+    use regex::bytes::Regex;
+    use std::ffi::{OsStr, OsString};
+    use std::io::{BufRead, BufReader, Read};
     use std::process::{Command, Stdio};
 
     pub fn check_mode() -> anyhow::Result<()> {
         let root = find_root()?;
-        let mut mismatch = false;
+        let mut any_mismatch = false;
 
-        let cmd = Command::new("git")
-            .arg("-C")
-            .arg(root)
+        let mut child = git_on(&root)
             .args(["ls-files", "-sz", "--", "*.sh"])
             .stdout(Stdio::piped())
             .spawn()
-            .context("Can't run `git` to list index")?;
+            .context("Can't start `git` subprocess to list index")?;
 
-        let stdout = cmd.stdout.expect("should have captured stdout");
-        let reader = BufReader::new(stdout);
-        for record in reader.split(b'\0') {
-            // FIXME: Use the record, displaying messages and updating `mismatch`.
+        let stdout = child.stdout.take().expect("should have captured stdout");
+        for result in BufReader::new(stdout).split(b'\0') {
+            let record = result.context(r"Can't read '\0'-terminated record")?;
+            if check_for_mismatch(&root, &record)? {
+                any_mismatch = true;
+            }
         }
 
-        // FIXME: If `cmd` did not report successful completion, bail.
-        // FIXME: If `mismatch` (any mismatches), bail.
-        bail!("not yet implemented");
+        let status = child.wait().context("Failure running `git` subprocess to list index")?;
+        if !status.success() {
+            bail!("`git` subprocess to list index did not complete successfully");
+        }
+        if any_mismatch {
+            bail!("Mismatch found - scan completed, finding at least one `#!` vs. `+x` mismatch");
+        }
+        Ok(())
     }
 
+    /// Find the top-level directory of the current repository working tree.
     fn find_root() -> anyhow::Result<OsString> {
         let output = Command::new("git")
             .args(["rev-parse", "--show-toplevel"])
@@ -46,5 +54,67 @@ pub(super) mod function {
             .to_owned();
 
         Ok(root)
+    }
+
+    /// Prepare a `git` command, passing `root` as an operand to `-C`.
+    ///
+    /// This is suitable when `git` gave us the path `root`. Then it should already be in a form
+    /// where `git -C` will be able to use it, without alteration, regardless of the platform.
+    /// (Otherwise, it may be preferable to set `root` as the `cwd` of the `git` process instead.)
+    fn git_on(root: &OsStr) -> Command {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(root);
+        cmd
+    }
+
+    static RECORD_REGEX: Lazy<Regex> = Lazy::new(|| {
+        let pattern = r"(?-u)\A([0-7]+) ([[:xdigit:]]+) [[:digit:]]+\t(.+)\z";
+        Regex::new(pattern).expect("regex should be valid")
+    });
+
+    /// On mismatch, report it and return `Some(true)`.
+    fn check_for_mismatch(root: &OsStr, record: &[u8]) -> anyhow::Result<bool> {
+        let fields = RECORD_REGEX.captures(record).context("Malformed record from `git`")?;
+        let mode = fields.get(1).expect("match should get mode").as_bytes();
+        let oid = fields
+            .get(2)
+            .expect("match should get oid")
+            .as_bytes()
+            .to_os_str()
+            .expect("oid field verified as hex digits, should be valid OsStr");
+        let path = fields.get(3).expect("match should get path").as_bytes().as_bstr();
+
+        match mode {
+            b"100644" if blob_has_shebang(root, oid)? => {
+                println!("mode -x but has shebang: {}\n", path);
+                Ok(true)
+            }
+            b"100755" if !blob_has_shebang(root, oid)? => {
+                println!("mode +x but no shebang: {}\n", path);
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn blob_has_shebang(root: &OsStr, oid: &OsStr) -> anyhow::Result<bool> {
+        let mut buf = [0u8; 2];
+
+        let mut child = git_on(root)
+            .args(["cat-file", "blob"])
+            .arg(oid)
+            .stdout(Stdio::piped())
+            .spawn()
+            .context("Can't start `git` subprocess to read blob")?;
+
+        let mut stdout = child.stdout.take().expect("should have captured stdout");
+        let count = stdout.read(&mut buf).context("Error reading data from blob")?;
+        drop(stdout); // Let the pipe break rather than waiting for the rest of the blob.
+
+        // TODO: Maybe check status? On Unix, it should be 0 or SIGPIPE. Not sure about Windows.
+        _ = child.wait().context("Failure running `git` subprocess to read blob")?;
+
+        let magic = &buf[..count];
+        Ok(magic == b"#!")
     }
 }

@@ -3357,6 +3357,8 @@ dependencies = [
  "anyhow",
  "clap",
  "gix",
+ "once_cell",
+ "regex",
 ]
 
 [[package]]
