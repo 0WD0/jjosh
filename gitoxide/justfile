@@ -259,7 +259,7 @@ find-yanked:
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
     cargo build -p internal-tools
-    {{ it }} check-mode
+    "{{ it }}" check-mode
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
