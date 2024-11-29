@@ -114,7 +114,6 @@ pub(super) mod function {
         // TODO: Maybe check status? On Unix, it should be 0 or SIGPIPE. Not sure about Windows.
         _ = child.wait().context("Failure running `git` subprocess to read blob")?;
 
-        let possible_shebang = &buf[..count];
-        Ok(possible_shebang == b"#!")
+        Ok(&buf[..count] == b"#!")
     }
 }
