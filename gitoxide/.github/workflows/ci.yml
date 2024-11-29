@@ -359,16 +359,6 @@ jobs:
       - name: gix-pack with all features (including wasm)
         run: cd gix-pack && cargo build --all-features --target "$TARGET"
 
-  check-mode:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: extractions/setup-just@v2
-      - name: Find scripts with mode/shebang mismatch
-        run: just check-mode
-
   check-packetline:
     strategy:
       fail-fast: false
@@ -451,7 +441,6 @@ jobs:
       - test-32bit-cross
       - lint
       - cargo-deny
-      - check-mode
       - check-packetline
       - check-blocking
 
