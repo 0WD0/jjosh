@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
             destination_dir,
             patterns,
         } => commands::copy_royal(dry_run, &worktree_root, destination_dir, patterns),
+        Subcommands::CheckMode {} => commands::check_mode(),
     }
 }
 
