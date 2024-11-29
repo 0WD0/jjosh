@@ -86,11 +86,11 @@ pub(super) mod function {
 
         match mode {
             b"100644" if blob_has_shebang(root, oid)? => {
-                println!("mode -x but has shebang: {}\n", path);
+                println!("mode -x but has shebang: {path:?}");
                 Ok(true)
             }
             b"100755" if !blob_has_shebang(root, oid)? => {
-                println!("mode +x but no shebang: {}\n", path);
+                println!("mode +x but no shebang: {path:?}");
                 Ok(true)
             }
             _ => Ok(false),
@@ -114,7 +114,7 @@ pub(super) mod function {
         // TODO: Maybe check status? On Unix, it should be 0 or SIGPIPE. Not sure about Windows.
         _ = child.wait().context("Failure running `git` subprocess to read blob")?;
 
-        let magic = &buf[..count];
-        Ok(magic == b"#!")
+        let possible_shebang = &buf[..count];
+        Ok(possible_shebang == b"#!")
     }
 }
