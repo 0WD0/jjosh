@@ -196,6 +196,7 @@ target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
 ein := target_dir / "debug/ein"
 gix := target_dir / "debug/gix"
 jtt := target_dir / "debug/jtt"
+it := target_dir / "debug/it"
 
 # run journey tests (max)
 journey-tests:
@@ -257,7 +258,8 @@ find-yanked:
 
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
-    ./etc/check-mode.sh
+    cargo build -p internal-tools
+    {{ it }} check-mode
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
