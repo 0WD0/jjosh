@@ -62,6 +62,17 @@ pub enum Subcommands {
         #[clap(value_parser = AsPathSpec)]
         patterns: Vec<gix::pathspec::Pattern>,
     },
+    /// Check for executable bits that disagree with shebangs.
+    ///
+    /// This checks committed and staged files, but not anything unstaged, to find shell scripts
+    /// that either begin with a `#!` but not `+x` permissions, or do not begin with `#!` but do
+    /// have `+x` permissions. Such mismatches are reported but not automatically corrected. Some
+    /// platforms (at least Windows) do not have such permissions, but Git still represents them.
+    ///
+    /// This currently only checks files name with an `.sh` suffix, and only operates on the
+    /// current repository. Its main use is checking that fixture scripts are have correct modes.
+    #[clap(visible_alias = "cm")]
+    CheckMode {},
 }
 
 #[derive(Clone)]

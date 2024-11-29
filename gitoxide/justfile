@@ -10,10 +10,10 @@ alias c := check
 alias nt := nextest
 
 # run all tests, clippy, including journey tests, try building docs
-test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests
+test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests check-mode
 
 # run all tests, without clippy, and try building docs
-ci-test: check doc unit-tests
+ci-test: check doc unit-tests check-mode
 
 # run all journey tests - should be run in a fresh clone or after `cargo clean`
 ci-journey-tests: journey-tests-pure journey-tests-small journey-tests-async journey-tests
@@ -196,6 +196,7 @@ target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
 ein := target_dir / "debug/ein"
 gix := target_dir / "debug/gix"
 jtt := target_dir / "debug/jtt"
+it := target_dir / "debug/it"
 
 # run journey tests (max)
 journey-tests:
@@ -257,7 +258,8 @@ find-yanked:
 
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
-    ./etc/check-mode.sh
+    cargo build -p internal-tools
+    "{{ it }}" check-mode
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
