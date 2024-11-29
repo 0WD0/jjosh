@@ -64,10 +64,10 @@ pub enum Subcommands {
     },
     /// Check for executable bits that disagree with shebangs.
     ///
-    /// This checks and staged files, but not any unstaged files or changes, to find shell scripts
+    /// This checks committed and staged files, but not anything unstaged, to find shell scripts
     /// that either begin with a `#!` but not `+x` permissions, or do not begin with `#!` but do
     /// have `+x` permissions. Such mismatches are reported but not automatically corrected. Some
-    /// plaforms (at least Windows) do not support such permissions, but Git still represents them.
+    /// platforms (at least Windows) do not have such permissions, but Git still represents them.
     ///
     /// This currently only checks files name with an `.sh` suffix, and only operates on the
     /// current repository. Its main use is checking that fixture scripts are have correct modes.
