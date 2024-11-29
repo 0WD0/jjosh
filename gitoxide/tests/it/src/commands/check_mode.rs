@@ -18,11 +18,9 @@ pub(super) mod function {
             .context("Can't start `git` subprocess to list index")?;
 
         let stdout = child.stdout.take().expect("should have captured stdout");
-        for result in BufReader::new(stdout).split(b'\0') {
+        for result in BufReader::new(stdout).split(0) {
             let record = result.context(r"Can't read '\0'-terminated record")?;
-            if check_for_mismatch(&root, &record)? {
-                any_mismatch = true;
-            }
+            any_mismatch |= check_for_mismatch(&root, &record)?;
         }
 
         let status = child.wait().context("Failure running `git` subprocess to list index")?;
@@ -37,7 +35,7 @@ pub(super) mod function {
 
     /// Find the top-level directory of the current repository working tree.
     fn find_root() -> anyhow::Result<OsString> {
-        let output = Command::new("git")
+        let output = Command::new(gix::path::env::exe_invocation())
             .args(["rev-parse", "--show-toplevel"])
             .output()
             .context("Can't run `git` to find worktree root")?;
@@ -52,7 +50,6 @@ pub(super) mod function {
             .context("Can't parse worktree root")?
             .to_os_str()?
             .to_owned();
-
         Ok(root)
     }
 
@@ -62,18 +59,18 @@ pub(super) mod function {
     /// where `git -C` will be able to use it, without alteration, regardless of the platform.
     /// (Otherwise, it may be preferable to set `root` as the `cwd` of the `git` process instead.)
     fn git_on(root: &OsStr) -> Command {
-        let mut cmd = Command::new("git");
+        let mut cmd = Command::new(gix::path::env::exe_invocation());
         cmd.arg("-C").arg(root);
         cmd
     }
 
-    static RECORD_REGEX: Lazy<Regex> = Lazy::new(|| {
-        let pattern = r"(?-u)\A([0-7]+) ([[:xdigit:]]+) [[:digit:]]+\t(.+)\z";
-        Regex::new(pattern).expect("regex should be valid")
-    });
-
     /// On mismatch, report it and return `Some(true)`.
     fn check_for_mismatch(root: &OsStr, record: &[u8]) -> anyhow::Result<bool> {
+        static RECORD_REGEX: Lazy<Regex> = Lazy::new(|| {
+            let pattern = r"(?-u)\A([0-7]+) ([[:xdigit:]]+) [[:digit:]]+\t(.+)\z";
+            Regex::new(pattern).expect("regex should be valid")
+        });
+
         let fields = RECORD_REGEX.captures(record).context("Malformed record from `git`")?;
         let mode = fields.get(1).expect("match should get mode").as_bytes();
         let oid = fields
