@@ -93,6 +93,23 @@ const GIT_PROGRAM: &str = "git.exe";
 #[cfg(not(windows))]
 const GIT_PROGRAM: &str = "git";
 
+static GIT_CORE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    let output = std::process::Command::new(GIT_PROGRAM)
+        .arg("--exec-path")
+        .output()
+        .expect("can execute `git --exec-path`");
+
+    assert!(output.status.success(), "`git --exec-path` failed");
+
+    output
+        .stdout
+        .strip_suffix(b"\n")
+        .expect("malformed output from `git --exec-path`")
+        .to_os_str()
+        .expect("no invalid UTF-8 in `--exec-path` except as OS allows")
+        .into()
+});
+
 /// The major, minor and patch level of the git version on the system.
 pub static GIT_VERSION: Lazy<(u8, u8, u8)> = Lazy::new(|| parse_git_version().expect("git version to be parsable"));
 
@@ -186,22 +203,6 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
 
 /// Spawn a git daemon process to host all repository at or below `working_dir`.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
-    static EXEC_PATH: Lazy<PathBuf> = Lazy::new(|| {
-        let output = std::process::Command::new(GIT_PROGRAM)
-            .arg("--exec-path")
-            .output()
-            .expect("can execute `git --exec-path`");
-
-        assert!(output.status.success(), "`git --exec-path` failed");
-
-        output
-            .stdout
-            .strip_suffix(b"\n")
-            .expect("malformed output from `git --exec-path`")
-            .to_os_str()
-            .expect("no invalid UTF-8 in `--exec-path` except as OS allows")
-            .into()
-    });
     let mut ports: Vec<_> = (9419u16..9419 + 100).collect();
     fastrand::shuffle(&mut ports);
     let addr_at = |port| std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -210,11 +211,12 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
         listener.local_addr().expect("listener address is available").port()
     };
 
-    let child = std::process::Command::new(EXEC_PATH.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }))
-        .current_dir(working_dir)
-        .args(["--verbose", "--base-path=.", "--export-all", "--user-path"])
-        .arg(format!("--port={free_port}"))
-        .spawn()?;
+    let child =
+        std::process::Command::new(GIT_CORE_DIR.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }))
+            .current_dir(working_dir)
+            .args(["--verbose", "--base-path=.", "--export-all", "--user-path"])
+            .arg(format!("--port={free_port}"))
+            .spawn()?;
 
     let server_addr = addr_at(free_port);
     for time in gix_lock::backoff::Exponential::default_with_random() {
@@ -566,7 +568,7 @@ fn scripted_fixture_read_only_with_args_inner(
                     Err(err)
                         if err.kind() == std::io::ErrorKind::PermissionDenied || err.raw_os_error() == Some(193) /* windows */ =>
                     {
-                        cmd = std::process::Command::new("bash");
+                        cmd = std::process::Command::new(bash_program());
                         configure_command(cmd.arg(script_absolute_path), &args, &script_result_directory).output()?
                     }
                     Err(err) => return Err(err.into()),
@@ -640,6 +642,22 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_CONFIG_VALUE_2", "main")
         .env("GIT_CONFIG_KEY_3", "protocol.file.allow")
         .env("GIT_CONFIG_VALUE_3", "always")
+}
+
+fn bash_program() -> &'static Path {
+    if cfg!(windows) {
+        static GIT_BASH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+            GIT_CORE_DIR
+                .parent()?
+                .parent()?
+                .parent()
+                .map(|installation_dir| installation_dir.join("bin").join("bash.exe"))
+                .filter(|bash| bash.is_file())
+        });
+        GIT_BASH.as_deref().unwrap_or(Path::new("bash.exe"))
+    } else {
+        Path::new("bash")
+    }
 }
 
 fn write_failure_marker(failure_marker: &Path) {
@@ -980,5 +998,44 @@ mod tests {
         let status = output.status.code().expect("terminated normally");
         assert_eq!(lines, Vec::<&str>::new(), "should be no config variables from files");
         assert_eq!(status, 0, "reading the config should succeed");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn bash_program_ok_for_platform() {
+        let path = bash_program();
+        assert!(path.is_absolute());
+
+        let for_version = std::process::Command::new(path)
+            .arg("--version")
+            .output()
+            .expect("can pass it `--version`");
+        assert!(for_version.status.success(), "passing `--version` succeeds");
+        let version_line = for_version
+            .stdout
+            .lines()
+            .nth(0)
+            .expect("`--version` output has first line");
+        assert!(
+            version_line.ends_with(b"-pc-msys)"), // On Windows, "-pc-linux-gnu)" would be WSL.
+            "it is an MSYS bash (such as Git Bash)"
+        );
+
+        let for_uname_os = std::process::Command::new(path)
+            .args(["-c", "uname -o"])
+            .output()
+            .expect("can tell it to run `uname -o`");
+        assert!(for_uname_os.status.success(), "telling it to run `uname -o` succeeds");
+        assert_eq!(
+            for_uname_os.stdout.trim_end(),
+            b"Msys",
+            "it runs commands in an MSYS environment"
+        );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn bash_program_ok_for_platform() {
+        assert_eq!(bash_program(), Path::new("bash"));
     }
 }
