@@ -743,7 +743,10 @@ fn populate_meta_dir(destination_dir: &Path, script_identity: u32) -> std::io::R
     )?;
     std::fs::write(
         meta_dir.join(META_GIT_VERSION),
-        std::process::Command::new(GIT_PROGRAM).arg("--version").output()?.stdout,
+        std::process::Command::new(GIT_PROGRAM)
+            .arg("--version")
+            .output()?
+            .stdout,
     )?;
     Ok(meta_dir)
 }
