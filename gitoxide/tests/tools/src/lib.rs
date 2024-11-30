@@ -87,7 +87,7 @@ static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
     Mutex::new(cache)
 });
 /// The major, minor and patch level of the git version on the system.
-pub static GIT_VERSION: Lazy<(u8, u8, u8)> = Lazy::new(|| parse_gix_version().expect("git version to be parsable"));
+pub static GIT_VERSION: Lazy<(u8, u8, u8)> = Lazy::new(|| parse_git_version().expect("git version to be parsable"));
 
 /// Define how [`scripted_fixture_writable_with_args()`] uses produces the writable copy.
 pub enum Creation {
@@ -116,9 +116,9 @@ pub fn should_skip_as_git_version_is_smaller_than(major: u8, minor: u8, patch: u
     *GIT_VERSION < (major, minor, patch)
 }
 
-fn parse_gix_version() -> Result<(u8, u8, u8)> {
-    let gix_program = cfg!(windows).then(|| "git.exe").unwrap_or("git");
-    let output = std::process::Command::new(gix_program).arg("--version").output()?;
+fn parse_git_version() -> Result<(u8, u8, u8)> {
+    let git_program = cfg!(windows).then(|| "git.exe").unwrap_or("git");
+    let output = std::process::Command::new(git_program).arg("--version").output()?;
 
     git_version_from_bytes(&output.stdout)
 }
