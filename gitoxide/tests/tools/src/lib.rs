@@ -187,14 +187,19 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
 /// Spawn a git daemon process to host all repository at or below `working_dir`.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
     static EXEC_PATH: Lazy<PathBuf> = Lazy::new(|| {
-        let path = std::process::Command::new(GIT_PROGRAM)
+        let output = std::process::Command::new(GIT_PROGRAM)
             .arg("--exec-path")
-            .stderr(std::process::Stdio::null())
             .output()
-            .expect("can execute `git --exec-path`")
-            .stdout;
-        String::from_utf8(path.trim().into())
-            .expect("no invalid UTF8 in exec-path")
+            .expect("can execute `git --exec-path`");
+
+        assert!(output.status.success(), "`git --exec-path` failed");
+
+        output
+            .stdout
+            .strip_suffix(b"\n")
+            .expect("malformed output from `git --exec-path`")
+            .to_os_str()
+            .expect("no invalid UTF-8 in `--exec-path` except as OS allows")
             .into()
     });
     let mut ports: Vec<_> = (9419u16..9419 + 100).collect();
