@@ -59,6 +59,7 @@ impl Drop for GitDaemon {
 }
 
 static SCRIPT_IDENTITY: Lazy<Mutex<BTreeMap<PathBuf, u32>>> = Lazy::new(|| Mutex::new(BTreeMap::new()));
+
 static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
     let cache = (|| {
         let (repo_path, _) = gix_discover::upwards(Path::new(".")).ok()?;
@@ -86,6 +87,12 @@ static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
     })();
     Mutex::new(cache)
 });
+
+#[cfg(windows)]
+const GIT_PROGRAM: &str = "git.exe";
+#[cfg(not(windows))]
+const GIT_PROGRAM: &str = "git";
+
 /// The major, minor and patch level of the git version on the system.
 pub static GIT_VERSION: Lazy<(u8, u8, u8)> = Lazy::new(|| parse_git_version().expect("git version to be parsable"));
 
@@ -117,9 +124,7 @@ pub fn should_skip_as_git_version_is_smaller_than(major: u8, minor: u8, patch: u
 }
 
 fn parse_git_version() -> Result<(u8, u8, u8)> {
-    let git_program = cfg!(windows).then(|| "git.exe").unwrap_or("git");
-    let output = std::process::Command::new(git_program).arg("--version").output()?;
-
+    let output = std::process::Command::new(GIT_PROGRAM).arg("--version").output()?;
     git_version_from_bytes(&output.stdout)
 }
 
@@ -173,7 +178,7 @@ impl Drop for AutoRevertToPreviousCWD {
 
 /// Run `git` in `working_dir` with all provided `args`.
 pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
-    std::process::Command::new("git")
+    std::process::Command::new(GIT_PROGRAM)
         .current_dir(working_dir)
         .args(args)
         .status()
@@ -182,7 +187,7 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
 /// Spawn a git daemon process to host all repository at or below `working_dir`.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
     static EXEC_PATH: Lazy<PathBuf> = Lazy::new(|| {
-        let path = std::process::Command::new("git")
+        let path = std::process::Command::new(GIT_PROGRAM)
             .arg("--exec-path")
             .stderr(std::process::Stdio::null())
             .output()
@@ -738,7 +743,7 @@ fn populate_meta_dir(destination_dir: &Path, script_identity: u32) -> std::io::R
     )?;
     std::fs::write(
         meta_dir.join(META_GIT_VERSION),
-        std::process::Command::new("git").arg("--version").output()?.stdout,
+        std::process::Command::new(GIT_PROGRAM).arg("--version").output()?.stdout,
     )?;
     Ok(meta_dir)
 }
@@ -951,7 +956,7 @@ mod tests {
         let temp = tempfile::TempDir::new().expect("can create temp dir");
         populate_ad_hoc_config_files(temp.path());
 
-        let mut cmd = std::process::Command::new("git");
+        let mut cmd = std::process::Command::new(GIT_PROGRAM);
         cmd.env("GIT_CONFIG_SYSTEM", SCOPE_ENV_VALUE);
         cmd.env("GIT_CONFIG_GLOBAL", SCOPE_ENV_VALUE);
         configure_command(&mut cmd, ["config", "-l", "--show-origin"], temp.path());
