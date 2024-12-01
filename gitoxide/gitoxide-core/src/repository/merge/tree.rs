@@ -3,6 +3,7 @@ use crate::OutputFormat;
 pub struct Options {
     pub format: OutputFormat,
     pub file_favor: Option<gix::merge::tree::FileFavor>,
+    pub tree_favor: Option<gix::merge::tree::TreeFavor>,
     pub in_memory: bool,
     pub debug: bool,
 }
@@ -29,6 +30,7 @@ pub(super) mod function {
         Options {
             format,
             file_favor,
+            tree_favor,
             in_memory,
             debug,
         }: Options,
@@ -44,7 +46,10 @@ pub(super) mod function {
         let (ours_ref, ours_id) = refname_and_tree(&repo, ours)?;
         let (theirs_ref, theirs_id) = refname_and_tree(&repo, theirs)?;
 
-        let options = repo.tree_merge_options()?.with_file_favor(file_favor);
+        let options = repo
+            .tree_merge_options()?
+            .with_file_favor(file_favor)
+            .with_tree_favor(tree_favor);
         let base_id_str = base_id.to_string();
         let ours_id_str = ours_id.to_string();
         let theirs_id_str = theirs_id.to_string();

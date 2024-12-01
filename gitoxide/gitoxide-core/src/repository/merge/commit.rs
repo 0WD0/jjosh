@@ -17,6 +17,7 @@ pub fn commit(
     Options {
         format,
         file_favor,
+        tree_favor,
         in_memory,
         debug,
     }: Options,
@@ -31,7 +32,10 @@ pub fn commit(
     let (ours_ref, ours_id) = refname_and_commit(&repo, ours)?;
     let (theirs_ref, theirs_id) = refname_and_commit(&repo, theirs)?;
 
-    let options = repo.tree_merge_options()?.with_file_favor(file_favor);
+    let options = repo
+        .tree_merge_options()?
+        .with_file_favor(file_favor)
+        .with_tree_favor(tree_favor);
     let ours_id_str = ours_id.to_string();
     let theirs_id_str = theirs_id.to_string();
     let labels = gix::merge::blob::builtin_driver::text::Labels {
