@@ -160,6 +160,7 @@ pub mod tree {
     pub struct Options {
         inner: gix_merge::tree::Options,
         file_favor: Option<FileFavor>,
+        tree_favor: Option<TreeFavor>,
     }
 
     impl From<gix_merge::tree::Options> for Options {
@@ -167,6 +168,7 @@ pub mod tree {
             Options {
                 inner: opts,
                 file_favor: None,
+                tree_favor: None,
             }
         }
     }
@@ -190,6 +192,7 @@ pub mod tree {
                 opts.blob_merge.resolve_binary_with = Some(resolve_binary);
                 opts.blob_merge.text.conflict = resolve_text;
             }
+            opts.tree_conflicts = value.tree_favor.map(Into::into);
             opts
         }
     }
@@ -202,7 +205,7 @@ pub mod tree {
     /// * binary files
     /// * symlinks (a form of file after all)
     ///
-    /// Note that that union merges aren't available as they aren't available for binaries or symlinks.
+    /// Note that *union* merges aren't available as they aren't available for binaries or symlinks.
     #[derive(Debug, Copy, Clone)]
     pub enum FileFavor {
         /// Choose *our* side in case of a conflict.
@@ -213,6 +216,35 @@ pub mod tree {
         /// Note that this choice is precise, so *ours* hunk will only be chosen if they conflict with *theirs*,
         /// so *their* hunks may still show up in the merged result.
         Theirs,
+    }
+
+    /// Control how irreconcilable changes to trees should be resolved.
+    ///
+    /// Examples for such issues are:
+    ///
+    /// * *we*: delete, *they*: modify
+    /// * *we*: rename, *they*: rename to something else
+    /// * *we*: delete, *they*: rename
+    ///
+    /// Use this to control which entries are visible to in the resulting tree.
+    /// Also note that this does not apply to the many tree-related changes are reconcilable.
+    #[derive(Debug, Copy, Clone)]
+    pub enum TreeFavor {
+        /// Choose *our* side in case of a conflict.
+        /// Note that content-merges are *still* performed according to the [FileFavor].
+        Ours,
+        /// Choose the state of the shared common ancestor, dropping both *ours* and *their* changes.
+        /// Content merges are not performed here.
+        Ancestor,
+    }
+
+    impl From<TreeFavor> for gix_merge::tree::ResolveWith {
+        fn from(value: TreeFavor) -> Self {
+            match value {
+                TreeFavor::Ours => gix_merge::tree::ResolveWith::Ours,
+                TreeFavor::Ancestor => gix_merge::tree::ResolveWith::Ancestor,
+            }
+        }
     }
 
     /// Builder
@@ -233,9 +265,21 @@ pub mod tree {
 
         /// When `None`, the default, both sides will be treated equally, and in case of conflict an unbiased representation
         /// is chosen both for content and for trees, causing a conflict.
-        /// When `Some(favor)` one can choose a side to prefer in order to automatically resolve a conflict meaningfully.
+        ///
+        /// With `Some(favor)` one can choose a side to prefer in order to forcefully resolve an otherwise irreconcilable conflict,
+        /// loosing information in the process.
         pub fn with_file_favor(mut self, file_favor: Option<FileFavor>) -> Self {
             self.file_favor = file_favor;
+            self
+        }
+
+        /// When `None`, the default, both sides will be treated equally, trying to keep both conflicting changes in the tree, possibly
+        /// by renaming one side to move it out of the way.
+        ///
+        /// With `Some(favor)` one can choose a side to prefer in order to forcefully resolve an otherwise irreconcilable conflict,
+        /// loosing information in the process.
+        pub fn with_tree_favor(mut self, tree_favor: Option<TreeFavor>) -> Self {
+            self.tree_favor = tree_favor;
             self
         }
     }
