@@ -104,7 +104,7 @@ static GIT_CORE_DIR: Lazy<PathBuf> = Lazy::new(|| {
     output
         .stdout
         .strip_suffix(b"\n")
-        .expect("malformed output from `git --exec-path`")
+        .expect("`git --exec-path` output to be well-formed")
         .to_os_str()
         .expect("no invalid UTF-8 in `--exec-path` except as OS allows")
         .into()
