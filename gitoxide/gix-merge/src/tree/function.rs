@@ -5,7 +5,7 @@ use crate::tree::utils::{
 use crate::tree::ConflictMapping::{Original, Swapped};
 use crate::tree::{
     Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, ContentMerge, Error, Options, Outcome,
-    Resolution, ResolutionFailure,
+    Resolution, ResolutionFailure, ResolveWith,
 };
 use bstr::{BString, ByteSlice};
 use gix_diff::tree::recorder::Location;
@@ -71,11 +71,9 @@ where
     let _span = gix_trace::coarse!("gix_merge::tree", ?base_tree, ?our_tree, ?their_tree, ?labels);
     let (mut base_buf, mut side_buf) = (Vec::new(), Vec::new());
     let ancestor_tree = objects.find_tree(base_tree, &mut base_buf)?;
-    // TODO: properly handle 'Ours' as well.
-    let allow_resolution_failure = !matches!(options.tree_conflicts, Some(crate::tree::ResolveWith::Ancestor));
-
     let mut editor = tree::Editor::new(ancestor_tree.to_owned(), objects, base_tree.kind());
     let ancestor_tree = gix_object::TreeRefIter::from_bytes(&base_buf);
+    let tree_conflicts = options.tree_conflicts;
 
     let mut our_changes = Vec::new();
     if ours_needs_diff {
@@ -129,7 +127,12 @@ where
 
     let mut conflicts = Vec::new();
     let mut failed_on_first_conflict = false;
-    let mut should_fail_on_conflict = |conflict: Conflict| -> bool {
+    let mut should_fail_on_conflict = |mut conflict: Conflict| -> bool {
+        if tree_conflicts.is_some() {
+            if let Err(failure) = conflict.resolution {
+                conflict.resolution = Ok(Resolution::Forced(failure));
+            }
+        }
         if let Some(how) = options.fail_on_conflict {
             if conflict.resolution.is_err() || conflict.is_unresolved(how) {
                 failed_on_first_conflict = true;
@@ -239,7 +242,7 @@ where
                             PossibleConflict::TreeToNonTree { change_idx: Some(idx) }
                                 if matches!(
                                     our_changes[idx].inner,
-                                    Change::Deletion { .. } | Change::Addition { .. }
+                                    Change::Deletion { .. } | Change::Addition { .. } | Change::Rewrite { .. }
                                 ) =>
                             {
                                 (Some(idx), Some(MatchKind::EraseTree))
@@ -256,34 +259,76 @@ where
                                 PossibleConflict::Match { change_idx }
                                 | PossibleConflict::PassedRewrittenDirectory { change_idx } => Some(change_idx),
                             }
-                            .map(|idx| &our_changes[idx]);
+                            .map(|idx| &mut our_changes[idx]);
 
                             if let Some(ours) = ours {
                                 gix_trace::debug!("Turning a case we could probably handle into a conflict for now. theirs: {theirs:#?} ours: {ours:#?} kind: {match_kind:?}");
-                                if allow_resolution_failure
-                                    && should_fail_on_conflict(Conflict::unknown((
-                                        &ours.inner,
-                                        theirs,
-                                        Original,
-                                        outer_side,
-                                    )))
-                                {
+                                let conflict = Conflict::unknown((&ours.inner, theirs, Original, outer_side));
+                                if let Some(ResolveWith::Ours) = tree_conflicts {
+                                    apply_our_resolution(&ours.inner, theirs, outer_side, &mut editor)?;
+                                    *match outer_side {
+                                        Original => &mut ours.was_written,
+                                        Swapped => &mut their_changes[theirs_idx].was_written,
+                                    } = true;
+                                }
+                                if should_fail_on_conflict(conflict) {
                                     break 'outer;
                                 };
-                                continue;
+                            } else if matches!(candidate, PossibleConflict::TreeToNonTree { .. }) {
+                                let (mode, id) = theirs.entry_mode_and_id();
+                                let location = theirs.location();
+                                let renamed_location = unique_path_in_tree(
+                                    location.as_bstr(),
+                                    &editor,
+                                    their_tree,
+                                    labels.other.unwrap_or_default(),
+                                )?;
+                                match tree_conflicts {
+                                    None => {
+                                        editor.upsert(toc(&renamed_location), mode.kind(), id.to_owned())?;
+                                    }
+                                    Some(ResolveWith::Ours) => {
+                                        if outer_side.is_swapped() {
+                                            editor.upsert(to_components(location), mode.kind(), id.to_owned())?;
+                                        }
+                                    }
+                                    Some(ResolveWith::Ancestor) => {
+                                        // we found no matching node of 'ours', so nothing to apply here.
+                                    }
+                                }
+
+                                let conflict = Conflict::without_resolution(
+                                    ResolutionFailure::OursDirectoryTheirsNonDirectoryTheirsRenamed {
+                                        renamed_unique_path_of_theirs: renamed_location,
+                                    },
+                                    (theirs, theirs, Original, outer_side),
+                                    [
+                                        None,
+                                        None,
+                                        index_entry_at_path(
+                                            &mode.kind().into(),
+                                            &id.to_owned(),
+                                            ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                        ),
+                                    ],
+                                );
+                                their_changes[theirs_idx].was_written = true;
+                                if should_fail_on_conflict(conflict) {
+                                    break 'outer;
+                                };
+                            } else if matches!(candidate, PossibleConflict::NonTreeToTree { .. }) {
+                                // We are writing on top of what was a file, a conflict we probably already saw and dealt with.
+                                let location = theirs.location();
+                                let (mode, id) = theirs.entry_mode_and_id();
+                                editor.upsert(to_components(location), mode.kind(), id.to_owned())?;
+                                their_changes[theirs_idx].was_written = true;
                             } else {
                                 gix_trace::debug!("Couldn't figure out how to handle {match_kind:?} theirs: {theirs:#?} candidate: {candidate:#?}");
-                                continue;
                             }
+                            continue;
                         };
 
                         let ours = &our_changes[ours_idx].inner;
-                        debug_assert!(
-                            match_kind.is_none()
-                                || (ours.location() == theirs.location()
-                                || ours.source_location() == theirs.source_location()),
-                            "BUG: right now it's not known to be possible to match changes from different paths: {match_kind:?} {candidate:?}"
-                        );
                         match (ours, theirs) {
                             (
                                 Change::Modification {
@@ -327,7 +372,7 @@ where
                                     Swapped
                                 };
                                 if let Some(merged_mode) = merge_modes(*our_mode, *their_mode) {
-                                    assert_eq!(
+                                    debug_assert_eq!(
                                         previous_id, their_source_id,
                                         "both refer to the same base, so should always match"
                                     );
@@ -408,9 +453,23 @@ where
                                         (new_change, None),
                                         pick_our_changes_mut(side, their_changes, our_changes),
                                     );
-                                } else if allow_resolution_failure {
-                                    editor.upsert(toc(our_location), our_mode.kind(), *our_id)?;
-                                    editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
+                                } else {
+                                    match tree_conflicts {
+                                        None => {
+                                            // keep both states - 'our_location' is the previous location as well.
+                                            editor.upsert(toc(our_location), our_mode.kind(), *our_id)?;
+                                            editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
+                                        }
+                                        Some(ResolveWith::Ours) => {
+                                            editor.remove(toc(source_location))?;
+                                            if side.to_global(outer_side).is_swapped() {
+                                                editor.upsert(toc(their_location), their_mode.kind(), *their_id)?;
+                                            } else {
+                                                editor.upsert(toc(our_location), our_mode.kind(), *our_id)?;
+                                            }
+                                        }
+                                        Some(ResolveWith::Ancestor) => {}
+                                    }
 
                                     if should_fail_on_conflict(Conflict::without_resolution(
                                         ResolutionFailure::OursModifiedTheirsRenamedTypeMismatch,
@@ -517,7 +576,7 @@ where
                                         &options,
                                     )?;
                                     editor.upsert(toc(location), merged_mode.kind(), merged_blob_id)?;
-                                    Some(Conflict::with_resolution(
+                                    Conflict::with_resolution(
                                         Resolution::OursModifiedTheirsModifiedThenBlobContentMerge {
                                             merged_blob: ContentMerge {
                                                 resolution,
@@ -526,8 +585,8 @@ where
                                         },
                                         (ours, theirs, Original, outer_side),
                                         [None, index_entry(our_mode, our_id), index_entry(their_mode, their_id)],
-                                    ))
-                                } else if allow_resolution_failure {
+                                    )
+                                } else {
                                     // Actually this has a preference, as symlinks are always left in place with the other side renamed.
                                     let (
                                         logical_side,
@@ -556,8 +615,7 @@ where
                                         tree_with_rename,
                                         label_of_side_to_be_moved,
                                     )?;
-                                    editor.upsert(toc(location), our_mode.kind(), our_id)?;
-                                    let conflict = Conflict::without_resolution(
+                                    let mut conflict = Conflict::without_resolution(
                                         ResolutionFailure::OursAddedTheirsAddedTypeMismatch {
                                             their_unique_location: renamed_location.clone(),
                                         },
@@ -568,27 +626,45 @@ where
                                             index_entry_at_path(&their_mode, &their_id, their_path_hint),
                                         ],
                                     );
-
-                                    let new_change = Change::Addition {
-                                        location: renamed_location,
-                                        entry_mode: their_mode,
-                                        id: their_id,
-                                        relation: None,
-                                    };
-                                    tree_with_rename.remove_existing_leaf(location.as_bstr());
-                                    push_deferred(
-                                        (new_change, None),
-                                        pick_our_changes_mut(logical_side, their_changes, our_changes),
-                                    );
-                                    Some(conflict)
-                                } else {
-                                    None
+                                    match tree_conflicts {
+                                        None => {
+                                            let new_change = Change::Addition {
+                                                location: renamed_location,
+                                                entry_mode: their_mode,
+                                                id: their_id,
+                                                relation: None,
+                                            };
+                                            editor.upsert(toc(location), our_mode.kind(), our_id)?;
+                                            tree_with_rename.remove_existing_leaf(location.as_bstr());
+                                            push_deferred(
+                                                (new_change, None),
+                                                pick_our_changes_mut(logical_side, their_changes, our_changes),
+                                            );
+                                        }
+                                        Some(resolve) => {
+                                            conflict.entries = Default::default();
+                                            match resolve {
+                                                ResolveWith::Ours => match outer_side {
+                                                    Original => {
+                                                        editor.upsert(toc(location), our_mode.kind(), our_id)?;
+                                                    }
+                                                    Swapped => {
+                                                        editor.upsert(toc(location), their_mode.kind(), their_id)?;
+                                                    }
+                                                },
+                                                ResolveWith::Ancestor => {
+                                                    // Do nothing - this discards both sides.
+                                                    // Note that one of these adds might be the result of a rename, which
+                                                    // means we effectively loose the original and can't get it back as that information is degenerated.
+                                                }
+                                            }
+                                        }
+                                    }
+                                    conflict
                                 };
 
-                                if let Some(conflict) = conflict {
-                                    if should_fail_on_conflict(conflict) {
-                                        break 'outer;
-                                    };
+                                if should_fail_on_conflict(conflict) {
+                                    break 'outer;
                                 }
                             }
                             (
@@ -610,7 +686,7 @@ where
                                     previous_entry_mode,
                                     previous_id,
                                 },
-                            ) if allow_resolution_failure => {
+                            ) => {
                                 let (label_of_side_to_be_moved, side) = if matches!(ours, Change::Modification { .. }) {
                                     (labels.current.unwrap_or_default(), Original)
                                 } else {
@@ -623,62 +699,135 @@ where
                                     };
                                     change_on_right
                                         .map(|change| {
-                                            change.inner.entry_mode().is_tree() && change.inner.location() == location
+                                            change.inner.entry_mode().is_tree()
+                                                && change.inner.location() == location
+                                                && matches!(change.inner, Change::Addition { .. })
                                         })
                                         .unwrap_or_default()
                                 };
 
-                                if deletion_prefaces_addition_of_directory {
-                                    let our_tree = pick_our_tree(side, our_tree, their_tree);
-                                    let renamed_path = unique_path_in_tree(
-                                        location.as_bstr(),
-                                        &editor,
-                                        our_tree,
-                                        label_of_side_to_be_moved,
-                                    )?;
-                                    editor.remove(toc(location))?;
-                                    our_tree.remove_existing_leaf(location.as_bstr());
+                                let should_break = if deletion_prefaces_addition_of_directory {
+                                    let entries = [
+                                        index_entry(previous_entry_mode, previous_id),
+                                        index_entry(entry_mode, id),
+                                        None,
+                                    ];
+                                    match tree_conflicts {
+                                        None => {
+                                            let our_tree = pick_our_tree(side, our_tree, their_tree);
+                                            let renamed_path = unique_path_in_tree(
+                                                location.as_bstr(),
+                                                &editor,
+                                                our_tree,
+                                                label_of_side_to_be_moved,
+                                            )?;
+                                            editor.remove(toc(location))?;
+                                            our_tree.remove_existing_leaf(location.as_bstr());
 
-                                    let new_change = Change::Addition {
-                                        location: renamed_path.clone(),
-                                        relation: None,
-                                        entry_mode: *entry_mode,
-                                        id: *id,
-                                    };
-                                    let should_break = should_fail_on_conflict(Conflict::without_resolution(
-                                        ResolutionFailure::OursModifiedTheirsDirectoryThenOursRenamed {
-                                            renamed_unique_path_to_modified_blob: renamed_path,
-                                        },
-                                        (ours, theirs, side, outer_side),
-                                        [
-                                            index_entry(previous_entry_mode, previous_id),
-                                            index_entry(entry_mode, id),
-                                            None,
-                                        ],
-                                    ));
+                                            let new_change = Change::Addition {
+                                                location: renamed_path.clone(),
+                                                relation: None,
+                                                entry_mode: *entry_mode,
+                                                id: *id,
+                                            };
+                                            let should_break = should_fail_on_conflict(Conflict::without_resolution(
+                                                ResolutionFailure::OursModifiedTheirsDirectoryThenOursRenamed {
+                                                    renamed_unique_path_to_modified_blob: renamed_path,
+                                                },
+                                                (ours, theirs, side, outer_side),
+                                                entries,
+                                            ));
 
-                                    // Since we move *our* side, our tree needs to be modified.
-                                    push_deferred(
-                                        (new_change, None),
-                                        pick_our_changes_mut(side, our_changes, their_changes),
-                                    );
-
-                                    if should_break {
-                                        break 'outer;
-                                    };
+                                            // Since we move *our* side, our tree needs to be modified.
+                                            push_deferred(
+                                                (new_change, None),
+                                                pick_our_changes_mut(side, our_changes, their_changes),
+                                            );
+                                            should_break
+                                        }
+                                        Some(ResolveWith::Ours) => {
+                                            match side.to_global(outer_side) {
+                                                Original => {
+                                                    // ours is modification
+                                                    editor.upsert(toc(location), entry_mode.kind(), *id)?;
+                                                }
+                                                Swapped => {
+                                                    // ours is deletion
+                                                    editor.remove(toc(location))?;
+                                                }
+                                            }
+                                            should_fail_on_conflict(Conflict::without_resolution(
+                                                ResolutionFailure::OursModifiedTheirsDeleted,
+                                                (ours, theirs, side, outer_side),
+                                                entries,
+                                            ))
+                                        }
+                                        Some(ResolveWith::Ancestor) => {
+                                            should_fail_on_conflict(Conflict::without_resolution(
+                                                ResolutionFailure::OursModifiedTheirsDeleted,
+                                                (ours, theirs, side, outer_side),
+                                                entries,
+                                            ))
+                                        }
+                                    }
                                 } else {
-                                    let should_break = should_fail_on_conflict(Conflict::without_resolution(
+                                    let entries = [
+                                        index_entry(previous_entry_mode, previous_id),
+                                        index_entry(entry_mode, id),
+                                        None,
+                                    ];
+                                    match tree_conflicts {
+                                        None => {
+                                            editor.upsert(toc(location), entry_mode.kind(), *id)?;
+                                        }
+                                        Some(ResolveWith::Ours) => {
+                                            let ours = match outer_side {
+                                                Original => ours,
+                                                Swapped => theirs,
+                                            };
+
+                                            match ours {
+                                                Change::Modification { .. } => {
+                                                    editor.upsert(toc(location), entry_mode.kind(), *id)?;
+                                                }
+                                                Change::Deletion { .. } => {
+                                                    editor.remove(toc(location))?;
+                                                }
+                                                _ => unreachable!("parent-match assures this"),
+                                            };
+                                        }
+                                        Some(ResolveWith::Ancestor) => {}
+                                    };
+                                    should_fail_on_conflict(Conflict::without_resolution(
                                         ResolutionFailure::OursModifiedTheirsDeleted,
                                         (ours, theirs, side, outer_side),
-                                        [
-                                            index_entry(previous_entry_mode, previous_id),
-                                            index_entry(entry_mode, id),
-                                            None,
-                                        ],
-                                    ));
-                                    editor.upsert(toc(location), entry_mode.kind(), *id)?;
-                                    if should_break {
-                                        break 'outer;
+                                        entries,
+                                    ))
+                                };
+                                if should_break {
+                                    break 'outer;
+                                };
+                            }
+                            (
+                                Change::Modification { .. },
+                                Change::Addition {
+                                    location,
+                                    entry_mode,
+                                    id,
+                                    ..
+                                },
+                            ) if ours.location() != theirs.location() => {
+                                match tree_conflicts {
+                                    None => {
+                                        unreachable!("modification/deletion pair should prevent modification/addition from happening")
+                                    }
+                                    Some(ResolveWith::Ancestor) => {}
+                                    Some(ResolveWith::Ours) => {
+                                        if outer_side.is_swapped() {
+                                            editor.upsert(toc(location), entry_mode.kind(), *id)?;
+                                        }
+                                        // we have already taken care of the 'root' of this -
+                                        // everything that follows can safely be ignored
                                     }
                                 }
                             }
@@ -721,9 +870,11 @@ where
                                 let merged_mode =
                                     merge_modes(*our_mode, *their_mode).expect("this case was assured earlier");
 
-                                editor.remove(toc(source_location))?;
-                                our_tree.remove_existing_leaf(source_location.as_bstr());
-                                their_tree.remove_existing_leaf(source_location.as_bstr());
+                                if matches!(tree_conflicts, None | Some(ResolveWith::Ours)) {
+                                    editor.remove(toc(source_location))?;
+                                    our_tree.remove_existing_leaf(source_location.as_bstr());
+                                    their_tree.remove_existing_leaf(source_location.as_bstr());
+                                }
 
                                 let their_rewritten_location =
                                     possibly_rewritten_location(our_tree, their_location.as_bstr(), our_changes);
@@ -755,11 +906,12 @@ where
                                             );
                                             // Pretend this is the end of the loop and keep this as conflict.
                                             // If this happens in the wild, we'd want to reproduce it.
-                                            if allow_resolution_failure
-                                                && should_fail_on_conflict(Conflict::unknown((
-                                                    ours, theirs, Original, outer_side,
-                                                )))
-                                            {
+                                            if let Some(ResolveWith::Ours) = tree_conflicts {
+                                                apply_our_resolution(ours, theirs, outer_side, &mut editor)?;
+                                            }
+                                            if should_fail_on_conflict(Conflict::unknown((
+                                                ours, theirs, Original, outer_side,
+                                            ))) {
                                                 break 'outer;
                                             };
                                             their_changes[theirs_idx].was_written = true;
@@ -778,11 +930,6 @@ where
                                                     }),
                                                 )
                                             } else {
-                                                if !allow_resolution_failure {
-                                                    their_changes[theirs_idx].was_written = true;
-                                                    our_changes[ours_idx].was_written = true;
-                                                    continue;
-                                                }
                                                 if should_fail_on_conflict(Conflict::without_resolution(
                                                     ResolutionFailure::OursRenamedTheirsRenamedDifferently {
                                                         merged_blob: resolution.take().map(|resolution| ContentMerge {
@@ -811,19 +958,37 @@ where
                                                 )) {
                                                     break 'outer;
                                                 };
-                                                let our_addition = Change::Addition {
-                                                    location: our_location.to_owned(),
-                                                    relation: None,
-                                                    entry_mode: merged_mode,
-                                                    id: merged_blob_id,
-                                                };
-                                                let their_addition = Change::Addition {
-                                                    location: their_location.to_owned(),
-                                                    relation: None,
-                                                    entry_mode: merged_mode,
-                                                    id: merged_blob_id,
-                                                };
-                                                (Some(our_addition), Some(their_addition))
+                                                match tree_conflicts {
+                                                    None => {
+                                                        let our_addition = Change::Addition {
+                                                            location: our_location.to_owned(),
+                                                            relation: None,
+                                                            entry_mode: merged_mode,
+                                                            id: merged_blob_id,
+                                                        };
+                                                        let their_addition = Change::Addition {
+                                                            location: their_location.to_owned(),
+                                                            relation: None,
+                                                            entry_mode: merged_mode,
+                                                            id: merged_blob_id,
+                                                        };
+                                                        (Some(our_addition), Some(their_addition))
+                                                    }
+                                                    Some(ResolveWith::Ancestor) => (None, None),
+                                                    Some(ResolveWith::Ours) => {
+                                                        let our_addition = Change::Addition {
+                                                            location: match outer_side {
+                                                                Original => our_location,
+                                                                Swapped => their_location,
+                                                            }
+                                                            .to_owned(),
+                                                            relation: None,
+                                                            entry_mode: merged_mode,
+                                                            id: merged_blob_id,
+                                                        };
+                                                        (Some(our_addition), None)
+                                                    }
+                                                }
                                             }
                                         }
                                     };
@@ -884,16 +1049,21 @@ where
                                     ..
                                 },
                                 Change::Deletion { .. },
-                            ) if !rewritten_mode.is_commit() && allow_resolution_failure => {
+                            ) if !rewritten_mode.is_commit() => {
                                 let side = if matches!(ours, Change::Deletion { .. }) {
                                     Original
                                 } else {
                                     Swapped
                                 };
 
-                                editor.remove(toc(source_location))?;
-                                pick_our_tree(side, our_tree, their_tree)
-                                    .remove_existing_leaf(source_location.as_bstr());
+                                match tree_conflicts {
+                                    None | Some(ResolveWith::Ours) => {
+                                        editor.remove(toc(source_location))?;
+                                        pick_our_tree(side, our_tree, their_tree)
+                                            .remove_existing_leaf(source_location.as_bstr());
+                                    }
+                                    Some(ResolveWith::Ancestor) => {}
+                                }
 
                                 let their_rewritten_location = possibly_rewritten_location(
                                     pick_our_tree(side, our_tree, their_tree),
@@ -924,10 +1094,15 @@ where
                                     break 'outer;
                                 };
 
-                                push_deferred(
-                                    (our_addition, None),
-                                    pick_our_changes_mut(side, their_changes, our_changes),
-                                );
+                                let ours_is_rewrite = side.is_swapped();
+                                if tree_conflicts.is_none()
+                                    || (matches!(tree_conflicts, Some(ResolveWith::Ours)) && ours_is_rewrite)
+                                {
+                                    push_deferred(
+                                        (our_addition, None),
+                                        pick_our_changes_mut(side, their_changes, our_changes),
+                                    );
+                                }
                             }
                             (
                                 Change::Rewrite {
@@ -942,6 +1117,7 @@ where
                                 Change::Addition {
                                     id: their_id,
                                     entry_mode: their_mode,
+                                    location: add_location,
                                     ..
                                 },
                             )
@@ -949,6 +1125,7 @@ where
                                 Change::Addition {
                                     id: their_id,
                                     entry_mode: their_mode,
+                                    location: add_location,
                                     ..
                                 },
                                 Change::Rewrite {
@@ -1006,9 +1183,17 @@ where
                                     // Because this constellation can only be found by the lookup tree, there is
                                     // no need to put it as addition, we know it's not going to intersect on the other side.
                                     editor.upsert(toc(location), merged_mode.kind(), merged_blob_id)?;
-                                } else if allow_resolution_failure {
-                                    editor.remove(toc(source_location))?;
-                                    pick_our_tree(side, our_tree, their_tree).remove_leaf(source_location.as_bstr());
+                                } else {
+                                    // We always remove the source from the tree - it might be re-added later.
+                                    let ours_is_rename =
+                                        tree_conflicts == Some(ResolveWith::Ours) && side == outer_side;
+                                    let remove_rename_source =
+                                        tree_conflicts.is_none() || ours_is_rename || add_location != source_location;
+                                    if remove_rename_source {
+                                        editor.remove(toc(source_location))?;
+                                        pick_our_tree(side, our_tree, their_tree)
+                                            .remove_leaf(source_location.as_bstr());
+                                    }
 
                                     let (
                                         logical_side,
@@ -1037,7 +1222,13 @@ where
                                         tree_with_rename,
                                         label_of_side_to_be_moved,
                                     )?;
-                                    editor.upsert(toc(location), our_mode.kind(), our_id)?;
+
+                                    let upsert_rename_destination = tree_conflicts.is_none() || ours_is_rename;
+                                    if upsert_rename_destination {
+                                        editor.upsert(toc(location), our_mode.kind(), our_id)?;
+                                        tree_with_rename.remove_existing_leaf(location.as_bstr());
+                                    }
+
                                     let conflict = Conflict::without_resolution(
                                         ResolutionFailure::OursAddedTheirsAddedTypeMismatch {
                                             their_unique_location: renamed_location.clone(),
@@ -1050,20 +1241,21 @@ where
                                         ],
                                     );
 
-                                    let new_change_with_rename = Change::Addition {
-                                        location: renamed_location,
-                                        entry_mode: their_mode,
-                                        id: their_id,
-                                        relation: None,
-                                    };
-                                    tree_with_rename.remove_existing_leaf(location.as_bstr());
-                                    push_deferred(
-                                        (
-                                            new_change_with_rename,
-                                            Some(pick_idx(logical_side, theirs_idx, ours_idx)),
-                                        ),
-                                        pick_our_changes_mut(logical_side, their_changes, our_changes),
-                                    );
+                                    if tree_conflicts.is_none() {
+                                        let new_change_with_rename = Change::Addition {
+                                            location: renamed_location,
+                                            entry_mode: their_mode,
+                                            id: their_id,
+                                            relation: None,
+                                        };
+                                        push_deferred(
+                                            (
+                                                new_change_with_rename,
+                                                Some(pick_idx(logical_side, theirs_idx, ours_idx)),
+                                            ),
+                                            pick_our_changes_mut(logical_side, their_changes, our_changes),
+                                        );
+                                    }
 
                                     if should_fail_on_conflict(conflict) {
                                         break 'outer;
@@ -1071,9 +1263,16 @@ where
                                 }
                             }
                             _unknown => {
-                                if allow_resolution_failure
-                                    && should_fail_on_conflict(Conflict::unknown((ours, theirs, Original, outer_side)))
-                                {
+                                debug_assert!(
+                                    match_kind.is_none()
+                                        || (ours.location() == theirs.location()
+                                        || ours.source_location() == theirs.source_location()),
+                                    "BUG: right now it's not known to be possible to match changes from different paths: {match_kind:?} {candidate:?}"
+                                );
+                                if let Some(ResolveWith::Ours) = tree_conflicts {
+                                    apply_our_resolution(ours, theirs, outer_side, &mut editor)?;
+                                }
+                                if should_fail_on_conflict(Conflict::unknown((ours, theirs, Original, outer_side))) {
                                     break 'outer;
                                 };
                             }
@@ -1097,6 +1296,19 @@ where
         conflicts,
         failed_on_first_unresolved_conflict: failed_on_first_conflict,
     })
+}
+
+fn apply_our_resolution(
+    local_ours: &Change,
+    local_theirs: &Change,
+    outer_side: ConflictMapping,
+    editor: &mut gix_object::tree::Editor<'_>,
+) -> Result<(), Error> {
+    let ours = match outer_side {
+        Original => local_ours,
+        Swapped => local_theirs,
+    };
+    Ok(apply_change(editor, ours, None)?)
 }
 
 fn involves_submodule(a: &EntryMode, b: &EntryMode) -> bool {

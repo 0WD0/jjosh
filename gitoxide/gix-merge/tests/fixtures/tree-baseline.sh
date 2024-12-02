@@ -36,6 +36,15 @@ function make_conflict_index() {
   cp .git/index .git/"${identifier}".index
 }
 
+function make_resolve_tree() {
+  local resolve=${1:?Their 'ancestor' or 'ours'}
+  local our_side=${2:-}
+  local their_side=${3:-}
+
+  local filename="resolve-${our_side}-${their_side}-with-${resolve}"
+  git write-tree > ".git/${filename}.tree"
+}
+
 function baseline () (
   local dir=${1:?the directory to enter}
   local output_name=${2:?the basename of the output of the merge}
@@ -58,8 +67,13 @@ function baseline () (
   our_commit_id="$(git rev-parse "$our_committish")"
   their_commit_id="$(git rev-parse "$their_committish")"
   local maybe_expected_tree="$(git rev-parse expected^{tree})"
+  local maybe_expected_reversed_tree="$(git rev-parse expected-reversed^{tree})"
+  if [ "$maybe_expected_reversed_tree" == "expected-reversed^{tree}" ]; then
+     maybe_expected_reversed_tree="$(git rev-parse expected^{tree} || :)"
+  fi
   if [ -z "$opt_deviation_message" ]; then
     maybe_expected_tree="expected^{tree}"
+    maybe_expected_reversed_tree="expected^{tree}"
   fi
 
   local merge_info="${output_name}.merge-info"
@@ -69,8 +83,105 @@ function baseline () (
   if [[ "$one_side" != "no-reverse" ]]; then
     local merge_info="${output_name}-reversed.merge-info"
     git -c merge.conflictStyle=$conflict_style merge-tree -z --write-tree --allow-unrelated-histories "$their_committish" "$our_committish" > "$merge_info" || :
-    echo "$dir" "$conflict_style" "$their_commit_id" "$their_committish" "$our_commit_id" "$our_committish" "$merge_info" "$maybe_expected_tree" "$opt_deviation_message" >> ../baseline.cases
+    echo "$dir" "$conflict_style" "$their_commit_id" "$their_committish" "$our_commit_id" "$our_committish" "$merge_info" "$maybe_expected_reversed_tree" "$opt_deviation_message" >> ../baseline.cases
   fi
+)
+
+
+git init non-tree-to-tree
+(cd non-tree-to-tree
+  write_lines original 1 2 3 4 5 >a
+  git add a && git commit -m "init"
+
+  git branch A
+  git branch B
+
+  git checkout A
+  write_lines 1 2 3 4 5 6 >a
+  git commit -am "'A' changes 'a'"
+
+  git checkout B
+  rm a
+  mkdir -p a/sub
+  touch a/sub/b a/sub/c a/d a/e
+  git add a && git commit -m "mv 'a' to 'a/sub/b', populate 'a/' with empty files"
+)
+
+git init tree-to-non-tree
+(cd tree-to-non-tree
+  mkdir -p a/sub
+  write_lines original 1 2 3 4 5 >a/sub/b
+  touch a/sub/c a/d a/e
+  git add a && git commit -m "init"
+
+  git branch A
+  git branch B
+
+  git checkout A
+  write_lines 1 2 3 4 5 6 >a/sub/b
+  git commit -am "'A' changes 'a/sub/b'"
+
+  git checkout B
+  rm -Rf a
+  echo "new file" > a
+  git add a && git commit -m "rm -Rf a/ && add non-empty 'a'"
+)
+
+git init non-tree-to-tree-with-rename
+(cd non-tree-to-tree-with-rename
+  write_lines original 1 2 3 4 5 >a
+  git add a && git commit -m "init"
+
+  git branch A
+  git branch B
+
+  git checkout A
+  write_lines 1 2 3 4 5 6 >a
+  git commit -am "'A' changes 'a'"
+
+  git checkout B
+  mv a tmp
+  mkdir -p a/sub
+  mv tmp a/sub/b
+  touch a/sub/c a/d a/e
+  git add a && git commit -m "mv 'a' to 'a/sub/b', populate 'a/' with empty files"
+)
+
+git init tree-to-non-tree-with-rename
+(cd tree-to-non-tree-with-rename
+  mkdir -p a/sub
+  write_lines original 1 2 3 4 5 >a/sub/b
+  touch a/sub/c a/d a/e
+  git add a && git commit -m "init"
+
+  git branch A
+  git branch B
+  git branch expected
+
+  git checkout A
+  write_lines 1 2 3 4 5 6 >a/sub/b
+  git commit -am "'A' changes 'a/sub/b'"
+
+  git checkout B
+  rm -Rf a
+  touch a
+  git add a && git commit -m "rm -Rf a/ && add empty 'a' (which is like a rename from an empty deleted file)"
+  # And because it's so thrown off, it gets a completely different result if reversed.
+  git branch expected-reversed
+  make_conflict_index tree-to-non-tree-with-rename-A-B-deviates-reversed
+
+  git checkout expected
+  write_lines 1 2 3 4 5 6 >a/sub/b
+  rm a/sub/c a/d
+  git commit -am "we detect a rename that we rather shouldn't, throwing everything off course"
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a/e
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/b
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/sub/b
+EOF
+  make_conflict_index tree-to-non-tree-with-rename-A-B-deviates
 )
 
 git init simple
@@ -1013,6 +1124,10 @@ git init type-change-to-symlink
 
 
 
+baseline non-tree-to-tree A-B A B
+baseline tree-to-non-tree A-B A B
+baseline tree-to-non-tree-with-rename A-B-deviates A B "We find a rename that Git does not find, and arrive in a different place that is lacking a unique-rename"
+baseline non-tree-to-tree-with-rename A-B A B
 baseline rename-add-same-symlink A-B A B
 baseline rename-add-exe-bit-conflict A-B A B
 baseline remove-executable-mode A-B A B
@@ -1074,3 +1189,591 @@ baseline rename-and-modification A-B A B
 baseline symlink-modification A-B A B
 baseline symlink-addition A-B A B
 baseline type-change-to-symlink A-B A B
+
+##
+## Only once the tree-merges were performed can we refer to their objects
+## when making tree-conflict resolution expectations. It's important
+## to get these right.
+##
+(cd simple
+  rm .git/index
+  # 'whatever' is tree-conflict, 'greeting' is content conflict with markers
+  git update-index --index-info <<EOF
+100644 45b983be36b73c0788dc9cbcb76cbb80fc7bb057 0	greeting
+100644 09c277aa66897c58157f57a374eacc63a407dcab 0	numbers
+100644 5716ca5987cbf97d6bb54920bea6adde242d87e6 0	whatever
+EOF
+  make_resolve_tree ours side1 side2
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 092bfb9bdf74dd8cfd22e812151281ee9aa6f01a 0	greeting
+100644 09c277aa66897c58157f57a374eacc63a407dcab 0	numbers
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	whatever/empty
+EOF
+  make_resolve_tree ours side2 side1
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 9dc97bdc2426e68423360e3e5299280b2cf6b8ff 0	greeting
+100644 09c277aa66897c58157f57a374eacc63a407dcab 0	numbers
+100644 257cc5642cb1a054f08cc83f2d943e56fd3ebe99 0	whatever
+EOF
+  make_resolve_tree ancestor side1 side2
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 1a2664a9924754c698e323f756f9f87f3f2fb337 0	greeting
+100644 09c277aa66897c58157f57a374eacc63a407dcab 0	numbers
+100644 257cc5642cb1a054f08cc83f2d943e56fd3ebe99 0	whatever
+EOF
+  make_resolve_tree ancestor side2 side1
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 a4ae6e4709228b5da6001cb9d1cfa7736851e2a6 0	greeting
+100644 257cc5642cb1a054f08cc83f2d943e56fd3ebe99 0	whatever
+100644 542802a799ded74fa01c47ba2f8925e284a369e2 0	Αυτά μου φαίνονται κινέζικα
+EOF
+  make_resolve_tree ancestor tweak1 side2
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 45b983be36b73c0788dc9cbcb76cbb80fc7bb057 0	greeting
+100644 5716ca5987cbf97d6bb54920bea6adde242d87e6 0	whatever
+100644 65bc6a1e238f4bf05b28fd05240636e2cfb657e0 0	Αυτά μου φαίνονται κινέζικα
+EOF
+  make_resolve_tree ours tweak1 side2
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob ea28dcd7f627a2a7bbd09daa679c452180617c9f	greeting
+100644 blob 257cc5642cb1a054f08cc83f2d943e56fd3ebe99	whatever
+100644 blob f801a62deed900f8a80ff35e3339474ad6352a93	Αυτά μου φαίνονται κινέζικα
+EOF
+  make_resolve_tree ancestor side2 tweak1
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob 092bfb9bdf74dd8cfd22e812151281ee9aa6f01a	greeting
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	whatever/empty
+100644 blob 09c277aa66897c58157f57a374eacc63a407dcab	Αυτά μου φαίνονται κινέζικα
+EOF
+  make_resolve_tree ours side2 tweak1
+)
+
+(cd rename-add-symlink
+  rm .git/index
+  # the symlink of 'bar' from A
+  git update-index --index-info <<EOF
+120000 blob 19102815663d23f8b75a47e7a01965dcdc96468c	bar
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # the merged form of 'bar' from B, not replaced by symlink
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	bar
+EOF
+  make_resolve_tree ours B A
+
+  rm .git/index
+  # foo is renamed to bar, type clash means neither A nor B can be added - empty tree
+  # It is not able to 'get foo back', it can't track that currently.
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+)
+
+(cd rename-rename-plus-content
+  rm .git/index
+  # both sides rename 'foo' into something else.
+  git update-index --index-info <<EOF
+100644 blob 8a1218a1024a212bb3db30becd860315f9f3ac52	foo
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # 'bar' is the name in 'A', and there is a merge with the content from 'B'
+  # which we auto-resolve.
+  git update-index --index-info <<EOF
+100644 blob d0549c3d3c96a464289f3b820b7d96aedc58924b	bar
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # 'baz' is the name in 'B', and there is a merge with the content from 'A'
+  # which we auto-resolve.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	baz
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd rename-add-delete
+  rm .git/index
+  # 'foo' is deleted, 'bar' is added in 'A', but renamed to 'bar' in 'B'.
+  # Do nothing, *should* keep 'foo', and it's re-added later, which copies it.
+  # But instead we keep foo the first time, but then it 'turns' and we process a remaining
+  # addition that once again sees the rename from the other side, which is not a conflict
+  # and thus removes 'foo' after all, and merges 'bar'.
+  # It's not super-correct, but it's only an issue for virtual merge bases, which are kind of
+  # hidden anyway.
+  git update-index --index-info <<EOF
+100644 blob 0cde534c2fca6c92c07b3e7a696665e844b9b933	bar
+EOF
+  make_resolve_tree ancestor A B
+  # B A isn't tested, as it is not an Err() conflict.
+
+  # This case ends up being exactly the same as the ancestor, but with the merge-conflict
+  # auto-resolved to 'ours'.
+  # This time, it's expected to not have 'foo', but 'ours' in the clashing pair is a deletion. The rename side
+  # is dropped, but what's left is the rename/add pair once the algorithm turns around/flips.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob f286e5cdd97ac6895438ea4548638bb98ac9bd6b	bar
+EOF
+  make_resolve_tree ours A B
+)
+
+(cd rename-rename-delete-delete
+  rm .git/index
+  # 'A' deletes 'bar' and 'B' turns 'bar' into 'baz'. 'A' renames 'foo' into 'bar', and
+  # 'B' deletes 'foo'. 'ancestor' resolves to avoid any edits, leaving the state from 'main'.
+  git update-index --index-info <<EOF
+100644 blob 5716ca5987cbf97d6bb54920bea6adde242d87e6	bar
+100644 blob 257cc5642cb1a054f08cc83f2d943e56fd3ebe99	foo
+EOF
+  make_resolve_tree ancestor A B
+  # this works in reverse as well (this time).
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # As 'ours' is a deletion of 'foo', it goes through, but we also acknowledge 'theirs'
+  # as it gives better results, so end up with `baz`.
+  git update-index --index-info <<EOF
+100644 blob 257cc5642cb1a054f08cc83f2d943e56fd3ebe99	baz
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Here we end up in exactly the same spot as if we'd do a normal merge,
+  # which ends `baz` in a conflict. However, with content-merges set to 'ours'
+  # it ends up like it should, giving a good result.
+  git update-index --index-info <<EOF
+  100644 blob 5716ca5987cbf97d6bb54920bea6adde242d87e6	baz
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd super-1
+  # Each of the ancestor files are renamed in a conflicting way, and here
+  # with ancestor choice, nothing happens, making this equivalent to `main`
+  git checkout main
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # We do indeed perform the renames like this, and the content is merges as well as possible,
+  # (here) configured to content-merge with 'ours' as well where needed.
+  git update-index --index-info <<EOF
+100644 blob 4b5599c7c2ed4390417d9699bec86144a386873d	four
+100644 blob 64012489f118cb4011c8902b4a635f70dcb0c0ca	six
+100644 blob e33f5e94470d3b5fa0220ff6a9cabb78a3f72fa3	two
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # The same, but from the other side.
+  git update-index --index-info <<EOF
+  100644 blob 64012489f118cb4011c8902b4a635f70dcb0c0ca	four
+  100644 blob e33f5e94470d3b5fa0220ff6a9cabb78a3f72fa3	six
+  100644 blob 4178ea6795c4c3e07b4e17e6a04aa49584b07ecd	two
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd super-2
+  rm .git/index
+  # 'B' changes foo, and moves it into 'olddir/bar', but `A' deleted 'foo', and adds 'newdir/bar/file'
+  # after renaming 'olddir' to 'newdir'.
+  # As `B` only has a single change that gets dropped when it clashes with the deletion of 'foo',
+  # all other changes of 'A' can just be applied without any conflict whatsoever.
+  git update-index --index-info <<EOF
+100644 blob 8a1218a1024a212bb3db30becd860315f9f3ac52	foo
+100644 blob 78981922613b2afb6025042ff6bd878ac1994e85	newdir/a
+100644 blob 61780798228d17af2d34fce4cfbdf35556832472	newdir/b
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	newdir/bar/file
+100644 blob f2ad6c76f0115a6ba5b00456a849810e7ec0af20	newdir/c
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Similar to the ancestor version, but now we choose 'ours', so the rename of 'foo' gets
+  # dropped and it just gets deleted. Everything else is then 'A'.
+  git update-index --index-info <<EOF
+100644 blob 78981922613b2afb6025042ff6bd878ac1994e85	newdir/a
+100644 blob 61780798228d17af2d34fce4cfbdf35556832472	newdir/b
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	newdir/bar/file
+100644 blob f2ad6c76f0115a6ba5b00456a849810e7ec0af20	newdir/c
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # 'B' changes 'foo' and moves it to 'olddir/bar', which gets tracked to be
+  # 'newdir/bar' and is taken verbatim. The clash that it finds it
+  # resolves in 'B's favor, leaving only 'newdir/bar'.
+  git update-index --index-info <<EOF
+100644 blob 78981922613b2afb6025042ff6bd878ac1994e85	newdir/a
+100644 blob 61780798228d17af2d34fce4cfbdf35556832472	newdir/b
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	newdir/bar
+100644 blob f2ad6c76f0115a6ba5b00456a849810e7ec0af20	newdir/c
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd conflicting-rename
+  rm .git/index
+  # 'A' renames 'a' to 'a-renamed', 'B' renames 'a' to 'a-different'.
+  # All these conflicts are dropped in favor of keeping the 'ancestor' *location*.
+  git update-index --index-info <<EOF
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/w
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/x.f
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Much like the ancestor version, except that it applied the 'A' rename,
+  # along with its *merged* content.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/sub/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/sub/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/w
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/x.f
+EOF
+  make_resolve_tree ours A B
+  rm .git/index
+  # Just like 'A' above, but with the 'B' rename chosen and all the merges.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-different/sub/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-different/sub/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-different/w
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-different/x.f
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd conflicting-rename-2
+  rm .git/index
+  # Like 'conflicting-rename', but this one only renames a single sub-directory for very much the same effect.
+  # Thus, keeping the 'ancestor' version is the same as 'main', except for merged content.
+  git update-index --index-info <<EOF
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/w
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub-renamed/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub-renamed/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/w
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+EOF
+  make_resolve_tree ours A B
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub-different/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub-different/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/w
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd conflicting-rename-complex
+  rm .git/index
+  # 'A" renames 'a' to 'a-renamed', but 'B' moves 'a/sub/' up one level, and replaces everything in its wake
+  # so its two files are the only ones left.
+  # As result, we actually have one unconflicting change which ends up creating the new directory 'a-renamed',
+  # but everything else is conflicting so it keeps the 'ancestor' version.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/z
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/y.f
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/z
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/w
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/x.f
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # This is some of the rename tracking from `B` making it into the non-clashing portions of 'A".
+  # Due to different rename tracking, the non-forced version is also a bit of a mess, and that carries on here.
+  git update-index --index-info <<EOF
+  100644 blob 8a1218a1024a212bb3db30becd860315f9f3ac52	a-renamed/sub/y.f
+  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/sub/z
+  100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/y.f
+  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/z
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # It applies the merged result of the content, and interestingly also managed to reconcile the rename from 'A'.
+  # However, it also drops all of 'their' conflicting changes in favor of 'ours', a respectable result.
+  git update-index --index-info <<EOF
+  100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/y.f
+  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/z
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd renamed-symlink-with-conflict
+  rm .git/index
+  # 'A' changes 'a/x.f' and renames the 'link', while 'B' also changes 'a/x.f' in a mergable fashion,
+  # while renaming 'link' to something else which is where the conflict comes from.
+  # Choosing the 'ancestor' means to not rename 'link' at all, while merging the file.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Here we choose the name of 'link' in 'A'.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link-renamed
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Here we choose the name of 'link' in 'B'.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link-different
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd type-change-and-renamed
+  rm .git/index
+  # 'A' changes `link` to a file, while 'B' keeps the link, but renames it.
+  # 'ancestor' just keeps the original version of 'link'
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # 'A' changes the type of 'link' to be a file, and that's what's used here.
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/x.f
+100644 blob f89a08d1e226b9a319210641b63b07dcf0bd705f	link
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # 'B' renames the link, and that is picked up as well.
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link-renamed
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd change-and-delete
+  rm .git/index
+  # 'A' changes 'link' to be a file, and changes the file, while 'B' deletes everything,
+  # causing each file to be irreconcilable.
+  # 'ancestor' keeps everything as is.
+  git update-index --index-info <<EOF
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/x.f
+120000 blob e29fa63dae4ccf0788897a7025da868083178fdf	link
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # 'A' changes everything, and that's the change we keep.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/x.f
+100644 blob f89a08d1e226b9a319210641b63b07dcf0bd705f	link
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # 'B' deletes everything, which is what we keep.
+  make_resolve_tree ours B A
+)
+
+(cd submodule-both-modify
+  rm .git/index
+  # There is only one submodule. 'A' and 'B' change it in a fast-forwardable manner,
+  # but we can't handle this at all yet, and thus have to consider it irreconcilable.
+  # The 'ancestor' resolution just keeps what was.
+  git update-index --index-info <<EOF
+160000 commit e835c0c403c8e494c0ca98f3d25d0b8464c18d38	sub
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Otherwise it's the state of 'A'.
+  git update-index --index-info <<EOF
+160000 commit 64466ebdff775ad618d9cc993cf52840e0af528c	sub
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Otherwise it's the state of 'B'.
+  git update-index --index-info <<EOF
+160000 commit ea6eb701e03c2497915c25a851f3da8f8e362ca0	sub
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd multiple-merge-bases
+  rm .git/index
+  # 'A' modifies and 'B' deletes the single file in the tree.
+  # 'ancestor' keeps the original, which is already the result of the merge of
+  # the merge-bases.
+  git update-index --index-info <<EOF
+100644 blob 09c277aa66897c58157f57a374eacc63a407dcab	content
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # 'A' keeps the modified version.
+  git update-index --index-info <<EOF
+100644 blob 0a6a0ba83635bc00e7c79a4b5b6e50381385c1af	content
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # 'B' applies the deletion to get an empty tree.
+  make_resolve_tree ours B A
+)
+
+(cd non-tree-to-tree
+  rm .git/index
+  # 'A' changes the single file 'a', while 'B' replaces it with a directory structure 'a',
+  # without a rename though.
+  # We manage to pick the 'ancestor', just a single file, while discarding all follow-up changes.
+  git update-index --index-info <<EOF
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Picks 'A' which is just a single, modified (and mergable) file.
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Picks 'B' which is a whole directory tree.
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/d
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/e
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/b
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/c
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd tree-to-non-tree
+  rm .git/index
+  # 'A' modifies a nested file 'a/sub/b', while 'B' replaces 'a/' with file 'a'.
+  # Ignore *their* changes for 'ancestor' resolution, and the modification,
+  # but apply all others which are deletions.
+  git update-index --index-info <<EOF
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/b
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+  # *ours* is the same as ancestor, we want to keep the tree and changes, but it only
+  # applies to the one modification that protects the change.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub/b
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Now *ours* is the single file which replaces a tree.
+  git update-index --index-info <<EOF
+100644 blob fa49b077972391ad58037050f2a75f74e3671e92	a
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd tree-to-non-tree-with-rename
+  rm .git/index
+  # 'A' modifies a nested file 'a/sub/b', while 'B' replaces 'a/' with file 'a'.
+  # But here it goes wrong: it detects a rename from 'a/d' to 'a' in 'theirs'
+  # which does not clash with 'our' tree that only has a modification at 'a/sub/b'.
+  # Hence it gets to write 'a' as rename destination and promptly kills the whole
+  # tree that were are supposed to protect.
+  # I let it pass as it's an edge-case - this rename wouldn't necessarily happen
+  # (but of course, could happen, it's just rare to replace a tree with a single file
+  # from that tree))
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  rm .git/index
+  # Thanks to the rename, this version keeps one additional file, 'a/e'
+  git update-index --index-info <<EOF
+  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/e
+  100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub/b
+EOF
+  make_resolve_tree ours A B
+
+  rm .git/index
+  # Now *ours* is the single file which replaces a tree.
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a
+EOF
+  make_resolve_tree ours B A
+)
+
+(cd non-tree-to-tree-with-rename
+  # 'A' changes the single file 'a', while 'B' replaces it with a directory structure 'a'.
+  # The rename now sends this off-course, as it removes the previously 'protective' entry
+  # and thus makes all changes from 'B' succeed without us detecting any problem with that.
+  # Also, here we don't actually have irreconcilable tree-changes because of that.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/d
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/e
+100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub/b
+100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/c
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  # Thanks to the rename, this time there isn't even an irreconcilable conflict.
+  # This is deactivated as the test-suite can't handle this (one) special case.
+  # The state really is the one from the ancestors, as there are no irreconcilable
+  # tree changes, it's all the same. But the test expects to see changes when 'ours'
+  # is chosen so we can't easily run this here.
+  #  make_resolve_tree ours A B
+  #  make_resolve_tree ours B A
+)

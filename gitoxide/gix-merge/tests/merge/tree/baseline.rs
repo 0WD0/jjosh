@@ -48,6 +48,7 @@ pub enum ConflictKind {
 
 /// More loosely structured information about the `Conflict`.
 #[derive(Debug)]
+#[allow(dead_code)] // used only for debugging
 pub struct ConflictInfo {
     /// All the paths involved in the informational message
     pub paths: Vec<String>,
@@ -149,9 +150,11 @@ impl Iterator for Expectations<'_> {
         else {
             unreachable!("invalid line: {line:?}")
         };
-        let deviation = (expected_custom_tree != "expected^{tree}").then(|| {
-            let expected_tree_id = gix_hash::ObjectId::from_hex(expected_custom_tree.as_bytes())
-                .expect("valid tree id in hex for the expected tree");
+        let deviation = (!expected_custom_tree.starts_with("expected")).then(|| {
+            let expected_tree_id =
+                gix_hash::ObjectId::from_hex(expected_custom_tree.as_bytes()).unwrap_or_else(|err| {
+                    panic!("valid tree id in hex for the expected tree: '{expected_custom_tree}': {err} {line}")
+                });
             let message = tokens.collect::<Vec<_>>().join(" ").trim().to_owned();
             Deviation {
                 message,
@@ -368,6 +371,22 @@ pub fn show_diff_and_fail(
         "{case_name}: merged tree mismatch\n{:#?}\n{:#?}\n{case_name}",
         actual.conflicts,
         expected.information
+    );
+}
+
+pub fn show_diff_trees_and_fail(
+    case_name: &str,
+    actual_id: ObjectId,
+    actual: &gix_merge::tree::Outcome<'_>,
+    expected_tree_id: gix_hash::ObjectId,
+    additional_information: &str,
+    odb: &gix_odb::memory::Proxy<gix_odb::Handle>,
+) {
+    pretty_assertions::assert_str_eq!(
+        visualize_tree(&actual_id, odb, None).to_string(),
+        visualize_tree(&expected_tree_id, odb, None).to_string(),
+        "{case_name}: merged tree mismatch\n{:#?}\n{additional_information}\n{case_name}",
+        actual.conflicts,
     );
 }
 

@@ -57,6 +57,8 @@ pub struct TreatAsUnresolved {
 
 ///
 pub mod treat_as_unresolved {
+    use crate::tree::TreatAsUnresolved;
+
     /// Which kind of content merges should be considered unresolved?
     #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
     pub enum ContentMerge {
@@ -79,6 +81,34 @@ pub mod treat_as_unresolved {
         /// All of `EvasiveRenames`, and tree merges that would have conflicted but which were resolved
         /// with a [resolution strategy](super::ResolveWith).
         ForcedResolution,
+    }
+
+    /// Instantiation/Presets
+    impl TreatAsUnresolved {
+        /// Return an instance with the highest sensitivity to what should be considered unresolved as it
+        /// includes entries which have been resolved using a [merge strategy](super::ResolveWith).
+        pub fn forced_resolution() -> Self {
+            Self {
+                content_merge: ContentMerge::ForcedResolution,
+                tree_merge: TreeMerge::ForcedResolution,
+            }
+        }
+
+        /// Return an instance that considers unresolved any conflict that Git would also consider unresolved.
+        /// This is the same as the `default()` implementation.
+        pub fn git() -> Self {
+            Self::default()
+        }
+
+        /// Only undecidable tree merges and conflict markers are considered unresolved.
+        /// This also means that renamed entries to make space for a conflicting one is considered acceptable,
+        /// making this preset the most lenient.
+        pub fn undecidable() -> Self {
+            Self {
+                content_merge: ContentMerge::Markers,
+                tree_merge: TreeMerge::Undecidable,
+            }
+        }
     }
 }
 
@@ -157,7 +187,7 @@ enum ConflictIndexEntryPathHint {
 }
 
 /// A utility to help define which side is what in the [`Conflict`] type.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum ConflictMapping {
     /// The sides are as described in the field documentation, i.e. `ours` is `ours`.
     Original,
@@ -175,13 +205,19 @@ impl ConflictMapping {
             ConflictMapping::Swapped => ConflictMapping::Original,
         }
     }
+    fn to_global(self, global: ConflictMapping) -> ConflictMapping {
+        match global {
+            ConflictMapping::Original => self,
+            ConflictMapping::Swapped => self.swapped(),
+        }
+    }
 }
 
 impl Conflict {
     /// Return `true` if this instance is considered unresolved based on the criterion specified by `how`.
     pub fn is_unresolved(&self, how: TreatAsUnresolved) -> bool {
         use crate::blob;
-        let content_merge_matches = |info: &ContentMerge| match how.content_merge {
+        let content_merge_unresolved = |info: &ContentMerge| match how.content_merge {
             treat_as_unresolved::ContentMerge::Markers => matches!(info.resolution, blob::Resolution::Conflict),
             treat_as_unresolved::ContentMerge::ForcedResolution => {
                 matches!(
@@ -192,20 +228,28 @@ impl Conflict {
         };
         match how.tree_merge {
             treat_as_unresolved::TreeMerge::Undecidable => {
-                self.resolution.is_err() || self.content_merge().map_or(false, |info| content_merge_matches(&info))
+                self.resolution.is_err()
+                    || self
+                        .content_merge()
+                        .map_or(false, |info| content_merge_unresolved(&info))
             }
             treat_as_unresolved::TreeMerge::EvasiveRenames | treat_as_unresolved::TreeMerge::ForcedResolution => {
                 match &self.resolution {
                     Ok(success) => match success {
                         Resolution::SourceLocationAffectedByRename { .. } => false,
-                        Resolution::Forced(_) => how.tree_merge == treat_as_unresolved::TreeMerge::ForcedResolution,
+                        Resolution::Forced(_) => {
+                            how.tree_merge == treat_as_unresolved::TreeMerge::ForcedResolution
+                                || self
+                                    .content_merge()
+                                    .map_or(false, |merged_blob| content_merge_unresolved(&merged_blob))
+                        }
                         Resolution::OursModifiedTheirsRenamedAndChangedThenRename {
                             merged_blob,
                             final_location,
                             ..
-                        } => final_location.is_some() || merged_blob.as_ref().map_or(false, content_merge_matches),
+                        } => final_location.is_some() || merged_blob.as_ref().map_or(false, content_merge_unresolved),
                         Resolution::OursModifiedTheirsModifiedThenBlobContentMerge { merged_blob } => {
-                            content_merge_matches(merged_blob)
+                            content_merge_unresolved(merged_blob)
                         }
                     },
                     Err(_failure) => true,
@@ -249,6 +293,7 @@ impl Conflict {
             match failure {
                 ResolutionFailure::OursRenamedTheirsRenamedDifferently { merged_blob } => *merged_blob,
                 ResolutionFailure::Unknown
+                | ResolutionFailure::OursDirectoryTheirsNonDirectoryTheirsRenamed { .. }
                 | ResolutionFailure::OursModifiedTheirsDeleted
                 | ResolutionFailure::OursModifiedTheirsRenamedTypeMismatch
                 | ResolutionFailure::OursModifiedTheirsDirectoryThenOursRenamed {
@@ -321,6 +366,17 @@ pub enum ResolutionFailure {
         /// The path at which `ours` can be found in the tree - it's in the same directory that it was in before.
         renamed_unique_path_to_modified_blob: BString,
     },
+    /// *ours* is a directory, but *theirs* is a non-directory (i.e. file), which wants to be in its place, even though
+    /// *ours* has a modification in that subtree.
+    /// Rename *theirs* to retain that modification.
+    ///
+    /// Important: there is no actual modification on *ours* side, so *ours* is filled in with *theirs* as the data structure
+    /// cannot represent this case.
+    // TODO: Can we have a better data-structure? This would be for a rewrite though.
+    OursDirectoryTheirsNonDirectoryTheirsRenamed {
+        /// The non-conflicting path of *their* non-tree entry.
+        renamed_unique_path_of_theirs: BString,
+    },
     /// *ours* was added (or renamed into place) with a different mode than theirs, e.g. blob and symlink, and we kept
     /// the symlink in its original location, renaming the other side to `their_unique_location`.
     OursAddedTheirsAddedTypeMismatch {
@@ -376,8 +432,10 @@ pub struct Options {
     /// If `None`, tree irreconcilable tree conflicts will result in [resolution failures](ResolutionFailure).
     /// Otherwise, one can choose a side. Note that it's still possible to determine that auto-resolution happened
     /// despite this choice, which allows carry forward the conflicting information, possibly for later resolution.
-    /// If `Some(…)`, irreconcilable conflicts are reconciled by making a choice. This mlso means that [`Conflict::entries()`]
-    /// won't be set as the conflict was officially resolved.
+    /// If `Some(…)`, irreconcilable conflicts are reconciled by making a choice.
+    /// Note that [`Conflict::entries()`] will still be set, to not degenerate information, even though they then represent
+    /// the entries what would fit the index if no forced resolution was performed.
+    /// It's up to the caller to handle that information mindfully.
     pub tree_conflicts: Option<ResolveWith>,
 }
 
@@ -386,7 +444,10 @@ pub struct Options {
 pub enum ResolveWith {
     /// On irreconcilable conflict, choose neither *our* nor *their* state, but keep the common *ancestor* state instead.
     Ancestor,
-    /// On irreconcilable conflict, choose *our* side
+    /// On irreconcilable conflict, choose *our* side.
+    ///
+    /// Note that in order to get something equivalent to *theirs*, put *theirs* into the side of *ours*,
+    /// swapping the sides essentially.
     Ours,
 }
 
@@ -439,6 +500,9 @@ pub mod apply_index_entries {
                         }
                     },
                     Err(failure) => match failure {
+                        ResolutionFailure::OursDirectoryTheirsNonDirectoryTheirsRenamed {
+                            renamed_unique_path_of_theirs,
+                        } => (Some(renamed_unique_path_of_theirs.as_bstr()), conflict.ours.location()),
                         ResolutionFailure::OursRenamedTheirsRenamedDifferently { .. } => {
                             (Some(conflict.theirs.location()), conflict.ours.location())
                         }

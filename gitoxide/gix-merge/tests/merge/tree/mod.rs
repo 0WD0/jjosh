@@ -21,7 +21,8 @@ fn run_baseline() -> crate::Result {
     let root = gix_testtools::scripted_fixture_read_only("tree-baseline.sh")?;
     let cases = std::fs::read_to_string(root.join("baseline.cases"))?;
     let mut actual_cases = 0;
-    // let new_test = Some("rename-add-symlink-A-B");
+    let mut skipped_tree_resolve_cases = 0;
+    // let new_test = Some("tree-to-non-tree-with-rename");
     let new_test = None;
     for baseline::Expectation {
         root,
@@ -63,12 +64,12 @@ fn run_baseline() -> crate::Result {
             &mut blob_merge,
             &odb,
             &mut |id| id.to_hex_with_len(7).to_string(),
-            options,
+            options.clone(),
         )?
         .tree_merge;
 
         let actual_id = actual.tree.write(|tree| odb.write(tree))?;
-        match deviation {
+        match &deviation {
             None => {
                 if actual_id != merge_info.merged_tree {
                     baseline::show_diff_and_fail(&case_name, actual_id, &actual, &merge_info, &odb);
@@ -93,7 +94,7 @@ fn run_baseline() -> crate::Result {
                 }
                 pretty_assertions::assert_str_eq!(
                     baseline::visualize_tree(&actual_id, &odb, None).to_string(),
-                    baseline::visualize_tree(&expected_tree_id, &odb, None).to_string(),
+                    baseline::visualize_tree(expected_tree_id, &odb, None).to_string(),
                     "{case_name}: tree mismatch: {message} \n{:#?}\n{case_name}",
                     actual.conflicts
                 );
@@ -102,10 +103,10 @@ fn run_baseline() -> crate::Result {
 
         let mut actual_index = gix_index::State::from_tree(&actual_id, &odb, Default::default())?;
         let expected_index = {
-            let derivative_index_path = root.join(".git").join(format!("{case_name}.index"));
-            if derivative_index_path.exists() {
+            let deviating_index_path = root.join(".git").join(format!("{case_name}.index"));
+            if deviating_index_path.exists() {
                 gix_index::File::at(
-                    derivative_index_path,
+                    deviating_index_path,
                     odb.store().object_hash(),
                     true,
                     Default::default(),
@@ -119,10 +120,7 @@ fn run_baseline() -> crate::Result {
                 index
             }
         };
-        let conflicts_like_in_git = TreatAsUnresolved {
-            content_merge: treat_as_unresolved::ContentMerge::Markers,
-            tree_merge: treat_as_unresolved::TreeMerge::EvasiveRenames,
-        };
+        let conflicts_like_in_git = TreatAsUnresolved::git();
         let did_change = actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git);
         actual_index.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
 
@@ -133,16 +131,88 @@ fn run_baseline() -> crate::Result {
             actual.conflicts,
             merge_info.conflicts
         );
-        assert_eq!(
-            did_change,
-            actual.has_unresolved_conflicts(conflicts_like_in_git),
-            "{case_name}: If there is any kind of conflict, the index should have been changed"
-        );
+        if deviation.is_none() {
+            assert_eq!(
+                did_change,
+                actual.has_unresolved_conflicts(conflicts_like_in_git),
+                "{case_name}: If there is any kind of conflict, the index should have been changed"
+            );
+        }
+
+        // The content-merge mode is not relevant for the upcoming tree-conflict resolution.
+        if case_name.contains("diff3") {
+            continue;
+        }
+
+        for tree_resolution in [
+            gix_merge::tree::ResolveWith::Ancestor,
+            gix_merge::tree::ResolveWith::Ours,
+        ] {
+            let resolution_name = match tree_resolution {
+                gix_merge::tree::ResolveWith::Ancestor => "ancestor",
+                gix_merge::tree::ResolveWith::Ours => "ours",
+            };
+            let basename = format!("resolve-{our_side_name}-{their_side_name}-with-{resolution_name}");
+            let tree_path = root.join(".git").join(format!("{basename}.tree"));
+            if !tree_path.exists() {
+                skipped_tree_resolve_cases += 1;
+                continue;
+            };
+            let expected_tree_id = gix_hash::ObjectId::from_hex(std::fs::read_to_string(tree_path)?.trim().as_bytes())?;
+            options.tree_merge.tree_conflicts = Some(tree_resolution);
+            let resolve_with_ours = tree_resolution == gix_merge::tree::ResolveWith::Ours;
+            if resolve_with_ours {
+                options.tree_merge.blob_merge.text.conflict =
+                    gix_merge::blob::builtin_driver::text::Conflict::ResolveWithOurs;
+            }
+            let mut actual = gix_merge::commit(
+                our_commit_id,
+                their_commit_id,
+                gix_merge::blob::builtin_driver::text::Labels {
+                    ancestor: None,
+                    current: Some(our_side_name.as_str().into()),
+                    other: Some(their_side_name.as_str().into()),
+                },
+                &mut graph,
+                &mut diff_resource_cache,
+                &mut blob_merge,
+                &odb,
+                &mut |id| id.to_hex_with_len(7).to_string(),
+                options.clone(),
+            )?
+            .tree_merge;
+
+            let actual_id = actual.tree.write(|tree| odb.write(tree))?;
+            if actual_id != expected_tree_id {
+                baseline::show_diff_trees_and_fail(&case_name, actual_id, &actual, expected_tree_id, &basename, &odb);
+            }
+            if resolve_with_ours {
+                assert!(
+                    !actual.has_unresolved_conflicts(conflicts_like_in_git),
+                    "We have forcefully resolved all conflicts, as far as Git would be concerned\n{:#?}",
+                    actual.conflicts
+                );
+                assert!(
+                    actual.has_unresolved_conflicts(TreatAsUnresolved {
+                        content_merge: treat_as_unresolved::ContentMerge::ForcedResolution,
+                        tree_merge: treat_as_unresolved::TreeMerge::ForcedResolution,
+                    }),
+                    "But it's possible to adjust the parameter to still learn that a conflict happened,\
+                and each of these tests has one that is irreconcilable"
+                );
+            }
+        }
     }
 
     assert_eq!(
-        actual_cases, 109,
+        actual_cases, 117,
         "BUG: update this number, and don't forget to remove a filter in the end"
+    );
+    assert_eq!(
+        skipped_tree_resolve_cases, 106,
+        "this is done when no case is skipped, and we don't want to accidentally skip them.\
+        Some don't actually have conflicts.\
+        The ones we skipped don't have irreconcilable conflicts"
     );
 
     Ok(())
@@ -215,6 +285,4 @@ fn new_blob_merge_platform(
     )
 }
 
-// TODO: make sure everything is read eventually, even if only to improve debug messages in case of failure.
-#[allow(dead_code)]
 mod baseline;
