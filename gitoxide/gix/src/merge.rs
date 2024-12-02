@@ -107,7 +107,9 @@ pub mod commit {
 ///
 pub mod tree {
     use gix_merge::blob::builtin_driver;
-    pub use gix_merge::tree::{Conflict, ContentMerge, Resolution, ResolutionFailure, TreatAsUnresolved};
+    pub use gix_merge::tree::{
+        treat_as_unresolved, Conflict, ContentMerge, Resolution, ResolutionFailure, TreatAsUnresolved,
+    };
 
     /// The outcome produced by [`Repository::merge_trees()`](crate::Repository::merge_trees()).
     #[derive(Clone)]
