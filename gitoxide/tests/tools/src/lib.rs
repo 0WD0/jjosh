@@ -509,11 +509,18 @@ fn scripted_fixture_read_only_with_args_inner(
         |d| (true, d.to_owned()),
     );
 
-    let _marker = gix_lock::Marker::acquire_to_hold_resource(
-        script_basename,
-        gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
-        None,
-    )?;
+    // We may that destination_dir is already unique (i.e. temp-dir) - thus there is no need for a lock,
+    // and we can execute scripts in parallel.
+    let _marker = destination_dir
+        .is_none()
+        .then(|| {
+            gix_lock::Marker::acquire_to_hold_resource(
+                script_basename,
+                gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
+                None,
+            )
+        })
+        .transpose()?;
     let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
     if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
         if failure_marker.is_file() {
