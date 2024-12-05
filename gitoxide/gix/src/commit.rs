@@ -173,7 +173,8 @@ pub mod describe {
     /// A support type to allow configuring a `git describe` operation
     pub struct Platform<'repo> {
         pub(crate) id: gix_hash::ObjectId,
-        pub(crate) repo: &'repo crate::Repository,
+        /// The owning repository.
+        pub repo: &'repo crate::Repository,
         pub(crate) select: SelectRef,
         pub(crate) first_parent: bool,
         pub(crate) id_as_fallback: bool,

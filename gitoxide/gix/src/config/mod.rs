@@ -18,7 +18,8 @@ pub use tree::root::Tree;
 ///
 /// Note that these values won't update even if the underlying file(s) change.
 pub struct Snapshot<'repo> {
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 /// A platform to access configuration values and modify them in memory, while making them available when this platform is dropped
@@ -31,13 +32,15 @@ pub struct Snapshot<'repo> {
 // TODO: make it possible to load snapshots with reloading via .config() and write mutated snapshots back to disk which should be the way
 //       to affect all instances of a repo, probably via `config_mut()` and `config_mut_at()`.
 pub struct SnapshotMut<'repo> {
-    pub(crate) repo: Option<&'repo mut Repository>,
+    /// The owning repository.
+    pub repo: Option<&'repo mut Repository>,
     pub(crate) config: gix_config::File<'static>,
 }
 
 /// A utility structure created by [`SnapshotMut::commit_auto_rollback()`] that restores the previous configuration on drop.
 pub struct CommitAutoRollback<'repo> {
-    pub(crate) repo: Option<&'repo mut Repository>,
+    /// The owning repository.
+    pub repo: Option<&'repo mut Repository>,
     pub(crate) prev_config: crate::Config,
 }
 

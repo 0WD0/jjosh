@@ -19,7 +19,8 @@ pub struct Worktree<'repo> {
 pub struct Head<'repo> {
     /// One of various possible states for the HEAD reference
     pub kind: head::Kind,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 /// An [`ObjectId`] with access to a repository.
@@ -27,7 +28,8 @@ pub struct Head<'repo> {
 pub struct Id<'r> {
     /// The actual object id
     pub(crate) inner: ObjectId,
-    pub(crate) repo: &'r Repository,
+    /// The owning repository.
+    pub repo: &'r Repository,
 }
 
 /// A decoded object with a reference to its owning repository.
@@ -39,7 +41,8 @@ pub struct Object<'repo> {
     pub kind: gix_object::Kind,
     /// The fully decoded object data
     pub data: Vec<u8>,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl Drop for Object<'_> {
@@ -55,7 +58,8 @@ pub struct Blob<'repo> {
     pub id: ObjectId,
     /// The blob's data.
     pub data: Vec<u8>,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl Drop for Blob<'_> {
@@ -71,7 +75,8 @@ pub struct Tree<'repo> {
     pub id: ObjectId,
     /// The fully decoded tree data
     pub data: Vec<u8>,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl Drop for Tree<'_> {
@@ -87,7 +92,8 @@ pub struct Tag<'repo> {
     pub id: ObjectId,
     /// The fully decoded tag data
     pub data: Vec<u8>,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl Drop for Tag<'_> {
@@ -103,7 +109,8 @@ pub struct Commit<'repo> {
     pub id: ObjectId,
     /// The fully decoded commit data
     pub data: Vec<u8>,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl Drop for Commit<'_> {
@@ -132,7 +139,8 @@ pub struct ObjectDetached {
 pub struct Reference<'r> {
     /// The actual reference data
     pub inner: gix_ref::Reference,
-    pub(crate) repo: &'r Repository,
+    /// The owning repository.
+    pub repo: &'r Repository,
 }
 
 /// A thread-local handle to interact with a repository from a single thread.
@@ -219,7 +227,8 @@ pub struct Remote<'repo> {
     // pub(crate) prune: bool,
     // /// Delete tags that don't exist on the remote anymore, equivalent to pruning the refspec `refs/tags/*:refs/tags/*`.
     // pub(crate) prune_tags: bool,
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 /// A utility to make matching against pathspecs simple.
@@ -231,7 +240,8 @@ pub struct Remote<'repo> {
 #[derive(Clone)]
 #[cfg(feature = "attributes")]
 pub struct Pathspec<'repo> {
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
     /// The cache to power attribute access. It's only initialized if we have a pattern with attributes.
     pub(crate) stack: Option<gix_worktree::Stack>,
     /// The prepared search to use for checking matches.
@@ -261,6 +271,7 @@ pub struct Submodule<'repo> {
 /// A utility to access `.gitattributes` and `.gitignore` information efficiently.
 #[cfg(any(feature = "attributes", feature = "excludes"))]
 pub struct AttributeStack<'repo> {
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
     pub(crate) inner: gix_worktree::Stack,
 }

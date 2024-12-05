@@ -8,7 +8,8 @@ use gix_ref::file::ReferenceExt;
 #[must_use = "Iterators should be obtained from this iterator platform"]
 pub struct Platform<'r> {
     pub(crate) platform: gix_ref::file::iter::Platform<'r>,
-    pub(crate) repo: &'r crate::Repository,
+    /// The owning repository.
+    pub repo: &'r crate::Repository,
 }
 
 /// An iterator over references, with or without filter.

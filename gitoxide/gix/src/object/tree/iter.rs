@@ -5,8 +5,8 @@ use crate::Repository;
 pub struct EntryRef<'repo, 'a> {
     /// The actual entry ref we are wrapping.
     pub inner: gix_object::tree::EntryRef<'a>,
-
-    pub(crate) repo: &'repo Repository,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 impl<'repo, 'a> EntryRef<'repo, 'a> {
