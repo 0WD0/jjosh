@@ -139,7 +139,12 @@ pub fn update(
         });
 
         let rewrites = {
-            let mut r = gix::diff::new_rewrites(&repo.config_snapshot(), true)?.unwrap_or_default();
+            // These are either configured, or we set them to the default. There is no turning them off.
+            let (r, was_configured) = gix::diff::new_rewrites(&repo.config_snapshot(), true)?;
+            if was_configured && r.is_none() {
+                gix::trace::warn!("Rename tracking is disabled by configuration, but we enable it using the default");
+            }
+            let mut r = r.unwrap_or_default();
             r.copies = Some(gix::diff::rewrites::Copies {
                 source: if find_copies_harder {
                     CopySource::FromSetOfModifiedFilesAndAllSources
