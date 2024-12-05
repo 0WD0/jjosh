@@ -51,7 +51,14 @@ impl Options {
     pub(crate) fn from_configuration(config: &crate::config::Cache) -> Result<Self, options::init::Error> {
         Ok(Options {
             location: Some(Location::Path),
-            rewrites: config.diff_renames()?.unwrap_or_default().into(),
+            rewrites: {
+                let (rewrites, is_configured) = config.diff_renames()?;
+                if is_configured {
+                    rewrites
+                } else {
+                    Some(Default::default())
+                }
+            },
         })
     }
 }
@@ -164,14 +171,14 @@ pub(crate) mod utils {
     }
 
     /// Create an instance by reading all relevant information from the `config`uration, while being `lenient` or not.
-    /// Returns `Ok(None)` if nothing is configured.
+    /// Returns `Ok((None, false))` if nothing is configured, or `Ok((None, true))` if it's configured and disabled.
     ///
     /// Note that missing values will be defaulted similar to what git does.
     #[allow(clippy::result_large_err)]
     pub fn new_rewrites(
         config: &gix_config::File<'static>,
         lenient: bool,
-    ) -> Result<Option<Rewrites>, new_rewrites::Error> {
+    ) -> Result<(Option<Rewrites>, bool), new_rewrites::Error> {
         new_rewrites_inner(config, lenient, &Diff::RENAMES, &Diff::RENAME_LIMIT)
     }
 
@@ -180,7 +187,7 @@ pub(crate) mod utils {
         lenient: bool,
         renames: &'static crate::config::tree::diff::Renames,
         rename_limit: &'static crate::config::tree::keys::UnsignedInteger,
-    ) -> Result<Option<Rewrites>, new_rewrites::Error> {
+    ) -> Result<(Option<Rewrites>, bool), new_rewrites::Error> {
         let copies = match config
             .boolean(renames)
             .map(|value| renames.try_into_renames(value))
@@ -188,25 +195,28 @@ pub(crate) mod utils {
             .with_leniency(lenient)?
         {
             Some(renames) => match renames {
-                Tracking::Disabled => return Ok(None),
+                Tracking::Disabled => return Ok((None, true)),
                 Tracking::Renames => None,
                 Tracking::RenamesAndCopies => Some(Copies::default()),
             },
-            None => return Ok(None),
+            None => return Ok((None, false)),
         };
 
         let default = Rewrites::default();
-        Ok(Rewrites {
-            copies,
-            limit: config
-                .integer(rename_limit)
-                .map(|value| rename_limit.try_into_usize(value))
-                .transpose()
-                .with_leniency(lenient)?
-                .unwrap_or(default.limit),
-            ..default
-        }
-        .into())
+        Ok((
+            Rewrites {
+                copies,
+                limit: config
+                    .integer(rename_limit)
+                    .map(|value| rename_limit.try_into_usize(value))
+                    .transpose()
+                    .with_leniency(lenient)?
+                    .unwrap_or(default.limit),
+                ..default
+            }
+            .into(),
+            true,
+        ))
     }
 
     /// Return a low-level utility to efficiently prepare a blob-level diff operation between two resources,
