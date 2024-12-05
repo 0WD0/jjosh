@@ -341,6 +341,10 @@ impl<T: Change> Tracker<T> {
     ) -> Result<(), emit::Error> {
         // we try to cheaply reduce the set of possibilities first, before possibly looking more exhaustively.
         let needs_second_pass = !needs_exact_match(percentage);
+
+        // https://github.com/git/git/blob/cc01bad4a9f566cf4453c7edd6b433851b0835e2/diffcore-rename.c#L350-L369
+        // We would need a hashmap to be OK to not use the limit here, otherwise the performance is too bad.
+        // This also means we don't find all renames if we hit the rename limit.
         if self.match_pairs(cb, None /* by identity */, kind, out, diff_cache, objects, filter)? == Action::Cancel {
             return Ok(());
         }
@@ -384,6 +388,19 @@ impl<T: Change> Tracker<T> {
         filter: Option<fn(&T) -> bool>,
     ) -> Result<Action, emit::Error> {
         let mut dest_ofs = 0;
+        let mut num_checks = 0;
+        let max_checks = {
+            let limit = self.rewrites.limit.saturating_pow(2);
+            // There can be trees with a lot of entries and pathological search behaviour, as they can be repeated
+            // and then have a lot of similar hashes. This also means we have to search a lot of candidates which
+            // can be too slow despite best attempts. So play it save and detect such cases 'roughly' by amount of items.
+            if self.items.len() < 100_000 {
+                0
+            } else {
+                limit
+            }
+        };
+
         while let Some((mut dest_idx, dest)) = self.items[dest_ofs..].iter().enumerate().find_map(|(idx, item)| {
             (!item.emitted
                 && matches!(item.change.kind(), ChangeKind::Addition)
@@ -403,6 +420,7 @@ impl<T: Change> Tracker<T> {
                 objects,
                 diff_cache,
                 &self.path_backing,
+                &mut num_checks,
             )?
             .map(|(src_idx, src, diff)| {
                 let (id, entry_mode) = src.change.id_and_entry_mode();
@@ -420,6 +438,12 @@ impl<T: Change> Tracker<T> {
                     src_idx,
                 )
             });
+            if max_checks != 0 && num_checks > max_checks {
+                gix_trace::warn!(
+                    "Cancelled rename matching as there were too many iterations ({num_checks} > {max_checks})"
+                );
+                return Ok(Action::Cancel);
+            }
             let Some((src, src_idx)) = src else {
                 continue;
             };
@@ -631,6 +655,7 @@ fn find_match<'a, T: Change>(
     objects: &impl gix_object::FindObjectOrHeader,
     diff_cache: &mut crate::blob::Platform,
     path_backing: &[u8],
+    num_checks: &mut usize,
 ) -> Result<Option<SourceTuple<'a, T>>, emit::Error> {
     let (item_id, item_mode) = item.change.id_and_entry_mode();
     if needs_exact_match(percentage) || item_mode.is_link() {
@@ -651,6 +676,7 @@ fn find_match<'a, T: Change>(
         }
         let res = items[range.clone()].iter().enumerate().find_map(|(mut src_idx, src)| {
             src_idx += range.start;
+            *num_checks += 1;
             (src_idx != item_idx && src.is_source_for_destination_of(kind, item_mode)).then_some((src_idx, src, None))
         });
         if let Some(src) = res {
@@ -685,6 +711,7 @@ fn find_match<'a, T: Change>(
             )?;
             let prep = diff_cache.prepare_diff()?;
             stats.num_similarity_checks += 1;
+            *num_checks += 1;
             match prep.operation {
                 Operation::InternalDiff { algorithm } => {
                     let tokens =
