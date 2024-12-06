@@ -164,6 +164,7 @@ fn assert_urls_equal(expected: &baseline::GitDiagUrl<'_>, actual: &gix_url::Url)
     assert_eq!(actual.path, expected.path.unwrap_or_default());
 }
 
+#[allow(clippy::module_inception)]
 mod baseline {
     use bstr::{BStr, BString, ByteSlice};
     use gix_testtools::once_cell::sync::Lazy;
