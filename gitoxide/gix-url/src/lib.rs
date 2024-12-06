@@ -308,6 +308,10 @@ impl Url {
     }
 }
 
+fn percent_encode(s: &str) -> Cow<'_, str> {
+    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).into()
+}
+
 /// Serialization
 impl Url {
     /// Write this URL losslessly to `out`, ready to be parsed again.
@@ -318,10 +322,10 @@ impl Url {
         }
         match (&self.user, &self.host) {
             (Some(user), Some(host)) => {
-                out.write_all(user.as_bytes())?;
+                out.write_all(percent_encode(user).as_bytes())?;
                 if let Some(password) = &self.password {
                     out.write_all(b":")?;
-                    out.write_all(password.as_bytes())?;
+                    out.write_all(percent_encode(password).as_bytes())?;
                 }
                 out.write_all(b"@")?;
                 out.write_all(host.as_bytes())?;

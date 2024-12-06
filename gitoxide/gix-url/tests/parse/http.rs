@@ -40,6 +40,26 @@ fn username_and_password_and_port() -> crate::Result {
 }
 
 #[test]
+fn username_and_password_with_spaces_and_port() -> crate::Result {
+    let expected = gix_url::Url::from_parts(
+        Scheme::Http,
+        Some("user name".into()),
+        Some("password secret".into()),
+        Some("example.com".into()),
+        Some(8080),
+        b"/~byron/hello".into(),
+        false,
+    )?;
+    assert_url_roundtrip(
+        "http://user%20name:password%20secret@example.com:8080/~byron/hello",
+        expected.clone(),
+    )?;
+    assert_eq!(expected.user(), Some("user name"));
+    assert_eq!(expected.password(), Some("password secret"));
+    Ok(())
+}
+
+#[test]
 fn only_password() -> crate::Result {
     assert_url_roundtrip(
         "http://:password@example.com/~byron/hello",

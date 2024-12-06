@@ -2792,6 +2792,7 @@ dependencies = [
  "gix-features 0.39.1",
  "gix-path 0.10.13",
  "gix-testtools",
+ "percent-encoding",
  "serde",
  "thiserror 2.0.3",
  "url",

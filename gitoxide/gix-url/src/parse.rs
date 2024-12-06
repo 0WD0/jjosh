@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 
-use bstr::{BStr, BString, ByteSlice};
-
 use crate::Scheme;
+use bstr::{BStr, BString, ByteSlice};
+use percent_encoding::percent_decode_str;
 
 /// The error returned by [parse()](crate::parse()).
 #[derive(Debug, thiserror::Error)]
@@ -115,11 +115,18 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url, Error
         serialize_alternative_form: false,
         scheme,
         user: url_user(&url),
-        password: url.password().map(Into::into),
+        password: url.password().map(percent_decoded_utf8),
         host: url.host_str().map(Into::into),
         port: url.port(),
         path: url.path().into(),
     })
+}
+
+fn percent_decoded_utf8(s: &str) -> String {
+    percent_decode_str(s)
+        .decode_utf8()
+        .expect("it's not possible to sneak illegal UTF8 into a URL")
+        .into_owned()
 }
 
 pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
@@ -151,7 +158,7 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
         serialize_alternative_form: true,
         scheme: url.scheme().into(),
         user: url_user(&url),
-        password: url.password().map(Into::into),
+        password: url.password().map(percent_decoded_utf8),
         host: url.host_str().map(Into::into),
         port: url.port(),
         path: path.into(),
@@ -162,7 +169,7 @@ fn url_user(url: &url::Url) -> Option<String> {
     if url.username().is_empty() && url.password().is_none() {
         None
     } else {
-        Some(url.username().into())
+        Some(percent_decoded_utf8(url.username()))
     }
 }
 
