@@ -1,6 +1,7 @@
 use crate::tree::baseline::Deviation;
 use gix_diff::Rewrites;
 use gix_merge::commit::Options;
+use gix_merge::tree::apply_index_entries::RemovalMode;
 use gix_merge::tree::{treat_as_unresolved, TreatAsUnresolved};
 use gix_object::Write;
 use gix_worktree::stack::state::attributes;
@@ -121,8 +122,8 @@ fn run_baseline() -> crate::Result {
             }
         };
         let conflicts_like_in_git = TreatAsUnresolved::git();
-        let did_change = actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git);
-        actual_index.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
+        let did_change =
+            actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git, RemovalMode::Prune);
 
         pretty_assertions::assert_eq!(
             baseline::clear_entries(&actual_index),

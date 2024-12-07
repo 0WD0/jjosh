@@ -121,13 +121,18 @@ impl Outcome<'_> {
 
     /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
     /// conflict should be considered unresolved.
+    /// `removal_mode` decides how unconflicted entries should be removed if they are superseded by
+    /// their conflicted counterparts.
     /// It's important that `index` is at the state of [`Self::tree`].
     ///
     /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
-    /// Also, the unconflicted stage of such entries will be removed merely by setting a flag, so the
-    /// in-memory entry is still present.
-    pub fn index_changed_after_applying_conflicts(&self, index: &mut gix_index::State, how: TreatAsUnresolved) -> bool {
-        apply_index_entries(&self.conflicts, how, index)
+    pub fn index_changed_after_applying_conflicts(
+        &self,
+        index: &mut gix_index::State,
+        how: TreatAsUnresolved,
+        removal_mode: apply_index_entries::RemovalMode,
+    ) -> bool {
+        apply_index_entries(&self.conflicts, how, index, removal_mode)
     }
 }
 
@@ -456,7 +461,24 @@ mod utils;
 ///
 pub mod apply_index_entries {
 
+    /// Determines how we deal with the removal of unconflicted entries if these are superseded by their conflicted counterparts,
+    /// i.e. stage 1, 2 and 3.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    pub enum RemovalMode {
+        /// Add the [`gix_index::entry::Flags::REMOVE`] flag to entries that are to be removed.
+        ///
+        /// **Note** that this also means that unconflicted and conflicted stages will be visible in the same index.
+        /// When written, entries marked for removal will automatically be ignored. However, this also means that
+        /// one must not use the in-memory index or take specific care of entries that are marked for removal.
+        Mark,
+        /// Entries marked for removal (even those that were already marked) will be removed from memory at the end.
+        ///
+        /// This is an expensive step that leaves a consistent index, ready for use.
+        Prune,
+    }
+
     pub(super) mod function {
+        use crate::tree::apply_index_entries::RemovalMode;
         use crate::tree::{Conflict, ConflictIndexEntryPathHint, Resolution, ResolutionFailure, TreatAsUnresolved};
         use bstr::{BStr, ByteSlice};
         use std::collections::{hash_map, HashMap};
@@ -465,8 +487,9 @@ pub mod apply_index_entries {
         /// conflict should be considered unresolved.
         /// Once a stage of a path conflicts, the unconflicting stage is removed even though it might be the one
         /// that is currently checked out.
-        /// This removal, however, is only done by flagging it with [gix_index::entry::Flags::REMOVE], which means
-        /// these entries won't be written back to disk but will still be present in the index.
+        /// This removal is only done by flagging it with [gix_index::entry::Flags::REMOVE], which means
+        /// these entries won't be written back to disk but will still be present in the index if `removal_mode`
+        /// is [`RemovalMode::Mark`]. For proper removal, choose [`RemovalMode::Prune`].
         /// It's important that `index` matches the tree that was produced as part of the merge that also
         /// brought about `conflicts`, or else this function will fail if it cannot find the path matching
         /// the conflicting entries.
@@ -477,6 +500,7 @@ pub mod apply_index_entries {
             conflicts: &[Conflict],
             how: TreatAsUnresolved,
             index: &mut gix_index::State,
+            removal_mode: RemovalMode,
         ) -> bool {
             if index.is_sparse() {
                 gix_trace::error!("Refusing to apply index entries to sparse index - it's not tested yet");
@@ -585,8 +609,15 @@ pub mod apply_index_entries {
                 }
             }
 
+            let res = index.entries().len() != len;
+            match removal_mode {
+                RemovalMode::Mark => {}
+                RemovalMode::Prune => {
+                    index.remove_entries(|_, _, e| e.flags.contains(gix_index::entry::Flags::REMOVE));
+                }
+            }
             index.sort_entries();
-            index.entries().len() != len
+            res
         }
     }
 }
