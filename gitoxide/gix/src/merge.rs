@@ -108,7 +108,8 @@ pub mod commit {
 pub mod tree {
     use gix_merge::blob::builtin_driver;
     pub use gix_merge::tree::{
-        treat_as_unresolved, Conflict, ContentMerge, Resolution, ResolutionFailure, TreatAsUnresolved,
+        apply_index_entries, treat_as_unresolved, Conflict, ContentMerge, Resolution, ResolutionFailure,
+        TreatAsUnresolved,
     };
 
     /// The outcome produced by [`Repository::merge_trees()`](crate::Repository::merge_trees()).
@@ -138,22 +139,19 @@ pub mod tree {
 
         /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
         /// conflict should be considered unresolved.
+        ///
+        /// `removal_mode` decides how unconflicted entries should be removed if they are superseded by
+        /// their conflicted counterparts.
+        ///
         /// It's important that `index` is at the state of [`Self::tree`].
-        ///
         /// Note that in practice, whenever there is a single [conflict](Conflict), this function will return `true`.
-        ///
-        /// ### Important
-        ///
-        /// Also, the unconflicted stage of such entries will be removed merely by setting a flag, so the
-        /// in-memory entry is still present.
-        /// One can prune `index` [in-memory](gix_index::State::remove_entries()) or write it to disk, which will
-        /// cause entries marked for removal not to be persisted.
         pub fn index_changed_after_applying_conflicts(
             &self,
             index: &mut gix_index::State,
             how: TreatAsUnresolved,
+            removal_mode: apply_index_entries::RemovalMode,
         ) -> bool {
-            gix_merge::tree::apply_index_entries(&self.conflicts, how, index)
+            apply_index_entries(&self.conflicts, how, index, removal_mode)
         }
     }
 
