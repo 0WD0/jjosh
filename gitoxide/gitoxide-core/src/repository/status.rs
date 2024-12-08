@@ -81,6 +81,7 @@ pub fn show(
                 copies: None,
                 percentage: Some(percentage),
                 limit: 0,
+                track_empty: false,
             });
             if opts.rewrites.is_some() {
                 if let Some(opts) = opts.dirwalk_options.as_mut() {

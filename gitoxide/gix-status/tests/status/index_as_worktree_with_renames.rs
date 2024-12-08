@@ -80,6 +80,7 @@ fn changed_and_untracked_and_renamed() {
         }),
         percentage: Some(0.3),
         limit: 0,
+        track_empty: true,
     };
     let out = fixture_filtered_detailed(
         "changed-and-untracked-and-renamed",
