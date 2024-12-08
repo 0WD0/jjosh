@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 
-use bstr::{BStr, BString, ByteSlice};
-
 use crate::Scheme;
+use bstr::{BStr, BString, ByteSlice};
+use percent_encoding::percent_decode_str;
 
 /// The error returned by [parse()](crate::parse()).
 #[derive(Debug, thiserror::Error)]
@@ -114,12 +114,26 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url, Error
     Ok(crate::Url {
         serialize_alternative_form: false,
         scheme,
-        user: url_user(&url),
-        password: url.password().map(Into::into),
+        user: url_user(&url, UrlKind::Url)?,
+        password: url
+            .password()
+            .map(|s| percent_decoded_utf8(s, UrlKind::Url))
+            .transpose()?,
         host: url.host_str().map(Into::into),
         port: url.port(),
         path: url.path().into(),
     })
+}
+
+fn percent_decoded_utf8(s: &str, kind: UrlKind) -> Result<String, Error> {
+    Ok(percent_decode_str(s)
+        .decode_utf8()
+        .map_err(|err| Error::Utf8 {
+            url: s.into(),
+            kind,
+            source: err,
+        })?
+        .into_owned())
 }
 
 pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
@@ -150,19 +164,22 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
     Ok(crate::Url {
         serialize_alternative_form: true,
         scheme: url.scheme().into(),
-        user: url_user(&url),
-        password: url.password().map(Into::into),
+        user: url_user(&url, UrlKind::Scp)?,
+        password: url
+            .password()
+            .map(|s| percent_decoded_utf8(s, UrlKind::Scp))
+            .transpose()?,
         host: url.host_str().map(Into::into),
         port: url.port(),
         path: path.into(),
     })
 }
 
-fn url_user(url: &url::Url) -> Option<String> {
+fn url_user(url: &url::Url, kind: UrlKind) -> Result<Option<String>, Error> {
     if url.username().is_empty() && url.password().is_none() {
-        None
+        Ok(None)
     } else {
-        Some(url.username().into())
+        Ok(Some(percent_decoded_utf8(url.username(), kind)?))
     }
 }
 

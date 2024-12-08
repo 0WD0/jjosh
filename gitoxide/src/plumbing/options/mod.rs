@@ -375,6 +375,14 @@ pub mod merge {
         Theirs,
     }
 
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+    pub enum TreeFavor {
+        /// Use only the previous tree entry in case of conflict.
+        Ancestor,
+        /// Use only ours tree entry in case of conflict.
+        Ours,
+    }
+
     impl From<FileFavor> for gix::merge::tree::FileFavor {
         fn from(value: FileFavor) -> Self {
             match value {
@@ -382,6 +390,33 @@ pub mod merge {
                 FileFavor::Theirs => gix::merge::tree::FileFavor::Theirs,
             }
         }
+    }
+
+    impl From<TreeFavor> for gix::merge::tree::TreeFavor {
+        fn from(value: TreeFavor) -> Self {
+            match value {
+                TreeFavor::Ancestor => gix::merge::tree::TreeFavor::Ancestor,
+                TreeFavor::Ours => gix::merge::tree::TreeFavor::Ours,
+            }
+        }
+    }
+
+    #[derive(Debug, clap::Parser)]
+    pub struct SharedOptions {
+        /// Keep all objects to be written in memory to avoid any disk IO.
+        ///
+        /// Note that the resulting tree won't be available or inspectable.
+        #[clap(long, short = 'm')]
+        pub in_memory: bool,
+        /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
+        #[clap(long, short = 'f')]
+        pub file_favor: Option<FileFavor>,
+        /// Decide how to resolve conflicts in trees, i.e. modification/deletion. If unset, try to preserve both states and fail.
+        #[clap(long, short = 't')]
+        pub tree_favor: Option<TreeFavor>,
+        /// Print additional information about conflicts for debugging.
+        #[clap(long, short = 'd')]
+        pub debug: bool,
     }
 
     #[derive(Debug, clap::Parser)]
@@ -412,17 +447,8 @@ pub mod merge {
 
         /// Merge a tree by specifying ours, base and theirs, writing it to the object database.
         Tree {
-            /// Keep all objects to be written in memory to avoid any disk IO.
-            ///
-            /// Note that the resulting tree won't be available or inspectable.
-            #[clap(long, short = 'm')]
-            in_memory: bool,
-            /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
-            #[clap(long, short = 'f')]
-            file_favor: Option<FileFavor>,
-            /// Print additional information about conflicts for debugging.
-            #[clap(long, short = 'd')]
-            debug: bool,
+            #[clap(flatten)]
+            opts: SharedOptions,
 
             /// A revspec to our treeish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
@@ -436,17 +462,8 @@ pub mod merge {
         },
         /// Merge a commits by specifying ours, and theirs, writing the tree to the object database.
         Commit {
-            /// Keep all objects to be written in memory to avoid any disk IO.
-            ///
-            /// Note that the resulting tree won't be available or inspectable.
-            #[clap(long, short = 'm')]
-            in_memory: bool,
-            /// Decide how to resolve content conflicts in files. If unset, write conflict markers and fail.
-            #[clap(long, short = 'f')]
-            file_favor: Option<FileFavor>,
-            /// Print additional information about conflicts for debugging.
-            #[clap(long, short = 'd')]
-            debug: bool,
+            #[clap(flatten)]
+            opts: SharedOptions,
 
             /// A revspec to our committish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]

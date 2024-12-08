@@ -27,6 +27,7 @@ fn rename_by_id() -> crate::Result {
             copies: None,
             percentage: None,
             limit,
+            track_empty: false,
         };
         let mut track = util::new_tracker(rewrites);
         assert!(
@@ -80,6 +81,7 @@ fn copy_by_similarity_reports_limit_if_encountered() -> crate::Result {
         }),
         percentage: None,
         limit: 1,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rewrites);
     let odb = util::add_retained_blobs(
@@ -132,6 +134,7 @@ fn copy_by_id() -> crate::Result {
             }),
             percentage: None,
             limit,
+            track_empty: false,
         };
         let mut track = util::new_tracker(rewrites);
         let odb = util::add_retained_blobs(
@@ -206,6 +209,7 @@ fn copy_by_id_search_in_all_sources() -> crate::Result {
             }),
             percentage: None,
             limit,
+            track_empty: false,
         };
         let mut track = util::new_tracker(rewrites);
         let odb = util::add_retained_blobs(
@@ -284,6 +288,7 @@ fn copy_by_50_percent_similarity() -> crate::Result {
         }),
         percentage: None,
         limit: 0,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rewrites);
     let odb = util::add_retained_blobs(
@@ -363,6 +368,7 @@ fn copy_by_id_in_additions_only() -> crate::Result {
         }),
         percentage: None,
         limit: 0,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rewrites);
     let odb = util::add_retained_blobs(
@@ -413,6 +419,7 @@ fn rename_by_similarity_reports_limit_if_encountered() -> crate::Result {
         copies: None,
         percentage: Some(0.5),
         limit: 1,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rewrites);
     let odb = util::add_retained_blobs(
@@ -458,6 +465,7 @@ fn rename_by_50_percent_similarity() -> crate::Result {
         copies: None,
         percentage: Some(0.5),
         limit: 0,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rewrites);
     let odb = util::add_retained_blobs(
@@ -547,6 +555,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         copies: None,
         percentage: Some(0.5),
         limit: 0,
+        track_empty: false,
     };
     let mut track = util::new_tracker(rename_by_similarity);
     let tree_dst_id = 1;
@@ -638,6 +647,7 @@ fn simple_directory_rename_by_id() -> crate::Result {
         copies: None,
         percentage: None,
         limit: 0,
+        track_empty: false,
     };
     let mut track = util::new_tracker(renames_by_identity);
     let tree_dst_id = 1;

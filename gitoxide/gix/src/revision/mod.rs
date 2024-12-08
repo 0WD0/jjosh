@@ -28,5 +28,6 @@ pub struct Spec<'repo> {
     pub(crate) first_ref: Option<gix_ref::Reference>,
     /// The second name of a reference as seen while parsing a `RevSpec`, for completeness.
     pub(crate) second_ref: Option<gix_ref::Reference>,
-    pub(crate) repo: &'repo crate::Repository,
+    /// The owning repository.
+    pub repo: &'repo crate::Repository,
 }

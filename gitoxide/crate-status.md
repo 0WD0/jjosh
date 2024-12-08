@@ -352,8 +352,11 @@ Check out the [performance discussion][gix-diff-performance] as well.
     - [ ] a way to control inter-hunk merging based on proximity (maybe via `gix-diff` feature which could use the same)
 * [x] **tree**-diff-heuristics match Git for its test-cases
     - [x] a way to generate an index with stages, mostly conforming with Git.
+    - [ ] resolve to be *ours* or the *ancestors* version of the tree.
     - [ ] submodule merges (*right now they count as conflicts if they differ*)
     - [ ] assure sparse indices are handled correctly during application - right now we refuse.
+    - [ ] rewrite so that the whole logic can be proven to be correct - it's too insane now and probably has way 
+          more possible states than are tested, despite best attempts.
 * [x] **commits** - with handling of multiple merge bases by recursive merge-base merge
 * [x] API documentation
     * [ ] Examples

@@ -165,6 +165,7 @@ mod track_rewrites {
             }),
             limit: 1000,
             percentage: Some(0.5),
+            track_empty: false,
         };
         let out = from
             .changes()?

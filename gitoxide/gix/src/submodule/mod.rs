@@ -23,7 +23,7 @@ pub use errors::*;
 
 /// A platform maintaining state needed to interact with submodules, created by [`Repository::submodules()].
 pub(crate) struct SharedState<'repo> {
-    pub(crate) repo: &'repo Repository,
+    pub repo: &'repo Repository,
     pub(crate) modules: ModulesSnapshot,
     is_active: RefCell<Option<IsActiveState>>,
     index: RefCell<Option<IndexPersistedOrInMemory>>,

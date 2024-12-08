@@ -10,7 +10,8 @@ use crate::{object::find, Id, ObjectDetached, Tree};
 pub struct Editor<'repo> {
     pub(crate) inner: gix_object::tree::Editor<'repo>,
     pub(crate) validate: gix_validate::path::component::Options,
-    pub(crate) repo: &'repo crate::Repository,
+    /// The owning repository.
+    pub repo: &'repo crate::Repository,
 }
 
 /// Initialization
@@ -197,7 +198,8 @@ impl std::fmt::Debug for Tree<'_> {
 #[derive(PartialEq, Debug, Clone)]
 pub struct Entry<'repo> {
     pub(crate) inner: gix_object::tree::Entry,
-    pub(crate) repo: &'repo crate::Repository,
+    /// The owning repository.
+    pub repo: &'repo crate::Repository,
 }
 
 mod entry {

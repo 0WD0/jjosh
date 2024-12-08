@@ -172,9 +172,13 @@ pub fn main() -> Result<()> {
                 },
             ),
             merge::SubCommands::Tree {
-                in_memory,
-                file_favor,
-                debug,
+                opts:
+                    merge::SharedOptions {
+                        in_memory,
+                        file_favor,
+                        tree_favor,
+                        debug,
+                    },
                 ours,
                 base,
                 theirs,
@@ -197,15 +201,20 @@ pub fn main() -> Result<()> {
                             format,
                             file_favor: file_favor.map(Into::into),
                             in_memory,
+                            tree_favor: tree_favor.map(Into::into),
                             debug,
                         },
                     )
                 },
             ),
             merge::SubCommands::Commit {
-                in_memory,
-                file_favor,
-                debug,
+                opts:
+                    merge::SharedOptions {
+                        in_memory,
+                        file_favor,
+                        tree_favor,
+                        debug,
+                    },
                 ours,
                 theirs,
             } => prepare_and_run(
@@ -225,6 +234,7 @@ pub fn main() -> Result<()> {
                         core::repository::merge::tree::Options {
                             format,
                             file_favor: file_favor.map(Into::into),
+                            tree_favor: tree_favor.map(Into::into),
                             in_memory,
                             debug,
                         },

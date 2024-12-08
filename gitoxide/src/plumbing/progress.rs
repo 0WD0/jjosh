@@ -63,6 +63,10 @@ struct Record {
 
 static GIT_CONFIG: &[Record] = &[
     Record {
+        config: "attr.tree",
+        usage: Planned("Decides where to read git attributes from - this will affect APIs")
+    },
+    Record {
         config: "core.symlinks",
         usage: Planned("Needed to handle checkouts faithfully")
     },

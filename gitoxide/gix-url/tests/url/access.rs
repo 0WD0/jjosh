@@ -174,7 +174,7 @@ fn display() {
     compare("/path/to/repo", "/path/to/repo", "same goes for simple paths");
     compare(
         "https://user:password@host/path",
-        "https://user:<redacted>@host/path",
-        "it visibly redacts passwords though",
+        "https://user:redacted@host/path",
+        "it visibly redacts passwords though, and it's still a valid URL",
     );
 }

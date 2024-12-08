@@ -17,6 +17,7 @@ pub fn commit(
     Options {
         format,
         file_favor,
+        tree_favor,
         in_memory,
         debug,
     }: Options,
@@ -31,7 +32,10 @@ pub fn commit(
     let (ours_ref, ours_id) = refname_and_commit(&repo, ours)?;
     let (theirs_ref, theirs_id) = refname_and_commit(&repo, theirs)?;
 
-    let options = repo.tree_merge_options()?.with_file_favor(file_favor);
+    let options = repo
+        .tree_merge_options()?
+        .with_file_favor(file_favor)
+        .with_tree_favor(tree_favor);
     let ours_id_str = ours_id.to_string();
     let theirs_id_str = theirs_id.to_string();
     let labels = gix::merge::blob::builtin_driver::text::Labels {
@@ -49,7 +53,7 @@ pub fn commit(
         .merge_commits(ours_id, theirs_id, labels, options.into())?
         .tree_merge;
     let has_conflicts = res.conflicts.is_empty();
-    let has_unresolved_conflicts = res.has_unresolved_conflicts(TreatAsUnresolved::Renames);
+    let has_unresolved_conflicts = res.has_unresolved_conflicts(TreatAsUnresolved::default());
     {
         let _span = gix::trace::detail!("Writing merged tree");
         let mut written = 0;

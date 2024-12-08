@@ -23,7 +23,7 @@ use std::collections::HashMap;
 /// over a directory rewrite in *our* tree. If so, rewrite it so that we get the path
 /// it would have had if it had been renamed along with *our* directory.
 pub fn possibly_rewritten_location(
-    check_tree: &mut TreeNodes,
+    check_tree: &TreeNodes,
     their_location: &BStr,
     our_changes: &ChangeListRef,
 ) -> Option<BString> {
@@ -60,7 +60,7 @@ pub fn rewrite_location_with_renamed_directory(their_location: &BStr, passed_cha
 pub fn unique_path_in_tree(
     file_path: &BStr,
     editor: &tree::Editor<'_>,
-    tree: &mut TreeNodes,
+    tree: &TreeNodes,
     side_name: &BStr,
 ) -> Result<BString, Error> {
     let mut buf = file_path.to_owned();
@@ -400,11 +400,11 @@ impl TreeNodes {
                     Some(index) => {
                         cursor = &mut self.0[index];
                         if is_last && !cursor.is_leaf_node() {
-                            assert_eq!(
-                                cursor.change_idx, None,
-                                "BUG: each node should only see a single change when tracking initially: {path} {change_idx}"
-                            );
-                            cursor.change_idx = Some(change_idx);
+                            // NOTE: we might encounter the same path multiple times in rare conditions.
+                            //       At least we avoid overwriting existing intermediate changes, for good measure.
+                            if cursor.change_idx.is_none() {
+                                cursor.change_idx = Some(change_idx);
+                            }
                         }
                     }
                 }
@@ -414,12 +414,12 @@ impl TreeNodes {
 
     /// Search the tree with `our` changes for `theirs` by [`source_location()`](Change::source_location())).
     /// If there is an entry but both are the same, or if there is no entry, return `None`.
-    pub fn check_conflict(&mut self, theirs_location: &BStr) -> Option<PossibleConflict> {
+    pub fn check_conflict(&self, theirs_location: &BStr) -> Option<PossibleConflict> {
         if self.0.len() == 1 {
             return None;
         }
         let components = to_components(theirs_location);
-        let mut cursor = &mut self.0[0];
+        let mut cursor = &self.0[0];
         let mut cursor_idx = 0;
         let mut intermediate_change = None;
         for component in components {
@@ -436,7 +436,7 @@ impl TreeNodes {
                     } else {
                         // a change somewhere else, i.e. `a/c` and we know `a/b` only.
                         intermediate_change.and_then(|(change, cursor_idx)| {
-                            let cursor = &mut self.0[cursor_idx];
+                            let cursor = &self.0[cursor_idx];
                             // If this is a destination location of a rename, then the `their_location`
                             // is already at the right spot, and we can just ignore it.
                             if matches!(cursor.location, ChangeLocation::CurrentLocation) {
@@ -450,7 +450,7 @@ impl TreeNodes {
                 }
                 Some(child_idx) => {
                     cursor_idx = child_idx;
-                    cursor = &mut self.0[cursor_idx];
+                    cursor = &self.0[cursor_idx];
                 }
             }
         }
@@ -496,7 +496,7 @@ impl TreeNodes {
         let mut cursor = &mut self.0[0];
         while let Some(component) = components.next() {
             match cursor.children.get(component).copied() {
-                None => assert!(!must_exist, "didn't find '{location}' for removal"),
+                None => debug_assert!(!must_exist, "didn't find '{location}' for removal"),
                 Some(existing_idx) => {
                     let is_last = components.peek().is_none();
                     if is_last {
@@ -504,7 +504,7 @@ impl TreeNodes {
                         cursor = &mut self.0[existing_idx];
                         debug_assert!(
                             cursor.is_leaf_node(),
-                            "BUG: we should really only try to remove leaf nodes"
+                            "BUG: we should really only try to remove leaf nodes: {cursor:?}"
                         );
                         cursor.change_idx = None;
                     } else {
@@ -578,10 +578,7 @@ impl Conflict {
             ours: ours.clone(),
             theirs: theirs.clone(),
             entries,
-            map: match outer_map {
-                ConflictMapping::Original => map,
-                ConflictMapping::Swapped => map.swapped(),
-            },
+            map: map.to_global(outer_map),
         }
     }
 

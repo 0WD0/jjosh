@@ -16,8 +16,9 @@ pub fn hunks_differ_in_diff3(
         return true;
     }
 
-    let tokens_for_hunk =
-        |hunk: &Hunk| -> &[imara_diff::intern::Token] { tokens_for_side(hunk.side, input, current_tokens) };
+    let tokens_for_hunk = |hunk: &Hunk| -> &[imara_diff::intern::Token] {
+        &tokens_for_side(hunk.side, input, current_tokens)[hunk.after.start as usize..hunk.after.end as usize]
+    };
 
     a.iter()
         .flat_map(tokens_for_hunk)
