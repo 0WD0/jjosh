@@ -156,7 +156,6 @@ git init tree-to-non-tree-with-rename
 
   git branch A
   git branch B
-  git branch expected
 
   git checkout A
   write_lines 1 2 3 4 5 6 >a/sub/b
@@ -168,20 +167,22 @@ git init tree-to-non-tree-with-rename
   git add a && git commit -m "rm -Rf a/ && add empty 'a' (which is like a rename from an empty deleted file)"
   # And because it's so thrown off, it gets a completely different result if reversed.
   git branch expected-reversed
-  make_conflict_index tree-to-non-tree-with-rename-A-B-deviates-reversed
-
-  git checkout expected
-  write_lines 1 2 3 4 5 6 >a/sub/b
-  rm a/sub/c a/d
-  git commit -am "we detect a rename that we rather shouldn't, throwing everything off course"
 
   rm .git/index
   git update-index --index-info <<EOF
-100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a/e
 100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/b
 100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/sub/b
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a~B
 EOF
-  make_conflict_index tree-to-non-tree-with-rename-A-B-deviates
+  make_conflict_index tree-to-non-tree-with-rename-A-B
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/b
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a/sub/b
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a~B
+EOF
+  make_conflict_index tree-to-non-tree-with-rename-A-B-reversed
 )
 
 git init simple
@@ -532,12 +533,40 @@ git init rename-within-rename
   git checkout expected
   write_lines 1 2 3 4 5 6 >a/x.f
   write_lines 1 2 3 4 5 6 >a/sub/y.f
-  git mv a/sub a/sub-renamed
+  cp -Rv a/sub a/sub-renamed
+  git add .
   git mv a a-renamed
-  git commit -am "tracked both renames, applied all modifications by merge"
+  git commit -am "we also have duplication just like Git, but we are consistent independently of the side, hence the expectation"
 
-  # This means there are no conflicts actually.
+  # We have duplication just like Git, but our index is definitely more complex. This one seems more plausible.
+  # The problem is that renames can't be indicated correctly in the index.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/sub/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub-renamed/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a/sub-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+EOF
   make_conflict_index rename-within-rename-A-B-deviates
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/sub/z
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub-renamed/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a/sub-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 1	a/sub/z
+EOF
   make_conflict_index rename-within-rename-A-B-deviates-reversed
 )
 
@@ -717,10 +746,12 @@ git init conflicting-rename-complex
   rm -Rf ./a
   mkdir -p a-renamed/sub
   write_lines 1 2 3 4 5 >a-renamed/sub/y.f
+  write_lines 1 2 3 4 5 6 >a-renamed/x.f
   write_lines 1 2 3 4 5 6 >a-renamed/y.f
-  touch a-renamed/z a-renamed/sub/z
+  touch a-renamed/z a-renamed/w a-renamed/sub/z
   git add .
-  git commit -m "Close to what Git has, but different due to rename tracking (which looses 'a/w', and 'x.f' becomes y.f). But the merge is so 'erroneous' that it's beyond rescue"
+  git commit -m "Close to what Git has, but different due to rename tracking. This is why content ends up in a different place, which is the only difference."
+
 
   # Since the whole state is very different, the expected index is as well, but at least it should make sense for what it is.
   # The main issue here is that it finds a rename of a/w to a-renamed/z which completely erases `a/z`, and this happens because it has no basename based matching
@@ -730,7 +761,11 @@ git init conflicting-rename-complex
 100644 8a1218a1024a212bb3db30becd860315f9f3ac52 2	a-renamed/sub/y.f
 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/sub/z
 100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/y.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a-renamed/x.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 2	a-renamed/w
 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a/y.f
 EOF
   make_conflict_index conflicting-rename-complex-A-B
 
@@ -739,7 +774,11 @@ EOF
 100644 8a1218a1024a212bb3db30becd860315f9f3ac52 3	a-renamed/sub/y.f
 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/sub/z
 100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/y.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-renamed/x.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 3	a-renamed/w
 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/z
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 1	a/x.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 2	a/y.f
 EOF
   make_conflict_index conflicting-rename-complex-A-B-reversed
 )
@@ -759,7 +798,7 @@ git init same-rename-different-mode
   chmod +x a/x.f a/w
   git update-index --chmod=+x a/x.f a/w
   git mv a a-renamed
-  git commit -am "changed all content, add +x, renamed a -> a-renamed"
+  git commit -am "changed a/xf, add +x everywhere, renamed a -> a-renamed"
 
   git checkout B
   write_lines original 1 2 3 4 5 6 >a/x.f
@@ -1126,7 +1165,7 @@ git init type-change-to-symlink
 
 baseline non-tree-to-tree A-B A B
 baseline tree-to-non-tree A-B A B
-baseline tree-to-non-tree-with-rename A-B-deviates A B "We find a rename that Git does not find, and arrive in a different place that is lacking a unique-rename"
+baseline tree-to-non-tree-with-rename A-B A B
 baseline non-tree-to-tree-with-rename A-B A B
 baseline rename-add-same-symlink A-B A B
 baseline rename-add-exe-bit-conflict A-B A B
@@ -1159,11 +1198,11 @@ baseline super-1 A-B-diff3 A B
 baseline super-2 A-B A B
 baseline super-2 A-B-diff3 A B
 
-baseline rename-within-rename A-B-deviates A B "Git doesn't detect the rename-nesting so there is duplication - we achieve the optimal result"
+baseline rename-within-rename A-B-deviates A B "Git doesn't detect the rename-nesting, and we do neith, and we do neither"
 baseline rename-within-rename-2 A-B-deviates A B "TBD: Right, something is different documentation was forgotten :/"
 baseline conflicting-rename A-B A B
 baseline conflicting-rename-2 A-B A B
-baseline conflicting-rename-complex A-B A B "Git has different rename tracking which is why a-renamed/w disappears - it's still close enough"
+baseline conflicting-rename-complex A-B A B "Git has different rename tracking - overall result it's still close enough"
 
 baseline same-rename-different-mode A-B A B "Git works for the A/B case, but for B/A it forgets to set the executable bit"
 baseline renamed-symlink-with-conflict A-B A B
@@ -1505,7 +1544,6 @@ EOF
   # As result, we actually have one unconflicting change which ends up creating the new directory 'a-renamed',
   # but everything else is conflicting so it keeps the 'ancestor' version.
   git update-index --index-info <<EOF
-100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/y.f
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/z
 100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/y.f
 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/sub/z
@@ -1521,8 +1559,9 @@ EOF
   git update-index --index-info <<EOF
   100644 blob 8a1218a1024a212bb3db30becd860315f9f3ac52	a-renamed/sub/y.f
   100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/sub/z
-  100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/y.f
+  100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a-renamed/x.f
   100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/z
+  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a-renamed/w
 EOF
   make_resolve_tree ours A B
 
@@ -1725,15 +1764,9 @@ EOF
 (cd tree-to-non-tree-with-rename
   rm .git/index
   # 'A' modifies a nested file 'a/sub/b', while 'B' replaces 'a/' with file 'a'.
-  # But here it goes wrong: it detects a rename from 'a/d' to 'a' in 'theirs'
-  # which does not clash with 'our' tree that only has a modification at 'a/sub/b'.
-  # Hence it gets to write 'a' as rename destination and promptly kills the whole
-  # tree that were are supposed to protect.
-  # I let it pass as it's an edge-case - this rename wouldn't necessarily happen
-  # (but of course, could happen, it's just rare to replace a tree with a single file
-  # from that tree))
+  # I let it pass as it's an edge-case to some extent.
   git update-index --index-info <<EOF
-100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a
+100644 blob 44065282f89b9bd6439ed2e4674721383fd987eb	a/sub/b
 EOF
   make_resolve_tree ancestor A B
   make_resolve_tree ancestor B A
@@ -1741,7 +1774,6 @@ EOF
   rm .git/index
   # Thanks to the rename, this version keeps one additional file, 'a/e'
   git update-index --index-info <<EOF
-  100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391	a/e
   100644 blob b414108e81e5091fe0974a1858b4d0d22b107f70	a/sub/b
 EOF
   make_resolve_tree ours A B
@@ -1776,4 +1808,42 @@ EOF
   # is chosen so we can't easily run this here.
   #  make_resolve_tree ours A B
   #  make_resolve_tree ours B A
+)
+
+(cd rename-within-rename
+  # 'A' and 'B' change all content in a mergable manner. 'A' renames 'a' to 'a-renamed',
+  # and 'B' renames 'a/sub' to 'a/sub-renamed'.
+  # Ideally, we get both together, but doing so added a lot of complexity so maybe give
+  # that another go and try to keep it simple.
+  # In ancestor mode, only those ancestors of conflicts are kept unchanged, so some renames
+  # go through.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+100644 44065282f89b9bd6439ed2e4674721383fd987eb 0	a/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a/sub/z
+EOF
+  make_resolve_tree ancestor A B
+  make_resolve_tree ancestor B A
+
+  # *ours* is `a-renamed` everything, with merges.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/sub/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+EOF
+  make_resolve_tree ours A B
+
+  # Now ours is the renamed sub-directory, with merges. It can bring everything together even.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub-renamed/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+EOF
+  make_resolve_tree ours B A
 )

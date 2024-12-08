@@ -416,6 +416,8 @@ pub struct ContentMerge {
 #[derive(Default, Debug, Clone)]
 pub struct Options {
     /// If *not* `None`, rename tracking will be performed when determining the changes of each side of the merge.
+    ///
+    /// Note that [empty blobs](Rewrites::track_empty) should not be tracked for best results.
     pub rewrites: Option<Rewrites>,
     /// Decide how blob-merges should be done. This relates to if conflicts can be resolved or not.
     pub blob_merge: crate::blob::platform::merge::Options,

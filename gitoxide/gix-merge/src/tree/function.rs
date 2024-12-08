@@ -13,6 +13,7 @@ use gix_diff::tree_with_rewrites::Change;
 use gix_hash::ObjectId;
 use gix_object::tree::{EntryKind, EntryMode};
 use gix_object::{tree, FindExt};
+use std::borrow::Cow;
 use std::convert::Infallible;
 
 /// Perform a merge between `our_tree` and `their_tree`, using `base_tree` as merge-base.
@@ -876,122 +877,83 @@ where
                                     their_tree.remove_existing_leaf(source_location.as_bstr());
                                 }
 
-                                let their_rewritten_location =
-                                    possibly_rewritten_location(our_tree, their_location.as_bstr(), our_changes);
-                                let our_rewritten_location =
-                                    possibly_rewritten_location(their_tree, our_location.as_bstr(), their_changes);
-                                let (our_addition, their_addition) =
-                                    match (our_rewritten_location, their_rewritten_location) {
-                                        (None, Some(location)) => (
-                                            None,
-                                            Some(Change::Addition {
-                                                location,
-                                                relation: None,
-                                                entry_mode: merged_mode,
-                                                id: merged_blob_id,
+                                let their_location =
+                                    possibly_rewritten_location(our_tree, their_location.as_bstr(), our_changes)
+                                        .map_or(Cow::Borrowed(their_location.as_bstr()), Cow::Owned);
+                                let our_location =
+                                    possibly_rewritten_location(their_tree, our_location.as_bstr(), their_changes)
+                                        .map_or(Cow::Borrowed(our_location.as_bstr()), Cow::Owned);
+                                let (our_addition, their_addition) = if our_location == their_location {
+                                    (
+                                        None,
+                                        Some(Change::Addition {
+                                            location: our_location.into_owned(),
+                                            relation: None,
+                                            entry_mode: merged_mode,
+                                            id: merged_blob_id,
+                                        }),
+                                    )
+                                } else {
+                                    if should_fail_on_conflict(Conflict::without_resolution(
+                                        ResolutionFailure::OursRenamedTheirsRenamedDifferently {
+                                            merged_blob: resolution.take().map(|resolution| ContentMerge {
+                                                resolution,
+                                                merged_blob_id,
                                             }),
-                                        ),
-                                        (Some(location), None) => (
-                                            None,
-                                            Some(Change::Addition {
-                                                location,
-                                                relation: None,
-                                                entry_mode: merged_mode,
-                                                id: merged_blob_id,
-                                            }),
-                                        ),
-                                        (Some(_ours), Some(_theirs)) => {
-                                            gix_trace::debug!(
-                                                "Found two rewritten locations, '{_ours}' and '{_theirs}'"
-                                            );
-                                            // Pretend this is the end of the loop and keep this as conflict.
-                                            // If this happens in the wild, we'd want to reproduce it.
-                                            if let Some(ResolveWith::Ours) = tree_conflicts {
-                                                apply_our_resolution(ours, theirs, outer_side, &mut editor)?;
-                                            }
-                                            if should_fail_on_conflict(Conflict::unknown((
-                                                ours, theirs, Original, outer_side,
-                                            ))) {
-                                                break 'outer;
-                                            };
-                                            their_changes[theirs_idx].was_written = true;
-                                            our_changes[ours_idx].was_written = true;
-                                            continue;
-                                        }
-                                        (None, None) => {
-                                            if our_location == their_location {
-                                                (
-                                                    None,
-                                                    Some(Change::Addition {
-                                                        location: our_location.to_owned(),
-                                                        relation: None,
-                                                        entry_mode: merged_mode,
-                                                        id: merged_blob_id,
-                                                    }),
-                                                )
-                                            } else {
-                                                if should_fail_on_conflict(Conflict::without_resolution(
-                                                    ResolutionFailure::OursRenamedTheirsRenamedDifferently {
-                                                        merged_blob: resolution.take().map(|resolution| ContentMerge {
-                                                            resolution,
-                                                            merged_blob_id,
-                                                        }),
-                                                    },
-                                                    (ours, theirs, Original, outer_side),
-                                                    [
-                                                        index_entry_at_path(
-                                                            source_entry_mode,
-                                                            source_id,
-                                                            ConflictIndexEntryPathHint::Source,
-                                                        ),
-                                                        index_entry_at_path(
-                                                            our_mode,
-                                                            &merged_blob_id,
-                                                            ConflictIndexEntryPathHint::Current,
-                                                        ),
-                                                        index_entry_at_path(
-                                                            their_mode,
-                                                            &merged_blob_id,
-                                                            ConflictIndexEntryPathHint::RenamedOrTheirs,
-                                                        ),
-                                                    ],
-                                                )) {
-                                                    break 'outer;
-                                                };
-                                                match tree_conflicts {
-                                                    None => {
-                                                        let our_addition = Change::Addition {
-                                                            location: our_location.to_owned(),
-                                                            relation: None,
-                                                            entry_mode: merged_mode,
-                                                            id: merged_blob_id,
-                                                        };
-                                                        let their_addition = Change::Addition {
-                                                            location: their_location.to_owned(),
-                                                            relation: None,
-                                                            entry_mode: merged_mode,
-                                                            id: merged_blob_id,
-                                                        };
-                                                        (Some(our_addition), Some(their_addition))
-                                                    }
-                                                    Some(ResolveWith::Ancestor) => (None, None),
-                                                    Some(ResolveWith::Ours) => {
-                                                        let our_addition = Change::Addition {
-                                                            location: match outer_side {
-                                                                Original => our_location,
-                                                                Swapped => their_location,
-                                                            }
-                                                            .to_owned(),
-                                                            relation: None,
-                                                            entry_mode: merged_mode,
-                                                            id: merged_blob_id,
-                                                        };
-                                                        (Some(our_addition), None)
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        },
+                                        (ours, theirs, Original, outer_side),
+                                        [
+                                            index_entry_at_path(
+                                                source_entry_mode,
+                                                source_id,
+                                                ConflictIndexEntryPathHint::Source,
+                                            ),
+                                            index_entry_at_path(
+                                                our_mode,
+                                                &merged_blob_id,
+                                                ConflictIndexEntryPathHint::Current,
+                                            ),
+                                            index_entry_at_path(
+                                                their_mode,
+                                                &merged_blob_id,
+                                                ConflictIndexEntryPathHint::RenamedOrTheirs,
+                                            ),
+                                        ],
+                                    )) {
+                                        break 'outer;
                                     };
+                                    match tree_conflicts {
+                                        None => {
+                                            let our_addition = Change::Addition {
+                                                location: our_location.into_owned(),
+                                                relation: None,
+                                                entry_mode: merged_mode,
+                                                id: merged_blob_id,
+                                            };
+                                            let their_addition = Change::Addition {
+                                                location: their_location.into_owned(),
+                                                relation: None,
+                                                entry_mode: merged_mode,
+                                                id: merged_blob_id,
+                                            };
+                                            (Some(our_addition), Some(their_addition))
+                                        }
+                                        Some(ResolveWith::Ancestor) => (None, None),
+                                        Some(ResolveWith::Ours) => {
+                                            let our_addition = Change::Addition {
+                                                location: match outer_side {
+                                                    Original => our_location,
+                                                    Swapped => their_location,
+                                                }
+                                                .into_owned(),
+                                                relation: None,
+                                                entry_mode: merged_mode,
+                                                id: merged_blob_id,
+                                            };
+                                            (Some(our_addition), None)
+                                        }
+                                    }
+                                };
 
                                 if let Some(resolution) = resolution {
                                     if should_fail_on_conflict(Conflict::with_resolution(
