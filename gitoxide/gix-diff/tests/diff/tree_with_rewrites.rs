@@ -192,12 +192,13 @@ fn changes_against_modified_tree_with_filename_tracking() -> crate::Result {
 
 #[test]
 fn renames_by_identity() -> crate::Result {
-    for (from, to, expected, assert_msg) in [
+    for (from, to, expected, assert_msg, track_empty) in [
         (
             "c3-modification",
             "r1-identity",
             vec![BStr::new("a"), "dir/a-moved".into()],
             "one rename and nothing else",
+            false,
         ),
         (
             "c4 - add identical files",
@@ -211,24 +212,35 @@ fn renames_by_identity() -> crate::Result {
                 "z".into(),
             ],
             "multiple possible sources decide by ordering everything lexicographically",
+            true,
+        ),
+        (
+            "c4 - add identical files",
+            "r2-ambiguous",
+            vec![],
+            "nothing is tracked with `track_empty = false`",
+            false,
         ),
         (
             "c5 - add links",
             "r4-symlinks",
             vec!["link-1".into(), "renamed-link-1".into()],
             "symlinks are only tracked by identity",
+            false,
         ),
         (
             "r1-identity",
             "c4 - add identical files",
             vec![],
             "not having any renames is OK as well",
+            false,
         ),
         (
             "tc1-identity",
             "tc1-identity",
             vec![],
             "copy tracking is off by default",
+            false,
         ),
     ] {
         for percentage in [None, Some(0.5)] {
@@ -239,6 +251,7 @@ fn renames_by_identity() -> crate::Result {
                     location: Some(Location::Path),
                     rewrites: Some(Rewrites {
                         percentage,
+                        track_empty,
                         ..Default::default()
                     }),
                 },
@@ -704,6 +717,7 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
                     ..Default::default()
                 }),
                 limit: 2, // similarity checks can't be made that way
+                track_empty: false,
                 ..Default::default()
             }),
         },
@@ -833,6 +847,7 @@ fn realistic_renames_by_identity() -> crate::Result {
             rewrites: Some(Rewrites {
                 copies: Some(Copies::default()),
                 limit: 1,
+                track_empty: true,
                 ..Default::default()
             }),
         },
@@ -1324,6 +1339,7 @@ fn realistic_renames_by_identity_3() -> crate::Result {
             rewrites: Some(Rewrites {
                 copies: Some(Copies::default()),
                 limit: 1,
+                track_empty: true,
                 ..Default::default()
             }),
         },
@@ -1402,6 +1418,7 @@ fn realistic_renames_2() -> crate::Result {
             rewrites: Some(Rewrites {
                 copies: Some(Copies::default()),
                 limit: 1,
+                track_empty: false,
                 ..Default::default()
             }),
         },
@@ -1665,6 +1682,7 @@ fn realistic_renames_3_without_identity() -> crate::Result {
                 copies: None,
                 percentage: None,
                 limit: 0,
+                track_empty: false,
             }),
         },
     )?;

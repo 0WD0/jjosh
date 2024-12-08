@@ -286,12 +286,10 @@ impl<T: Change> Tracker<T> {
                 CopySource::FromSetOfModifiedFiles => {}
                 CopySource::FromSetOfModifiedFilesAndAllSources => {
                     push_source_tree(&mut |change, location| {
-                        assert!(
-                            self.try_push_change(change, location).is_none(),
-                            "we must accept every change"
-                        );
-                        // make sure these aren't viable to be emitted anymore.
-                        self.items.last_mut().expect("just pushed").emitted = true;
+                        if self.try_push_change(change, location).is_none() {
+                            // make sure these aren't viable to be emitted anymore.
+                            self.items.last_mut().expect("just pushed").emitted = true;
+                        }
                     })
                     .map_err(|err| emit::Error::GetItemsForExhaustiveCopyDetection(Box::new(err)))?;
                     self.items.sort_by(by_id_and_location);
@@ -404,7 +402,19 @@ impl<T: Change> Tracker<T> {
         while let Some((mut dest_idx, dest)) = self.items[dest_ofs..].iter().enumerate().find_map(|(idx, item)| {
             (!item.emitted
                 && matches!(item.change.kind(), ChangeKind::Addition)
-                && filter.map_or(true, |f| f(&item.change)))
+                && filter.map_or_else(
+                    || {
+                        self.rewrites.track_empty
+                            // We always want to keep track of entries that are involved of a directory rename.
+                            // Note that this may still match them up arbitrarily if empty, but empty is empty.
+                            || matches!(item.change.relation(), Some(Relation::ChildOfParent(_)))
+                            || {
+                                let id = item.change.id();
+                                id != gix_hash::ObjectId::empty_blob(id.kind())
+                            }
+                    },
+                    |f| f(&item.change),
+                ))
             .then_some((idx, item))
         }) {
             dest_idx += dest_ofs;

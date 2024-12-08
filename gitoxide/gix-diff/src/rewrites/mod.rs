@@ -70,6 +70,7 @@ impl Default for Rewrites {
             copies: None,
             percentage: Some(0.5),
             limit: 1000,
+            track_empty: false,
         }
     }
 }
