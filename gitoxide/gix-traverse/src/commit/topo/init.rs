@@ -44,6 +44,20 @@ where
         }
     }
 
+    /// Create a new `Builder` for a [`Topo`] that reads commits from a
+    /// repository with `find`.
+    pub fn new(find: Find) -> Self {
+        Self {
+            commit_graph: Default::default(),
+            find,
+            sorting: Default::default(),
+            parents: Default::default(),
+            tips: Default::default(),
+            ends: Default::default(),
+            predicate: |_| true,
+        }
+    }
+
     /// Add commits to start reading from. The behavior is similar to specifying
     /// additional `ends` in `git rev-list --topo-order ^ends tips`.
     pub fn with_tips(mut self, tips: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
