@@ -28,11 +28,7 @@ where
         tips: impl IntoIterator<Item = impl Into<ObjectId>>,
         ends: Option<impl IntoIterator<Item = impl Into<ObjectId>>>,
     ) -> Self {
-        let mut builder = Self::new(find).with_tips(tips);
-        if let Some(ends) = ends {
-            builder = builder.with_ends(ends);
-        };
-        builder
+        Self::new(find).with_tips(tips).with_ends(ends.into_iter().flatten())
     }
 
     /// Create a new `Builder` for a [`Topo`] that reads commits from a
@@ -49,16 +45,18 @@ where
         }
     }
 
-    /// Add commits to start reading from. The behavior is similar to specifying
-    /// additional `ends` in `git rev-list --topo-order ^ends tips`.
+    /// Add commits to start reading from.
+    ///
+    /// The behavior is similar to specifying additional `ends` in `git rev-list --topo-order ^ends tips`.
     pub fn with_tips(mut self, tips: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
         self.tips.extend(tips.into_iter().map(Into::into));
         self
     }
 
-    /// Add commits ending the traversal. These commits themselves will not be
-    /// read, i.e. the behavior is similar to specifying additional `ends` in
-    /// `git rev-list --topo-order ^ends tips`.
+    /// Add commits ending the traversal.
+    ///
+    /// These commits themselves will not be read, i.e. the behavior is similar to specifying additional
+    /// `ends` in `git rev-list --topo-order ^ends tips`.
     pub fn with_ends(mut self, ends: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
         self.ends.extend(ends.into_iter().map(Into::into));
         self
