@@ -26,8 +26,10 @@ pub struct Prepare {
     pub args: Vec<OsString>,
     /// environment variables to set in the spawned process.
     pub env: Vec<(OsString, OsString)>,
-    /// If `true`, we will use `sh` to execute the `command`.
+    /// If `true`, we will use `shell_program` or `sh` to execute the `command`.
     pub use_shell: bool,
+    /// The name or path to the shell program to use instead of `sh`.
+    pub shell_program: Option<OsString>,
     /// If `true` (default `true` on windows and `false` everywhere else)
     /// we will see if it's safe to manually invoke `command` after splitting
     /// its arguments as a shell would do.
@@ -100,6 +102,12 @@ mod prepare {
             self.use_shell = self.command.to_str().map_or(true, |cmd| {
                 cmd.as_bytes().find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some()
             });
+            self
+        }
+
+        /// Set the name or path to the shell `program` to use, to avoid using the default shell which is `sh`.
+        pub fn with_shell_program(mut self, program: impl Into<OsString>) -> Self {
+            self.shell_program = Some(program.into());
             self
         }
 
@@ -199,7 +207,10 @@ mod prepare {
                         cmd
                     }
                     None => {
-                        let mut cmd = Command::new(if cfg!(windows) { "sh" } else { "/bin/sh" });
+                        let mut cmd = Command::new(
+                            prep.shell_program
+                                .unwrap_or(if cfg!(windows) { "sh" } else { "/bin/sh" }.into()),
+                        );
                         cmd.arg("-c");
                         if !prep.args.is_empty() {
                             if prep.command.to_str().map_or(true, |cmd| !cmd.contains("$@")) {
@@ -417,6 +428,7 @@ pub mod shebang {
 pub fn prepare(cmd: impl Into<OsString>) -> Prepare {
     Prepare {
         command: cmd.into(),
+        shell_program: None,
         context: None,
         stdin: std::process::Stdio::null(),
         stdout: std::process::Stdio::piped(),

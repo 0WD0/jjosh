@@ -280,6 +280,24 @@ mod prepare {
     }
 
     #[test]
+    fn single_and_multiple_arguments_as_part_of_command_with_given_shell() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("ls first second third")
+                .with_shell()
+                .with_shell_program("/somepath/to/bash"),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            if cfg!(windows) {
+                quoted(&["ls", "first", "second", "third"])
+            } else {
+                quoted(&["/somepath/to/bash", "-c", "ls first second third", "--"])
+            },
+            "with shell, this works as it performs word splitting on Windows, but on linux (or without splitting) it uses the given shell"
+        );
+    }
+
+    #[test]
     fn single_and_complex_arguments_as_part_of_command_with_shell() {
         let cmd = std::process::Command::from(gix_command::prepare("ls --foo \"a b\"").arg("additional").with_shell());
         assert_eq!(
