@@ -44,6 +44,14 @@ where
         }
     }
 
+    /// Add commits ending the traversal. These commits themselves will not be
+    /// read, i.e. the behavior is similar to specifying additional `ends` in
+    /// `git rev-list --topo-order ^ends tips`.
+    pub fn with_ends(mut self, ends: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
+        self.ends.extend(ends.into_iter().map(Into::into));
+        self
+    }
+
     /// Set a `predicate` to filter out revisions from the walk. Can be used to
     /// implement e.g. filtering on paths or time. This does *not* exclude the
     /// parent(s) of a revision that is excluded. Specify a revision as an 'end'
