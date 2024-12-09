@@ -44,6 +44,13 @@ where
         }
     }
 
+    /// Add commits to start reading from. The behavior is similar to specifying
+    /// additional `ends` in `git rev-list --topo-order ^ends tips`.
+    pub fn with_tips(mut self, tips: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
+        self.tips.extend(tips.into_iter().map(Into::into));
+        self
+    }
+
     /// Add commits ending the traversal. These commits themselves will not be
     /// read, i.e. the behavior is similar to specifying additional `ends` in
     /// `git rev-list --topo-order ^ends tips`.
