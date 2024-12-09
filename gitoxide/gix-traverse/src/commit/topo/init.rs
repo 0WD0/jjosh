@@ -28,20 +28,11 @@ where
         tips: impl IntoIterator<Item = impl Into<ObjectId>>,
         ends: Option<impl IntoIterator<Item = impl Into<ObjectId>>>,
     ) -> Self {
-        let tips = tips.into_iter().map(Into::into).collect::<Vec<_>>();
-        let ends = ends
-            .map(|e| e.into_iter().map(Into::into).collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        Self {
-            commit_graph: Default::default(),
-            find,
-            sorting: Default::default(),
-            parents: Default::default(),
-            tips,
-            ends,
-            predicate: |_| true,
-        }
+        let mut builder = Self::new(find).with_tips(tips);
+        if let Some(ends) = ends {
+            builder = builder.with_ends(ends);
+        };
+        builder
     }
 
     /// Create a new `Builder` for a [`Topo`] that reads commits from a
