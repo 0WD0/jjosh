@@ -173,7 +173,7 @@ impl Options {
     /// if `true` it will be excluded as the symlink is considered a directory.
     ///
     /// In other words, for Git compatibility this flag should be `false`, the default, for `git2` compatibility it should be `true`.
-    pub fn symlinks_to_directories_are_ignored_like_directories(&mut self, toggle: bool) -> &mut Self {
+    pub fn symlinks_to_directories_are_ignored_like_directories(mut self, toggle: bool) -> Self {
         self.symlinks_to_directories_are_ignored_like_directories = toggle;
         self
     }
