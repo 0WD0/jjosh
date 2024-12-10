@@ -95,11 +95,19 @@ mod find_youngest_matching_commit {
     fn regex_matches() {
         let repo = repo("complex_graph").unwrap();
 
-        // On the full linux CI `test` workflow, archived baseline aren't used - instead fixtures will be re-evaluated.
-        // As of Git 2.47, its behaviour changed which makes the following assertion fail.
-        // We decided to just ignore it until it's clear that this isn't a bug - obviously the traversal order changed.
-        let is_in_test_ci_workflow = is_ci::cached() && std::env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some();
-        if is_in_test_ci_workflow {
+        // The full Linux CI `test` job regenerates baselines instead of taking them from archives.
+        // In Git 2.47.0 (and 2.47.1), the traversal order differs, so some `parse_spec` assertions
+        // fail. This is a Git bug with a forthcoming fix. For now, we use `parse_spec_no_baseline`
+        // for them when tests are run that way with known-affected Git versions. For details, see:
+        //
+        //  - https://lore.kernel.org/git/Z1LJSADiStlFicTL@pks.im/T/
+        //  - https://lore.kernel.org/git/Z1LtS-8f8WZyobz3@pks.im/T/
+        //  - https://github.com/GitoxideLabs/gitoxide/issues/1622#issuecomment-2529580735
+        let skip_some_baselines = is_ci::cached()
+            && std::env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some()
+            && ((2, 47, 0)..(2, 47, 2)).contains(&gix_testtools::GIT_VERSION);
+
+        if skip_some_baselines {
             assert_eq!(
                 parse_spec_no_baseline(":/mes.age", &repo).unwrap(),
                 Spec::from_id(hex_to_id("ef80b4b77b167f326351c93284dc0eb00dd54ff4").attach(&repo))
@@ -116,7 +124,7 @@ mod find_youngest_matching_commit {
             "None of 10 commits reached from all references matched regex \"not there\""
         );
 
-        if is_in_test_ci_workflow {
+        if skip_some_baselines {
             assert_eq!(
                 parse_spec_no_baseline(":/!-message", &repo).unwrap(),
                 Spec::from_id(hex_to_id("55e825ebe8fd2ff78cad3826afb696b96b576a7e").attach(&repo))
