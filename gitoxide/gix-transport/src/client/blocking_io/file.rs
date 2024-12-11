@@ -109,7 +109,7 @@ impl client::TransportWithoutIO for SpawnProcessOnDemand {
     ) -> Result<RequestWriter<'_>, client::Error> {
         self.connection
             .as_mut()
-            .expect("handshake() to have been called first")
+            .ok_or(client::Error::MissingHandshake)?
             .request(write_mode, on_into_read, trace)
     }
 

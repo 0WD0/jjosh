@@ -333,7 +333,7 @@ impl<H: Http> client::TransportWithoutIO for Transport<H> {
         on_into_read: MessageKind,
         trace: bool,
     ) -> Result<RequestWriter<'_>, client::Error> {
-        let service = self.service.expect("handshake() must have been called first");
+        let service = self.service.ok_or(client::Error::MissingHandshake)?;
         let url = append_url(&self.url, service.as_str());
         let static_headers = &[
             Cow::Borrowed(self.user_agent_header),
