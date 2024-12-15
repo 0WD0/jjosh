@@ -52,6 +52,7 @@ gix-features = { version = "^0.39.1", path = "../gix-features", features = [
 ] }
 gix-transport = { version = "^0.43.1", path = "../gix-transport" }
 gix-hash = { version = "^0.15.1", path = "../gix-hash" }
+gix-shallow = { version = "^0.1.0", path = "../gix-shallow" }
 gix-date = { version = "^0.9.2", path = "../gix-date" }
 gix-credentials = { version = "^0.25.1", path = "../gix-credentials" }
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }

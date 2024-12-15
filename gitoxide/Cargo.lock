@@ -1397,6 +1397,7 @@ dependencies = [
  "gix-revision",
  "gix-revwalk 0.17.0",
  "gix-sec 0.10.10",
+ "gix-shallow",
  "gix-status",
  "gix-submodule",
  "gix-tempfile 15.0.0",
@@ -2384,6 +2385,7 @@ dependencies = [
  "gix-features 0.39.1",
  "gix-hash 0.15.1",
  "gix-packetline",
+ "gix-shallow",
  "gix-transport",
  "gix-utils 0.1.13",
  "maybe-async",
@@ -2570,6 +2572,17 @@ dependencies = [
 [[package]]
 name = "gix-sequencer"
 version = "0.0.0"
+
+[[package]]
+name = "gix-shallow"
+version = "0.1.0"
+dependencies = [
+ "bstr",
+ "gix-hash 0.15.1",
+ "gix-lock 15.0.1",
+ "serde",
+ "thiserror 2.0.3",
+]
 
 [[package]]
 name = "gix-status"

@@ -59,15 +59,7 @@ pub enum Acknowledgement {
     Nak,
 }
 
-/// A shallow line received from the server.
-#[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum ShallowUpdate {
-    /// Shallow the given `id`.
-    Shallow(gix_hash::ObjectId),
-    /// Don't shallow the given `id` anymore.
-    Unshallow(gix_hash::ObjectId),
-}
+pub use gix_shallow::Update as ShallowUpdate;
 
 /// A wanted-ref line received from the server.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
@@ -79,21 +71,19 @@ pub struct WantedRef {
     pub path: BString,
 }
 
-impl ShallowUpdate {
-    /// Parse a `ShallowUpdate` from a `line` as received to the server.
-    pub fn from_line(line: &str) -> Result<ShallowUpdate, Error> {
-        match line.trim_end().split_once(' ') {
-            Some((prefix, id)) => {
-                let id = gix_hash::ObjectId::from_hex(id.as_bytes())
-                    .map_err(|_| Error::UnknownLineType { line: line.to_owned() })?;
-                Ok(match prefix {
-                    "shallow" => ShallowUpdate::Shallow(id),
-                    "unshallow" => ShallowUpdate::Unshallow(id),
-                    _ => return Err(Error::UnknownLineType { line: line.to_owned() }),
-                })
-            }
-            None => Err(Error::UnknownLineType { line: line.to_owned() }),
+/// Parse a `ShallowUpdate` from a `line` as received to the server.
+pub fn shallow_update_from_line(line: &str) -> Result<ShallowUpdate, Error> {
+    match line.trim_end().split_once(' ') {
+        Some((prefix, id)) => {
+            let id = gix_hash::ObjectId::from_hex(id.as_bytes())
+                .map_err(|_| Error::UnknownLineType { line: line.to_owned() })?;
+            Ok(match prefix {
+                "shallow" => ShallowUpdate::Shallow(id),
+                "unshallow" => ShallowUpdate::Unshallow(id),
+                _ => return Err(Error::UnknownLineType { line: line.to_owned() }),
+            })
         }
+        None => Err(Error::UnknownLineType { line: line.to_owned() }),
     }
 }
 
@@ -236,7 +226,7 @@ impl Response {
                 }
                 None => acks.push(ack),
             },
-            Err(_) => match ShallowUpdate::from_line(peeked_line) {
+            Err(_) => match shallow_update_from_line(peeked_line) {
                 Ok(shallow) => {
                     shallows.push(shallow);
                 }

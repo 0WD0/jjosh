@@ -29,7 +29,7 @@ pub enum Error {
         source: std::io::Error,
     },
     #[error(transparent)]
-    ShallowOpen(#[from] crate::shallow::open::Error),
+    ShallowOpen(#[from] crate::shallow::read::Error),
     #[error("Server lack feature {feature:?}: {description}")]
     MissingServerFeature {
         feature: &'static str,

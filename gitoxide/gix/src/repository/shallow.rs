@@ -1,7 +1,6 @@
 use std::{borrow::Cow, path::PathBuf};
 
 use crate::{
-    bstr::ByteSlice,
     config::tree::{gitoxide, Key},
     Repository,
 };
@@ -22,28 +21,10 @@ impl Repository {
     /// isn't a shallow clone.
     ///
     /// The shared list is shared across all clones of this repository.
-    pub fn shallow_commits(&self) -> Result<Option<crate::shallow::Commits>, crate::shallow::open::Error> {
+    pub fn shallow_commits(&self) -> Result<Option<crate::shallow::Commits>, crate::shallow::read::Error> {
         self.shallow_commits.recent_snapshot(
             || self.shallow_file().metadata().ok().and_then(|m| m.modified().ok()),
-            || {
-                let buf = match std::fs::read(self.shallow_file()) {
-                    Ok(buf) => buf,
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                    Err(err) => return Err(err.into()),
-                };
-
-                let mut commits = buf
-                    .lines()
-                    .map(gix_hash::ObjectId::from_hex)
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                commits.sort();
-                if commits.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(commits))
-                }
-            },
+            || gix_shallow::read(&self.shallow_file()),
         )
     }
 

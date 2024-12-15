@@ -4,6 +4,7 @@ use gix_transport::{client, Protocol};
 
 use crate::fetch::{
     response,
+    response::shallow_update_from_line,
     response::{Acknowledgement, ShallowUpdate, WantedRef},
     Response,
 };
@@ -132,7 +133,7 @@ impl Response {
                             }
                         }
                         "shallow-info" => {
-                            if parse_v2_section(&mut line, reader, &mut shallows, ShallowUpdate::from_line).await? {
+                            if parse_v2_section(&mut line, reader, &mut shallows, shallow_update_from_line).await? {
                                 break 'section false;
                             }
                         }

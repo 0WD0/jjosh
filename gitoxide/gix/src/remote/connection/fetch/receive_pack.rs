@@ -325,7 +325,11 @@ where
 
                 if let Some(shallow_lock) = shallow_lock {
                     if !previous_response.shallow_updates().is_empty() {
-                        crate::shallow::write(shallow_lock, shallow_commits, previous_response.shallow_updates())?;
+                        gix_shallow::write(
+                            shallow_lock,
+                            shallow_commits.map(|v| (**v).to_owned()),
+                            previous_response.shallow_updates(),
+                        )?;
                     }
                 }
                 (write_pack_bundle, Some(outcome::Negotiate { graph, rounds }))
