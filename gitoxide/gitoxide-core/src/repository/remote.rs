@@ -72,7 +72,7 @@ mod refs_impl {
                 .context("Remote didn't have a URL to connect to")?
                 .to_bstring()
         ));
-        let map = remote
+        let (map, handshake) = remote
             .connect(gix::remote::Direction::Fetch)
             .await?
             .ref_map(
@@ -86,7 +86,7 @@ mod refs_impl {
 
         if handshake_info {
             writeln!(out, "Handshake Information")?;
-            writeln!(out, "\t{:?}", map.handshake)?;
+            writeln!(out, "\t{handshake:?}")?;
         }
         match kind {
             refs::Kind::Tracking { .. } => print_refmap(

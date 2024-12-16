@@ -160,6 +160,7 @@ worktree-archive = ["gix-archive", "worktree-stream", "attributes"]
 async-network-client = [
     "gix-protocol/async-client",
     "gix-pack/streaming-input",
+    "dep:gix-transport",
     "attributes",
     "credentials",
 ]

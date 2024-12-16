@@ -107,6 +107,8 @@ title "gix (with repository)"
         )
         fi
 
+        # for some reason, on CI the daemon always shuts down before we can connect,
+        # or isn't actually ready despite having accepted the first connection already.
         (with "git:// protocol"
           launch-git-daemon
           (with "version 1"
@@ -249,14 +251,14 @@ title "gix commit-graph"
           (with "version 2"
             (with "NO output directory"
               it "generates the correct output" && {
-                WITH_SNAPSHOT="$snapshot/file-v-any-no-output" \
+                WITH_SNAPSHOT="$snapshot/file-v-any-no-output-p2" \
                 expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 .git
               }
             )
             (with "output directory"
               mkdir out/
               it "generates the correct output" && {
-                WITH_SNAPSHOT="$snapshot/file-v-any-with-output" \
+                WITH_SNAPSHOT="$snapshot/file-v-any-with-output-p2" \
                 expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive .git out/
               }
               it "creates an index and a pack in the output directory" && {
@@ -268,7 +270,7 @@ title "gix commit-graph"
             if test "$kind" = "max" || test "$kind" = "max-pure"; then
             (with "--format json"
               it "generates the correct output in JSON format" && {
-                WITH_SNAPSHOT="$snapshot/file-v-any-no-output-json" \
+                WITH_SNAPSHOT="$snapshot/file-v-any-no-output-json-p2" \
                 expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose --format json free pack receive --protocol 2 .git
               }
             )
@@ -305,7 +307,7 @@ title "gix commit-graph"
             (with "NO output directory"
               (with "NO wanted refs"
                 it "generates the correct output" && {
-                  WITH_SNAPSHOT="$snapshot/file-v-any-no-output" \
+                  WITH_SNAPSHOT="$snapshot/file-v-any-no-output-p2" \
                   expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 git://localhost/
                 }
               )
@@ -324,7 +326,7 @@ title "gix commit-graph"
             )
             (with "output directory"
               it "generates the correct output" && {
-                WITH_SNAPSHOT="$snapshot/file-v-any-with-output" \
+                WITH_SNAPSHOT="$snapshot/file-v-any-with-output-p2" \
                 expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive git://localhost/ out/
               }
             )

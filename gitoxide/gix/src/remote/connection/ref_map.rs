@@ -85,8 +85,14 @@ where
     /// - `gitoxide.userAgent` is read to obtain the application user agent for git servers and for HTTP servers as well.
     #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
-    pub async fn ref_map(mut self, progress: impl Progress, options: Options) -> Result<fetch::RefMap, Error> {
-        self.ref_map_by_ref(progress, options).await
+    pub async fn ref_map(
+        mut self,
+        progress: impl Progress,
+        options: Options,
+    ) -> Result<(fetch::RefMap, gix_protocol::handshake::Outcome), Error> {
+        let refmap = self.ref_map_by_ref(progress, options).await;
+        let handshake = self.handshake.expect("refmap always performs handshake");
+        refmap.map(|map| (map, handshake))
     }
 
     #[allow(clippy::result_large_err)]

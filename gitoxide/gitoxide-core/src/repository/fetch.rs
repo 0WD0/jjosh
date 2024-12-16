@@ -70,7 +70,7 @@ pub(crate) mod function {
 
         if handshake_info {
             writeln!(out, "Handshake Information")?;
-            writeln!(out, "\t{:?}", res.ref_map.handshake)?;
+            writeln!(out, "\t{:?}", res.handshake)?;
         }
 
         let ref_specs = remote.refspecs(gix::remote::Direction::Fetch);
