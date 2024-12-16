@@ -56,8 +56,11 @@ mod update {
         remote::{
             fetch,
             fetch::{
+                refmap::Mapping,
+                refmap::Source,
+                refmap::SpecIndex,
                 refs::{tests::restricted, update::TypeChange},
-                Mapping, RefLogMessage, Source, SpecIndex,
+                RefLogMessage,
             },
         },
     };
@@ -910,7 +913,7 @@ mod update {
     fn mapping_from_spec(
         spec: &str,
         remote_repo: &gix::Repository,
-    ) -> (Vec<fetch::Mapping>, Vec<gix::refspec::RefSpec>) {
+    ) -> (Vec<fetch::refmap::Mapping>, Vec<gix::refspec::RefSpec>) {
         let spec = gix_refspec::parse(spec.into(), gix_refspec::parse::Operation::Fetch).unwrap();
         let group = gix_refspec::MatchGroup::from_fetch_specs(Some(spec));
         let references = remote_repo.references().unwrap();
@@ -920,13 +923,13 @@ mod update {
             .match_remotes(references.iter().map(remote_ref_to_item))
             .mappings
             .into_iter()
-            .map(|m| fetch::Mapping {
+            .map(|m| fetch::refmap::Mapping {
                 remote: m.item_index.map_or_else(
                     || match m.lhs {
-                        gix_refspec::match_group::SourceRef::ObjectId(id) => fetch::Source::ObjectId(id),
+                        gix_refspec::match_group::SourceRef::ObjectId(id) => fetch::refmap::Source::ObjectId(id),
                         _ => unreachable!("not a ref, must be id: {:?}", m),
                     },
-                    |idx| fetch::Source::Ref(references[idx].clone()),
+                    |idx| fetch::refmap::Source::Ref(references[idx].clone()),
                 ),
                 local: m.rhs.map(std::borrow::Cow::into_owned),
                 spec_index: SpecIndex::ExplicitInRemote(m.spec_index),

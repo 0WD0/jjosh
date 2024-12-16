@@ -72,15 +72,6 @@ impl PrepareFetch {
         P: crate::NestedProgress,
         P::SubProgress: 'static,
     {
-        self.fetch_only_inner(&mut progress, should_interrupt).await
-    }
-
-    #[gix_protocol::maybe_async::maybe_async]
-    async fn fetch_only_inner(
-        &mut self,
-        progress: &mut dyn crate::DynNestedProgress,
-        should_interrupt: &std::sync::atomic::AtomicBool,
-    ) -> Result<(crate::Repository, crate::remote::fetch::Outcome), Error> {
         use crate::{bstr::ByteVec, remote, remote::fetch::RefLogMessage};
 
         let repo = self
@@ -156,18 +147,19 @@ impl PrepareFetch {
                 }
                 opts
             };
-            match connection.prepare_fetch(&mut *progress, fetch_opts.clone()).await {
+            match connection.prepare_fetch(&mut progress, fetch_opts.clone()).await {
                 Ok(prepare) => prepare,
-                Err(remote::fetch::prepare::Error::RefMap(remote::ref_map::Error::MappingValidation(err)))
-                    if err.issues.len() == 1
-                        && fetch_opts.extra_refspecs.contains(&head_refspec)
-                        && matches!(
-                            err.issues.first(),
-                            Some(gix_refspec::match_group::validate::Issue::Conflict {
-                                destination_full_ref_name,
-                                ..
-                            }) if *destination_full_ref_name == head_local_tracking_branch
-                        ) =>
+                Err(remote::fetch::prepare::Error::RefMap(remote::ref_map::Error::InitRefMap(
+                    gix_protocol::fetch::refmap::init::Error::MappingValidation(err),
+                ))) if err.issues.len() == 1
+                    && fetch_opts.extra_refspecs.contains(&head_refspec)
+                    && matches!(
+                        err.issues.first(),
+                        Some(gix_refspec::match_group::validate::Issue::Conflict {
+                            destination_full_ref_name,
+                            ..
+                        }) if *destination_full_ref_name == head_local_tracking_branch
+                    ) =>
                 {
                     let head_refspec_idx = fetch_opts
                         .extra_refspecs
@@ -180,7 +172,7 @@ impl PrepareFetch {
                     // refspec, as git can do this without connecting twice.
                     let connection = remote.connect(remote::Direction::Fetch).await?;
                     fetch_opts.extra_refspecs.remove(head_refspec_idx);
-                    connection.prepare_fetch(&mut *progress, fetch_opts).await?
+                    connection.prepare_fetch(&mut progress, fetch_opts).await?
                 }
                 Err(err) => return Err(err.into()),
             }
@@ -204,7 +196,7 @@ impl PrepareFetch {
                 message: reflog_message.clone(),
             })
             .with_shallow(self.shallow.clone())
-            .receive_inner(progress, should_interrupt)
+            .receive(&mut progress, should_interrupt)
             .await?;
 
         util::append_config_to_repo_config(repo, config);

@@ -1,7 +1,14 @@
 //! An abstraction over [fetching][fetch()] a pack from the server.
 //!
-//! This implementation hides the transport layer, statefulness and the protocol version to the [fetch delegate][fetch::Delegate],
-//! the actual client implementation.
+//! Generally, there is the following order of operations.
+//!
+//! * create a [`Transport`](gix_transport::client::Transport)
+//! * perform a [`handshake()`]
+//! * execute a [`Command`]
+//!     - [list references](ls_refs())
+//!          - create a mapping between [refspecs and references](fetch::RefMap)
+//!     - [receive a pack](fetch())
+//!
 //! ## Feature Flags
 #![cfg_attr(
     all(doc, feature = "document-features"),
@@ -9,6 +16,12 @@
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg, doc_auto_cfg))]
 #![deny(missing_docs, rust_2018_idioms, unsafe_code)]
+
+/// A function that performs a given credential action, trying to obtain credentials for an operation that needs it.
+///
+/// Useful for both `fetch` and `push`.
+#[cfg(feature = "handshake")]
+pub type AuthenticateFn<'a> = Box<dyn FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'a>;
 
 /// A selector for V2 commands to invoke on the server for purpose of pre-invocation validation.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -20,20 +33,22 @@ pub enum Command {
 }
 pub mod command;
 
-#[cfg(feature = "async-trait")]
+#[cfg(feature = "async-client")]
 pub use async_trait;
-#[cfg(feature = "futures-io")]
+#[cfg(feature = "async-client")]
 pub use futures_io;
-#[cfg(feature = "futures-lite")]
+#[cfg(feature = "async-client")]
 pub use futures_lite;
+#[cfg(feature = "handshake")]
 pub use gix_credentials as credentials;
 /// A convenience export allowing users of gix-protocol to use the transport layer without their own cargo dependency.
 pub use gix_transport as transport;
 pub use maybe_async;
 
 ///
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod fetch;
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+pub use fetch::function::fetch;
 
 mod remote_progress;
 pub use remote_progress::RemoteProgress;
@@ -42,18 +57,15 @@ pub use remote_progress::RemoteProgress;
 compile_error!("Cannot set both 'blocking-client' and 'async-client' features as they are mutually exclusive");
 
 ///
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod handshake;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[cfg(feature = "handshake")]
 pub use handshake::function::handshake;
 
 ///
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub mod ls_refs;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use ls_refs::function::ls_refs;
 
 mod util;
-pub use util::agent;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use util::indicate_end_of_interaction;
+pub use util::*;

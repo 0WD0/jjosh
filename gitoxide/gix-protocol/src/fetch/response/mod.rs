@@ -2,6 +2,7 @@ use bstr::BString;
 use gix_transport::{client, Protocol};
 
 use crate::command::Feature;
+use crate::fetch::Response;
 
 /// The error returned in the [response module][crate::fetch::response].
 #[derive(Debug, thiserror::Error)]
@@ -136,15 +137,6 @@ impl WantedRef {
             None => Err(Error::UnknownLineType { line: line.to_owned() }),
         }
     }
-}
-
-/// A representation of a complete fetch response
-#[derive(Debug)]
-pub struct Response {
-    acks: Vec<Acknowledgement>,
-    shallows: Vec<ShallowUpdate>,
-    wanted_refs: Vec<WantedRef>,
-    has_pack: bool,
 }
 
 impl Response {

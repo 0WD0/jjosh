@@ -12,8 +12,9 @@ use crate::{
     remote::{
         fetch,
         fetch::{
+            refmap::Source,
             refs::update::{Mode, TypeChange},
-            RefLogMessage, Source,
+            RefLogMessage,
         },
     },
     Repository,
@@ -63,7 +64,7 @@ impl From<Mode> for Update {
 pub(crate) fn update(
     repo: &Repository,
     message: RefLogMessage,
-    mappings: &[fetch::Mapping],
+    mappings: &[fetch::refmap::Mapping],
     refspecs: &[gix_refspec::RefSpec],
     extra_refspecs: &[gix_refspec::RefSpec],
     fetch_tags: fetch::Tags,
@@ -79,7 +80,7 @@ pub(crate) fn update(
         .to_refspec()
         .filter(|_| matches!(fetch_tags, crate::remote::fetch::Tags::Included));
     for (remote, local, spec, is_implicit_tag) in mappings.iter().filter_map(
-        |fetch::Mapping {
+        |fetch::refmap::Mapping {
              remote,
              local,
              spec_index,
@@ -388,7 +389,7 @@ fn update_needs_adjustment_as_edits_symbolic_target_is_missing(
 fn new_value_by_remote(
     repo: &Repository,
     remote: &Source,
-    mappings: &[fetch::Mapping],
+    mappings: &[fetch::refmap::Mapping],
 ) -> Result<Target, update::Error> {
     let remote_id = remote.as_id();
     Ok(

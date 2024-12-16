@@ -9,7 +9,7 @@ mod blocking_io {
         bstr::BString,
         config::tree::{Clone, Core, Init, Key},
         remote::{
-            fetch::{Shallow, SpecIndex},
+            fetch::{refmap::SpecIndex, Shallow},
             Direction,
         },
     };
@@ -99,7 +99,9 @@ mod blocking_io {
         assert!(
             matches!(
                 err,
-                gix::clone::fetch::Error::Fetch(gix::remote::fetch::Error::RejectShallowRemote)
+                gix::clone::fetch::Error::Fetch(gix::remote::fetch::Error::Fetch(
+                    gix_protocol::fetch::Error::RejectShallowRemote
+                ))
             ),
             "we can avoid fetching from remotes with this setting"
         );
@@ -672,7 +674,6 @@ mod blocking_io {
             );
 
             let supports_unborn = out
-                .ref_map
                 .handshake
                 .capabilities
                 .capability("ls-refs")

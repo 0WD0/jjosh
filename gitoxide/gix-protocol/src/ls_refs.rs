@@ -1,3 +1,4 @@
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod error {
     use crate::handshake::refs::parse;
 
@@ -25,6 +26,7 @@ mod error {
         }
     }
 }
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use error::Error;
 
 /// What to do after preparing ls-refs in [`ls_refs()`][crate::ls_refs()].
@@ -39,6 +41,7 @@ pub enum Action {
     Skip,
 }
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub(crate) mod function {
     use std::borrow::Cow;
 

@@ -23,18 +23,38 @@ doctest = false
 #! Specifying both causes a compile error, preventing the use of `--all-features`.
 
 ## If set, blocking command implementations are available and will use the blocking version of the `gix-transport` crate.
-blocking-client = ["gix-transport/blocking-client", "maybe-async/is_sync"]
+blocking-client = [
+    "gix-transport/blocking-client",
+    "maybe-async/is_sync",
+    "handshake",
+    "fetch"
+]
 ## As above, but provides async implementations instead.
 async-client = [
     "gix-transport/async-client",
-    "async-trait",
-    "futures-io",
-    "futures-lite",
+    "dep:async-trait",
+    "dep:futures-io",
+    "dep:futures-lite",
+    "handshake",
+    "fetch"
+]
+
+## Add implementations for performing a `handshake` along with the dependencies needed for it.
+handshake = ["dep:gix-credentials"]
+
+## Add implementations for performing a `fetch` (for packs) along with the dependencies needed for it.
+fetch = [
+    "dep:gix-negotiate",
+    "dep:gix-object",
+    "dep:gix-revwalk",
+    "dep:gix-lock",
+    "dep:gix-refspec",
+    "dep:gix-trace",
 ]
 
 #! ### Other
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
-serde = ["dep:serde", "bstr/serde", "gix-transport/serde", "gix-hash/serde"]
+serde = ["dep:serde", "bstr/serde", "gix-transport/serde", "gix-hash/serde", "gix-shallow/serde"]
 
 [[test]]
 name = "blocking"
@@ -54,8 +74,16 @@ gix-transport = { version = "^0.43.1", path = "../gix-transport" }
 gix-hash = { version = "^0.15.1", path = "../gix-hash" }
 gix-shallow = { version = "^0.1.0", path = "../gix-shallow" }
 gix-date = { version = "^0.9.2", path = "../gix-date" }
-gix-credentials = { version = "^0.25.1", path = "../gix-credentials" }
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }
+gix-ref = { version = "^0.49.0", path = "../gix-ref" }
+
+gix-trace = { version = "^0.1.11", path = "../gix-trace", optional = true }
+gix-negotiate = { version = "^0.17.0", path = "../gix-negotiate", optional = true }
+gix-object = { version = "^0.46.0", path = "../gix-object", optional = true }
+gix-revwalk = { version = "^0.17.0", path = "../gix-revwalk", optional = true }
+gix-credentials = { version = "^0.25.1", path = "../gix-credentials", optional = true }
+gix-refspec = { version = "^0.27.0", path = "../gix-refspec", optional = true }
+gix-lock = { version = "^15.0.0", path = "../gix-lock", optional = true }
 
 thiserror = "2.0.0"
 serde = { version = "1.0.114", optional = true, default-features = false, features = [

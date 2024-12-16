@@ -6,9 +6,10 @@ mod fetch_fn {
     use maybe_async::maybe_async;
 
     use super::{Action, Delegate};
+    use crate::fetch::Error;
     use gix_protocol::{
         credentials,
-        fetch::{Arguments, Error, Response},
+        fetch::{Arguments, Response},
         indicate_end_of_interaction, Command,
     };
 
@@ -54,7 +55,7 @@ mod fetch_fn {
     #[maybe_async]
     // TODO: remove this without losing test coverage - we have the same but better in `gix` and it's
     //       not really worth it to maintain the delegates here.
-    pub async fn fetch<F, D, T, P>(
+    pub async fn legacy_fetch<F, D, T, P>(
         mut transport: T,
         mut delegate: D,
         authenticate: F,
@@ -186,7 +187,7 @@ mod fetch_fn {
         }) as gix_transport::client::HandleProgress<'_>));
     }
 }
-pub use fetch_fn::{fetch, FetchConnection};
+pub use fetch_fn::{legacy_fetch as fetch, FetchConnection};
 
 mod delegate {
     use std::{

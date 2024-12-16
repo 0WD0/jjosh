@@ -4,7 +4,7 @@ mod refs_impl {
     use gix::{
         protocol::handshake,
         refspec::{match_group::validate::Fix, RefSpec},
-        remote::fetch::Source,
+        remote::fetch::refmap::Source,
     };
 
     use super::by_name_or_url;
@@ -119,7 +119,7 @@ mod refs_impl {
         mut out: impl std::io::Write,
         mut err: impl std::io::Write,
     ) -> anyhow::Result<()> {
-        let mut last_spec_index = gix::remote::fetch::SpecIndex::ExplicitInRemote(usize::MAX);
+        let mut last_spec_index = gix::remote::fetch::refmap::SpecIndex::ExplicitInRemote(usize::MAX);
         map.mappings.sort_by_key(|m| m.spec_index);
         for mapping in &map.mappings {
             if mapping.spec_index != last_spec_index {
@@ -146,11 +146,11 @@ mod refs_impl {
 
             write!(out, "\t")?;
             let target_id = match &mapping.remote {
-                gix::remote::fetch::Source::ObjectId(id) => {
+                gix::remote::fetch::refmap::Source::ObjectId(id) => {
                     write!(out, "{id}")?;
                     id
                 }
-                gix::remote::fetch::Source::Ref(r) => print_ref(&mut out, r)?,
+                gix::remote::fetch::refmap::Source::Ref(r) => print_ref(&mut out, r)?,
             };
             match &mapping.local {
                 Some(local) => {

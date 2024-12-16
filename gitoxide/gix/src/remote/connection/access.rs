@@ -4,7 +4,10 @@ use crate::{
 };
 
 /// Builder
-impl<'a, T> Connection<'a, '_, T> {
+impl<'a, T> Connection<'a, '_, T>
+where
+    T: gix_transport::client::Transport,
+{
     /// Set a custom credentials callback to provide credentials if the remotes require authentication.
     ///
     /// Otherwise, we will use the git configuration to perform the same task as the `git credential` helper program,
@@ -25,8 +28,8 @@ impl<'a, T> Connection<'a, '_, T> {
     }
 
     /// Provide configuration to be used before the first handshake is conducted.
-    /// It's typically created by initializing it with [`Repository::transport_options()`](crate::Repository::transport_options()), which
-    /// is also the default if this isn't set explicitly. Note that all of the default configuration is created from `git`
+    /// It's typically created by initializing it with [`Repository::transport_options()`](crate::Repository::transport_options()),
+    /// which is also the default if this isn't set explicitly. Note that all the default configuration is created from `git`
     /// configuration, which can also be manipulated through overrides to affect the default configuration.
     ///
     /// Use this method to provide transport configuration with custom backend configuration that is not configurable by other means and
@@ -38,7 +41,10 @@ impl<'a, T> Connection<'a, '_, T> {
 }
 
 /// Mutation
-impl<'a, T> Connection<'a, '_, T> {
+impl<'a, T> Connection<'a, '_, T>
+where
+    T: gix_transport::client::Transport,
+{
     /// Like [`with_credentials()`](Self::with_credentials()), but without consuming the connection.
     pub fn set_credentials(
         &mut self,
@@ -56,7 +62,10 @@ impl<'a, T> Connection<'a, '_, T> {
 }
 
 /// Access
-impl<'repo, T> Connection<'_, 'repo, T> {
+impl<'repo, T> Connection<'_, 'repo, T>
+where
+    T: gix_transport::client::Transport,
+{
     /// A utility to return a function that will use this repository's configuration to obtain credentials, similar to
     /// what `git credential` is doing.
     ///
@@ -80,6 +89,6 @@ impl<'repo, T> Connection<'_, 'repo, T> {
     /// as we will call it automatically before performing the handshake. Instead, to bring in custom configuration,
     /// call [`with_transport_options()`](Connection::with_transport_options()).
     pub fn transport_mut(&mut self) -> &mut T {
-        &mut self.transport
+        &mut self.transport.inner
     }
 }
