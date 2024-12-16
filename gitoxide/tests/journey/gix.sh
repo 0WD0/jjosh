@@ -109,7 +109,7 @@ title "gix (with repository)"
 
         # for some reason, on CI the daemon always shuts down before we can connect,
         # or isn't actually ready despite having accepted the first connection already.
-        (with "git:// protocol"
+        (not_on_ci with "git:// protocol"
           launch-git-daemon
           (with "version 1"
             it "generates the correct output" && {
@@ -278,7 +278,7 @@ title "gix commit-graph"
           )
         )
         fi
-        (with "git:// protocol"
+        (not_on_ci with "git:// protocol"
           launch-git-daemon
           (with "version 1"
             (with "NO output directory"
