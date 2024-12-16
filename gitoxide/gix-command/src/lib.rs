@@ -136,6 +136,12 @@ mod prepare {
             self.with_shell()
         }
 
+        /// Use a shell, but prohibit splitting arguments by hand even if this could be safely done without a shell.
+        pub fn with_shell_disallow_manual_argument_splitting(mut self) -> Self {
+            self.allow_manual_arg_splitting = false;
+            self.with_shell()
+        }
+
         /// Configure the process to use `stdio` for _stdin.
         pub fn stdin(mut self, stdio: Stdio) -> Self {
             self.stdin = stdio;

@@ -323,6 +323,14 @@ mod prepare {
     }
 
     #[test]
+    fn single_and_complex_arguments_without_auto_split() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("ls --foo=\"a b\"").with_shell_disallow_manual_argument_splitting(),
+        );
+        assert_eq!(format!("{cmd:?}"), quoted(&[SH, "-c", r#"ls --foo=\"a b\""#, "--"]));
+    }
+
+    #[test]
     fn single_and_complex_arguments_will_not_auto_split_on_special_characters() {
         let cmd =
             std::process::Command::from(gix_command::prepare("ls --foo=~/path").with_shell_allow_argument_splitting());
