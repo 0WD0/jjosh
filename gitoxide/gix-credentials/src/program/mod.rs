@@ -82,7 +82,7 @@ impl Program {
                 args.insert_str(0, git_program.to_string_lossy().as_ref());
                 gix_command::prepare(gix_path::from_bstr(args.as_bstr()).into_owned())
                     .arg(action.as_arg(true))
-                    .with_shell_allow_argument_splitting()
+                    .with_shell_allow_manual_argument_splitting()
                     .into()
             }
             Kind::ExternalShellScript(for_shell)
