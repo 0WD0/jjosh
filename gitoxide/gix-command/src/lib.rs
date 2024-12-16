@@ -131,8 +131,14 @@ mod prepare {
         /// Use a shell, but try to split arguments by hand if this can be safely done without a shell.
         ///
         /// If that's not the case, use a shell instead.
-        pub fn with_shell_allow_argument_splitting(mut self) -> Self {
+        pub fn with_shell_allow_manual_argument_splitting(mut self) -> Self {
             self.allow_manual_arg_splitting = true;
+            self.with_shell()
+        }
+
+        /// Use a shell, but prohibit splitting arguments by hand even if this could be safely done without a shell.
+        pub fn with_shell_disallow_manual_argument_splitting(mut self) -> Self {
+            self.allow_manual_arg_splitting = false;
             self.with_shell()
         }
 
