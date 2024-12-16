@@ -89,7 +89,7 @@ pub(crate) mod function {
 
         if handshake_info {
             writeln!(out, "Handshake Information")?;
-            writeln!(out, "\t{:?}", fetch_outcome.ref_map.handshake)?;
+            writeln!(out, "\t{:?}", fetch_outcome.handshake)?;
         }
 
         match fetch_outcome.status {

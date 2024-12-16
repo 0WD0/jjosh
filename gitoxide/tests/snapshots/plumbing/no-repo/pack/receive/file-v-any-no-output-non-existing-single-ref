@@ -1,1 +1,1 @@
-Error: unknown ref refs/heads/does-not-exist
+Error: None of the refspec(s) refs/heads/does-not-exist matched any of the 2 refs on the remote

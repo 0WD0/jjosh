@@ -1,9 +1,12 @@
 use bstr::ByteSlice;
 use gix_features::progress;
-use gix_protocol::{fetch, handshake, ls_refs, FetchConnection};
+use gix_protocol::{handshake, ls_refs};
 use gix_transport::Protocol;
 
-use crate::fetch::{helper_unused, oid, transport, CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};
+use crate::fetch::{
+    _impl::FetchConnection, helper_unused, oid, transport, CloneDelegate, CloneRefInWantDelegate, Error,
+    LsRemoteDelegate,
+};
 
 #[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
 async fn clone_abort_prep() -> crate::Result {
@@ -19,7 +22,7 @@ async fn clone_abort_prep() -> crate::Result {
         gix_transport::client::git::ConnectMode::Daemon,
     );
     let agent = "agent";
-    let err = gix_protocol::fetch(
+    let err = crate::fetch(
         &mut transport,
         &mut dlg,
         helper_unused,
@@ -46,7 +49,7 @@ async fn clone_abort_prep() -> crate::Result {
         .as_bstr()
     );
     match err {
-        fetch::Error::Io(err) => {
+        Error::Io(err) => {
             assert_eq!(err.kind(), std::io::ErrorKind::Other);
             assert_eq!(err.get_ref().expect("other error").to_string(), "hello world");
         }
@@ -66,7 +69,7 @@ async fn ls_remote() -> crate::Result {
         gix_transport::client::git::ConnectMode::Daemon,
     );
     let agent = "agent";
-    gix_protocol::fetch(
+    crate::fetch(
         &mut transport,
         &mut delegate,
         helper_unused,
@@ -122,7 +125,7 @@ async fn ls_remote_abort_in_prep_ls_refs() -> crate::Result {
         Protocol::V2,
         gix_transport::client::git::ConnectMode::Daemon,
     );
-    let err = gix_protocol::fetch(
+    let err = crate::fetch(
         &mut transport,
         &mut delegate,
         helper_unused,
@@ -140,7 +143,7 @@ async fn ls_remote_abort_in_prep_ls_refs() -> crate::Result {
         b"0044git-upload-pack does/not/matter\x00\x00version=2\x00value-only\x00key=value\x000000".as_bstr()
     );
     match err {
-        fetch::Error::LsRefs(ls_refs::Error::Io(err)) => {
+        Error::LsRefs(ls_refs::Error::Io(err)) => {
             assert_eq!(err.kind(), std::io::ErrorKind::Other);
             assert_eq!(err.get_ref().expect("other error").to_string(), "hello world");
         }
@@ -164,7 +167,7 @@ async fn ref_in_want() -> crate::Result {
     );
 
     let agent = "agent";
-    gix_protocol::fetch(
+    crate::fetch(
         &mut transport,
         &mut delegate,
         helper_unused,

@@ -1,5 +1,7 @@
 use bstr::BString;
-use gix_transport::client::Capabilities;
+
+///
+pub mod refs;
 
 /// A git reference, commonly referred to as 'ref', as returned by a git server before sending a pack.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
@@ -51,6 +53,7 @@ pub enum Ref {
 /// The result of the [`handshake()`][super::handshake()] function.
 #[derive(Default, Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg(feature = "handshake")]
 pub struct Outcome {
     /// The protocol version the server responded with. It might have downgraded the desired version.
     pub server_protocol_version: gix_transport::Protocol,
@@ -58,11 +61,12 @@ pub struct Outcome {
     pub refs: Option<Vec<Ref>>,
     /// Shallow updates as part of the `Protocol::V1`, to shallow a particular object.
     /// Note that unshallowing isn't supported here.
-    pub v1_shallow_updates: Option<Vec<ShallowUpdate>>,
+    pub v1_shallow_updates: Option<Vec<crate::fetch::response::ShallowUpdate>>,
     /// The server capabilities.
-    pub capabilities: Capabilities,
+    pub capabilities: gix_transport::client::Capabilities,
 }
 
+#[cfg(feature = "handshake")]
 mod error {
     use bstr::BString;
     use gix_transport::client;
@@ -96,10 +100,9 @@ mod error {
         }
     }
 }
-use crate::fetch::response::ShallowUpdate;
+#[cfg(feature = "handshake")]
 pub use error::Error;
 
+#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[cfg(feature = "handshake")]
 pub(crate) mod function;
-
-///
-pub mod refs;

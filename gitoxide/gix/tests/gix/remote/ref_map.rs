@@ -65,7 +65,7 @@ mod blocking_and_async_io {
                 daemon.as_ref(),
                 None,
             );
-            let map = remote
+            let (map, _handshake) = remote
                 .connect(Fetch)
                 .await?
                 .ref_map(progress::Discard, Default::default())

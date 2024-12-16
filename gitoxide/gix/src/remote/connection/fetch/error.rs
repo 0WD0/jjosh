@@ -1,9 +1,12 @@
 use crate::config;
 
 /// The error returned by [`receive()`](super::Prepare::receive()).
+// TODO: remove unused variants
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
+    #[error(transparent)]
+    Fetch(#[from] gix_protocol::fetch::Error),
     #[error("The value to configure pack threads should be 0 to auto-configure or the amount of threads to use")]
     PackThreads(#[from] config::unsigned_integer::Error),
     #[error("The value to configure the pack index version should be 1 or 2")]
@@ -16,7 +19,9 @@ pub enum Error {
         remote: gix_hash::Kind,
     },
     #[error(transparent)]
-    Negotiate(#[from] super::negotiate::Error),
+    LoadAlternates(#[from] gix_odb::store::load_index::Error),
+    #[error(transparent)]
+    Negotiate(#[from] gix_protocol::fetch::negotiate::Error),
     #[error(transparent)]
     Client(#[from] gix_protocol::transport::client::Error),
     #[error(transparent)]
@@ -29,7 +34,7 @@ pub enum Error {
         source: std::io::Error,
     },
     #[error(transparent)]
-    ShallowOpen(#[from] crate::shallow::open::Error),
+    ShallowOpen(#[from] crate::shallow::read::Error),
     #[error("Server lack feature {feature:?}: {description}")]
     MissingServerFeature {
         feature: &'static str,
@@ -47,11 +52,6 @@ pub enum Error {
     NegotiationAlgorithmConfig(#[from] config::key::GenericErrorWithValue),
     #[error("Failed to read remaining bytes in stream")]
     ReadRemainingBytes(#[source] std::io::Error),
-    #[error("None of the refspec(s) {} matched any of the {num_remote_refs} refs on the remote", refspecs.iter().map(|r| r.to_ref().instruction().to_bstring().to_string()).collect::<Vec<_>>().join(", "))]
-    NoMapping {
-        refspecs: Vec<gix_refspec::RefSpec>,
-        num_remote_refs: usize,
-    },
 }
 
 impl gix_protocol::transport::IsSpuriousError for Error {

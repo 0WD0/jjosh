@@ -2,12 +2,43 @@ use std::{borrow::Cow, io};
 
 use bstr::{BString, ByteSlice};
 use gix_protocol::{
-    fetch::{self, Action, Arguments, Response},
+    fetch::{Arguments, Response},
     handshake, ls_refs,
 };
+
 use gix_transport::client::Capabilities;
 
 use crate::fixture_bytes;
+
+pub(super) mod _impl;
+use _impl::{Action, DelegateBlocking};
+
+mod error {
+    use std::io;
+
+    use gix_transport::client;
+
+    use gix_protocol::{fetch::response, handshake, ls_refs};
+
+    /// The error used in [`fetch()`][crate::fetch()].
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        Handshake(#[from] handshake::Error),
+        #[error("Could not access repository or failed to read streaming pack file")]
+        Io(#[from] io::Error),
+        #[error(transparent)]
+        Transport(#[from] client::Error),
+        #[error(transparent)]
+        LsRefs(#[from] ls_refs::Error),
+        #[error(transparent)]
+        Response(#[from] response::Error),
+    }
+}
+pub use error::Error;
+
+mod arguments;
 
 #[cfg(feature = "blocking-client")]
 type Cursor = std::io::Cursor<Vec<u8>>;
@@ -25,7 +56,7 @@ pub struct CloneDelegate {
     abort_with: Option<std::io::Error>,
 }
 
-impl fetch::DelegateBlocking for CloneDelegate {
+impl DelegateBlocking for CloneDelegate {
     fn prepare_fetch(
         &mut self,
         _version: gix_transport::Protocol,
@@ -72,7 +103,7 @@ pub struct CloneRefInWantDelegate {
     wanted_refs: Vec<handshake::Ref>,
 }
 
-impl fetch::DelegateBlocking for CloneRefInWantDelegate {
+impl DelegateBlocking for CloneRefInWantDelegate {
     fn prepare_ls_refs(
         &mut self,
         _server: &Capabilities,
@@ -113,7 +144,7 @@ pub struct LsRemoteDelegate {
     abort_with: Option<std::io::Error>,
 }
 
-impl fetch::DelegateBlocking for LsRemoteDelegate {
+impl DelegateBlocking for LsRemoteDelegate {
     fn handshake_extra_parameters(&self) -> Vec<(String, Option<String>)> {
         vec![("value-only".into(), None), ("key".into(), Some("value".into()))]
     }
@@ -134,9 +165,9 @@ impl fetch::DelegateBlocking for LsRemoteDelegate {
         _server: &Capabilities,
         _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
         refs: &[handshake::Ref],
-    ) -> io::Result<fetch::Action> {
+    ) -> io::Result<Action> {
         refs.clone_into(&mut self.refs);
-        Ok(fetch::Action::Cancel)
+        Ok(Action::Cancel)
     }
     fn negotiate(
         &mut self,
@@ -153,11 +184,12 @@ mod blocking_io {
     use std::io;
 
     use gix_features::progress::NestedProgress;
-    use gix_protocol::{fetch, fetch::Response, handshake, handshake::Ref};
+    use gix_protocol::{fetch::Response, handshake, handshake::Ref};
 
+    use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};
 
-    impl fetch::Delegate for CloneDelegate {
+    impl Delegate for CloneDelegate {
         fn receive_pack(
             &mut self,
             mut input: impl io::BufRead,
@@ -170,7 +202,7 @@ mod blocking_io {
         }
     }
 
-    impl fetch::Delegate for CloneRefInWantDelegate {
+    impl Delegate for CloneRefInWantDelegate {
         fn receive_pack(
             &mut self,
             mut input: impl io::BufRead,
@@ -189,7 +221,7 @@ mod blocking_io {
         }
     }
 
-    impl fetch::Delegate for LsRemoteDelegate {
+    impl Delegate for LsRemoteDelegate {
         fn receive_pack(
             &mut self,
             _input: impl io::BufRead,
@@ -209,12 +241,13 @@ mod async_io {
     use async_trait::async_trait;
     use futures_io::AsyncBufRead;
     use gix_features::progress::NestedProgress;
-    use gix_protocol::{fetch, fetch::Response, handshake, handshake::Ref};
+    use gix_protocol::{fetch::Response, handshake, handshake::Ref};
 
+    use super::_impl::Delegate;
     use crate::fetch::{CloneDelegate, CloneRefInWantDelegate, LsRemoteDelegate};
 
     #[async_trait(?Send)]
-    impl fetch::Delegate for CloneDelegate {
+    impl Delegate for CloneDelegate {
         async fn receive_pack(
             &mut self,
             mut input: impl AsyncBufRead + Unpin + 'async_trait,
@@ -228,7 +261,7 @@ mod async_io {
     }
 
     #[async_trait(?Send)]
-    impl fetch::Delegate for CloneRefInWantDelegate {
+    impl Delegate for CloneRefInWantDelegate {
         async fn receive_pack(
             &mut self,
             mut input: impl AsyncBufRead + Unpin + 'async_trait,
@@ -248,7 +281,7 @@ mod async_io {
     }
 
     #[async_trait(?Send)]
-    impl fetch::Delegate for LsRemoteDelegate {
+    impl Delegate for LsRemoteDelegate {
         async fn receive_pack(
             &mut self,
             _input: impl AsyncBufRead + Unpin + 'async_trait,

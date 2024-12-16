@@ -1,8 +1,10 @@
 use gix_ref::bstr;
 
 #[cfg(target_pointer_width = "64")]
+#[cfg(feature = "worktree-stream")]
 const EXPECTED_BUFFER_LENGTH: usize = 102;
 #[cfg(target_pointer_width = "32")]
+#[cfg(feature = "worktree-stream")]
 const EXPECTED_BUFFER_LENGTH: usize = 86;
 
 #[test]

@@ -160,6 +160,7 @@ worktree-archive = ["gix-archive", "worktree-stream", "attributes"]
 async-network-client = [
     "gix-protocol/async-client",
     "gix-pack/streaming-input",
+    "dep:gix-transport",
     "attributes",
     "credentials",
 ]
@@ -173,6 +174,7 @@ async-network-client-async-std = [
 blocking-network-client = [
     "gix-protocol/blocking-client",
     "gix-pack/streaming-input",
+    "dep:gix-transport",
     "attributes",
     "credentials",
 ]
@@ -288,7 +290,7 @@ serde = [
     "dep:serde",
     "gix-pack/serde",
     "gix-object/serde",
-    "gix-protocol?/serde",
+    "gix-protocol/serde",
     "gix-transport?/serde",
     "gix-ref/serde",
     "gix-odb/serde",
@@ -328,6 +330,7 @@ gix-dir = { version = "^0.10.0", path = "../gix-dir", optional = true }
 gix-config = { version = "^0.42.0", path = "../gix-config" }
 gix-odb = { version = "^0.65.0", path = "../gix-odb" }
 gix-hash = { version = "^0.15.1", path = "../gix-hash" }
+gix-shallow = { version = "^0.1.0", path = "../gix-shallow" }
 gix-object = { version = "^0.46.0", path = "../gix-object" }
 gix-actor = { version = "^0.33.1", path = "../gix-actor" }
 gix-pack = { version = "^0.55.0", path = "../gix-pack", default-features = false, features = [
@@ -370,7 +373,7 @@ gix-worktree-stream = { version = "^0.17.0", path = "../gix-worktree-stream", op
 gix-archive = { version = "^0.17.0", path = "../gix-archive", default-features = false, optional = true }
 
 # For communication with remotes
-gix-protocol = { version = "^0.46.1", path = "../gix-protocol", optional = true }
+gix-protocol = { version = "^0.46.1", path = "../gix-protocol" }
 gix-transport = { version = "^0.43.1", path = "../gix-transport", optional = true }
 
 # Just to get the progress-tree feature

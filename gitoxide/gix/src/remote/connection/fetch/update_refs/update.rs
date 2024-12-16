@@ -130,13 +130,13 @@ impl Outcome {
     /// This can happen if the `refspecs` passed in aren't the respecs used to create the `mapping`, and it's up to the caller to sort it out.
     pub fn iter_mapping_updates<'a, 'b>(
         &self,
-        mappings: &'a [fetch::Mapping],
+        mappings: &'a [fetch::refmap::Mapping],
         refspecs: &'b [gix_refspec::RefSpec],
         extra_refspecs: &'b [gix_refspec::RefSpec],
     ) -> impl Iterator<
         Item = (
             &super::Update,
-            &'a fetch::Mapping,
+            &'a fetch::refmap::Mapping,
             Option<&'b gix_refspec::RefSpec>,
             Option<&gix_ref::transaction::RefEdit>,
         ),
