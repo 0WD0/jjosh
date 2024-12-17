@@ -12,8 +12,6 @@ pub struct Options<'a> {
     pub shallow: &'a Shallow,
     /// Describe how to handle tags when fetching.
     pub tags: Tags,
-    /// The hash the remote repository is expected to use, as it's what the local repository is initialized as.
-    pub expected_object_hash: gix_hash::Kind,
     /// If `true`, if we fetch from a remote that only offers shallow clones, the operation will fail with an error
     /// instead of writing the shallow boundary to the shallow file.
     pub reject_shallow_remote: bool,

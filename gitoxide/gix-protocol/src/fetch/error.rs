@@ -4,11 +4,6 @@
 pub enum Error {
     #[error("Could not decode server reply")]
     FetchResponse(#[from] crate::fetch::response::Error),
-    #[error("Cannot fetch from a remote that uses {remote} while local repository uses {local} for object hashes")]
-    IncompatibleObjectHash {
-        local: gix_hash::Kind,
-        remote: gix_hash::Kind,
-    },
     #[error(transparent)]
     Negotiate(#[from] crate::fetch::negotiate::Error),
     #[error(transparent)]
@@ -26,11 +21,6 @@ pub enum Error {
     LockShallowFile(#[from] gix_lock::acquire::Error),
     #[error("Receiving objects from shallow remotes is prohibited due to the value of `clone.rejectShallow`")]
     RejectShallowRemote,
-    #[error("None of the refspec(s) {} matched any of the {num_remote_refs} refs on the remote", refspecs.iter().map(|r| r.to_ref().instruction().to_bstring().to_string()).collect::<Vec<_>>().join(", "))]
-    NoMapping {
-        refspecs: Vec<gix_refspec::RefSpec>,
-        num_remote_refs: usize,
-    },
     #[error("Failed to consume the pack sent by the remove")]
     ConsumePack(Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("Failed to read remaining bytes in stream")]

@@ -1,13 +1,12 @@
 use crate::fetch::{
-    negotiate, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, RefMap, Shallow, Tags,
+    negotiate, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags,
 };
 use crate::{fetch::Arguments, transport::packetline::read::ProgressAction};
 use gix_features::progress::DynNestedProgress;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Perform one fetch operation, relying on a `transport`, right after a [`ref_map`](RefMap::new()) was created so
-/// it's clear what the remote has.
+/// Perform one fetch operation, relying on a `transport`.
 /// `negotiate` is used to run the negotiation of objects that should be contained in the pack, *if* one is to be received.
 /// `progress` and `should_interrupt` is passed to all potentially long-running parts of the operation.
 ///
@@ -31,7 +30,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// to inform about all the changes that were made.
 #[maybe_async::maybe_async]
 pub async fn fetch<P, T, E>(
-    ref_map: &RefMap,
     negotiate: &mut impl Negotiate,
     consume_pack: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> Result<bool, E>,
     mut progress: P,
@@ -46,7 +44,6 @@ pub async fn fetch<P, T, E>(
         shallow_file,
         shallow,
         tags,
-        expected_object_hash,
         reject_shallow_remote,
     }: Options<'_>,
 ) -> Result<Option<Outcome>, Error>
@@ -57,16 +54,6 @@ where
     E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
 {
     let _span = gix_trace::coarse!("gix_protocol::fetch()");
-
-    if ref_map.mappings.is_empty() && !ref_map.remote_refs.is_empty() {
-        let mut specs = ref_map.refspecs.clone();
-        specs.extend(ref_map.extra_refspecs.clone());
-        return Err(Error::NoMapping {
-            refspecs: specs,
-            num_remote_refs: ref_map.remote_refs.len(),
-        });
-    }
-
     let v1_shallow_updates = handshake.v1_shallow_updates.take();
     let protocol_version = handshake.server_protocol_version;
 
@@ -92,13 +79,6 @@ where
         arguments.use_include_tag();
     }
     let (shallow_commits, mut shallow_lock) = add_shallow_args(&mut arguments, shallow, &shallow_file)?;
-
-    if ref_map.object_hash != expected_object_hash {
-        return Err(Error::IncompatibleObjectHash {
-            local: expected_object_hash,
-            remote: ref_map.object_hash,
-        });
-    }
 
     let negotiate_span = gix_trace::detail!(
         "negotiate",
