@@ -73,14 +73,32 @@ where
         P: gix_features::progress::NestedProgress,
         P::SubProgress: 'static,
     {
+        let ref_map = &self.ref_map;
+        if ref_map.mappings.is_empty() && !ref_map.remote_refs.is_empty() {
+            let mut specs = ref_map.refspecs.clone();
+            specs.extend(ref_map.extra_refspecs.clone());
+            return Err(Error::NoMapping {
+                refspecs: specs,
+                num_remote_refs: ref_map.remote_refs.len(),
+            });
+        }
+
         let mut con = self.con.take().expect("receive() can only be called once");
         let mut handshake = con.handshake.take().expect("receive() can only be called once");
         let repo = con.remote.repo;
+
+        let expected_object_hash = repo.object_hash();
+        if ref_map.object_hash != expected_object_hash {
+            return Err(Error::IncompatibleObjectHash {
+                local: expected_object_hash,
+                remote: ref_map.object_hash,
+            });
+        }
+
         let fetch_options = gix_protocol::fetch::Options {
             shallow_file: repo.shallow_file(),
             shallow: &self.shallow,
             tags: con.remote.fetch_tags,
-            expected_object_hash: repo.object_hash(),
             reject_shallow_remote: repo
                 .config
                 .resolved
@@ -95,7 +113,7 @@ where
             user_agent: repo.config.user_agent_tuple(),
             trace_packetlines: con.trace,
         };
-        let ref_map = &self.ref_map;
+
         let negotiator = repo
             .config
             .resolved
@@ -137,7 +155,6 @@ where
         let mut write_pack_bundle = None;
 
         let res = gix_protocol::fetch(
-            ref_map,
             &mut negotiate,
             |reader, progress, should_interrupt| -> Result<bool, gix_pack::bundle::write::Error> {
                 let mut may_read_to_end = false;

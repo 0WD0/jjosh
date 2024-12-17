@@ -94,7 +94,6 @@ where
     .await?;
     let mut negotiate = Negotiate { refmap: &refmap };
     gix::protocol::fetch(
-        &refmap,
         &mut negotiate,
         |read_pack, progress, should_interrupt| {
             receive_pack_blocking(
@@ -123,7 +122,6 @@ where
             shallow_file: "no shallow file required as we reject it to keep it simple".into(),
             shallow: &Default::default(),
             tags: Default::default(),
-            expected_object_hash: Default::default(),
             reject_shallow_remote: true,
         },
     )

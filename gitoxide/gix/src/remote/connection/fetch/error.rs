@@ -40,6 +40,11 @@ pub enum Error {
         feature: &'static str,
         description: &'static str,
     },
+    #[error("None of the refspec(s) {} matched any of the {num_remote_refs} refs on the remote", refspecs.iter().map(|r| r.to_ref().instruction().to_bstring().to_string()).collect::<Vec<_>>().join(", "))]
+    NoMapping {
+        refspecs: Vec<gix_refspec::RefSpec>,
+        num_remote_refs: usize,
+    },
     #[error("Could not write 'shallow' file to incorporate remote updates after fetching")]
     WriteShallowFile(#[from] crate::shallow::write::Error),
     #[error("'shallow' file could not be locked in preparation for writing changes")]
