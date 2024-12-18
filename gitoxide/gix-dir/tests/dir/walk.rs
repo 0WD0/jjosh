@@ -97,12 +97,12 @@ fn fifo_in_traversal() {
     assert_eq!(
         entries,
         &[
+            entry_nokind(".git", Pruned).with_property(DotGit).with_match(Always),
             entry("dir-with-file/nested-file", Untracked, File),
-            entry_nokind("dir/nested", Pruned),
             entry("file", Untracked, File),
-            entry_nokind("top", Untracked),
         ],
-        "Non-files are simply pruned, and don't have a disk kind"
+        "Non-files are not even pruned, they are ignored entirely.\
+        If one day this isn't what we want, we can create an own filetype for them"
     );
 }
 

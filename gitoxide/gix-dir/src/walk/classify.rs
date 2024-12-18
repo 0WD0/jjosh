@@ -20,7 +20,10 @@ pub fn root(
     let mut last_length = None;
     let mut path_buf = worktree_root.to_owned();
     // These initial values kick in if worktree_relative_root.is_empty();
-    let file_kind = path_buf.symlink_metadata().map(|m| m.file_type().into()).ok();
+    let file_kind = path_buf
+        .symlink_metadata()
+        .ok()
+        .and_then(|m| entry::Kind::try_from_file_type(m.file_type()));
     let mut out = path(&mut path_buf, buf, 0, file_kind, || None, options, ctx)?;
     let worktree_root_is_repository = out
         .disk_kind
@@ -32,7 +35,10 @@ pub fn root(
         }
         path_buf.push(component);
         buf.extend_from_slice(gix_path::os_str_into_bstr(component.as_os_str()).expect("no illformed UTF8"));
-        let file_kind = path_buf.symlink_metadata().map(|m| m.file_type().into()).ok();
+        let file_kind = path_buf
+            .symlink_metadata()
+            .ok()
+            .and_then(|m| entry::Kind::try_from_file_type(m.file_type()));
 
         out = path(
             &mut path_buf,
@@ -122,6 +128,8 @@ impl<'a> EntryRef<'a> {
 ///
 /// Returns `(status, file_kind, pathspec_matches_how)` to identify the `status` on disk, along with a classification `file_kind`,
 /// and if `file_kind` is not a directory, the way the pathspec matched with `pathspec_matches_how`.
+///
+/// Note that non-files are pruned by default.
 pub fn path(
     path: &mut PathBuf,
     rela_path: &mut BString,
