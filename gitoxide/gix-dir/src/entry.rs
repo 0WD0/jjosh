@@ -147,15 +147,20 @@ impl Entry {
     }
 }
 
-impl From<std::fs::FileType> for Kind {
-    fn from(value: std::fs::FileType) -> Self {
-        if value.is_dir() {
+impl Kind {
+    /// Try to represent the file type `t` as `Entry`, or return `None` if it cannot be represented.
+    ///
+    /// The latter can happen if it's a `pipe` for instance.
+    pub fn try_from_file_type(t: std::fs::FileType) -> Option<Self> {
+        Some(if t.is_dir() {
             Kind::Directory
-        } else if value.is_symlink() {
+        } else if t.is_symlink() {
             Kind::Symlink
-        } else {
+        } else if t.is_file() {
             Kind::File
-        }
+        } else {
+            return None;
+        })
     }
 }
 

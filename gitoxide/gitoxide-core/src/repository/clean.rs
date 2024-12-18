@@ -163,7 +163,7 @@ pub(crate) mod function {
                     .join(gix::path::from_bstr(entry.rela_path.as_bstr()))
                     .metadata()
                     .ok()
-                    .map(|e| e.file_type().into());
+                    .and_then(|e| gix::dir::entry::Kind::try_from_file_type(e.file_type()));
             }
             let mut disk_kind = entry.disk_kind.expect("present if not pruned");
             if !keep {
