@@ -12,6 +12,7 @@ rust-version = "1.65"
 
 [lib]
 doctest = false
+test = false
 
 [dependencies]
 gix-trace = { version = "^0.1.11", path = "../gix-trace" }
