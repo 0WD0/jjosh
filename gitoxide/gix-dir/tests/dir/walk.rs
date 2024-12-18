@@ -19,6 +19,94 @@ use gix_dir::walk::ForDeletionMode;
 use gix_ignore::Kind::*;
 
 #[test]
+#[cfg(unix)]
+fn root_is_fifo() {
+    let root = fixture_in("fifo", "top-level");
+
+    let err = try_collect(&root, None, |keep, ctx| {
+        walk(
+            &root,
+            ctx,
+            gix_dir::walk::Options {
+                emit_ignored: Some(Matching),
+                ..options()
+            },
+            keep,
+        )
+    })
+    .unwrap_err();
+    assert!(
+        matches!(err, gix_dir::walk::Error::WorktreeRootIsFile { .. }),
+        "roots simply need to be directories to work"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn one_top_level_fifo() {
+    let root = fixture_in("fifo", "single-top-level-fifo");
+
+    let ((out, _root), entries) = collect(&root, None, |keep, ctx| {
+        walk(
+            &root,
+            ctx,
+            gix_dir::walk::Options {
+                emit_pruned: false,
+                ..options()
+            },
+            keep,
+        )
+    });
+    assert_eq!(
+        out,
+        walk::Outcome {
+            read_dir_calls: 1,
+            returned_entries: entries.len(),
+            seen_entries: 2,
+        }
+    );
+
+    assert_eq!(entries, &[], "Non-files are simply pruned by default");
+}
+
+#[test]
+#[cfg(unix)]
+fn fifo_in_traversal() {
+    let root = fixture_in("fifo", "two-fifos-two-files");
+
+    let ((out, _root), entries) = collect(&root, None, |keep, ctx| {
+        walk(
+            &root,
+            ctx,
+            gix_dir::walk::Options {
+                emit_pruned: true,
+                ..options()
+            },
+            keep,
+        )
+    });
+    assert_eq!(
+        out,
+        walk::Outcome {
+            read_dir_calls: 3,
+            returned_entries: entries.len(),
+            seen_entries: 5,
+        }
+    );
+
+    assert_eq!(
+        entries,
+        &[
+            entry("dir-with-file/nested-file", Untracked, File),
+            entry_nokind("dir/nested", Pruned),
+            entry("file", Untracked, File),
+            entry_nokind("top", Untracked),
+        ],
+        "Non-files are simply pruned, and don't have a disk kind"
+    );
+}
+
+#[test]
 fn symlink_to_dir_can_be_excluded() -> crate::Result {
     let root = fixture_in("many-symlinks", "excluded-symlinks-to-dir");
     let ((out, _root), entries) = collect(&root, None, |keep, ctx| {
