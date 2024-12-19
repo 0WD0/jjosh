@@ -7,10 +7,9 @@ pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Wr
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
 
     let suspect = repo.head()?.peel_to_commit_in_place()?;
-    let traverse: Vec<_> =
+    let traverse =
         gix::traverse::commit::topo::Builder::from_iters(&repo.objects, [suspect.id], None::<Vec<gix::ObjectId>>)
-            .build()?
-            .collect();
+            .build()?;
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
 
     let work_dir: PathBuf = repo
@@ -19,11 +18,10 @@ pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Wr
         .into();
     let file_path: &BStr = gix::path::os_str_into_bstr(file)?;
 
-    let blame_entries = gix::blame::blame_file(
+    let blame_entries = gix::blame::file(
         &repo.objects,
         traverse,
         &mut resource_cache,
-        suspect.id,
         work_dir.clone(),
         file_path,
     )?;

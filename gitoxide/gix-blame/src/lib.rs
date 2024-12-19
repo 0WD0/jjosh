@@ -1,10 +1,23 @@
 //! A crate to implement an algorithm to annotate lines in tracked files with the commits that changed them.
-#![deny(rust_2018_idioms)]
+//!
+//! ### Terminology
+//!
+//! * **Original File**
+//!    - The file as it exists in `HEAD`.
+//!    - the initial state with all lines that we need to associate with a *Blamed File*.
+//! * **Blamed File**
+//!    - A file at a version (i.e. commit) that introduces hunks into the final 'image'.
+//! * **Suspects**
+//!    - The versions of the files that can contain hunks that we could use in the final 'image'
+//!    - multiple at the same time as the commit-graph may split up.
+//!    - turns into *Blamed File* once we have found an association into the *Original File*.
+//!    - every [`UnblamedHunk`] can have multiple suspects of which we find the best match.
+#![deny(rust_2018_idioms, missing_docs)]
 #![forbid(unsafe_code)]
 
 use std::{
     collections::BTreeMap,
-    ops::{Add, AddAssign, Range, SubAssign},
+    ops::{AddAssign, Range, SubAssign},
     path::PathBuf,
 };
 
@@ -12,43 +25,30 @@ use gix_hash::ObjectId;
 use gix_object::bstr::BStr;
 use gix_object::FindExt;
 
+/// Describes the offset of a particular hunk relative to the *Original File*.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Offset {
+    /// The amount of lines to add.
     Added(u32),
+    /// The amount of lines to remove.
     Deleted(u32),
 }
 
-impl Add<u32> for Offset {
-    type Output = Offset;
-
-    fn add(self, rhs: u32) -> Self::Output {
-        let Self::Added(added) = self else { todo!() };
-
-        Self::Added(added + rhs)
-    }
-}
-
-impl Add<Offset> for Offset {
-    type Output = Offset;
-
-    fn add(self, rhs: Offset) -> Self::Output {
-        match (self, rhs) {
-            (Self::Added(added), Offset::Added(added_rhs)) => Self::Added(added + added_rhs),
-            (Self::Added(added), Offset::Deleted(deleted_rhs)) => {
-                if deleted_rhs > added {
-                    Self::Deleted(deleted_rhs - added)
-                } else {
-                    Self::Added(added - deleted_rhs)
+impl Offset {
+    /// Shift the given `range` according to our offset.
+    pub fn shifted_range(&self, range: &Range<u32>) -> Range<u32> {
+        match self {
+            Offset::Added(added) => {
+                debug_assert!(range.start >= *added, "{self:?} {range:?}");
+                Range {
+                    start: range.start - added,
+                    end: range.end - added,
                 }
             }
-            (Self::Deleted(deleted), Offset::Added(added_rhs)) => {
-                if added_rhs > deleted {
-                    Self::Added(added_rhs - deleted)
-                } else {
-                    Self::Deleted(deleted - added_rhs)
-                }
-            }
-            (Self::Deleted(deleted), Offset::Deleted(deleted_rhs)) => Self::Deleted(deleted + deleted_rhs),
+            Offset::Deleted(deleted) => Range {
+                start: range.start + deleted,
+                end: range.end + deleted,
+            },
         }
     }
 }
@@ -83,23 +83,33 @@ impl SubAssign<u32> for Offset {
     }
 }
 
+/// A mapping of a section of the *Original File* to the section in a *Blamed File* that introduced it.
+///
+/// Both ranges are of the same size, but may use different [starting points](Range::start). Naturally,
+/// they have the same content, which is the reason they are in what is returned by [`file()`].
+// TODO: see if this can be encoded as `start_in_original_file` and `start_in_blamed_file` and a single `len`.
 #[derive(Debug, PartialEq)]
 pub struct BlameEntry {
+    /// The section of tokens in the tokenized version of the *Blamed File* (typically lines).
     pub range_in_blamed_file: Range<u32>,
+    /// The section of tokens in the tokenized version of the *Original File* (typically lines).
     pub range_in_original_file: Range<u32>,
+    /// The commit that introduced the section into the *Blamed File*.
     pub commit_id: ObjectId,
 }
 
 impl BlameEntry {
+    /// Create a new instance.
     pub fn new(range_in_blamed_file: Range<u32>, range_in_original_file: Range<u32>, commit_id: ObjectId) -> Self {
-        assert!(
+        debug_assert!(
             range_in_blamed_file.end > range_in_blamed_file.start,
             "{range_in_blamed_file:?}"
         );
-        assert!(
+        debug_assert!(
             range_in_original_file.end > range_in_original_file.start,
             "{range_in_original_file:?}"
         );
+        debug_assert_eq!(range_in_original_file.len(), range_in_blamed_file.len());
 
         Self {
             range_in_blamed_file: range_in_blamed_file.clone(),
@@ -108,8 +118,9 @@ impl BlameEntry {
         }
     }
 
+    /// Create a new instance by creating `range_in_blamed_file` after applying `offset` to `range_in_original_file`.
     fn with_offset(range_in_original_file: Range<u32>, commit_id: ObjectId, offset: Offset) -> Self {
-        assert!(
+        debug_assert!(
             range_in_original_file.end > range_in_original_file.start,
             "{range_in_original_file:?}"
         );
@@ -121,7 +132,7 @@ impl BlameEntry {
                 commit_id,
             },
             Offset::Deleted(deleted) => {
-                assert!(
+                debug_assert!(
                     range_in_original_file.start >= deleted,
                     "{range_in_original_file:?} {offset:?}"
                 );
@@ -136,8 +147,9 @@ impl BlameEntry {
         }
     }
 
+    /// Create an offset from a portion of the *Original File*.
     fn from_unblamed_hunk(unblamed_hunk: &UnblamedHunk, commit_id: ObjectId) -> Self {
-        let range_in_original_file = unblamed_hunk.suspects.get(&commit_id).expect("TODO");
+        let range_in_original_file = unblamed_hunk.suspects.get(&commit_id).unwrap();
 
         Self {
             range_in_blamed_file: unblamed_hunk.range_in_blamed_file.clone(),
@@ -153,26 +165,17 @@ trait LineRange {
 
 impl LineRange for Range<u32> {
     fn shift_by(&self, offset: Offset) -> Self {
-        match offset {
-            Offset::Added(added) => {
-                assert!(self.start >= added, "{self:?} {offset:?}");
-
-                Self {
-                    start: self.start - added,
-                    end: self.end - added,
-                }
-            }
-            Offset::Deleted(deleted) => Self {
-                start: self.start + deleted,
-                end: self.end + deleted,
-            },
-        }
+        offset.shifted_range(self)
     }
 }
 
+/// TODO: docs - what is it?
+// TODO: is `Clone` really needed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnblamedHunk {
+    /// TODO: figure out how this works.
     pub range_in_blamed_file: Range<u32>,
+    /// Maps a commit to the range in the *Original File* that `range_in_blamed_file` refers to.
     pub suspects: BTreeMap<ObjectId, Range<u32>>,
 }
 
@@ -183,7 +186,7 @@ enum Either<T, U> {
 }
 
 impl UnblamedHunk {
-    pub fn new(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset: Offset) -> Self {
+    fn new(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset: Offset) -> Self {
         assert!(
             range_in_blamed_file.end > range_in_blamed_file.start,
             "{range_in_blamed_file:?}"
@@ -257,6 +260,7 @@ impl UnblamedHunk {
         }
     }
 
+    /// Transfer all ranges from the commit at `from` to the commit at `to`.
     fn pass_blame(&mut self, from: ObjectId, to: ObjectId) {
         if let Some(range_in_suspect) = self.suspects.remove(&from) {
             self.suspects.insert(to, range_in_suspect);
@@ -270,28 +274,36 @@ impl UnblamedHunk {
     }
 
     fn remove_blame(&mut self, suspect: ObjectId) {
-        let _ = self.suspects.remove(&suspect);
+        // TODO: figure out why it can try to remove suspects that don't exist.
+        self.suspects.remove(&suspect);
     }
 }
 
+/// A single change between two blobs, or an unchanged region.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Change {
+    /// A range of tokens that wasn't changed.
     Unchanged(Range<u32>),
+    /// `(added_line_range, num_deleted_in_before)`
     Added(Range<u32>, u32),
+    /// `(line_to_start_deletion_at, num_deleted_in_before)`
     Deleted(u32, u32),
 }
 
+/// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Blamed File*.
 struct ChangeRecorder {
-    previous_after_end: u32,
-    changes: Vec<Change>,
+    last_seen_after_end: u32,
+    hunks: Vec<Change>,
     total_number_of_lines: u32,
 }
 
 impl ChangeRecorder {
+    /// `total_number_of_lines` is used to fill in the last unchanged hunk if needed
+    /// so that the entire file is represented by [`Change`].
     fn new(total_number_of_lines: u32) -> Self {
         ChangeRecorder {
-            previous_after_end: 0,
-            changes: vec![],
+            last_seen_after_end: 0,
+            hunks: Vec::new(),
             total_number_of_lines,
         }
     }
@@ -300,42 +312,40 @@ impl ChangeRecorder {
 impl gix_diff::blob::Sink for ChangeRecorder {
     type Out = Vec<Change>;
 
-    // “imara-diff will compute a line diff by default”, so each `start` and `end` represents a
-    // line in a file.
     fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
         // This checks for unchanged hunks.
-        //
-        // https://docs.rs/imara-diff/latest/imara_diff/sink/trait.Sink.html#notes
-        if after.start > self.previous_after_end {
-            self.changes
-                .push(Change::Unchanged(self.previous_after_end..after.start));
+        if after.start > self.last_seen_after_end {
+            self.hunks
+                .push(Change::Unchanged(self.last_seen_after_end..after.start));
         }
 
-        match (before.end > before.start, after.end > after.start) {
+        match (!before.is_empty(), !after.is_empty()) {
             (_, true) => {
-                self.changes
+                self.hunks
                     .push(Change::Added(after.start..after.end, before.end - before.start));
             }
             (true, false) => {
-                self.changes
-                    .push(Change::Deleted(after.start, before.end - before.start));
+                self.hunks.push(Change::Deleted(after.start, before.end - before.start));
             }
-            (false, false) => unimplemented!(),
+            (false, false) => unreachable!("BUG: imara-diff provided a non-change"),
         }
-
-        self.previous_after_end = after.end;
+        self.last_seen_after_end = after.end;
     }
 
     fn finish(mut self) -> Self::Out {
-        if self.total_number_of_lines > self.previous_after_end {
-            self.changes
-                .push(Change::Unchanged(self.previous_after_end..self.total_number_of_lines));
+        if self.total_number_of_lines > self.last_seen_after_end {
+            self.hunks
+                .push(Change::Unchanged(self.last_seen_after_end..self.total_number_of_lines));
         }
-
-        self.changes
+        self.hunks
     }
 }
 
+/// Compare a section from the *Original File* (`hunk`) with a change from a diff and see if there
+/// is an intersection with `change`. Based on that intersection, we may generate a [`BlameEntry`] for `out`
+/// and/or split the `hunk` into multiple.
+///
+/// This is the core of the blame implementation as it matches regions in *Blamed Files* to the *Original File*.
 pub fn process_change(
     out: &mut Vec<BlameEntry>,
     new_hunks_to_blame: &mut Vec<UnblamedHunk>,
@@ -348,7 +358,6 @@ pub fn process_change(
         (Some(hunk), Some(Change::Unchanged(unchanged))) => {
             let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
                 new_hunks_to_blame.push(hunk);
-
                 return (None, Some(Change::Unchanged(unchanged)));
             };
 
@@ -418,7 +427,7 @@ pub fn process_change(
             match (
                 range_in_suspect.contains(&added.start),
                 // Since `added` is a range that is not inclusive at the end, `added.end` is
-                // not part of `added`. The first line that is is `added.end - 1`.
+                // not part of `added`. The first line that is `added.end - 1`.
                 (added.end - 1) >= range_in_suspect.start && added.end <= range_in_suspect.end,
             ) {
                 (true, true) => {
@@ -598,20 +607,22 @@ pub fn process_change(
     }
 }
 
+/// Consume `hunks_to_blame` and `changes` to pair up matches ranges (also overlapping) with each other.
+/// Once a match is found, it's pushed onto `out`.
 pub fn process_changes(
     out: &mut Vec<BlameEntry>,
-    hunks_to_blame: &[UnblamedHunk],
-    changes: &[Change],
+    hunks_to_blame: Vec<UnblamedHunk>,
+    changes: Vec<Change>,
     suspect: ObjectId,
 ) -> Vec<UnblamedHunk> {
-    let mut hunks_iter = hunks_to_blame.iter().cloned();
-    let mut changes_iter = changes.iter().cloned();
+    let mut hunks_iter = hunks_to_blame.into_iter();
+    let mut changes_iter = changes.into_iter();
 
-    let mut hunk: Option<UnblamedHunk> = hunks_iter.next();
-    let mut change: Option<Change> = changes_iter.next();
+    let mut hunk = hunks_iter.next();
+    let mut change = changes_iter.next();
 
-    let mut new_hunks_to_blame: Vec<UnblamedHunk> = vec![];
-    let mut offset_in_destination: Offset = Offset::Added(0);
+    let mut new_hunks_to_blame = Vec::new();
+    let mut offset_in_destination = Offset::Added(0);
 
     loop {
         (hunk, change) = process_change(
@@ -630,16 +641,15 @@ pub fn process_changes(
             break;
         }
     }
-
     new_hunks_to_blame
 }
 
-fn get_changes_for_file_path(
+fn tree_diff_at_file_path(
     odb: impl gix_object::Find + gix_object::FindHeader,
     file_path: &BStr,
     id: ObjectId,
     parent_id: ObjectId,
-) -> Vec<gix_diff::tree::recorder::Change> {
+) -> Option<gix_diff::tree::recorder::Change> {
     let mut buffer = Vec::new();
 
     let parent = odb.find_commit(&parent_id, &mut buffer).unwrap();
@@ -671,19 +681,14 @@ fn get_changes_for_file_path(
     )
     .unwrap();
 
-    recorder
-        .records
-        .iter()
-        .filter(|change| match change {
-            gix_diff::tree::recorder::Change::Modification { path, .. } => path == file_path,
-            gix_diff::tree::recorder::Change::Addition { path, .. } => path == file_path,
-            gix_diff::tree::recorder::Change::Deletion { path, .. } => path == file_path,
-        })
-        .cloned()
-        .collect()
+    recorder.records.into_iter().find(|change| match change {
+        gix_diff::tree::recorder::Change::Modification { path, .. } => path == file_path,
+        gix_diff::tree::recorder::Change::Addition { path, .. } => path == file_path,
+        gix_diff::tree::recorder::Change::Deletion { path, .. } => path == file_path,
+    })
 }
 
-fn get_changes(
+fn blob_changes(
     odb: impl gix_object::Find + gix_object::FindHeader,
     resource_cache: &mut gix_diff::blob::Platform,
     oid: ObjectId,
@@ -727,81 +732,115 @@ fn get_changes(
 /// [1]: https://github.com/git/git/commit/c2ebaa27d63bfb7c50cbbdaba90aee4efdd45d0a
 /// [2]: https://github.com/git/git/commit/6dbf0c7bebd1c71c44d786ebac0f2b3f226a0131
 fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
-    // TODO
-    // It’s possible this could better be done on insertion into `lines_blamed`.
-    lines_blamed.into_iter().fold(vec![], |mut acc, entry| {
-        let previous_entry = acc.last();
+    let len = lines_blamed.len();
+    lines_blamed
+        .into_iter()
+        .fold(Vec::with_capacity(len), |mut acc, entry| {
+            let previous_entry = acc.last();
 
-        if let Some(previous_entry) = previous_entry {
-            if previous_entry.commit_id == entry.commit_id
+            if let Some(previous_entry) = previous_entry {
+                if previous_entry.commit_id == entry.commit_id
                 && previous_entry.range_in_blamed_file.end == entry.range_in_blamed_file.start
                 // As of 2024-09-19, the check below only is in `git`, but not in `libgit2`.
                 && previous_entry.range_in_original_file.end == entry.range_in_original_file.start
-            {
-                let coalesced_entry = BlameEntry {
-                    range_in_blamed_file: previous_entry.range_in_blamed_file.start..entry.range_in_blamed_file.end,
-                    range_in_original_file: previous_entry.range_in_original_file.start
-                        ..entry.range_in_original_file.end,
-                    commit_id: previous_entry.commit_id,
-                };
+                {
+                    let coalesced_entry = BlameEntry {
+                        range_in_blamed_file: previous_entry.range_in_blamed_file.start..entry.range_in_blamed_file.end,
+                        range_in_original_file: previous_entry.range_in_original_file.start
+                            ..entry.range_in_original_file.end,
+                        commit_id: previous_entry.commit_id,
+                    };
 
-                acc.pop();
-                acc.push(coalesced_entry);
+                    acc.pop();
+                    acc.push(coalesced_entry);
+                } else {
+                    acc.push(entry);
+                }
+
+                acc
             } else {
                 acc.push(entry);
+
+                acc
             }
-
-            acc
-        } else {
-            acc.push(entry);
-
-            acc
-        }
-    })
+        })
 }
 
 // TODO: do not instantiate anything, get everything passed as argument.
-pub fn blame_file<E>(
+/// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
+/// at `traverse[0]:<file_path>` originated in.
+///
+/// ## Paramters
+///
+/// * `odb`
+///    - Access to database objects, also for used for diffing.
+///    - Should have an object cache for good diff performance.
+/// * `traverse`
+///    - The list of commits from the most recent to prior ones, following all parents sorted
+///      by time.
+///    - It's paramount that older commits are returned after newer ones.
+///    - The first commit returned here is the first eligible commit to be responsible for parts of `file_path`.
+/// * `file_path`
+///    - A *slash-separated* worktree-relative path to the file to blame.
+/// * `resource_cache`
+///    - Used for diffing trees.
+///
+/// ## The algorithm
+///
+/// *For brevity, `HEAD` denotes the starting point of the blame operation. It could be any commit, or even commits that
+/// represent the worktree state.
+/// We begin with a single [`UnblamedHunk`] and a single suspect, usually `HEAD` as the commit containing the *Original File*.
+/// We traverse the commit graph starting at `HEAD`, and see if there have been changes to `file_path`. If so, we have found
+/// a *Blamed File* and a *Suspect* commit, and have hunks that represent these changes. Now the [`UnblamedHunk`]s is split at
+/// the boundaries of each matching hunk, creating a new [`UnblamedHunk`] on each side, along with a [`BlameEntry`] to represent
+/// the match.
+/// This is repeated until there are no non-empty [`UnblamedHunk`]s left.
+///
+/// At a high level, what we want to do is the following:
+///
+/// - get the commit that belongs to a commit id
+/// - walk through parents
+///   - for each parent, do a diff and mark lines that don’t have a suspect (this is the term
+///     used in `libgit2`) yet, but that have been changed in this commit
+///
+/// The algorithm in `libgit2` works by going through parents and keeping a linked list of blame
+/// suspects. It can be visualized as follows:
+//
+// <---------------------------------------->
+// <---------------><----------------------->
+// <---><----------><----------------------->
+// <---><----------><-------><-----><------->
+// <---><---><-----><-------><-----><------->
+// <---><---><-----><-------><-----><-><-><->
+pub fn file<E>(
     odb: impl gix_object::Find + gix_object::FindHeader,
     traverse: impl IntoIterator<Item = Result<gix_traverse::commit::Info, E>>,
     resource_cache: &mut gix_diff::blob::Platform,
-    suspect: ObjectId,
-    worktree_path: PathBuf,
+    // TODO: remove
+    worktree_root: PathBuf,
     file_path: &BStr,
 ) -> Result<Vec<BlameEntry>, E> {
-    // TODO
-    // At a high level, what we want to do is the following:
-    //
-    // - get the commit that belongs to a commit id
-    // - walk through parents
-    //   - for each parent, do a diff and mark lines that don’t have a suspect (this is the term
-    //     used in `libgit2`) yet, but that have been changed in this commit
-    //
-    // The algorithm in `libgit2` works by going through parents and keeping a linked list of blame
-    // suspects. It can be visualized as follows:
-    //
-    // <---------------------------------------->
-    // <---------------><----------------------->
-    // <---><----------><----------------------->
-    // <---><----------><-------><-----><------->
-    // <---><---><-----><-------><-----><------->
-    // <---><---><-----><-------><-----><-><-><->
-
-    // Needed for `to_str`.
+    // TODO: `worktree_root` should be removed - read everything from Commit.
+    //       Worktree changes should be placed into a temporary commit.
+    // TODO: remove this and deduplicate the respective code.
     use gix_object::bstr::ByteSlice;
+    let absolute_path = worktree_root.join(gix_path::from_bstr(file_path));
 
-    let absolute_path = worktree_path.join(file_path.to_str().unwrap());
-
-    // TODO Verify that `imara-diff` tokenizes lines the same way `lines` does.
+    // TODO  use `imara-diff` to tokenize this just like it will be tokenized when diffing.
     let number_of_lines = std::fs::read_to_string(absolute_path).unwrap().lines().count();
 
-    let mut hunks_to_blame: Vec<UnblamedHunk> = vec![UnblamedHunk::new(
+    let mut traverse = traverse.into_iter().peekable();
+    let Some(Ok(suspect)) = traverse.peek().map(|res| res.as_ref().map(|item| item.id)) else {
+        todo!("return actual error");
+    };
+
+    let mut hunks_to_blame = vec![UnblamedHunk::new(
         0..number_of_lines.try_into().unwrap(),
         suspect,
         Offset::Added(0),
     )];
-    let mut out: Vec<BlameEntry> = vec![];
 
+    let mut out = Vec::new();
     'outer: for item in traverse {
         let item = item?;
         let suspect = item.id;
@@ -819,8 +858,7 @@ pub fn blame_file<E>(
                     .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
             );
 
-            hunks_to_blame = vec![];
-
+            hunks_to_blame.clear();
             break;
         }
 
@@ -851,22 +889,18 @@ pub fn blame_file<E>(
                 if entry.oid == parent_entry.oid {
                     // The blobs storing the blamed file in `entry` and `parent_entry` are identical
                     // which is why we can pass blame to the parent without further checks.
-                    hunks_to_blame
-                        .iter_mut()
-                        .for_each(|unblamed_hunk| unblamed_hunk.pass_blame(suspect, parent_id));
-
+                    for unblamed_hunk in &mut hunks_to_blame {
+                        unblamed_hunk.pass_blame(suspect, parent_id);
+                    }
                     continue;
                 }
             }
 
-            let changes_for_file_path = get_changes_for_file_path(&odb, file_path, item.id, parent_id);
-
-            let [ref modification]: [gix_diff::tree::recorder::Change] = changes_for_file_path[..] else {
+            let Some(modification) = tree_diff_at_file_path(&odb, file_path, item.id, parent_id) else {
                 // None of the changes affected the file we’re currently blaming. Pass blame to parent.
-                hunks_to_blame
-                    .iter_mut()
-                    .for_each(|unblamed_hunk| unblamed_hunk.pass_blame(suspect, parent_id));
-
+                for unblamed_hunk in &mut hunks_to_blame {
+                    unblamed_hunk.pass_blame(suspect, parent_id);
+                }
                 continue;
             };
 
@@ -880,18 +914,17 @@ pub fn blame_file<E>(
                             .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
                     );
 
-                    hunks_to_blame = vec![];
-
+                    hunks_to_blame.clear();
                     break;
                 }
                 gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
                 gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                    let changes = get_changes(&odb, resource_cache, *oid, *previous_oid, file_path);
+                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path);
 
-                    hunks_to_blame = process_changes(&mut out, &hunks_to_blame, &changes, suspect);
-                    hunks_to_blame
-                        .iter_mut()
-                        .for_each(|unblamed_hunk| unblamed_hunk.pass_blame(suspect, parent_id));
+                    hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
+                    for unblamed_hunk in &mut hunks_to_blame {
+                        unblamed_hunk.pass_blame(suspect, parent_id);
+                    }
                 }
             }
         } else {
@@ -919,24 +952,22 @@ pub fn blame_file<E>(
                         // The blobs storing the blamed file in `entry` and `parent_entry` are
                         // identical which is why we can pass blame to the parent without further
                         // checks.
-                        hunks_to_blame
-                            .iter_mut()
-                            .for_each(|unblamed_hunk| unblamed_hunk.pass_blame(suspect, *parent_id));
-
+                        for unblamed_hunk in &mut hunks_to_blame {
+                            unblamed_hunk.pass_blame(suspect, *parent_id);
+                        }
                         continue 'outer;
                     }
                 }
             }
 
             for parent_id in parent_ids {
-                let changes_for_file_path = get_changes_for_file_path(&odb, file_path, item.id, parent_id);
-
-                let [ref modification]: [gix_diff::tree::recorder::Change] = changes_for_file_path[..] else {
+                let changes_for_file_path = tree_diff_at_file_path(&odb, file_path, item.id, parent_id);
+                let Some(modification) = changes_for_file_path else {
                     // None of the changes affected the file we’re currently blaming. Pass blame
                     // to parent.
-                    hunks_to_blame
-                        .iter_mut()
-                        .for_each(|unblamed_hunk| unblamed_hunk.clone_blame(suspect, parent_id));
+                    for unblamed_hunk in &mut hunks_to_blame {
+                        unblamed_hunk.clone_blame(suspect, parent_id);
+                    }
 
                     continue;
                 };
@@ -951,28 +982,29 @@ pub fn blame_file<E>(
                     }
                     gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
                     gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                        let changes = get_changes(&odb, resource_cache, *oid, *previous_oid, file_path);
+                        let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path);
 
-                        hunks_to_blame = process_changes(&mut out, &hunks_to_blame, &changes, suspect);
-
-                        hunks_to_blame
-                            .iter_mut()
-                            .for_each(|unblamed_hunk| unblamed_hunk.pass_blame(suspect, parent_id));
+                        hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
+                        for unblamed_hunk in &mut hunks_to_blame {
+                            unblamed_hunk.pass_blame(suspect, parent_id);
+                        }
                     }
                 }
             }
-
-            hunks_to_blame
-                .iter_mut()
-                .for_each(|unblamed_hunk| unblamed_hunk.remove_blame(suspect));
+            for unblamed_hunk in &mut hunks_to_blame {
+                unblamed_hunk.remove_blame(suspect);
+            }
         }
     }
 
-    assert_eq!(hunks_to_blame, vec![]);
+    debug_assert_eq!(
+        hunks_to_blame,
+        vec![],
+        "only if there is no portion of the file left we have completed the blame"
+    );
 
     // I don’t know yet whether it would make sense to use a data structure instead that preserves
     // order on insertion.
     out.sort_by(|a, b| a.range_in_blamed_file.start.cmp(&b.range_in_blamed_file.start));
-
     Ok(coalesce_blame_entries(out))
 }

@@ -1,6 +1,7 @@
-use gix_blame::{blame_file, process_change, process_changes, BlameEntry, Change, Offset, UnblamedHunk};
+use gix_blame::{file, process_change, process_changes, BlameEntry, Change, Offset, UnblamedHunk};
 use gix_hash::ObjectId;
 use gix_object::bstr;
+use std::ops::Range;
 use std::path::PathBuf;
 
 struct Baseline<'a> {
@@ -111,7 +112,6 @@ struct Fixture {
     worktree_path: PathBuf,
     odb: gix_odb::Handle,
     resource_cache: gix_diff::blob::Platform,
-    suspect: ObjectId,
     commits: Vec<Result<gix_traverse::commit::Info, gix_traverse::commit::topo::Error>>,
 }
 
@@ -177,7 +177,6 @@ impl Fixture {
             odb,
             worktree_path,
             resource_cache,
-            suspect: head_id,
             commits,
         })
     }
@@ -191,15 +190,13 @@ macro_rules! mktest {
                 worktree_path,
                 odb,
                 mut resource_cache,
-                suspect,
                 commits,
             } = Fixture::new().unwrap();
 
-            let lines_blamed = blame_file(
+            let lines_blamed = file(
                 &odb,
                 commits,
                 &mut resource_cache,
-                suspect,
                 worktree_path,
                 format!("{}.txt", $case).as_str().into(),
             )
@@ -253,15 +250,13 @@ fn diff_disparity() {
             worktree_path,
             odb,
             mut resource_cache,
-            suspect,
             commits,
         } = Fixture::new().unwrap();
 
-        let lines_blamed = blame_file(
+        let lines_blamed = file(
             &odb,
             commits,
             &mut resource_cache,
-            suspect,
             worktree_path,
             format!("{case}.txt").as_str().into(),
         )
@@ -309,7 +304,7 @@ fn process_change_works_added_hunk() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Added(0..3, 0)),
     );
 
@@ -345,7 +340,7 @@ fn process_change_works_added_hunk_2() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Added(2..3, 0)),
     );
 
@@ -387,7 +382,7 @@ fn process_change_works_added_hunk_3() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(10..15, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(10..15, suspect, Offset::Added(0))),
         Some(Change::Added(12..13, 0)),
     );
 
@@ -430,7 +425,7 @@ fn process_change_works_added_hunk_4() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 7..12
-        Some(UnblamedHunk::new(12..17, suspect, Offset::Added(5))),
+        Some(new_unblamed_hunk(12..17, suspect, Offset::Added(5))),
         Some(Change::Added(9..10, 0)),
     );
 
@@ -472,7 +467,7 @@ fn process_change_works_added_hunk_5() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Added(0..3, 1)),
     );
 
@@ -509,7 +504,7 @@ fn process_change_works_added_hunk_6() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 0..4
-        Some(UnblamedHunk::new(1..5, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(1..5, suspect, Offset::Added(1))),
         Some(Change::Added(0..3, 1)),
     );
 
@@ -546,7 +541,7 @@ fn process_change_works_added_hunk_7() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 2..6
-        Some(UnblamedHunk::new(3..7, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(3..7, suspect, Offset::Added(1))),
         Some(Change::Added(3..5, 1)),
     );
 
@@ -589,7 +584,7 @@ fn process_change_works_added_hunk_8() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 25..26
-        Some(UnblamedHunk::new(23..24, suspect, Offset::Deleted(2))),
+        Some(new_unblamed_hunk(23..24, suspect, Offset::Deleted(2))),
         Some(Change::Added(25..27, 1)),
     );
 
@@ -620,7 +615,7 @@ fn process_change_works_added_hunk_9() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 21..22
-        Some(UnblamedHunk::new(23..24, suspect, Offset::Added(2))),
+        Some(new_unblamed_hunk(23..24, suspect, Offset::Added(2))),
         Some(Change::Added(18..22, 3)),
     );
 
@@ -651,7 +646,7 @@ fn process_change_works_added_hunk_10() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 70..108
-        Some(UnblamedHunk::new(71..109, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(71..109, suspect, Offset::Added(1))),
         Some(Change::Added(106..109, 0)),
     );
 
@@ -688,7 +683,7 @@ fn process_change_works_added_hunk_11() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 137..144
-        Some(UnblamedHunk::new(149..156, suspect, Offset::Added(12))),
+        Some(new_unblamed_hunk(149..156, suspect, Offset::Added(12))),
         Some(Change::Added(143..146, 0)),
     );
 
@@ -725,7 +720,7 @@ fn process_change_works_no_overlap() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 2..5
-        Some(UnblamedHunk::new(3..6, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(3..6, suspect, Offset::Added(1))),
         Some(Change::Added(7..10, 1)),
     );
 
@@ -755,7 +750,7 @@ fn process_change_works_no_overlap_2() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 6..8
-        Some(UnblamedHunk::new(9..11, suspect, Offset::Added(3))),
+        Some(new_unblamed_hunk(9..11, suspect, Offset::Added(3))),
         Some(Change::Added(2..5, 0)),
     );
 
@@ -785,7 +780,7 @@ fn process_change_works_no_overlap_3() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 5..15
-        Some(UnblamedHunk::new(4..15, suspect, Offset::Deleted(1))),
+        Some(new_unblamed_hunk(4..15, suspect, Offset::Deleted(1))),
         Some(Change::Added(4..5, 1)),
     );
 
@@ -815,7 +810,7 @@ fn process_change_works_no_overlap_4() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 25..27
-        Some(UnblamedHunk::new(23..25, suspect, Offset::Deleted(2))),
+        Some(new_unblamed_hunk(23..25, suspect, Offset::Deleted(2))),
         Some(Change::Unchanged(21..22)),
     );
 
@@ -845,7 +840,7 @@ fn process_change_works_no_overlap_5() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 17..18
-        Some(UnblamedHunk::new(15..16, suspect, Offset::Deleted(2))),
+        Some(new_unblamed_hunk(15..16, suspect, Offset::Deleted(2))),
         Some(Change::Deleted(20, 1)),
     );
 
@@ -875,7 +870,7 @@ fn process_change_works_no_overlap_6() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 22..24
-        Some(UnblamedHunk::new(23..25, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(23..25, suspect, Offset::Added(1))),
         Some(Change::Deleted(20, 1)),
     );
 
@@ -905,7 +900,7 @@ fn process_change_works_enclosing_addition() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 5..8
-        Some(UnblamedHunk::new(2..5, suspect, Offset::Deleted(3))),
+        Some(new_unblamed_hunk(2..5, suspect, Offset::Deleted(3))),
         Some(Change::Added(3..12, 2)),
     );
 
@@ -936,7 +931,7 @@ fn process_change_works_enclosing_deletion() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 13..20
-        Some(UnblamedHunk::new(12..19, suspect, Offset::Deleted(1))),
+        Some(new_unblamed_hunk(12..19, suspect, Offset::Deleted(1))),
         Some(Change::Deleted(15, 2)),
     );
 
@@ -972,7 +967,7 @@ fn process_change_works_enclosing_unchanged_lines() {
         &mut offset_in_destination,
         suspect,
         // range_in_destination: 109..113
-        Some(UnblamedHunk::new(110..114, suspect, Offset::Added(1))),
+        Some(new_unblamed_hunk(110..114, suspect, Offset::Added(1))),
         Some(Change::Unchanged(109..172)),
     );
 
@@ -1001,7 +996,7 @@ fn process_change_works_unchanged_hunk() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Unchanged(0..3)),
     );
 
@@ -1030,7 +1025,7 @@ fn process_change_works_unchanged_hunk_2() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Unchanged(0..7)),
     );
 
@@ -1091,7 +1086,7 @@ fn process_change_works_deleted_hunk() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(0..5, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
         Some(Change::Deleted(5, 3)),
     );
 
@@ -1120,7 +1115,7 @@ fn process_change_works_deleted_hunk_2() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(2..16, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(2..16, suspect, Offset::Added(0))),
         Some(Change::Deleted(0, 4)),
     );
 
@@ -1149,7 +1144,7 @@ fn process_change_works_deleted_hunk_3() {
         &mut new_hunks_to_blame,
         &mut offset_in_destination,
         suspect,
-        Some(UnblamedHunk::new(2..16, suspect, Offset::Added(0))),
+        Some(new_unblamed_hunk(2..16, suspect, Offset::Added(0))),
         Some(Change::Deleted(14, 4)),
     );
 
@@ -1164,7 +1159,7 @@ fn process_change_works_deleted_hunk_3() {
     assert_eq!(lines_blamed, []);
     assert_eq!(
         new_hunks_to_blame,
-        [UnblamedHunk::new(2..14, suspect, Offset::Added(0))]
+        [new_unblamed_hunk(2..14, suspect, Offset::Added(0))]
     );
     assert_eq!(offset_in_destination, Offset::Deleted(4));
 }
@@ -1240,10 +1235,8 @@ fn process_change_works_unchanged_only() {
 #[test]
 fn process_changes_works() {
     let mut lines_blamed = Vec::new();
-    let hunks_to_blame = &[];
-    let changes = &[];
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
+    let new_hunks_to_blame = process_changes(&mut lines_blamed, vec![], vec![], suspect);
 
     assert_eq!(lines_blamed, []);
     assert_eq!(new_hunks_to_blame, []);
@@ -1253,8 +1246,8 @@ fn process_changes_works() {
 fn process_changes_works_added_hunk() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..4, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..4, 0)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..4, 0)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1272,8 +1265,8 @@ fn process_changes_works_added_hunk() {
 fn process_changes_works_added_hunk_2() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..6, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..4, 0), Change::Unchanged(4..6)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..4, 0), Change::Unchanged(4..6)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1284,15 +1277,15 @@ fn process_changes_works_added_hunk_2() {
             commit_id: suspect
         }]
     );
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(4..6, suspect, Offset::Added(4))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(4..6, suspect, Offset::Added(4))]);
 }
 
 #[test]
 fn process_changes_works_added_hunk_3() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..6, suspect, Offset::Added(0))];
-    let changes = &[Change::Unchanged(0..2), Change::Added(2..4, 0), Change::Unchanged(4..6)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+    let changes = vec![Change::Unchanged(0..2), Change::Added(2..4, 0), Change::Unchanged(4..6)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1306,8 +1299,8 @@ fn process_changes_works_added_hunk_3() {
     assert_eq!(
         new_hunks_to_blame,
         [
-            UnblamedHunk::new(0..2, suspect, Offset::Added(0)),
-            UnblamedHunk::new(4..6, suspect, Offset::Added(2))
+            new_unblamed_hunk(0..2, suspect, Offset::Added(0)),
+            new_unblamed_hunk(4..6, suspect, Offset::Added(2))
         ]
     );
 }
@@ -1316,8 +1309,8 @@ fn process_changes_works_added_hunk_3() {
 fn process_changes_works_added_hunk_4_0() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..6, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..1, 0), Change::Added(1..4, 0), Change::Unchanged(4..6)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..1, 0), Change::Added(1..4, 0), Change::Unchanged(4..6)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1335,15 +1328,15 @@ fn process_changes_works_added_hunk_4_0() {
             }
         ]
     );
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(4..6, suspect, Offset::Added(4))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(4..6, suspect, Offset::Added(4))]);
 }
 
 #[test]
 fn process_changes_works_added_hunk_4_1() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..6, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..1, 0)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..1, 0)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1354,7 +1347,7 @@ fn process_changes_works_added_hunk_4_1() {
             commit_id: suspect
         }]
     );
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(1..6, suspect, Offset::Added(1))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(1..6, suspect, Offset::Added(1))]);
 }
 
 #[test]
@@ -1366,8 +1359,8 @@ fn process_changes_works_added_hunk_4_2() {
         range_in_original_file: 0..2,
         commit_id: suspect,
     }];
-    let hunks_to_blame = &[UnblamedHunk::new(2..6, suspect_2, Offset::Added(2))];
-    let changes = &[Change::Added(0..1, 0)];
+    let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect_2, Offset::Added(2))];
+    let changes = vec![Change::Added(0..1, 0)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect_2);
 
     assert_eq!(
@@ -1387,7 +1380,7 @@ fn process_changes_works_added_hunk_4_2() {
     );
     assert_eq!(
         new_hunks_to_blame,
-        [UnblamedHunk::new(3..6, suspect_2, Offset::Added(3))]
+        [new_unblamed_hunk(3..6, suspect_2, Offset::Added(3))]
     );
 }
 
@@ -1395,8 +1388,8 @@ fn process_changes_works_added_hunk_4_2() {
 fn process_changes_works_added_hunk_5() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(0..6, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..4, 3), Change::Unchanged(4..6)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..4, 3), Change::Unchanged(4..6)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1407,19 +1400,19 @@ fn process_changes_works_added_hunk_5() {
             commit_id: suspect
         }]
     );
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(4..6, suspect, Offset::Added(1))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(4..6, suspect, Offset::Added(1))]);
 }
 
 #[test]
 fn process_changes_works_added_hunk_6() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[UnblamedHunk::new(4..6, suspect, Offset::Added(1))];
-    let changes = &[Change::Added(0..3, 0), Change::Unchanged(3..5)];
+    let hunks_to_blame = vec![new_unblamed_hunk(4..6, suspect, Offset::Added(1))];
+    let changes = vec![Change::Added(0..3, 0), Change::Unchanged(3..5)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(lines_blamed, []);
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(4..6, suspect, Offset::Added(4))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(4..6, suspect, Offset::Added(4))]);
 }
 
 #[test]
@@ -1431,8 +1424,8 @@ fn process_changes_works_added_hunk_7() {
         range_in_original_file: 0..1,
         commit_id: suspect,
     }];
-    let hunks_to_blame = &[UnblamedHunk::new(1..3, suspect_2, Offset::Added(1))];
-    let changes = &[Change::Added(0..1, 2)];
+    let hunks_to_blame = vec![new_unblamed_hunk(1..3, suspect_2, Offset::Added(1))];
+    let changes = vec![Change::Added(0..1, 2)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect_2);
 
     assert_eq!(
@@ -1452,7 +1445,7 @@ fn process_changes_works_added_hunk_7() {
     );
     assert_eq!(
         new_hunks_to_blame,
-        [UnblamedHunk::new(2..3, suspect_2, Offset::Added(0))]
+        [new_unblamed_hunk(2..3, suspect_2, Offset::Added(0))]
     );
 }
 
@@ -1460,8 +1453,8 @@ fn process_changes_works_added_hunk_7() {
 fn process_changes_works_added_hunk_8() {
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
     let mut lines_blamed = Vec::new();
-    let hunks_to_blame = &[UnblamedHunk::new(0..4, suspect, Offset::Added(0))];
-    let changes = &[Change::Added(0..2, 0), Change::Unchanged(2..3), Change::Added(3..4, 0)];
+    let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
+    let changes = vec![Change::Added(0..2, 0), Change::Unchanged(2..3), Change::Added(3..4, 0)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1479,7 +1472,7 @@ fn process_changes_works_added_hunk_8() {
             }
         ]
     );
-    assert_eq!(new_hunks_to_blame, [UnblamedHunk::new(2..3, suspect, Offset::Added(2))]);
+    assert_eq!(new_hunks_to_blame, [new_unblamed_hunk(2..3, suspect, Offset::Added(2))]);
 }
 
 #[test]
@@ -1490,7 +1483,7 @@ fn process_changes_works_added_hunk_9() {
         range_in_original_file: 30..31,
         commit_id: suspect,
     }];
-    let hunks_to_blame = &[
+    let hunks_to_blame = vec![
         UnblamedHunk {
             range_in_blamed_file: 0..30,
             suspects: [(suspect, 0..30)].into(),
@@ -1500,7 +1493,7 @@ fn process_changes_works_added_hunk_9() {
             suspects: [(suspect, 31..37)].into(),
         },
     ];
-    let changes = &[
+    let changes = vec![
         Change::Unchanged(0..16),
         Change::Added(16..17, 0),
         Change::Unchanged(17..37),
@@ -1547,11 +1540,11 @@ fn process_changes_works_added_hunk_9() {
 fn process_changes_works_deleted_hunk() {
     let mut lines_blamed = Vec::new();
     let suspect = ObjectId::null(gix_hash::Kind::Sha1);
-    let hunks_to_blame = &[
-        UnblamedHunk::new(0..4, suspect, Offset::Added(0)),
-        UnblamedHunk::new(4..7, suspect, Offset::Added(0)),
+    let hunks_to_blame = vec![
+        new_unblamed_hunk(0..4, suspect, Offset::Added(0)),
+        new_unblamed_hunk(4..7, suspect, Offset::Added(0)),
     ];
-    let changes = &[Change::Deleted(0, 3), Change::Added(0..4, 0)];
+    let changes = vec![Change::Deleted(0, 3), Change::Added(0..4, 0)];
     let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
     assert_eq!(
@@ -1573,4 +1566,17 @@ fn process_changes_works_deleted_hunk() {
 
 fn fixture_path() -> PathBuf {
     gix_testtools::scripted_fixture_read_only("make_blame_repo.sh").unwrap()
+}
+
+fn new_unblamed_hunk(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset: Offset) -> UnblamedHunk {
+    assert!(
+        range_in_blamed_file.end > range_in_blamed_file.start,
+        "{range_in_blamed_file:?}"
+    );
+
+    let range_in_destination = offset.shifted_range(&range_in_blamed_file);
+    UnblamedHunk {
+        range_in_blamed_file,
+        suspects: [(suspect, range_in_destination)].into(),
+    }
 }

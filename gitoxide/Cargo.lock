@@ -1546,6 +1546,7 @@ dependencies = [
  "gix-index 0.37.0",
  "gix-object 0.46.1",
  "gix-odb",
+ "gix-path 0.10.13",
  "gix-ref 0.49.1",
  "gix-testtools",
  "gix-traverse 0.43.1",

@@ -293,7 +293,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
     * [x] safe with cycles and recursive configurations
     * [x] multi-line with comments and quotes
 * **promisor**
-    * It's vague, but these seems to be like index files allowing to fetch objects from a server on demand.
+    * It's vague, but these seem to be like index files allowing to fetch objects from a server on demand.
 * [x] API documentation
     * [ ] Some examples
 
@@ -363,10 +363,17 @@ Check out the [performance discussion][gix-diff-performance] as well.
 
 ### gix-blame
 
-* [ ] commit-annotations for a single file
+* [x] commit-annotations for a single file
     - [ ] progress
-    - [ ] interruptability
+    - [ ] interruptibility
     - [ ] streaming
+- [ ] support for worktree changes (creates virtual commit on top of `HEAD`) 
+- [ ] shallow-history support
+- [ ] rename tracking (track different paths through history)
+- [ ] commits to ignore
+* **Performance-Improvements**
+    - [ ] use commit-graph bloom filter for performance
+    - [ ] traverse input-commits in correct order without `compute_indegrees_to_depth()`
 * [x] API documentation
     * [ ] Examples
 
