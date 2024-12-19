@@ -1,4 +1,4 @@
-use crate::status::fixture_path;
+use crate::fixture_path;
 use bstr::ByteSlice;
 use gix_diff::blob::pipeline::WorktreeRoots;
 use gix_diff::rewrites::CopySource;
@@ -83,6 +83,7 @@ fn changed_and_untracked_and_renamed() {
         track_empty: true,
     };
     let out = fixture_filtered_detailed(
+        "status_many.sh",
         "changed-and-untracked-and-renamed",
         &[],
         &expectations_with_dirwalk,
@@ -101,8 +102,37 @@ fn changed_and_untracked_and_renamed() {
 }
 
 #[test]
+#[cfg(unix)]
+fn nonfile_untracked_are_not_visible() {
+    fixture_filtered_detailed(
+        "status_nonfile.sh",
+        "untracked",
+        &[],
+        &[],
+        None,
+        Some(Default::default()),
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn tracked_changed_to_non_file() {
+    fixture_filtered_detailed(
+        "status_nonfile.sh",
+        "tracked-swapped",
+        &[],
+        &[Expectation::Modification {
+            rela_path: "file",
+            status: Change::Type.into(),
+        }],
+        None,
+        Some(Default::default()),
+    );
+}
+#[test]
 fn changed_and_untracked() {
     let out = fixture_filtered_detailed(
+        "status_many.sh",
         "changed-and-untracked",
         &[],
         &[Expectation::Modification {
@@ -144,6 +174,7 @@ fn changed_and_untracked() {
         },
     ];
     let out = fixture_filtered_detailed(
+        "status_many.sh",
         "changed-and-untracked",
         &[],
         &expectations_with_dirwalk,
@@ -163,6 +194,7 @@ fn changed_and_untracked() {
     assert_eq!(out.rewrites, None, "rewrites are still not configured");
 
     let out = fixture_filtered_detailed(
+        "status_many.sh",
         "changed-and-untracked",
         &[],
         &expectations_with_dirwalk,
@@ -179,6 +211,7 @@ fn changed_and_untracked() {
 }
 
 fn fixture_filtered_detailed(
+    script: &str,
     subdir: &str,
     pathspecs: &[&str],
     expected: &[Expectation<'_>],
@@ -193,11 +226,11 @@ fn fixture_filtered_detailed(
         out
     }
 
-    let worktree = fixture_path("status_many.sh").join(subdir);
+    let worktree = fixture_path(script).join(subdir);
     let git_dir = worktree.join(".git");
     let index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default()).unwrap();
     let search = gix_pathspec::Search::from_specs(
-        crate::status::index_as_worktree::to_pathspecs(pathspecs),
+        crate::index_as_worktree::to_pathspecs(pathspecs),
         None,
         std::path::Path::new(""),
     )
@@ -247,7 +280,7 @@ fn fixture_filtered_detailed(
         object_hash: gix_hash::Kind::Sha1,
         tracked_file_modifications: gix_status::index_as_worktree::Options {
             fs: capabilities,
-            stat: crate::status::index_as_worktree::TEST_OPTIONS,
+            stat: crate::index_as_worktree::TEST_OPTIONS,
             ..Default::default()
         },
         dirwalk,
@@ -262,7 +295,7 @@ fn fixture_filtered_detailed(
         &worktree,
         &mut recorder,
         FastEq,
-        crate::status::index_as_worktree::SubmoduleStatusMock { dirty: false },
+        crate::index_as_worktree::SubmoduleStatusMock { dirty: false },
         objects,
         &mut gix_features::progress::Discard,
         context,

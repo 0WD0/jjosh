@@ -37,6 +37,10 @@ fn fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
     fixture_filtered(name, &[], expected_status)
 }
 
+fn nonfile_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
+    fixture_filtered_detailed("status_nonfile", name, &[], expected_status, |_| {}, false)
+}
+
 fn fixture_with_index(
     name: &str,
     prepare_index: impl FnMut(&mut gix_index::State),
@@ -183,6 +187,19 @@ pub(super) fn to_pathspecs(input: &[&str]) -> Vec<gix_pathspec::Pattern> {
 
 fn status_removed() -> EntryStatus {
     Change::Removed.into()
+}
+
+#[test]
+#[cfg(unix)]
+fn nonfile_untracked_are_not_visible() {
+    // And generally, untracked aren't visible here.
+    nonfile_fixture("untracked", &[]);
+}
+
+#[test]
+#[cfg(unix)]
+fn tracked_changed_to_non_file() {
+    nonfile_fixture("tracked-swapped", &[(BStr::new(b"file"), 0, Change::Type.into())]);
 }
 
 #[test]

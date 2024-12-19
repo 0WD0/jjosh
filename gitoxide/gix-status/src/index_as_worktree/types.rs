@@ -103,7 +103,12 @@ impl Outcome {
 pub enum Change<T = (), U = ()> {
     /// This corresponding file does not exist in the worktree anymore.
     Removed,
-    /// The type of file changed compared to the worktree, i.e. a symlink s now a file.
+    /// The type of file changed compared to the worktree, i.e. a symlink is now a file, or a file was replaced with a named pipe.
+    ///
+    /// ### Deviation
+    ///
+    /// A change to a non-file is marked as `modification` in Git, but that's related to the content which we can't evaluate.
+    /// Hence, a type-change is considered more appropriate.
     Type,
     /// This worktree file was modified in some form, like a permission change or content change or both,
     /// as compared to this entry.

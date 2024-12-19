@@ -387,8 +387,11 @@ pub(super) mod function {
 
         impl<T, U> gix_dir::walk::Delegate for Delegate<'_, '_, T, U> {
             fn emit(&mut self, entry: EntryRef<'_>, collapsed_directory_status: Option<Status>) -> Action {
-                let entry = entry.to_owned();
-                self.tx.send(Event::DirEntry(entry, collapsed_directory_status)).ok();
+                // Status never shows untracked non-files
+                if entry.disk_kind != Some(gix_dir::entry::Kind::NonFile) {
+                    let entry = entry.to_owned();
+                    self.tx.send(Event::DirEntry(entry, collapsed_directory_status)).ok();
+                }
 
                 if self.should_interrupt.load(Ordering::Relaxed) {
                     Action::Cancel
