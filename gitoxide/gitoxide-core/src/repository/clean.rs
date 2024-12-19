@@ -161,11 +161,16 @@ pub(crate) mod function {
             if entry.disk_kind.is_none() {
                 entry.disk_kind = workdir
                     .join(gix::path::from_bstr(entry.rela_path.as_bstr()))
-                    .metadata()
+                    .symlink_metadata()
                     .ok()
-                    .and_then(|e| gix::dir::entry::Kind::try_from_file_type(e.file_type()));
+                    .map(|e| e.file_type().into());
             }
-            let mut disk_kind = entry.disk_kind.expect("present if not pruned");
+            let Some(mut disk_kind) = entry.disk_kind else {
+                if debug {
+                    writeln!(err, "DBG: ignoring unreadable entry at '{}' ", entry.rela_path).ok();
+                }
+                continue;
+            };
             if !keep {
                 if debug {
                     writeln!(err, "DBG: prune '{}' as -x or -p is missing", entry.rela_path).ok();
@@ -183,6 +188,12 @@ pub(crate) mod function {
             }
 
             match disk_kind {
+                Kind::NonFile => {
+                    if debug {
+                        writeln!(err, "DBG: skipped non-file at '{}'", entry.rela_path).ok();
+                    }
+                    continue;
+                }
                 Kind::File | Kind::Symlink => {}
                 Kind::Directory => {
                     if !directories {
@@ -254,6 +265,7 @@ pub(crate) mod function {
                     "WOULD remove"
                 },
                 suffix = match disk_kind {
+                    Kind::NonFile => unreachable!("always skipped earlier"),
                     Kind::Directory if entry.property == Some(gix::dir::entry::Property::EmptyDirectory) => {
                         " empty"
                     }
