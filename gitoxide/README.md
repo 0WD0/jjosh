@@ -139,6 +139,7 @@ is usable to some extent.
   * [gix-shallow](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-shallow)
   * `gitoxide-core`
 * **very early**  _(possibly without any documentation and many rough edges)_
+  * [gix-blame](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-blame)
 * **idea** _(just a name placeholder)_
   * [gix-note](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-note)
   * [gix-fetchhead](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md#gix-fetchhead)
