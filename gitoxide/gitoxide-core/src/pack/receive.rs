@@ -140,10 +140,13 @@ impl gix::protocol::fetch::Negotiate for Negotiate<'_> {
         })
     }
 
-    fn add_wants(&mut self, arguments: &mut Arguments, _remote_ref_target_known: &[bool]) {
+    fn add_wants(&mut self, arguments: &mut Arguments, _remote_ref_target_known: &[bool]) -> bool {
+        let mut has_want = false;
         for id in self.refmap.mappings.iter().filter_map(|m| m.remote.as_id()) {
             arguments.want(id);
+            has_want = true;
         }
+        has_want
     }
 
     fn one_round(
