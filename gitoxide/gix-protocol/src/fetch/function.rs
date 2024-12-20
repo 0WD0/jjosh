@@ -101,6 +101,11 @@ where
                 let _round = gix_trace::detail!("negotiate round", round = rounds.len() + 1);
                 progress.step();
                 progress.set_name(format!("negotiate (round {})", rounds.len() + 1));
+                if should_interrupt.load(Ordering::Relaxed) {
+                    return Err(Error::Negotiate(negotiate::Error::NegotiationFailed {
+                        rounds: rounds.len(),
+                    }));
+                }
 
                 let is_done = match negotiate.one_round(&mut state, &mut arguments, previous_response.as_ref()) {
                     Ok((round, is_done)) => {
