@@ -64,7 +64,7 @@ where
 
     let agent = gix::protocol::agent(gix::env::agent());
     let mut handshake = gix::protocol::fetch::handshake(
-        &mut transport,
+        &mut transport.inner,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],
         &mut progress,
@@ -85,7 +85,7 @@ where
         &fetch_refspecs,
         gix::protocol::fetch::Context {
             handshake: &mut handshake,
-            transport: &mut transport,
+            transport: &mut transport.inner,
             user_agent: user_agent.clone(),
             trace_packetlines,
         },
@@ -114,7 +114,7 @@ where
         &ctx.should_interrupt,
         gix::protocol::fetch::Context {
             handshake: &mut handshake,
-            transport: &mut transport,
+            transport: &mut transport.inner,
             user_agent,
             trace_packetlines,
         },
