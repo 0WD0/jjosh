@@ -66,7 +66,11 @@ fn one_top_level_fifo() {
         }
     );
 
-    assert_eq!(entries, &[], "Non-files are simply pruned by default");
+    assert_eq!(
+        entries,
+        &[entry("top", Untracked, NonFile),],
+        "Non-files are like normal files, but with a different state"
+    );
 }
 
 #[test]
@@ -99,10 +103,11 @@ fn fifo_in_traversal() {
         &[
             entry_nokind(".git", Pruned).with_property(DotGit).with_match(Always),
             entry("dir-with-file/nested-file", Untracked, File),
+            entry("dir/nested", Untracked, NonFile),
             entry("file", Untracked, File),
+            entry("top", Untracked, NonFile),
         ],
-        "Non-files are not even pruned, they are ignored entirely.\
-        If one day this isn't what we want, we can create an own filetype for them"
+        "Non-files only differ by their disk-kind"
     );
 }
 

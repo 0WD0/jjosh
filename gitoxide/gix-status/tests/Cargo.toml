@@ -12,8 +12,8 @@ publish = false
 rust-version = "1.65"
 
 [[test]]
-name = "worktree"
-path = "worktree.rs"
+name = "status"
+path = "status/mod.rs"
 
 [features]
 gix-features-parallel = ["gix-features/parallel"]

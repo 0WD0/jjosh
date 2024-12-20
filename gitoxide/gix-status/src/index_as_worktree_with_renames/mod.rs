@@ -158,7 +158,7 @@ pub(super) mod function {
 
             let tracker = options
                 .rewrites
-                .map(gix_diff::rewrites::Tracker::<rewrite::ModificationOrDirwalkEntry<'index, T, U>>::new)
+                .map(gix_diff::rewrites::Tracker::<ModificationOrDirwalkEntry<'index, T, U>>::new)
                 .zip(filter);
             let rewrite_outcome = match tracker {
                 Some((mut tracker, (mut filter, mut attrs))) => {
@@ -168,12 +168,12 @@ pub(super) mod function {
                         let (change, location) = match event {
                             Event::IndexEntry(record) => {
                                 let location = Cow::Borrowed(record.relative_path);
-                                (rewrite::ModificationOrDirwalkEntry::Modification(record), location)
+                                (ModificationOrDirwalkEntry::Modification(record), location)
                             }
                             Event::DirEntry(entry, collapsed_directory_status) => {
                                 let location = Cow::Owned(entry.rela_path.clone());
                                 (
-                                    rewrite::ModificationOrDirwalkEntry::DirwalkEntry {
+                                    ModificationOrDirwalkEntry::DirwalkEntry {
                                         id: rewrite::calculate_worktree_id(
                                             options.object_hash,
                                             worktree,
@@ -222,7 +222,7 @@ pub(super) mod function {
                                     }
                                 }
                                 Some(src) => {
-                                    let rewrite::ModificationOrDirwalkEntry::DirwalkEntry {
+                                    let ModificationOrDirwalkEntry::DirwalkEntry {
                                         id,
                                         entry,
                                         collapsed_directory_status,
@@ -387,8 +387,11 @@ pub(super) mod function {
 
         impl<T, U> gix_dir::walk::Delegate for Delegate<'_, '_, T, U> {
             fn emit(&mut self, entry: EntryRef<'_>, collapsed_directory_status: Option<Status>) -> Action {
-                let entry = entry.to_owned();
-                self.tx.send(Event::DirEntry(entry, collapsed_directory_status)).ok();
+                // Status never shows untracked non-files
+                if entry.disk_kind != Some(gix_dir::entry::Kind::NonFile) {
+                    let entry = entry.to_owned();
+                    self.tx.send(Event::DirEntry(entry, collapsed_directory_status)).ok();
+                }
 
                 if self.should_interrupt.load(Ordering::Relaxed) {
                     Action::Cancel
@@ -466,6 +469,10 @@ pub(super) mod function {
                     ModificationOrDirwalkEntry::Modification(c) => c.entry.mode.to_tree_entry_mode(),
                     ModificationOrDirwalkEntry::DirwalkEntry { entry, .. } => entry.disk_kind.map(|kind| {
                         match kind {
+                            Kind::NonFile => {
+                                // Trees are never tracked for rewrites, so we 'pretend'.
+                                gix_object::tree::EntryKind::Tree
+                            }
                             Kind::File => gix_object::tree::EntryKind::Blob,
                             Kind::Symlink => gix_object::tree::EntryKind::Link,
                             Kind::Repository | Kind::Directory => gix_object::tree::EntryKind::Tree,
@@ -500,6 +507,10 @@ pub(super) mod function {
             };
 
             Ok(match kind {
+                Kind::NonFile => {
+                    // Go along with unreadable files, they are passed along without rename tracking.
+                    return Ok(object_hash.null());
+                }
                 Kind::File => {
                     let platform = attrs
                         .at_entry(rela_path, None, objects)
