@@ -22,12 +22,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// * …update local refs
 /// * …end the interaction after the fetch
 ///
-/// Note that the interaction will never be ended, even on error or failure, leaving it up to the caller to do that, maybe
+/// **Note that the interaction will never be ended**, even on error or failure, leaving it up to the caller to do that, maybe
 /// with the help of [`SendFlushOnDrop`](crate::SendFlushOnDrop) which can wrap `transport`.
 /// Generally, the `transport` is left in a state that allows for more commands to be run.
 ///
-/// Return `Ok(None)` if there was nothing to do because all remote refs are at the same state as they are locally, or `Ok(Some(outcome))`
-/// to inform about all the changes that were made.
+/// Return `Ok(None)` if there was nothing to do because all remote refs are at the same state as they are locally,
+/// or there was nothing wanted, or `Ok(Some(outcome))` to inform about all the changes that were made.
 #[maybe_async::maybe_async]
 pub async fn fetch<P, T, E>(
     negotiate: &mut impl Negotiate,
@@ -91,7 +91,9 @@ where
         negotiate::Action::MustNegotiate {
             remote_ref_target_known,
         } => {
-            negotiate.add_wants(&mut arguments, remote_ref_target_known);
+            if !negotiate.add_wants(&mut arguments, remote_ref_target_known) {
+                return Ok(None);
+            }
             let mut rounds = Vec::new();
             let is_stateless = arguments.is_stateless(!transport.connection_persists_across_multiple_requests());
             let mut state = negotiate::one_round::State::new(is_stateless);

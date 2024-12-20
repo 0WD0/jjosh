@@ -21,8 +21,8 @@ pub enum Error {
     LockShallowFile(#[from] gix_lock::acquire::Error),
     #[error("Receiving objects from shallow remotes is prohibited due to the value of `clone.rejectShallow`")]
     RejectShallowRemote,
-    #[error("Failed to consume the pack sent by the remove")]
-    ConsumePack(Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error("Failed to consume the pack sent by the remote")]
+    ConsumePack(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("Failed to read remaining bytes in stream")]
     ReadRemainingBytes(#[source] std::io::Error),
 }

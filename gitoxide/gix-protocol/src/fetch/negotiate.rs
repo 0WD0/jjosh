@@ -284,6 +284,9 @@ pub fn make_refmapping_ignore_predicate(fetch_tags: Tags, ref_map: &RefMap) -> i
 /// * `ref_map` is the state of refs as known on the remote.
 /// * `shallow` defines if the history should be shallow.
 /// * `mapping_is_ignored` is typically initialized with [`make_refmapping_ignore_predicate`].
+///
+/// Returns `true` if at least one [want](crate::fetch::Arguments::want()) was added, or `false` otherwise.
+/// Note that not adding a single want can make the remote hang, so it's avoided on the client side by ending the fetch operation.
 pub fn add_wants(
     objects: &impl gix_object::FindHeader,
     arguments: &mut crate::fetch::Arguments,
@@ -291,10 +294,11 @@ pub fn add_wants(
     remote_ref_target_known: &[bool],
     shallow: &Shallow,
     mapping_is_ignored: impl Fn(&refmap::Mapping) -> bool,
-) {
+) -> bool {
     // When using shallow, we can't exclude `wants` as the remote won't send anything then. Thus, we have to resend everything
     // we have as want instead to get exactly the same graph, but possibly deepened.
     let is_shallow = !matches!(shallow, Shallow::NoChange);
+    let mut has_want = false;
     let wants = ref_map
         .mappings
         .iter()
@@ -306,6 +310,7 @@ pub fn add_wants(
         if !arguments.can_use_ref_in_want() || matches!(want.remote, refmap::Source::ObjectId(_)) {
             if let Some(id) = id_on_remote {
                 arguments.want(id);
+                has_want = true;
             }
         } else {
             arguments.want_ref(
@@ -313,6 +318,7 @@ pub fn add_wants(
                     .as_name()
                     .expect("name available if this isn't an object id"),
             );
+            has_want = true;
         }
         let id_is_annotated_tag_we_have = id_on_remote
             .and_then(|id| objects.try_header(id).ok().flatten().map(|h| (id, h)))
@@ -324,6 +330,7 @@ pub fn add_wants(
             arguments.have(tag_on_remote);
         }
     }
+    has_want
 }
 
 /// Remove all commits that are more recent than the cut-off, which is the commit time of the oldest common commit we have with the server.
