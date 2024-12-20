@@ -3,6 +3,7 @@ use crate::pack::receive::protocol::fetch::negotiate;
 use crate::OutputFormat;
 use gix::config::tree::Key;
 use gix::protocol::maybe_async;
+use gix::remote::fetch::Error;
 use gix::DynNestedProgress;
 pub use gix::{
     hash::ObjectId,
@@ -92,6 +93,15 @@ where
         gix::protocol::fetch::refmap::init::Options::default(),
     )
     .await?;
+
+    if refmap.mappings.is_empty() && !refmap.remote_refs.is_empty() {
+        return Err(Error::NoMapping {
+            refspecs: refmap.refspecs.clone(),
+            num_remote_refs: refmap.remote_refs.len(),
+        }
+        .into());
+    }
+
     let mut negotiate = Negotiate { refmap: &refmap };
     gix::protocol::fetch(
         &mut negotiate,
