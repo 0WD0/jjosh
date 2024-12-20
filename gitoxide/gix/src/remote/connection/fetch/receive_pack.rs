@@ -274,7 +274,7 @@ impl gix_protocol::fetch::Negotiate for Negotiate<'_, '_, '_> {
         )
     }
 
-    fn add_wants(&mut self, arguments: &mut Arguments, remote_ref_target_known: &[bool]) {
+    fn add_wants(&mut self, arguments: &mut Arguments, remote_ref_target_known: &[bool]) -> bool {
         negotiate::add_wants(
             self.objects,
             arguments,
@@ -282,7 +282,7 @@ impl gix_protocol::fetch::Negotiate for Negotiate<'_, '_, '_> {
             remote_ref_target_known,
             self.shallow,
             negotiate::make_refmapping_ignore_predicate(self.tags, self.ref_map),
-        );
+        )
     }
 
     fn one_round(

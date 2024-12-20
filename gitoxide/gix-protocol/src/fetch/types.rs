@@ -70,7 +70,9 @@ mod with_fetch {
         /// Typically invokes [`negotiate::mark_complete_and_common_ref()`].
         fn mark_complete_and_common_ref(&mut self) -> Result<negotiate::Action, negotiate::Error>;
         /// Typically invokes [`negotiate::add_wants()`].
-        fn add_wants(&mut self, arguments: &mut fetch::Arguments, remote_ref_target_known: &[bool]);
+        /// Returns `true` if wants were added, or `false` if the negotiation should be aborted.
+        #[must_use]
+        fn add_wants(&mut self, arguments: &mut fetch::Arguments, remote_ref_target_known: &[bool]) -> bool;
         /// Typically invokes [`negotiate::one_round()`].
         fn one_round(
             &mut self,

@@ -3,6 +3,7 @@ use crate::pack::receive::protocol::fetch::negotiate;
 use crate::OutputFormat;
 use gix::config::tree::Key;
 use gix::protocol::maybe_async;
+use gix::remote::fetch::Error;
 use gix::DynNestedProgress;
 pub use gix::{
     hash::ObjectId,
@@ -64,7 +65,7 @@ where
 
     let agent = gix::protocol::agent(gix::env::agent());
     let mut handshake = gix::protocol::fetch::handshake(
-        &mut transport,
+        &mut transport.inner,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],
         &mut progress,
@@ -85,13 +86,22 @@ where
         &fetch_refspecs,
         gix::protocol::fetch::Context {
             handshake: &mut handshake,
-            transport: &mut transport,
+            transport: &mut transport.inner,
             user_agent: user_agent.clone(),
             trace_packetlines,
         },
         gix::protocol::fetch::refmap::init::Options::default(),
     )
     .await?;
+
+    if refmap.mappings.is_empty() && !refmap.remote_refs.is_empty() {
+        return Err(Error::NoMapping {
+            refspecs: refmap.refspecs.clone(),
+            num_remote_refs: refmap.remote_refs.len(),
+        }
+        .into());
+    }
+
     let mut negotiate = Negotiate { refmap: &refmap };
     gix::protocol::fetch(
         &mut negotiate,
@@ -114,7 +124,7 @@ where
         &ctx.should_interrupt,
         gix::protocol::fetch::Context {
             handshake: &mut handshake,
-            transport: &mut transport,
+            transport: &mut transport.inner,
             user_agent,
             trace_packetlines,
         },
@@ -140,10 +150,13 @@ impl gix::protocol::fetch::Negotiate for Negotiate<'_> {
         })
     }
 
-    fn add_wants(&mut self, arguments: &mut Arguments, _remote_ref_target_known: &[bool]) {
+    fn add_wants(&mut self, arguments: &mut Arguments, _remote_ref_target_known: &[bool]) -> bool {
+        let mut has_want = false;
         for id in self.refmap.mappings.iter().filter_map(|m| m.remote.as_id()) {
             arguments.want(id);
+            has_want = true;
         }
+        has_want
     }
 
     fn one_round(

@@ -36,4 +36,20 @@ mod impls {
 }
 
 #[cfg(any(feature = "async-client", feature = "blocking-client"))]
-pub use gix::protocol::transport::connect;
+#[gix::protocol::maybe_async::maybe_async]
+pub async fn connect<Url, E>(
+    url: Url,
+    options: gix::protocol::transport::client::connect::Options,
+) -> Result<
+    gix::protocol::SendFlushOnDrop<Box<dyn gix::protocol::transport::client::Transport + Send>>,
+    gix::protocol::transport::client::connect::Error,
+>
+where
+    Url: TryInto<gix::url::Url, Error = E>,
+    gix::url::parse::Error: From<E>,
+{
+    Ok(gix::protocol::SendFlushOnDrop::new(
+        gix::protocol::transport::connect(url, options).await?,
+        false,
+    ))
+}
