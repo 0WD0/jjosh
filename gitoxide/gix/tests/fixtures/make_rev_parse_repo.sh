@@ -2,23 +2,11 @@
 set -eu -o pipefail
 
 git init -q
-
-git checkout -q -b main
-git commit -q --allow-empty -m c1
-
-touch this
-git add this
-git commit -q -m "add this"
-
-git revert HEAD
-git revert HEAD
-
-git commit --amend -m "add this, for sure"
+touch new && git add new && git commit -m "init"
 
 git branch old
+
 cat <<EOF >.git/logs/refs/heads/old
-5ef4d5de3733648f5376a6f53fad378847eead53 be2f093f0588eaeb71e1eff7451b18c2a9b1d765 Sebastian Thiel <sebastian.thiel@icloud.com> 1727011954 +0200	pull --ff-only: Fast-forward
-be2f093f0588eaeb71e1eff7451b18c2a9b1d765 be2f093f0588eaeb71e1eff7451b18c2a9b1d765 Sebastian Thiel <sebastian.thiel@icloud.com> 1727011977 +0200	checkout: moving from main to reports
 be2f093f0588eaeb71e1eff7451b18c2a9b1d765 e5e8178a701fefed30096dab2077a85301a83236 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013175 +0200	rebase (pick): Add content to file for blame test
 e5e8178a701fefed30096dab2077a85301a83236 1f669d5a11d15a027cedd59133c98c329b4ac835 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013175 +0200	rebase (pick): Start exploring gix APIs in gix-blame
 1f669d5a11d15a027cedd59133c98c329b4ac835 6147adf463958a075d303256535c744c66044217 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013175 +0200	rebase (pick): Use gix-traverse for graph traversal
@@ -89,7 +77,7 @@ b8356c2a18732c08e2b860b2f17e8ca96d689eae ec6b1fc791a7f86c3de540e8a2f5a1fb82b21bb
 ec6b1fc791a7f86c3de540e8a2f5a1fb82b21bbd 4115b3031e7833fee5766d045a234f35c49602eb Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Count line numbers in destination
 4115b3031e7833fee5766d045a234f35c49602eb 08ccbcc2069282c0a7e7254a23724171508809e3 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Take hunks with deletions only into account
 08ccbcc2069282c0a7e7254a23724171508809e3 7b114132d03c468a9cd97836901553658c9792de Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Sort result in test
-7b114132d03c468a9cd97836901553658c9792de 306cdbab5457c323d1201aa8a59b3639f600a758 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Replace Into<Range<u32>> by From<LineRange>
+7b114132d03c468a9cd97836901553658c9792de 306cdbab5457c323d1201aa8a59b3639f600a758 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Replace FIXED THIS LINE WHILE WE DON"T PARSE RIGHT ANGLE BRACKETS IN COMMENTS CORRECTLY
 306cdbab5457c323d1201aa8a59b3639f600a758 2bc1920f88be1e1a86ee42da5678aaba3eae0b62 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013187 +0200	rebase (pick): Add match arm for unchanged hunks
 2bc1920f88be1e1a86ee42da5678aaba3eae0b62 0f8acdff1bd41b225695d73df77145d845abe52e Sebastian Thiel <sebastian.thiel@icloud.com> 1727013188 +0200	rebase (pick): Extract process_change
 0f8acdff1bd41b225695d73df77145d845abe52e 71fa0a3d6e6006b7cdaa47882a1b768a6df57510 Sebastian Thiel <sebastian.thiel@icloud.com> 1727013188 +0200	rebase (pick): Start adding tests for process_change
@@ -598,4 +586,11 @@ ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc 5c21ebc3f523bbe64cb84bbcdf39a2c284ba1df
 5c21ebc3f523bbe64cb84bbcdf39a2c284ba1df1 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734770713 +0100	checkout: moving from fix-pack-receive to main
 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc 6b2643530e04bccfc741777a4b84d645d1537574 Sebastian Thiel <sebastian.thiel@icloud.com> 1734770725 +0100	checkout: moving from main to refloglookup-date
 db5c9cfce93713b4b3e249cff1f8cc1ef146f470 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734770813 +0100	reset: moving to ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc
+4d4a9b6e372b3f6d8beabc82a6bf63d5b3f84e21 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734789256 +0100	checkout: moving from refloglookup-date to main
+ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734789267 +0100	checkout: moving from main to gix-reflog-parsing
+ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc 0000000000000000000000000000000000000000 Sebastian Thiel <sebastian.thiel@icloud.com> 1734789298 +0100	Branch: renamed refs/heads/gix-reflog-parsing to refs/heads/reflog-parseing
+0000000000000000000000000000000000000000 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734789298 +0100	Branch: renamed refs/heads/gix-reflog-parsing to refs/heads/reflog-parseing
+ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc 0000000000000000000000000000000000000000 Sebastian Thiel <sebastian.thiel@icloud.com> 1734789302 +0100	Branch: renamed refs/heads/reflog-parseing to refs/heads/reflog-parsing
+0000000000000000000000000000000000000000 ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc Sebastian Thiel <sebastian.thiel@icloud.com> 1734789302 +0100	Branch: renamed refs/heads/reflog-parseing to refs/heads/reflog-parsing
+87b0acf0e9cac2781312bd478df0ae72ec6d194b 4d4a9b6e372b3f6d8beabc82a6bf63d5b3f84e21 Sebastian Thiel <sebastian.thiel@icloud.com> 1734789364 +0100	checkout: moving from reflog-parsing to refloglookup-date
 EOF

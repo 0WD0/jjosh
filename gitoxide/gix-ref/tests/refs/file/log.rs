@@ -81,7 +81,7 @@ mod iter {
                             .source()
                             .expect("source")
                             .to_string(),
-                        "buffer too small for line size"
+                        "buffer too small for line size, got until \"0000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\\tcommit (initial): c1\""
                     );
                     assert!(iter.next().is_none(), "iterator depleted");
                 }
@@ -90,9 +90,9 @@ mod iter {
         }
 
         mod with_buffer_big_enough_for_largest_line {
-            use gix_ref::log::Line;
-
+            use crate::file::log::iter::reflog;
             use crate::hex_to_id;
+            use gix_ref::log::Line;
 
             #[test]
             fn single_line() -> crate::Result {
@@ -154,6 +154,24 @@ mod iter {
                         assert_eq!(new_oid, hex_to_id("234385f6d781b7e97062102c6a483440bfda2a03"));
                         assert!(iter.next().is_none(), "iterator depleted");
                     }
+                }
+                Ok(())
+            }
+
+            #[test]
+            fn realistic_logs_can_be_read_completely() -> crate::Result {
+                let log = reflog("refs/heads/old")?;
+                let mut buf = Vec::with_capacity(16 * 1024);
+                for size in [2048, 3000, 4096, 8192, 16384] {
+                    buf.resize(size, 0);
+                    let read = std::io::Cursor::new(&*log);
+                    let count = gix_ref::file::log::iter::reverse(read, &mut buf)?
+                        .filter_map(Result::ok)
+                        .count();
+                    assert_eq!(
+                        count, 581,
+                        "All entries must be readable as long as the buffer can fit a whole line"
+                    );
                 }
                 Ok(())
             }
