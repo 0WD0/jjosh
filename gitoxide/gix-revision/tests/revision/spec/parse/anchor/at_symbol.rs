@@ -48,6 +48,31 @@ fn reflog_by_date_for_current_branch() {
 }
 
 #[test]
+fn reflog_by_unix_timestamp_for_current_branch() {
+    let rec = parse("@{100000000}");
+
+    assert!(rec.kind.is_none());
+    assert_eq!(rec.find_ref[0], None,);
+    assert_eq!(
+        rec.prefix[0], None,
+        "neither ref nor prefixes are set, straight to navigation"
+    );
+    assert_eq!(
+        rec.current_branch_reflog_entry[0],
+        Some("100000000 +0000".to_string()),
+        "This number is the first to count as date"
+    );
+    assert_eq!(rec.calls, 1);
+
+    let rec = parse("@{99999999}");
+    assert_eq!(
+        rec.current_branch_reflog_entry[0],
+        Some("99999999".to_string()),
+        "one less is an offset though"
+    );
+}
+
+#[test]
 fn reflog_by_date_with_date_parse_failure() {
     let err = try_parse("@{foo}").unwrap_err();
     assert!(matches!(err, spec::parse::Error::Time {input, source} if input == "foo" && source.is_some()));
