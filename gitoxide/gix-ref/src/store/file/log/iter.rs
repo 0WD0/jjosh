@@ -219,7 +219,7 @@ where
                         if npos == last_read_pos {
                             return Some(Err(std::io::Error::new(
                                 std::io::ErrorKind::Other,
-                                "buffer too small for line size",
+                                format!("buffer too small for line size, got until {:?}", self.buf.as_bstr()),
                             )
                             .into()));
                         }
