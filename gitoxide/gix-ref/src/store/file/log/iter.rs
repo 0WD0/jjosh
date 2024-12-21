@@ -92,7 +92,7 @@ impl Platform<'_, '_> {
     /// Return a forward iterator over all log-lines, most recent to oldest.
     pub fn rev(&mut self) -> std::io::Result<Option<log::iter::Reverse<'_, std::fs::File>>> {
         self.buf.clear();
-        self.buf.resize(512, 0);
+        self.buf.resize(1024 * 4, 0);
         self.store
             .reflog_iter_rev(self.name, &mut self.buf)
             .map_err(must_be_io_err)
