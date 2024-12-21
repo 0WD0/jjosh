@@ -27,14 +27,18 @@ mod revision {
     fn date() -> crate::Result {
         let repo = crate::named_repo("make_rev_parse_repo.sh")?;
         let actual = repo
-            .rev_parse_single("old@{10 years ago}")
+            .rev_parse_single("old@{20 years ago}")
             .expect("it returns the oldest possible rev when overshooting");
         assert_eq!(actual, hex_to_id("be2f093f0588eaeb71e1eff7451b18c2a9b1d765"));
 
         let actual = repo
-            .rev_parse_single("old@{1 month ago}")
+            .rev_parse_single("old@{1732184844}")
             .expect("it finds something in the middle");
-        assert_eq!(actual, hex_to_id("b29405fe9147a3a366c4048fbe295ea04de40fa6"));
+        assert_eq!(
+            actual,
+            hex_to_id("b29405fe9147a3a366c4048fbe295ea04de40fa6"),
+            "It also figures out that we don't mean an index, but a date"
+        );
         Ok(())
     }
 }

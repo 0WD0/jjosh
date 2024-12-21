@@ -429,9 +429,23 @@ where
                     }
                 } else if has_ref_or_implied_name {
                     delegate
-                        .reflog(delegate::ReflogLookup::Entry(
-                            n.try_into().expect("non-negative isize fits usize"),
-                        ))
+                        .reflog(if n >= 100000000 {
+                            let time = nav
+                                .to_str()
+                                .map_err(|_| Error::Time {
+                                    input: nav.into(),
+                                    source: None,
+                                })
+                                .and_then(|date| {
+                                    gix_date::parse(date, None).map_err(|err| Error::Time {
+                                        input: nav.into(),
+                                        source: err.into(),
+                                    })
+                                })?;
+                            delegate::ReflogLookup::Date(time)
+                        } else {
+                            delegate::ReflogLookup::Entry(n.try_into().expect("non-negative isize fits usize"))
+                        })
                         .ok_or(Error::Delegate)?;
                 } else {
                     return Err(Error::ReflogLookupNeedsRefName { name: (*name).into() });
