@@ -680,7 +680,7 @@ fn should_skip_all_archive_creation() -> bool {
 }
 
 fn is_lfs_pointer_file(path: &Path) -> bool {
-    const PREFIX: &[u8] = b"version https://gix-lfs";
+    const PREFIX: &[u8] = b"version https://git-lfs";
     let mut buf = [0_u8; PREFIX.len()];
     std::fs::OpenOptions::new()
         .read(true)
