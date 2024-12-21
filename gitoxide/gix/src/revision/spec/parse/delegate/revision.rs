@@ -105,98 +105,81 @@ impl delegate::Revision for Delegate<'_> {
 
     fn reflog(&mut self, query: ReflogLookup) -> Option<()> {
         self.unset_disambiguate_call();
-        match query {
-            ReflogLookup::Date(date) => {
-                let r = match &mut self.refs[self.idx] {
-                    Some(r) => r.clone().attach(self.repo),
-                    val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
-                        Ok(Some(r)) => {
-                            *val = Some(r.clone().detach());
-                            r
-                        }
-                        Ok(None) => {
-                            self.err.push(Error::UnbornHeadsHaveNoRefLog);
-                            return None;
-                        }
-                        Err(err) => {
-                            self.err.push(err.into());
-                            return None;
-                        }
-                    },
-                };
+        let r = match &mut self.refs[self.idx] {
+            Some(r) => r.clone().attach(self.repo),
+            val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
+                Ok(Some(r)) => {
+                    *val = Some(r.clone().detach());
+                    r
+                }
+                Ok(None) => {
+                    self.err.push(Error::UnbornHeadsHaveNoRefLog);
+                    return None;
+                }
+                Err(err) => {
+                    self.err.push(err.into());
+                    return None;
+                }
+            },
+        };
 
-                let mut platform = r.log_iter();
-                match platform.rev().ok().flatten() {
-                    Some(it) => match it
+        let mut platform = r.log_iter();
+        match platform.rev().ok().flatten() {
+            Some(mut it) => match query {
+                ReflogLookup::Date(date) => {
+                    let mut last = None;
+                    let id_to_insert = match it
                         .filter_map(Result::ok)
-                        .min_by_key(|l| (date - l.signature.time).abs())
-                    {
-                        Some(closest_line) => {
-                            self.objs[self.idx]
-                                .get_or_insert_with(HashSet::default)
-                                .insert(closest_line.new_oid);
-                            Some(())
-                        }
-                        None => {
-                            // do we need an another error variant?
-                            self.err.push(Error::SingleNotFound);
-                            None
-                        }
-                    },
-                    None => {
-                        self.err.push(Error::MissingRefLog {
-                            reference: r.name().as_bstr().into(),
-                            action: "lookup entry",
-                        });
-                        None
-                    }
-                }
-            }
-            ReflogLookup::Entry(no) => {
-                let r = match &mut self.refs[self.idx] {
-                    Some(r) => r.clone().attach(self.repo),
-                    val @ None => match self.repo.head().map(crate::Head::try_into_referent) {
-                        Ok(Some(r)) => {
-                            *val = Some(r.clone().detach());
-                            r
-                        }
-                        Ok(None) => {
-                            self.err.push(Error::UnbornHeadsHaveNoRefLog);
-                            return None;
-                        }
-                        Err(err) => {
-                            self.err.push(err.into());
-                            return None;
-                        }
-                    },
-                };
-                let mut platform = r.log_iter();
-                match platform.rev().ok().flatten() {
-                    Some(mut it) => match it.nth(no).and_then(Result::ok) {
-                        Some(line) => {
-                            self.objs[self.idx]
-                                .get_or_insert_with(HashSet::default)
-                                .insert(line.new_oid);
-                            Some(())
-                        }
-                        None => {
-                            let available = platform.rev().ok().flatten().map_or(0, Iterator::count);
-                            self.err.push(Error::RefLogEntryOutOfRange {
-                                reference: r.detach(),
-                                desired: no,
-                                available,
+                        .inspect(|d| {
+                            last = Some(if d.previous_oid.is_null() {
+                                d.new_oid
+                            } else {
+                                d.previous_oid
                             });
-                            None
-                        }
-                    },
+                        })
+                        .find(|l| l.signature.time.seconds <= date.seconds)
+                    {
+                        Some(closest_line) => closest_line.new_oid,
+                        None => match last {
+                            None => {
+                                self.err.push(Error::EmptyReflog);
+                                return None;
+                            }
+                            Some(id) => id,
+                        },
+                    };
+                    self.objs[self.idx]
+                        .get_or_insert_with(HashSet::default)
+                        .insert(id_to_insert);
+                    Some(())
+                }
+                ReflogLookup::Entry(no) => match it.nth(no).and_then(Result::ok) {
+                    Some(line) => {
+                        self.objs[self.idx]
+                            .get_or_insert_with(HashSet::default)
+                            .insert(line.new_oid);
+                        Some(())
+                    }
                     None => {
-                        self.err.push(Error::MissingRefLog {
-                            reference: r.name().as_bstr().into(),
-                            action: "lookup entry",
+                        let available = platform.rev().ok().flatten().map_or(0, Iterator::count);
+                        self.err.push(Error::RefLogEntryOutOfRange {
+                            reference: r.detach(),
+                            desired: no,
+                            available,
                         });
                         None
                     }
-                }
+                },
+            },
+            None => {
+                self.err.push(Error::MissingRefLog {
+                    reference: r.name().as_bstr().into(),
+                    action: match query {
+                        ReflogLookup::Entry(_) => "lookup reflog entry by index",
+                        ReflogLookup::Date(_) => "lookup reflog entry by date",
+                    },
+                });
+                None
             }
         }
     }
