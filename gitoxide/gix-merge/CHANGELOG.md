@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.2.0 (2024-12-22)
 
 ### Bug Fixes
 
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 10 commits contributed to the release over the course of 28 calendar days.
+ - 11 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1705 from GitoxideLabs/merge ([`520c832`](https://github.com/GitoxideLabs/gitoxide/commit/520c832cfcfb34eb7617be55ebe2719ab35595fd))
     - Adapt to changes in `gix-diff` related to not tracking empty blobs anymore. ([`f53cec5`](https://github.com/GitoxideLabs/gitoxide/commit/f53cec5b2ce8aa6eeb4a3016511bbb1ac25fa2f7))
     - Don't incorrectly mark as auto-resolved conflict if there was none. ([`da585db`](https://github.com/GitoxideLabs/gitoxide/commit/da585db16bae9f44e6300f31b0f784c356d5bd3f))

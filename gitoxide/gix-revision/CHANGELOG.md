@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.31.1 (2024-12-22)
 
 ### Bug Fixes
 
@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 5 commits contributed to the release over the course of 28 calendar days.
+ - 6 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1733 from GitoxideLabs/fix-testools ([`df5cead`](https://github.com/GitoxideLabs/gitoxide/commit/df5cead220c193a9ceb8b78c8d6225368293416d))
     - Revspec parsing now correctly interprets large offsets like `@{100000000}` as unix timestamp. ([`1fe201a`](https://github.com/GitoxideLabs/gitoxide/commit/1fe201a8d4ec9f3349d48f1e4afe3f58b11f90b4))
     - Merge pull request #1708 from EliahKagan/run-ci/mode ([`34efe03`](https://github.com/GitoxideLabs/gitoxide/commit/34efe03fdab97bbf5603a7ea605f37096ff1736a))

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.47.0 (2024-12-22)
 
 ### Bug Fixes
 
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release over the course of 28 calendar days.
+ - 12 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1731 from GitoxideLabs/fix-pack-receive ([`ca54b8c`](https://github.com/GitoxideLabs/gitoxide/commit/ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc))
     - Respect interrupt-requests during negotiation ([`5c21ebc`](https://github.com/GitoxideLabs/gitoxide/commit/5c21ebc3f523bbe64cb84bbcdf39a2c284ba1df1))
     - Assure that empty fetches due to no objects wanted are terminated early ([`a5f0d29`](https://github.com/GitoxideLabs/gitoxide/commit/a5f0d295cfc7183e5c0b35b72610e933f91059d9))

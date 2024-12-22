@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-filter"
-version = "0.15.0"
+version = "0.16.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project implementing git filters"
@@ -17,8 +17,8 @@ doctest = false
 [dependencies]
 gix-hash = { version = "^0.15.1", path = "../gix-hash" }
 gix-trace = { version = "^0.1.11", path = "../gix-trace" }
-gix-object = { version = "^0.46.0", path = "../gix-object" }
-gix-command = { version = "^0.3.11", path = "../gix-command" }
+gix-object = { version = "^0.46.1", path = "../gix-object" }
+gix-command = { version = "^0.4.0", path = "../gix-command" }
 gix-quote = { version = "^0.4.14", path = "../gix-quote" }
 gix-utils = { version = "^0.1.13", path = "../gix-utils" }
 gix-path = { version = "^0.10.13", path = "../gix-path" }

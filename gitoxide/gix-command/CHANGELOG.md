@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.4.0 (2024-12-22)
 
 ### New Features
 
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 28 calendar days.
+ - 7 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1724 from GitoxideLabs/gix-command-api ([`faa0cde`](https://github.com/GitoxideLabs/gitoxide/commit/faa0cdeb35a8135ff9513a1c9884126f6b080f4a))
     - Rename `Prepare::with_shell_allow_argument_splitting()` to `Prepare::with_shell_allow_manual_argument_splitting()` ([`4d9bded`](https://github.com/GitoxideLabs/gitoxide/commit/4d9bded0f77f24a4596d2a0949968293962961cc))
     - Add `Prepare::with_shell_disallow_manual_argument_splitting()`. ([`26c274d`](https://github.com/GitoxideLabs/gitoxide/commit/26c274d785bafd2bb003a4426d6b749ede71882b))

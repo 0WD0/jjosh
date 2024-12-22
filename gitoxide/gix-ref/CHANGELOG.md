@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.49.1 (2024-12-22)
 
 ### Bug Fixes
 
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release over the course of 28 calendar days.
+ - 9 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1732 from GitoxideLabs/reflog-parsing ([`8fd53bc`](https://github.com/GitoxideLabs/gitoxide/commit/8fd53bc78fc28c53c7ad7ad48d9b7f9f784f06b4))
     - Properly parse reflog messages with `>` in them. ([`6abee88`](https://github.com/GitoxideLabs/gitoxide/commit/6abee881024568416cdb2d8feac2c52d4c3af0ad))
     - Add failing test to show the issue ([`743b979`](https://github.com/GitoxideLabs/gitoxide/commit/743b9796e3c9e9a6ebc83524620475f4e5f1a91f))

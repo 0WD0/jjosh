@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.9.3 (2024-12-22)
 
 ### Bug Fixes
 
@@ -58,175 +58,175 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    
    Failure, where it occurs, now looks like:
    
-       --- STDERR:              gix-date::date time::parse::relative::various ---
-       thread 'time::parse::relative::various' panicked at gix-date\tests\time\parse.rs:252:9:
-       assertion failed: `(left == right)`: relative times differ
+   --- STDERR:              gix-date::date time::parse::relative::various ---
+   thread 'time::parse::relative::various' panicked at gix-date\tests\time\parse.rs:252:9:
+   assertion failed: `(left == right)`: relative times differ
    
-       Diff < left / right > :
-        [
-            (
-                "5 seconds ago",
-                2024-11-24T23:51:49Z,
-            ),
-            (
-                "5 minutes ago",
-                2024-11-24T23:46:54Z,
-            ),
-            (
-                "5 hours ago",
-                2024-11-24T18:51:54Z,
-            ),
-            (
-                "5 days ago",
-                2024-11-19T23:51:54Z,
-            ),
-            (
-                "3 weeks ago",
-                2024-11-03T23:51:54Z,
-            ),
-            (
-                "21 days ago",
-                2024-11-03T23:51:54Z,
-            ),
-            (
-                "504 hours ago",
-                2024-11-03T23:51:54Z,
-            ),
-            (
-                "30240 minutes ago",
-                2024-11-03T23:51:54Z,
-            ),
-            (
-                "2 months ago",
-       <        2024-09-24T23:51:54Z,
-       >        2024-09-24T22:51:54Z,
-            ),
-            (
-                "1460 hours ago",
-                2024-09-25T03:51:54Z,
-            ),
-            (
-                "87600 minutes ago",
-                2024-09-25T03:51:54Z,
-            ),
-            (
-                "14 weeks ago",
-       <        2024-08-18T23:51:54Z,
-       >        2024-08-18T22:51:54Z,
-            ),
-            (
-                "98 days ago",
-       <        2024-08-18T23:51:54Z,
-       >        2024-08-18T22:51:54Z,
-            ),
-            (
-                "2352 hours ago",
-                2024-08-18T23:51:54Z,
-            ),
-            (
-                "141120 minutes ago",
-                2024-08-18T23:51:54Z,
-            ),
-            (
-                "5 months ago",
-       <        2024-06-24T23:51:54Z,
-       >        2024-06-24T22:51:54Z,
-            ),
-            (
-                "3650 hours ago",
-                2024-06-25T21:51:54Z,
-            ),
-            (
-                "219000 minutes ago",
-                2024-06-25T21:51:54Z,
-            ),
-            (
-                "26 weeks ago",
-       <        2024-05-26T23:51:54Z,
-       >        2024-05-26T22:51:54Z,
-            ),
-            (
-                "182 days ago",
-       <        2024-05-26T23:51:54Z,
-       >        2024-05-26T22:51:54Z,
-            ),
-            (
-                "4368 hours ago",
-                2024-05-26T23:51:54Z,
-            ),
-            (
-                "262080 minutes ago",
-                2024-05-26T23:51:54Z,
-            ),
-            (
-                "8 months ago",
-       <        2024-03-24T23:51:54Z,
-       >        2024-03-24T22:51:54Z,
-            ),
-            (
-                "5840 hours ago",
-                2024-03-26T15:51:54Z,
-            ),
-            (
-                "350400 minutes ago",
-                2024-03-26T15:51:54Z,
-            ),
-            (
-                "38 weeks ago",
-                2024-03-03T23:51:54Z,
-            ),
-            (
-                "266 days ago",
-                2024-03-03T23:51:54Z,
-            ),
-            (
-                "6384 hours ago",
-                2024-03-03T23:51:54Z,
-            ),
-            (
-                "383040 minutes ago",
-                2024-03-03T23:51:54Z,
-            ),
-            (
-                "11 months ago",
-                2023-12-24T23:51:54Z,
-            ),
-            (
-                "8030 hours ago",
-                2023-12-26T09:51:54Z,
-            ),
-            (
-                "481800 minutes ago",
-                2023-12-26T09:51:54Z,
-            ),
-            (
-                "14 months ago",
-       <        2023-09-24T23:51:54Z,
-       >        2023-09-24T22:51:54Z,
-            ),
-            (
-                "21 months ago",
-                2023-02-24T23:51:54Z,
-            ),
-            (
-                "2 years ago",
-                2022-11-24T23:51:54Z,
-            ),
-            (
-                "20 years ago",
-                2004-11-24T23:51:54Z,
-            ),
-            (
-                "630720000 seconds ago",
-                2004-11-29T23:51:54Z,
-            ),
-        ]
+   Diff < left / right > :
+   [
+   (
+   "5 seconds ago",
+   2024-11-24T23:51:49Z,
+   ),
+   (
+   "5 minutes ago",
+   2024-11-24T23:46:54Z,
+   ),
+   (
+   "5 hours ago",
+   2024-11-24T18:51:54Z,
+   ),
+   (
+   "5 days ago",
+   2024-11-19T23:51:54Z,
+   ),
+   (
+   "3 weeks ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "21 days ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "504 hours ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "30240 minutes ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "2 months ago",
+   <        2024-09-24T23:51:54Z,
+   >        2024-09-24T22:51:54Z,
+   ),
+   (
+   "1460 hours ago",
+   2024-09-25T03:51:54Z,
+   ),
+   (
+   "87600 minutes ago",
+   2024-09-25T03:51:54Z,
+   ),
+   (
+   "14 weeks ago",
+   <        2024-08-18T23:51:54Z,
+   >        2024-08-18T22:51:54Z,
+   ),
+   (
+   "98 days ago",
+   <        2024-08-18T23:51:54Z,
+   >        2024-08-18T22:51:54Z,
+   ),
+   (
+   "2352 hours ago",
+   2024-08-18T23:51:54Z,
+   ),
+   (
+   "141120 minutes ago",
+   2024-08-18T23:51:54Z,
+   ),
+   (
+   "5 months ago",
+   <        2024-06-24T23:51:54Z,
+   >        2024-06-24T22:51:54Z,
+   ),
+   (
+   "3650 hours ago",
+   2024-06-25T21:51:54Z,
+   ),
+   (
+   "219000 minutes ago",
+   2024-06-25T21:51:54Z,
+   ),
+   (
+   "26 weeks ago",
+   <        2024-05-26T23:51:54Z,
+   >        2024-05-26T22:51:54Z,
+   ),
+   (
+   "182 days ago",
+   <        2024-05-26T23:51:54Z,
+   >        2024-05-26T22:51:54Z,
+   ),
+   (
+   "4368 hours ago",
+   2024-05-26T23:51:54Z,
+   ),
+   (
+   "262080 minutes ago",
+   2024-05-26T23:51:54Z,
+   ),
+   (
+   "8 months ago",
+   <        2024-03-24T23:51:54Z,
+   >        2024-03-24T22:51:54Z,
+   ),
+   (
+   "5840 hours ago",
+   2024-03-26T15:51:54Z,
+   ),
+   (
+   "350400 minutes ago",
+   2024-03-26T15:51:54Z,
+   ),
+   (
+   "38 weeks ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "266 days ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "6384 hours ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "383040 minutes ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "11 months ago",
+   2023-12-24T23:51:54Z,
+   ),
+   (
+   "8030 hours ago",
+   2023-12-26T09:51:54Z,
+   ),
+   (
+   "481800 minutes ago",
+   2023-12-26T09:51:54Z,
+   ),
+   (
+   "14 months ago",
+   <        2023-09-24T23:51:54Z,
+   >        2023-09-24T22:51:54Z,
+   ),
+   (
+   "21 months ago",
+   2023-02-24T23:51:54Z,
+   ),
+   (
+   "2 years ago",
+   2022-11-24T23:51:54Z,
+   ),
+   (
+   "20 years ago",
+   2004-11-24T23:51:54Z,
+   ),
+   (
+   "630720000 seconds ago",
+   2004-11-29T23:51:54Z,
+   ),
+   ]
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 5 commits contributed to the release over the course of 28 calendar days.
+ - 6 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -238,6 +238,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1702 from EliahKagan/run-ci/duration-units ([`b34d14e`](https://github.com/GitoxideLabs/gitoxide/commit/b34d14e83e546cbe423b12c63d5d80b3fedc42d2))
     - Add support for 'any' unit, when parsing `<count> <unit> ago`. ([`34d2fce`](https://github.com/GitoxideLabs/gitoxide/commit/34d2fce57e2836f758387b6cb54ee1f11bebd473))
     - Fix test expection for UTC relative dates ([`856b385`](https://github.com/GitoxideLabs/gitoxide/commit/856b38587afb7683d7d18837d9b88dd3debcc683))

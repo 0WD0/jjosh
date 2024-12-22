@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.16.0 (2024-12-22)
+
+<csr-id-c06a57e698ee21d6c6d8a35bbb37323ceef1e143/>
 
 ### Bug Fixes
 
@@ -25,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 12 commits contributed to the release over the course of 28 calendar days.
+ - 13 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1735](https://github.com/GitoxideLabs/gitoxide/issues/1735)
@@ -39,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1735](https://github.com/GitoxideLabs/gitoxide/issues/1735)**
     - Replacing a directory with non-directory will not cause an error anymore. ([`f3b76d0`](https://github.com/GitoxideLabs/gitoxide/commit/f3b76d0f52da8b4ea0f4d03490fc0c18fd7c3a96))
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1736 from GitoxideLabs/fix-status ([`3af94f9`](https://github.com/GitoxideLabs/gitoxide/commit/3af94f9ad53404fe053fac47e3a6cf849b8287d9))
     - Merge pull request #1734 from EliahKagan/nonfiles ([`ad6b9b6`](https://github.com/GitoxideLabs/gitoxide/commit/ad6b9b66aa3e3561e413d04d00f6dbf832d63353))
     - Reword "non-files" in documentation comments ([`154b21f`](https://github.com/GitoxideLabs/gitoxide/commit/154b21f0e9beb0e5b6615f091f5f0716df6a3f7b))

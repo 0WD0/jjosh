@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.69.0 (2024-12-22)
 
 ### Changed
 
@@ -15,16 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    systematic naming convention:
    
    - For the same option `X`, the `X` and `set_X` methods now always
-     have the same name of the parameter that specifies a value for an
-     option.
-   
-   - Options whose type is `bool` are named `toggle`, in keeping with
+   have the same name of the parameter that specifies a value for an
+   option.
+- Options whose type is `bool` are named `toggle`, in keeping with
      the prevailing convention in this code.
-   
-   - Options of `Option` type are named `value` (this required no
+- Options of `Option` type are named `value` (this required no
      changes).
-   
-   - Options of a non-`Option` type `*Mode` -- currently this is just
+- Options of a non-`Option` type `*Mode` -- currently this is just
      `EmissionMode` -- are named `mode`.
 
 ### New Features
@@ -57,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes (BREAKING)
 
+<csr-id-bd905a6f151ac7f3153f5208ef7c2d686f372c30/>
+
  - <csr-id-ea8b95f4df8a6b06aa393acd907f6400785661ff/> symlinks_to_directories_are_ignored_like_directories by value
    The methods of `gix::dirwalk::Options` are paired, where for each
    option `X` of `Options`, a method named like `X` takes and returns
@@ -72,25 +71,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    Most code that consumes the crate should be unaffected, but:
    
    - Code where calls were ordered unnaturally to avoid putting such
-     a call last should be able to be improved.
-   
-   - Code that used the method like its `set_*` countepart
+   a call last should be able to be improved.
+- Code that used the method like its `set_*` countepart
      `set_symlinks_to_directories_are_ignored_like_directories` will
      be broken. That's what makes this fix a breaking change. Any such
      code can be fixed by modifying it to call the `set_*` version
      instead, which is probably what would have been intended anyway.
- - <csr-id-bd905a6f151ac7f3153f5208ef7c2d686f372c30/> assure that rename tracking can be turned off.
-   Previously it was impossible to tell if rename tracking was disabled, or
-   if it was unset, which leads to incorrect logic.
-   
-   This changes the signature of `diff::new_rewrites()` to also provide information about
-   whether or not it was configured.
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 27 commits contributed to the release over the course of 28 calendar days.
+ - 28 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -102,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1733 from GitoxideLabs/fix-testools ([`df5cead`](https://github.com/GitoxideLabs/gitoxide/commit/df5cead220c193a9ceb8b78c8d6225368293416d))
     - Assure date-tests won't fail over time. ([`14c3744`](https://github.com/GitoxideLabs/gitoxide/commit/14c3744a0bb5bf9e78055e0b86103a37a1f0c299))
     - Merge pull request #1645 from dvtkrlbs/refloglookup-date ([`cbdbb8a`](https://github.com/GitoxideLabs/gitoxide/commit/cbdbb8aaaa2f944b7ebd0c6af32b6a0a86c80277))
@@ -130,6 +123,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Adapt to changes in `gix-merge` ([`3228de6`](https://github.com/GitoxideLabs/gitoxide/commit/3228de627fd059db8abbad7f465023fa559b9b0e))
     - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
 </details>
+
+<csr-unknown>
+ assure that rename tracking can be turned off.Previously it was impossible to tell if rename tracking was disabled, orif it was unset, which leads to incorrect logic.This changes the signature of diff::new_rewrites() to also provide information aboutwhether or not it was configured.<csr-unknown/>
 
 ## 0.68.0 (2024-11-24)
 

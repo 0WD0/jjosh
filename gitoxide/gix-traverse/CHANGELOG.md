@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.43.1 (2024-12-22)
 
 ### New Features
 
@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 9 commits contributed to the release over the course of 28 calendar days.
+ - 10 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1720 from neithernut/traverse-broaden-with-tips-ends ([`3e63721`](https://github.com/GitoxideLabs/gitoxide/commit/3e63721f47a6a6b4d9cc1ceba1f1a29c6251ce3d))
     - Allow `topo::Builder::with_tips` and `with_ends` for non-default pred ([`d9426f4`](https://github.com/GitoxideLabs/gitoxide/commit/d9426f4162a4279410bb7126ec95712cf3f224be))
     - Merge pull request #1716 from neithernut/traverse-topo-builder-enhancements ([`67f20b1`](https://github.com/GitoxideLabs/gitoxide/commit/67f20b1263d4abbc2bbcece1a39e6eab2f42f07b))
