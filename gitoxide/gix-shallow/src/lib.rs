@@ -1,5 +1,6 @@
 //! [Read](read()) and [write](write()) shallow files, while performing typical operations on them.
 #![deny(missing_docs, rust_2018_idioms)]
+#![forbid(unsafe_code)]
 
 /// An instruction on how to
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
