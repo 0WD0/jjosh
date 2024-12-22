@@ -11,8 +11,6 @@ pub enum Error {
     PackThreads(#[from] config::unsigned_integer::Error),
     #[error("The value to configure the pack index version should be 1 or 2")]
     PackIndexVersion(#[from] config::key::GenericError),
-    #[error("Could not decode server reply")]
-    FetchResponse(#[from] gix_protocol::fetch::response::Error),
     #[error("Cannot fetch from a remote that uses {remote} while local repository uses {local} for object hashes")]
     IncompatibleObjectHash {
         local: gix_hash::Kind,
@@ -21,11 +19,7 @@ pub enum Error {
     #[error(transparent)]
     LoadAlternates(#[from] gix_odb::store::load_index::Error),
     #[error(transparent)]
-    Negotiate(#[from] gix_protocol::fetch::negotiate::Error),
-    #[error(transparent)]
     Client(#[from] gix_protocol::transport::client::Error),
-    #[error(transparent)]
-    WritePack(#[from] gix_pack::bundle::write::Error),
     #[error(transparent)]
     UpdateRefs(#[from] super::refs::update::Error),
     #[error("Failed to remove .keep file at \"{}\"", path.display())]
@@ -33,36 +27,21 @@ pub enum Error {
         path: std::path::PathBuf,
         source: std::io::Error,
     },
-    #[error(transparent)]
-    ShallowOpen(#[from] crate::shallow::read::Error),
-    #[error("Server lack feature {feature:?}: {description}")]
-    MissingServerFeature {
-        feature: &'static str,
-        description: &'static str,
-    },
     #[error("None of the refspec(s) {} matched any of the {num_remote_refs} refs on the remote", refspecs.iter().map(|r| r.to_ref().instruction().to_bstring().to_string()).collect::<Vec<_>>().join(", "))]
     NoMapping {
         refspecs: Vec<gix_refspec::RefSpec>,
         num_remote_refs: usize,
     },
-    #[error("Could not write 'shallow' file to incorporate remote updates after fetching")]
-    WriteShallowFile(#[from] crate::shallow::write::Error),
-    #[error("'shallow' file could not be locked in preparation for writing changes")]
-    LockShallowFile(#[from] gix_lock::acquire::Error),
     #[error("Could not obtain configuration to learn if shallow remotes should be rejected")]
     RejectShallowRemoteConfig(#[from] config::boolean::Error),
-    #[error("Receiving objects from shallow remotes is prohibited due to the value of `clone.rejectShallow`")]
-    RejectShallowRemote,
     #[error(transparent)]
     NegotiationAlgorithmConfig(#[from] config::key::GenericErrorWithValue),
-    #[error("Failed to read remaining bytes in stream")]
-    ReadRemainingBytes(#[source] std::io::Error),
 }
 
 impl gix_protocol::transport::IsSpuriousError for Error {
     fn is_spurious(&self) -> bool {
         match self {
-            Error::FetchResponse(err) => err.is_spurious(),
+            Error::Fetch(err) => err.is_spurious(),
             Error::Client(err) => err.is_spurious(),
             _ => false,
         }
