@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.46.1 (2024-12-22)
+
+A maintenance release without user-facing changes.
+
+But actually, `TreeRefIter` now has methods to lookup entries, also recursively.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 13 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
+    - Merge pull request #1686 from cruessler/move-lookup-entry-to-gix-object ([`39227a9`](https://github.com/GitoxideLabs/gitoxide/commit/39227a90ca4590b08dc7d782728be2e9a3054618))
+    - Refactors ([`d7f4991`](https://github.com/GitoxideLabs/gitoxide/commit/d7f49916037efb0c95cf1a4d58be215bee67eb0d))
+    - Add test for entry that does not exist ([`54e399f`](https://github.com/GitoxideLabs/gitoxide/commit/54e399f38002689eb2694c2d59799fc4c2f019ff))
+    - Match on complete entry ([`08a86dc`](https://github.com/GitoxideLabs/gitoxide/commit/08a86dc39edb5b57247faf069bbc332126f41f66))
+    - Deduplicate tests ([`2de935d`](https://github.com/GitoxideLabs/gitoxide/commit/2de935dc1fbd22eb9f98eb145a3160c3b5d48b7f))
+    - Replace FindExt by Find ([`579a6f2`](https://github.com/GitoxideLabs/gitoxide/commit/579a6f217290fb5b6b6d10b4c0414ea87012235e))
+    - Move lookup_entry, lookup_entry_by_path to TreeRefIter ([`32632e9`](https://github.com/GitoxideLabs/gitoxide/commit/32632e94530b6fd6e10cd05d61d3bbbda5ccaa00))
+    - Remove superfluous trait bound ([`1c6e4ae`](https://github.com/GitoxideLabs/gitoxide/commit/1c6e4ae103abc56352ff0e596b2236eab1809e60))
+    - Don't recurse, use loop instead ([`7e66a4a`](https://github.com/GitoxideLabs/gitoxide/commit/7e66a4ab83d9532dba39e0d76e7d6dc98918d885))
+    - Sketch recursive lookup ([`0cf6d3a`](https://github.com/GitoxideLabs/gitoxide/commit/0cf6d3a307caa411f34337a0384a104489d1490a))
+    - Add lookup_entry, lookup_entry_by_path to TreeRef ([`d121fe7`](https://github.com/GitoxideLabs/gitoxide/commit/d121fe7ac850964aeafa8b27070b4514c5648016))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.46.0 (2024-11-24)
 
 ### New Features
@@ -26,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 13 commits contributed to the release.
+ - 14 commits contributed to the release.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -37,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1661 from GitoxideLabs/merge ([`0b7abfb`](https://github.com/GitoxideLabs/gitoxide/commit/0b7abfbdebe8c5ab30b89499a70dd7727de41184))
     - Octal Debug representation of `tree::EntryMode`. ([`cd61c25`](https://github.com/GitoxideLabs/gitoxide/commit/cd61c25369d3e39b6160bac4b332b177dabddf4b))

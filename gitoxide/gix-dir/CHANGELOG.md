@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.0 (2024-12-22)
+
+<csr-id-c06a57e698ee21d6c6d8a35bbb37323ceef1e143/>
+
+### Other
+
+ - <csr-id-c06a57e698ee21d6c6d8a35bbb37323ceef1e143/> Clarify and expand descriptions of `NonFile`s
+   Discussed in:
+   https://github.com/GitoxideLabs/gitoxide/pull/1730#discussion_r1894381449
+   
+   At least for now, they remain called `NonFile`s (and sometimes
+   referred to as "non-files" in text), but more specifically defined.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-d90412bdf86c70ecb5a6d0a1fefae875b3eb836b/> rename `entry::Kind::NonFile` to `entry::Kind::Untrackable`.
+ - <csr-id-0d517716b81e203a131552c5163894a4fbf2863e/> Add `entry::Kind::NonFile`.
+   Previously, these were misclassified as `File`, which can lead to blocking applications
+   which get stuck reading pipes.
+   
+   Now the downstream is forced to deal with the possibility that the item at hand isn't a file,
+   to do application-specific things.
+ - <csr-id-f7ffb9183f918a9521a8f21d3cc0c70925d4b0f1/> assure `fifo` or non-files aren't considered files, but are pruned instead.
+   That way, algorithms relying on dirwalking can still see them if they want to,
+   but would have a hard time to use them (accidentally).
+   
+   Note that this replaces the `From` implementation with `entry::Kind::try_from_file_type()`,
+   which makes this a breaking change.`
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 13 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.9.3, gix-object v0.46.1, gix-command v0.4.0, gix-filter v0.16.0, gix-fs v0.12.1, gix-traverse v0.43.1, gix-worktree-stream v0.18.0, gix-archive v0.18.0, gix-ref v0.49.1, gix-prompt v0.9.0, gix-url v0.28.2, gix-credentials v0.26.0, gix-diff v0.49.0, gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0, safety bump 16 crates ([`c1ba571`](https://github.com/GitoxideLabs/gitoxide/commit/c1ba5719132227410abefeb54e3032b015233e94))
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
+    - Merge pull request #1734 from EliahKagan/nonfiles ([`ad6b9b6`](https://github.com/GitoxideLabs/gitoxide/commit/ad6b9b66aa3e3561e413d04d00f6dbf832d63353))
+    - Reword "non-files" in documentation comments ([`154b21f`](https://github.com/GitoxideLabs/gitoxide/commit/154b21f0e9beb0e5b6615f091f5f0716df6a3f7b))
+    - Rename `entry::Kind::NonFile` to `entry::Kind::Untrackable`. ([`d90412b`](https://github.com/GitoxideLabs/gitoxide/commit/d90412bdf86c70ecb5a6d0a1fefae875b3eb836b))
+    - Clarify and expand descriptions of `NonFile`s ([`c06a57e`](https://github.com/GitoxideLabs/gitoxide/commit/c06a57e698ee21d6c6d8a35bbb37323ceef1e143))
+    - Merge pull request #1730 from GitoxideLabs/fix-1729 ([`6822689`](https://github.com/GitoxideLabs/gitoxide/commit/6822689fca04c15e309f9ca41d610bca9cb93e3b))
+    - Add `entry::Kind::NonFile`. ([`0d51771`](https://github.com/GitoxideLabs/gitoxide/commit/0d517716b81e203a131552c5163894a4fbf2863e))
+    - Merge pull request #1727 from GitoxideLabs/dirwalk-ignore-non-regulars ([`69ee6a3`](https://github.com/GitoxideLabs/gitoxide/commit/69ee6a32dd221a1aae7b8c3817f90feacf577598))
+    - Assure `fifo` or non-files aren't considered files, but are pruned instead. ([`f7ffb91`](https://github.com/GitoxideLabs/gitoxide/commit/f7ffb9183f918a9521a8f21d3cc0c70925d4b0f1))
+    - Add a test to show what FIFO does to the dirwalk. ([`949fe2c`](https://github.com/GitoxideLabs/gitoxide/commit/949fe2c4da0a74a0c45cfa8cf820f3ce7a808cda))
+    - Refactor test-structure to match the 'new style'. ([`e6199a5`](https://github.com/GitoxideLabs/gitoxide/commit/e6199a5819d2567e9549b16020d69bfc55057dc7))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.10.0 (2024-11-24)
 
 A maintenance release without user-facing changes.
@@ -13,7 +73,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 9 commits contributed to the release.
+ - 10 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +84,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-glob v0.17.1, gix-command v0.3.11, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-sec v0.10.10, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-ignore v0.12.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0 ([`4000197`](https://github.com/GitoxideLabs/gitoxide/commit/4000197ecc8cf1a5d79361620e4c114f86476703))
     - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1662 from paolobarbolini/thiserror-v2 ([`7a40648`](https://github.com/GitoxideLabs/gitoxide/commit/7a406481b072728cec089d7c05364f9dbba335a2))

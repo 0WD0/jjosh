@@ -375,6 +375,10 @@ Check out the [performance discussion][gix-traverse-performance] as well.
 
 [gix-traverse-performance]: https://github.com/GitoxideLabs/gitoxide/discussions/76
 
+### gix-shallow
+
+A utility crate with types and functionality related to shallow-file handling.
+
 ### gix-url
 * As documented here: https://www.git-scm.com/docs/git-clone#_git_urls
 * **parse**

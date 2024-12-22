@@ -5,6 +5,247 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.3 (2024-12-22)
+
+### Bug Fixes
+
+ - <csr-id-34d2fce57e2836f758387b6cb54ee1f11bebd473/> add support for 'any' unit, when parsing `<count> <unit> ago`.
+   Similar to Git, any unit is allowed and will default to seconds, like `60 flurps ago`
+   will mean a minute in the past.
+ - <csr-id-c95135b0d0168393f4ccca9863ade7efac8b3379/> Parse relative months and years
+   This extends `gix_date::parse::relative::span` to recognize times
+   with "months" and "years", as in "3 months ago" and "2 years ago".
+   Those units are supported by Git.
+   
+   The actual change here to the parsing code is very simple, because
+   it is directly facilitated by #1474.
+   
+   The units "seconds", "minutes", "hours", "days", and "weeks"
+   continue to be recognized (as before). Relative times like
+   "1 year, 2 months ago" remain unrecognized.
+   
+   For background, see 43b6c06 (#498), c5c6bf6,
+   https://github.com/GitoxideLabs/gitoxide/pull/1474#discussion_r1694769988,
+   and
+   https://github.com/GitoxideLabs/gitoxide/issues/1696#issuecomment-2495526654.
+   
+   Note that this specific change does not itself fix issue #1696,
+   which applies to the intepretation of "days" and "weeks", and now
+   also applies in the same way to the interpretation of "months" and
+   "years". (It continues not to apply to the interpretation of
+   "seconds", "minutes", and "hours".)
+   
+   The tests are updated to cover "months" and "years", as well as to
+   exercise a wider range of relative times, including showing which
+   units (e.g. "days") are affected by #1696. A few sub-cases, of
+   those adjusted or added here, test strings from a related test in
+   Git, to allow comparison. But most are not related to cases there.
+   
+   As before, the tests pass on CI, or when the time zone is otherwise
+   UTC, or with local time zones that never have DST adjustments.
+   
+   The sub-cases are reordered to be monotone increasing in the
+   magnitude of the relative intervals tested (and thus monotone
+   decreasing in the associated absolute timestamps), and the original
+   input is kept zipped into the `actual` and `expected` arrays being
+   compared. This way, if the assertion fails (such as due to #1696),
+   it is clear and readable which sub-cases failed and exactly how, as
+   well as what all the sub-cases are and what each sub-case tests.
+   
+   Reordering the sub-cases and preserving the inputs they parse in
+   this way avoids the disadvantages of #1697 while keeping, and
+   expanding on, its benefits.
+   
+   Failure, where it occurs, now looks like:
+   
+   --- STDERR:              gix-date::date time::parse::relative::various ---
+   thread 'time::parse::relative::various' panicked at gix-date\tests\time\parse.rs:252:9:
+   assertion failed: `(left == right)`: relative times differ
+   
+   Diff < left / right > :
+   [
+   (
+   "5 seconds ago",
+   2024-11-24T23:51:49Z,
+   ),
+   (
+   "5 minutes ago",
+   2024-11-24T23:46:54Z,
+   ),
+   (
+   "5 hours ago",
+   2024-11-24T18:51:54Z,
+   ),
+   (
+   "5 days ago",
+   2024-11-19T23:51:54Z,
+   ),
+   (
+   "3 weeks ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "21 days ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "504 hours ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "30240 minutes ago",
+   2024-11-03T23:51:54Z,
+   ),
+   (
+   "2 months ago",
+   <        2024-09-24T23:51:54Z,
+   >        2024-09-24T22:51:54Z,
+   ),
+   (
+   "1460 hours ago",
+   2024-09-25T03:51:54Z,
+   ),
+   (
+   "87600 minutes ago",
+   2024-09-25T03:51:54Z,
+   ),
+   (
+   "14 weeks ago",
+   <        2024-08-18T23:51:54Z,
+   >        2024-08-18T22:51:54Z,
+   ),
+   (
+   "98 days ago",
+   <        2024-08-18T23:51:54Z,
+   >        2024-08-18T22:51:54Z,
+   ),
+   (
+   "2352 hours ago",
+   2024-08-18T23:51:54Z,
+   ),
+   (
+   "141120 minutes ago",
+   2024-08-18T23:51:54Z,
+   ),
+   (
+   "5 months ago",
+   <        2024-06-24T23:51:54Z,
+   >        2024-06-24T22:51:54Z,
+   ),
+   (
+   "3650 hours ago",
+   2024-06-25T21:51:54Z,
+   ),
+   (
+   "219000 minutes ago",
+   2024-06-25T21:51:54Z,
+   ),
+   (
+   "26 weeks ago",
+   <        2024-05-26T23:51:54Z,
+   >        2024-05-26T22:51:54Z,
+   ),
+   (
+   "182 days ago",
+   <        2024-05-26T23:51:54Z,
+   >        2024-05-26T22:51:54Z,
+   ),
+   (
+   "4368 hours ago",
+   2024-05-26T23:51:54Z,
+   ),
+   (
+   "262080 minutes ago",
+   2024-05-26T23:51:54Z,
+   ),
+   (
+   "8 months ago",
+   <        2024-03-24T23:51:54Z,
+   >        2024-03-24T22:51:54Z,
+   ),
+   (
+   "5840 hours ago",
+   2024-03-26T15:51:54Z,
+   ),
+   (
+   "350400 minutes ago",
+   2024-03-26T15:51:54Z,
+   ),
+   (
+   "38 weeks ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "266 days ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "6384 hours ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "383040 minutes ago",
+   2024-03-03T23:51:54Z,
+   ),
+   (
+   "11 months ago",
+   2023-12-24T23:51:54Z,
+   ),
+   (
+   "8030 hours ago",
+   2023-12-26T09:51:54Z,
+   ),
+   (
+   "481800 minutes ago",
+   2023-12-26T09:51:54Z,
+   ),
+   (
+   "14 months ago",
+   <        2023-09-24T23:51:54Z,
+   >        2023-09-24T22:51:54Z,
+   ),
+   (
+   "21 months ago",
+   2023-02-24T23:51:54Z,
+   ),
+   (
+   "2 years ago",
+   2022-11-24T23:51:54Z,
+   ),
+   (
+   "20 years ago",
+   2004-11-24T23:51:54Z,
+   ),
+   (
+   "630720000 seconds ago",
+   2004-11-29T23:51:54Z,
+   ),
+   ]
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 6 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
+    - Merge pull request #1702 from EliahKagan/run-ci/duration-units ([`b34d14e`](https://github.com/GitoxideLabs/gitoxide/commit/b34d14e83e546cbe423b12c63d5d80b3fedc42d2))
+    - Add support for 'any' unit, when parsing `<count> <unit> ago`. ([`34d2fce`](https://github.com/GitoxideLabs/gitoxide/commit/34d2fce57e2836f758387b6cb54ee1f11bebd473))
+    - Fix test expection for UTC relative dates ([`856b385`](https://github.com/GitoxideLabs/gitoxide/commit/856b38587afb7683d7d18837d9b88dd3debcc683))
+    - Parse relative months and years ([`c95135b`](https://github.com/GitoxideLabs/gitoxide/commit/c95135b0d0168393f4ccca9863ade7efac8b3379))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.9.2 (2024-11-24)
 
 A maintenance release without user-facing changes.
@@ -13,7 +254,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release.
+ - 9 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +265,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1697 from EliahKagan/run-ci/duration ([`438ee47`](https://github.com/GitoxideLabs/gitoxide/commit/438ee4718b67d0eba8f4c6ebdfac64bd39f68ec7))
     - Test 12-week increments from 2 to 50 ([`ac17b62`](https://github.com/GitoxideLabs/gitoxide/commit/ac17b62a5c9d63606e9c161c1533cdbebf2de977))
