@@ -17,12 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    - For the same option `X`, the `X` and `set_X` methods now always
    have the same name of the parameter that specifies a value for an
    option.
-- Options whose type is `bool` are named `toggle`, in keeping with
-     the prevailing convention in this code.
-- Options of `Option` type are named `value` (this required no
-     changes).
-- Options of a non-`Option` type `*Mode` -- currently this is just
-     `EmissionMode` -- are named `mode`.
 
 ### New Features
 
@@ -72,17 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    
    - Code where calls were ordered unnaturally to avoid putting such
    a call last should be able to be improved.
-- Code that used the method like its `set_*` countepart
-     `set_symlinks_to_directories_are_ignored_like_directories` will
-     be broken. That's what makes this fix a breaking change. Any such
-     code can be fixed by modifying it to call the `set_*` version
-     instead, which is probably what would have been intended anyway.
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 28 commits contributed to the release over the course of 28 calendar days.
+ - 29 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -94,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.3, gix-object v0.46.1, gix-command v0.4.0, gix-filter v0.16.0, gix-fs v0.12.1, gix-traverse v0.43.1, gix-worktree-stream v0.18.0, gix-archive v0.18.0, gix-ref v0.49.1, gix-prompt v0.9.0, gix-url v0.28.2, gix-credentials v0.26.0, gix-diff v0.49.0, gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0, safety bump 16 crates ([`c1ba571`](https://github.com/GitoxideLabs/gitoxide/commit/c1ba5719132227410abefeb54e3032b015233e94))
     - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1733 from GitoxideLabs/fix-testools ([`df5cead`](https://github.com/GitoxideLabs/gitoxide/commit/df5cead220c193a9ceb8b78c8d6225368293416d))
     - Assure date-tests won't fail over time. ([`14c3744`](https://github.com/GitoxideLabs/gitoxide/commit/14c3744a0bb5bf9e78055e0b86103a37a1f0c299))
@@ -125,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 </details>
 
 <csr-unknown>
- assure that rename tracking can be turned off.Previously it was impossible to tell if rename tracking was disabled, orif it was unset, which leads to incorrect logic.This changes the signature of diff::new_rewrites() to also provide information aboutwhether or not it was configured.<csr-unknown/>
+Options whose type is bool are named toggle, in keeping withthe prevailing convention in this code.Options of Option type are named value (this required nochanges).Options of a non-Option type *Mode – currently this is justEmissionMode – are named mode.Code that used the method like its set_* countepartset_symlinks_to_directories_are_ignored_like_directories willbe broken. That’s what makes this fix a breaking change. Any suchcode can be fixed by modifying it to call the set_* versioninstead, which is probably what would have been intended anyway.<csr-unknown/>
 
 ## 0.68.0 (2024-11-24)
 
