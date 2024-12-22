@@ -356,8 +356,10 @@ impl<'index> State<'_, 'index> {
     {
         let worktree_path = match self.path_stack.verified_path(gix_path::from_bstr(rela_path).as_ref()) {
             Ok(path) => path,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(Change::Removed.into())),
-            Err(err) => return Err(Error::Io(err)),
+            Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
+                return Ok(Some(Change::Removed.into()))
+            }
+            Err(err) => return Err(err.into()),
         };
         self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
         let metadata = match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
@@ -379,7 +381,9 @@ impl<'index> State<'_, 'index> {
                 }
             }
             Ok(metadata) => metadata,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(Change::Removed.into())),
+            Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
+                return Ok(Some(Change::Removed.into()))
+            }
             Err(err) => {
                 return Err(err.into());
             }
@@ -539,7 +543,7 @@ where
             // conversion to bstr can never fail because symlinks are only used
             // on unix (by git) so no reason to use the try version here
             let symlink_path =
-                gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::fs::read_link(self.path)?));
+                gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::fs::read_link(self.path).unwrap()));
             self.buf.extend_from_slice(&symlink_path);
             self.worktree_bytes.fetch_add(self.buf.len() as u64, Ordering::Relaxed);
             Stream {

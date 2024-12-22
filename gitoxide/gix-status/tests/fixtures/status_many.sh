@@ -39,3 +39,16 @@ cp -R changed-and-untracked changed-and-untracked-and-renamed
   echo change >> content-with-rewrite
 
 )
+
+cp -R changed-and-untracked replace-dir-with-file
+(cd replace-dir-with-file
+  git checkout executable
+  rm untracked dir/untracked
+
+  mkdir dir/sub
+  touch dir/sub/nested
+  git add dir && git commit -m "add file in sub-directory"
+
+  rm -Rf dir/
+  touch dir
+)
