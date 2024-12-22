@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "gix"
-version = "0.69.0"
+version = "0.69.1"
 dependencies = [
  "anyhow",
  "async-std",
