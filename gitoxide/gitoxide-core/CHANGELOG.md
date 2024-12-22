@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-c7e04e976989435ba752628522d53ac39348b49b/> add first 'debug' version of `gix log`
+   It's primarily meant to better understand `gix blame`.
+ - <csr-id-471e046a6002a68209e215db7ee904a4149f9d51/> add `--tree-favor` to `gix merge tree|commit`.
+   With it one can decide which side to favor in case of
+   irreconcilable tree-conflicts.
+
+### Bug Fixes
+
+ - <csr-id-42cdc3f533ac34812baa63f31a96475eacc83de6/> properly indicate the end of interaction
+
+### New Features (BREAKING)
+
+ - <csr-id-e59fc09f12a1c6b27d878525ff6074ac846aa87e/> move all possible code from `gix` to `gix-protocol`.
+   For now, just move the code down and immediately re-integrate in `gix`
+   to be able to use its tests to validate it.
+   
+   This is a breaking change as some types move and change the layout.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 25 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1734 from EliahKagan/nonfiles ([`ad6b9b6`](https://github.com/GitoxideLabs/gitoxide/commit/ad6b9b66aa3e3561e413d04d00f6dbf832d63353))
+    - Reword "non-files" in documentation comments ([`154b21f`](https://github.com/GitoxideLabs/gitoxide/commit/154b21f0e9beb0e5b6615f091f5f0716df6a3f7b))
+    - Adapt to changes in `gix-dir` ([`329a734`](https://github.com/GitoxideLabs/gitoxide/commit/329a734e0f5d23de2bd9af87f6da85cb6154a97c))
+    - Merge pull request #1643 from cruessler/add-gix-log ([`29cb775`](https://github.com/GitoxideLabs/gitoxide/commit/29cb775e6b85265a4907e882a45621aeb0432564))
+    - Trim `gix log` to be mergeable. ([`162887e`](https://github.com/GitoxideLabs/gitoxide/commit/162887e2d3968639548f7d3581cb1f47bfe38341))
+    - Add first 'debug' version of `gix log` ([`c7e04e9`](https://github.com/GitoxideLabs/gitoxide/commit/c7e04e976989435ba752628522d53ac39348b49b))
+    - Merge pull request #1731 from GitoxideLabs/fix-pack-receive ([`ca54b8c`](https://github.com/GitoxideLabs/gitoxide/commit/ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc))
+    - Assure we don't try to not have wants in pack-receive ([`377ca46`](https://github.com/GitoxideLabs/gitoxide/commit/377ca46162d9ecbb5e5e27eca889f95fd8556b50))
+    - Adapt to changes in `gix-protocol` ([`41b6571`](https://github.com/GitoxideLabs/gitoxide/commit/41b6571b9f331c018672fcd0bb7d5ce0f8885178))
+    - Properly indicate the end of interaction ([`42cdc3f`](https://github.com/GitoxideLabs/gitoxide/commit/42cdc3f533ac34812baa63f31a96475eacc83de6))
+    - Merge pull request #1730 from GitoxideLabs/fix-1729 ([`6822689`](https://github.com/GitoxideLabs/gitoxide/commit/6822689fca04c15e309f9ca41d610bca9cb93e3b))
+    - Adapt to changes in `gix-dir` ([`a7c4100`](https://github.com/GitoxideLabs/gitoxide/commit/a7c41008705b3c2777b467c60e5b5881021c5abf))
+    - Merge pull request #1727 from GitoxideLabs/dirwalk-ignore-non-regulars ([`69ee6a3`](https://github.com/GitoxideLabs/gitoxide/commit/69ee6a32dd221a1aae7b8c3817f90feacf577598))
+    - Adapt to changes in `gix-dir` ([`a49c960`](https://github.com/GitoxideLabs/gitoxide/commit/a49c960bf7e9ec41b3d0548a3aa6ccc90a59cc2b))
+    - Merge pull request #1726 from GitoxideLabs/radicle-tuning ([`a542775`](https://github.com/GitoxideLabs/gitoxide/commit/a54277561a62cd560a9a072c6052eaf182ad4ace))
+    - Adapt to changes in `gix-protocol` ([`25b8480`](https://github.com/GitoxideLabs/gitoxide/commit/25b848080c7df2da0fa662c580451aec0deb29c4))
+    - Merge pull request #1634 from GitoxideLabs/remove-delegates ([`ddeb97f`](https://github.com/GitoxideLabs/gitoxide/commit/ddeb97f550bb95835648841b476d7647dd7c1dc0))
+    - Adapt to changes in `gix` and `gix-protocol` ([`fcb21a4`](https://github.com/GitoxideLabs/gitoxide/commit/fcb21a4b4ad25eb3bb1a2116fa6e709e62e77c84))
+    - Move all possible code from `gix` to `gix-protocol`. ([`e59fc09`](https://github.com/GitoxideLabs/gitoxide/commit/e59fc09f12a1c6b27d878525ff6074ac846aa87e))
+    - Merge pull request #1705 from GitoxideLabs/merge ([`520c832`](https://github.com/GitoxideLabs/gitoxide/commit/520c832cfcfb34eb7617be55ebe2719ab35595fd))
+    - Adapt to changes in `gix-diff` ([`960773e`](https://github.com/GitoxideLabs/gitoxide/commit/960773e5526d02e1f2294224859c821ed86a3463))
+    - Adapt to changes in `gix` ([`9896d5d`](https://github.com/GitoxideLabs/gitoxide/commit/9896d5d3ccf629a811e518f0a3b7cbfc195b0b2a))
+    - Add `--tree-favor` to `gix merge tree|commit`. ([`471e046`](https://github.com/GitoxideLabs/gitoxide/commit/471e046a6002a68209e215db7ee904a4149f9d51))
+    - Adapt to changes in `gix-merge` ([`3228de6`](https://github.com/GitoxideLabs/gitoxide/commit/3228de627fd059db8abbad7f465023fa559b9b0e))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.43.0 (2024-11-24)
 
 ### New Features
@@ -22,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 18 commits contributed to the release.
+ - 19 commits contributed to the release.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -33,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-glob v0.17.1, gix-command v0.3.11, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-sec v0.10.10, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-ignore v0.12.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0 ([`4000197`](https://github.com/GitoxideLabs/gitoxide/commit/4000197ecc8cf1a5d79361620e4c114f86476703))
     - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1661 from GitoxideLabs/merge ([`0b7abfb`](https://github.com/GitoxideLabs/gitoxide/commit/0b7abfbdebe8c5ab30b89499a70dd7727de41184))

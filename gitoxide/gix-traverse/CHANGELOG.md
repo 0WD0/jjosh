@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-59148a2043f0f502edfb895e19843b7fab6efeac/> add `topo::Builder::new` fn for creating a bare builder
+   Previously, the only way to create a `Builder` would be via
+   `Builder::from_iters`. That fn takes as arguments both the tips and
+   ends, and used to be the only possibility for specifying either of them
+   during the building process. However, in order to enhance the builder-
+   likeness of `Builder`, we recently introduced fns `with_tips` and
+   `with_ends` for adding additional tips and ends.
+   
+   With those fns, the only component which needs to be supplied up-front
+   is `find`. Users can specify and empty `Iterator` and `None` for `tips`
+   and `ends` respectively when calling `Builder::from_iters` and add
+   additional tips and ends at their leisure, without the need to chain
+   `Iterator`s or collecting them in some external data structure.
+   
+   Now, calling `Builder::from_iters` with a empty lists for tips and ends
+   is a bit awkward. Thus, we provide a new method for creating a bare
+   `Builder`.
+ - <csr-id-a7a8d7cd79550033cc9e0277a0ab9155e5ab6739/> add `topo::Builder::with_tips` fn for adding tips after from_iters
+   Currently, `Builder::from_iters` takes as arguments both the tips and
+   ends. Previously, this would be the only possibility for specifying
+   either of them during the building process. To enhance the
+   builder-likeness of `Builder`, we recently introduced a fn for adding
+   additional ends.
+   
+   This change introduces a fn which allows adding additional tips after
+   initial construction of a "fresh" `Builder`, allowing for more usage
+   patterns.
+ - <csr-id-1c1d03775ce169dc3a353c2b81ce5770cbda15f5/> add `topo::Builder::with_ends` for adding ends after from_iters
+   Currently, `Builder::from_iters` takes as arguments both the tips and
+   ends, and it's the only possibility for specifying either of them during
+   the building process. Considering that `ends` in `Builder::from_iters`
+   is an `Option`, this is not very builder-like and obstructs some
+   use-cases.
+   
+   This change introduces a fn which allows adding additional ends after
+   initial construction of a "fresh" `Builder`.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 9 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1720 from neithernut/traverse-broaden-with-tips-ends ([`3e63721`](https://github.com/GitoxideLabs/gitoxide/commit/3e63721f47a6a6b4d9cc1ceba1f1a29c6251ce3d))
+    - Allow `topo::Builder::with_tips` and `with_ends` for non-default pred ([`d9426f4`](https://github.com/GitoxideLabs/gitoxide/commit/d9426f4162a4279410bb7126ec95712cf3f224be))
+    - Merge pull request #1716 from neithernut/traverse-topo-builder-enhancements ([`67f20b1`](https://github.com/GitoxideLabs/gitoxide/commit/67f20b1263d4abbc2bbcece1a39e6eab2f42f07b))
+    - Minor refactor ([`55eaf52`](https://github.com/GitoxideLabs/gitoxide/commit/55eaf52395a179e537f5e3a78d7871247898539c))
+    - Impl topo::Builder::from_iters with new, with_tips and with_ends ([`29e3bbf`](https://github.com/GitoxideLabs/gitoxide/commit/29e3bbf128939d78178500450fd086b5b91691ff))
+    - Add `topo::Builder::new` fn for creating a bare builder ([`59148a2`](https://github.com/GitoxideLabs/gitoxide/commit/59148a2043f0f502edfb895e19843b7fab6efeac))
+    - Add `topo::Builder::with_tips` fn for adding tips after from_iters ([`a7a8d7c`](https://github.com/GitoxideLabs/gitoxide/commit/a7a8d7cd79550033cc9e0277a0ab9155e5ab6739))
+    - Add `topo::Builder::with_ends` for adding ends after from_iters ([`1c1d037`](https://github.com/GitoxideLabs/gitoxide/commit/1c1d03775ce169dc3a353c2b81ce5770cbda15f5))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.43.0 (2024-11-24)
 
 A maintenance release without user-facing changes.
@@ -13,7 +81,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 5 commits contributed to the release.
+ - 6 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +92,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-glob v0.17.1, gix-command v0.3.11, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-sec v0.10.10, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-ignore v0.12.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0 ([`4000197`](https://github.com/GitoxideLabs/gitoxide/commit/4000197ecc8cf1a5d79361620e4c114f86476703))
     - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1662 from paolobarbolini/thiserror-v2 ([`7a40648`](https://github.com/GitoxideLabs/gitoxide/commit/7a406481b072728cec089d7c05364f9dbba335a2))

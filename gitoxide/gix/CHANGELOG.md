@@ -5,6 +5,132 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+ - <csr-id-c0f4da5ef4791370c98f34f0eb3bb5773edbba32/> Adjust gix::dirwalk::Options::{X,set_X} parameter names
+   This adjusts the names of parameters to `X` and `set_X` methods of
+   `gix::dirwalk::Options` (where `X` is an option name) to use a
+   systematic naming convention:
+   
+   - For the same option `X`, the `X` and `set_X` methods now always
+     have the same name of the parameter that specifies a value for an
+     option.
+   
+   - Options whose type is `bool` are named `toggle`, in keeping with
+     the prevailing convention in this code.
+   
+   - Options of `Option` type are named `value` (this required no
+     changes).
+   
+   - Options of a non-`Option` type `*Mode` -- currently this is just
+     `EmissionMode` -- are named `mode`.
+
+### New Features
+
+ - <csr-id-d0df20a5458e3f660bacaf86995518bc5bb8c10b/> handle RefLogLookup::Date
+ - <csr-id-e17b3a9c93bd9fc5847c37b1f8e336bc4b1b1e39/> add `merge::tree::TreeFavor` similar to `*::FileFavor`.
+   That way it's possible to control how tree-conflicts should be auto-resolved.
+
+### Bug Fixes
+
+ - <csr-id-14c3744a0bb5bf9e78055e0b86103a37a1f0c299/> assure date-tests won't fail over time.
+   Need to use absolute timestamps as it's impossible to control the system time.
+ - <csr-id-efc71fd0a36c7f4befe54d46a9d804853ee5a583/> public access to the contained repository in wrapped types, like `Id`.
+   This makes these types easier to use as it's enough to pass a wrapped type
+   to perform more actions on the underlying repository.
+
+### New Features (BREAKING)
+
+ - <csr-id-e59fc09f12a1c6b27d878525ff6074ac846aa87e/> move all possible code from `gix` to `gix-protocol`.
+   For now, just move the code down and immediately re-integrate in `gix`
+   to be able to use its tests to validate it.
+   
+   This is a breaking change as some types move and change the layout.
+ - <csr-id-6367c7d0a796aff8ee8778916c1a1ddae68b654d/> Add `gix-shallow` crate and use it from `gix` and `gix-protocol`
+   That way it's easier to reuse shallow-handling code from plumbing crates.
+   
+   Note that this is a breaking change as `gix-protocol` now uses the `gix-shallow::Update`
+   type, which doesn't implement a formerly public `from_line()` method anymore.
+   Now it is available as `fetch::response::shallow_update_from_line()`.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-ea8b95f4df8a6b06aa393acd907f6400785661ff/> symlinks_to_directories_are_ignored_like_directories by value
+   The methods of `gix::dirwalk::Options` are paired, where for each
+   option `X` of `Options`, a method named like `X` takes and returns
+   `self` by value, and a method `set_X` takes and returns `self` by
+   mutable reference.
+   
+   But in `symlinks_to_directories_are_ignored_like_directories`, both
+   took `self` by mutable reference. This fixes that. The effect of
+   this fix is to allow building `Options` with a call to that method
+   as the last factory method call (and using it where `Options` is
+   accepted but `&mut Options` is not).
+   
+   Most code that consumes the crate should be unaffected, but:
+   
+   - Code where calls were ordered unnaturally to avoid putting such
+     a call last should be able to be improved.
+   
+   - Code that used the method like its `set_*` countepart
+     `set_symlinks_to_directories_are_ignored_like_directories` will
+     be broken. That's what makes this fix a breaking change. Any such
+     code can be fixed by modifying it to call the `set_*` version
+     instead, which is probably what would have been intended anyway.
+ - <csr-id-bd905a6f151ac7f3153f5208ef7c2d686f372c30/> assure that rename tracking can be turned off.
+   Previously it was impossible to tell if rename tracking was disabled, or
+   if it was unset, which leads to incorrect logic.
+   
+   This changes the signature of `diff::new_rewrites()` to also provide information about
+   whether or not it was configured.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 27 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1733 from GitoxideLabs/fix-testools ([`df5cead`](https://github.com/GitoxideLabs/gitoxide/commit/df5cead220c193a9ceb8b78c8d6225368293416d))
+    - Assure date-tests won't fail over time. ([`14c3744`](https://github.com/GitoxideLabs/gitoxide/commit/14c3744a0bb5bf9e78055e0b86103a37a1f0c299))
+    - Merge pull request #1645 from dvtkrlbs/refloglookup-date ([`cbdbb8a`](https://github.com/GitoxideLabs/gitoxide/commit/cbdbb8aaaa2f944b7ebd0c6af32b6a0a86c80277))
+    - Refactor reflog support ([`9662bc1`](https://github.com/GitoxideLabs/gitoxide/commit/9662bc17e8342170a9cf0d3f3b4480ed8408ced2))
+    - Handle RefLogLookup::Date ([`d0df20a`](https://github.com/GitoxideLabs/gitoxide/commit/d0df20a5458e3f660bacaf86995518bc5bb8c10b))
+    - Merge pull request #1731 from GitoxideLabs/fix-pack-receive ([`ca54b8c`](https://github.com/GitoxideLabs/gitoxide/commit/ca54b8c67eb6c81b7175f62ee74a0d5aab6f52cc))
+    - Adapt to changes in `gix-protocol` ([`41b6571`](https://github.com/GitoxideLabs/gitoxide/commit/41b6571b9f331c018672fcd0bb7d5ce0f8885178))
+    - Merge pull request #1726 from GitoxideLabs/radicle-tuning ([`a542775`](https://github.com/GitoxideLabs/gitoxide/commit/a54277561a62cd560a9a072c6052eaf182ad4ace))
+    - Adapt to changes in `gix-protocol` ([`25b8480`](https://github.com/GitoxideLabs/gitoxide/commit/25b848080c7df2da0fa662c580451aec0deb29c4))
+    - Merge pull request #1634 from GitoxideLabs/remove-delegates ([`ddeb97f`](https://github.com/GitoxideLabs/gitoxide/commit/ddeb97f550bb95835648841b476d7647dd7c1dc0))
+    - Adapt to changes in `gix` and `gix-protocol` ([`fcb21a4`](https://github.com/GitoxideLabs/gitoxide/commit/fcb21a4b4ad25eb3bb1a2116fa6e709e62e77c84))
+    - Move all possible code from `gix` to `gix-protocol`. ([`e59fc09`](https://github.com/GitoxideLabs/gitoxide/commit/e59fc09f12a1c6b27d878525ff6074ac846aa87e))
+    - Add `gix-shallow` crate and use it from `gix` and `gix-protocol` ([`6367c7d`](https://github.com/GitoxideLabs/gitoxide/commit/6367c7d0a796aff8ee8778916c1a1ddae68b654d))
+    - Merge pull request #1721 from EliahKagan/run-ci/dirwalk-options ([`cd9060a`](https://github.com/GitoxideLabs/gitoxide/commit/cd9060aa3cb5b5e02673b55c2b33bef5674b148c))
+    - Adjust gix::dirwalk::Options::{X,set_X} parameter names ([`c0f4da5`](https://github.com/GitoxideLabs/gitoxide/commit/c0f4da5ef4791370c98f34f0eb3bb5773edbba32))
+    - Symlinks_to_directories_are_ignored_like_directories by value ([`ea8b95f`](https://github.com/GitoxideLabs/gitoxide/commit/ea8b95f4df8a6b06aa393acd907f6400785661ff))
+    - Merge pull request #1719 from EliahKagan/run-ci/complex-graph-no-baseline ([`f8ba4b9`](https://github.com/GitoxideLabs/gitoxide/commit/f8ba4b9668f233c8d9cb0854bc829755de70f3d4))
+    - Refine complex_graph `regex_matches` partial suppressions ([`f4b4bf0`](https://github.com/GitoxideLabs/gitoxide/commit/f4b4bf091489446f3bb9c14cdd366fcac3fcc011))
+    - Merge pull request #1705 from GitoxideLabs/merge ([`520c832`](https://github.com/GitoxideLabs/gitoxide/commit/520c832cfcfb34eb7617be55ebe2719ab35595fd))
+    - Adapt to changes in `gix-diff` ([`960773e`](https://github.com/GitoxideLabs/gitoxide/commit/960773e5526d02e1f2294224859c821ed86a3463))
+    - Adapt to changes in `gix-merge` ([`aaeb427`](https://github.com/GitoxideLabs/gitoxide/commit/aaeb4273de936e293030a895e9bb147ce614c58a))
+    - Assure that rename tracking can be turned off. ([`bd905a6`](https://github.com/GitoxideLabs/gitoxide/commit/bd905a6f151ac7f3153f5208ef7c2d686f372c30))
+    - Public access to the contained repository in wrapped types, like `Id`. ([`efc71fd`](https://github.com/GitoxideLabs/gitoxide/commit/efc71fd0a36c7f4befe54d46a9d804853ee5a583))
+    - Improve merge related API in `gix` ([`b2b8181`](https://github.com/GitoxideLabs/gitoxide/commit/b2b8181748ae1a3727fbbd01bfb85758f7ba3805))
+    - Add `merge::tree::TreeFavor` similar to `*::FileFavor`. ([`e17b3a9`](https://github.com/GitoxideLabs/gitoxide/commit/e17b3a9c93bd9fc5847c37b1f8e336bc4b1b1e39))
+    - Adapt to changes in `gix-merge` ([`3228de6`](https://github.com/GitoxideLabs/gitoxide/commit/3228de627fd059db8abbad7f465023fa559b9b0e))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.68.0 (2024-11-24)
 
 ### New Features
@@ -73,7 +199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 46 commits contributed to the release.
+ - 47 commits contributed to the release.
  - 18 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1678](https://github.com/GitoxideLabs/gitoxide/issues/1678), [#1683](https://github.com/GitoxideLabs/gitoxide/issues/1683)
 
@@ -89,6 +215,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1683](https://github.com/GitoxideLabs/gitoxide/issues/1683)**
     - Respect `core.bare=true` in conjunction with the main worktree ([`88d9d43`](https://github.com/GitoxideLabs/gitoxide/commit/88d9d4387287b7540a0f42b26c6a4adb4cd769a9))
  * **Uncategorized**
+    - Release gix-glob v0.17.1, gix-command v0.3.11, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-sec v0.10.10, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-ignore v0.12.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0 ([`4000197`](https://github.com/GitoxideLabs/gitoxide/commit/4000197ecc8cf1a5d79361620e4c114f86476703))
     - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1661 from GitoxideLabs/merge ([`0b7abfb`](https://github.com/GitoxideLabs/gitoxide/commit/0b7abfbdebe8c5ab30b89499a70dd7727de41184))

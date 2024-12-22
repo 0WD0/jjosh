@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-c7e04e976989435ba752628522d53ac39348b49b/> add first 'debug' version of `gix log`
+   It's primarily meant to better understand `gix blame`.
+ - <csr-id-471e046a6002a68209e215db7ee904a4149f9d51/> add `--tree-favor` to `gix merge tree|commit`.
+   With it one can decide which side to favor in case of
+   irreconcilable tree-conflicts.
+
+### Bug Fixes
+
+ - <csr-id-0727b5679f9ddeb05a9a50c895b6d77ba61ed544/> `gix merge file` now uses `THEIRS` instead of `OURS` where needed
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 7 commits contributed to the release over the course of 27 calendar days.
+ - 28 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1703](https://github.com/GitoxideLabs/gitoxide/issues/1703)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1703](https://github.com/GitoxideLabs/gitoxide/issues/1703)**
+    - `gix merge file` now uses `THEIRS` instead of `OURS` where needed ([`0727b56`](https://github.com/GitoxideLabs/gitoxide/commit/0727b5679f9ddeb05a9a50c895b6d77ba61ed544))
+ * **Uncategorized**
+    - Merge pull request #1643 from cruessler/add-gix-log ([`29cb775`](https://github.com/GitoxideLabs/gitoxide/commit/29cb775e6b85265a4907e882a45621aeb0432564))
+    - Add first 'debug' version of `gix log` ([`c7e04e9`](https://github.com/GitoxideLabs/gitoxide/commit/c7e04e976989435ba752628522d53ac39348b49b))
+    - Merge pull request #1705 from GitoxideLabs/merge ([`520c832`](https://github.com/GitoxideLabs/gitoxide/commit/520c832cfcfb34eb7617be55ebe2719ab35595fd))
+    - Adapt to changes in `gix-diff` ([`960773e`](https://github.com/GitoxideLabs/gitoxide/commit/960773e5526d02e1f2294224859c821ed86a3463))
+    - Add `--tree-favor` to `gix merge tree|commit`. ([`471e046`](https://github.com/GitoxideLabs/gitoxide/commit/471e046a6002a68209e215db7ee904a4149f9d51))
+    - Merge pull request #1704 from GitoxideLabs/fix-1703 ([`e8ce25f`](https://github.com/GitoxideLabs/gitoxide/commit/e8ce25f8d752c383ad8aea45fc7710a6d4aeb2ef))
+</details>
+
 ## 0.39.0 (2024-11-24)
 
 ### New Features
