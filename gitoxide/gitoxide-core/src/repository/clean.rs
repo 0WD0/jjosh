@@ -190,7 +190,7 @@ pub(crate) mod function {
             match disk_kind {
                 Kind::Untrackable => {
                     if debug {
-                        writeln!(err, "DBG: skipped non-file at '{}'", entry.rela_path).ok();
+                        writeln!(err, "DBG: skipped untrackable entry at '{}'", entry.rela_path).ok();
                     }
                     continue;
                 }
