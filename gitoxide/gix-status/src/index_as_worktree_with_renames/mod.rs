@@ -388,7 +388,7 @@ pub(super) mod function {
         impl<T, U> gix_dir::walk::Delegate for Delegate<'_, '_, T, U> {
             fn emit(&mut self, entry: EntryRef<'_>, collapsed_directory_status: Option<Status>) -> Action {
                 // Status never shows untracked non-files
-                if entry.disk_kind != Some(gix_dir::entry::Kind::NonFile) {
+                if entry.disk_kind != Some(gix_dir::entry::Kind::Untrackable) {
                     let entry = entry.to_owned();
                     self.tx.send(Event::DirEntry(entry, collapsed_directory_status)).ok();
                 }
@@ -469,7 +469,7 @@ pub(super) mod function {
                     ModificationOrDirwalkEntry::Modification(c) => c.entry.mode.to_tree_entry_mode(),
                     ModificationOrDirwalkEntry::DirwalkEntry { entry, .. } => entry.disk_kind.map(|kind| {
                         match kind {
-                            Kind::NonFile => {
+                            Kind::Untrackable => {
                                 // Trees are never tracked for rewrites, so we 'pretend'.
                                 gix_object::tree::EntryKind::Tree
                             }
@@ -507,7 +507,7 @@ pub(super) mod function {
             };
 
             Ok(match kind {
-                Kind::NonFile => {
+                Kind::Untrackable => {
                     // Go along with unreadable files, they are passed along without rename tracking.
                     return Ok(object_hash.null());
                 }
