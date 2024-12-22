@@ -244,6 +244,31 @@ fn removed() {
 }
 
 #[test]
+fn replace_dir_with_file() {
+    let out = fixture_filtered_detailed(
+        "status_many",
+        "replace-dir-with-file",
+        &[],
+        &[
+            (BStr::new(b"dir/content"), 0, status_removed()),
+            (BStr::new(b"dir/content2"), 1, status_removed()),
+            (BStr::new(b"dir/sub/nested"), 2, status_removed()),
+        ],
+        |_| {},
+        false,
+    );
+    assert_eq!(
+        out,
+        Outcome {
+            entries_to_process: 5,
+            entries_processed: 5,
+            symlink_metadata_calls: if cfg!(windows) { 5 } else { 4 },
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
 fn subomdule_nochange() {
     assert_eq!(
         submodule_fixture("no-change", &[]),
