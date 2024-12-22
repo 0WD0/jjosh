@@ -68,8 +68,8 @@ fn one_top_level_fifo() {
 
     assert_eq!(
         entries,
-        &[entry("top", Untracked, NonFile),],
-        "Non-files are like normal files, but with a different state"
+        &[entry("top", Untracked, Untrackable),],
+        "Untrackable entries are like normal files, but with a different state"
     );
 }
 
@@ -103,11 +103,11 @@ fn fifo_in_traversal() {
         &[
             entry_nokind(".git", Pruned).with_property(DotGit).with_match(Always),
             entry("dir-with-file/nested-file", Untracked, File),
-            entry("dir/nested", Untracked, NonFile),
+            entry("dir/nested", Untracked, Untrackable),
             entry("file", Untracked, File),
-            entry("top", Untracked, NonFile),
+            entry("top", Untracked, Untrackable),
         ],
-        "Non-files only differ by their disk-kind"
+        "Untrackable entries only differ by their disk-kind"
     );
 }
 

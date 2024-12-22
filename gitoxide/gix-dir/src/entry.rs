@@ -26,11 +26,14 @@ pub enum Property {
 /// The kind of the entry, seated in their kinds available on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum Kind {
-    /// Something that is not a file, like a named pipe or character device.
+    /// Something that is not a regular file, directory, or symbolic link.
     ///
-    /// These can only exist in the filesystem.
-    NonFile,
-    /// The entry is a blob, executable or not.
+    /// These can only exist in the filesystem,
+    /// because Git repositories do not support them, thus they cannot be tracked.
+    /// Hence, they do not appear as blobs in a repository, and their type is not specifiable in a tree object.
+    /// Examples include named pipes (FIFOs), character devices, block devices, and sockets.
+    Untrackable,
+    /// The entry is a blob, representing a regular file, executable or not.
     File,
     /// The entry is a symlink.
     Symlink,
@@ -161,7 +164,7 @@ impl From<std::fs::FileType> for Kind {
         } else if value.is_file() {
             Kind::File
         } else {
-            Kind::NonFile
+            Kind::Untrackable
         }
     }
 }
