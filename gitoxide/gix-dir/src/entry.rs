@@ -26,11 +26,13 @@ pub enum Property {
 /// The kind of the entry, seated in their kinds available on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum Kind {
-    /// Something that is not a file, like a named pipe or character device.
+    /// Something that is not a regular file, directory, or symbolic link.
     ///
-    /// These can only exist in the filesystem.
+    /// These can only exist in the filesystem, because Git repositories do not support them.
+    /// They do not appear as blobs in a repository, and their type is not specifiable in a tree object.
+    /// Examples include named pipes (FIFOs), character devices, block devices, and sockets.
     NonFile,
-    /// The entry is a blob, executable or not.
+    /// The entry is a blob, representing a regular file, executable or not.
     File,
     /// The entry is a symlink.
     Symlink,

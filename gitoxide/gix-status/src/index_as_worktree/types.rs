@@ -103,7 +103,9 @@ impl Outcome {
 pub enum Change<T = (), U = ()> {
     /// This corresponding file does not exist in the worktree anymore.
     Removed,
-    /// The type of file changed compared to the worktree, i.e. a symlink is now a file, or a file was replaced with a named pipe.
+    /// The type of file changed compared to the worktree.
+    ///
+    /// Examples include when a symlink is now a regular file, or a regular file was replaced with a named pipe.
     ///
     /// ### Deviation
     ///
