@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf, str::Lines};
+use std::{ffi::OsStr, path::PathBuf};
 
 use anyhow::anyhow;
 use gix::bstr::BStr;
@@ -18,40 +18,31 @@ pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Wr
         .into();
     let file_path: &BStr = gix::path::os_str_into_bstr(file)?;
 
-    let blame_entries = gix::blame::file(
+    let outcome = gix::blame::file(
         &repo.objects,
         traverse,
         &mut resource_cache,
         work_dir.clone(),
         file_path,
     )?;
-
-    let absolute_path = work_dir.join(file);
-    let file_content = std::fs::read_to_string(absolute_path)?;
-    let lines = file_content.lines();
-
-    write_blame_entries(out, lines, blame_entries)?;
+    write_blame_entries(out, outcome)?;
 
     Ok(())
 }
 
-fn write_blame_entries(
-    mut out: impl std::io::Write,
-    mut lines: Lines<'_>,
-    blame_entries: Vec<gix::blame::BlameEntry>,
-) -> Result<(), std::io::Error> {
-    for blame_entry in blame_entries {
-        for line_number in blame_entry.range_in_blamed_file {
-            let line = lines.next().unwrap();
-
-            writeln!(
+fn write_blame_entries(mut out: impl std::io::Write, outcome: gix::blame::Outcome) -> Result<(), std::io::Error> {
+    for (entry, lines_in_hunk) in outcome.entries_with_lines() {
+        for ((actual_lno, source_lno), line) in entry
+            .range_in_blamed_file
+            .zip(entry.range_in_original_file)
+            .zip(lines_in_hunk)
+        {
+            write!(
                 out,
-                "{} {} {}",
-                blame_entry.commit_id.to_hex_with_len(8),
-                // `line_number` is 0-based, but we want to show 1-based line numbers (as `git`
-                // does).
-                line_number + 1,
-                line
+                "{short_id} {line_no} {src_line_no} {line}",
+                line_no = actual_lno + 1,
+                src_line_no = source_lno + 1,
+                short_id = entry.commit_id.to_hex_with_len(8),
             )?;
         }
     }

@@ -1,10 +1,10 @@
-use std::{ops::Range, path::PathBuf};
-
+use gix_diff::blob::intern::TokenSource;
 use gix_hash::ObjectId;
 use gix_object::{bstr::BStr, FindExt};
+use std::{ops::Range, path::PathBuf};
 
 use super::{process_changes, Change, Offset, UnblamedHunk};
-use crate::BlameEntry;
+use crate::{BlameEntry, Outcome};
 
 // TODO: do not instantiate anything, get everything passed as argument.
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
@@ -60,28 +60,35 @@ pub fn file<E>(
     // TODO: remove
     worktree_root: PathBuf,
     file_path: &BStr,
-) -> Result<Vec<BlameEntry>, E> {
+) -> Result<Outcome, E> {
     // TODO: `worktree_root` should be removed - read everything from Commit.
     //       Worktree changes should be placed into a temporary commit.
     // TODO: remove this and deduplicate the respective code.
     use gix_object::bstr::ByteSlice;
     let absolute_path = worktree_root.join(gix_path::from_bstr(file_path));
 
-    // TODO  use `imara-diff` to tokenize this just like it will be tokenized when diffing.
-    let number_of_lines = std::fs::read_to_string(absolute_path).unwrap().lines().count();
-
     let mut traverse = traverse.into_iter().peekable();
     let Some(Ok(suspect)) = traverse.peek().map(|res| res.as_ref().map(|item| item.id)) else {
         todo!("return actual error");
     };
 
+    let original_file_blob = std::fs::read(absolute_path).unwrap();
+    let num_lines_in_original = {
+        let mut interner = gix_diff::blob::intern::Interner::new(original_file_blob.len() / 100);
+        tokens_for_diffing(&original_file_blob)
+            .tokenize()
+            .map(|token| interner.intern(token))
+            .count()
+    };
+
     let mut hunks_to_blame = vec![UnblamedHunk::new(
-        0..number_of_lines.try_into().unwrap(),
+        0..num_lines_in_original.try_into().unwrap(),
         suspect,
         Offset::Added(0),
     )];
 
     let mut out = Vec::new();
+    let mut buf = Vec::with_capacity(512);
     'outer: for item in traverse {
         let item = item?;
         let suspect = item.id;
@@ -103,9 +110,8 @@ pub fn file<E>(
             break;
         }
 
-        let mut buffer = Vec::new();
-        let commit_id = odb.find_commit(&suspect, &mut buffer).unwrap().tree();
-        let tree_iter = odb.find_tree_iter(&commit_id, &mut buffer).unwrap();
+        let commit_id = odb.find_commit(&suspect, &mut buf).unwrap().tree();
+        let tree_iter = odb.find_tree_iter(&commit_id, &mut buf).unwrap();
 
         let mut entry_buffer = Vec::new();
         let Some(entry) = tree_iter
@@ -247,7 +253,10 @@ pub fn file<E>(
     // I don’t know yet whether it would make sense to use a data structure instead that preserves
     // order on insertion.
     out.sort_by(|a, b| a.range_in_blamed_file.start.cmp(&b.range_in_blamed_file.start));
-    Ok(coalesce_blame_entries(out))
+    Ok(Outcome {
+        entries: coalesce_blame_entries(out),
+        blob: original_file_blob,
+    })
 }
 
 /// This function merges adjacent blame entries. It merges entries that are adjacent both in the
@@ -416,9 +425,18 @@ fn blob_changes(
         .unwrap();
 
     let outcome = resource_cache.prepare_diff().unwrap();
-    let input = outcome.interned_input();
+    let input = gix_diff::blob::intern::InternedInput::new(
+        tokens_for_diffing(outcome.old.data.as_slice().unwrap_or_default()),
+        tokens_for_diffing(outcome.new.data.as_slice().unwrap_or_default()),
+    );
     let number_of_lines_in_destination = input.after.len();
     let change_recorder = ChangeRecorder::new(number_of_lines_in_destination.try_into().unwrap());
 
     gix_diff::blob::diff(gix_diff::blob::Algorithm::Histogram, &input, change_recorder)
+}
+
+/// Return an iterator over tokens for use in diffing. These usually lines, but iit's important to unify them
+/// so the later access shows the right thing.
+pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
+    gix_diff::blob::sources::byte_lines_with_terminator(data)
 }

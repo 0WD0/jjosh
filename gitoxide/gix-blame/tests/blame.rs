@@ -199,7 +199,8 @@ macro_rules! mktest {
                 worktree_path,
                 format!("{}.txt", $case).as_str().into(),
             )
-            .unwrap();
+            .unwrap()
+            .entries;
 
             assert_eq!(lines_blamed.len(), $number_of_lines);
 
@@ -259,7 +260,8 @@ fn diff_disparity() {
             worktree_path,
             format!("{case}.txt").as_str().into(),
         )
-        .unwrap();
+        .unwrap()
+        .entries;
 
         assert_eq!(lines_blamed.len(), 5);
 

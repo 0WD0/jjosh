@@ -3,7 +3,43 @@ use std::{
     ops::{AddAssign, Range, SubAssign},
 };
 
+use crate::file::function::tokens_for_diffing;
 use gix_hash::ObjectId;
+use gix_object::bstr::BString;
+
+/// The outcome of [`file()`](crate::file()).
+pub struct Outcome {
+    /// One entry in sequential order, to associate a hunk in the original file with the commit (and its lines)
+    /// that introduced it.
+    pub entries: Vec<BlameEntry>,
+    /// A buffer with the file content of the *Original File*, ready for tokenization.
+    pub blob: Vec<u8>,
+}
+
+impl Outcome {
+    /// Return an iterator over each entry in [`Self::entries`], along with its lines, line by line.
+    ///
+    /// Note that [`Self::blob`] must be tokenized in exactly the same way as the tokenizer that was used
+    /// to perform the diffs, which is what this method assures.
+    pub fn entries_with_lines(&self) -> impl Iterator<Item = (BlameEntry, Vec<BString>)> + '_ {
+        use gix_diff::blob::intern::TokenSource;
+        let mut interner = gix_diff::blob::intern::Interner::new(self.blob.len() / 100);
+        let lines_as_tokens: Vec<_> = tokens_for_diffing(&self.blob)
+            .tokenize()
+            .map(|token| interner.intern(token))
+            .collect();
+        self.entries.iter().map(move |e| {
+            let Range { start, end } = e.range_in_blamed_file.clone();
+            (
+                e.clone(),
+                lines_as_tokens[start as usize..end as usize]
+                    .iter()
+                    .map(|token| BString::new(interner[*token].into()))
+                    .collect(),
+            )
+        })
+    }
+}
 
 /// Describes the offset of a particular hunk relative to the *Original File*.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,11 +104,12 @@ impl SubAssign<u32> for Offset {
 /// Both ranges are of the same size, but may use different [starting points](Range::start). Naturally,
 /// they have the same content, which is the reason they are in what is returned by [`file()`](crate::file()).
 // TODO: see if this can be encoded as `start_in_original_file` and `start_in_blamed_file` and a single `len`.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlameEntry {
     /// The section of tokens in the tokenized version of the *Blamed File* (typically lines).
     pub range_in_blamed_file: Range<u32>,
     /// The section of tokens in the tokenized version of the *Original File* (typically lines).
+    // TODO: figure out why this is basically inverted. Probably that's just it - would make sense with `UnblamedHunk` then.
     pub range_in_original_file: Range<u32>,
     /// The commit that introduced the section into the *Blamed File*.
     pub commit_id: ObjectId,
