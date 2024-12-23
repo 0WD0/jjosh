@@ -1,10 +1,9 @@
+use super::{process_changes, Change, Offset, UnblamedHunk};
+use crate::{BlameEntry, Outcome};
 use gix_diff::blob::intern::TokenSource;
 use gix_hash::ObjectId;
 use gix_object::{bstr::BStr, FindExt};
-use std::{ops::Range, path::PathBuf};
-
-use super::{process_changes, Change, Offset, UnblamedHunk};
-use crate::{BlameEntry, Outcome};
+use std::ops::Range;
 
 // TODO: do not instantiate anything, get everything passed as argument.
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
@@ -57,22 +56,16 @@ pub fn file<E>(
     odb: impl gix_object::Find + gix_object::FindHeader,
     traverse: impl IntoIterator<Item = Result<gix_traverse::commit::Info, E>>,
     resource_cache: &mut gix_diff::blob::Platform,
-    // TODO: remove
-    worktree_root: PathBuf,
     file_path: &BStr,
 ) -> Result<Outcome, E> {
-    // TODO: `worktree_root` should be removed - read everything from Commit.
-    //       Worktree changes should be placed into a temporary commit.
-    // TODO: remove this and deduplicate the respective code.
-    use gix_object::bstr::ByteSlice;
-    let absolute_path = worktree_root.join(gix_path::from_bstr(file_path));
-
     let mut traverse = traverse.into_iter().peekable();
     let Some(Ok(suspect)) = traverse.peek().map(|res| res.as_ref().map(|item| item.id)) else {
         todo!("return actual error");
     };
 
-    let original_file_blob = std::fs::read(absolute_path).unwrap();
+    let (mut buf, mut buf2) = (Vec::new(), Vec::new());
+    let original_file_entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2).unwrap();
+    let original_file_blob = odb.find_blob(&original_file_entry.oid, &mut buf).unwrap().data.to_vec();
     let num_lines_in_original = {
         let mut interner = gix_diff::blob::intern::Interner::new(original_file_blob.len() / 100);
         tokens_for_diffing(&original_file_blob)
@@ -88,12 +81,11 @@ pub fn file<E>(
     )];
 
     let mut out = Vec::new();
-    let mut buf = Vec::with_capacity(512);
     'outer: for item in traverse {
         let item = item?;
         let suspect = item.id;
 
-        let parent_ids = item.parent_ids;
+        let mut parent_ids = item.parent_ids;
         if parent_ids.is_empty() {
             // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the `id` of
             // the last `item` that was yielded by `traverse`, so it makes sense to assign the
@@ -110,29 +102,13 @@ pub fn file<E>(
             break;
         }
 
-        let commit_id = odb.find_commit(&suspect, &mut buf).unwrap().tree();
-        let tree_iter = odb.find_tree_iter(&commit_id, &mut buf).unwrap();
-
-        let mut entry_buffer = Vec::new();
-        let Some(entry) = tree_iter
-            .lookup_entry_by_path(&odb, &mut entry_buffer, file_path.to_str().unwrap())
-            .unwrap()
-        else {
+        let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2) else {
             continue;
         };
 
         if parent_ids.len() == 1 {
-            let parent_id: ObjectId = *parent_ids.last().unwrap();
-
-            let mut buffer = Vec::new();
-            let parent_commit_id = odb.find_commit(&parent_id, &mut buffer).unwrap().tree();
-            let parent_tree_iter = odb.find_tree_iter(&parent_commit_id, &mut buffer).unwrap();
-
-            let mut entry_buffer = Vec::new();
-            if let Some(parent_entry) = parent_tree_iter
-                .lookup_entry_by_path(&odb, &mut entry_buffer, file_path.to_str().unwrap())
-                .unwrap()
-            {
+            let parent_id = parent_ids.pop().expect("just validated there is exactly one");
+            if let Some(parent_entry) = find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2) {
                 if entry.oid == parent_entry.oid {
                     // The blobs storing the blamed file in `entry` and `parent_entry` are identical
                     // which is why we can pass blame to the parent without further checks.
@@ -175,25 +151,8 @@ pub fn file<E>(
                 }
             }
         } else {
-            let mut buffer = Vec::new();
-            let commit_id = odb.find_commit(&suspect, &mut buffer).unwrap().tree();
-            let tree_iter = odb.find_tree_iter(&commit_id, &mut buffer).unwrap();
-
-            let mut entry_buffer = Vec::new();
-            let entry = tree_iter
-                .lookup_entry_by_path(&odb, &mut entry_buffer, file_path.to_str().unwrap())
-                .unwrap()
-                .unwrap();
-
             for parent_id in &parent_ids {
-                let mut buffer = Vec::new();
-                let parent_commit_id = odb.find_commit(parent_id, &mut buffer).unwrap().tree();
-                let parent_tree_iter = odb.find_tree_iter(&parent_commit_id, &mut buffer).unwrap();
-
-                let mut entry_buffer = Vec::new();
-                if let Some(parent_entry) = parent_tree_iter
-                    .lookup_entry_by_path(&odb, &mut entry_buffer, file_path.to_str().unwrap())
-                    .unwrap()
+                if let Some(parent_entry) = find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2)
                 {
                     if entry.oid == parent_entry.oid {
                         // The blobs storing the blamed file in `entry` and `parent_entry` are
@@ -433,6 +392,21 @@ fn blob_changes(
     let change_recorder = ChangeRecorder::new(number_of_lines_in_destination.try_into().unwrap());
 
     gix_diff::blob::diff(gix_diff::blob::Algorithm::Histogram, &input, change_recorder)
+}
+
+fn find_path_entry_in_commit(
+    odb: &impl gix_object::Find,
+    commit: &gix_hash::oid,
+    file_path: &BStr,
+    buf: &mut Vec<u8>,
+    buf2: &mut Vec<u8>,
+) -> Option<gix_object::tree::Entry> {
+    let commit_id = odb.find_commit(commit, buf).unwrap().tree();
+    let tree_iter = odb.find_tree_iter(&commit_id, buf).unwrap();
+
+    tree_iter
+        .lookup_entry(odb, buf2, file_path.split(|b| *b == b'/'))
+        .unwrap()
 }
 
 /// Return an iterator over tokens for use in diffing. These usually lines, but iit's important to unify them

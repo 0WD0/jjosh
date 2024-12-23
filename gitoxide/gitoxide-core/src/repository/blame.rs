@@ -1,7 +1,5 @@
-use std::{ffi::OsStr, path::PathBuf};
-
-use anyhow::anyhow;
 use gix::bstr::BStr;
+use std::ffi::OsStr;
 
 pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Write) -> anyhow::Result<()> {
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
@@ -11,20 +9,9 @@ pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Wr
         gix::traverse::commit::topo::Builder::from_iters(&repo.objects, [suspect.id], None::<Vec<gix::ObjectId>>)
             .build()?;
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
-
-    let work_dir: PathBuf = repo
-        .work_dir()
-        .ok_or_else(|| anyhow!("blame needs a workdir, but there is none"))?
-        .into();
     let file_path: &BStr = gix::path::os_str_into_bstr(file)?;
 
-    let outcome = gix::blame::file(
-        &repo.objects,
-        traverse,
-        &mut resource_cache,
-        work_dir.clone(),
-        file_path,
-    )?;
+    let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file_path)?;
     write_blame_entries(out, outcome)?;
 
     Ok(())

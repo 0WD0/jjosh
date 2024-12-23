@@ -108,7 +108,6 @@ mod baseline {
 }
 
 struct Fixture {
-    worktree_path: PathBuf,
     odb: gix_odb::Handle,
     resource_cache: gix_diff::blob::Platform,
     commits: Vec<Result<gix_traverse::commit::Info, gix_traverse::commit::topo::Error>>,
@@ -174,7 +173,6 @@ impl Fixture {
         );
         Ok(Fixture {
             odb,
-            worktree_path,
             resource_cache,
             commits,
         })
@@ -186,7 +184,6 @@ macro_rules! mktest {
         #[test]
         fn $name() {
             let Fixture {
-                worktree_path,
                 odb,
                 mut resource_cache,
                 commits,
@@ -196,7 +193,6 @@ macro_rules! mktest {
                 &odb,
                 commits,
                 &mut resource_cache,
-                worktree_path,
                 format!("{}.txt", $case).as_str().into(),
             )
             .unwrap()
@@ -247,7 +243,6 @@ mktest!(file_only_changed_in_branch, "file-only-changed-in-branch", 2);
 fn diff_disparity() {
     for case in ["empty-lines-myers", "empty-lines-histogram"] {
         let Fixture {
-            worktree_path,
             odb,
             mut resource_cache,
             commits,
@@ -257,7 +252,6 @@ fn diff_disparity() {
             &odb,
             commits,
             &mut resource_cache,
-            worktree_path,
             format!("{case}.txt").as_str().into(),
         )
         .unwrap()
