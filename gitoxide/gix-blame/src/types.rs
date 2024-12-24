@@ -10,10 +10,10 @@ use gix_object::bstr::BString;
 /// The outcome of [`file()`](crate::file()).
 #[derive(Debug, Clone)]
 pub struct Outcome {
-    /// One entry in sequential order, to associate a hunk in the original file with the commit (and its lines)
+    /// One entry in sequential order, to associate a hunk in the blamed file with the source commit (and its lines)
     /// that introduced it.
     pub entries: Vec<BlameEntry>,
-    /// A buffer with the file content of the *Original File*, ready for tokenization.
+    /// A buffer with the file content of the *Blamed File*, ready for tokenization.
     pub blob: Vec<u8>,
     /// Additional information about the amount of work performed to produce the blame.
     pub statistics: Statistics,
@@ -60,7 +60,7 @@ impl Outcome {
     }
 }
 
-/// Describes the offset of a particular hunk relative to the *Original File*.
+/// Describes the offset of a particular hunk relative to the *Blamed File*.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Offset {
     /// The amount of lines to add.
@@ -118,7 +118,7 @@ impl SubAssign<u32> for Offset {
     }
 }
 
-/// A mapping of a section of the *Original File* to the section in a *Blamed File* that introduced it.
+/// A mapping of a section of the *Blamed File* to the section in a *Source File* that introduced it.
 ///
 /// Both ranges are of the same size, but may use different [starting points](Range::start). Naturally,
 /// they have the same content, which is the reason they are in what is returned by [`file()`](crate::file()).
@@ -127,29 +127,28 @@ impl SubAssign<u32> for Offset {
 pub struct BlameEntry {
     /// The section of tokens in the tokenized version of the *Blamed File* (typically lines).
     pub range_in_blamed_file: Range<u32>,
-    /// The section of tokens in the tokenized version of the *Original File* (typically lines).
-    // TODO: figure out why this is basically inverted. Probably that's just it - would make sense with `UnblamedHunk` then.
-    pub range_in_original_file: Range<u32>,
-    /// The commit that introduced the section into the *Blamed File*.
+    /// The section of tokens in the tokenized version of the *Source File* (typically lines).
+    pub range_in_source_file: Range<u32>,
+    /// The commit that introduced the section into the *Source File*.
     pub commit_id: ObjectId,
 }
 
 impl BlameEntry {
     /// Create a new instance.
-    pub fn new(range_in_blamed_file: Range<u32>, range_in_original_file: Range<u32>, commit_id: ObjectId) -> Self {
+    pub fn new(range_in_blamed_file: Range<u32>, range_in_source_file: Range<u32>, commit_id: ObjectId) -> Self {
         debug_assert!(
             range_in_blamed_file.end > range_in_blamed_file.start,
             "{range_in_blamed_file:?}"
         );
         debug_assert!(
-            range_in_original_file.end > range_in_original_file.start,
-            "{range_in_original_file:?}"
+            range_in_source_file.end > range_in_source_file.start,
+            "{range_in_source_file:?}"
         );
-        debug_assert_eq!(range_in_original_file.len(), range_in_blamed_file.len());
+        debug_assert_eq!(range_in_source_file.len(), range_in_blamed_file.len());
 
         Self {
             range_in_blamed_file: range_in_blamed_file.clone(),
-            range_in_original_file: range_in_original_file.clone(),
+            range_in_source_file: range_in_source_file.clone(),
             commit_id,
         }
     }
@@ -171,7 +170,7 @@ impl LineRange for Range<u32> {
 pub struct UnblamedHunk {
     /// TODO: figure out how this works.
     pub range_in_blamed_file: Range<u32>,
-    /// Maps a commit to the range in the *Original File* that `range_in_blamed_file` refers to.
+    /// Maps a commit to the range in the *Blamed File* that `range_in_blamed_file` refers to.
     pub suspects: BTreeMap<ObjectId, Range<u32>>,
 }
 

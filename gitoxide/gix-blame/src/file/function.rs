@@ -29,9 +29,9 @@ use std::ops::Range;
 /// *For brevity, `HEAD` denotes the starting point of the blame operation. It could be any commit, or even commits that
 /// represent the worktree state.
 /// We begin with a single *Unblamed Hunk* and a single suspect, usually the `HEAD` commit as the commit containing the
-/// *Original File*, so that it contains the entire file, with the first commit being a candidate for the entire *Original File*.
+/// *Blamed File*, so that it contains the entire file, with the first commit being a candidate for the entire *Blamed File*.
 /// We traverse the commit graph starting at the first suspect, and see if there have been changes to `file_path`.
-/// If so, we have found a *Blamed File* and a *Suspect* commit, and have hunks that represent these changes.
+/// If so, we have found a *Source File* and a *Suspect* commit, and have hunks that represent these changes.
 /// Now the *Unblamed Hunk* is split at the boundaries of each matching change, creating a new *Unblamed Hunk* on each side,
 /// along with a [`BlameEntry`] to represent the match.
 /// This is repeated until there are no non-empty *Unblamed Hunk*s left.
@@ -69,22 +69,22 @@ where
 
     let mut stats = Statistics::default();
     let (mut buf, mut buf2, mut buf3) = (Vec::new(), Vec::new(), Vec::new());
-    let original_file_entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)?
+    let blamed_file_entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)?
         .ok_or_else(|| Error::FileMissing {
             file_path: file_path.to_owned(),
             commit_id: suspect,
         })?;
-    let original_file_blob = odb.find_blob(&original_file_entry.oid, &mut buf)?.data.to_vec();
-    let num_lines_in_original = {
-        let mut interner = gix_diff::blob::intern::Interner::new(original_file_blob.len() / 100);
-        tokens_for_diffing(&original_file_blob)
+    let blamed_file_blob = odb.find_blob(&blamed_file_entry.oid, &mut buf)?.data.to_vec();
+    let num_lines_in_blamed = {
+        let mut interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
+        tokens_for_diffing(&blamed_file_blob)
             .tokenize()
             .map(|token| interner.intern(token))
             .count()
     };
 
     let mut hunks_to_blame = vec![UnblamedHunk::new(
-        0..num_lines_in_original as u32,
+        0..num_lines_in_blamed as u32,
         suspect,
         Offset::Added(0),
     )];
@@ -194,7 +194,7 @@ where
     out.sort_by(|a, b| a.range_in_blamed_file.start.cmp(&b.range_in_blamed_file.start));
     Ok(Outcome {
         entries: coalesce_blame_entries(out),
-        blob: original_file_blob,
+        blob: blamed_file_blob,
         statistics: stats,
     })
 }
@@ -218,7 +218,7 @@ fn unblamed_to_out(hunks_to_blame: &mut Vec<UnblamedHunk>, out: &mut Vec<BlameEn
 }
 
 /// This function merges adjacent blame entries. It merges entries that are adjacent both in the
-/// blamed file and in the original file that introduced them. This follows `git`’s
+/// blamed file and in the source file that introduced them. This follows `git`’s
 /// behaviour. `libgit2`, as of 2024-09-19, only checks whether two entries are adjacent in the
 /// blamed file which can result in different blames in certain edge cases. See [the commit][1]
 /// that introduced the extra check into `git` for context. See [this commit][2] for a way to test
@@ -237,12 +237,11 @@ fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
                 if previous_entry.commit_id == entry.commit_id
                     && previous_entry.range_in_blamed_file.end == entry.range_in_blamed_file.start
                     // As of 2024-09-19, the check below only is in `git`, but not in `libgit2`.
-                    && previous_entry.range_in_original_file.end == entry.range_in_original_file.start
+                    && previous_entry.range_in_source_file.end == entry.range_in_source_file.start
                 {
                     let coalesced_entry = BlameEntry {
                         range_in_blamed_file: previous_entry.range_in_blamed_file.start..entry.range_in_blamed_file.end,
-                        range_in_original_file: previous_entry.range_in_original_file.start
-                            ..entry.range_in_original_file.end,
+                        range_in_source_file: previous_entry.range_in_source_file.start..entry.range_in_source_file.end,
                         commit_id: previous_entry.commit_id,
                     };
 
@@ -304,7 +303,7 @@ fn blob_changes(
     file_path: &BStr,
     stats: &mut Statistics,
 ) -> Result<Vec<Change>, Error> {
-    /// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Blamed File*.
+    /// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Source File*.
     struct ChangeRecorder {
         last_seen_after_end: u32,
         hunks: Vec<Change>,

@@ -70,7 +70,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..3,
-                range_in_original_file: 0..3,
+                range_in_source_file: 0..3,
                 commit_id: suspect
             }]
         );
@@ -106,7 +106,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 2..3,
-                range_in_original_file: 2..3,
+                range_in_source_file: 2..3,
                 commit_id: suspect
             }]
         );
@@ -148,7 +148,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 12..13,
-                range_in_original_file: 12..13,
+                range_in_source_file: 12..13,
                 commit_id: suspect
             }]
         );
@@ -191,7 +191,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 14..15,
-                range_in_original_file: 9..10,
+                range_in_source_file: 9..10,
                 commit_id: suspect
             }]
         );
@@ -233,7 +233,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..3,
-                range_in_original_file: 0..3,
+                range_in_source_file: 0..3,
                 commit_id: suspect
             }]
         );
@@ -270,7 +270,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 1..4,
-                range_in_original_file: 0..3,
+                range_in_source_file: 0..3,
                 commit_id: suspect
             }]
         );
@@ -307,7 +307,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 4..6,
-                range_in_original_file: 3..5,
+                range_in_source_file: 3..5,
                 commit_id: suspect
             }]
         );
@@ -344,7 +344,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 23..24,
-                range_in_original_file: 25..26,
+                range_in_source_file: 25..26,
                 commit_id: suspect
             }]
         );
@@ -375,7 +375,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 23..24,
-                range_in_original_file: 21..22,
+                range_in_source_file: 21..22,
                 commit_id: suspect
             }]
         );
@@ -406,7 +406,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 107..109,
-                range_in_original_file: 106..108,
+                range_in_source_file: 106..108,
                 commit_id: suspect
             }]
         );
@@ -443,7 +443,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 155..156,
-                range_in_original_file: 143..144,
+                range_in_source_file: 143..144,
                 commit_id: suspect
             }]
         );
@@ -660,7 +660,7 @@ mod process_change {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 2..5,
-                range_in_original_file: 5..8,
+                range_in_source_file: 5..8,
                 commit_id: suspect
             }]
         );
@@ -1011,7 +1011,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..4,
-                range_in_original_file: 0..4,
+                range_in_source_file: 0..4,
                 commit_id: suspect
             }]
         );
@@ -1030,7 +1030,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..4,
-                range_in_original_file: 0..4,
+                range_in_source_file: 0..4,
                 commit_id: suspect
             }]
         );
@@ -1049,7 +1049,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 2..4,
-                range_in_original_file: 2..4,
+                range_in_source_file: 2..4,
                 commit_id: suspect
             }]
         );
@@ -1075,12 +1075,12 @@ mod process_changes {
             [
                 BlameEntry {
                     range_in_blamed_file: 0..1,
-                    range_in_original_file: 0..1,
+                    range_in_source_file: 0..1,
                     commit_id: suspect
                 },
                 BlameEntry {
                     range_in_blamed_file: 1..4,
-                    range_in_original_file: 1..4,
+                    range_in_source_file: 1..4,
                     commit_id: suspect
                 }
             ]
@@ -1100,7 +1100,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..1,
-                range_in_original_file: 0..1,
+                range_in_source_file: 0..1,
                 commit_id: suspect
             }]
         );
@@ -1113,7 +1113,7 @@ mod process_changes {
         let suspect_2 = ObjectId::from_hex(b"2222222222222222222222222222222222222222").unwrap();
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
             range_in_blamed_file: 0..2,
-            range_in_original_file: 0..2,
+            range_in_source_file: 0..2,
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect_2, Offset::Added(2))];
@@ -1125,12 +1125,12 @@ mod process_changes {
             [
                 BlameEntry {
                     range_in_blamed_file: 0..2,
-                    range_in_original_file: 0..2,
+                    range_in_source_file: 0..2,
                     commit_id: suspect
                 },
                 BlameEntry {
                     range_in_blamed_file: 2..3,
-                    range_in_original_file: 0..1,
+                    range_in_source_file: 0..1,
                     commit_id: suspect_2
                 }
             ]
@@ -1153,7 +1153,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..4,
-                range_in_original_file: 0..4,
+                range_in_source_file: 0..4,
                 commit_id: suspect
             }]
         );
@@ -1178,7 +1178,7 @@ mod process_changes {
         let suspect_2 = ObjectId::from_hex(b"2222222222222222222222222222222222222222").unwrap();
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
             range_in_blamed_file: 0..1,
-            range_in_original_file: 0..1,
+            range_in_source_file: 0..1,
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(1..3, suspect_2, Offset::Added(1))];
@@ -1190,12 +1190,12 @@ mod process_changes {
             [
                 BlameEntry {
                     range_in_blamed_file: 0..1,
-                    range_in_original_file: 0..1,
+                    range_in_source_file: 0..1,
                     commit_id: suspect
                 },
                 BlameEntry {
                     range_in_blamed_file: 1..2,
-                    range_in_original_file: 0..1,
+                    range_in_source_file: 0..1,
                     commit_id: suspect_2
                 }
             ]
@@ -1219,12 +1219,12 @@ mod process_changes {
             [
                 BlameEntry {
                     range_in_blamed_file: 0..2,
-                    range_in_original_file: 0..2,
+                    range_in_source_file: 0..2,
                     commit_id: suspect
                 },
                 BlameEntry {
                     range_in_blamed_file: 3..4,
-                    range_in_original_file: 3..4,
+                    range_in_source_file: 3..4,
                     commit_id: suspect
                 }
             ]
@@ -1237,7 +1237,7 @@ mod process_changes {
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
             range_in_blamed_file: 30..31,
-            range_in_original_file: 30..31,
+            range_in_source_file: 30..31,
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![
@@ -1264,12 +1264,12 @@ mod process_changes {
             [
                 BlameEntry {
                     range_in_blamed_file: 16..17,
-                    range_in_original_file: 16..17,
+                    range_in_source_file: 16..17,
                     commit_id: suspect
                 },
                 BlameEntry {
                     range_in_blamed_file: 30..31,
-                    range_in_original_file: 30..31,
+                    range_in_source_file: 30..31,
                     commit_id: suspect
                 }
             ]
@@ -1308,7 +1308,7 @@ mod process_changes {
             lines_blamed,
             [BlameEntry {
                 range_in_blamed_file: 0..4,
-                range_in_original_file: 0..4,
+                range_in_source_file: 0..4,
                 commit_id: suspect
             }]
         );

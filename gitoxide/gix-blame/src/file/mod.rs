@@ -8,11 +8,11 @@ use crate::types::{Change, Offset, UnblamedHunk};
 
 pub(super) mod function;
 
-/// Compare a section from the *Original File* (`hunk`) with a change from a diff and see if there
+/// Compare a section from the *Blamed File* (`hunk`) with a change from a diff and see if there
 /// is an intersection with `change`. Based on that intersection, we may generate a [`BlameEntry`] for `out`
 /// and/or split the `hunk` into multiple.
 ///
-/// This is the core of the blame implementation as it matches regions in *Blamed Files* to the *Original File*.
+/// This is the core of the blame implementation as it matches regions in *Source File* to the *Blamed File*.
 fn process_change(
     out: &mut Vec<BlameEntry>,
     new_hunks_to_blame: &mut Vec<UnblamedHunk>,
@@ -407,45 +407,44 @@ impl UnblamedHunk {
 }
 
 impl BlameEntry {
-    /// Create a new instance by creating `range_in_blamed_file` after applying `offset` to `range_in_original_file`.
-    fn with_offset(range_in_original_file: Range<u32>, commit_id: ObjectId, offset: Offset) -> Self {
+    /// Create a new instance by creating `range_in_blamed_file` after applying `offset` to `range_in_source_file`.
+    fn with_offset(range_in_source_file: Range<u32>, commit_id: ObjectId, offset: Offset) -> Self {
         debug_assert!(
-            range_in_original_file.end > range_in_original_file.start,
-            "{range_in_original_file:?}"
+            range_in_source_file.end > range_in_source_file.start,
+            "{range_in_source_file:?}"
         );
 
         match offset {
             Offset::Added(added) => Self {
-                range_in_blamed_file: (range_in_original_file.start + added)..(range_in_original_file.end + added),
-                range_in_original_file,
+                range_in_blamed_file: (range_in_source_file.start + added)..(range_in_source_file.end + added),
+                range_in_source_file,
                 commit_id,
             },
             Offset::Deleted(deleted) => {
                 debug_assert!(
-                    range_in_original_file.start >= deleted,
-                    "{range_in_original_file:?} {offset:?}"
+                    range_in_source_file.start >= deleted,
+                    "{range_in_source_file:?} {offset:?}"
                 );
 
                 Self {
-                    range_in_blamed_file: (range_in_original_file.start - deleted)
-                        ..(range_in_original_file.end - deleted),
-                    range_in_original_file,
+                    range_in_blamed_file: (range_in_source_file.start - deleted)..(range_in_source_file.end - deleted),
+                    range_in_source_file,
                     commit_id,
                 }
             }
         }
     }
 
-    /// Create an offset from a portion of the *Original File*.
+    /// Create an offset from a portion of the *Blamed File*.
     fn from_unblamed_hunk(mut unblamed_hunk: UnblamedHunk, commit_id: ObjectId) -> Self {
-        let range_in_original_file = unblamed_hunk
+        let range_in_source_file = unblamed_hunk
             .suspects
             .remove(&commit_id)
             .expect("Private and only called when we now `commit_id` is in the suspect list");
 
         Self {
             range_in_blamed_file: unblamed_hunk.range_in_blamed_file,
-            range_in_original_file,
+            range_in_source_file,
             commit_id,
         }
     }

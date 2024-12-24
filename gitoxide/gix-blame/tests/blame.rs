@@ -79,7 +79,7 @@ mod baseline {
                         Err(_) => continue,
                     };
 
-                    let line_number_in_original_file = fields[1].parse::<u32>().unwrap();
+                    let line_number_in_source_file = fields[1].parse::<u32>().unwrap();
                     let line_number_in_final_file = fields[2].parse::<u32>().unwrap();
                     // The last field indicates the number of lines this group contains info for
                     // (this is not equal to the number of lines in git blame’s porcelain output).
@@ -87,22 +87,22 @@ mod baseline {
 
                     skip_lines = number_of_lines_in_group;
 
-                    let original_range = (line_number_in_original_file - 1)
-                        ..(line_number_in_original_file + number_of_lines_in_group - 1);
+                    let source_range =
+                        (line_number_in_source_file - 1)..(line_number_in_source_file + number_of_lines_in_group - 1);
                     let blame_range =
                         (line_number_in_final_file - 1)..(line_number_in_final_file + number_of_lines_in_group - 1);
                     assert!(ranges.is_none(), "should not overwrite existing ranges");
-                    ranges = Some((blame_range, original_range));
+                    ranges = Some((blame_range, source_range));
                 } else if !is_known_header_field(&fields[0]) && ObjectId::from_hex(fields[0].as_bytes()).is_err() {
                     panic!("unexpected line: '{:?}'", line.as_bstr());
                 }
             }
 
-            let Some((range_in_blamed_file, range_in_original_file)) = ranges else {
+            let Some((range_in_blamed_file, range_in_source_file)) = ranges else {
                 // No new lines were parsed, so we assume the iterator is finished.
                 return None;
             };
-            Some(BlameEntry::new(range_in_blamed_file, range_in_original_file, commit_id))
+            Some(BlameEntry::new(range_in_blamed_file, range_in_source_file, commit_id))
         }
     }
 }
