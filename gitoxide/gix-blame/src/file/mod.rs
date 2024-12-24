@@ -216,7 +216,10 @@ fn process_change(
             }
         }
         (Some(hunk), Some(Change::Deleted(line_number_in_destination, number_of_lines_deleted))) => {
-            let range_in_suspect = hunk.suspects.get(&suspect).expect("TODO");
+            let range_in_suspect = hunk
+                .suspects
+                .get(&suspect)
+                .expect("Internal and we know suspect is present");
 
             if line_number_in_destination < range_in_suspect.start {
                 //     <--->  (hunk)
@@ -377,7 +380,10 @@ impl UnblamedHunk {
     }
 
     fn offset_for(&self, suspect: ObjectId) -> Offset {
-        let range_in_suspect = self.suspects.get(&suspect).expect("TODO");
+        let range_in_suspect = self
+            .suspects
+            .get(&suspect)
+            .expect("Internal and we know suspect is present");
 
         if self.range_in_blamed_file.start > range_in_suspect.start {
             Offset::Added(self.range_in_blamed_file.start - range_in_suspect.start)
@@ -437,7 +443,10 @@ impl BlameEntry {
 
     /// Create an offset from a portion of the *Original File*.
     fn from_unblamed_hunk(unblamed_hunk: &UnblamedHunk, commit_id: ObjectId) -> Self {
-        let range_in_original_file = unblamed_hunk.suspects.get(&commit_id).unwrap();
+        let range_in_original_file = unblamed_hunk
+            .suspects
+            .get(&commit_id)
+            .expect("Private and only called when we now `commit_id` is in the suspect list");
 
         Self {
             range_in_blamed_file: unblamed_hunk.range_in_blamed_file.clone(),

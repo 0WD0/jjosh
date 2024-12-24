@@ -14,6 +14,8 @@
 #![deny(rust_2018_idioms, missing_docs)]
 #![forbid(unsafe_code)]
 
+mod error;
+pub use error::Error;
 mod types;
 pub use types::{BlameEntry, Outcome, Statistics};
 

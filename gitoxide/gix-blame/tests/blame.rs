@@ -182,29 +182,29 @@ impl Fixture {
 macro_rules! mktest {
     ($name:ident, $case:expr, $number_of_lines:literal) => {
         #[test]
-        fn $name() {
+        fn $name() -> gix_testtools::Result<()> {
             let Fixture {
                 odb,
                 mut resource_cache,
                 commits,
-            } = Fixture::new().unwrap();
+            } = Fixture::new()?;
 
             let lines_blamed = gix_blame::file(
                 &odb,
                 commits,
                 &mut resource_cache,
                 format!("{}.txt", $case).as_str().into(),
-            )
-            .unwrap()
+            )?
             .entries;
 
             assert_eq!(lines_blamed.len(), $number_of_lines);
 
             let git_dir = fixture_path().join(".git");
-            let baseline = Baseline::collect(git_dir.join(format!("{}.baseline", $case))).unwrap();
+            let baseline = Baseline::collect(git_dir.join(format!("{}.baseline", $case)))?;
 
             assert_eq!(baseline.len(), $number_of_lines);
             assert_eq!(lines_blamed, baseline);
+            Ok(())
         }
     };
 }
@@ -235,11 +235,11 @@ mktest!(
 );
 mktest!(file_only_changed_in_branch, "file-only-changed-in-branch", 2);
 
+/// As of 2024-09-24, these tests are expected to fail.
+///
+/// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
 #[test]
-#[ignore = "TBD: figure out what the problem is"]
-// As of 2024-09-24, these tests are expected to fail.
-//
-// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
+#[should_panic = "empty-lines-myers"]
 fn diff_disparity() {
     for case in ["empty-lines-myers", "empty-lines-histogram"] {
         let Fixture {
