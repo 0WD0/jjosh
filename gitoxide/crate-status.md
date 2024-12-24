@@ -371,6 +371,7 @@ Check out the [performance discussion][gix-diff-performance] as well.
 - [ ] shallow-history support
 - [ ] rename tracking (track different paths through history)
 - [ ] commits to ignore
+- [ ] pass all blame-cornercases (from Git)
 * **Performance-Improvements**
     - [ ] use commit-graph bloom filter for performance
     - [ ] traverse input-commits in correct order without `compute_indegrees_to_depth()`

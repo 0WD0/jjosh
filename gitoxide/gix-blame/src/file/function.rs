@@ -91,51 +91,48 @@ where
 
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
-    'outer: for item in traverse {
-        let item = item.map_err(|err| Error::Traverse(err.into()))?;
-        let suspect = item.id;
+    'outer: while let Some(item) = traverse.next() {
+        let commit = item.map_err(|err| Error::Traverse(err.into()))?;
+        let suspect = commit.id;
         stats.commits_traversed += 1;
 
-        let mut parent_ids = item.parent_ids;
+        let parent_ids = commit.parent_ids;
         if parent_ids.is_empty() {
-            // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the `id` of
-            // the last `item` that was yielded by `traverse`, so it makes sense to assign the
-            // remaining lines to it, even though we don’t explicitly check whether that is true
-            // here. We could perhaps use `needed_to_obtain` to compare `suspect` against an empty
-            // tree to validate this assumption.
-            out.extend(
-                hunks_to_blame
-                    .iter()
-                    .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
-            );
-
-            hunks_to_blame.clear();
-            break;
+            if traverse.peek().is_none() {
+                // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the `id` of
+                // the last `item` that was yielded by `traverse`, so it makes sense to assign the
+                // remaining lines to it, even though we don’t explicitly check whether that is true
+                // here. We could perhaps use diff-tree-to-tree to compare `suspect`
+                // against an empty tree to validate this assumption.
+                unblamed_to_out(&mut hunks_to_blame, &mut out, suspect);
+                break;
+            } else {
+                // There is more, keep looking.
+                continue;
+            }
         }
 
         let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)? else {
             continue;
         };
 
-        if parent_ids.len() == 1 {
-            let parent_id = parent_ids.pop().expect("just validated there is exactly one");
+        for parent_id in &parent_ids {
             if let Some(parent_entry) =
-                find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2, &mut stats)?
+                find_path_entry_in_commit(&odb, parent_id, file_path, &mut buf, &mut buf2, &mut stats)?
             {
                 if entry.oid == parent_entry.oid {
-                    // The blobs storing the blamed file in `entry` and `parent_entry` are identical
-                    // which is why we can pass blame to the parent without further checks.
-                    for unblamed_hunk in &mut hunks_to_blame {
-                        unblamed_hunk.pass_blame(suspect, parent_id);
-                    }
-                    continue;
+                    pass_blame_from_to(suspect, *parent_id, &mut hunks_to_blame);
+                    continue 'outer;
                 }
             }
+        }
 
+        let more_than_one_parent = parent_ids.len() > 1;
+        for parent_id in parent_ids {
             let changes_for_file_path = tree_diff_at_file_path(
                 &odb,
                 file_path,
-                item.id,
+                commit.id,
                 parent_id,
                 &mut stats,
                 &mut diff_state,
@@ -144,92 +141,42 @@ where
                 &mut buf3,
             )?;
             let Some(modification) = changes_for_file_path else {
-                // None of the changes affected the file we’re currently blaming. Pass blame to parent.
-                for unblamed_hunk in &mut hunks_to_blame {
-                    unblamed_hunk.pass_blame(suspect, parent_id);
+                if more_than_one_parent {
+                    // None of the changes affected the file we’re currently blaming. Pass blame
+                    // to parent.
+                    for unblamed_hunk in &mut hunks_to_blame {
+                        unblamed_hunk.clone_blame(suspect, parent_id);
+                    }
+                } else {
+                    pass_blame_from_to(suspect, parent_id, &mut hunks_to_blame);
                 }
                 continue;
             };
 
             match modification {
                 gix_diff::tree::recorder::Change::Addition { .. } => {
-                    // Every line that has not been blamed yet on a commit, is expected to have been
-                    // added when the file was added to the repository.
-                    out.extend(
-                        hunks_to_blame
-                            .iter()
-                            .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
-                    );
-
-                    hunks_to_blame.clear();
-                    break;
-                }
-                gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
-                gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats)?;
-                    hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
-                    for unblamed_hunk in &mut hunks_to_blame {
-                        unblamed_hunk.pass_blame(suspect, parent_id);
-                    }
-                }
-            }
-        } else {
-            for parent_id in &parent_ids {
-                if let Some(parent_entry) =
-                    find_path_entry_in_commit(&odb, parent_id, file_path, &mut buf, &mut buf2, &mut stats)?
-                {
-                    if entry.oid == parent_entry.oid {
-                        // The blobs storing the blamed file in `entry` and `parent_entry` are
-                        // identical which is why we can pass blame to the parent without further
-                        // checks.
-                        for unblamed_hunk in &mut hunks_to_blame {
-                            unblamed_hunk.pass_blame(suspect, *parent_id);
-                        }
-                        continue 'outer;
-                    }
-                }
-            }
-
-            for parent_id in parent_ids {
-                let changes_for_file_path = tree_diff_at_file_path(
-                    &odb,
-                    file_path,
-                    item.id,
-                    parent_id,
-                    &mut stats,
-                    &mut diff_state,
-                    &mut buf,
-                    &mut buf2,
-                    &mut buf3,
-                )?;
-                let Some(modification) = changes_for_file_path else {
-                    // None of the changes affected the file we’re currently blaming. Pass blame
-                    // to parent.
-                    for unblamed_hunk in &mut hunks_to_blame {
-                        unblamed_hunk.clone_blame(suspect, parent_id);
-                    }
-
-                    continue;
-                };
-
-                match modification {
-                    gix_diff::tree::recorder::Change::Addition { .. } => {
+                    if more_than_one_parent {
                         // Do nothing under the assumption that this always (or almost always)
                         // implies that the file comes from a different parent, compared to which
                         // it was modified, not added.
                         //
                         // TODO: I still have to figure out whether this is correct in all cases.
-                    }
-                    gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
-                    gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                        let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats)?;
-                        hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
-                        for unblamed_hunk in &mut hunks_to_blame {
-                            unblamed_hunk.pass_blame(suspect, parent_id);
-                        }
+                    } else {
+                        unblamed_to_out(&mut hunks_to_blame, &mut out, suspect);
+                        break;
                     }
                 }
+                gix_diff::tree::recorder::Change::Deletion { .. } => {
+                    unreachable!("We already found file_path in suspect^{{tree}}, so it can't be deleted")
+                }
+                gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
+                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats)?;
+                    hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
+                    pass_blame_from_to(suspect, parent_id, &mut hunks_to_blame);
+                }
             }
+        }
+        if more_than_one_parent {
             for unblamed_hunk in &mut hunks_to_blame {
                 unblamed_hunk.remove_blame(suspect);
             }
@@ -250,6 +197,24 @@ where
         blob: original_file_blob,
         statistics: stats,
     })
+}
+
+/// The blobs storing the blamed file in `entry` and `parent_entry` are identical which is why
+/// we can pass blame to the parent without further checks.
+fn pass_blame_from_to(from: ObjectId, to: ObjectId, hunks_to_blame: &mut Vec<UnblamedHunk>) {
+    for unblamed_hunk in hunks_to_blame {
+        unblamed_hunk.pass_blame(from, to);
+    }
+}
+
+fn unblamed_to_out(hunks_to_blame: &mut Vec<UnblamedHunk>, out: &mut Vec<BlameEntry>, suspect: ObjectId) {
+    // Every line that has not been blamed yet on a commit, is expected to have been
+    // added when the file was added to the repository.
+    out.extend(
+        hunks_to_blame
+            .drain(..)
+            .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
+    );
 }
 
 /// This function merges adjacent blame entries. It merges entries that are adjacent both in the

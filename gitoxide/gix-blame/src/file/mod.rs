@@ -90,13 +90,12 @@ fn process_change(
             };
 
             let range_in_suspect = range_in_suspect.clone();
-
-            match (
-                range_in_suspect.contains(&added.start),
-                // Since `added` is a range that is not inclusive at the end, `added.end` is
-                // not part of `added`. The first line that is `added.end - 1`.
-                (added.end - 1) >= range_in_suspect.start && added.end <= range_in_suspect.end,
-            ) {
+            let range_contains_added_start = range_in_suspect.contains(&added.start);
+            // Since `added` is a range that is not inclusive at the end, `added.end` is
+            // not part of `added`. The first line that is `added.end - 1`.
+            let range_contains_added_end =
+                (added.end - 1) >= range_in_suspect.start && added.end <= range_in_suspect.end;
+            match (range_contains_added_start, range_contains_added_end) {
                 (true, true) => {
                     // <---------->  (hunk)
                     //     <--->     (added)
@@ -147,11 +146,7 @@ fn process_change(
                         new_hunk.offset_for(suspect),
                     ));
 
-                    if added.end > range_in_suspect.end {
-                        (None, Some(Change::Added(added, number_of_lines_deleted)))
-                    } else {
-                        todo!();
-                    }
+                    (None, Some(Change::Added(added, number_of_lines_deleted)))
                 }
                 (false, true) => {
                     //    <------->  (hunk)
@@ -442,15 +437,15 @@ impl BlameEntry {
     }
 
     /// Create an offset from a portion of the *Original File*.
-    fn from_unblamed_hunk(unblamed_hunk: &UnblamedHunk, commit_id: ObjectId) -> Self {
+    fn from_unblamed_hunk(mut unblamed_hunk: UnblamedHunk, commit_id: ObjectId) -> Self {
         let range_in_original_file = unblamed_hunk
             .suspects
-            .get(&commit_id)
+            .remove(&commit_id)
             .expect("Private and only called when we now `commit_id` is in the suspect list");
 
         Self {
-            range_in_blamed_file: unblamed_hunk.range_in_blamed_file.clone(),
-            range_in_original_file: range_in_original_file.clone(),
+            range_in_blamed_file: unblamed_hunk.range_in_blamed_file,
+            range_in_original_file,
             commit_id,
         }
     }
