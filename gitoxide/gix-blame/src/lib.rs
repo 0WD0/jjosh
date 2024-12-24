@@ -15,7 +15,7 @@
 #![forbid(unsafe_code)]
 
 mod types;
-pub use types::{BlameEntry, Outcome};
+pub use types::{BlameEntry, Outcome, Statistics};
 
 mod file;
 pub use file::function::file;

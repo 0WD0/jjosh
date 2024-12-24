@@ -153,6 +153,10 @@ pub enum Subcommands {
     Free(free::Subcommands),
     /// Blame lines in a file
     Blame {
+        /// Print additional statistics to help understanding performance.
+        #[clap(long, short = 's')]
+        statistics: bool,
+        /// The file to create the blame information for.
         file: std::ffi::OsString,
     },
     /// Generate shell completions to stdout or a directory.

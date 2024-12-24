@@ -1,5 +1,5 @@
 use super::{process_changes, Change, Offset, UnblamedHunk};
-use crate::{BlameEntry, Outcome};
+use crate::{BlameEntry, Outcome, Statistics};
 use gix_diff::blob::intern::TokenSource;
 use gix_hash::ObjectId;
 use gix_object::{bstr::BStr, FindExt};
@@ -62,9 +62,12 @@ pub fn file<E>(
     let Some(Ok(suspect)) = traverse.peek().map(|res| res.as_ref().map(|item| item.id)) else {
         todo!("return actual error");
     };
+    let _span = gix_trace::coarse!("gix_blame::file()", ?file_path, ?suspect);
 
-    let (mut buf, mut buf2) = (Vec::new(), Vec::new());
-    let original_file_entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2).unwrap();
+    let mut stats = Statistics::default();
+    let (mut buf, mut buf2, mut buf3) = (Vec::new(), Vec::new(), Vec::new());
+    let original_file_entry =
+        find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats).unwrap();
     let original_file_blob = odb.find_blob(&original_file_entry.oid, &mut buf).unwrap().data.to_vec();
     let num_lines_in_original = {
         let mut interner = gix_diff::blob::intern::Interner::new(original_file_blob.len() / 100);
@@ -81,9 +84,11 @@ pub fn file<E>(
     )];
 
     let mut out = Vec::new();
+    let mut diff_state = gix_diff::tree::State::default();
     'outer: for item in traverse {
         let item = item?;
         let suspect = item.id;
+        stats.commits_traversed += 1;
 
         let mut parent_ids = item.parent_ids;
         if parent_ids.is_empty() {
@@ -102,13 +107,15 @@ pub fn file<E>(
             break;
         }
 
-        let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2) else {
+        let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats) else {
             continue;
         };
 
         if parent_ids.len() == 1 {
             let parent_id = parent_ids.pop().expect("just validated there is exactly one");
-            if let Some(parent_entry) = find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2) {
+            if let Some(parent_entry) =
+                find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2, &mut stats)
+            {
                 if entry.oid == parent_entry.oid {
                     // The blobs storing the blamed file in `entry` and `parent_entry` are identical
                     // which is why we can pass blame to the parent without further checks.
@@ -119,7 +126,17 @@ pub fn file<E>(
                 }
             }
 
-            let Some(modification) = tree_diff_at_file_path(&odb, file_path, item.id, parent_id) else {
+            let Some(modification) = tree_diff_at_file_path(
+                &odb,
+                file_path,
+                item.id,
+                parent_id,
+                &mut stats,
+                &mut diff_state,
+                &mut buf,
+                &mut buf2,
+                &mut buf3,
+            ) else {
                 // None of the changes affected the file we’re currently blaming. Pass blame to parent.
                 for unblamed_hunk in &mut hunks_to_blame {
                     unblamed_hunk.pass_blame(suspect, parent_id);
@@ -142,8 +159,7 @@ pub fn file<E>(
                 }
                 gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
                 gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path);
-
+                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats);
                     hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
                     for unblamed_hunk in &mut hunks_to_blame {
                         unblamed_hunk.pass_blame(suspect, parent_id);
@@ -152,7 +168,8 @@ pub fn file<E>(
             }
         } else {
             for parent_id in &parent_ids {
-                if let Some(parent_entry) = find_path_entry_in_commit(&odb, &parent_id, file_path, &mut buf, &mut buf2)
+                if let Some(parent_entry) =
+                    find_path_entry_in_commit(&odb, parent_id, file_path, &mut buf, &mut buf2, &mut stats)
                 {
                     if entry.oid == parent_entry.oid {
                         // The blobs storing the blamed file in `entry` and `parent_entry` are
@@ -167,7 +184,17 @@ pub fn file<E>(
             }
 
             for parent_id in parent_ids {
-                let changes_for_file_path = tree_diff_at_file_path(&odb, file_path, item.id, parent_id);
+                let changes_for_file_path = tree_diff_at_file_path(
+                    &odb,
+                    file_path,
+                    item.id,
+                    parent_id,
+                    &mut stats,
+                    &mut diff_state,
+                    &mut buf,
+                    &mut buf2,
+                    &mut buf3,
+                );
                 let Some(modification) = changes_for_file_path else {
                     // None of the changes affected the file we’re currently blaming. Pass blame
                     // to parent.
@@ -188,8 +215,7 @@ pub fn file<E>(
                     }
                     gix_diff::tree::recorder::Change::Deletion { .. } => todo!(),
                     gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                        let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path);
-
+                        let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats);
                         hunks_to_blame = process_changes(&mut out, hunks_to_blame, changes, suspect);
                         for unblamed_hunk in &mut hunks_to_blame {
                             unblamed_hunk.pass_blame(suspect, parent_id);
@@ -215,6 +241,7 @@ pub fn file<E>(
     Ok(Outcome {
         entries: coalesce_blame_entries(out),
         blob: original_file_blob,
+        statistics: stats,
     })
 }
 
@@ -262,42 +289,37 @@ fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tree_diff_at_file_path(
     odb: impl gix_object::Find + gix_object::FindHeader,
     file_path: &BStr,
     id: ObjectId,
     parent_id: ObjectId,
+    stats: &mut Statistics,
+    state: &mut gix_diff::tree::State,
+    commit_buf: &mut Vec<u8>,
+    lhs_tree_buf: &mut Vec<u8>,
+    rhs_tree_buf: &mut Vec<u8>,
 ) -> Option<gix_diff::tree::recorder::Change> {
-    let mut buffer = Vec::new();
+    let parent_tree = odb.find_commit(&parent_id, commit_buf).unwrap().tree();
+    stats.commits_to_tree += 1;
 
-    let parent = odb.find_commit(&parent_id, &mut buffer).unwrap();
-
-    let mut buffer = Vec::new();
     let parent_tree_iter = odb
-        .find(&parent.tree(), &mut buffer)
+        .find(&parent_tree, lhs_tree_buf)
         .unwrap()
         .try_into_tree_iter()
         .unwrap();
+    stats.trees_decoded += 1;
 
-    let mut buffer = Vec::new();
-    let commit = odb.find_commit(&id, &mut buffer).unwrap();
+    let tree_id = odb.find_commit(&id, commit_buf).unwrap().tree();
+    stats.commits_to_tree += 1;
 
-    let mut buffer = Vec::new();
-    let tree_iter = odb
-        .find(&commit.tree(), &mut buffer)
-        .unwrap()
-        .try_into_tree_iter()
-        .unwrap();
+    let tree_iter = odb.find(&tree_id, rhs_tree_buf).unwrap().try_into_tree_iter().unwrap();
+    stats.trees_decoded += 1;
 
     let mut recorder = gix_diff::tree::Recorder::default();
-    gix_diff::tree(
-        parent_tree_iter,
-        tree_iter,
-        gix_diff::tree::State::default(),
-        &odb,
-        &mut recorder,
-    )
-    .unwrap();
+    gix_diff::tree(parent_tree_iter, tree_iter, state, &odb, &mut recorder).unwrap();
+    stats.trees_diffed += 1;
 
     recorder.records.into_iter().find(|change| match change {
         gix_diff::tree::recorder::Change::Modification { path, .. } => path == file_path,
@@ -312,6 +334,7 @@ fn blob_changes(
     oid: ObjectId,
     previous_oid: ObjectId,
     file_path: &BStr,
+    stats: &mut Statistics,
 ) -> Vec<Change> {
     /// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Blamed File*.
     struct ChangeRecorder {
@@ -391,6 +414,7 @@ fn blob_changes(
     let number_of_lines_in_destination = input.after.len();
     let change_recorder = ChangeRecorder::new(number_of_lines_in_destination.try_into().unwrap());
 
+    stats.blobs_diffed += 1;
     gix_diff::blob::diff(gix_diff::blob::Algorithm::Histogram, &input, change_recorder)
 }
 
@@ -400,12 +424,19 @@ fn find_path_entry_in_commit(
     file_path: &BStr,
     buf: &mut Vec<u8>,
     buf2: &mut Vec<u8>,
+    stats: &mut Statistics,
 ) -> Option<gix_object::tree::Entry> {
     let commit_id = odb.find_commit(commit, buf).unwrap().tree();
     let tree_iter = odb.find_tree_iter(&commit_id, buf).unwrap();
+    stats.commits_to_tree += 1;
+    stats.trees_decoded += 1;
 
     tree_iter
-        .lookup_entry(odb, buf2, file_path.split(|b| *b == b'/'))
+        .lookup_entry(
+            odb,
+            buf2,
+            file_path.split(|b| *b == b'/').inspect(|_| stats.trees_decoded += 1),
+        )
         .unwrap()
 }
 

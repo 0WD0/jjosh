@@ -1548,6 +1548,7 @@ dependencies = [
  "gix-odb",
  "gix-ref 0.49.1",
  "gix-testtools",
+ "gix-trace 0.1.11",
  "gix-traverse 0.43.1",
  "gix-worktree 0.38.0",
 ]

@@ -8,12 +8,31 @@ use gix_hash::ObjectId;
 use gix_object::bstr::BString;
 
 /// The outcome of [`file()`](crate::file()).
+#[derive(Debug, Clone)]
 pub struct Outcome {
     /// One entry in sequential order, to associate a hunk in the original file with the commit (and its lines)
     /// that introduced it.
     pub entries: Vec<BlameEntry>,
     /// A buffer with the file content of the *Original File*, ready for tokenization.
     pub blob: Vec<u8>,
+    /// Additional information about the amount of work performed to produce the blame.
+    pub statistics: Statistics,
+}
+
+/// Additional information about the performed operations.
+#[derive(Debug, Default, Copy, Clone)]
+pub struct Statistics {
+    /// The amount of commits it traversed until the blame was complete.
+    pub commits_traversed: usize,
+    /// The amount of commits whose trees were extracted.
+    pub commits_to_tree: usize,
+    /// The amount of trees that were decoded to find the entry of the file to blame.
+    pub trees_decoded: usize,
+    /// The amount of fully-fledged tree-diffs to see if the filepath was added, deleted or modified.
+    pub trees_diffed: usize,
+    /// The amount of blobs there were compared to each other to learn what changed between commits.
+    /// Note that in order to diff a blob, one needs to load both versions from the database.
+    pub blobs_diffed: usize,
 }
 
 impl Outcome {

@@ -1,19 +1,29 @@
 use gix::bstr::BStr;
 use std::ffi::OsStr;
 
-pub fn blame_file(mut repo: gix::Repository, file: &OsStr, out: impl std::io::Write) -> anyhow::Result<()> {
+pub fn blame_file(
+    mut repo: gix::Repository,
+    file: &OsStr,
+    out: impl std::io::Write,
+    err: Option<&mut dyn std::io::Write>,
+) -> anyhow::Result<()> {
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
 
     let suspect = repo.head()?.peel_to_commit_in_place()?;
     let traverse =
         gix::traverse::commit::topo::Builder::from_iters(&repo.objects, [suspect.id], None::<Vec<gix::ObjectId>>)
+            .with_commit_graph(repo.commit_graph_if_enabled()?)
             .build()?;
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
     let file_path: &BStr = gix::path::os_str_into_bstr(file)?;
 
     let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file_path)?;
+    let statistics = outcome.statistics;
     write_blame_entries(out, outcome)?;
 
+    if let Some(err) = err {
+        writeln!(err, "{statistics:#?}")?;
+    }
     Ok(())
 }
 
