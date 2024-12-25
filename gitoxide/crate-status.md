@@ -373,8 +373,10 @@ Check out the [performance discussion][gix-diff-performance] as well.
 - [ ] commits to ignore
 - [ ] pass all blame-cornercases (from Git)
 * **Performance-Improvements**
-    - [ ] use commit-graph bloom filter for performance
-    - [ ] traverse input-commits in correct order without `compute_indegrees_to_depth()`
+    * Without the following the performance isn't competitive with Git.
+    1. Implement custom graph walk which won't run down parents that don't have the path in question.
+    2. Implement access of trees from commit-graph and fill that information into the traversal info by default.
+    3. commit-graph with bloom filter, used to quickly check if a commit has a path.
 * [x] API documentation
     * [ ] Examples
 
