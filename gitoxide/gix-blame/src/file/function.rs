@@ -69,12 +69,12 @@ where
 
     let mut stats = Statistics::default();
     let (mut buf, mut buf2, mut buf3) = (Vec::new(), Vec::new(), Vec::new());
-    let blamed_file_entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)?
+    let blamed_file_entry_id = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)?
         .ok_or_else(|| Error::FileMissing {
-            file_path: file_path.to_owned(),
-            commit_id: suspect,
-        })?;
-    let blamed_file_blob = odb.find_blob(&blamed_file_entry.oid, &mut buf)?.data.to_vec();
+        file_path: file_path.to_owned(),
+        commit_id: suspect,
+    })?;
+    let blamed_file_blob = odb.find_blob(&blamed_file_entry_id, &mut buf)?.data.to_vec();
     let num_lines_in_blamed = {
         let mut interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
         tokens_for_diffing(&blamed_file_blob)
@@ -98,6 +98,7 @@ where
 
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
+    let mut previous_entry: Option<(ObjectId, ObjectId)> = None;
     'outer: while let Some(item) = traverse.next() {
         if hunks_to_blame.is_empty() {
             break;
@@ -123,15 +124,27 @@ where
             continue;
         }
 
-        let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)? else {
+        let mut entry = previous_entry
+            .take()
+            .filter(|(id, _)| *id == suspect)
+            .map(|(_, entry)| entry);
+        if entry.is_none() {
+            entry = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)?;
+        }
+
+        let Some(entry_id) = entry else {
             continue;
         };
 
-        for parent_id in &parent_ids {
-            if let Some(parent_entry) =
+        for (pid, parent_id) in parent_ids.iter().enumerate() {
+            if let Some(parent_entry_id) =
                 find_path_entry_in_commit(&odb, parent_id, file_path, &mut buf, &mut buf2, &mut stats)?
             {
-                if entry.oid == parent_entry.oid {
+                let no_change_in_entry = entry_id == parent_entry_id;
+                if pid == 0 {
+                    previous_entry = Some((*parent_id, parent_entry_id));
+                }
+                if no_change_in_entry {
                     pass_blame_from_to(suspect, *parent_id, &mut hunks_to_blame);
                     continue 'outer;
                 }
@@ -170,10 +183,8 @@ where
                         // Do nothing under the assumption that this always (or almost always)
                         // implies that the file comes from a different parent, compared to which
                         // it was modified, not added.
-                    } else {
-                        if unblamed_to_out_is_done(&mut hunks_to_blame, &mut out, suspect) {
-                            break 'outer;
-                        }
+                    } else if unblamed_to_out_is_done(&mut hunks_to_blame, &mut out, suspect) {
+                        break 'outer;
                     }
                 }
                 gix_diff::tree::recorder::Change::Deletion { .. } => {
@@ -418,7 +429,7 @@ fn find_path_entry_in_commit(
     buf: &mut Vec<u8>,
     buf2: &mut Vec<u8>,
     stats: &mut Statistics,
-) -> Result<Option<gix_object::tree::Entry>, Error> {
+) -> Result<Option<ObjectId>, Error> {
     let commit_id = odb.find_commit(commit, buf)?.tree();
     stats.commits_to_tree += 1;
     let tree_iter = odb.find_tree_iter(&commit_id, buf)?;
@@ -430,7 +441,7 @@ fn find_path_entry_in_commit(
         file_path.split(|b| *b == b'/').inspect(|_| stats.trees_decoded += 1),
     )?;
     stats.trees_decoded -= 1;
-    Ok(res)
+    Ok(res.map(|e| e.oid))
 }
 
 /// Return an iterator over tokens for use in diffing. These usually lines, but iit's important to unify them

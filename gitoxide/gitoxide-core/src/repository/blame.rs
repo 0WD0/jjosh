@@ -1,4 +1,5 @@
-use gix::bstr::BStr;
+use gix::bstr::ByteSlice;
+use gix::config::tree;
 use std::ffi::OsStr;
 
 pub fn blame_file(
@@ -7,7 +8,31 @@ pub fn blame_file(
     out: impl std::io::Write,
     err: Option<&mut dyn std::io::Write>,
 ) -> anyhow::Result<()> {
-    repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
+    {
+        let mut config = repo.config_snapshot_mut();
+        if config.string(&tree::Core::DELTA_BASE_CACHE_LIMIT).is_none() {
+            config.set_value(&tree::Core::DELTA_BASE_CACHE_LIMIT, "100m")?;
+        }
+    }
+    let index = repo.index_or_empty()?;
+    repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&index));
+
+    let file = gix::path::os_str_into_bstr(file)?;
+    let specs = repo.pathspec(
+        false,
+        [file],
+        true,
+        &index,
+        gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
+    )?;
+    // TODO: there should be a way to normalize paths without going through patterns, at least in this case maybe?
+    //       `Search` actually sorts patterns by excluding or not, all that can lead to strange results.
+    let file = specs
+        .search()
+        .patterns()
+        .map(|p| p.path().to_owned())
+        .next()
+        .expect("exactly one pattern");
 
     let suspect = repo.head()?.peel_to_commit_in_place()?;
     let traverse =
@@ -15,9 +40,7 @@ pub fn blame_file(
             .with_commit_graph(repo.commit_graph_if_enabled()?)
             .build()?;
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
-    let file_path: &BStr = gix::path::os_str_into_bstr(file)?;
-
-    let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file_path)?;
+    let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file.as_bstr())?;
     let statistics = outcome.statistics;
     write_blame_entries(out, outcome)?;
 
