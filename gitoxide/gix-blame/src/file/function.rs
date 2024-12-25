@@ -83,6 +83,11 @@ where
             .count()
     };
 
+    // Binary or otherwise empty?
+    if num_lines_in_blamed == 0 {
+        return Ok(Outcome::default());
+    }
+
     let mut hunks_to_blame = vec![{
         let range_in_blamed_file = 0..num_lines_in_blamed as u32;
         UnblamedHunk {
@@ -94,6 +99,9 @@ where
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
     'outer: while let Some(item) = traverse.next() {
+        if hunks_to_blame.is_empty() {
+            break;
+        }
         let commit = item.map_err(|err| Error::Traverse(err.into()))?;
         let suspect = commit.id;
         stats.commits_traversed += 1;
@@ -106,12 +114,13 @@ where
                 // remaining lines to it, even though we don’t explicitly check whether that is true
                 // here. We could perhaps use diff-tree-to-tree to compare `suspect`
                 // against an empty tree to validate this assumption.
-                unblamed_to_out(&mut hunks_to_blame, &mut out, suspect);
-                break;
-            } else {
-                // There is more, keep looking.
-                continue;
+                if unblamed_to_out_is_done(&mut hunks_to_blame, &mut out, suspect) {
+                    break 'outer;
+                }
             }
+
+            // There is more, keep looking.
+            continue;
         }
 
         let Some(entry) = find_path_entry_in_commit(&odb, &suspect, file_path, &mut buf, &mut buf2, &mut stats)? else {
@@ -162,8 +171,9 @@ where
                         // implies that the file comes from a different parent, compared to which
                         // it was modified, not added.
                     } else {
-                        unblamed_to_out(&mut hunks_to_blame, &mut out, suspect);
-                        break;
+                        if unblamed_to_out_is_done(&mut hunks_to_blame, &mut out, suspect) {
+                            break 'outer;
+                        }
                     }
                 }
                 gix_diff::tree::recorder::Change::Deletion { .. } => {
@@ -209,13 +219,22 @@ fn pass_blame_from_to(from: ObjectId, to: ObjectId, hunks_to_blame: &mut Vec<Unb
 }
 
 /// Convert each of the unblamed hunk in `hunks_to_blame` into a [`BlameEntry`], consuming them in the process.
-/// `suspect` is expected to be present in the suspect-map in each [`UnblamedHunk`].
-fn unblamed_to_out(hunks_to_blame: &mut Vec<UnblamedHunk>, out: &mut Vec<BlameEntry>, suspect: ObjectId) {
-    out.extend(
-        hunks_to_blame
-            .drain(..)
-            .map(|hunk| BlameEntry::from_unblamed_hunk(hunk, suspect)),
-    );
+///
+/// Return `true` if we are done because `hunks_to_blame` is empty.
+fn unblamed_to_out_is_done(
+    hunks_to_blame: &mut Vec<UnblamedHunk>,
+    out: &mut Vec<BlameEntry>,
+    suspect: ObjectId,
+) -> bool {
+    let mut without_suspect = Vec::new();
+    out.extend(hunks_to_blame.drain(..).filter_map(|hunk| {
+        BlameEntry::from_unblamed_hunk(&hunk, suspect).or_else(|| {
+            without_suspect.push(hunk);
+            None
+        })
+    }));
+    *hunks_to_blame = without_suspect;
+    hunks_to_blame.is_empty()
 }
 
 /// This function merges adjacent blame entries. It merges entries that are adjacent both in the

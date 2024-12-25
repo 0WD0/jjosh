@@ -8,7 +8,7 @@ use std::{
 };
 
 /// The outcome of [`file()`](crate::file()).
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Outcome {
     /// One entry in sequential order, to associate a hunk in the blamed file with the source commit (and its lines)
     /// that introduced it.

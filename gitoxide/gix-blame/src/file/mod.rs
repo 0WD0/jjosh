@@ -253,10 +253,13 @@ fn process_change(
             }
         }
         (Some(hunk), Some(Change::Deleted(line_number_in_destination, number_of_lines_deleted))) => {
-            let range_in_suspect = hunk
-                .suspects
-                .get(&suspect)
-                .expect("Internal and we know suspect is present");
+            let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
+                new_hunks_to_blame.push(hunk);
+                return (
+                    None,
+                    Some(Change::Deleted(line_number_in_destination, number_of_lines_deleted)),
+                );
+            };
 
             if line_number_in_destination < range_in_suspect.start {
                 //     <--->  (hunk)
@@ -431,7 +434,6 @@ impl UnblamedHunk {
     }
 
     fn remove_blame(&mut self, suspect: ObjectId) {
-        // TODO: figure out why it can try to remove suspects that don't exist.
         self.suspects.remove(&suspect);
     }
 }
@@ -468,18 +470,15 @@ impl BlameEntry {
     }
 
     /// Create an offset from a portion of the *Blamed File*.
-    fn from_unblamed_hunk(mut unblamed_hunk: UnblamedHunk, commit_id: ObjectId) -> Self {
-        let range_in_source_file = unblamed_hunk
-            .suspects
-            .remove(&commit_id)
-            .expect("Private and only called when we now `commit_id` is in the suspect list");
+    fn from_unblamed_hunk(unblamed_hunk: &UnblamedHunk, commit_id: ObjectId) -> Option<Self> {
+        let range_in_source_file = unblamed_hunk.suspects.get(&commit_id)?;
 
-        Self {
+        Some(Self {
             start_in_blamed_file: unblamed_hunk.range_in_blamed_file.start,
             start_in_source_file: range_in_source_file.start,
             len: force_non_zero(range_in_source_file.len() as u32),
             commit_id,
-        }
+        })
     }
 }
 
