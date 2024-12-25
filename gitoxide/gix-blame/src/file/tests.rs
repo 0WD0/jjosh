@@ -55,7 +55,7 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
-            Some(Change::Added(0..3, 0)),
+            Some(Change::AddedOrReplaced(0..3, 0)),
         );
 
         assert_eq!(
@@ -92,7 +92,7 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
-            Some(Change::Added(2..3, 0)),
+            Some(Change::AddedOrReplaced(2..3, 0)),
         );
 
         assert_eq!(
@@ -135,7 +135,7 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             Some(new_unblamed_hunk(10..15, suspect, Offset::Added(0))),
-            Some(Change::Added(12..13, 0)),
+            Some(Change::AddedOrReplaced(12..13, 0)),
         );
 
         assert_eq!(
@@ -179,7 +179,7 @@ mod process_change {
             suspect,
             // range_in_destination: 7..12
             Some(new_unblamed_hunk(12..17, suspect, Offset::Added(5))),
-            Some(Change::Added(9..10, 0)),
+            Some(Change::AddedOrReplaced(9..10, 0)),
         );
 
         assert_eq!(
@@ -222,7 +222,7 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
-            Some(Change::Added(0..3, 1)),
+            Some(Change::AddedOrReplaced(0..3, 1)),
         );
 
         assert_eq!(
@@ -260,7 +260,7 @@ mod process_change {
             suspect,
             // range_in_destination: 0..4
             Some(new_unblamed_hunk(1..5, suspect, Offset::Added(1))),
-            Some(Change::Added(0..3, 1)),
+            Some(Change::AddedOrReplaced(0..3, 1)),
         );
 
         assert_eq!(
@@ -298,7 +298,7 @@ mod process_change {
             suspect,
             // range_in_destination: 2..6
             Some(new_unblamed_hunk(3..7, suspect, Offset::Added(1))),
-            Some(Change::Added(3..5, 1)),
+            Some(Change::AddedOrReplaced(3..5, 1)),
         );
 
         assert_eq!(
@@ -342,11 +342,11 @@ mod process_change {
             suspect,
             // range_in_destination: 25..26
             Some(new_unblamed_hunk(23..24, suspect, Offset::Deleted(2))),
-            Some(Change::Added(25..27, 1)),
+            Some(Change::AddedOrReplaced(25..27, 1)),
         );
 
         assert_eq!(hunk, None);
-        assert_eq!(change, Some(Change::Added(25..27, 1)));
+        assert_eq!(change, Some(Change::AddedOrReplaced(25..27, 1)));
         assert_eq!(
             lines_blamed,
             [BlameEntry {
@@ -374,7 +374,7 @@ mod process_change {
             suspect,
             // range_in_destination: 21..22
             Some(new_unblamed_hunk(23..24, suspect, Offset::Added(2))),
-            Some(Change::Added(18..22, 3)),
+            Some(Change::AddedOrReplaced(18..22, 3)),
         );
 
         assert_eq!(hunk, None);
@@ -406,11 +406,11 @@ mod process_change {
             suspect,
             // range_in_destination: 70..108
             Some(new_unblamed_hunk(71..109, suspect, Offset::Added(1))),
-            Some(Change::Added(106..109, 0)),
+            Some(Change::AddedOrReplaced(106..109, 0)),
         );
 
         assert_eq!(hunk, None);
-        assert_eq!(change, Some(Change::Added(106..109, 0)));
+        assert_eq!(change, Some(Change::AddedOrReplaced(106..109, 0)));
         assert_eq!(
             lines_blamed,
             [BlameEntry {
@@ -444,11 +444,11 @@ mod process_change {
             suspect,
             // range_in_destination: 137..144
             Some(new_unblamed_hunk(149..156, suspect, Offset::Added(12))),
-            Some(Change::Added(143..146, 0)),
+            Some(Change::AddedOrReplaced(143..146, 0)),
         );
 
         assert_eq!(hunk, None);
-        assert_eq!(change, Some(Change::Added(143..146, 0)));
+        assert_eq!(change, Some(Change::AddedOrReplaced(143..146, 0)));
         assert_eq!(
             lines_blamed,
             [BlameEntry {
@@ -482,11 +482,11 @@ mod process_change {
             suspect,
             // range_in_destination: 2..5
             Some(new_unblamed_hunk(3..6, suspect, Offset::Added(1))),
-            Some(Change::Added(7..10, 1)),
+            Some(Change::AddedOrReplaced(7..10, 1)),
         );
 
         assert_eq!(hunk, None);
-        assert_eq!(change, Some(Change::Added(7..10, 1)));
+        assert_eq!(change, Some(Change::AddedOrReplaced(7..10, 1)));
         assert_eq!(lines_blamed, []);
         assert_eq!(
             new_hunks_to_blame,
@@ -512,7 +512,7 @@ mod process_change {
             suspect,
             // range_in_destination: 6..8
             Some(new_unblamed_hunk(9..11, suspect, Offset::Added(3))),
-            Some(Change::Added(2..5, 0)),
+            Some(Change::AddedOrReplaced(2..5, 0)),
         );
 
         assert_eq!(
@@ -542,7 +542,7 @@ mod process_change {
             suspect,
             // range_in_destination: 5..15
             Some(new_unblamed_hunk(4..15, suspect, Offset::Deleted(1))),
-            Some(Change::Added(4..5, 1)),
+            Some(Change::AddedOrReplaced(4..5, 1)),
         );
 
         assert_eq!(
@@ -662,11 +662,11 @@ mod process_change {
             suspect,
             // range_in_destination: 5..8
             Some(new_unblamed_hunk(2..5, suspect, Offset::Deleted(3))),
-            Some(Change::Added(3..12, 2)),
+            Some(Change::AddedOrReplaced(3..12, 2)),
         );
 
         assert_eq!(hunk, None);
-        assert_eq!(change, Some(Change::Added(3..12, 2)));
+        assert_eq!(change, Some(Change::AddedOrReplaced(3..12, 2)));
         assert_eq!(
             lines_blamed,
             [BlameEntry {
@@ -939,7 +939,7 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             None,
-            Some(Change::Added(22..25, 1)),
+            Some(Change::AddedOrReplaced(22..25, 1)),
         );
 
         assert_eq!(hunk, None);
@@ -1016,7 +1016,7 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..4, 0)];
+        let changes = vec![Change::AddedOrReplaced(0..4, 0)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1036,7 +1036,7 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..4, 0), Change::Unchanged(4..6)];
+        let changes = vec![Change::AddedOrReplaced(0..4, 0), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1056,7 +1056,11 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
-        let changes = vec![Change::Unchanged(0..2), Change::Added(2..4, 0), Change::Unchanged(4..6)];
+        let changes = vec![
+            Change::Unchanged(0..2),
+            Change::AddedOrReplaced(2..4, 0),
+            Change::Unchanged(4..6),
+        ];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1082,7 +1086,11 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..1, 0), Change::Added(1..4, 0), Change::Unchanged(4..6)];
+        let changes = vec![
+            Change::AddedOrReplaced(0..1, 0),
+            Change::AddedOrReplaced(1..4, 0),
+            Change::Unchanged(4..6),
+        ];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1110,7 +1118,7 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..1, 0)];
+        let changes = vec![Change::AddedOrReplaced(0..1, 0)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1136,7 +1144,7 @@ mod process_changes {
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect_2, Offset::Added(2))];
-        let changes = vec![Change::Added(0..1, 0)];
+        let changes = vec![Change::AddedOrReplaced(0..1, 0)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect_2);
 
         assert_eq!(
@@ -1167,7 +1175,7 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..4, 3), Change::Unchanged(4..6)];
+        let changes = vec![Change::AddedOrReplaced(0..4, 3), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1187,7 +1195,7 @@ mod process_changes {
         let mut lines_blamed = Vec::new();
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let hunks_to_blame = vec![new_unblamed_hunk(4..6, suspect, Offset::Added(1))];
-        let changes = vec![Change::Added(0..3, 0), Change::Unchanged(3..5)];
+        let changes = vec![Change::AddedOrReplaced(0..3, 0), Change::Unchanged(3..5)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(lines_blamed, []);
@@ -1205,7 +1213,7 @@ mod process_changes {
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(1..3, suspect_2, Offset::Added(1))];
-        let changes = vec![Change::Added(0..1, 2)];
+        let changes = vec![Change::AddedOrReplaced(0..1, 2)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect_2);
 
         assert_eq!(
@@ -1236,7 +1244,11 @@ mod process_changes {
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let mut lines_blamed = Vec::new();
         let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
-        let changes = vec![Change::Added(0..2, 0), Change::Unchanged(2..3), Change::Added(3..4, 0)];
+        let changes = vec![
+            Change::AddedOrReplaced(0..2, 0),
+            Change::Unchanged(2..3),
+            Change::AddedOrReplaced(3..4, 0),
+        ];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(
@@ -1280,7 +1292,7 @@ mod process_changes {
         ];
         let changes = vec![
             Change::Unchanged(0..16),
-            Change::Added(16..17, 0),
+            Change::AddedOrReplaced(16..17, 0),
             Change::Unchanged(17..37),
         ];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
@@ -1331,7 +1343,7 @@ mod process_changes {
             new_unblamed_hunk(0..4, suspect, Offset::Added(0)),
             new_unblamed_hunk(4..7, suspect, Offset::Added(0)),
         ];
-        let changes = vec![Change::Deleted(0, 3), Change::Added(0..4, 0)];
+        let changes = vec![Change::Deleted(0, 3), Change::AddedOrReplaced(0..4, 0)];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
         assert_eq!(

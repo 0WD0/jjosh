@@ -196,12 +196,12 @@ pub(crate) enum Either<T, U> {
 }
 
 /// A single change between two blobs, or an unchanged region.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Change {
     /// A range of tokens that wasn't changed.
     Unchanged(Range<u32>),
     /// `(added_line_range, num_deleted_in_before)`
-    Added(Range<u32>, u32),
+    AddedOrReplaced(Range<u32>, u32),
     /// `(line_to_start_deletion_at, num_deleted_in_before)`
     Deleted(u32, u32),
 }

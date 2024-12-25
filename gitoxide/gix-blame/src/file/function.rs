@@ -1,4 +1,4 @@
-use super::{process_changes, Change, Offset, UnblamedHunk};
+use super::{process_changes, Change, UnblamedHunk};
 use crate::{BlameEntry, Error, Outcome, Statistics};
 use gix_diff::blob::intern::TokenSource;
 use gix_hash::ObjectId;
@@ -83,11 +83,13 @@ where
             .count()
     };
 
-    let mut hunks_to_blame = vec![UnblamedHunk::new(
-        0..num_lines_in_blamed as u32,
-        suspect,
-        Offset::Added(0),
-    )];
+    let mut hunks_to_blame = vec![{
+        let range_in_blamed_file = 0..num_lines_in_blamed as u32;
+        UnblamedHunk {
+            range_in_blamed_file: range_in_blamed_file.clone(),
+            suspects: [(suspect, range_in_blamed_file)].into(),
+        }
+    }];
 
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
@@ -340,8 +342,10 @@ fn blob_changes(
 
             match (!before.is_empty(), !after.is_empty()) {
                 (_, true) => {
-                    self.hunks
-                        .push(Change::Added(after.start..after.end, before.end - before.start));
+                    self.hunks.push(Change::AddedOrReplaced(
+                        after.start..after.end,
+                        before.end - before.start,
+                    ));
                 }
                 (true, false) => {
                     self.hunks.push(Change::Deleted(after.start, before.end - before.start));

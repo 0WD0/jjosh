@@ -18,11 +18,25 @@ pub(super) mod function;
 fn process_change(
     out: &mut Vec<BlameEntry>,
     new_hunks_to_blame: &mut Vec<UnblamedHunk>,
-    offset_in_destination: &mut Offset,
+    offset: &mut Offset,
     suspect: ObjectId,
     hunk: Option<UnblamedHunk>,
     change: Option<Change>,
 ) -> (Option<UnblamedHunk>, Option<Change>) {
+    /// Since `range_with_end` is a range that is not inclusive at the end,
+    /// `range_with_end.end` is not part of `range_with_end`.
+    /// The first line that is `range_with_end.end - 1`.
+    fn actual_end_in_range(test: &Range<u32>, containing_range: &Range<u32>) -> bool {
+        (test.end - 1) >= containing_range.start && test.end <= containing_range.end
+    }
+
+    // # General Rules
+    // 1. If there is no suspect, immediately reschedule `hunk` and redo processing of `change`.
+    //
+    // # Detailed Rules
+    // 1. whenever we do *not* return `hunk`, it must be added to `new_hunks_to_blame`, shifted with `offset`
+    // 2. return `hunk` if it is not fully covered by changes yet.
+    // 3. `change` *must* be returned if it is not fully included in `hunk`.
     match (hunk, change) {
         (Some(hunk), Some(Change::Unchanged(unchanged))) => {
             let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
@@ -31,11 +45,8 @@ fn process_change(
             };
 
             match (
-                // Since `unchanged` is a range that is not inclusive at the end,
-                // `unchanged.end` is not part of `unchanged`. The first line that is
-                // `unchanged.end - 1`.
                 range_in_suspect.contains(&unchanged.start),
-                (unchanged.end - 1) >= range_in_suspect.start && unchanged.end <= range_in_suspect.end,
+                actual_end_in_range(&unchanged, range_in_suspect),
             ) {
                 (_, true) => {
                     //     <------>  (hunk)
@@ -44,14 +55,16 @@ fn process_change(
                     // <---------->  (hunk)
                     //     <--->     (unchanged)
 
+                    // skip over unchanged - there will be changes right after.
                     (Some(hunk), None)
                 }
                 (true, false) => {
                     // <-------->     (hunk)
                     //     <------->  (unchanged)
 
-                    new_hunks_to_blame.push(hunk.shift_by(suspect, *offset_in_destination));
-
+                    // Nothing to do with `hunk` except shifting it,
+                    // but `unchanged` needs to be checked against the next hunk to catch up.
+                    new_hunks_to_blame.push(hunk.shift_by(suspect, *offset));
                     (None, Some(Change::Unchanged(unchanged)))
                 }
                 (false, false) => {
@@ -69,6 +82,7 @@ fn process_change(
                         //       <---->  (hunk)
                         // <-->          (unchanged)
 
+                        // Let changes catch up with us.
                         (Some(hunk), None)
                     } else {
                         // <-->          (hunk)
@@ -77,80 +91,93 @@ fn process_change(
                         //    <--->      (hunk)
                         // <---------->  (unchanged)
 
-                        new_hunks_to_blame.push(hunk.shift_by(suspect, *offset_in_destination));
-
-                        (None, Some(Change::Unchanged(unchanged.clone())))
+                        // Nothing to do with `hunk` except shifting it,
+                        // but `unchanged` needs to be checked against the next hunk to catch up.
+                        new_hunks_to_blame.push(hunk.shift_by(suspect, *offset));
+                        (None, Some(Change::Unchanged(unchanged)))
                     }
                 }
             }
         }
-        (Some(hunk), Some(Change::Added(added, number_of_lines_deleted))) => {
-            let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
+        (Some(hunk), Some(Change::AddedOrReplaced(added, number_of_lines_deleted))) => {
+            let Some(range_in_suspect) = hunk.suspects.get(&suspect).cloned() else {
                 new_hunks_to_blame.push(hunk);
-
-                return (None, Some(Change::Added(added, number_of_lines_deleted)));
+                return (None, Some(Change::AddedOrReplaced(added, number_of_lines_deleted)));
             };
 
-            let range_in_suspect = range_in_suspect.clone();
-            let range_contains_added_start = range_in_suspect.contains(&added.start);
-            // Since `added` is a range that is not inclusive at the end, `added.end` is
-            // not part of `added`. The first line that is `added.end - 1`.
-            let range_contains_added_end =
-                (added.end - 1) >= range_in_suspect.start && added.end <= range_in_suspect.end;
-            match (range_contains_added_start, range_contains_added_end) {
+            let suspect_contains_added_start = range_in_suspect.contains(&added.start);
+            let suspect_contains_added_end = actual_end_in_range(&added, &range_in_suspect);
+            match (suspect_contains_added_start, suspect_contains_added_end) {
                 (true, true) => {
+                    // A perfect match of lines to take out of the unblamed portion.
                     // <---------->  (hunk)
                     //     <--->     (added)
                     //     <--->     (blamed)
                     // <-->     <->  (new hunk)
 
-                    let new_hunk = match hunk.split_at(suspect, added.start) {
-                        Either::Left(hunk) => hunk,
+                    // Split hunk at the start of added.
+                    let hunk_starting_at_added = match hunk.split_at(suspect, added.start) {
+                        Either::Left(hunk) => {
+                            // `added` starts with `hunk`, nothing to split.
+                            hunk
+                        }
                         Either::Right((before, after)) => {
-                            new_hunks_to_blame.push(before.shift_by(suspect, *offset_in_destination));
-
+                            // requeue the left side `before` after offsetting it…
+                            new_hunks_to_blame.push(before.shift_by(suspect, *offset));
+                            // …and treat `after` as `new_hunk`, which contains the `added` range.
                             after
                         }
                     };
 
-                    *offset_in_destination += added.end - added.start;
-                    *offset_in_destination -= number_of_lines_deleted;
+                    *offset += added.end - added.start;
+                    *offset -= number_of_lines_deleted;
 
+                    //  The overlapping `added` section was successfully located.
                     out.push(BlameEntry::with_offset(
                         added.clone(),
                         suspect,
-                        new_hunk.offset_for(suspect),
+                        hunk_starting_at_added.offset_for(suspect),
                     ));
 
-                    match new_hunk.split_at(suspect, added.end) {
-                        Either::Left(_) => (None, None),
-                        Either::Right((_, after)) => (Some(after), None),
+                    // Re-split at the end of `added` to continue with what's after.
+                    match hunk_starting_at_added.split_at(suspect, added.end) {
+                        Either::Left(_) => {
+                            // Nothing to split, so we are done with this hunk.
+                            (None, None)
+                        }
+                        Either::Right((_, after)) => {
+                            // Keep processing the unblamed range after `added`
+                            (Some(after), None)
+                        }
                     }
                 }
                 (true, false) => {
+                    // Added overlaps towards the end of `hunk`.
                     // <-------->     (hunk)
                     //     <------->  (added)
                     //     <---->     (blamed)
                     // <-->           (new hunk)
 
-                    let new_hunk = match hunk.split_at(suspect, added.start) {
+                    let hunk_starting_at_added = match hunk.split_at(suspect, added.start) {
                         Either::Left(hunk) => hunk,
                         Either::Right((before, after)) => {
-                            new_hunks_to_blame.push(before.shift_by(suspect, *offset_in_destination));
-
+                            // Keep looking for the left side of the unblamed portion.
+                            new_hunks_to_blame.push(before.shift_by(suspect, *offset));
                             after
                         }
                     };
 
+                    // We can 'blame' the overlapping area of `added` and `hunk`.
                     out.push(BlameEntry::with_offset(
                         added.start..range_in_suspect.end,
                         suspect,
-                        new_hunk.offset_for(suspect),
+                        hunk_starting_at_added.offset_for(suspect),
                     ));
-
-                    (None, Some(Change::Added(added, number_of_lines_deleted)))
+                    // Keep processing `added`, it's portion past `hunk` may still contribute.
+                    (None, Some(Change::AddedOrReplaced(added, number_of_lines_deleted)))
                 }
                 (false, true) => {
+                    // Added reaches into the hunk, so we blame only the overlapping portion of it.
                     //    <------->  (hunk)
                     // <------>      (added)
                     //    <--->      (blamed)
@@ -162,8 +189,8 @@ fn process_change(
                         hunk.offset_for(suspect),
                     ));
 
-                    *offset_in_destination += added.end - added.start;
-                    *offset_in_destination -= number_of_lines_deleted;
+                    *offset += added.end - added.start;
+                    *offset -= number_of_lines_deleted;
 
                     match hunk.split_at(suspect, added.end) {
                         Either::Left(_) => (None, None),
@@ -185,29 +212,42 @@ fn process_change(
                         //       <---->  (hunk)
                         // <-->          (added)
 
-                        *offset_in_destination += added.end - added.start;
-                        *offset_in_destination -= number_of_lines_deleted;
+                        *offset += added.end - added.start;
+                        *offset -= number_of_lines_deleted;
 
+                        // Let changes catchup with `hunk` after letting `added` contribute to the offset.
                         (Some(hunk), None)
                     } else if range_in_suspect.end <= added.start {
                         // <-->          (hunk)
                         //       <---->  (added)
 
-                        new_hunks_to_blame.push(hunk.shift_by(suspect, *offset_in_destination));
+                        // Retry `hunk` once there is overlapping changes to process.
+                        new_hunks_to_blame.push(hunk.shift_by(suspect, *offset));
 
-                        (None, Some(Change::Added(added.clone(), number_of_lines_deleted)))
+                        // Let hunks catchup with this change.
+                        (
+                            None,
+                            Some(Change::AddedOrReplaced(added.clone(), number_of_lines_deleted)),
+                        )
                     } else {
+                        // Discard the left side of `added`, keep track of `blamed`, and continue with the
+                        // right side of added that is going past `hunk`.
                         //    <--->      (hunk)
                         // <---------->  (added)
                         //    <--->      (blamed)
 
+                        // Successfully blame the whole range.
                         out.push(BlameEntry::with_offset(
                             range_in_suspect.clone(),
                             suspect,
                             hunk.offset_for(suspect),
                         ));
 
-                        (None, Some(Change::Added(added.clone(), number_of_lines_deleted)))
+                        // And keep processing `added` with future `hunks` that might be affected by it.
+                        (
+                            None,
+                            Some(Change::AddedOrReplaced(added.clone(), number_of_lines_deleted)),
+                        )
                     }
                 }
             }
@@ -222,31 +262,33 @@ fn process_change(
                 //     <--->  (hunk)
                 //  |         (line_number_in_destination)
 
-                *offset_in_destination -= number_of_lines_deleted;
-
+                // Track the shift to `hunk` as it affects us, and keep catching up with changes.
+                *offset -= number_of_lines_deleted;
                 (Some(hunk), None)
             } else if line_number_in_destination < range_in_suspect.end {
                 //  <----->  (hunk)
                 //     |     (line_number_in_destination)
 
                 let new_hunk = match hunk.split_at(suspect, line_number_in_destination) {
-                    Either::Left(hunk) => hunk,
+                    Either::Left(hunk) => {
+                        // Nothing to split as `line_number_in_destination` is directly at start of `hunk`
+                        hunk
+                    }
                     Either::Right((before, after)) => {
-                        new_hunks_to_blame.push(before.shift_by(suspect, *offset_in_destination));
-
+                        // `before` isn't affected by deletion, so keep it for later.
+                        new_hunks_to_blame.push(before.shift_by(suspect, *offset));
+                        // after will be affected by offset, and we will see if there are more changes affecting it.
                         after
                     }
                 };
-
-                *offset_in_destination -= number_of_lines_deleted;
-
+                *offset -= number_of_lines_deleted;
                 (Some(new_hunk), None)
             } else {
                 //  <--->     (hunk)
                 //         |  (line_number_in_destination)
 
-                new_hunks_to_blame.push(hunk.shift_by(suspect, *offset_in_destination));
-
+                // Catchup with changes.
+                new_hunks_to_blame.push(hunk.shift_by(suspect, *offset));
                 (
                     None,
                     Some(Change::Deleted(line_number_in_destination, number_of_lines_deleted)),
@@ -254,23 +296,29 @@ fn process_change(
             }
         }
         (Some(hunk), None) => {
-            new_hunks_to_blame.push(hunk.shift_by(suspect, *offset_in_destination));
-
+            // nothing to do - changes are exhausted, re-evaluate `hunk`.
+            new_hunks_to_blame.push(hunk.shift_by(suspect, *offset));
             (None, None)
         }
-        (None, Some(Change::Unchanged(_))) => (None, None),
-        (None, Some(Change::Added(added, number_of_lines_deleted))) => {
-            *offset_in_destination += added.end - added.start;
-            *offset_in_destination -= number_of_lines_deleted;
-
+        (None, Some(Change::Unchanged(_))) => {
+            // Nothing changed past the blamed range - do nothing.
+            (None, None)
+        }
+        (None, Some(Change::AddedOrReplaced(added, number_of_lines_deleted))) => {
+            // Keep track of the shift to apply to hunks in the future.
+            *offset += added.len() as u32;
+            *offset -= number_of_lines_deleted;
             (None, None)
         }
         (None, Some(Change::Deleted(_, number_of_lines_deleted))) => {
-            *offset_in_destination -= number_of_lines_deleted;
-
+            // Keep track of the shift to apply to hunks in the future.
+            *offset -= number_of_lines_deleted;
             (None, None)
         }
-        (None, None) => (None, None),
+        (None, None) => {
+            // Noop, caller shouldn't do that, but not our problem.
+            (None, None)
+        }
     }
 }
 
@@ -312,23 +360,8 @@ fn process_changes(
 }
 
 impl UnblamedHunk {
-    fn new(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset: Offset) -> Self {
-        assert!(
-            range_in_blamed_file.end > range_in_blamed_file.start,
-            "{range_in_blamed_file:?}"
-        );
-
-        let range_in_destination = range_in_blamed_file.shift_by(offset);
-
-        Self {
-            range_in_blamed_file,
-            suspects: [(suspect, range_in_destination)].into(),
-        }
-    }
-
     fn shift_by(mut self, suspect: ObjectId, offset: Offset) -> Self {
         self.suspects.entry(suspect).and_modify(|e| *e = e.shift_by(offset));
-
         self
     }
 
@@ -336,39 +369,34 @@ impl UnblamedHunk {
         match self.suspects.get(&suspect) {
             None => Either::Left(self),
             Some(range_in_suspect) => {
-                if line_number_in_destination > range_in_suspect.start
-                    && line_number_in_destination < range_in_suspect.end
-                {
-                    let split_at_from_start = line_number_in_destination - range_in_suspect.start;
+                if !range_in_suspect.contains(&line_number_in_destination) {
+                    return Either::Left(self);
+                }
 
-                    if split_at_from_start > 0 {
-                        let new_suspects_before = self
-                            .suspects
-                            .iter()
-                            .map(|(suspect, range)| (*suspect, range.start..(range.start + split_at_from_start)))
-                            .collect();
+                let split_at_from_start = line_number_in_destination - range_in_suspect.start;
+                if split_at_from_start > 0 {
+                    let new_suspects_before = self
+                        .suspects
+                        .iter()
+                        .map(|(suspect, range)| (*suspect, range.start..(range.start + split_at_from_start)));
 
-                        let new_suspects_after = self
-                            .suspects
-                            .iter()
-                            .map(|(suspect, range)| (*suspect, (range.start + split_at_from_start)..range.end))
-                            .collect();
+                    let new_suspects_after = self
+                        .suspects
+                        .iter()
+                        .map(|(suspect, range)| (*suspect, (range.start + split_at_from_start)..range.end));
 
-                        let new_hunk_before = Self {
-                            range_in_blamed_file: self.range_in_blamed_file.start
-                                ..(self.range_in_blamed_file.start + split_at_from_start),
-                            suspects: new_suspects_before,
-                        };
-                        let new_hunk_after = Self {
-                            range_in_blamed_file: (self.range_in_blamed_file.start + split_at_from_start)
-                                ..(self.range_in_blamed_file.end),
-                            suspects: new_suspects_after,
-                        };
+                    let new_hunk_before = Self {
+                        range_in_blamed_file: self.range_in_blamed_file.start
+                            ..(self.range_in_blamed_file.start + split_at_from_start),
+                        suspects: new_suspects_before.collect(),
+                    };
+                    let new_hunk_after = Self {
+                        range_in_blamed_file: (self.range_in_blamed_file.start + split_at_from_start)
+                            ..(self.range_in_blamed_file.end),
+                        suspects: new_suspects_after.collect(),
+                    };
 
-                        Either::Right((new_hunk_before, new_hunk_after))
-                    } else {
-                        Either::Left(self)
-                    }
+                    Either::Right((new_hunk_before, new_hunk_after))
                 } else {
                     Either::Left(self)
                 }
