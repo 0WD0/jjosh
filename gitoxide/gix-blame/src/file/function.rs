@@ -3,9 +3,9 @@ use crate::{BlameEntry, Error, Outcome, Statistics};
 use gix_diff::blob::intern::TokenSource;
 use gix_hash::ObjectId;
 use gix_object::{bstr::BStr, FindExt};
+use std::num::NonZeroU32;
 use std::ops::Range;
 
-// TODO: do not instantiate anything, get everything passed as argument.
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
 /// at `traverse[0]:<file_path>` originated in.
 ///
@@ -142,8 +142,8 @@ where
             )?;
             let Some(modification) = changes_for_file_path else {
                 if more_than_one_parent {
-                    // None of the changes affected the file we’re currently blaming. Pass blame
-                    // to parent.
+                    // None of the changes affected the file we’re currently blaming.
+                    // Copy blame to parent.
                     for unblamed_hunk in &mut hunks_to_blame {
                         unblamed_hunk.clone_blame(suspect, parent_id);
                     }
@@ -159,8 +159,6 @@ where
                         // Do nothing under the assumption that this always (or almost always)
                         // implies that the file comes from a different parent, compared to which
                         // it was modified, not added.
-                        //
-                        // TODO: I still have to figure out whether this is correct in all cases.
                     } else {
                         unblamed_to_out(&mut hunks_to_blame, &mut out, suspect);
                         break;
@@ -191,7 +189,7 @@ where
 
     // I don’t know yet whether it would make sense to use a data structure instead that preserves
     // order on insertion.
-    out.sort_by(|a, b| a.range_in_blamed_file.start.cmp(&b.range_in_blamed_file.start));
+    out.sort_by(|a, b| a.start_in_blamed_file.cmp(&b.start_in_blamed_file));
     Ok(Outcome {
         entries: coalesce_blame_entries(out),
         blob: blamed_file_blob,
@@ -199,17 +197,18 @@ where
     })
 }
 
-/// The blobs storing the blamed file in `entry` and `parent_entry` are identical which is why
-/// we can pass blame to the parent without further checks.
+/// Pass ownership of each unblamed hunk of `from` to `to`.
+///
+/// This happens when `from` didn't actually change anything in the blamed file.
 fn pass_blame_from_to(from: ObjectId, to: ObjectId, hunks_to_blame: &mut Vec<UnblamedHunk>) {
     for unblamed_hunk in hunks_to_blame {
         unblamed_hunk.pass_blame(from, to);
     }
 }
 
+/// Convert each of the unblamed hunk in `hunks_to_blame` into a [`BlameEntry`], consuming them in the process.
+/// `suspect` is expected to be present in the suspect-map in each [`UnblamedHunk`].
 fn unblamed_to_out(hunks_to_blame: &mut Vec<UnblamedHunk>, out: &mut Vec<BlameEntry>, suspect: ObjectId) {
-    // Every line that has not been blamed yet on a commit, is expected to have been
-    // added when the file was added to the repository.
     out.extend(
         hunks_to_blame
             .drain(..)
@@ -234,14 +233,21 @@ fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
             let previous_entry = acc.last();
 
             if let Some(previous_entry) = previous_entry {
+                let previous_blamed_range = previous_entry.range_in_blamed_file();
+                let current_blamed_range = entry.range_in_blamed_file();
+                let previous_source_range = previous_entry.range_in_source_file();
+                let current_source_range = entry.range_in_source_file();
                 if previous_entry.commit_id == entry.commit_id
-                    && previous_entry.range_in_blamed_file.end == entry.range_in_blamed_file.start
+                    && previous_blamed_range.end == current_blamed_range.start
                     // As of 2024-09-19, the check below only is in `git`, but not in `libgit2`.
-                    && previous_entry.range_in_source_file.end == entry.range_in_source_file.start
+                    && previous_source_range.end == current_source_range.start
                 {
+                    // let combined_range =
                     let coalesced_entry = BlameEntry {
-                        range_in_blamed_file: previous_entry.range_in_blamed_file.start..entry.range_in_blamed_file.end,
-                        range_in_source_file: previous_entry.range_in_source_file.start..entry.range_in_source_file.end,
+                        start_in_blamed_file: previous_blamed_range.start as u32,
+                        start_in_source_file: previous_source_range.start as u32,
+                        len: NonZeroU32::new((current_source_range.end - previous_source_range.start) as u32)
+                            .expect("BUG: hunks are never zero-sized"),
                         commit_id: previous_entry.commit_id,
                     };
 

@@ -30,8 +30,8 @@ pub fn blame_file(
 fn write_blame_entries(mut out: impl std::io::Write, outcome: gix::blame::Outcome) -> Result<(), std::io::Error> {
     for (entry, lines_in_hunk) in outcome.entries_with_lines() {
         for ((actual_lno, source_lno), line) in entry
-            .range_in_blamed_file
-            .zip(entry.range_in_source_file)
+            .range_in_blamed_file()
+            .zip(entry.range_in_source_file())
             .zip(lines_in_hunk)
         {
             write!(

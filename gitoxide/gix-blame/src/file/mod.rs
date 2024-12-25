@@ -1,4 +1,6 @@
 //! A module with low-level types and functions.
+
+use std::num::NonZeroU32;
 use std::ops::Range;
 
 use gix_hash::ObjectId;
@@ -67,7 +69,7 @@ fn process_change(
                         //       <---->  (hunk)
                         // <-->          (unchanged)
 
-                        (Some(hunk.clone()), None)
+                        (Some(hunk), None)
                     } else {
                         // <-->          (hunk)
                         //       <---->  (unchanged)
@@ -186,7 +188,7 @@ fn process_change(
                         *offset_in_destination += added.end - added.start;
                         *offset_in_destination -= number_of_lines_deleted;
 
-                        (Some(hunk.clone()), None)
+                        (Some(hunk), None)
                     } else if range_in_suspect.end <= added.start {
                         // <-->          (hunk)
                         //       <---->  (added)
@@ -416,8 +418,9 @@ impl BlameEntry {
 
         match offset {
             Offset::Added(added) => Self {
-                range_in_blamed_file: (range_in_source_file.start + added)..(range_in_source_file.end + added),
-                range_in_source_file,
+                start_in_blamed_file: range_in_source_file.start + added,
+                start_in_source_file: range_in_source_file.start,
+                len: force_non_zero(range_in_source_file.len() as u32),
                 commit_id,
             },
             Offset::Deleted(deleted) => {
@@ -427,8 +430,9 @@ impl BlameEntry {
                 );
 
                 Self {
-                    range_in_blamed_file: (range_in_source_file.start - deleted)..(range_in_source_file.end - deleted),
-                    range_in_source_file,
+                    start_in_blamed_file: range_in_source_file.start - deleted,
+                    start_in_source_file: range_in_source_file.start,
+                    len: force_non_zero(range_in_source_file.len() as u32),
                     commit_id,
                 }
             }
@@ -443,11 +447,16 @@ impl BlameEntry {
             .expect("Private and only called when we now `commit_id` is in the suspect list");
 
         Self {
-            range_in_blamed_file: unblamed_hunk.range_in_blamed_file,
-            range_in_source_file,
+            start_in_blamed_file: unblamed_hunk.range_in_blamed_file.start,
+            start_in_source_file: range_in_source_file.start,
+            len: force_non_zero(range_in_source_file.len() as u32),
             commit_id,
         }
     }
+}
+
+fn force_non_zero(n: u32) -> NonZeroU32 {
+    NonZeroU32::new(n).expect("BUG: hunks are never empty")
 }
 
 #[cfg(test)]

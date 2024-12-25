@@ -17,7 +17,7 @@ fn new_unblamed_hunk(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset
 
 mod process_change {
     use super::*;
-    use crate::file::{process_change, Change, Offset, UnblamedHunk};
+    use crate::file::{force_non_zero, process_change, Change, Offset, UnblamedHunk};
     use crate::BlameEntry;
     use gix_hash::ObjectId;
 
@@ -69,8 +69,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..3,
-                range_in_source_file: 0..3,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(3),
                 commit_id: suspect
             }]
         );
@@ -105,8 +106,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 2..3,
-                range_in_source_file: 2..3,
+                start_in_blamed_file: 2,
+                start_in_source_file: 2,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -147,8 +149,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 12..13,
-                range_in_source_file: 12..13,
+                start_in_blamed_file: 12,
+                start_in_source_file: 12,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -190,8 +193,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 14..15,
-                range_in_source_file: 9..10,
+                start_in_blamed_file: 14,
+                start_in_source_file: 9,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -232,8 +236,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..3,
-                range_in_source_file: 0..3,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(3),
                 commit_id: suspect
             }]
         );
@@ -269,8 +274,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 1..4,
-                range_in_source_file: 0..3,
+                start_in_blamed_file: 1,
+                start_in_source_file: 0,
+                len: force_non_zero(3),
                 commit_id: suspect
             }]
         );
@@ -306,8 +312,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 4..6,
-                range_in_source_file: 3..5,
+                start_in_blamed_file: 4,
+                start_in_source_file: 3,
+                len: force_non_zero(2),
                 commit_id: suspect
             }]
         );
@@ -343,8 +350,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 23..24,
-                range_in_source_file: 25..26,
+                start_in_blamed_file: 23,
+                start_in_source_file: 25,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -374,8 +382,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 23..24,
-                range_in_source_file: 21..22,
+                start_in_blamed_file: 23,
+                start_in_source_file: 21,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -405,8 +414,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 107..109,
-                range_in_source_file: 106..108,
+                start_in_blamed_file: 107,
+                start_in_source_file: 106,
+                len: force_non_zero(2),
                 commit_id: suspect
             }]
         );
@@ -442,8 +452,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 155..156,
-                range_in_source_file: 143..144,
+                start_in_blamed_file: 155,
+                start_in_source_file: 143,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -659,8 +670,9 @@ mod process_change {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 2..5,
-                range_in_source_file: 5..8,
+                start_in_blamed_file: 2,
+                start_in_source_file: 5,
+                len: force_non_zero(3),
                 commit_id: suspect
             }]
         );
@@ -985,7 +997,7 @@ mod process_change {
 }
 mod process_changes {
     use crate::file::tests::new_unblamed_hunk;
-    use crate::file::{process_changes, Change, Offset, UnblamedHunk};
+    use crate::file::{force_non_zero, process_changes, Change, Offset, UnblamedHunk};
     use crate::BlameEntry;
     use gix_hash::ObjectId;
 
@@ -1010,8 +1022,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..4,
-                range_in_source_file: 0..4,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(4),
                 commit_id: suspect
             }]
         );
@@ -1029,8 +1042,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..4,
-                range_in_source_file: 0..4,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(4),
                 commit_id: suspect
             }]
         );
@@ -1048,8 +1062,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 2..4,
-                range_in_source_file: 2..4,
+                start_in_blamed_file: 2,
+                start_in_source_file: 2,
+                len: force_non_zero(2),
                 commit_id: suspect
             }]
         );
@@ -1074,13 +1089,15 @@ mod process_changes {
             lines_blamed,
             [
                 BlameEntry {
-                    range_in_blamed_file: 0..1,
-                    range_in_source_file: 0..1,
+                    start_in_blamed_file: 0,
+                    start_in_source_file: 0,
+                    len: force_non_zero(1),
                     commit_id: suspect
                 },
                 BlameEntry {
-                    range_in_blamed_file: 1..4,
-                    range_in_source_file: 1..4,
+                    start_in_blamed_file: 1,
+                    start_in_source_file: 1,
+                    len: force_non_zero(3),
                     commit_id: suspect
                 }
             ]
@@ -1099,8 +1116,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..1,
-                range_in_source_file: 0..1,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(1),
                 commit_id: suspect
             }]
         );
@@ -1112,8 +1130,9 @@ mod process_changes {
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let suspect_2 = ObjectId::from_hex(b"2222222222222222222222222222222222222222").unwrap();
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
-            range_in_blamed_file: 0..2,
-            range_in_source_file: 0..2,
+            start_in_blamed_file: 0,
+            start_in_source_file: 0,
+            len: force_non_zero(2),
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect_2, Offset::Added(2))];
@@ -1124,13 +1143,15 @@ mod process_changes {
             lines_blamed,
             [
                 BlameEntry {
-                    range_in_blamed_file: 0..2,
-                    range_in_source_file: 0..2,
+                    start_in_blamed_file: 0,
+                    start_in_source_file: 0,
+                    len: force_non_zero(2),
                     commit_id: suspect
                 },
                 BlameEntry {
-                    range_in_blamed_file: 2..3,
-                    range_in_source_file: 0..1,
+                    start_in_blamed_file: 2,
+                    start_in_source_file: 0,
+                    len: force_non_zero(1),
                     commit_id: suspect_2
                 }
             ]
@@ -1152,8 +1173,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..4,
-                range_in_source_file: 0..4,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(4),
                 commit_id: suspect
             }]
         );
@@ -1177,8 +1199,9 @@ mod process_changes {
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let suspect_2 = ObjectId::from_hex(b"2222222222222222222222222222222222222222").unwrap();
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
-            range_in_blamed_file: 0..1,
-            range_in_source_file: 0..1,
+            start_in_blamed_file: 0,
+            start_in_source_file: 0,
+            len: force_non_zero(1),
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![new_unblamed_hunk(1..3, suspect_2, Offset::Added(1))];
@@ -1189,13 +1212,15 @@ mod process_changes {
             lines_blamed,
             [
                 BlameEntry {
-                    range_in_blamed_file: 0..1,
-                    range_in_source_file: 0..1,
+                    start_in_blamed_file: 0,
+                    start_in_source_file: 0,
+                    len: force_non_zero(1),
                     commit_id: suspect
                 },
                 BlameEntry {
-                    range_in_blamed_file: 1..2,
-                    range_in_source_file: 0..1,
+                    start_in_blamed_file: 1,
+                    start_in_source_file: 0,
+                    len: force_non_zero(1),
                     commit_id: suspect_2
                 }
             ]
@@ -1218,13 +1243,15 @@ mod process_changes {
             lines_blamed,
             [
                 BlameEntry {
-                    range_in_blamed_file: 0..2,
-                    range_in_source_file: 0..2,
+                    start_in_blamed_file: 0,
+                    start_in_source_file: 0,
+                    len: force_non_zero(2),
                     commit_id: suspect
                 },
                 BlameEntry {
-                    range_in_blamed_file: 3..4,
-                    range_in_source_file: 3..4,
+                    start_in_blamed_file: 3,
+                    start_in_source_file: 3,
+                    len: force_non_zero(1),
                     commit_id: suspect
                 }
             ]
@@ -1236,8 +1263,9 @@ mod process_changes {
     fn added_hunk_9() {
         let suspect = ObjectId::null(gix_hash::Kind::Sha1);
         let mut lines_blamed: Vec<BlameEntry> = vec![BlameEntry {
-            range_in_blamed_file: 30..31,
-            range_in_source_file: 30..31,
+            start_in_blamed_file: 30,
+            start_in_source_file: 30,
+            len: force_non_zero(1),
             commit_id: suspect,
         }];
         let hunks_to_blame = vec![
@@ -1257,19 +1285,21 @@ mod process_changes {
         ];
         let new_hunks_to_blame = process_changes(&mut lines_blamed, hunks_to_blame, changes, suspect);
 
-        lines_blamed.sort_by(|a, b| a.range_in_blamed_file.start.cmp(&b.range_in_blamed_file.start));
+        lines_blamed.sort_by(|a, b| a.start_in_blamed_file.cmp(&b.start_in_blamed_file));
 
         assert_eq!(
             lines_blamed,
             [
                 BlameEntry {
-                    range_in_blamed_file: 16..17,
-                    range_in_source_file: 16..17,
+                    start_in_blamed_file: 16,
+                    start_in_source_file: 16,
+                    len: force_non_zero(1),
                     commit_id: suspect
                 },
                 BlameEntry {
-                    range_in_blamed_file: 30..31,
-                    range_in_source_file: 30..31,
+                    start_in_blamed_file: 30,
+                    start_in_source_file: 30,
+                    len: force_non_zero(1),
                     commit_id: suspect
                 }
             ]
@@ -1307,8 +1337,9 @@ mod process_changes {
         assert_eq!(
             lines_blamed,
             [BlameEntry {
-                range_in_blamed_file: 0..4,
-                range_in_source_file: 0..4,
+                start_in_blamed_file: 0,
+                start_in_source_file: 0,
+                len: force_non_zero(4),
                 commit_id: suspect
             }]
         );

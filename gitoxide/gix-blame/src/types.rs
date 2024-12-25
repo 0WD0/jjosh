@@ -1,11 +1,11 @@
+use crate::file::function::tokens_for_diffing;
+use gix_hash::ObjectId;
+use gix_object::bstr::BString;
+use std::num::NonZeroU32;
 use std::{
     collections::BTreeMap,
     ops::{AddAssign, Range, SubAssign},
 };
-
-use crate::file::function::tokens_for_diffing;
-use gix_hash::ObjectId;
-use gix_object::bstr::BString;
 
 /// The outcome of [`file()`](crate::file()).
 #[derive(Debug, Clone)]
@@ -48,10 +48,9 @@ impl Outcome {
             .map(|token| interner.intern(token))
             .collect();
         self.entries.iter().map(move |e| {
-            let Range { start, end } = e.range_in_blamed_file.clone();
             (
                 e.clone(),
-                lines_as_tokens[start as usize..end as usize]
+                lines_as_tokens[e.range_in_blamed_file()]
                     .iter()
                     .map(|token| BString::new(interner[*token].into()))
                     .collect(),
@@ -122,13 +121,16 @@ impl SubAssign<u32> for Offset {
 ///
 /// Both ranges are of the same size, but may use different [starting points](Range::start). Naturally,
 /// they have the same content, which is the reason they are in what is returned by [`file()`](crate::file()).
-// TODO: see if this can be encoded as `start_in_original_file` and `start_in_blamed_file` and a single `len`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlameEntry {
-    /// The section of tokens in the tokenized version of the *Blamed File* (typically lines).
-    pub range_in_blamed_file: Range<u32>,
-    /// The section of tokens in the tokenized version of the *Source File* (typically lines).
-    pub range_in_source_file: Range<u32>,
+    /// The index of the token in the *Blamed File* (typically lines) where this entry begins.
+    pub start_in_blamed_file: u32,
+    /// The index of the token in the *Source File* (typically lines) where this entry begins.
+    ///
+    /// This is possibly offset compared to `start_in_blamed_file`.
+    pub start_in_source_file: u32,
+    /// The amount of lines the hunk is spanning.
+    pub len: NonZeroU32,
     /// The commit that introduced the section into the *Source File*.
     pub commit_id: ObjectId,
 }
@@ -147,10 +149,24 @@ impl BlameEntry {
         debug_assert_eq!(range_in_source_file.len(), range_in_blamed_file.len());
 
         Self {
-            range_in_blamed_file: range_in_blamed_file.clone(),
-            range_in_source_file: range_in_source_file.clone(),
+            start_in_blamed_file: range_in_blamed_file.start,
+            start_in_source_file: range_in_source_file.start,
+            len: NonZeroU32::new(range_in_blamed_file.len() as u32).expect("BUG: hunks are never empty"),
             commit_id,
         }
+    }
+}
+
+impl BlameEntry {
+    /// Return the range of tokens this entry spans in the *Blamed File*.
+    pub fn range_in_blamed_file(&self) -> Range<usize> {
+        let start = self.start_in_blamed_file as usize;
+        start..start + self.len.get() as usize
+    }
+    /// Return the range of tokens this entry spans in the *Source File*.
+    pub fn range_in_source_file(&self) -> Range<usize> {
+        let start = self.start_in_source_file as usize;
+        start..start + self.len.get() as usize
     }
 }
 
@@ -164,13 +180,12 @@ impl LineRange for Range<u32> {
     }
 }
 
-/// TODO: docs - what is it?
-// TODO: is `Clone` really needed.
-#[derive(Clone, Debug, PartialEq)]
+/// Tracks the hunks in the *Blamed File* that are not yet associated with the commit that introduced them.
+#[derive(Debug, PartialEq)]
 pub struct UnblamedHunk {
-    /// TODO: figure out how this works.
+    /// The range in the file that is being blamed that this hunk represents.
     pub range_in_blamed_file: Range<u32>,
-    /// Maps a commit to the range in the *Blamed File* that `range_in_blamed_file` refers to.
+    /// Maps a commit to the range in a source file (i.e. *Blamed File* at a revision) that is equal to `range_in_blamed_file`.
     pub suspects: BTreeMap<ObjectId, Range<u32>>,
 }
 
