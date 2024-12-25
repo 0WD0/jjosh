@@ -1533,6 +1533,17 @@ pub fn main() -> Result<()> {
                 },
             ),
         },
+        Subcommands::Blame { statistics, file } => prepare_and_run(
+            "blame",
+            trace,
+            verbose,
+            progress,
+            progress_keep_open,
+            None,
+            move |_progress, out, err| {
+                core::repository::blame::blame_file(repository(Mode::Lenient)?, &file, out, statistics.then_some(err))
+            },
+        ),
         Subcommands::Completions { shell, out_dir } => {
             let mut app = Args::command();
 

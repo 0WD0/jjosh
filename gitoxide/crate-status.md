@@ -293,7 +293,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
     * [x] safe with cycles and recursive configurations
     * [x] multi-line with comments and quotes
 * **promisor**
-    * It's vague, but these seems to be like index files allowing to fetch objects from a server on demand.
+    * It's vague, but these seem to be like index files allowing to fetch objects from a server on demand.
 * [x] API documentation
     * [ ] Some examples
 
@@ -358,6 +358,25 @@ Check out the [performance discussion][gix-diff-performance] as well.
     - [ ] rewrite so that the whole logic can be proven to be correct - it's too insane now and probably has way 
           more possible states than are tested, despite best attempts.
 * [x] **commits** - with handling of multiple merge bases by recursive merge-base merge
+* [x] API documentation
+    * [ ] Examples
+
+### gix-blame
+
+* [x] commit-annotations for a single file
+    - [ ] progress
+    - [ ] interruptibility
+    - [ ] streaming
+- [ ] support for worktree changes (creates virtual commit on top of `HEAD`) 
+- [ ] shallow-history support
+- [ ] rename tracking (track different paths through history)
+- [ ] commits to ignore
+- [ ] pass all blame-cornercases (from Git)
+* **Performance-Improvements**
+    * Without the following the performance isn't competitive with Git.
+    1. Implement custom graph walk which won't run down parents that don't have the path in question.
+    2. Implement access of trees from commit-graph and fill that information into the traversal info by default.
+    3. commit-graph with bloom filter, used to quickly check if a commit has a path.
 * [x] API documentation
     * [ ] Examples
 
