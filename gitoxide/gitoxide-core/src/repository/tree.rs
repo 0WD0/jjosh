@@ -1,18 +1,17 @@
-use std::{borrow::Cow, io};
-
 use anyhow::bail;
 use gix::Tree;
+use std::io::BufWriter;
+use std::{borrow::Cow, io};
 
 use crate::OutputFormat;
 
 mod entries {
-    use std::collections::VecDeque;
-
     use gix::{
         bstr::{BStr, BString, ByteSlice, ByteVec},
         objs::tree::EntryRef,
         traverse::tree::visit::Action,
     };
+    use std::collections::VecDeque;
 
     use crate::repository::tree::format_entry;
 
@@ -161,8 +160,9 @@ pub fn entries(
     let tree = treeish_to_tree(treeish, &repo)?;
 
     if recursive {
-        let mut delegate = entries::Traverse::new(extended.then_some(&repo), Some(&mut out));
-        tree.traverse().breadthfirst(&mut delegate)?;
+        let mut write = BufWriter::new(out);
+        let mut delegate = entries::Traverse::new(extended.then_some(&repo), Some(&mut write));
+        tree.traverse().depthfirst(&mut delegate)?;
     } else {
         for entry in tree.iter() {
             let entry = entry?;
@@ -190,9 +190,9 @@ fn format_entry(
     size: Option<u64>,
 ) -> std::io::Result<()> {
     use gix::objs::tree::EntryKind::*;
-    writeln!(
+    write!(
         out,
-        "{} {}{} {}",
+        "{} {}{} ",
         match entry.mode.kind() {
             Tree => "TREE",
             Blob => "BLOB",
@@ -201,7 +201,8 @@ fn format_entry(
             Commit => "SUBM",
         },
         entry.oid,
-        size.map_or_else(|| "".into(), |s| Cow::Owned(format!(" {s}"))),
-        filename
-    )
+        size.map_or_else(|| "".into(), |s| Cow::Owned(format!(" {s}")))
+    )?;
+    out.write_all(filename)?;
+    out.write_all(b"\n")
 }
