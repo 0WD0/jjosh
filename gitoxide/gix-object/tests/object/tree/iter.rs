@@ -24,6 +24,24 @@ fn error_handling() {
 }
 
 #[test]
+fn offset_to_next_entry() {
+    let buf = fixture_name("tree", "everything.tree");
+    let mut iter = TreeRefIter::from_bytes(&buf);
+    assert_eq!(iter.offset_to_next_entry(&buf), 0, "first entry is always at 0");
+    iter.next();
+
+    let actual = iter.offset_to_next_entry(&buf);
+    assert_eq!(actual, 31, "now the offset increases");
+    assert_eq!(
+        TreeRefIter::from_bytes(&buf[actual..])
+            .next()
+            .map(|e| e.unwrap().filename),
+        iter.next().map(|e| e.unwrap().filename),
+        "One can now start the iteration at a certain entry"
+    );
+}
+
+#[test]
 fn everything() -> crate::Result {
     assert_eq!(
         TreeRefIter::from_bytes(&fixture_name("tree", "everything.tree")).collect::<Result<Vec<_>, _>>()?,
