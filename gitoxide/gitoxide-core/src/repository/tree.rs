@@ -91,7 +91,7 @@ mod entries {
         fn visit_nontree(&mut self, entry: &EntryRef<'_>) -> Action {
             let size = self
                 .repo
-                .and_then(|repo| repo.find_object(entry.oid).map(|o| o.data.len()).ok());
+                .and_then(|repo| repo.find_header(entry.oid).map(|h| h.size()).ok());
             if let Some(out) = &mut self.out {
                 format_entry(out, entry, self.path.as_bstr(), size).ok();
             }
@@ -163,9 +163,7 @@ pub fn entries(
                 &mut out,
                 &entry.inner,
                 entry.inner.filename,
-                extended
-                    .then(|| entry.id().object().map(|o| o.data.len()))
-                    .transpose()?,
+                extended.then(|| entry.id().header().map(|o| o.size())).transpose()?,
             )?;
         }
     }
@@ -182,7 +180,7 @@ fn format_entry(
     mut out: impl io::Write,
     entry: &gix::objs::tree::EntryRef<'_>,
     filename: &gix::bstr::BStr,
-    size: Option<usize>,
+    size: Option<u64>,
 ) -> std::io::Result<()> {
     use gix::objs::tree::EntryKind::*;
     writeln!(
