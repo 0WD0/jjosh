@@ -39,7 +39,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut delegate = visit::Tree::new(repo.clone());
     tree.traverse().breadthfirst(&mut delegate)?;
-    let _files = tree.traverse().breadthfirst.files()?;
 
     println!("num trees: {}", delegate.num_trees);
     println!("num blobs: {}", delegate.num_blobs);
@@ -105,6 +104,8 @@ mod visit {
         }
     }
     impl gix_traverse::tree::Visit for Tree {
+        fn pop_back_tracked_path_and_set_current(&mut self) {}
+
         fn pop_front_tracked_path_and_set_current(&mut self) {}
 
         fn push_back_tracked_path_component(&mut self, _component: &BStr) {}

@@ -58,6 +58,9 @@ mod entries {
         }
 
         fn push_element(&mut self, name: &BStr) {
+            if name.is_empty() {
+                return;
+            }
             if !self.path.is_empty() {
                 self.path.push(b'/');
             }
@@ -66,6 +69,10 @@ mod entries {
     }
 
     impl gix::traverse::tree::Visit for Traverse<'_, '_> {
+        fn pop_back_tracked_path_and_set_current(&mut self) {
+            self.path = self.path_deque.pop_back().unwrap_or_default();
+        }
+
         fn pop_front_tracked_path_and_set_current(&mut self) {
             self.path = self.path_deque.pop_front().expect("every parent is set only once");
         }
@@ -96,7 +103,7 @@ mod entries {
                 format_entry(out, entry, self.path.as_bstr(), size).ok();
             }
             if let Some(size) = size {
-                self.stats.num_bytes += size as u64;
+                self.stats.num_bytes += size;
             }
 
             use gix::object::tree::EntryKind::*;
