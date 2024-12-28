@@ -5,9 +5,19 @@ use gix_object::bstr::{BStr, BString};
 /// A trait to allow responding to a traversal designed to observe all entries in a tree, recursively while keeping track of
 /// paths if desired.
 pub trait Visit {
-    /// Sets the full path path in front of the queue so future calls to push and pop components affect it instead.
+    /// Sets the full path in the back of the queue so future calls to push and pop components affect it instead.
+    ///
+    /// Note that the first call is made without an accompanying call to [`Self::push_back_tracked_path_component()`]
+    ///
+    /// This is used by the depth-first traversal of trees.
+    fn pop_back_tracked_path_and_set_current(&mut self);
+    /// Sets the full path in front of the queue so future calls to push and pop components affect it instead.
+    ///
+    /// This is used by the breadth-first traversal of trees.
     fn pop_front_tracked_path_and_set_current(&mut self);
     /// Append a `component` to the end of a path, which may be empty.
+    ///
+    /// If `component` is empty, store the current path.
     fn push_back_tracked_path_component(&mut self, component: &BStr);
     /// Append a `component` to the end of a path, which may be empty.
     fn push_path_component(&mut self, component: &BStr);
@@ -66,4 +76,8 @@ pub mod recorder;
 
 ///
 pub mod breadthfirst;
-pub use breadthfirst::impl_::traverse as breadthfirst;
+pub use breadthfirst::function::breadthfirst;
+
+///
+pub mod depthfirst;
+pub use depthfirst::function::depthfirst;

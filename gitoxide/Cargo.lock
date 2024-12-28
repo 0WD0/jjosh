@@ -2808,6 +2808,7 @@ dependencies = [
  "gix-odb",
  "gix-testtools",
  "gix-traverse 0.43.1",
+ "insta",
 ]
 
 [[package]]
