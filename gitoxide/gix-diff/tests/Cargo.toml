@@ -17,8 +17,9 @@ name = "diff"
 path = "diff/main.rs"
 
 [dev-dependencies]
-insta = "1.40.0"
 gix-diff = { path = ".." }
+gix-index = { version = "^0.37.0", path = "../../gix-index" }
+gix-pathspec = { version = "^0.8.1", path = "../../gix-pathspec" }
 gix-hash = { path = "../../gix-hash" }
 gix-fs = { path = "../../gix-fs" }
 gix-worktree = { path = "../../gix-worktree" }
@@ -27,5 +28,7 @@ gix-odb = { path = "../../gix-odb" }
 gix-filter = { path = "../../gix-filter" }
 gix-traverse = { path = "../../gix-traverse" }
 gix-testtools = { path = "../../tests/tools" }
+
+insta = "1.40.0"
 shell-words = "1"
 pretty_assertions = "1.4.0"
