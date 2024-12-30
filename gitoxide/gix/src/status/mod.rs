@@ -130,6 +130,7 @@ impl Repository {
 ///
 pub mod is_dirty {
     use crate::Repository;
+    use std::convert::Infallible;
 
     /// The error returned by [Repository::is_dirty()].
     #[derive(Debug, thiserror::Error)]
@@ -139,6 +140,12 @@ pub mod is_dirty {
         StatusPlatform(#[from] crate::status::Error),
         #[error(transparent)]
         CreateStatusIterator(#[from] crate::status::index_worktree::iter::Error),
+        #[error(transparent)]
+        TreeIndexStatus(#[from] crate::status::tree_index::Error),
+        #[error(transparent)]
+        HeadTreeId(#[from] crate::reference::head_tree_id::Error),
+        #[error(transparent)]
+        OpenWorktreeIndex(#[from] crate::worktree::open_index::Error),
     }
 
     impl Repository {
@@ -150,12 +157,26 @@ pub mod is_dirty {
         /// * submodules are taken in consideration, along with their `ignore` and `isActive` configuration
         ///
         /// Note that *untracked files* do *not* affect this flag.
-        ///
-        /// ### Incomplete Implementation Warning
-        ///
-        /// Currently, this does not compute changes between the head and the index.
-        // TODO: use iterator which also tests for head->index changes.
         pub fn is_dirty(&self) -> Result<bool, Error> {
+            {
+                let head_tree_id = self.head_tree_id()?;
+                let mut index_is_dirty = false;
+
+                // Run this first as there is a high likelihood to find something, and it's very fast.
+                self.tree_index_status(
+                    &head_tree_id,
+                    &*self.index_or_empty()?,
+                    None,
+                    crate::status::tree_index::TrackRenames::Disabled,
+                    |_, _, _| {
+                        index_is_dirty = true;
+                        Ok::<_, Infallible>(gix_diff::index::Action::Cancel)
+                    },
+                )?;
+                if index_is_dirty {
+                    return Ok(true);
+                }
+            }
             let is_dirty = self
                 .status(gix_features::progress::Discard)?
                 .index_worktree_rewrites(None)

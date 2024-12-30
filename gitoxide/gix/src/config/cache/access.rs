@@ -181,7 +181,7 @@ impl Cache {
             .user_agent
             .get_or_init(|| {
                 self.resolved
-                    .string(Gitoxide::USER_AGENT.logical_name().as_str())
+                    .string(&Gitoxide::USER_AGENT)
                     .map_or_else(|| crate::env::agent().into(), |s| s.to_string())
             })
             .to_owned();

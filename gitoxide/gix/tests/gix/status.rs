@@ -134,7 +134,7 @@ mod index_worktree {
 }
 
 mod is_dirty {
-    use crate::status::submodule_repo;
+    use crate::status::{repo, submodule_repo};
 
     #[test]
     fn various_changes_positive() -> crate::Result {
@@ -155,7 +155,7 @@ mod is_dirty {
         let repo = submodule_repo("module1")?;
         assert_eq!(
             repo.status(gix::progress::Discard)?
-                .into_index_worktree_iter(Vec::new())?
+                .into_index_worktree_iter(None)?
                 .count(),
             1,
             "there is one untracked file"
@@ -168,9 +168,18 @@ mod is_dirty {
     }
 
     #[test]
-    fn no_changes() -> crate::Result {
+    fn index_changed() -> crate::Result {
+        let repo = repo("git-mv")?;
+        assert!(
+            repo.is_dirty()?,
+            "the only detectable change is in the index, in comparison to the HEAD^{{tree}}"
+        );
+
         let repo = submodule_repo("with-submodules")?;
-        assert!(!repo.is_dirty()?, "there are no changes");
+        assert!(
+            repo.is_dirty()?,
+            "the index changed here as well, this time there is also a new file"
+        );
         Ok(())
     }
 }
