@@ -1,4 +1,4 @@
-use crate::config::tree::{Key, Mailmap};
+use crate::config::tree::Mailmap;
 use crate::Id;
 
 impl crate::Repository {
@@ -68,7 +68,7 @@ impl crate::Repository {
 
         let configured_path = self
             .config_snapshot()
-            .trusted_path(Mailmap::FILE.logical_name().as_str())
+            .trusted_path(&Mailmap::FILE)
             .and_then(|res| res.map_err(|e| err.get_or_insert(e.into())).ok());
 
         if let Some(mut file) =

@@ -149,7 +149,7 @@ impl Personas {
 
         user_email = user_email.or_else(|| {
             config
-                .string(gitoxide::User::EMAIL_FALLBACK.logical_name().as_str())
+                .string(gitoxide::User::EMAIL_FALLBACK)
                 .map(std::borrow::Cow::into_owned)
         });
         Personas {

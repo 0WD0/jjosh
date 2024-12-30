@@ -1,7 +1,7 @@
 use crate::{
     config::{
         cache::util::ApplyLeniency,
-        tree::{Clone, Fetch, Key},
+        tree::{Clone, Fetch},
     },
     remote,
     remote::{
@@ -117,7 +117,7 @@ where
         let negotiator = repo
             .config
             .resolved
-            .string(Fetch::NEGOTIATION_ALGORITHM.logical_name().as_str())
+            .string(Fetch::NEGOTIATION_ALGORITHM)
             .map(|n| Fetch::NEGOTIATION_ALGORITHM.try_into_negotiation_algorithm(n))
             .transpose()
             .with_leniency(repo.config.lenient_config)?
