@@ -176,3 +176,6 @@ mod platform;
 
 ///
 pub mod index_worktree;
+
+///
+pub mod tree_index;

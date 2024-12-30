@@ -86,7 +86,7 @@ comfort = [
 command = ["dep:gix-command"]
 
 ## Obtain information similar to `git status`.
-status = ["gix-status", "dirwalk", "index", "blob-diff"]
+status = ["gix-status", "dirwalk", "index", "blob-diff", "gix-diff/index"]
 
 ## Utilities for interrupting computations and cleaning up tempfiles.
 interrupt = ["dep:signal-hook", "gix-tempfile/signals", "dep:parking_lot"]
@@ -374,7 +374,7 @@ gix-command = { version = "^0.4.0", path = "../gix-command", optional = true }
 
 gix-worktree-stream = { version = "^0.18.0", path = "../gix-worktree-stream", optional = true }
 gix-archive = { version = "^0.18.0", path = "../gix-archive", default-features = false, optional = true }
-gix-blame = { version= "^0.0.0", path ="../gix-blame", optional = true }
+gix-blame = { version = "^0.0.0", path = "../gix-blame", optional = true }
 
 # For communication with remotes
 gix-protocol = { version = "^0.47.0", path = "../gix-protocol" }
