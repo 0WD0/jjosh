@@ -187,6 +187,37 @@ mod open {
         }
 
         #[test]
+        fn modified_in_index_only() -> crate::Result {
+            let repo = repo("submodule-index-changed")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+
+            for mode in [
+                gix::submodule::config::Ignore::Untracked,
+                gix::submodule::config::Ignore::None,
+            ] {
+                for check_dirty in [false, true] {
+                    let status = sm.status_opts(mode, check_dirty, &mut |platform| platform)?;
+                    assert_eq!(
+                        status.is_dirty(),
+                        Some(true),
+                        "two files were renamed using `git mv` for an HEAD^{{tree}}-index change"
+                    );
+                    assert_eq!(
+                        status.changes.expect("present").len(),
+                        if check_dirty { 1 } else { 3 },
+                        "in is-dirty mode, we don't collect all changes"
+                    );
+                }
+            }
+
+            assert!(
+                repo.is_dirty()?,
+                "superproject should see submodule changes in the index as well"
+            );
+            Ok(())
+        }
+
+        #[test]
         fn modified_and_untracked() -> crate::Result {
             let repo = repo("modified-and-untracked")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
@@ -194,7 +225,7 @@ mod open {
             let status = sm.status(gix::submodule::config::Ignore::Dirty, false)?;
             assert_eq!(status.is_dirty(), Some(false), "Dirty skips worktree changes entirely");
 
-            let status = sm.status_opts(
+            let mut status = sm.status_opts(
                 gix::submodule::config::Ignore::None,
                 false,
                 &mut |status: gix::status::Platform<'_, gix::progress::Discard>| {
@@ -217,16 +248,18 @@ mod open {
 
             let status_with_dirty_check = sm.status_opts(
                 gix::submodule::config::Ignore::None,
-                true,
+                true, /* check-dirty */
                 &mut |status: gix::status::Platform<'_, gix::progress::Discard>| {
                     status.index_worktree_options_mut(|opts| {
                         opts.sorting = Some(gix_status::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
                     })
                 },
             )?;
+            status.changes.as_mut().expect("two changes").pop();
             assert_eq!(
                 status_with_dirty_check, status,
-                "it cannot abort early as the only change it sees is the modification check"
+                "it cannot abort early as the only change it sees is the modification check.\
+                However, with check-dirty, it would only gather the changes"
             );
 
             let status = sm.status(gix::submodule::config::Ignore::Untracked, false)?;

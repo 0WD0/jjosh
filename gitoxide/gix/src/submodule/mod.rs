@@ -323,6 +323,11 @@ pub mod status {
         /// Return the status of the submodule, just like [`status`](Self::status), but allows to adjust options
         /// for more control over how the status is performed.
         ///
+        /// If `check_dirty` is `true`, the computation will stop once the first in a ladder operations
+        /// ordered from cheap to expensive shows that the submodule is dirty. When checking for detailed
+        /// status information (i.e. untracked file, modifications, HEAD-index changes) only the first change
+        /// will be kept to stop as early as possible.
+        ///
         /// Use `&mut std::convert::identity` for `adjust_options` if no specific options are desired.
         /// A reason to change them might be to enable sorting to enjoy deterministic order of changes.
         ///
@@ -389,6 +394,9 @@ pub mod status {
             let mut changes = Vec::new();
             for change in statuses {
                 changes.push(change?);
+                if check_dirty {
+                    break;
+                }
             }
             status.changes = Some(changes);
             Ok(status)
