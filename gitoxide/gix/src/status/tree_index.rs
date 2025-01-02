@@ -16,10 +16,11 @@ pub enum Error {
 }
 
 /// Specify how to perform rewrite tracking [Repository::tree_index_status()].
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub enum TrackRenames {
     /// Check `status.renames` and then `diff.renames` if the former isn't set. Otherwise, default to performing rewrites if nothing
     /// is set.
+    #[default]
     AsConfigured,
     /// Track renames according ot the given configuration.
     Given(gix_diff::Rewrites),
@@ -67,6 +68,7 @@ impl Repository {
     where
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
+        let _span = gix_trace::coarse!("gix::tree_index_status");
         let tree_index: gix_index::State = self.index_from_tree(tree_id)?.into();
         let rewrites = match renames {
             TrackRenames::AsConfigured => {
@@ -106,7 +108,8 @@ impl Repository {
                 .into();
         }
 
-        let pathspec = pathspec.unwrap_or(pathspec_storage.as_mut().expect("set if pathspec isn't set by user"));
+        let pathspec =
+            pathspec.unwrap_or_else(|| pathspec_storage.as_mut().expect("set if pathspec isn't set by user"));
         let rewrite = gix_diff::index(
             &tree_index,
             worktree_index,

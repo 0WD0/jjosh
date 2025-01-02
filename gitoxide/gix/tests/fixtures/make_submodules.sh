@@ -68,6 +68,12 @@ git init modified-untracked-and-submodule-head-changed-and-modified
   touch untracked
 )
 
+cp -Rv modified-untracked-and-submodule-head-changed-and-modified git-mv-and-untracked-and-submodule-head-changed-and-modified
+(cd git-mv-and-untracked-and-submodule-head-changed-and-modified
+  git checkout this
+  git mv this that
+)
+
 git init with-submodules
 (cd with-submodules
   mkdir dir

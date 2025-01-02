@@ -1,6 +1,6 @@
 use anyhow::bail;
 use gix::bstr::{BStr, BString, ByteSlice};
-use gix::status::index_worktree::iter::Item;
+use gix::status::index_worktree::Item;
 use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
 use std::path::Path;
 

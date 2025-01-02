@@ -299,9 +299,9 @@ pub mod status {
         #[error(transparent)]
         StatusPlatform(#[from] crate::status::Error),
         #[error(transparent)]
-        Status(#[from] crate::status::index_worktree::iter::Error),
+        StatusIter(#[from] crate::status::into_iter::Error),
         #[error(transparent)]
-        IndexWorktreeStatus(#[from] crate::status::index_worktree::Error),
+        NextStatusItem(#[from] crate::status::iter::Error),
     }
 
     impl Submodule<'_> {
@@ -327,11 +327,6 @@ pub mod status {
         /// A reason to change them might be to enable sorting to enjoy deterministic order of changes.
         ///
         /// The status allows to easily determine if a submodule [has changes](Status::is_dirty).
-        ///
-        /// ### Incomplete Implementation Warning
-        ///
-        /// Currently, changes between the head and the index aren't computed.
-        // TODO: Run the full status, including tree->index once available.
         #[doc(alias = "submodule_status", alias = "git2")]
         pub fn status_opts(
             &self,
@@ -390,7 +385,7 @@ pub mod status {
                         opts.dirwalk_options = None;
                     }
                 })
-                .into_index_worktree_iter(Vec::new())?;
+                .into_iter(None)?;
             let mut changes = Vec::new();
             for change in statuses {
                 changes.push(change?);
@@ -444,7 +439,7 @@ pub mod status {
             ///
             /// `None` if the computation wasn't performed as the computation was skipped early, or if no working tree was
             /// available or repository was available.
-            pub changes: Option<Vec<crate::status::index_worktree::iter::Item>>,
+            pub changes: Option<Vec<crate::status::Item>>,
         }
     }
 }
