@@ -89,6 +89,9 @@ impl Recorder {
     }
 
     fn push_element(&mut self, name: &BStr) {
+        if name.is_empty() {
+            return;
+        }
         if !self.path.is_empty() {
             self.path.push(b'/');
         }

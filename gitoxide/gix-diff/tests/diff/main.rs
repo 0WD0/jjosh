@@ -5,6 +5,7 @@ fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
 }
 
 mod blob;
+mod index;
 mod rewrites;
 mod tree;
 mod tree_with_rewrites;

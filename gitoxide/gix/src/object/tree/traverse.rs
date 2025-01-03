@@ -15,6 +15,8 @@ impl<'repo> Tree<'repo> {
 pub struct Platform<'a, 'repo> {
     root: &'a Tree<'repo>,
     /// Provides easy access to presets for common breadth-first traversal.
+    // TODO: remove this - it's a bit too much of a fixed function, or go all in once it's clear it's needed,
+    //       but probably with depth-first.
     pub breadthfirst: BreadthFirstPresets<'a, 'repo>,
 }
 
@@ -38,12 +40,12 @@ impl BreadthFirstPresets<'_, '_> {
 }
 
 impl Platform<'_, '_> {
-    /// Start a breadth-first, recursive traversal using `delegate`, for which a [`Recorder`][gix_traverse::tree::Recorder] can be used to get started.
+    /// Start a breadth-first, recursive traversal using `delegate`, for which a [`Recorder`](gix_traverse::tree::Recorder) can be used to get started.
     ///
     /// # Note
     ///
-    /// - Results are returned in sort order according to tree-entry sorting rules, one level at a time.
-    /// - for obtaining the direct children of the tree, use [.iter()][crate::Tree::iter()] instead.
+    /// - Results are returned in sort order as per tree-sorting rules, files first, then directories, one level at a time.
+    /// - for obtaining the direct children of the tree, use [Tree::iter()] instead.
     pub fn breadthfirst<V>(&self, delegate: &mut V) -> Result<(), gix_traverse::tree::breadthfirst::Error>
     where
         V: gix_traverse::tree::Visit,
@@ -51,5 +53,18 @@ impl Platform<'_, '_> {
         let root = gix_object::TreeRefIter::from_bytes(&self.root.data);
         let state = gix_traverse::tree::breadthfirst::State::default();
         gix_traverse::tree::breadthfirst(root, state, &self.root.repo.objects, delegate)
+    }
+
+    /// Start a depth-first, recursive traversal using `delegate`, for which a [`Recorder`](gix_traverse::tree::Recorder) can be used to get started.
+    ///
+    /// # Note
+    ///
+    /// For obtaining the direct children of the tree, use [Tree::iter()] instead.
+    pub fn depthfirst<V>(&self, delegate: &mut V) -> Result<(), gix_traverse::tree::breadthfirst::Error>
+    where
+        V: gix_traverse::tree::Visit,
+    {
+        let state = gix_traverse::tree::depthfirst::State::default();
+        gix_traverse::tree::depthfirst(self.root.id, state, &self.root.repo.objects, delegate)
     }
 }

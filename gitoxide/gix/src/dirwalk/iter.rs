@@ -160,7 +160,12 @@ impl Iterator for Iter {
 #[cfg(feature = "parallel")]
 impl Drop for Iter {
     fn drop(&mut self) {
-        crate::util::parallel_iter_drop(self.rx_and_join.take(), &self.should_interrupt);
+        crate::util::parallel_iter_drop(
+            self.rx_and_join
+                .take()
+                .map(|(rx, handle)| (rx, handle, None::<std::thread::JoinHandle<()>>)),
+            &self.should_interrupt,
+        );
     }
 }
 

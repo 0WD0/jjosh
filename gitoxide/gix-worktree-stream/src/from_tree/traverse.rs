@@ -39,6 +39,9 @@ where
     }
 
     fn push_element(&mut self, name: &BStr) {
+        if name.is_empty() {
+            return;
+        }
         if !self.path.is_empty() {
             self.path.push(b'/');
         }
@@ -105,6 +108,10 @@ where
     AttributesFn:
         FnMut(&BStr, gix_object::tree::EntryMode, &mut gix_attributes::search::Outcome) -> Result<(), Error> + 'static,
 {
+    fn pop_back_tracked_path_and_set_current(&mut self) {
+        self.path = self.path_deque.pop_back().unwrap_or_default();
+    }
+
     fn pop_front_tracked_path_and_set_current(&mut self) {
         self.path = self
             .path_deque

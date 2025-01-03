@@ -239,6 +239,10 @@ mod tree_to_changes {
     }
 
     impl gix_traverse::tree::Visit for Delegate<'_> {
+        fn pop_back_tracked_path_and_set_current(&mut self) {
+            self.recorder.pop_back_tracked_path_and_set_current();
+        }
+
         fn pop_front_tracked_path_and_set_current(&mut self) {
             self.recorder.pop_front_tracked_path_and_set_current();
         }

@@ -202,7 +202,7 @@ impl PathspecDetached {
     }
 }
 
-fn is_dir_to_mode(is_dir: bool) -> gix_index::entry::Mode {
+pub(crate) fn is_dir_to_mode(is_dir: bool) -> gix_index::entry::Mode {
     if is_dir {
         gix_index::entry::Mode::DIR
     } else {

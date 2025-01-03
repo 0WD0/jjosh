@@ -1,9 +1,6 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use crate::{
-    config::tree::{gitoxide, Key},
-    Repository,
-};
+use crate::{config::tree::gitoxide, Repository};
 
 impl Repository {
     /// Return `true` if the repository is a shallow clone, i.e. contains history only up to a certain depth.
@@ -36,10 +33,7 @@ impl Repository {
         let shallow_name = self
             .config
             .resolved
-            .string_filter(
-                gitoxide::Core::SHALLOW_FILE.logical_name().as_str(),
-                &mut self.filter_config_section(),
-            )
+            .string_filter(gitoxide::Core::SHALLOW_FILE, &mut self.filter_config_section())
             .unwrap_or_else(|| Cow::Borrowed("shallow".into()));
         self.common_dir().join(gix_path::from_bstr(shallow_name))
     }

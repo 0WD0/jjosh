@@ -53,11 +53,16 @@ impl From<Arc<AtomicBool>> for OwnedOrStaticAtomicBool {
     }
 }
 #[cfg(feature = "parallel")]
-pub fn parallel_iter_drop<T, U>(
-    mut rx_and_join: Option<(std::sync::mpsc::Receiver<T>, std::thread::JoinHandle<U>)>,
+#[allow(clippy::type_complexity)]
+pub fn parallel_iter_drop<T, U, V>(
+    mut rx_and_join: Option<(
+        std::sync::mpsc::Receiver<T>,
+        std::thread::JoinHandle<U>,
+        Option<std::thread::JoinHandle<V>>,
+    )>,
     should_interrupt: &OwnedOrStaticAtomicBool,
 ) {
-    let Some((rx, handle)) = rx_and_join.take() else {
+    let Some((rx, handle, maybe_handle)) = rx_and_join.take() else {
         return;
     };
     let prev = should_interrupt.swap(true, std::sync::atomic::Ordering::Relaxed);
@@ -66,11 +71,14 @@ pub fn parallel_iter_drop<T, U>(
         OwnedOrStaticAtomicBool::Owned { flag, private: false } => flag.as_ref(),
         OwnedOrStaticAtomicBool::Owned { private: true, .. } => {
             // Leak the handle to let it shut down in the background, so drop returns more quickly.
-            drop((rx, handle));
+            drop((rx, handle, maybe_handle));
             return;
         }
     };
     // Wait until there is time to respond before we undo the change.
+    if let Some(handle) = maybe_handle {
+        handle.join().ok();
+    }
     handle.join().ok();
     undo.fetch_update(
         std::sync::atomic::Ordering::SeqCst,

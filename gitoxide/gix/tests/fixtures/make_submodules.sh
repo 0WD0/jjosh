@@ -21,6 +21,17 @@ git init submodule-head-changed
   cd m1 && git checkout @~1
 )
 
+git init submodule-index-changed
+(cd submodule-index-changed
+  git submodule add ../module1 m1
+  git commit -m "add submodule"
+
+  (cd m1
+    git mv subdir  subdir-renamed
+    git mv this that
+  )
+)
+
 git init submodule-head-changed-no-worktree
 (cd submodule-head-changed-no-worktree
   git submodule add ../module1 m1
@@ -66,6 +77,12 @@ git init modified-untracked-and-submodule-head-changed-and-modified
   git add this && git commit -m "this"
   echo change >> this
   touch untracked
+)
+
+cp -Rv modified-untracked-and-submodule-head-changed-and-modified git-mv-and-untracked-and-submodule-head-changed-and-modified
+(cd git-mv-and-untracked-and-submodule-head-changed-and-modified
+  git checkout this
+  git mv this that
 )
 
 git init with-submodules

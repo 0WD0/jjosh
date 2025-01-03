@@ -806,4 +806,18 @@ git mv src/plumbing src/plumbing-renamed
 git commit -m "r4-dir-rename-non-identity"
 store_tree "r4-dir-rename-non-identity"
 
+git checkout -b conflicting @~1
+git rm src/plumbing/main.rs
+git commit -m "remove main.rs"
+
+git checkout main
+git merge conflicting || :
+
+echo not-empty >will-add
+git add --intent-to-add will-add
+
+# a file with skip-worktree flag, which has no bearing on tree/index diffs.
+git update-index --skip-worktree src/shared.rs
+rm src/shared.rs
+
 mv ../*.tree .

@@ -16,16 +16,102 @@ pub fn repo(name: &str) -> crate::Result<gix::Repository> {
     )?)
 }
 
+mod into_iter {
+    use crate::status::{repo, submodule_repo};
+    use crate::util::hex_to_id;
+    use gix::status::tree_index::TrackRenames;
+    use gix::status::Item;
+    use gix_diff::Rewrites;
+    use gix_testtools::size_ok;
+
+    #[test]
+    fn item_size() {
+        let actual = std::mem::size_of::<Item>();
+        let expected = 264;
+        assert!(
+            size_ok(actual, expected),
+            "The size is the same as the one for the index-worktree-item: {actual} <~ {expected}"
+        );
+    }
+
+    #[test]
+    fn submodule_tree_index_modification() -> crate::Result {
+        let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified")?;
+        let mut status = repo
+            .status(gix::progress::Discard)?
+            .index_worktree_options_mut(|opts| {
+                opts.sorting =
+                    Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
+            })
+            .tree_index_track_renames(TrackRenames::Given(Rewrites {
+                track_empty: true,
+                ..Default::default()
+            }))
+            .into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        assert_eq!(items.len(), 3, "1 untracked, 1 move, 1 submodule modification");
+        insta::assert_debug_snapshot!(&items[1], @r#"
+        TreeIndex(
+            Rewrite {
+                source_location: "this",
+                source_index: 2,
+                source_entry_mode: Mode(
+                    FILE,
+                ),
+                source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                location: "that",
+                index: 2,
+                entry_mode: Mode(
+                    FILE,
+                ),
+                id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                copy: false,
+            },
+        )
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn error_during_tree_traversal_causes_failure() -> crate::Result {
+        let repo = repo("untracked-only")?;
+        let platform = repo.status(gix::progress::Discard)?.head_tree(hex_to_id(
+            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", /* empty blob, invalid tree*/
+        ));
+        let expected_err = "Could not create index from tree at e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
+        if cfg!(feature = "parallel") {
+            let mut items: Vec<_> = platform.into_iter(None)?.collect();
+            assert_eq!(
+                items.len(),
+                3,
+                "2 untracked and one error, which is detected only in the end."
+            );
+            assert_eq!(items.pop().expect("last item").unwrap_err().to_string(), expected_err);
+        } else {
+            match platform.into_iter(None) {
+                Ok(_) => {
+                    unreachable!("errors would be detected early here as everything is done ahead of time")
+                }
+                Err(err) => {
+                    assert_eq!(err.to_string(), expected_err);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 mod index_worktree {
     mod iter {
         use crate::status::{repo, submodule_repo};
-        use gix::status::index_worktree::iter::Item;
+        use gix::status::index_worktree::Item;
         use gix_testtools::size_ok;
         use pretty_assertions::assert_eq;
 
         #[test]
         fn item_size() {
-            let actual = std::mem::size_of::<gix::status::index_worktree::iter::Item>();
+            let actual = std::mem::size_of::<Item>();
             let expected = 264;
             assert!(
                 size_ok(actual, expected),
@@ -42,7 +128,7 @@ mod index_worktree {
                     opts.sorting =
                         Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
                 })
-                .into_index_worktree_iter(Vec::new())?;
+                .into_index_worktree_iter(None)?;
             let items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
             assert_eq!(items.len(), 3, "1 untracked, 1 modified file, 1 submodule modification");
             Ok(())
@@ -57,7 +143,7 @@ mod index_worktree {
                     opts.sorting =
                         Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
                 })
-                .into_index_worktree_iter(Vec::new())?;
+                .into_index_worktree_iter(None)?;
             let items: Vec<_> = status.filter_map(Result::ok).collect();
             assert_eq!(
                 items,
@@ -103,7 +189,7 @@ mod index_worktree {
                     opts.sorting =
                         Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
                 })
-                .into_index_worktree_iter(Vec::new())?;
+                .into_index_worktree_iter(None)?;
             let items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
             assert_eq!(items, [], "no untracked files are found…");
             assert_eq!(
@@ -124,7 +210,7 @@ mod index_worktree {
                     opts.sorting =
                         Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
                 })
-                .into_index_worktree_iter(Vec::new())?
+                .into_index_worktree_iter(None)?
                 .next()
                 .is_some();
             assert!(is_dirty, "this should abort the work as quickly as possible");
@@ -134,7 +220,7 @@ mod index_worktree {
 }
 
 mod is_dirty {
-    use crate::status::submodule_repo;
+    use crate::status::{repo, submodule_repo};
 
     #[test]
     fn various_changes_positive() -> crate::Result {
@@ -155,7 +241,7 @@ mod is_dirty {
         let repo = submodule_repo("module1")?;
         assert_eq!(
             repo.status(gix::progress::Discard)?
-                .into_index_worktree_iter(Vec::new())?
+                .into_index_worktree_iter(None)?
                 .count(),
             1,
             "there is one untracked file"
@@ -168,9 +254,18 @@ mod is_dirty {
     }
 
     #[test]
-    fn no_changes() -> crate::Result {
+    fn index_changed() -> crate::Result {
+        let repo = repo("git-mv")?;
+        assert!(
+            repo.is_dirty()?,
+            "the only detectable change is in the index, in comparison to the HEAD^{{tree}}"
+        );
+
         let repo = submodule_repo("with-submodules")?;
-        assert!(!repo.is_dirty()?, "there are no changes");
+        assert!(
+            repo.is_dirty()?,
+            "the index changed here as well, this time there is also a new file"
+        );
         Ok(())
     }
 }

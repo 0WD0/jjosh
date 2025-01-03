@@ -1,6 +1,6 @@
 use anyhow::bail;
 use gix::bstr::{BStr, BString, ByteSlice};
-use gix::status::index_worktree::iter::Item;
+use gix::status::{self, index_worktree};
 use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
 use std::path::Path;
 
@@ -109,21 +109,54 @@ pub fn show(
             }
             None => gix::status::Submodule::AsConfigured { check_dirty: false },
         })
-        .into_index_worktree_iter(pathspecs)?;
+        .into_iter(pathspecs)?;
 
     for item in iter.by_ref() {
         let item = item?;
         match item {
-            Item::Modification {
+            status::Item::TreeIndex(change) => {
+                let (location, _, _, _) = change.fields();
+                let status = match change {
+                    gix::diff::index::Change::Addition { .. } => "A",
+                    gix::diff::index::Change::Deletion { .. } => "D",
+                    gix::diff::index::Change::Modification { .. } => "M",
+                    gix::diff::index::Change::Rewrite {
+                        ref source_location, ..
+                    } => {
+                        let source_location = gix::path::from_bstr(source_location.as_ref());
+                        let source_location = gix::path::relativize_with_prefix(&source_location, prefix);
+                        writeln!(
+                            out,
+                            "{status: >2}  {source_rela_path} → {dest_rela_path}",
+                            status = "R",
+                            source_rela_path = source_location.display(),
+                            dest_rela_path =
+                                gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
+                        )?;
+                        continue;
+                    }
+                    gix::diff::index::Change::Unmerged { .. } => {
+                        // Unmerged entries from the worktree-index are displayed as part of the index-worktree comparison.
+                        // Here we have nothing to do with them and can ignore.
+                        continue;
+                    }
+                };
+                writeln!(
+                    out,
+                    "{status: >2}  {rela_path}",
+                    rela_path = gix::path::relativize_with_prefix(&gix::path::from_bstr(location), prefix).display(),
+                )?;
+            }
+            status::Item::IndexWorktree(index_worktree::Item::Modification {
                 entry: _,
                 entry_index: _,
                 rela_path,
                 status,
-            } => print_index_entry_status(&mut out, prefix, rela_path.as_ref(), status)?,
-            Item::DirectoryContents {
+            }) => print_index_entry_status(&mut out, prefix, rela_path.as_ref(), status)?,
+            status::Item::IndexWorktree(index_worktree::Item::DirectoryContents {
                 entry,
                 collapsed_directory_status,
-            } => {
+            }) => {
                 if collapsed_directory_status.is_none() {
                     writeln!(
                         out,
@@ -139,12 +172,12 @@ pub fn show(
                     )?;
                 }
             }
-            Item::Rewrite {
+            status::Item::IndexWorktree(index_worktree::Item::Rewrite {
                 source,
                 dirwalk_entry,
                 copy: _, // TODO: how to visualize copies?
                 ..
-            } => {
+            }) => {
                 // TODO: handle multi-status characters, there can also be modifications at the same time as determined by their ID and potentially diffstats.
                 writeln!(
                     out,
@@ -175,9 +208,8 @@ pub fn show(
         writeln!(err, "{outcome:#?}", outcome = out.index_worktree).ok();
     }
 
-    writeln!(err, "\nhead -> index isn't implemented yet")?;
-    progress.init(Some(out.index.entries().len()), gix::progress::count("files"));
-    progress.set(out.index.entries().len());
+    progress.init(Some(out.worktree_index.entries().len()), gix::progress::count("files"));
+    progress.set(out.worktree_index.entries().len());
     progress.show_throughput(start);
     Ok(())
 }

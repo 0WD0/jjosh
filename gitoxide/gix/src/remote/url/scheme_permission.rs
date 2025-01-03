@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::BTreeMap};
 use crate::{
     bstr::{BStr, BString, ByteSlice},
     config,
-    config::tree::{gitoxide, Key, Protocol},
+    config::tree::{gitoxide, Protocol},
 };
 
 /// All allowed values of the `protocol.allow` key.
@@ -91,7 +91,7 @@ impl SchemePermission {
 
         let user_allowed = saw_user.then(|| {
             config
-                .string_filter(gitoxide::Allow::PROTOCOL_FROM_USER.logical_name().as_str(), &mut filter)
+                .string_filter(gitoxide::Allow::PROTOCOL_FROM_USER, &mut filter)
                 .map_or(true, |val| val.as_ref() == "1")
         });
         Ok(SchemePermission {

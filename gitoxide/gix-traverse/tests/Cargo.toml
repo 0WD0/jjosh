@@ -11,10 +11,11 @@ edition = "2021"
 rust-version = "1.65"
 
 [[test]]
-name = "test"
-path = "traverse.rs"
+name = "traverse"
+path = "traverse/main.rs"
 
 [dev-dependencies]
+insta = "1.40.0"
 gix-traverse = { path = ".." }
 gix-testtools = { path = "../../tests/tools" }
 gix-odb = { path = "../../gix-odb" }

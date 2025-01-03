@@ -13,11 +13,13 @@ rust-version = "1.65"
 autotests = false
 
 [features]
-default = ["blob"]
-## Enable diffing of blobs using imara-diff, which also allows for a generic rewrite tracking implementation.
+default = ["blob", "index"]
+## Enable diffing of blobs using imara-diff.
 blob = ["dep:imara-diff", "dep:gix-filter", "dep:gix-worktree", "dep:gix-path", "dep:gix-fs", "dep:gix-command", "dep:gix-tempfile", "dep:gix-trace", "dep:gix-traverse"]
+## Enable diffing of two indices, which also allows for a generic rewrite tracking implementation.
+index = ["dep:gix-index", "dep:gix-pathspec", "dep:gix-attributes"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
-serde = ["dep:serde", "gix-hash/serde", "gix-object/serde"]
+serde = ["dep:serde", "gix-hash/serde", "gix-object/serde", "gix-index?/serde"]
 ## Make it possible to compile to the `wasm32-unknown-unknown` target.
 wasm = ["dep:getrandom"]
 
@@ -25,6 +27,9 @@ wasm = ["dep:getrandom"]
 doctest = false
 
 [dependencies]
+gix-index = { version = "^0.37.0", path = "../gix-index", optional = true }
+gix-pathspec = { version = "^0.8.1", path = "../gix-pathspec", optional = true }
+gix-attributes = { version = "^0.23.1", path = "../gix-attributes", optional = true }
 gix-hash = { version = "^0.15.1", path = "../gix-hash" }
 gix-object = { version = "^0.46.1", path = "../gix-object" }
 gix-filter = { version = "^0.16.0", path = "../gix-filter", optional = true }
