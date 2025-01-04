@@ -43,8 +43,6 @@ where
 }
 
 /// Identify a change that would have to be applied to `lhs` to obtain `rhs`, as provided in [`index()`](crate::index()).
-///
-/// Note that all variants are unconflicted entries, unless it's the [`Self::Unmerged`] one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChangeRef<'lhs, 'rhs> {
     /// An entry was added to `rhs`.
@@ -115,22 +113,6 @@ pub enum ChangeRef<'lhs, 'rhs> {
         /// and `source_id` points to a deleted object, as renames are tracked as deletions and additions of the same
         /// or similar content.
         copy: bool,
-    },
-    /// One of up to three unmerged entries that are provided in order, one for each stage, ordered
-    /// by `location` and `stage`.
-    ///
-    /// Unmerged entries also don't participate in rename tracking, and they are never present in `lhs`.
-    Unmerged {
-        /// The current location of the entry in `rhs`.
-        location: Cow<'rhs, BStr>,
-        /// The stage of the entry, either *base*, *ours*, or *theirs*.
-        stage: gix_index::entry::Stage,
-        /// The index into the entries array of `rhs` for full access.
-        index: usize,
-        /// The mode of the entry in `rhs`.
-        entry_mode: gix_index::entry::Mode,
-        /// The object id of the entry in `rhs`.
-        id: Cow<'rhs, gix_hash::oid>,
     },
 }
 

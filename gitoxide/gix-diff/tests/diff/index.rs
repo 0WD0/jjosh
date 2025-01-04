@@ -1191,56 +1191,14 @@ fn unmerged_entries_and_intent_to_add() -> crate::Result {
         }),
     )?;
 
-    // each unmerged entry is emitted separately, and no entry is emitted for
-    // paths that are mentioned there. Intent-to-add is transparent.
+    // Intent-to-add is transparent. And unmerged entries aren't emitted either, along with
+    // their sibling paths.
     // All that with rename tracking…
-    insta::assert_debug_snapshot!(changes.into_iter().collect::<Vec<_>>(), @r#"
-    [
-        Unmerged {
-            location: "src/plumbing-renamed/main.rs",
-            stage: Base,
-            index: 2,
-            entry_mode: Mode(
-                FILE,
-            ),
-            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-        },
-        Unmerged {
-            location: "src/plumbing-renamed/main.rs",
-            stage: Ours,
-            index: 3,
-            entry_mode: Mode(
-                FILE,
-            ),
-            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-        },
-    ]
-    "#);
+    insta::assert_debug_snapshot!(changes.into_iter().collect::<Vec<_>>(), @"[]");
 
     let changes = collect_changes_no_renames("r4-dir-rename-non-identity", ".git/index")?;
     // …or without
-    insta::assert_debug_snapshot!(changes.into_iter().collect::<Vec<_>>(), @r#"
-    [
-        Unmerged {
-            location: "src/plumbing-renamed/main.rs",
-            stage: Base,
-            index: 2,
-            entry_mode: Mode(
-                FILE,
-            ),
-            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-        },
-        Unmerged {
-            location: "src/plumbing-renamed/main.rs",
-            stage: Ours,
-            index: 3,
-            entry_mode: Mode(
-                FILE,
-            ),
-            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-        },
-    ]
-    "#);
+    insta::assert_debug_snapshot!(changes.into_iter().collect::<Vec<_>>(), @"[]");
 
     let (index, _, _, _, _) = repo_with_indices(".git/index", ".git/index", None)?;
     assert_eq!(

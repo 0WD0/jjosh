@@ -70,19 +70,6 @@ impl ChangeRef<'_, '_> {
                 id: Cow::Owned(id.into_owned()),
                 copy,
             },
-            ChangeRef::Unmerged {
-                location,
-                stage,
-                index,
-                entry_mode,
-                id,
-            } => ChangeRef::Unmerged {
-                location: Cow::Owned(location.into_owned()),
-                stage,
-                index,
-                entry_mode,
-                id: Cow::Owned(id.into_owned()),
-            },
         }
     }
 }
@@ -120,13 +107,6 @@ impl ChangeRef<'_, '_> {
                 entry_mode,
                 id,
                 ..
-            }
-            | ChangeRef::Unmerged {
-                location,
-                index,
-                entry_mode,
-                id,
-                ..
             } => (location.as_ref(), *index, *entry_mode, id),
         }
     }
@@ -138,7 +118,7 @@ impl rewrites::tracker::Change for ChangeRef<'_, '_> {
             ChangeRef::Addition { id, .. } | ChangeRef::Deletion { id, .. } | ChangeRef::Modification { id, .. } => {
                 id.as_ref()
             }
-            ChangeRef::Rewrite { .. } | ChangeRef::Unmerged { .. } => {
+            ChangeRef::Rewrite { .. } => {
                 unreachable!("BUG")
             }
         }
@@ -156,9 +136,6 @@ impl rewrites::tracker::Change for ChangeRef<'_, '_> {
             ChangeRef::Rewrite { .. } => {
                 unreachable!("BUG: rewrites can't be determined ahead of time")
             }
-            ChangeRef::Unmerged { .. } => {
-                unreachable!("BUG: unmerged don't participate in rename tracking")
-            }
         }
     }
 
@@ -167,8 +144,7 @@ impl rewrites::tracker::Change for ChangeRef<'_, '_> {
             ChangeRef::Addition { entry_mode, .. }
             | ChangeRef::Deletion { entry_mode, .. }
             | ChangeRef::Modification { entry_mode, .. }
-            | ChangeRef::Rewrite { entry_mode, .. }
-            | ChangeRef::Unmerged { entry_mode, .. } => {
+            | ChangeRef::Rewrite { entry_mode, .. } => {
                 entry_mode
                     .to_tree_entry_mode()
                     // Default is for the impossible case - just don't let it participate in rename tracking.
@@ -182,8 +158,7 @@ impl rewrites::tracker::Change for ChangeRef<'_, '_> {
             ChangeRef::Addition { id, entry_mode, .. }
             | ChangeRef::Deletion { id, entry_mode, .. }
             | ChangeRef::Modification { id, entry_mode, .. }
-            | ChangeRef::Rewrite { id, entry_mode, .. }
-            | ChangeRef::Unmerged { id, entry_mode, .. } => {
+            | ChangeRef::Rewrite { id, entry_mode, .. } => {
                 (
                     id,
                     entry_mode
