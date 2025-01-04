@@ -619,6 +619,7 @@ fn from_existing_add() -> crate::Result {
     let root_tree = find_tree(&odb, root_tree_id)?;
     odb.access_count_and_clear();
     let mut edit = gix_object::tree::Editor::new(root_tree.clone(), &odb, gix_hash::Kind::Sha1);
+    assert!(edit.get(["bin"]).is_some(), "the root is immediately available");
 
     let actual = edit.write(&mut write).expect("no changes are fine");
     assert_eq!(actual, root_tree_id, "it rewrites the same tree");
