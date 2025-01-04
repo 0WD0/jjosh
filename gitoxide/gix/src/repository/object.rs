@@ -205,12 +205,10 @@ impl crate::Repository {
     /// we avoid writing duplicate objects using slow disks that will eventually have to be garbage collected.
     ///
     /// If that is prohibitive, use the object database directly.
-    pub fn write_blob_stream(
-        &self,
-        mut bytes: impl std::io::Read + std::io::Seek,
-    ) -> Result<Id<'_>, object::write::Error> {
+    pub fn write_blob_stream(&self, mut bytes: impl std::io::Read) -> Result<Id<'_>, object::write::Error> {
         let mut buf = self.empty_reusable_buffer();
-        std::io::copy(&mut bytes, buf.deref_mut()).expect("write to memory works");
+        std::io::copy(&mut bytes, buf.deref_mut())
+            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
 
         self.write_blob_stream_inner(&buf)
     }
