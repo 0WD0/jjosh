@@ -1,8 +1,13 @@
 use super::{process_changes, Change, UnblamedHunk};
 use crate::{BlameEntry, Error, Outcome, Statistics};
 use gix_diff::blob::intern::TokenSource;
+use gix_diff::tree::Visit;
 use gix_hash::ObjectId;
-use gix_object::{bstr::BStr, FindExt};
+use gix_object::{
+    bstr::{BStr, BString, ByteSlice, ByteVec},
+    FindExt,
+};
+use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::ops::Range;
 
@@ -322,15 +327,121 @@ fn tree_diff_at_file_path(
     let tree_iter = odb.find_tree_iter(&tree_id, rhs_tree_buf)?;
     stats.trees_decoded += 1;
 
-    let mut recorder = gix_diff::tree::Recorder::default();
-    gix_diff::tree(parent_tree_iter, tree_iter, state, &odb, &mut recorder)?;
+    let mut recorder = Recorder::new(file_path.into());
+    // TODO
+    // `recorder` cancels the traversal by returning `Cancel` when a change to `file_path` is
+    // found. `gix_diff::tree` converts `Cancel` into `Err(...)` which is why we ignore its return
+    // value here. I don’t know whether this has the potential to hide bugs.
+    let _ = gix_diff::tree(parent_tree_iter, tree_iter, state, &odb, &mut recorder);
     stats.trees_diffed += 1;
 
-    Ok(recorder.records.into_iter().find(|change| match change {
-        gix_diff::tree::recorder::Change::Modification { path, .. } => path == file_path,
-        gix_diff::tree::recorder::Change::Addition { path, .. } => path == file_path,
-        gix_diff::tree::recorder::Change::Deletion { path, .. } => path == file_path,
-    }))
+    Ok(recorder.change)
+}
+
+// TODO
+// The name is preliminary and can potentially include more context. Also, this should probably be
+// moved to its own location.
+struct Recorder {
+    interesting_path: BString,
+    path_deque: VecDeque<BString>,
+    path: BString,
+    change: Option<gix_diff::tree::recorder::Change>,
+}
+
+impl Recorder {
+    fn new(interesting_path: BString) -> Self {
+        Recorder {
+            interesting_path,
+            path_deque: Default::default(),
+            path: Default::default(),
+            change: None,
+        }
+    }
+
+    fn pop_element(&mut self) {
+        if let Some(pos) = self.path.rfind_byte(b'/') {
+            self.path.resize(pos, 0);
+        } else {
+            self.path.clear();
+        }
+    }
+
+    fn push_element(&mut self, name: &BStr) {
+        if name.is_empty() {
+            return;
+        }
+        if !self.path.is_empty() {
+            self.path.push(b'/');
+        }
+        self.path.push_str(name);
+    }
+}
+
+impl Visit for Recorder {
+    fn pop_front_tracked_path_and_set_current(&mut self) {
+        self.path = self.path_deque.pop_front().expect("every parent is set only once");
+    }
+
+    fn push_back_tracked_path_component(&mut self, component: &BStr) {
+        self.push_element(component);
+        self.path_deque.push_back(self.path.clone());
+    }
+
+    fn push_path_component(&mut self, component: &BStr) {
+        self.push_element(component);
+    }
+
+    fn pop_path_component(&mut self) {
+        self.pop_element();
+    }
+
+    fn visit(&mut self, change: gix_diff::tree::visit::Change) -> gix_diff::tree::visit::Action {
+        use gix_diff::tree::visit::Action::*;
+        use gix_diff::tree::visit::Change::*;
+
+        if self.path == self.interesting_path {
+            self.change = Some(match change {
+                Deletion {
+                    entry_mode,
+                    oid,
+                    relation,
+                } => gix_diff::tree::recorder::Change::Deletion {
+                    entry_mode,
+                    oid,
+                    path: self.path.clone(),
+                    relation,
+                },
+                Addition {
+                    entry_mode,
+                    oid,
+                    relation,
+                } => gix_diff::tree::recorder::Change::Addition {
+                    entry_mode,
+                    oid,
+                    path: self.path.clone(),
+                    relation,
+                },
+                Modification {
+                    previous_entry_mode,
+                    previous_oid,
+                    entry_mode,
+                    oid,
+                } => gix_diff::tree::recorder::Change::Modification {
+                    previous_entry_mode,
+                    previous_oid,
+                    entry_mode,
+                    oid,
+                    path: self.path.clone(),
+                },
+            });
+
+            // When we return `Cancel`, `gix_diff::tree` will convert this `Cancel` into an
+            // `Err(...)`. Keep this in mind when using `Recorder`.
+            Cancel
+        } else {
+            Continue
+        }
+    }
 }
 
 fn blob_changes(
