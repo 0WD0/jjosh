@@ -76,7 +76,7 @@ impl Pipeline {
     where
         R: std::io::Read,
     {
-        let bstr_path = gix_path::into_bstr(rela_path);
+        let bstr_rela_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path));
         let Configuration {
             driver,
             digest,
@@ -84,7 +84,7 @@ impl Pipeline {
             encoding,
             apply_ident_filter,
         } = Configuration::at_path(
-            bstr_path.as_ref(),
+            bstr_rela_path.as_ref(),
             &self.options.drivers,
             &mut self.attrs,
             attributes,
@@ -109,7 +109,7 @@ impl Pipeline {
                 driver,
                 &mut src,
                 driver::Operation::Clean,
-                self.context.with_path(bstr_path.as_ref()),
+                self.context.with_path(bstr_rela_path.as_ref()),
             )? {
                 if !apply_ident_filter && encoding.is_none() && !would_convert_eol {
                     // Note that this is not typically a benefit in terms of saving memory as most filters

@@ -19,6 +19,20 @@ where
     ///
     /// * `patterns`
     ///     - Optional patterns to use to limit the paths to look at. If empty, all paths are considered.
+    ///
+    /// ### Important: Undefined ordering
+    ///
+    /// When compiled with the `parallel` feature, three operations are run at once:
+    ///
+    /// * a dirwalk to find untracked and possibly ignored files
+    /// * an entry-by-entry check to see which of the tracked files changed, and how
+    /// * a tree-index comparison
+    ///
+    /// All of these generate distinct events which may now happen in any order, so consumers
+    /// that are ordering dependent have to restore their desired order.
+    ///
+    /// This isn't feasible to do here as it would mean that returned items would have to be delayed,
+    /// degrading performance for everyone who isn't order-dependent.
     #[doc(alias = "diff_index_to_workdir", alias = "git2")]
     pub fn into_iter(
         self,
@@ -274,12 +288,15 @@ impl Iter {
 
 impl Iter {
     fn maybe_keep_index_change(&mut self, item: Item) -> Option<Item> {
-        let change = match item {
+        match item {
             Item::IndexWorktree(index_worktree::Item::Modification {
                 status: EntryStatus::NeedsUpdate(stat),
                 entry_index,
                 ..
-            }) => (entry_index, ApplyChange::NewStat(stat)),
+            }) => {
+                self.index_changes.push((entry_index, ApplyChange::NewStat(stat)));
+                return None;
+            }
             Item::IndexWorktree(index_worktree::Item::Modification {
                 status:
                     EntryStatus::Change(Change::Modification {
@@ -288,12 +305,12 @@ impl Iter {
                     }),
                 entry_index,
                 ..
-            }) if set_entry_stat_size_zero => (entry_index, ApplyChange::SetSizeToZero),
-            _ => return Some(item),
+            }) if set_entry_stat_size_zero => {
+                self.index_changes.push((entry_index, ApplyChange::SetSizeToZero));
+            }
+            _ => {}
         };
-
-        self.index_changes.push(change);
-        None
+        Some(item)
     }
 }
 

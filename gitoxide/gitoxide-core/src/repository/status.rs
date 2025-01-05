@@ -135,11 +135,6 @@ pub fn show(
                         )?;
                         continue;
                     }
-                    gix::diff::index::Change::Unmerged { .. } => {
-                        // Unmerged entries from the worktree-index are displayed as part of the index-worktree comparison.
-                        // Here we have nothing to do with them and can ignore.
-                        continue;
-                    }
                 };
                 writeln!(
                     out,

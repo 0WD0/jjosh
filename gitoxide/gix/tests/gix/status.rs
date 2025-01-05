@@ -74,6 +74,16 @@ mod into_iter {
     }
 
     #[test]
+    fn tree_index_modification_worktree_modification_racy_git() -> crate::Result {
+        let repo = repo("racy-git")?;
+        let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        assert_eq!(items.len(), 2, "1 modified in index, the same in worktree");
+        Ok(())
+    }
+
+    #[test]
     fn error_during_tree_traversal_causes_failure() -> crate::Result {
         let repo = repo("untracked-only")?;
         let platform = repo.status(gix::progress::Discard)?.head_tree(hex_to_id(

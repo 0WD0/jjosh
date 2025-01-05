@@ -21,3 +21,12 @@ git init git-mv
 
   git mv file renamed
 )
+
+git init racy-git
+(cd racy-git
+  echo hi >file
+  git add file && git commit -m "init"
+
+  echo ho >file && git add file
+  echo ha >file
+)

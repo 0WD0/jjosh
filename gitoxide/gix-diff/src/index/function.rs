@@ -1,6 +1,6 @@
 use super::{Action, ChangeRef, Error, RewriteOptions};
 use crate::rewrites;
-use bstr::{BStr, BString, ByteSlice};
+use bstr::BStr;
 use gix_filter::attributes::glob::pattern::Case;
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -20,7 +20,8 @@ use std::cmp::Ordering;
 /// Return the outcome of the rewrite tracker if it was enabled.
 ///
 /// Note that only `rhs` may contain unmerged entries, as `rhs` is expected to be the index read from `.git/index`.
-/// Unmerged entries are always provided as changes, one stage at a time, up to three stages for *base*, *ours* and *theirs*.
+/// Unmerged entries are skipped entirely.
+///
 /// Conceptually, `rhs` is *ours*, and `lhs` is *theirs*.
 /// The entries in `lhs` and `rhs` are both expected to be sorted like index entries are typically sorted.
 ///
@@ -74,23 +75,6 @@ where
             .filter(|(_, path, e)| pattern_matches.borrow_mut()(path, e)),
     );
 
-    let mut conflicting_paths = Vec::<BString>::new();
-    let mut cb = move |change: ChangeRef<'lhs, 'rhs>| {
-        let (location, ..) = change.fields();
-        if let ChangeRef::Unmerged { .. } = &change {
-            if let Err(insert_idx) = conflicting_paths.binary_search_by(|p| p.as_bstr().cmp(location)) {
-                conflicting_paths.insert(insert_idx, location.to_owned());
-            }
-            cb(change)
-        } else if conflicting_paths
-            .binary_search_by(|p| p.as_bstr().cmp(location))
-            .is_err()
-        {
-            cb(change)
-        } else {
-            Ok(Action::Continue)
-        }
-    };
     let mut resource_cache_storage = None;
     let mut tracker = rewrite_options.map(
         |RewriteOptions {
@@ -107,15 +91,6 @@ where
     loop {
         match (lhs_storage, rhs_storage) {
             (Some(lhs), Some(rhs)) => {
-                match emit_unmerged_ignore_intent_to_add(rhs, &mut cb)? {
-                    None => {}
-                    Some(Action::Cancel) => return Ok(None),
-                    Some(Action::Continue) => {
-                        rhs_storage = rhs_iter.next();
-                        continue;
-                    }
-                };
-
                 let (lhs_idx, lhs_path, lhs_entry) = lhs;
                 let (rhs_idx, rhs_path, rhs_entry) = rhs;
                 match lhs_path.cmp(rhs_path) {
@@ -126,6 +101,11 @@ where
                         Action::Cancel => return Ok(None),
                     },
                     Ordering::Equal => {
+                        if ignore_unmerged_and_intent_to_add(rhs) {
+                            rhs_storage = rhs_iter.next();
+                            lhs_storage = lhs_iter.next();
+                            continue;
+                        }
                         if lhs_entry.id != rhs_entry.id || lhs_entry.mode != rhs_entry.mode {
                             let change = ChangeRef::Modification {
                                 location: Cow::Borrowed(rhs_path),
@@ -274,8 +254,8 @@ fn emit_addition<'rhs, 'lhs: 'rhs, E>(
 where
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    if let Some(action) = emit_unmerged_ignore_intent_to_add((idx, path, entry), &mut cb)? {
-        return Ok(action);
+    if ignore_unmerged_and_intent_to_add((idx, path, entry)) {
+        return Ok(Action::Continue);
     }
 
     let change = ChangeRef::Addition {
@@ -296,29 +276,9 @@ where
     cb(change).map_err(|err| Error::Callback(err.into()))
 }
 
-fn emit_unmerged_ignore_intent_to_add<'rhs, 'lhs: 'rhs, E>(
-    (idx, path, entry): (usize, &'rhs BStr, &'rhs gix_index::Entry),
-    cb: &mut impl FnMut(ChangeRef<'lhs, 'rhs>) -> Result<Action, E>,
-) -> Result<Option<Action>, Error>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    if entry.flags.contains(gix_index::entry::Flags::INTENT_TO_ADD) {
-        return Ok(Some(Action::Continue));
-    }
+fn ignore_unmerged_and_intent_to_add<'rhs, 'lhs: 'rhs>(
+    (_idx, _path, entry): (usize, &'rhs BStr, &'rhs gix_index::Entry),
+) -> bool {
     let stage = entry.stage();
-    if stage == gix_index::entry::Stage::Unconflicted {
-        return Ok(None);
-    }
-
-    Ok(Some(
-        cb(ChangeRef::Unmerged {
-            location: Cow::Borrowed(path),
-            stage,
-            index: idx,
-            entry_mode: entry.mode,
-            id: Cow::Borrowed(entry.id.as_ref()),
-        })
-        .map_err(|err| Error::Callback(err.into()))?,
-    ))
+    entry.flags.contains(gix_index::entry::Flags::INTENT_TO_ADD) || stage != gix_index::entry::Stage::Unconflicted
 }

@@ -177,6 +177,21 @@ impl<'repo> Cursor<'_, 'repo> {
     pub fn write(&mut self) -> Result<Id<'repo>, write::Error> {
         write_cursor(self)
     }
+
+    /// Obtain the entry at `rela_path` or return `None` if none was found, or the tree wasn't yet written
+    /// to that point.
+    /// The root tree is always available.
+    /// Note that after [writing](Self::write) only the root path remains, all other intermediate trees are removed.
+    /// The entry can be anything that can be stored in a tree, but may have a null-id if it's a newly
+    /// inserted tree. Also, ids of trees might not be accurate as they may have been changed in memory.
+    pub fn get(&self, rela_path: impl ToComponents) -> Option<crate::object::tree::EntryRef<'repo, '_>> {
+        self.inner
+            .get(rela_path.to_components())
+            .map(|entry| crate::object::tree::EntryRef {
+                inner: entry.into(),
+                repo: self.repo,
+            })
+    }
 }
 
 /// Operations
@@ -241,6 +256,21 @@ impl<'repo> super::Editor<'repo> {
     /// correct. The objects pointed to by entries also have to exist already.
     pub fn write(&mut self) -> Result<Id<'repo>, write::Error> {
         write_cursor(&mut self.to_cursor())
+    }
+
+    /// Obtain the entry at `rela_path` or return `None` if none was found, or the tree wasn't yet written
+    /// to that point.
+    /// The root tree is always available.
+    /// Note that after [writing](Self::write) only the root path remains, all other intermediate trees are removed.
+    /// The entry can be anything that can be stored in a tree, but may have a null-id if it's a newly
+    /// inserted tree. Also, ids of trees might not be accurate as they may have been changed in memory.
+    pub fn get(&self, rela_path: impl ToComponents) -> Option<crate::object::tree::EntryRef<'repo, '_>> {
+        self.inner
+            .get(rela_path.to_components())
+            .map(|entry| crate::object::tree::EntryRef {
+                inner: entry.into(),
+                repo: self.repo,
+            })
     }
 }
 
