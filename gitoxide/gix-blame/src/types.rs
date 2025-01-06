@@ -28,7 +28,9 @@ pub struct Statistics {
     pub commits_to_tree: usize,
     /// The amount of trees that were decoded to find the entry of the file to blame.
     pub trees_decoded: usize,
-    /// The amount of fully-fledged tree-diffs to see if the filepath was added, deleted or modified.
+    /// The amount of tree-diffs to see if the filepath was added, deleted or modified. These diffs
+    /// are likely partial as they are cancelled as soon as a change to the blamed file is
+    /// detected.
     pub trees_diffed: usize,
     /// The amount of blobs there were compared to each other to learn what changed between commits.
     /// Note that in order to diff a blob, one needs to load both versions from the database.
