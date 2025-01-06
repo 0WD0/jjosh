@@ -4,10 +4,9 @@ use gix_diff::blob::intern::TokenSource;
 use gix_diff::tree::Visit;
 use gix_hash::ObjectId;
 use gix_object::{
-    bstr::{BStr, BString, ByteSlice, ByteVec},
+    bstr::{BStr, BString},
     FindExt,
 };
-use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::ops::Range;
 
@@ -344,64 +343,45 @@ fn tree_diff_at_file_path(
 // The name is preliminary and can potentially include more context. Also, this should probably be
 // moved to its own location.
 struct Recorder {
+    inner: gix_diff::tree::Recorder,
     interesting_path: BString,
-    path_deque: VecDeque<BString>,
-    path: BString,
     change: Option<gix_diff::tree::recorder::Change>,
 }
 
 impl Recorder {
     fn new(interesting_path: BString) -> Self {
+        let inner = gix_diff::tree::Recorder::default().track_location(Some(gix_diff::tree::recorder::Location::Path));
+
         Recorder {
+            inner,
             interesting_path,
-            path_deque: Default::default(),
-            path: Default::default(),
             change: None,
         }
-    }
-
-    fn pop_element(&mut self) {
-        if let Some(pos) = self.path.rfind_byte(b'/') {
-            self.path.resize(pos, 0);
-        } else {
-            self.path.clear();
-        }
-    }
-
-    fn push_element(&mut self, name: &BStr) {
-        if name.is_empty() {
-            return;
-        }
-        if !self.path.is_empty() {
-            self.path.push(b'/');
-        }
-        self.path.push_str(name);
     }
 }
 
 impl Visit for Recorder {
     fn pop_front_tracked_path_and_set_current(&mut self) {
-        self.path = self.path_deque.pop_front().expect("every parent is set only once");
+        self.inner.pop_front_tracked_path_and_set_current();
     }
 
     fn push_back_tracked_path_component(&mut self, component: &BStr) {
-        self.push_element(component);
-        self.path_deque.push_back(self.path.clone());
+        self.inner.push_back_tracked_path_component(component);
     }
 
     fn push_path_component(&mut self, component: &BStr) {
-        self.push_element(component);
+        self.inner.push_path_component(component);
     }
 
     fn pop_path_component(&mut self) {
-        self.pop_element();
+        self.inner.pop_path_component();
     }
 
     fn visit(&mut self, change: gix_diff::tree::visit::Change) -> gix_diff::tree::visit::Action {
         use gix_diff::tree::visit::Action::*;
         use gix_diff::tree::visit::Change::*;
 
-        if self.path == self.interesting_path {
+        if self.inner.path() == self.interesting_path {
             self.change = Some(match change {
                 Deletion {
                     entry_mode,
@@ -410,7 +390,7 @@ impl Visit for Recorder {
                 } => gix_diff::tree::recorder::Change::Deletion {
                     entry_mode,
                     oid,
-                    path: self.path.clone(),
+                    path: self.inner.path_clone(),
                     relation,
                 },
                 Addition {
@@ -420,7 +400,7 @@ impl Visit for Recorder {
                 } => gix_diff::tree::recorder::Change::Addition {
                     entry_mode,
                     oid,
-                    path: self.path.clone(),
+                    path: self.inner.path_clone(),
                     relation,
                 },
                 Modification {
@@ -433,7 +413,7 @@ impl Visit for Recorder {
                     previous_oid,
                     entry_mode,
                     oid,
-                    path: self.path.clone(),
+                    path: self.inner.path_clone(),
                 },
             });
 
