@@ -328,14 +328,16 @@ fn tree_diff_at_file_path(
     stats.trees_decoded += 1;
 
     let mut recorder = Recorder::new(file_path.into());
-    // TODO
-    // `recorder` cancels the traversal by returning `Cancel` when a change to `file_path` is
-    // found. `gix_diff::tree` converts `Cancel` into `Err(...)` which is why we ignore its return
-    // value here. I don’t know whether this has the potential to hide bugs.
-    let _ = gix_diff::tree(parent_tree_iter, tree_iter, state, &odb, &mut recorder);
+    let result = gix_diff::tree(parent_tree_iter, tree_iter, state, &odb, &mut recorder);
     stats.trees_diffed += 1;
 
-    Ok(recorder.change)
+    match result {
+        // `recorder` cancels the traversal by returning `Cancel` when a change to `file_path` is
+        // found. `gix_diff::tree` converts `Cancel` into `Err(Cancelled)` which is why we match on
+        // `Err(Cancelled)` in addition to `Ok`.
+        Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(recorder.change),
+        Err(error) => Err(Error::DiffTree(error)),
+    }
 }
 
 // TODO
