@@ -32,7 +32,7 @@ The above can be hard to answer and this paragraph is here to help with feature 
 Look at [`crate-status.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/crate-status.md) for a rather exhaustive document that contains
 both implemented and planned features.
 
-Further, the [`gix` crate documentation with the `git2` search term](https://docs.rs/gix/0.54.1/gix/?search=git2) helps to find all currently
+Further, the [`gix` crate documentation with the `git2` search term](https://docs.rs/gix/latest/gix?search=git2) helps to find all currently
 known `git2` equivalent method calls. Please note that this list is definitely not exhaustive yet, but might help if you are coming from `git2`.
 
 What follows is a high-level list of features and those which are planned:
