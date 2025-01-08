@@ -75,11 +75,10 @@ pub fn parallel_iter_drop<T, U, V>(
             return;
         }
     };
-    // Wait until there is time to respond before we undo the change.
-    if let Some(handle) = maybe_handle {
-        handle.join().ok();
-    }
-    handle.join().ok();
+    // Do not for the remaining threads. Everything but index-from-tree is interruptible, and that wouldn't
+    // take very long even with huge trees.
+    // If this every becomes a problem, just make `index::from-tree` interruptible, and keep waiting for handles here.
+    drop((maybe_handle, handle));
     undo.fetch_update(
         std::sync::atomic::Ordering::SeqCst,
         std::sync::atomic::Ordering::SeqCst,

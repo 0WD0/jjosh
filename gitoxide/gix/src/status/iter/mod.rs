@@ -238,14 +238,22 @@ impl Iterator for Iter {
         #[cfg(feature = "parallel")]
         loop {
             let (rx, _join_worktree, _join_tree) = self.rx_and_join.as_ref()?;
-            match rx.recv().ok() {
-                Some(item) => {
+            match rx.recv_timeout(std::time::Duration::from_millis(25)) {
+                Ok(item) => {
                     if let Some(item) = self.maybe_keep_index_change(item) {
                         break Some(Ok(item));
                     }
                     continue;
                 }
-                None => {
+                // NOTE: this isn't necessary when index::from-tree also supports interrupts. As it stands,
+                //       on big repositories it can go up to 500ms which aren't interruptible, so this is another
+                //       way to not wait for this. Once it can be interrupted, this won't be needed anymore.
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if self.should_interrupt.load(Ordering::SeqCst) {
+                        return None;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     let (_rx, worktree_handle, tree_handle) = self.rx_and_join.take()?;
                     let tree_index = if let Some(handle) = tree_handle {
                         match handle.join().expect("no panic") {
