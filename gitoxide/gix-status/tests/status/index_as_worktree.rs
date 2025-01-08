@@ -5,6 +5,7 @@ use std::sync::{
 
 use bstr::BStr;
 use filetime::{set_file_mtime, FileTime};
+use gix_filter::eol::AutoCrlf;
 use gix_index as index;
 use gix_index::Entry;
 use gix_status::index_as_worktree::Context;
@@ -38,7 +39,16 @@ fn fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
 }
 
 fn nonfile_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
-    fixture_filtered_detailed("status_nonfile", name, &[], expected_status, |_| {}, false)
+    fixture_filtered_detailed(
+        "status_nonfile",
+        name,
+        &[],
+        expected_status,
+        |_| {},
+        false,
+        Default::default(),
+        false,
+    )
 }
 
 fn fixture_with_index(
@@ -46,25 +56,71 @@ fn fixture_with_index(
     prepare_index: impl FnMut(&mut gix_index::State),
     expected_status: &[Expectation<'_>],
 ) -> Outcome {
-    fixture_filtered_detailed(name, "", &[], expected_status, prepare_index, false)
+    fixture_filtered_detailed(
+        name,
+        "",
+        &[],
+        expected_status,
+        prepare_index,
+        false,
+        Default::default(),
+        false,
+    )
 }
 
 fn submodule_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
-    fixture_filtered_detailed("status_submodule", name, &[], expected_status, |_| {}, false)
+    fixture_filtered_detailed(
+        "status_submodule",
+        name,
+        &[],
+        expected_status,
+        |_| {},
+        false,
+        Default::default(),
+        false,
+    )
 }
 
 fn conflict_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
-    fixture_filtered_detailed("conflicts", name, &[], expected_status, |_| {}, false)
+    fixture_filtered_detailed(
+        "conflicts",
+        name,
+        &[],
+        expected_status,
+        |_| {},
+        false,
+        Default::default(),
+        false,
+    )
 }
 
 fn submodule_fixture_status(name: &str, expected_status: &[Expectation<'_>], submodule_dirty: bool) -> Outcome {
-    fixture_filtered_detailed("status_submodule", name, &[], expected_status, |_| {}, submodule_dirty)
+    fixture_filtered_detailed(
+        "status_submodule",
+        name,
+        &[],
+        expected_status,
+        |_| {},
+        submodule_dirty,
+        Default::default(),
+        false,
+    )
 }
 
 fn fixture_filtered(name: &str, pathspecs: &[&str], expected_status: &[Expectation<'_>]) -> Outcome {
-    fixture_filtered_detailed(name, "", pathspecs, expected_status, |_| {}, false)
+    fixture_filtered_detailed(
+        name,
+        "",
+        pathspecs,
+        expected_status,
+        |_| {},
+        false,
+        Default::default(),
+        false,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fixture_filtered_detailed(
     name: &str,
     subdir: &str,
@@ -72,6 +128,8 @@ fn fixture_filtered_detailed(
     expected_status: &[Expectation<'_>],
     mut prepare_index: impl FnMut(&mut gix_index::State),
     submodule_dirty: bool,
+    auto_crlf: gix_filter::eol::AutoCrlf,
+    use_odb: bool,
 ) -> Outcome {
     // This can easily happen in some fixtures, which can cause flakiness. It's time-dependent after all.
     fn ignore_racyclean(mut out: Outcome) -> Outcome {
@@ -105,26 +163,53 @@ fn fixture_filtered_detailed(
         &index,
         index.path_backing(),
     );
-    let outcome = index_as_worktree(
-        &index,
-        &worktree,
-        &mut recorder,
-        FastEq,
-        SubmoduleStatusMock { dirty: submodule_dirty },
-        gix_object::find::Never,
-        &mut gix_features::progress::Discard,
-        Context {
-            pathspec: search,
-            stack,
-            filter: Default::default(),
-            should_interrupt: &AtomicBool::default(),
-        },
-        Options {
-            fs: gix_fs::Capabilities::probe(&git_dir),
-            stat: TEST_OPTIONS,
-            ..Options::default()
-        },
-    )
+    let ctx = Context {
+        pathspec: search,
+        stack,
+        filter: gix_filter::Pipeline::new(
+            Default::default(),
+            gix_filter::pipeline::Options {
+                eol_config: gix_filter::eol::Configuration {
+                    auto_crlf,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ),
+        should_interrupt: &AtomicBool::default(),
+    };
+    let options = Options {
+        fs: gix_fs::Capabilities::probe(&git_dir),
+        stat: TEST_OPTIONS,
+        ..Options::default()
+    };
+    let outcome = if use_odb {
+        let odb = gix_odb::at(git_dir.join("objects")).unwrap().into_arc().unwrap();
+        index_as_worktree(
+            &index,
+            &worktree,
+            &mut recorder,
+            FastEq,
+            SubmoduleStatusMock { dirty: submodule_dirty },
+            odb,
+            &mut gix_features::progress::Discard,
+            ctx,
+            options,
+        )
+    } else {
+        let odb = gix_object::find::Never;
+        index_as_worktree(
+            &index,
+            &worktree,
+            &mut recorder,
+            FastEq,
+            SubmoduleStatusMock { dirty: submodule_dirty },
+            &odb,
+            &mut gix_features::progress::Discard,
+            ctx,
+            options,
+        )
+    }
     .unwrap();
     recorder.records.sort_unstable_by_key(|r| r.relative_path);
     assert_eq!(records_to_tuple(recorder.records), expected_status);
@@ -255,6 +340,8 @@ fn replace_dir_with_file() {
             (BStr::new(b"dir/sub/nested"), 2, status_removed()),
         ],
         |_| {},
+        false,
+        Default::default(),
         false,
     );
     assert_eq!(
@@ -451,6 +538,28 @@ fn submodule_conflict() {
 #[test]
 fn unchanged() {
     fixture("status_unchanged", &[]);
+}
+
+#[test]
+fn unchanged_despite_filter() {
+    let actual_outcome = fixture_filtered_detailed(
+        "status_unchanged_filter",
+        "",
+        &[],
+        &[],
+        |_| {},
+        false,
+        AutoCrlf::Enabled,
+        true, /* make ODB available */
+    );
+
+    let expected_outcome = Outcome {
+        entries_to_process: 5,
+        entries_processed: 5,
+        symlink_metadata_calls: 5,
+        ..Default::default()
+    };
+    assert_eq!(actual_outcome, expected_outcome,);
 }
 
 #[test]
