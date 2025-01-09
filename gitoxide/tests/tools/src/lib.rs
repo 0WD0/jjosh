@@ -652,6 +652,7 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 }
 
 fn bash_program() -> &'static Path {
+    // TODO: use `gix_path::env::login_shell()` when available.
     if cfg!(windows) {
         static GIT_BASH: Lazy<Option<PathBuf>> = Lazy::new(|| {
             GIT_CORE_DIR
