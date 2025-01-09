@@ -394,3 +394,4 @@ stable_sort_primitive = "allow"  # x1
 no_effect_underscore_binding = "allow"  # x1
 empty_docs = "allow"
 too_long_first_doc_paragraph = "allow"
+large_stack_arrays = "allow"

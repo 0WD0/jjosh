@@ -128,10 +128,10 @@ pub(crate) mod function {
             let pathspec_includes_entry = match pathspec.as_mut() {
                 None => entry
                     .pathspec_match
-                    .map_or(false, |m| m != gix::dir::entry::PathspecMatch::Excluded),
+                    .is_some_and(|m| m != gix::dir::entry::PathspecMatch::Excluded),
                 Some(pathspec) => pathspec
                     .pattern_matching_relative_path(entry.rela_path.as_bstr(), entry.disk_kind.map(|k| k.is_dir()))
-                    .map_or(false, |m| !m.is_excluded()),
+                    .is_some_and(|m| !m.is_excluded()),
             };
             pruned_entries += usize::from(!pathspec_includes_entry);
             if !pathspec_includes_entry && debug {

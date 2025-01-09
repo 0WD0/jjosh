@@ -83,7 +83,7 @@ impl Status {
 
     /// Returns true if this is an `abort` status.
     pub fn is_abort(&self) -> bool {
-        self.message().map_or(false, |m| m == "abort")
+        self.message() == Some("abort")
     }
 
     /// Return true if the status is explicitly set to indicated delayed output processing

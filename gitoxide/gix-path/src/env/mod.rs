@@ -28,6 +28,23 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
     installation_config().map(git::config_to_base_path)
 }
 
+/// Return the shell that Git would prefer as login shell, the shell to execute Git commands from.
+///
+/// On Windows, this is the `bash.exe` bundled with it, and on Unix it's the shell specified by `SHELL`,
+/// or `None` if it is truly unspecified.
+pub fn login_shell() -> Option<&'static Path> {
+    static PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+        if cfg!(windows) {
+            installation_config_prefix()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("usr").join("bin").join("bash.exe"))
+        } else {
+            std::env::var_os("SHELL").map(PathBuf::from)
+        }
+    });
+    PATH.as_deref()
+}
+
 /// Return the name of the Git executable to invoke it.
 /// If it's in the `PATH`, it will always be a short name.
 ///

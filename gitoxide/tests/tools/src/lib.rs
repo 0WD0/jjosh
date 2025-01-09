@@ -652,6 +652,7 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 }
 
 fn bash_program() -> &'static Path {
+    // TODO: use `gix_path::env::login_shell()` when available.
     if cfg!(windows) {
         static GIT_BASH: Lazy<Option<PathBuf>> = Lazy::new(|| {
             GIT_CORE_DIR
@@ -685,8 +686,7 @@ fn is_lfs_pointer_file(path: &Path) -> bool {
     std::fs::OpenOptions::new()
         .read(true)
         .open(path)
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .map_or(false, |_| buf.starts_with(PREFIX))
+        .is_ok_and(|mut f| f.read_exact(&mut buf).is_ok_and(|_| buf.starts_with(PREFIX)))
 }
 
 /// The `script_identity` will be baked into the soon to be created `archive` as it identifies the script

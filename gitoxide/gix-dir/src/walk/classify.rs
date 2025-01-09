@@ -215,7 +215,7 @@ pub fn path(
 
     let is_dir = if symlinks_to_directories_are_ignored_like_directories
         && ctx.excludes.is_some()
-        && kind.map_or(false, |ft| ft == entry::Kind::Symlink)
+        && kind == Some(entry::Kind::Symlink)
     {
         path.metadata().ok().map(|md| is_dir_to_mode(md.is_dir()))
     } else {

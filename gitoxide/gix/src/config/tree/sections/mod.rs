@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_literal_bound)]
 #![allow(missing_docs)]
 
 /// The `author` top-level section.

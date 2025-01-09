@@ -69,7 +69,7 @@ pub mod index_names {
                 ascii_path.is_ascii(),
                 "must use ascii bytes for correct size computation"
             );
-            count += (ascii_path.as_bytes().len() + 1/* null byte */) as u64;
+            count += (ascii_path.len() + 1/* null byte */) as u64;
         }
 
         let needed_alignment = CHUNK_ALIGNMENT - (count % CHUNK_ALIGNMENT);
@@ -89,7 +89,7 @@ pub mod index_names {
             let path = path.as_ref().to_str().expect("UTF-8 path");
             out.write_all(path.as_bytes())?;
             out.write_all(&[0])?;
-            written_bytes += path.as_bytes().len() as u64 + 1;
+            written_bytes += path.len() as u64 + 1;
         }
 
         let needed_alignment = CHUNK_ALIGNMENT - (written_bytes % CHUNK_ALIGNMENT);

@@ -185,7 +185,7 @@ fn check_win_devices_and_illegal_characters(input: &BStr) -> Option<component::E
 }
 
 fn is_symlink(mode: Option<component::Mode>) -> bool {
-    mode.map_or(false, |m| m == component::Mode::Symlink)
+    mode == Some(component::Mode::Symlink)
 }
 
 fn is_dot_hfs(input: &BStr, search_case_insensitive: &str) -> bool {
