@@ -190,7 +190,7 @@ mod refs_impl {
             for fix in &map.fixes {
                 match fix {
                     Fix::MappingWithPartialDestinationRemoved { name, spec } => {
-                        if prev_spec.map_or(true, |prev_spec| prev_spec != spec) {
+                        if prev_spec.is_some_and(|prev_spec| prev_spec != spec) {
                             prev_spec = spec.into();
                             spec.to_ref().write_to(&mut err)?;
                             writeln!(err)?;

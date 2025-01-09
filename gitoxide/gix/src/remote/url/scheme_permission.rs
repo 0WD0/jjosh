@@ -63,7 +63,7 @@ impl SchemePermission {
             .map(|value| Protocol::ALLOW.try_into_allow(value, None))
             .transpose()?;
 
-        let mut saw_user = allow.map_or(false, |allow| allow == Allow::User);
+        let mut saw_user = allow == Some(Allow::User);
         let allow_per_scheme = match config.sections_by_name_and_filter("protocol", &mut filter) {
             Some(it) => {
                 let mut map = BTreeMap::default();

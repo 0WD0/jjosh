@@ -93,7 +93,7 @@ pub fn query(
                     let entry = cache.at_entry(
                         path,
                         Some(is_dir_to_mode(
-                            workdir.map_or(false, |wd| wd.join(gix::path::from_bstr(path)).is_dir())
+                            workdir.is_some_and(|wd| wd.join(gix::path::from_bstr(path)).is_dir())
                                 || pattern.signature.contains(gix::pathspec::MagicSignature::MUST_BE_DIR),
                         )),
                     )?;

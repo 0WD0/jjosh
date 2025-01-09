@@ -108,7 +108,7 @@ pub(crate) mod function {
                 }
             }
             progress.inc();
-            if limit.map_or(false, |limit| limit == progress.step()) {
+            if limit.is_some_and(|limit| limit == progress.step()) {
                 break;
             }
         }

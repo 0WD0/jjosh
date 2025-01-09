@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match sub_command.as_str() {
         "process" => {
-            let disallow_delay = next_arg.as_deref().map_or(false, |arg| arg == "disallow-delay");
+            let disallow_delay = next_arg.as_deref() == Some("disallow-delay");
             let mut srv = gix_filter::driver::process::Server::handshake(
                 stdin(),
                 stdout(),

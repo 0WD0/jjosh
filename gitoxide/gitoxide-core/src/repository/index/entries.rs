@@ -198,7 +198,7 @@ pub(crate) mod function {
                         sms_by_path
                             .iter()
                             .find_map(|(path, sm)| (path == entry_path).then_some(sm))
-                            .filter(|sm| sm.git_dir_try_old_form().map_or(false, |dot_git| dot_git.exists()))
+                            .filter(|sm| sm.git_dir_try_old_form().is_ok_and(|dot_git| dot_git.exists()))
                     })
                 {
                     let sm_path = gix::path::to_unix_separators_on_windows(sm.path()?);

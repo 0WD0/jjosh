@@ -72,7 +72,7 @@ impl Transaction<'_, '_> {
                             }
                         };
                         if let Some((previous, new_oid)) = log_update {
-                            let do_update = previous.as_ref().map_or(true, |previous| previous != new_oid);
+                            let do_update = previous.as_ref() != Some(new_oid);
                             if do_update {
                                 self.store.reflog_create_or_append(
                                     change.update.name.as_ref(),
