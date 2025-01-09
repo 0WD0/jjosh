@@ -8,6 +8,16 @@ fn exe_invocation() {
 }
 
 #[test]
+fn login_shell() {
+    // On CI, the $SHELL variable isn't necessarily set. Maybe other ways to get the login shell should be used then.
+    if !gix_testtools::is_ci::cached() {
+        assert!(gix_path::env::login_shell()
+            .expect("There should always be the notion of a shell used by git")
+            .exists());
+    }
+}
+
+#[test]
 fn installation_config() {
     assert_ne!(
         gix_path::env::installation_config().map(|p| p.components().count()),
