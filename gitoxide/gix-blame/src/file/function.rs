@@ -172,10 +172,9 @@ where
                 if more_than_one_parent {
                     // None of the changes affected the file we’re currently blaming.
                     // Copy blame to parent.
-                    hunks_to_blame = hunks_to_blame
-                        .into_iter()
-                        .map(|unblamed_hunk| unblamed_hunk.clone_blame(suspect, parent_id))
-                        .collect();
+                    for unblamed_hunk in &mut hunks_to_blame {
+                        unblamed_hunk.clone_blame(suspect, parent_id);
+                    }
                 } else {
                     pass_blame_from_to(suspect, parent_id, &mut hunks_to_blame);
                 }
@@ -202,26 +201,20 @@ where
             }
         }
 
-        hunks_to_blame = hunks_to_blame
-            .into_iter()
-            .filter_map(|mut unblamed_hunk| {
-                if unblamed_hunk.suspects.len() == 1 {
-                    if let Some(entry) = BlameEntry::from_unblamed_hunk(&unblamed_hunk, suspect) {
-                        // At this point, we have copied blame for every hunk to a parent. Hunks
-                        // that have only `suspect` left in `suspects` have not passed blame to any
-                        // parent and so they can be converted to a `BlameEntry` and moved to
-                        // `out`.
-                        out.push(entry);
-
-                        return None;
-                    }
+        hunks_to_blame.retain_mut(|unblamed_hunk| {
+            if unblamed_hunk.suspects.len() == 1 {
+                if let Some(entry) = BlameEntry::from_unblamed_hunk(&unblamed_hunk, suspect) {
+                    // At this point, we have copied blame for every hunk to a parent. Hunks
+                    // that have only `suspect` left in `suspects` have not passed blame to any
+                    // parent, and so they can be converted to a `BlameEntry` and moved to
+                    // `out`.
+                    out.push(entry);
+                    return false;
                 }
-
-                unblamed_hunk.remove_blame(suspect);
-
-                Some(unblamed_hunk)
-            })
-            .collect();
+            }
+            unblamed_hunk.remove_blame(suspect);
+            true
+        });
 
         // This block asserts that line ranges for each suspect never overlap. If they did overlap
         // this would mean that the same line in a *Source File* would map to more than one line in
