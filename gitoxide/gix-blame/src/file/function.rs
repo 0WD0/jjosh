@@ -399,7 +399,7 @@ fn tree_diff_at_file_path(
         }
 
         fn visit(&mut self, change: gix_diff::tree::visit::Change) -> gix_diff::tree::visit::Action {
-            use gix_diff::tree::visit::Action::*;
+            use gix_diff::tree::visit;
             use gix_diff::tree::visit::Change::*;
 
             if self.inner.path() == self.interesting_path {
@@ -438,11 +438,9 @@ fn tree_diff_at_file_path(
                     },
                 });
 
-                // When we return `Cancel`, `gix_diff::tree` will convert this `Cancel` into an
-                // `Err(...)`. Keep this in mind when using `FindChangeToPath`.
-                Cancel
+                visit::Action::Cancel
             } else {
-                Continue
+                visit::Action::Continue
             }
         }
     }
@@ -452,9 +450,6 @@ fn tree_diff_at_file_path(
     stats.trees_diffed += 1;
 
     match result {
-        // `recorder` cancels the traversal by returning `Cancel` when a change to `file_path` is
-        // found. `gix_diff::tree` converts `Cancel` into `Err(Cancelled)` which is why we match on
-        // `Err(Cancelled)` in addition to `Ok`.
         Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(recorder.change),
         Err(error) => Err(Error::DiffTree(error)),
     }
