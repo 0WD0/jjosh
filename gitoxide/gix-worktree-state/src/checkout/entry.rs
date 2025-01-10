@@ -288,7 +288,10 @@ pub(crate) fn finalize_entry(
     if let Some(path) = set_executable_after_creation {
         use std::os::unix::fs::PermissionsExt;
         let mut perm = std::fs::symlink_metadata(path)?.permissions();
-        perm.set_mode(0o777);
+        let mut mode = perm.mode();
+        mode &= 0o777; // Clear non-rwx bits (setuid, setgid, sticky).
+        mode |= (mode & 0o444) >> 2; // Let readers also execute.
+        perm.set_mode(mode);
         std::fs::set_permissions(path, perm)?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
