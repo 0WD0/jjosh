@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use std::{
+    borrow::Cow,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
@@ -286,12 +286,8 @@ pub(crate) fn finalize_entry(
     // For possibly existing, overwritten files, we must change the file mode explicitly.
     #[cfg(unix)]
     if let Some(path) = set_executable_after_creation {
-        use std::os::unix::fs::PermissionsExt;
         let mut perm = std::fs::symlink_metadata(path)?.permissions();
-        let mut mode = perm.mode();
-        mode &= 0o777; // Clear non-rwx bits (setuid, setgid, sticky).
-        mode |= (mode & 0o444) >> 2; // Let readers also execute.
-        perm.set_mode(mode);
+        set_mode_executable(&mut perm);
         std::fs::set_permissions(path, perm)?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
@@ -299,4 +295,77 @@ pub(crate) fn finalize_entry(
     entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_file(&file)?)?;
     file.close()?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn set_mode_executable(perm: &mut std::fs::Permissions) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut mode = perm.mode();
+    mode &= 0o777; // Clear non-rwx bits (setuid, setgid, sticky).
+    mode |= (mode & 0o444) >> 2; // Let readers also execute.
+    perm.set_mode(mode);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(unix)]
+    fn set_mode_executable() {
+        let cases = [
+            // Common cases.
+            (0o100755, 0o755),
+            (0o100644, 0o755),
+            (0o100750, 0o750),
+            (0o100640, 0o750),
+            (0o100700, 0o700),
+            (0o100600, 0o700),
+            (0o100775, 0o775),
+            (0o100664, 0o775),
+            (0o100770, 0o770),
+            (0o100660, 0o770),
+            (0o100764, 0o775),
+            (0o100760, 0o770),
+            // Some less common cases.
+            (0o100674, 0o775),
+            (0o100670, 0o770),
+            (0o100000, 0o000),
+            (0o100400, 0o500),
+            (0o100440, 0o550),
+            (0o100444, 0o555),
+            (0o100462, 0o572),
+            (0o100242, 0o252),
+            (0o100167, 0o177),
+            // Some cases with set-user-ID, set-group-ID, and sticky bits.
+            (0o104755, 0o755),
+            (0o104644, 0o755),
+            (0o102755, 0o755),
+            (0o102644, 0o755),
+            (0o101755, 0o755),
+            (0o101644, 0o755),
+            (0o106755, 0o755),
+            (0o106644, 0o755),
+            (0o104750, 0o750),
+            (0o104640, 0o750),
+            (0o102750, 0o750),
+            (0o102640, 0o750),
+            (0o101750, 0o750),
+            (0o101640, 0o750),
+            (0o106750, 0o750),
+            (0o106640, 0o750),
+            (0o107644, 0o755),
+            (0o107000, 0o000),
+            (0o106400, 0o500),
+            (0o102462, 0o572),
+        ];
+        for (old, expected) in cases {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::Permissions::from_mode(old);
+            super::set_mode_executable(&mut perm);
+            let actual = perm.mode();
+            assert_eq!(
+                actual, expected,
+                "{old:06o} should become {expected:04o} but became {actual:04o}"
+            );
+        }
+    }
 }
