@@ -203,7 +203,7 @@ where
 
         hunks_to_blame.retain_mut(|unblamed_hunk| {
             if unblamed_hunk.suspects.len() == 1 {
-                if let Some(entry) = BlameEntry::from_unblamed_hunk(&unblamed_hunk, suspect) {
+                if let Some(entry) = BlameEntry::from_unblamed_hunk(unblamed_hunk, suspect) {
                     // At this point, we have copied blame for every hunk to a parent. Hunks
                     // that have only `suspect` left in `suspects` have not passed blame to any
                     // parent, and so they can be converted to a `BlameEntry` and moved to
