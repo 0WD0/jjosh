@@ -127,7 +127,7 @@ pub enum Subcommands {
     /// Interact with the exclude files like .gitignore.
     #[clap(subcommand)]
     Exclude(exclude::Subcommands),
-    /// Interact with a worktree index like .git/index.
+    /// Interact with a worktree index like .git/index
     #[clap(subcommand)]
     Index(index::Subcommands),
     /// Interact with submodules.
