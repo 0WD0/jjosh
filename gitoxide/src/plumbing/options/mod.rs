@@ -81,6 +81,7 @@ pub enum Subcommands {
     /// Subcommands for creating worktree archives
     #[cfg(feature = "gitoxide-core-tools-archive")]
     Archive(archive::Platform),
+    /// Remove untracked files from the working tree
     #[cfg(feature = "gitoxide-core-tools-clean")]
     Clean(clean::Command),
     /// Subcommands for interacting with commit-graph files
@@ -111,6 +112,7 @@ pub enum Subcommands {
     /// Fetch data from remotes and store it in the repository
     #[cfg(feature = "gitoxide-core-blocking-client")]
     Fetch(fetch::Platform),
+    /// Clone a repository into a new directory
     #[cfg(feature = "gitoxide-core-blocking-client")]
     Clone(clone::Platform),
     /// Interact with the mailmap.
@@ -125,6 +127,7 @@ pub enum Subcommands {
     /// Interact with the exclude files like .gitignore.
     #[clap(subcommand)]
     Exclude(exclude::Subcommands),
+    /// Interact with a worktree index like .git/index.
     #[clap(subcommand)]
     Index(index::Subcommands),
     /// Interact with submodules.
