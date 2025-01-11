@@ -145,6 +145,7 @@ pub enum Subcommands {
     Corpus(corpus::Platform),
     MergeBase(merge_base::Command),
     Merge(merge::Platform),
+    Env,
     Diff(diff::Platform),
     Log(log::Platform),
     Worktree(worktree::Platform),
