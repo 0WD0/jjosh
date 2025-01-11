@@ -36,17 +36,17 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
 /// as it could possibly be found in `PATH`.
 /// Note that the returned path might not be a path on disk.
 pub fn shell() -> &'static OsStr {
-    static PATH: Lazy<Option<OsString>> = Lazy::new(|| {
+    static PATH: Lazy<OsString> = Lazy::new(|| {
         if cfg!(windows) {
-            installation_config_prefix()
-                .and_then(|p| p.parent())
+            core_dir()
+                .and_then(|p| p.ancestors().nth(3) /* skip mingw64/libexec/git-core */)
                 .map(|p| p.join("usr").join("bin").join("sh.exe"))
-                .map(Into::into)
+                .map_or_else(|| OsString::from("sh"), Into::into)
         } else {
-            Some("/bin/sh".into())
+            "/bin/sh".into()
         }
     });
-    PATH.as_deref().unwrap_or(OsStr::new("sh"))
+    PATH.as_ref()
 }
 
 /// Return the name of the Git executable to invoke it.
