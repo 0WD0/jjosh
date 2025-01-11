@@ -15,19 +15,28 @@ fn new_unblamed_hunk(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset
     }
 }
 
-mod process_change {
+fn zero_sha() -> ObjectId {
     use std::str::FromStr;
 
+    ObjectId::from_str("0000000000000000000000000000000000000000").unwrap()
+}
+
+fn one_sha() -> ObjectId {
+    use std::str::FromStr;
+
+    ObjectId::from_str("1111111111111111111111111111111111111111").unwrap()
+}
+
+mod process_change {
     use super::*;
     use crate::file::{process_change, Change, Offset, UnblamedHunk};
-    use gix_hash::ObjectId;
 
     #[test]
     fn nothing() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -47,8 +56,8 @@ mod process_change {
     fn added_hunk() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -81,8 +90,8 @@ mod process_change {
     fn added_hunk_2() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -121,8 +130,8 @@ mod process_change {
     fn added_hunk_3() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(5);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -161,8 +170,8 @@ mod process_change {
     fn added_hunk_4() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -202,8 +211,8 @@ mod process_change {
     fn added_hunk_5() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -236,8 +245,8 @@ mod process_change {
     fn added_hunk_6() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -271,8 +280,8 @@ mod process_change {
     fn added_hunk_7() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(2);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -312,8 +321,8 @@ mod process_change {
     fn added_hunk_8() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -341,8 +350,8 @@ mod process_change {
     fn added_hunk_9() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -370,8 +379,8 @@ mod process_change {
     fn added_hunk_10() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -405,8 +414,8 @@ mod process_change {
     fn added_hunk_11() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -440,8 +449,8 @@ mod process_change {
     fn no_overlap() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Deleted(3);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -469,8 +478,8 @@ mod process_change {
     fn no_overlap_2() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -498,8 +507,8 @@ mod process_change {
     fn no_overlap_3() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -527,8 +536,8 @@ mod process_change {
     fn no_overlap_4() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -556,8 +565,8 @@ mod process_change {
     fn no_overlap_5() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -585,8 +594,8 @@ mod process_change {
     fn no_overlap_6() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -614,8 +623,8 @@ mod process_change {
     fn enclosing_addition() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(3);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -643,8 +652,8 @@ mod process_change {
     fn enclosing_deletion() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(3);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -678,8 +687,8 @@ mod process_change {
     fn enclosing_unchanged_lines() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(3);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -707,8 +716,8 @@ mod process_change {
     fn unchanged_hunk() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -735,8 +744,8 @@ mod process_change {
     fn unchanged_hunk_2() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -763,8 +772,8 @@ mod process_change {
     fn unchanged_hunk_3() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Deleted(2);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -794,8 +803,8 @@ mod process_change {
     fn deleted_hunk() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -822,8 +831,8 @@ mod process_change {
     fn deleted_hunk_2() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -850,8 +859,8 @@ mod process_change {
     fn deleted_hunk_3() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(0);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -884,8 +893,8 @@ mod process_change {
     fn addition_only() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -906,8 +915,8 @@ mod process_change {
     fn deletion_only() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -928,8 +937,8 @@ mod process_change {
     fn unchanged_only() {
         let mut new_hunks_to_blame = Vec::new();
         let mut offset_in_destination: Offset = Offset::Added(1);
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
 
         let (hunk, change) = process_change(
             &mut new_hunks_to_blame,
@@ -948,16 +957,13 @@ mod process_change {
 }
 
 mod process_changes {
-    use std::str::FromStr;
-
-    use crate::file::tests::new_unblamed_hunk;
+    use crate::file::tests::{new_unblamed_hunk, one_sha, zero_sha};
     use crate::file::{process_changes, Change, Offset, UnblamedHunk};
-    use gix_hash::ObjectId;
 
     #[test]
     fn nothing() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let new_hunks_to_blame = process_changes(vec![], vec![], suspect, parent);
 
         assert_eq!(new_hunks_to_blame, []);
@@ -965,8 +971,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
         let changes = vec![Change::AddedOrReplaced(0..4, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -982,8 +988,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_2() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
         let changes = vec![Change::AddedOrReplaced(0..4, 0), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -1005,8 +1011,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_3() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
         let changes = vec![
             Change::Unchanged(0..2),
@@ -1036,8 +1042,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_4_0() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
         let changes = vec![
             Change::AddedOrReplaced(0..1, 0),
@@ -1067,8 +1073,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_4_1() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
         let changes = vec![Change::AddedOrReplaced(0..1, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -1090,22 +1096,22 @@ mod process_changes {
 
     #[test]
     fn added_hunk_4_2() {
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
-        let suspect_2 = ObjectId::from_hex(b"2222222222222222222222222222222222222222").unwrap();
-        let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect_2, Offset::Added(2))];
+        let suspect = zero_sha();
+        let parent = one_sha();
+        let hunks_to_blame = vec![new_unblamed_hunk(2..6, suspect, Offset::Added(2))];
         let changes = vec![Change::AddedOrReplaced(0..1, 0)];
-        let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect_2, parent);
+        let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
                 UnblamedHunk {
                     range_in_blamed_file: 2..3,
-                    suspects: [(suspect_2, 0..1)].into(),
+                    suspects: [(suspect, 0..1)].into(),
                 },
                 UnblamedHunk {
                     range_in_blamed_file: 3..6,
-                    suspects: [(suspect_2, 1..4), (parent, 0..3)].into(),
+                    suspects: [(suspect, 1..4), (parent, 0..3)].into(),
                 }
             ]
         );
@@ -1113,8 +1119,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_5() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
         let changes = vec![Change::AddedOrReplaced(0..4, 3), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -1136,8 +1142,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_6() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(4..6, suspect, Offset::Added(1))];
         let changes = vec![Change::AddedOrReplaced(0..3, 0), Change::Unchanged(3..5)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -1153,8 +1159,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_7() {
-        let suspect = ObjectId::from_hex(b"0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(1..3, suspect, Offset::Added(1))];
         let changes = vec![Change::AddedOrReplaced(0..1, 2)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
@@ -1176,8 +1182,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_8() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
         let changes = vec![
             Change::AddedOrReplaced(0..2, 0),
@@ -1207,8 +1213,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_9() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![
             UnblamedHunk {
                 range_in_blamed_file: 0..30,
@@ -1251,8 +1257,8 @@ mod process_changes {
 
     #[test]
     fn added_hunk_10() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![
             UnblamedHunk {
                 range_in_blamed_file: 1..3,
@@ -1303,8 +1309,8 @@ mod process_changes {
 
     #[test]
     fn deleted_hunk() {
-        let suspect = ObjectId::from_str("0000000000000000000000000000000000000000").unwrap();
-        let parent = ObjectId::from_str("1111111111111111111111111111111111111111").unwrap();
+        let suspect = zero_sha();
+        let parent = one_sha();
         let hunks_to_blame = vec![
             new_unblamed_hunk(0..4, suspect, Offset::Added(0)),
             new_unblamed_hunk(4..7, suspect, Offset::Added(0)),
