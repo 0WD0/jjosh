@@ -25,6 +25,14 @@ fn installation_config() {
 }
 
 #[test]
+fn core_dir() {
+    assert!(
+        gix_path::env::core_dir().expect("Git is always in PATH").is_dir(),
+        "The core directory is a valid directory"
+    );
+}
+
+#[test]
 fn system_prefix() {
     assert_ne!(
         gix_path::env::system_prefix(),

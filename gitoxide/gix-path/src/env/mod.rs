@@ -106,6 +106,36 @@ pub fn xdg_config(file: &str, env_var: &mut dyn FnMut(&str) -> Option<OsString>)
         })
 }
 
+static GIT_CORE_DIR: Lazy<Option<PathBuf>> = Lazy::new(|| {
+    let mut cmd = std::process::Command::new(exe_invocation());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd.arg("--exec-path").output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    BString::new(output.stdout)
+        .trim_with(|b| b.is_ascii_whitespace())
+        .to_path()
+        .ok()?
+        .to_owned()
+        .into()
+});
+
+/// Return the directory obtained by calling `git --exec-path`.
+///
+/// Returns `None` if Git could not be found or if it returned an error.
+pub fn core_dir() -> Option<&'static Path> {
+    GIT_CORE_DIR.as_deref()
+}
+
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on windows).
 ///
 /// ### Performance
@@ -129,22 +159,7 @@ pub fn system_prefix() -> Option<&'static Path> {
                 }
             }
 
-            let mut cmd = std::process::Command::new(exe_invocation());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-            cmd.arg("--exec-path").stderr(std::process::Stdio::null());
-            gix_trace::debug!(cmd = ?cmd, "invoking git to get system prefix/exec path");
-            let path = cmd.output().ok()?.stdout;
-            let path = BString::new(path)
-                .trim_with(|b| b.is_ascii_whitespace())
-                .to_path()
-                .ok()?
-                .to_owned();
-
+            let path = GIT_CORE_DIR.as_deref()?;
             let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
                 matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
             })?;
