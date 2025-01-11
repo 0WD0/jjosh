@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use bstr::{BString, ByteSlice};
@@ -28,21 +28,25 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
     installation_config().map(git::config_to_base_path)
 }
 
-/// Return the shell that Git would prefer as login shell, the shell to execute Git commands from.
+/// Return the shell that Git would use, the shell to execute commands from.
 ///
-/// On Windows, this is the `bash.exe` bundled with it, and on Unix it's the shell specified by `SHELL`,
-/// or `None` if it is truly unspecified.
-pub fn login_shell() -> Option<&'static Path> {
-    static PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+/// On Windows, this is the full path to `sh.exe` bundled with it, and on
+/// Unix it's `/bin/sh` as posix compatible shell.
+/// If the bundled shell on Windows cannot be found, `sh` is returned as the name of a shell
+/// as it could possibly be found in `PATH`.
+/// Note that the returned path might not be a path on disk.
+pub fn shell() -> &'static OsStr {
+    static PATH: Lazy<Option<OsString>> = Lazy::new(|| {
         if cfg!(windows) {
             installation_config_prefix()
                 .and_then(|p| p.parent())
-                .map(|p| p.join("usr").join("bin").join("bash.exe"))
+                .map(|p| p.join("usr").join("bin").join("sh.exe"))
+                .map(Into::into)
         } else {
-            std::env::var_os("SHELL").map(PathBuf::from)
+            Some("/bin/sh".into())
         }
     });
-    PATH.as_deref()
+    PATH.as_deref().unwrap_or(OsStr::new("sh"))
 }
 
 /// Return the name of the Git executable to invoke it.
