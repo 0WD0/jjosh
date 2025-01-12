@@ -30,7 +30,7 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
 
 /// Return the shell that Git would use, the shell to execute commands from.
 ///
-/// On Windows, this is the full path to `sh.exe` bundled with it, and on
+/// On Windows, this is the full path to `sh.exe` bundled with Git, and on
 /// Unix it's `/bin/sh` as posix compatible shell.
 /// If the bundled shell on Windows cannot be found, `sh` is returned as the name of a shell
 /// as it could possibly be found in `PATH`.
@@ -39,7 +39,7 @@ pub fn shell() -> &'static OsStr {
     static PATH: Lazy<OsString> = Lazy::new(|| {
         if cfg!(windows) {
             core_dir()
-                .and_then(|p| p.ancestors().nth(3) /* skip mingw64/libexec/git-core */)
+                .and_then(|p| p.ancestors().nth(3)) // Skip something like mingw64/libexec/git-core.
                 .map(|p| p.join("usr").join("bin").join("sh.exe"))
                 .map_or_else(|| OsString::from("sh"), Into::into)
         } else {
@@ -122,7 +122,7 @@ static GIT_CORE_DIR: Lazy<Option<PathBuf>> = Lazy::new(|| {
     }
 
     BString::new(output.stdout)
-        .trim_with(|b| b.is_ascii_whitespace())
+        .strip_suffix(b"\n")?
         .to_path()
         .ok()?
         .to_owned()
