@@ -11,7 +11,6 @@ mod open {
     use gix::submodule;
 
     use crate::submodule::repo;
-    use crate::util::named_subrepo_opts;
 
     #[test]
     fn various() -> crate::Result {
@@ -343,8 +342,9 @@ mod open {
     }
 
     #[test]
+    #[cfg(feature = "revision")]
     fn submodule_worktrees() -> crate::Result {
-        let sm_repo = named_subrepo_opts(
+        let sm_repo = crate::util::named_subrepo_opts(
             "make_submodule_with_worktree.sh",
             "worktree-of-submodule",
             gix::open::Options::isolated(),
@@ -364,8 +364,9 @@ mod open {
     }
 
     #[test]
+    #[cfg(feature = "revision")]
     fn list_submodule_worktrees() -> crate::Result {
-        let sm_repo = named_subrepo_opts(
+        let sm_repo = crate::util::named_subrepo_opts(
             "make_submodule_with_worktree.sh",
             "submodule-with-extra-worktree-host/m1",
             gix::open::Options::isolated(),
