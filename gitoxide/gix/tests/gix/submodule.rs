@@ -11,6 +11,7 @@ mod open {
     use gix::submodule;
 
     use crate::submodule::repo;
+    use crate::util::named_subrepo_opts;
 
     #[test]
     fn various() -> crate::Result {
@@ -338,6 +339,25 @@ mod open {
         assert!(sm.open()?.is_some(), "repo available as it was cloned");
         assert!(sm.index_id()?.is_none(), "no actual submodule");
         assert!(sm.head_id()?.is_none(), "no actual submodule");
+        Ok(())
+    }
+
+    #[test]
+    fn submodule_worktrees() -> crate::Result {
+        let sm_repo = named_subrepo_opts(
+            "make_submodule_with_worktree.sh",
+            "worktree-of-submodule",
+            gix::open::Options::isolated(),
+        )?;
+        let wd = sm_repo.work_dir().expect("workdir is present");
+        assert!(
+            sm_repo.rev_parse_single(":this").is_ok(),
+            "the file is in the submodule"
+        );
+        assert!(
+            wd.join("this").is_file(),
+            "The submodule itself has the file, so it should be in the worktree"
+        );
         Ok(())
     }
 
