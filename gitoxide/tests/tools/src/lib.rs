@@ -953,7 +953,7 @@ pub fn umask() -> u32 {
         .expect("can execute `sh -c umask`");
     assert!(output.status.success(), "`sh -c umask` failed");
     assert!(output.stderr.is_empty(), "`sh -c umask` unexpected message");
-    let text = output.stdout.trim_ascii().to_str().expect("valid Unicode");
+    let text = output.stdout.to_str().expect("valid Unicode").trim();
     u32::from_str_radix(text, 8).expect("parses as octal number")
 }
 
