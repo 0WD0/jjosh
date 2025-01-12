@@ -138,6 +138,12 @@ git clone fetch multiple-remotes
   git remote add with/two/slashes ../fetch && git fetch with/two/slashes
   git remote add with/two ../fetch && git fetch with/two
 
+  # add a specialised refspec mapping
+  git config --add remote.with/two.fetch +refs/heads/special:refs/remotes/with/two/special
+  # make sure the ref exists
+  cp .git/refs/remotes/with/two/main .git/refs/remotes/with/two/special
+  # show Git can checkout such an ambiguous refspec
+  git checkout -b track-special with/two/special
   git checkout -b main --track origin/main
   git checkout -b other-main --track other/main
 )

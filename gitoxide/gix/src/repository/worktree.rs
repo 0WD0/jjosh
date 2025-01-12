@@ -12,7 +12,7 @@ impl crate::Repository {
     /// Note that these need additional processing to become usable, but provide a first glimpse a typical worktree information.
     pub fn worktrees(&self) -> std::io::Result<Vec<worktree::Proxy<'_>>> {
         let mut res = Vec::new();
-        let iter = match std::fs::read_dir(dbg!(self.common_dir()).join("worktrees")) {
+        let iter = match std::fs::read_dir(self.common_dir().join("worktrees")) {
             Ok(iter) => iter,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(res),
             Err(err) => return Err(err),
