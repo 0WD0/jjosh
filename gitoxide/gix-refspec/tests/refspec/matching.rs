@@ -146,7 +146,7 @@ pub mod baseline {
             .unwrap_or_else(|| panic!("BUG: Need {key:?} added to the baseline"))
             .as_ref();
 
-        let actual = match_group.match_remotes(input()).validated();
+        let actual = match_group.match_lhs(input()).validated();
         let (actual, expected) = match &mode {
             Mode::Normal { validate_err } => match validate_err {
                 Some(err_message) => {
@@ -179,7 +179,11 @@ pub mod baseline {
         );
 
         for (idx, (actual, expected)) in actual.iter().zip(expected).enumerate() {
-            assert_eq!(source_to_bstring(actual.lhs), expected.remote, "{idx}: remote mismatch");
+            assert_eq!(
+                source_to_bstring(&actual.lhs),
+                expected.remote,
+                "{idx}: remote mismatch"
+            );
             if let Some(expected) = expected.local.as_ref() {
                 match actual.rhs.as_ref() {
                     None => panic!("{idx}: Expected local ref to be {expected}, got none"),
@@ -189,9 +193,9 @@ pub mod baseline {
         }
     }
 
-    fn source_to_bstring(source: SourceRef) -> BString {
+    fn source_to_bstring(source: &SourceRef) -> BString {
         match source {
-            SourceRef::FullName(name) => name.into(),
+            SourceRef::FullName(name) => name.as_ref().into(),
             SourceRef::ObjectId(id) => id.to_string().into(),
         }
     }
