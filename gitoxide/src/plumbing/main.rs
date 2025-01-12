@@ -146,6 +146,15 @@ pub fn main() -> Result<()> {
     }
 
     match cmd {
+        Subcommands::Env => prepare_and_run(
+            "env",
+            trace,
+            verbose,
+            progress,
+            progress_keep_open,
+            None,
+            move |_progress, out, _err| core::env(out, format),
+        ),
         Subcommands::Merge(merge::Platform { cmd }) => match cmd {
             merge::SubCommands::File {
                 resolve_with,

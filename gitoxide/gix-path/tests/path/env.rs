@@ -8,13 +8,11 @@ fn exe_invocation() {
 }
 
 #[test]
-fn login_shell() {
-    // On CI, the $SHELL variable isn't necessarily set. Maybe other ways to get the login shell should be used then.
-    if !gix_testtools::is_ci::cached() {
-        assert!(gix_path::env::login_shell()
-            .expect("There should always be the notion of a shell used by git")
-            .exists());
-    }
+fn shell() {
+    assert!(
+        std::path::Path::new(gix_path::env::shell()).exists(),
+        "On CI and on Unix we'd expect a full path to the shell that exists on disk"
+    );
 }
 
 #[test]
@@ -23,6 +21,16 @@ fn installation_config() {
         gix_path::env::installation_config().map(|p| p.components().count()),
         gix_path::env::installation_config_prefix().map(|p| p.components().count()),
         "the prefix is a bit shorter than the installation config path itself"
+    );
+}
+
+#[test]
+fn core_dir() {
+    assert!(
+        gix_path::env::core_dir()
+            .expect("Git is always in PATH when we run tests")
+            .is_dir(),
+        "The core directory is a valid directory"
     );
 }
 

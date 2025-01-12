@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use bstr::{BString, ByteSlice};
@@ -28,21 +28,25 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
     installation_config().map(git::config_to_base_path)
 }
 
-/// Return the shell that Git would prefer as login shell, the shell to execute Git commands from.
+/// Return the shell that Git would use, the shell to execute commands from.
 ///
-/// On Windows, this is the `bash.exe` bundled with it, and on Unix it's the shell specified by `SHELL`,
-/// or `None` if it is truly unspecified.
-pub fn login_shell() -> Option<&'static Path> {
-    static PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+/// On Windows, this is the full path to `sh.exe` bundled with Git, and on
+/// Unix it's `/bin/sh` as posix compatible shell.
+/// If the bundled shell on Windows cannot be found, `sh` is returned as the name of a shell
+/// as it could possibly be found in `PATH`.
+/// Note that the returned path might not be a path on disk.
+pub fn shell() -> &'static OsStr {
+    static PATH: Lazy<OsString> = Lazy::new(|| {
         if cfg!(windows) {
-            installation_config_prefix()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("usr").join("bin").join("bash.exe"))
+            core_dir()
+                .and_then(|p| p.ancestors().nth(3)) // Skip something like mingw64/libexec/git-core.
+                .map(|p| p.join("usr").join("bin").join("sh.exe"))
+                .map_or_else(|| OsString::from("sh"), Into::into)
         } else {
-            std::env::var_os("SHELL").map(PathBuf::from)
+            "/bin/sh".into()
         }
     });
-    PATH.as_deref()
+    PATH.as_ref()
 }
 
 /// Return the name of the Git executable to invoke it.
@@ -102,6 +106,36 @@ pub fn xdg_config(file: &str, env_var: &mut dyn FnMut(&str) -> Option<OsString>)
         })
 }
 
+static GIT_CORE_DIR: Lazy<Option<PathBuf>> = Lazy::new(|| {
+    let mut cmd = std::process::Command::new(exe_invocation());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd.arg("--exec-path").output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    BString::new(output.stdout)
+        .strip_suffix(b"\n")?
+        .to_path()
+        .ok()?
+        .to_owned()
+        .into()
+});
+
+/// Return the directory obtained by calling `git --exec-path`.
+///
+/// Returns `None` if Git could not be found or if it returned an error.
+pub fn core_dir() -> Option<&'static Path> {
+    GIT_CORE_DIR.as_deref()
+}
+
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on windows).
 ///
 /// ### Performance
@@ -125,22 +159,7 @@ pub fn system_prefix() -> Option<&'static Path> {
                 }
             }
 
-            let mut cmd = std::process::Command::new(exe_invocation());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-            cmd.arg("--exec-path").stderr(std::process::Stdio::null());
-            gix_trace::debug!(cmd = ?cmd, "invoking git to get system prefix/exec path");
-            let path = cmd.output().ok()?.stdout;
-            let path = BString::new(path)
-                .trim_with(|b| b.is_ascii_whitespace())
-                .to_path()
-                .ok()?
-                .to_owned();
-
+            let path = GIT_CORE_DIR.as_deref()?;
             let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
                 matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
             })?;
