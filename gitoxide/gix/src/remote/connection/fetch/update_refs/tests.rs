@@ -920,7 +920,7 @@ mod update {
         let mut references: Vec<_> = references.all().unwrap().map(|r| into_remote_ref(r.unwrap())).collect();
         references.push(into_remote_ref(remote_repo.find_reference("HEAD").unwrap()));
         let mappings = group
-            .match_remotes(references.iter().map(remote_ref_to_item))
+            .match_lhs(references.iter().map(remote_ref_to_item))
             .mappings
             .into_iter()
             .map(|m| fetch::refmap::Mapping {

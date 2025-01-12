@@ -196,7 +196,7 @@ fn matching_remote<'a>(
             .collect(),
     };
     let null_id = object_hash.null();
-    let out = search.match_remotes(
+    let out = search.match_lhs(
         Some(gix_refspec::match_group::Item {
             full_ref_name: lhs.as_bstr(),
             target: &null_id,

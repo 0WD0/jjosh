@@ -110,7 +110,7 @@ impl RefMap {
         let num_explicit_specs = fetch_refspecs.len();
         let group = gix_refspec::MatchGroup::from_fetch_specs(all_refspecs.iter().map(gix_refspec::RefSpec::to_ref));
         let (res, fixes) = group
-            .match_remotes(remote_refs.iter().map(|r| {
+            .match_lhs(remote_refs.iter().map(|r| {
                 let (full_ref_name, target, object) = r.unpack();
                 gix_refspec::match_group::Item {
                     full_ref_name,

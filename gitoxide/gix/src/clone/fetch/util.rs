@@ -206,7 +206,7 @@ pub(super) fn find_custom_refname<'a>(
             object: None,
         })
         .collect();
-    let res = group.match_remotes(filtered_items.iter().copied());
+    let res = group.match_lhs(filtered_items.iter().copied());
     match res.mappings.len() {
         0 => Err(Error::RefNameMissing {
             wanted: ref_name.clone(),
@@ -221,9 +221,9 @@ pub(super) fn find_custom_refname<'a>(
             wanted: ref_name.clone(),
             candidates: res
                 .mappings
-                .iter()
+                .into_iter()
                 .filter_map(|m| match m.lhs {
-                    gix_refspec::match_group::SourceRef::FullName(name) => Some(name.to_owned()),
+                    gix_refspec::match_group::SourceRef::FullName(name) => Some(name.into_owned()),
                     gix_refspec::match_group::SourceRef::ObjectId(_) => None,
                 })
                 .collect(),
@@ -252,7 +252,7 @@ fn setup_branch_config(
         .expect("remote was just created and must be visible in config");
     let group = gix_refspec::MatchGroup::from_fetch_specs(remote.fetch_specs.iter().map(gix_refspec::RefSpec::to_ref));
     let null = gix_hash::ObjectId::null(repo.object_hash());
-    let res = group.match_remotes(
+    let res = group.match_lhs(
         Some(gix_refspec::match_group::Item {
             full_ref_name: branch.as_bstr(),
             target: branch_id.unwrap_or(&null),
