@@ -1,6 +1,6 @@
-use std::borrow::Cow;
 use std::{
-    fs::OpenOptions,
+    borrow::Cow,
+    fs::{OpenOptions, Permissions},
     io::Write,
     path::{Path, PathBuf},
 };
@@ -286,14 +286,114 @@ pub(crate) fn finalize_entry(
     // For possibly existing, overwritten files, we must change the file mode explicitly.
     #[cfg(unix)]
     if let Some(path) = set_executable_after_creation {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perm = std::fs::symlink_metadata(path)?.permissions();
-        perm.set_mode(0o777);
-        std::fs::set_permissions(path, perm)?;
+        let old_perm = std::fs::symlink_metadata(path)?.permissions();
+        if let Some(new_perm) = set_mode_executable(old_perm) {
+            std::fs::set_permissions(path, new_perm)?;
+        }
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
     //       revisit this once there is a bug to fix.
     entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_file(&file)?)?;
     file.close()?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn set_mode_executable(mut perm: Permissions) -> Option<Permissions> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut mode = perm.mode();
+    if mode & 0o170000 != 0o100000 {
+        return None; // Stop if we don't have a regular file anymore.
+    }
+    mode &= 0o777; // Clear non-rwx bits (setuid, setgid, sticky).
+    mode |= (mode & 0o444) >> 2; // Let readers also execute.
+    perm.set_mode(mode);
+    Some(perm)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    fn pretty(maybe_mode: Option<u32>) -> String {
+        match maybe_mode {
+            Some(mode) => format!("Some({mode:04o})"),
+            None => "None".into(),
+        }
+    }
+
+    #[test]
+    fn set_mode_executable() {
+        let cases = [
+            // Common cases:
+            (0o100755, Some(0o755)),
+            (0o100644, Some(0o755)),
+            (0o100750, Some(0o750)),
+            (0o100640, Some(0o750)),
+            (0o100700, Some(0o700)),
+            (0o100600, Some(0o700)),
+            (0o100775, Some(0o775)),
+            (0o100664, Some(0o775)),
+            (0o100770, Some(0o770)),
+            (0o100660, Some(0o770)),
+            (0o100764, Some(0o775)),
+            (0o100760, Some(0o770)),
+            // Less common:
+            (0o100674, Some(0o775)),
+            (0o100670, Some(0o770)),
+            (0o100000, Some(0o000)),
+            (0o100400, Some(0o500)),
+            (0o100440, Some(0o550)),
+            (0o100444, Some(0o555)),
+            (0o100462, Some(0o572)),
+            (0o100242, Some(0o252)),
+            (0o100167, Some(0o177)),
+            // With set-user-ID, set-group-ID, and sticky bits:
+            (0o104755, Some(0o755)),
+            (0o104644, Some(0o755)),
+            (0o102755, Some(0o755)),
+            (0o102644, Some(0o755)),
+            (0o101755, Some(0o755)),
+            (0o101644, Some(0o755)),
+            (0o106755, Some(0o755)),
+            (0o106644, Some(0o755)),
+            (0o104750, Some(0o750)),
+            (0o104640, Some(0o750)),
+            (0o102750, Some(0o750)),
+            (0o102640, Some(0o750)),
+            (0o101750, Some(0o750)),
+            (0o101640, Some(0o750)),
+            (0o106750, Some(0o750)),
+            (0o106640, Some(0o750)),
+            (0o107644, Some(0o755)),
+            (0o107000, Some(0o000)),
+            (0o106400, Some(0o500)),
+            (0o102462, Some(0o572)),
+            // Where it was replaced with a directory due to a race:
+            (0o040755, None),
+            (0o040644, None),
+            (0o040600, None),
+            (0o041755, None),
+            (0o041644, None),
+            (0o046644, None),
+            // Where it was replaced with a symlink due to a race:
+            (0o120777, None),
+            (0o120644, None),
+            // Where it was replaced with some other non-regular file due to a race:
+            (0o140644, None),
+            (0o060644, None),
+            (0o020644, None),
+            (0o010644, None),
+        ];
+        for (old_mode, expected) in cases {
+            use std::os::unix::fs::PermissionsExt;
+            let old_perm = std::fs::Permissions::from_mode(old_mode);
+            let actual = super::set_mode_executable(old_perm).map(|perm| perm.mode());
+            assert_eq!(
+                actual,
+                expected,
+                "{old_mode:06o} should become {}, became {}",
+                pretty(expected),
+                pretty(actual)
+            );
+        }
+    }
 }

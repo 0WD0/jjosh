@@ -220,9 +220,32 @@ fn overwriting_files_and_lone_directories_works() -> crate::Result {
 
         let meta = std::fs::symlink_metadata(exe)?;
         assert!(meta.is_file());
+        #[cfg(unix)]
         if opts.fs.executable_bit {
-            #[cfg(unix)]
-            assert_eq!(meta.mode() & 0o700, 0o700, "the executable bit is set where supported");
+            let mode = meta.mode();
+            assert_eq!(
+                mode & 0o100,
+                0o100,
+                "executable bit set where supported ({:04o} & {:04o} = {:04o} should be {:04o})",
+                mode,
+                0o100,
+                mode & 0o100,
+                0o100
+            );
+            let umask_write = gix_testtools::umask() & 0o222;
+            assert_eq!(
+                mode & umask_write,
+                0,
+                "no excessive write bits are set ({:04o} & {:04o} = {:04o} should be {:04o})",
+                mode,
+                umask_write,
+                mode & umask_write,
+                0
+            );
+            assert_ne!(
+                umask_write, 0,
+                "test not meaningful unless runner umask restricts some writes"
+            );
         }
 
         assert_eq!(
