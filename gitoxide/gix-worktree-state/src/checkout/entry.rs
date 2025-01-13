@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    fs::{OpenOptions, Permissions},
     io::Write,
     path::{Path, PathBuf},
 };
@@ -237,7 +236,7 @@ fn debug_assert_dest_is_no_symlink(path: &Path) {
     }
 }
 
-fn open_options(path: &Path, destination_is_initially_empty: bool, overwrite_existing: bool) -> OpenOptions {
+fn open_options(path: &Path, destination_is_initially_empty: bool, overwrite_existing: bool) -> std::fs::OpenOptions {
     if overwrite_existing || !destination_is_initially_empty {
         debug_assert_dest_is_no_symlink(path);
     }
@@ -299,7 +298,7 @@ pub(crate) fn finalize_entry(
 }
 
 #[cfg(unix)]
-fn set_mode_executable(mut perm: Permissions) -> Option<Permissions> {
+fn set_mode_executable(mut perm: std::fs::Permissions) -> Option<std::fs::Permissions> {
     use std::os::unix::fs::PermissionsExt;
     let mut mode = perm.mode();
     if mode & 0o170000 != 0o100000 {
