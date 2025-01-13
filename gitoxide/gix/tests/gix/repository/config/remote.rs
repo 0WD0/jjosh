@@ -107,6 +107,21 @@ mod branch_remote {
                 .as_bstr(),
             "refs/remotes/remote_repo/main"
         );
+        let (upstream, remote_name) = repo
+            .upstream_branch_and_remote_for_tracking_branch("refs/remotes/remote_repo/main".try_into()?)?
+            .expect("mapping exists");
+        assert_eq!(upstream.as_bstr(), "refs/heads/main");
+        assert_eq!(
+            remote_name.name().expect("non-anonymous remote").as_bstr(),
+            "remote_repo"
+        );
+
+        assert_eq!(
+            repo.upstream_branch_and_remote_for_tracking_branch("refs/remotes/missing-remote/main".try_into()?)?,
+            None,
+            "It's OK to find nothing"
+        );
+
         for direction in [remote::Direction::Fetch, remote::Direction::Push] {
             assert_eq!(
                 repo.branch_remote_name("main", direction)
@@ -142,6 +157,41 @@ mod branch_remote {
             "the merge ref is broken, hence there can't be a tracking ref",
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn upstream_branch_and_remote_name_for_tracking_branch() -> crate::Result {
+        let repo = repo("multiple-remotes")?;
+        for expected_remote_name in ["other", "with/two"] {
+            let (upstream, remote) = repo
+                .upstream_branch_and_remote_for_tracking_branch(
+                    format!("refs/remotes/{expected_remote_name}/main")
+                        .as_str()
+                        .try_into()?,
+                )?
+                .expect("mapping exists");
+            assert_eq!(remote.name().expect("named remote").as_bstr(), expected_remote_name);
+            assert_eq!(upstream.as_bstr(), "refs/heads/main");
+        }
+        let err = repo
+            .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/slashes/main".try_into()?)
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Found ambiguous remotes without 1:1 mapping or more than one match: with/two, with/two/slashes",
+            "we aren't very specific report an error just like Git does in case of multi-remote ambiguity"
+        );
+
+        let (upstream, remote) = repo
+            .upstream_branch_and_remote_for_tracking_branch("refs/remotes/with/two/special".try_into()?)?
+            .expect("mapping exists");
+        assert_eq!(remote.name().expect("non-anonymous remote").as_bstr(), "with/two");
+        assert_eq!(
+            upstream.as_bstr(),
+            "refs/heads/special",
+            "it finds a single mapping even though there are two refspecs"
+        );
         Ok(())
     }
 
