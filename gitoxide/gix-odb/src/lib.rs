@@ -119,7 +119,7 @@ pub struct Store {
 
     /// The below state acts like a slot-map with each slot is mutable when the write lock is held, but readable independently of it.
     /// This allows multiple file to be loaded concurrently if there is multiple handles requesting to load packs or additional indices.
-    /// The map is static and cannot typically change.
+    /// The map is static and cannot change.
     /// It's read often and changed rarely.
     pub(crate) files: Vec<types::MutableIndexAndPack>,
 
