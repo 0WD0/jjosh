@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 pub fn blame_file(
     mut repo: gix::Repository,
     file: &OsStr,
+    range: Option<std::ops::Range<u32>>,
     out: impl std::io::Write,
     err: Option<&mut dyn std::io::Write>,
 ) -> anyhow::Result<()> {
@@ -40,7 +41,7 @@ pub fn blame_file(
             .with_commit_graph(repo.commit_graph_if_enabled()?)
             .build()?;
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
-    let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file.as_bstr())?;
+    let outcome = gix::blame::file(&repo.objects, traverse, &mut resource_cache, file.as_bstr(), range)?;
     let statistics = outcome.statistics;
     write_blame_entries(out, outcome)?;
 
