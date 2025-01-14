@@ -194,6 +194,7 @@ macro_rules! mktest {
                 commits,
                 &mut resource_cache,
                 format!("{}.txt", $case).as_str().into(),
+                None,
             )?
             .entries;
 
@@ -254,6 +255,7 @@ fn diff_disparity() {
             commits,
             &mut resource_cache,
             format!("{case}.txt").as_str().into(),
+            None,
         )
         .unwrap()
         .entries;
@@ -265,6 +267,26 @@ fn diff_disparity() {
 
         assert_eq!(lines_blamed, baseline, "{case}");
     }
+}
+
+#[test]
+fn line_range() {
+    let Fixture {
+        odb,
+        mut resource_cache,
+        commits,
+    } = Fixture::new().unwrap();
+
+    let lines_blamed = gix_blame::file(&odb, commits, &mut resource_cache, "simple.txt".into(), Some(1..2))
+        .unwrap()
+        .entries;
+
+    assert_eq!(lines_blamed.len(), 2);
+
+    let git_dir = fixture_path().join(".git");
+    let baseline = Baseline::collect(git_dir.join("simple-lines-1-2.baseline")).unwrap();
+
+    assert_eq!(lines_blamed, baseline);
 }
 
 fn fixture_path() -> PathBuf {
