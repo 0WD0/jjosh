@@ -7,7 +7,7 @@ use bstr::BStr;
 use filetime::{set_file_mtime, FileTime};
 use gix_filter::eol::AutoCrlf;
 use gix_index as index;
-use gix_index::Entry;
+use gix_index::{entry, Entry};
 use gix_status::index_as_worktree::Context;
 use gix_status::{
     index_as_worktree,
@@ -231,7 +231,7 @@ fn deracify_status(status: EntryStatus) -> Option<EntryStatus> {
         EntryStatus::Conflict(c) => EntryStatus::Conflict(c),
         EntryStatus::Change(c) => match c {
             Change::Removed => Change::Removed,
-            Change::Type => Change::Type,
+            Change::Type { worktree_mode } => Change::Type { worktree_mode },
             Change::Modification {
                 executable_bit_changed,
                 content_change,
@@ -284,7 +284,17 @@ fn nonfile_untracked_are_not_visible() {
 #[test]
 #[cfg(unix)]
 fn tracked_changed_to_non_file() {
-    nonfile_fixture("tracked-swapped", &[(BStr::new(b"file"), 0, Change::Type.into())]);
+    nonfile_fixture(
+        "tracked-swapped",
+        &[(
+            BStr::new(b"file"),
+            0,
+            Change::Type {
+                worktree_mode: entry::Mode::FILE,
+            }
+            .into(),
+        )],
+    );
 }
 
 #[test]
@@ -384,7 +394,17 @@ fn subomdule_deleted_dir() {
 #[test]
 fn subomdule_typechange() {
     assert_eq!(
-        submodule_fixture("type-change", &[(BStr::new(b"m1"), 1, Change::Type.into())]),
+        submodule_fixture(
+            "type-change",
+            &[(
+                BStr::new(b"m1"),
+                1,
+                Change::Type {
+                    worktree_mode: entry::Mode::FILE
+                }
+                .into()
+            )]
+        ),
         Outcome {
             entries_to_process: 2,
             entries_processed: 2,
@@ -596,7 +616,14 @@ fn refresh() {
                     }
                     .into(),
                 ),
-                (BStr::new(b"empty"), 3, Change::Type.into()),
+                (
+                    BStr::new(b"empty"),
+                    3,
+                    Change::Type {
+                        worktree_mode: entry::Mode::FILE
+                    }
+                    .into()
+                ),
                 (
                     BStr::new(b"executable"),
                     4,
@@ -620,7 +647,14 @@ fn refresh() {
                     }
                     .into(),
                 ),
-                (BStr::new("empty"), 3, Change::Type.into()),
+                (
+                    BStr::new("empty"),
+                    3,
+                    Change::Type {
+                        worktree_mode: entry::Mode::FILE
+                    }
+                    .into()
+                ),
                 (
                     BStr::new("executable"),
                     4,
@@ -669,7 +703,14 @@ fn modified() {
                 }
                 .into(),
             ),
-            (BStr::new(b"empty"), 3, Change::Type.into()),
+            (
+                BStr::new(b"empty"),
+                3,
+                Change::Type {
+                    worktree_mode: entry::Mode::FILE,
+                }
+                .into(),
+            ),
             (
                 BStr::new(b"executable"),
                 4,
@@ -693,7 +734,14 @@ fn modified() {
                 }
                 .into(),
             ),
-            (BStr::new("empty"), 3, Change::Type.into()),
+            (
+                BStr::new("empty"),
+                3,
+                Change::Type {
+                    worktree_mode: entry::Mode::FILE,
+                }
+                .into(),
+            ),
             (
                 BStr::new("executable"),
                 4,

@@ -455,7 +455,7 @@ pub(super) mod function {
                         }
                         EntryStatus::Change(c) => match c {
                             Change::Removed => ChangeKind::Deletion,
-                            Change::Type | Change::Modification { .. } | Change::SubmoduleModification(_) => {
+                            Change::Type { .. } | Change::Modification { .. } | Change::SubmoduleModification(_) => {
                                 ChangeKind::Modification
                             }
                         },
