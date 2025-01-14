@@ -266,7 +266,7 @@ impl super::Store {
                         Option::as_ref(&files_guard).expect("slot is set or we wouldn't know it points to this file");
                     if index_info.is_multi_index() && files.mtime() != mtime {
                         // we have a changed multi-pack index. We can't just change the existing slot as it may alter slot indices
-                        // that are currently available. Instead we have to move what's there into a new slot, along with the changes,
+                        // that are currently available. Instead, we have to move what's there into a new slot, along with the changes,
                         // and later free the slot or dispose of the index in the slot (like we do for removed/missing files).
                         index_paths_to_add.push_back((index_info, mtime, Some(slot_idx)));
                         // If the current slot is loaded, the soon-to-be copied multi-index path will be loaded as well.
@@ -303,6 +303,12 @@ impl super::Store {
                         current: self.files.len(),
                         needed: index_paths_to_add.len() + 1, /*the one currently popped off*/
                     });
+                }
+                // Don't allow duplicate indicates, we need a 1:1 mapping.
+                if new_slot_map_indices.contains(&next_possibly_free_index) {
+                    next_possibly_free_index = (next_possibly_free_index + 1) % self.files.len();
+                    num_indices_checked += 1;
+                    continue 'increment_slot_index;
                 }
                 let slot_index = next_possibly_free_index;
                 let slot = &self.files[slot_index];
@@ -502,7 +508,7 @@ impl super::Store {
         }
         // Unlike libgit2, do not sort by modification date, but by size and put the biggest indices first. That way
         // the chance to hit an object should be higher. We leave it to the handle to sort by LRU.
-        // Git itself doesn't change the order which may safe time, but we want it to be stable which also helps some tests.
+        // Git itself doesn't change the order which may save time, but we want it to be stable which also helps some tests.
         // NOTE: this will work well for well-packed repos or those using geometric repacking, but force us to open a lot
         //       of files when dealing with new objects, as there is no notion of recency here as would be with unmaintained
         //       repositories. Different algorithms should be provided, like newest packs first, and possibly a mix of both
@@ -512,7 +518,7 @@ impl super::Store {
         Ok(indices_by_modification_time)
     }
 
-    /// returns Ok<dest slot was empty> if the copy could happen because dest-slot was actually free or disposable , and Some(true) if it was empty
+    /// returns `Ok(dest_slot_was_empty)` if the copy could happen because dest-slot was actually free or disposable.
     #[allow(clippy::too_many_arguments)]
     fn try_set_index_slot(
         lock: &parking_lot::MutexGuard<'_, ()>,

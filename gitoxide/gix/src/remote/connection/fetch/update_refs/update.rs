@@ -23,6 +23,8 @@ mod error {
         PeelToId(#[from] crate::reference::peel::Error),
         #[error("Failed to follow a symbolic reference to assure worktree isn't affected")]
         FollowSymref(#[from] gix_ref::file::find::existing::Error),
+        #[error(transparent)]
+        FindObject(#[from] crate::object::find::Error),
     }
 }
 

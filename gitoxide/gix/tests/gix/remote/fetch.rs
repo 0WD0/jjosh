@@ -87,6 +87,74 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
+    fn fetch_more_packs_than_can_be_handled() -> gix_testtools::Result {
+        use gix::config::tree::User;
+        use gix::interrupt::IS_INTERRUPTED;
+        use gix_odb::store::init::Slots;
+        use gix_testtools::tempfile;
+        fn create_empty_commit(repo: &gix::Repository) -> anyhow::Result<()> {
+            let name = repo.head_name()?.expect("no detached head");
+            repo.commit(
+                name.as_bstr(),
+                "empty",
+                gix::hash::ObjectId::empty_tree(repo.object_hash()),
+                repo.try_find_reference(name.as_ref())?.map(|r| r.id()),
+            )?;
+            Ok(())
+        }
+        for max_packs in 1..=3 {
+            let remote_dir = tempfile::tempdir()?;
+            let mut remote_repo = gix::init_bare(remote_dir.path())?;
+            {
+                let mut config = remote_repo.config_snapshot_mut();
+                config.set_value(&User::NAME, "author")?;
+                config.set_value(&User::EMAIL, "email@example.com")?;
+            }
+            create_empty_commit(&remote_repo)?;
+
+            let local_dir = tempfile::tempdir()?;
+            let (local_repo, _) = gix::clone::PrepareFetch::new(
+                remote_repo.path(),
+                local_dir.path(),
+                gix::create::Kind::Bare,
+                Default::default(),
+                gix::open::Options::isolated().object_store_slots(Slots::Given(max_packs)),
+            )?
+            .fetch_only(gix::progress::Discard, &IS_INTERRUPTED)?;
+
+            let remote = local_repo
+                .branch_remote(
+                    local_repo.head_ref()?.expect("branch available").name().shorten(),
+                    Fetch,
+                )
+                .expect("remote is configured after clone")?;
+            for _round_to_create_pack in 1..12 {
+                create_empty_commit(&remote_repo)?;
+                match remote
+                    .connect(Fetch)?
+                    .prepare_fetch(gix::progress::Discard, Default::default())?
+                    .receive(gix::progress::Discard, &IS_INTERRUPTED)
+                {
+                    Ok(out) => {
+                        for local_tracking_branch_name in out.ref_map.mappings.into_iter().filter_map(|m| m.local) {
+                            let r = local_repo.find_reference(&local_tracking_branch_name)?;
+                            r.id()
+                                .object()
+                                .expect("object should be present after fetching, triggering pack refreshes works");
+                            local_repo.head_ref()?.unwrap().set_target_id(r.id(), "post fetch")?;
+                        }
+                    }
+                    Err(err) => assert!(err
+                        .to_string()
+                        .starts_with("The slotmap turned out to be too small with ")),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "blocking-network-client")]
     #[allow(clippy::result_large_err)]
     fn collate_fetch_error() -> Result<(), gix::env::collate::fetch::Error<std::io::Error>> {
         let (repo, _tmp) = try_repo_rw("two-origins")?;

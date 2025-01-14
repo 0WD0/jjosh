@@ -102,6 +102,8 @@ pub(crate) fn update(
                 let update = if is_implicit_tag {
                     Mode::ImplicitTagNotSentByRemote.into()
                 } else {
+                    // Assure the ODB is not to blame for the missing object.
+                    repo.try_find_object(remote_id)?;
                     Mode::RejectedSourceObjectNotFound { id: remote_id.into() }.into()
                 };
                 updates.push(update);
