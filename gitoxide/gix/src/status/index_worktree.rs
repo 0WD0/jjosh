@@ -462,7 +462,7 @@ pub mod iter {
                     EntryStatus::Conflict(_) => Conflict,
                     EntryStatus::Change(change) => match change {
                         Change::Removed => Removed,
-                        Change::Type => TypeChange,
+                        Change::Type { .. } => TypeChange,
                         Change::Modification { .. } | Change::SubmoduleModification(_) => Modified,
                     },
                     EntryStatus::NeedsUpdate(_) => return None,
