@@ -397,7 +397,14 @@ impl<'index> State<'_, 'index> {
                 .mode
                 .change_to_match_fs(&metadata, self.options.fs.symlink, self.options.fs.executable_bit)
             {
-                Some(gix_index::entry::mode::Change::Type { .. }) => return Ok(Some(Change::Type.into())),
+                Some(gix_index::entry::mode::Change::Type { new_mode }) => {
+                    return Ok(Some(
+                        Change::Type {
+                            worktree_mode: new_mode,
+                        }
+                        .into(),
+                    ))
+                }
                 Some(gix_index::entry::mode::Change::ExecutableBit) => true,
                 None => false,
             };

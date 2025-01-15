@@ -230,7 +230,7 @@ impl<ContentChange, SubmoduleStatus> Entry<'_, ContentChange, SubmoduleStatus> {
                 ..
             } => match change {
                 Change::SubmoduleModification(_) | Change::Modification { .. } => Summary::Modified,
-                Change::Type => Summary::TypeChange,
+                Change::Type { .. } => Summary::TypeChange,
                 Change::Removed => Summary::Removed,
             },
             Entry::DirectoryContents { entry, .. } => {

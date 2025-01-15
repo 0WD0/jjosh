@@ -111,7 +111,11 @@ pub enum Change<T = (), U = ()> {
     ///
     /// A change to a non-file is marked as `modification` in Git, but that's related to the content which we can't evaluate.
     /// Hence, a type-change is considered more appropriate.
-    Type,
+    Type {
+        /// The mode the worktree file would have if it was added to the index, and the mode that differs compared
+        /// to what's currently stored in the index.
+        worktree_mode: gix_index::entry::Mode,
+    },
     /// This worktree file was modified in some form, like a permission change or content change or both,
     /// as compared to this entry.
     Modification {

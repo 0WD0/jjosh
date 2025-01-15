@@ -249,7 +249,7 @@ fn change_to_char(change: &Change<(), gix::submodule::Status>) -> u8 {
     // Known status letters: https://github.com/git/git/blob/6807fcfedab84bc8cd0fbf721bc13c4e68cda9ae/diff.h#L613
     match change {
         Change::Removed => b'D',
-        Change::Type => b'T',
+        Change::Type { .. } => b'T',
         Change::SubmoduleModification(_) => b'M',
         Change::Modification {
             executable_bit_changed, ..

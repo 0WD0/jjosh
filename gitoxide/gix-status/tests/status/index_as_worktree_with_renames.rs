@@ -2,6 +2,7 @@ use crate::fixture_path;
 use bstr::ByteSlice;
 use gix_diff::blob::pipeline::WorktreeRoots;
 use gix_diff::rewrites::CopySource;
+use gix_index::entry;
 use gix_status::index_as_worktree::traits::FastEq;
 use gix_status::index_as_worktree::{Change, EntryStatus};
 use gix_status::index_as_worktree_with_renames;
@@ -123,7 +124,10 @@ fn tracked_changed_to_non_file() {
         &[],
         &[Expectation::Modification {
             rela_path: "file",
-            status: Change::Type.into(),
+            status: Change::Type {
+                worktree_mode: entry::Mode::FILE,
+            }
+            .into(),
         }],
         None,
         Some(Default::default()),
@@ -393,7 +397,7 @@ impl Expectation<'_> {
                 EntryStatus::Conflict(_) => Summary::Conflict,
                 EntryStatus::Change(change) => match change {
                     Change::Removed => Summary::Removed,
-                    Change::Type => Summary::TypeChange,
+                    Change::Type { .. } => Summary::TypeChange,
                     Change::Modification { .. } | Change::SubmoduleModification(_) => Summary::Modified,
                 },
                 EntryStatus::NeedsUpdate(_) => return None,
