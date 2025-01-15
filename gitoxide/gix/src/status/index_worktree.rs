@@ -213,13 +213,21 @@ mod submodule_status {
             mode: Submodule,
         ) -> Result<Self, crate::submodule::modules::Error> {
             let local_repo = repo.to_thread_local();
-            let submodule_paths = match local_repo.submodules()? {
-                Some(sm) => {
+            let submodule_paths = match local_repo.submodules() {
+                Ok(Some(sm)) => {
                     let mut v: Vec<_> = sm.filter_map(|sm| sm.path().ok().map(Cow::into_owned)).collect();
                     v.sort();
                     v
                 }
-                None => Vec::new(),
+                Ok(None) => Vec::new(),
+                Err(crate::submodule::modules::Error::FindHeadCommit(
+                    crate::reference::head_commit::Error::PeelToCommit(
+                        crate::head::peel::to_commit::Error::PeelToObject(
+                            crate::head::peel::to_object::Error::Unborn { .. },
+                        ),
+                    ),
+                )) => Vec::new(),
+                Err(err) => return Err(err),
             };
             Ok(Self {
                 mode,
