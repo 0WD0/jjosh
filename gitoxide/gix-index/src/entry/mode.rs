@@ -28,9 +28,9 @@ impl Mode {
     /// If there is a type change then we will use whatever information is
     /// present on the FS. Specifically if `has_symlinks` is false we will
     /// never generate `Change::TypeChange { new_mode: Mode::SYMLINK }`. and
-    /// iff `executable_bit` is false we will never generate `Change::TypeChange
+    /// if `executable_bit` is false we will never generate `Change::TypeChange
     /// { new_mode: Mode::FILE_EXECUTABLE }` (all files are assumed to be not
-    /// executable). That measn that unstaging and staging files can be a lossy
+    /// executable). That means that unstaging and staging files can be a lossy
     /// operation on such file systems.
     ///
     /// If a directory replaced a normal file/symlink we assume that the
