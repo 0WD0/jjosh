@@ -30,3 +30,8 @@ git init racy-git
   echo ho >file && git add file
   echo ha >file
 )
+
+git init untracked-unborn
+(cd untracked-unborn
+  touch untracked
+)

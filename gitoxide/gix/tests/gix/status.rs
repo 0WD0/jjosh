@@ -84,6 +84,36 @@ mod into_iter {
     }
 
     #[test]
+    fn untracked_unborn() -> crate::Result {
+        let repo = repo("untracked-unborn")?;
+        let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        insta::assert_debug_snapshot!(items, @r#"
+        [
+            IndexWorktree(
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "untracked",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            File,
+                        ),
+                        index_kind: None,
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+            ),
+        ]
+        "#);
+        Ok(())
+    }
+
+    #[test]
     fn error_during_tree_traversal_causes_failure() -> crate::Result {
         let repo = repo("untracked-only")?;
         let platform = repo.status(gix::progress::Discard)?.head_tree(hex_to_id(
