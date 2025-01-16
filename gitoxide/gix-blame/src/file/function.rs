@@ -97,27 +97,7 @@ where
         return Ok(Outcome::default());
     }
 
-    // This function assumes that `range` has 1-based inclusive line numbers and converts it to the
-    // format internally used: 0-based line numbers stored in ranges that are exclusive at the
-    // end.
-    let one_based_inclusive_to_zero_based_exclusive_range = || -> Result<Range<u32>, Error> {
-        if let Some(range) = range {
-            if range.start == 0 {
-                return Err(Error::InvalidLineRange);
-            }
-            let start = range.start - 1;
-            let end = range.end;
-            if start >= num_lines_in_blamed || end > num_lines_in_blamed || start == end {
-                return Err(Error::InvalidLineRange);
-            }
-            Ok(start..end)
-        } else {
-            Ok(0..num_lines_in_blamed)
-        }
-    };
-
-    let range_in_blamed_file = one_based_inclusive_to_zero_based_exclusive_range()?;
-
+    let range_in_blamed_file = one_based_inclusive_to_zero_based_exclusive_range(range, num_lines_in_blamed)?;
     let mut hunks_to_blame = vec![UnblamedHunk {
         range_in_blamed_file: range_in_blamed_file.clone(),
         suspects: [(suspect, range_in_blamed_file)].into(),
@@ -281,6 +261,25 @@ where
         blob: blamed_file_blob,
         statistics: stats,
     })
+}
+
+/// This function assumes that `range` has 1-based inclusive line numbers and converts it to the
+/// format internally used: 0-based line numbers stored in ranges that are exclusive at the
+/// end.
+fn one_based_inclusive_to_zero_based_exclusive_range(
+    range: Option<Range<u32>>,
+    max_lines: u32,
+) -> Result<Range<u32>, Error> {
+    let Some(range) = range else { return Ok(0..max_lines) };
+    if range.start == 0 {
+        return Err(Error::InvalidLineRange);
+    }
+    let start = range.start - 1;
+    let end = range.end;
+    if start >= max_lines || end > max_lines || start == end {
+        return Err(Error::InvalidLineRange);
+    }
+    Ok(start..end)
 }
 
 /// Pass ownership of each unblamed hunk of `from` to `to`.
