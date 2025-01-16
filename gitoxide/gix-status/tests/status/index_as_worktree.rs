@@ -620,7 +620,7 @@ fn refresh() {
                     BStr::new(b"empty"),
                     3,
                     Change::Type {
-                        worktree_mode: entry::Mode::FILE
+                        worktree_mode: entry::Mode::SYMLINK
                     }
                     .into()
                 ),
@@ -651,7 +651,7 @@ fn refresh() {
                     BStr::new("empty"),
                     3,
                     Change::Type {
-                        worktree_mode: entry::Mode::FILE
+                        worktree_mode: entry::Mode::SYMLINK
                     }
                     .into()
                 ),
@@ -707,7 +707,7 @@ fn modified() {
                 BStr::new(b"empty"),
                 3,
                 Change::Type {
-                    worktree_mode: entry::Mode::FILE,
+                    worktree_mode: entry::Mode::SYMLINK,
                 }
                 .into(),
             ),
@@ -738,7 +738,7 @@ fn modified() {
                 BStr::new("empty"),
                 3,
                 Change::Type {
-                    worktree_mode: entry::Mode::FILE,
+                    worktree_mode: entry::Mode::SYMLINK,
                 }
                 .into(),
             ),
