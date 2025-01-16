@@ -1,3 +1,4 @@
+use gix_hash::ObjectId;
 use gix_object::Exists;
 use std::ops::DerefMut;
 
@@ -129,6 +130,12 @@ impl gix_object::Write for crate::Repository {
 
 impl gix_object::FindHeader for crate::Repository {
     fn try_header(&self, id: &gix_hash::oid) -> Result<Option<gix_object::Header>, gix_object::find::Error> {
+        if id == ObjectId::empty_tree(self.object_hash()) {
+            return Ok(Some(gix_object::Header {
+                kind: gix_object::Kind::Tree,
+                size: 0,
+            }));
+        }
         self.objects.try_header(id)
     }
 }
@@ -139,12 +146,22 @@ impl gix_object::Find for crate::Repository {
         id: &gix_hash::oid,
         buffer: &'a mut Vec<u8>,
     ) -> Result<Option<gix_object::Data<'a>>, gix_object::find::Error> {
+        if id == ObjectId::empty_tree(self.object_hash()) {
+            buffer.clear();
+            return Ok(Some(gix_object::Data {
+                kind: gix_object::Kind::Tree,
+                data: &[],
+            }));
+        }
         self.objects.try_find(id, buffer)
     }
 }
 
 impl gix_object::Exists for crate::Repository {
     fn exists(&self, id: &gix_hash::oid) -> bool {
+        if id == ObjectId::empty_tree(self.object_hash()) {
+            return true;
+        }
         self.objects.exists(id)
     }
 }

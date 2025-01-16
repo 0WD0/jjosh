@@ -35,3 +35,9 @@ git init untracked-unborn
 (cd untracked-unborn
   touch untracked
 )
+
+git init untracked-added
+(cd untracked-added
+  echo content >added
+  git add added
+)

@@ -1,6 +1,32 @@
 use crate::util::named_subrepo_opts;
 use gix_testtools::tempfile;
 
+mod object_database_impl {
+    use gix_object::{Exists, Find, FindHeader};
+
+    #[test]
+    fn empty_tree_is_always_present() -> crate::Result {
+        let repo = crate::named_subrepo_opts("make_basic_repo.sh", "unborn", gix::open::Options::isolated())?;
+        let empty_tree = gix::ObjectId::empty_tree(repo.object_hash());
+        assert!(repo.exists(&empty_tree));
+        assert_eq!(
+            repo.try_header(&empty_tree)?.expect("tree present"),
+            gix_object::Header {
+                kind: gix_object::Kind::Tree,
+                size: 0
+            }
+        );
+        let mut buf = repo.empty_reusable_buffer();
+        buf.push(42);
+        assert_eq!(
+            repo.try_find(&empty_tree, &mut buf)?.expect("tree present").kind,
+            gix_object::Kind::Tree
+        );
+        assert_eq!(buf.len(), 0, "the data in the buffer matches the empty tree");
+        Ok(())
+    }
+}
+
 #[cfg(feature = "tree-editor")]
 mod edit_tree {
     use crate::util::hex_to_id;
