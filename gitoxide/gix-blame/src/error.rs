@@ -27,4 +27,6 @@ pub enum Error {
     Traverse(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error(transparent)]
     DiffTree(#[from] gix_diff::tree::Error),
+    #[error("Invalid line range was given, line range is expected to be a 1-based inclusive range in the format '<start>,<end>'")]
+    InvalidLineRange,
 }

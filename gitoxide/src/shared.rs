@@ -408,14 +408,40 @@ mod clap {
                 .parse_ref(cmd, arg, value)
         }
     }
+
+    #[derive(Clone)]
+    pub struct AsRange;
+
+    impl TypedValueParser for AsRange {
+        type Value = std::ops::Range<u32>;
+
+        fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
+            StringValueParser::new()
+                .try_map(|arg| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
+                    let parts = arg.split_once(',');
+                    if let Some((start, end)) = parts {
+                        let start = u32::from_str(start)?;
+                        let end = u32::from_str(end)?;
+
+                        if start <= end {
+                            return Ok(start..end);
+                        }
+                    }
+
+                    Err(Box::new(Error::new(ErrorKind::ValueValidation)))
+                })
+                .parse_ref(cmd, arg, value)
+        }
+    }
 }
 pub use self::clap::{
-    AsBString, AsHashKind, AsOutputFormat, AsPartialRefName, AsPathSpec, AsTime, CheckPathSpec, ParseRenameFraction,
+    AsBString, AsHashKind, AsOutputFormat, AsPartialRefName, AsPathSpec, AsRange, AsTime, CheckPathSpec,
+    ParseRenameFraction,
 };
 
 #[cfg(test)]
 mod value_parser_tests {
-    use super::ParseRenameFraction;
+    use super::{AsRange, ParseRenameFraction};
     use clap::Parser;
 
     #[test]
@@ -440,5 +466,17 @@ mod value_parser_tests {
 
         let c = Cmd::parse_from(["cmd", "-a=75"]);
         assert_eq!(c.arg, Some(Some(0.75)));
+    }
+
+    #[test]
+    fn range() {
+        #[derive(Debug, clap::Parser)]
+        pub struct Cmd {
+            #[clap(long, short='l', value_parser = AsRange)]
+            pub arg: Option<std::ops::Range<u32>>,
+        }
+
+        let c = Cmd::parse_from(["cmd", "-l=1,10"]);
+        assert_eq!(c.arg, Some(1..10));
     }
 }

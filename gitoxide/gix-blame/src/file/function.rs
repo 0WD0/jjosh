@@ -25,6 +25,10 @@ use std::ops::Range;
 ///    - The first commit returned here is the first eligible commit to be responsible for parts of `file_path`.
 /// * `file_path`
 ///    - A *slash-separated* worktree-relative path to the file to blame.
+/// * `range`
+///    - A 1-based inclusive range, in order to mirror `git`’s behaviour. `Some(20..40)` represents
+///      21 lines, spanning from line 20 up to and including line 40. This will be converted to
+///      `19..40` internally as the algorithm uses 0-based ranges that are exclusive at the end.
 /// * `resource_cache`
 ///    - Used for diffing trees.
 ///
@@ -61,6 +65,7 @@ pub fn file<E>(
     traverse: impl IntoIterator<Item = Result<gix_traverse::commit::Info, E>>,
     resource_cache: &mut gix_diff::blob::Platform,
     file_path: &BStr,
+    range: Option<Range<u32>>,
 ) -> Result<Outcome, Error>
 where
     E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
@@ -85,19 +90,17 @@ where
             .tokenize()
             .map(|token| interner.intern(token))
             .count()
-    };
+    } as u32;
 
     // Binary or otherwise empty?
     if num_lines_in_blamed == 0 {
         return Ok(Outcome::default());
     }
 
-    let mut hunks_to_blame = vec![{
-        let range_in_blamed_file = 0..num_lines_in_blamed as u32;
-        UnblamedHunk {
-            range_in_blamed_file: range_in_blamed_file.clone(),
-            suspects: [(suspect, range_in_blamed_file)].into(),
-        }
+    let range_in_blamed_file = one_based_inclusive_to_zero_based_exclusive_range(range, num_lines_in_blamed)?;
+    let mut hunks_to_blame = vec![UnblamedHunk {
+        range_in_blamed_file: range_in_blamed_file.clone(),
+        suspects: [(suspect, range_in_blamed_file)].into(),
     }];
 
     let mut out = Vec::new();
@@ -258,6 +261,25 @@ where
         blob: blamed_file_blob,
         statistics: stats,
     })
+}
+
+/// This function assumes that `range` has 1-based inclusive line numbers and converts it to the
+/// format internally used: 0-based line numbers stored in ranges that are exclusive at the
+/// end.
+fn one_based_inclusive_to_zero_based_exclusive_range(
+    range: Option<Range<u32>>,
+    max_lines: u32,
+) -> Result<Range<u32>, Error> {
+    let Some(range) = range else { return Ok(0..max_lines) };
+    if range.start == 0 {
+        return Err(Error::InvalidLineRange);
+    }
+    let start = range.start - 1;
+    let end = range.end;
+    if start >= max_lines || end > max_lines || start == end {
+        return Err(Error::InvalidLineRange);
+    }
+    Ok(start..end)
 }
 
 /// Pass ownership of each unblamed hunk of `from` to `to`.
