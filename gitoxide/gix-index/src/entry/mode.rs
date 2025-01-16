@@ -60,6 +60,8 @@ impl Mode {
             Mode::COMMIT
         } else if executable_bit && stat.is_executable() {
             Mode::FILE_EXECUTABLE
+        } else if has_symlinks && stat.is_symlink() {
+            Mode::SYMLINK
         } else {
             Mode::FILE
         };
