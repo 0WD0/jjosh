@@ -53,7 +53,7 @@ where
                                 crate::head::peel::to_object::Error::Unborn { .. },
                             ),
                         ),
-                    )) => None,
+                    )) => Some(gix_hash::ObjectId::empty_tree(self.repo.object_hash())),
                     Err(err) => return Err(err.into()),
                 },
                 Some(Some(tree_id)) => Some(tree_id),
