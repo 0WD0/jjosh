@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-pathspec"
-version = "0.8.1"
+version = "0.9.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing magical pathspecs"
@@ -15,10 +15,10 @@ include = ["src/**/*", "LICENSE-*", "README.md"]
 doctest = false
 
 [dependencies]
-gix-glob = { version = "^0.17.1", path = "../gix-glob" }
-gix-path = { version = "^0.10.13", path = "../gix-path" }
-gix-attributes = { version = "^0.23.1", path = "../gix-attributes" }
-gix-config-value = { version = "^0.14.10", path = "../gix-config-value" }
+gix-glob = { version = "^0.18.0", path = "../gix-glob" }
+gix-path = { version = "^0.10.14", path = "../gix-path" }
+gix-attributes = { version = "^0.24.0", path = "../gix-attributes" }
+gix-config-value = { version = "^0.14.11", path = "../gix-config-value" }
 
 bstr = { version = "1.3.0", default-features = false, features = ["std"] }
 bitflags = "2"

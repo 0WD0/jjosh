@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.14 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
+
+### Chore
+
+ - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
+   That way clippy will allow to use the fantastic `Option::is_some_and()`
+   and friends.
+
+### New Features
+
+ - <csr-id-73ee27afb1871cea7117982f41a999efa3167186/> add `env::core_dir()`
+ - <csr-id-840c71dfb5cda32fcaa6f744e23751c53a8281b1/> add `env::git_shell()` to obtain the shell Git would be using.
+   This is particularly useful to execute Git hooks.
+
+### Bug Fixes
+
+ - <csr-id-51bbb8646287f0a6dfa9ff0fd3852c25e001aaf0/> rename `env::login_shell()` to `shell()` and explain what it is.
+   This assures we don't suggest the usage of actual login shells to ever
+   be used to execute hooks.
+   
+   Note that this is not marked as breaking change as no release was made
+   with the old name yet.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 12 commits contributed to the release over the course of 55 calendar days.
+ - 55 days passed between releases.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
+    - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
+    - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
+    - Merge pull request #1758 from GitoxideLabs/git-shell ([`851a7c4`](https://github.com/GitoxideLabs/gitoxide/commit/851a7c4d0677b15e2158dbddcdd01d1b99711ea4))
+    - Apply suggestions from code review ([`5400320`](https://github.com/GitoxideLabs/gitoxide/commit/5400320cb8bfa94181abb94fe08321ae188f8555))
+    - More robust localization of `sh.exe` on Windows ([`0737c41`](https://github.com/GitoxideLabs/gitoxide/commit/0737c41ab921a8b3228252b5809cb0a0f064bfa6))
+    - Add `env::core_dir()` ([`73ee27a`](https://github.com/GitoxideLabs/gitoxide/commit/73ee27afb1871cea7117982f41a999efa3167186))
+    - Rename `env::login_shell()` to `shell()` and explain what it is. ([`51bbb86`](https://github.com/GitoxideLabs/gitoxide/commit/51bbb8646287f0a6dfa9ff0fd3852c25e001aaf0))
+    - Merge pull request #1752 from GitoxideLabs/git-shell ([`1ca480a`](https://github.com/GitoxideLabs/gitoxide/commit/1ca480aa4093328a7e047e770fdffdb8cc6d8e8d))
+    - Add `env::git_shell()` to obtain the shell Git would be using. ([`840c71d`](https://github.com/GitoxideLabs/gitoxide/commit/840c71dfb5cda32fcaa6f744e23751c53a8281b1))
+    - Refactor git-path tests ([`4ef3a8d`](https://github.com/GitoxideLabs/gitoxide/commit/4ef3a8d34512b97039e8335a34f4e4256a4ff7d0))
+    - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
+</details>
+
 ## 0.10.13 (2024-11-24)
 
 A maintenance release without user-facing changes.
@@ -13,7 +68,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release.
+ - 5 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +79,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.2, gix-actor v0.33.1, gix-hash v0.15.1, gix-features v0.39.1, gix-validate v0.9.2, gix-object v0.46.0, gix-path v0.10.13, gix-quote v0.4.14, gix-attributes v0.23.1, gix-packetline-blocking v0.18.1, gix-filter v0.15.0, gix-chunk v0.4.10, gix-commitgraph v0.25.1, gix-revwalk v0.17.0, gix-traverse v0.43.0, gix-worktree-stream v0.17.0, gix-archive v0.17.0, gix-config-value v0.14.10, gix-lock v15.0.1, gix-ref v0.49.0, gix-config v0.42.0, gix-prompt v0.8.9, gix-url v0.28.1, gix-credentials v0.25.1, gix-bitmap v0.2.13, gix-index v0.37.0, gix-worktree v0.38.0, gix-diff v0.48.0, gix-discover v0.37.0, gix-pathspec v0.8.1, gix-dir v0.10.0, gix-mailmap v0.25.1, gix-revision v0.31.0, gix-merge v0.1.0, gix-negotiate v0.17.0, gix-pack v0.55.0, gix-odb v0.65.0, gix-packetline v0.18.1, gix-transport v0.43.1, gix-protocol v0.46.1, gix-refspec v0.27.0, gix-status v0.15.0, gix-submodule v0.16.0, gix-worktree-state v0.15.0, gix v0.68.0, gix-fsck v0.8.0, gitoxide-core v0.43.0, gitoxide v0.39.0, safety bump 25 crates ([`8ce4912`](https://github.com/GitoxideLabs/gitoxide/commit/8ce49129a75e21346ceedf7d5f87fa3a34b024e1))
     - Prepare changelogs prior to release ([`bc9d994`](https://github.com/GitoxideLabs/gitoxide/commit/bc9d9943e8499a76fc47a05b63ac5c684187d1ae))
     - Merge pull request #1662 from paolobarbolini/thiserror-v2 ([`7a40648`](https://github.com/GitoxideLabs/gitoxide/commit/7a406481b072728cec089d7c05364f9dbba335a2))
     - Upgrade thiserror to v2.0.0 ([`0f0e4fe`](https://github.com/GitoxideLabs/gitoxide/commit/0f0e4fe121932a8a6302cf950b3caa4c8608fb61))
@@ -122,9 +178,6 @@ A maintenance release without user-facing changes.
     - Unset other `GIT_DIR` related env vars in `git config -l` ([`01a412f`](https://github.com/GitoxideLabs/gitoxide/commit/01a412feb5abf201a7eb98901d81f73a83a820e6))
     - Merge pull request #1582 from Byron/gix-path-release ([`93e86f1`](https://github.com/GitoxideLabs/gitoxide/commit/93e86f12a8d0ab59ad5d885ce552d0dec9a6fba6))
 </details>
-
-<csr-unknown>
-Even for gix config, it is not at all clear that theGIT_CONFIG environment variable ought to be honored, becausegix config has a different interface from and is not meant tobe a drop-in replacement for git config, and because thisenvironment variable is only even supported by git config forhistorical reasons. (In git config, one should typically use--file instead.)The installation path is generally the path of a high-scopedconfiguration file, usually the system scope or, with Apple Giton macOS, the “unknown” scope even higher than that (of a filelocated under /Library or /Applications). In contrast, theGIT_CONFIG environment variable is really command scope, sinceit is an alternative way of achieving the same goal as --filewhen running git config, which git supports only for backwardcompatibility.On Windows, when EXEPATH is set in a way that indentifies aGit for Windows installation directory, which is typically thecase in a Git Bash environment (and not otherwise), GIT_CONFIGis not used by the public gix-path functions that ordinarilyget information from calling git config -l ..., because thiscall is not performed and instead the location of a configurationfile associated with the installation is inferred from thatvalue.Although this also applies to some other ways the environmentaffects the behavior of git config -l ..., it is much strangerfor GIT_CONFIG, because whether GIT_CONFIG should be useddoes not intuitively seem like it should be related to what othersources of information are available; the semantics ofGIT_CONFIG for git are to be ignored by most commands, but toalways be used commands (git config) that do not ignore it.The effect on finding other files associated with theinstallation, such as a gitattributes file, may be especiallyhard to reason about for GIT_CONFIG. Such paths are sometimesinferred from the path that gix-path reports. In particular,this is how installation_config_prefix() works.<csr-unknown/>
 
 ## 0.10.11 (2024-09-06)
 

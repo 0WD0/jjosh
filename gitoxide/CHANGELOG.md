@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.41.0 (2025-01-18)
+
+### New Features
+
+ - <csr-id-4a783959c4862985cbffc4fe5cd2c1bed38383b1/> add `gix blame -L start,end`
+ - <csr-id-75d689f6a195f301e4a3000e79f58e5ec1c20557/> add `gix env` to print paths relevant to the Git installation.
+ - <csr-id-278125a845a22fef39b9bc0c69e22e21fb559104/> Document the remaining subcommands
+ - <csr-id-4ffe6eb8f7921c6a03db0aa6d796cc2e3cc328e0/> Add support for statistics and additional performance information.
+ - <csr-id-80e5804dea9c1090efdcddbfc97ed1d573c28091/> add `gix blame` to the CLI
+   That way it's possible to see the `blame` result of any file in the
+   repository.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 26 calendar days.
+ - 27 days passed between releases.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1766 from cruessler/add-range-to-gix-blame ([`90fef01`](https://github.com/GitoxideLabs/gitoxide/commit/90fef0148376167763a3ebeff91a1cf9c236cf8a))
+    - Add `gix blame -L start,end` ([`4a78395`](https://github.com/GitoxideLabs/gitoxide/commit/4a783959c4862985cbffc4fe5cd2c1bed38383b1))
+    - Merge pull request #1758 from GitoxideLabs/git-shell ([`851a7c4`](https://github.com/GitoxideLabs/gitoxide/commit/851a7c4d0677b15e2158dbddcdd01d1b99711ea4))
+    - Merge pull request #1757 from lu-zero/document-subcommands ([`31d83a4`](https://github.com/GitoxideLabs/gitoxide/commit/31d83a49c6a3f9b061b5df3728ab242e651c2ea7))
+    - Add tailing `.` for consistency ([`ddddf02`](https://github.com/GitoxideLabs/gitoxide/commit/ddddf02a74d4fb749bb625b70434b3100843a59c))
+    - Add `gix env` to print paths relevant to the Git installation. ([`75d689f`](https://github.com/GitoxideLabs/gitoxide/commit/75d689f6a195f301e4a3000e79f58e5ec1c20557))
+    - Document the remaining subcommands ([`278125a`](https://github.com/GitoxideLabs/gitoxide/commit/278125a845a22fef39b9bc0c69e22e21fb559104))
+    - Merge pull request #1453 from cruessler/gix-blame ([`6ed9976`](https://github.com/GitoxideLabs/gitoxide/commit/6ed9976abaa3915b50efa46c46b195f3a1fc4ff7))
+    - Add support for statistics and additional performance information. ([`4ffe6eb`](https://github.com/GitoxideLabs/gitoxide/commit/4ffe6eb8f7921c6a03db0aa6d796cc2e3cc328e0))
+    - Add `gix blame` to the CLI ([`80e5804`](https://github.com/GitoxideLabs/gitoxide/commit/80e5804dea9c1090efdcddbfc97ed1d573c28091))
+</details>
+
 ## 0.40.0 (2024-12-22)
 
 ### New Features

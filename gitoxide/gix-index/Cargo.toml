@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-index"
-version = "0.37.0"
+version = "0.38.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A work-in-progress crate of the gitoxide project dedicated implementing the git index file"
@@ -22,18 +22,18 @@ test = true
 serde = ["dep:serde", "smallvec/serde", "gix-hash/serde"]
 
 [dependencies]
-gix-features = { version = "^0.39.1", path = "../gix-features", features = [
+gix-features = { version = "^0.40.0", path = "../gix-features", features = [
     "rustsha1",
     "progress",
 ] }
-gix-hash = { version = "^0.15.1", path = "../gix-hash" }
-gix-bitmap = { version = "^0.2.13", path = "../gix-bitmap" }
-gix-object = { version = "^0.46.0", path = "../gix-object" }
-gix-validate = { version = "^0.9.2", path = "../gix-validate" }
-gix-traverse = { version = "^0.43.0", path = "../gix-traverse" }
-gix-lock = { version = "^15.0.0", path = "../gix-lock" }
-gix-fs = { version = "^0.12.0", path = "../gix-fs" }
-gix-utils = { version = "^0.1.13", path = "../gix-utils" }
+gix-hash = { version = "^0.16.0", path = "../gix-hash" }
+gix-bitmap = { version = "^0.2.14", path = "../gix-bitmap" }
+gix-object = { version = "^0.47.0", path = "../gix-object" }
+gix-validate = { version = "^0.9.3", path = "../gix-validate" }
+gix-traverse = { version = "^0.44.0", path = "../gix-traverse" }
+gix-lock = { version = "^16.0.0", path = "../gix-lock" }
+gix-fs = { version = "^0.13.0", path = "../gix-fs" }
+gix-utils = { version = "^0.1.14", path = "../gix-utils" }
 
 hashbrown = "0.14.3"
 fnv = "1.0.7"

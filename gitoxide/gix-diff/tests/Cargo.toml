@@ -18,8 +18,8 @@ path = "diff/main.rs"
 
 [dev-dependencies]
 gix-diff = { path = ".." }
-gix-index = { version = "^0.37.0", path = "../../gix-index" }
-gix-pathspec = { version = "^0.8.1", path = "../../gix-pathspec" }
+gix-index = { path = "../../gix-index" }
+gix-pathspec = { path = "../../gix-pathspec" }
 gix-hash = { path = "../../gix-hash" }
 gix-fs = { path = "../../gix-fs" }
 gix-worktree = { path = "../../gix-worktree" }

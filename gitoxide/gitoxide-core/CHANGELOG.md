@@ -5,6 +5,85 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.45.0 (2025-01-18)
+
+### New Features
+
+ - <csr-id-4a783959c4862985cbffc4fe5cd2c1bed38383b1/> add `gix blame -L start,end`
+ - <csr-id-75d689f6a195f301e4a3000e79f58e5ec1c20557/> add `gix env` to print paths relevant to the Git installation.
+ - <csr-id-d6ed2e20631227cbb1f1811ecdaf7fbbf6ea7ace/> `gix status` now performs HEAD^{tree}-index comparisons as well.
+ - <csr-id-4ffe6eb8f7921c6a03db0aa6d796cc2e3cc328e0/> Add support for statistics and additional performance information.
+ - <csr-id-80e5804dea9c1090efdcddbfc97ed1d573c28091/> add `gix blame` to the CLI
+   That way it's possible to see the `blame` result of any file in the
+   repository.
+
+### Bug Fixes
+
+ - <csr-id-433b409ef6cc30569446c0ba98dafc76fe194860/> `gix tree entries` now uses a depth-first traversal.
+   This makes the result similar to `git ls-tree` in terms of ordering.
+ - <csr-id-e3c445ea0969418d2b11204281704f5759c17672/> `gix tree entries` usees `find_header()` to show the object size.
+
+### New Features (BREAKING)
+
+ - <csr-id-801689b4aa860e1054dd9362a59d76077f31f248/> add `status::Platform::into_iter()` for obtaining a complete status.
+   Note that it is still possible to disable the head-index status.
+   
+   Types moved around, effectivey removing the `iter::` module for most
+   more general types, i.e. those that are quite genericlally useful in
+   a status.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 28 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
+ - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
+    - Merge pull request #1766 from cruessler/add-range-to-gix-blame ([`90fef01`](https://github.com/GitoxideLabs/gitoxide/commit/90fef0148376167763a3ebeff91a1cf9c236cf8a))
+    - Add `gix blame -L start,end` ([`4a78395`](https://github.com/GitoxideLabs/gitoxide/commit/4a783959c4862985cbffc4fe5cd2c1bed38383b1))
+    - Merge pull request #1768 from GitoxideLabs/improvements ([`34fa6bb`](https://github.com/GitoxideLabs/gitoxide/commit/34fa6bbcdaafa9a690dd7504c42d286e4dce0fd1))
+    - Adapt to changes in `gix-status` ([`25d480c`](https://github.com/GitoxideLabs/gitoxide/commit/25d480c1e48ffc89431cbdddb1e028c8d399e6d9))
+    - Merge pull request #1758 from GitoxideLabs/git-shell ([`851a7c4`](https://github.com/GitoxideLabs/gitoxide/commit/851a7c4d0677b15e2158dbddcdd01d1b99711ea4))
+    - Add `gix env` to print paths relevant to the Git installation. ([`75d689f`](https://github.com/GitoxideLabs/gitoxide/commit/75d689f6a195f301e4a3000e79f58e5ec1c20557))
+    - Merge pull request #1752 from GitoxideLabs/git-shell ([`1ca480a`](https://github.com/GitoxideLabs/gitoxide/commit/1ca480aa4093328a7e047e770fdffdb8cc6d8e8d))
+    - Thanks clippy ([`9193b05`](https://github.com/GitoxideLabs/gitoxide/commit/9193b05b2528f62d829447ccc50314bd4cffc415))
+    - Merge pull request #1746 from GitoxideLabs/status ([`af704f5`](https://github.com/GitoxideLabs/gitoxide/commit/af704f57bb9480c47cdd393465264d586f1d4562))
+    - Adapt to changes in `gix-diff` ([`83b949e`](https://github.com/GitoxideLabs/gitoxide/commit/83b949e738b0acbff96e59d8f9b0e4229918a6e9))
+    - Merge pull request #1410 from GitoxideLabs/status ([`0ab4f64`](https://github.com/GitoxideLabs/gitoxide/commit/0ab4f64407b7fa0924830f7b7bd2f5b0ba1cc16e))
+    - `gix status` now performs HEAD^{tree}-index comparisons as well. ([`d6ed2e2`](https://github.com/GitoxideLabs/gitoxide/commit/d6ed2e20631227cbb1f1811ecdaf7fbbf6ea7ace))
+    - Add `status::Platform::into_iter()` for obtaining a complete status. ([`801689b`](https://github.com/GitoxideLabs/gitoxide/commit/801689b4aa860e1054dd9362a59d76077f31f248))
+    - `gix tree entries` now uses a depth-first traversal. ([`433b409`](https://github.com/GitoxideLabs/gitoxide/commit/433b409ef6cc30569446c0ba98dafc76fe194860))
+    - Adapt to changes in `gix-traverse` ([`1de4e70`](https://github.com/GitoxideLabs/gitoxide/commit/1de4e70569cd7c3bfcc9094b7591699b5b419608))
+    - `gix tree entries` usees `find_header()` to show the object size. ([`e3c445e`](https://github.com/GitoxideLabs/gitoxide/commit/e3c445ea0969418d2b11204281704f5759c17672))
+    - Merge pull request #1453 from cruessler/gix-blame ([`6ed9976`](https://github.com/GitoxideLabs/gitoxide/commit/6ed9976abaa3915b50efa46c46b195f3a1fc4ff7))
+    - For linear histories, avoid redoing path lookup work ([`8196a43`](https://github.com/GitoxideLabs/gitoxide/commit/8196a433ed08de6b09b5cb187f8ce53fc2ab09ca))
+    - Review and remove all TODOs where possible, update docs and comments ([`63ee0f9`](https://github.com/GitoxideLabs/gitoxide/commit/63ee0f9c34dc89ad51d5c9ab83e49cbc08e3ed69))
+    - Swap blamed-file and original-file variable names. ([`b7f1468`](https://github.com/GitoxideLabs/gitoxide/commit/b7f1468f0fe38a50ad3414efb5efcf3ac0d2fddb))
+    - Add support for statistics and additional performance information. ([`4ffe6eb`](https://github.com/GitoxideLabs/gitoxide/commit/4ffe6eb8f7921c6a03db0aa6d796cc2e3cc328e0))
+    - Remove duplication and unnecessary parameter ([`a158d22`](https://github.com/GitoxideLabs/gitoxide/commit/a158d22703077d37b83e0434aa229baf12c342ed))
+    - Unify how lines in blame results are accessed ([`f2790a9`](https://github.com/GitoxideLabs/gitoxide/commit/f2790a9db8cac3ce57003b512edf735e734383d1))
+    - First review round ([`983ec7d`](https://github.com/GitoxideLabs/gitoxide/commit/983ec7d776b459898b90927242582fc03a0e9056))
+    - Add `gix blame` to the CLI ([`80e5804`](https://github.com/GitoxideLabs/gitoxide/commit/80e5804dea9c1090efdcddbfc97ed1d573c28091))
+    - Release gix v0.69.1 ([`7659a65`](https://github.com/GitoxideLabs/gitoxide/commit/7659a651205c08ea4ec0cbf0b441a3bd17ec49dd))
+    - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
+</details>
+
 ## 0.44.0 (2024-12-22)
 
 ### New Features
@@ -31,7 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 27 commits contributed to the release over the course of 28 calendar days.
+ - 28 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -43,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0 ([`beb0ea8`](https://github.com/GitoxideLabs/gitoxide/commit/beb0ea8c4ff94c64b7773772a9d388ccb403f3c1))
     - Release gix-date v0.9.3, gix-object v0.46.1, gix-command v0.4.0, gix-filter v0.16.0, gix-fs v0.12.1, gix-traverse v0.43.1, gix-worktree-stream v0.18.0, gix-archive v0.18.0, gix-ref v0.49.1, gix-prompt v0.9.0, gix-url v0.28.2, gix-credentials v0.26.0, gix-diff v0.49.0, gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0, safety bump 16 crates ([`c1ba571`](https://github.com/GitoxideLabs/gitoxide/commit/c1ba5719132227410abefeb54e3032b015233e94))
     - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1734 from EliahKagan/nonfiles ([`ad6b9b6`](https://github.com/GitoxideLabs/gitoxide/commit/ad6b9b66aa3e3561e413d04d00f6dbf832d63353))
