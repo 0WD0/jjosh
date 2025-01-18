@@ -96,16 +96,17 @@ mod find_youngest_matching_commit {
         let repo = repo("complex_graph").unwrap();
 
         // The full Linux CI `test` job regenerates baselines instead of taking them from archives.
-        // In Git 2.47.0 (and 2.47.1), the traversal order differs, so some `parse_spec` assertions
-        // fail. This is a Git bug with a forthcoming fix. For now, we use `parse_spec_no_baseline`
-        // for them when tests are run that way with known-affected Git versions. For details, see:
+        // Traversal order with `:/` is broken in Git 2.47.*, so some `parse_spec` assertions fail.
+        // The fix is in Git 2.48.* but is not backported. For now, we use `parse_spec_no_baseline`
+        // in affected test cases when they are run on CI with Git 2.47.*. For details, see:
         //
         //  - https://lore.kernel.org/git/Z1LJSADiStlFicTL@pks.im/T/
         //  - https://lore.kernel.org/git/Z1LtS-8f8WZyobz3@pks.im/T/
-        //  - https://github.com/GitoxideLabs/gitoxide/issues/1622#issuecomment-2529580735
+        //  - https://github.com/git/git/blob/v2.48.0/Documentation/RelNotes/2.48.0.txt#L294-L296
+        //  - https://github.com/GitoxideLabs/gitoxide/issues/1622
         let skip_some_baselines = is_ci::cached()
             && std::env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some()
-            && ((2, 47, 0)..(2, 47, 2)).contains(&gix_testtools::GIT_VERSION);
+            && ((2, 47, 0)..(2, 48, 0)).contains(&gix_testtools::GIT_VERSION);
 
         if skip_some_baselines {
             assert_eq!(
