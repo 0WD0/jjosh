@@ -204,9 +204,11 @@ jobs:
         container-arch: [ i386, arm32v7 ]
         include:
           - container-arch: i386
+            runner-arch: amd64
             runner-os: ubuntu-latest
             toolchain: stable-i686-unknown-linux-gnu
           - container-arch: arm32v7
+            runner-arch: arm64
             runner-os: ubuntu-24.04-arm
             toolchain: stable-armv7-unknown-linux-gnueabihf
       fail-fast: false  # FIXME: Probably remove this.
@@ -226,10 +228,10 @@ jobs:
             git
             jq
             libssl-dev
-            # libstdc++6:amd64  # To support external 64-bit Node.js for actions.
+            libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
             pkgconf
           )
-          # dpkg --add-architecture amd64
+          dpkg --add-architecture ${{ matrix.runner-arch }}
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash
