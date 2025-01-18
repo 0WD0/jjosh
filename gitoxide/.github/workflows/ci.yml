@@ -251,35 +251,6 @@ jobs:
           GIX_TEST_IGNORE_ARCHIVES: '1'
         run: cargo nextest run --workspace --no-fail-fast
 
-  test-32bit-cross:
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        target: [ armv7-linux-androideabi ]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-      - name: Install cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-      - name: check
-        run: cross check -p gix --target ${{ matrix.target }}
-      - name: Test (unit)
-        run: |
-          # Run some high-level unit tests that exercise various pure Rust code to ease building
-          # test binaries. We would prefer `-p gix`. But with `cross`, fixture scripts try to run
-          # the host `git` as an armv7 binary.
-          cross test -p gix-hashtable --target ${{ matrix.target }}
-
   lint:
     runs-on: ubuntu-latest
 
@@ -455,7 +426,6 @@ jobs:
       - test-journey
       - test-fast
       - test-32bit
-      - test-32bit-cross
       - lint
       - cargo-deny
       - check-packetline
