@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Chore
+
+ - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
+   That way clippy will allow to use the fantastic `Option::is_some_and()`
+   and friends.
+
+### New Features
+
+ - <csr-id-3b8c9711dac45d317781b571062ae7448b076e50/> add `index()` to diff two indices
+   It comes with pathspec support to allow for easier integration into
+   the `status()` machinery.
+
+### Bug Fixes
+
+ - <csr-id-0963abe3050ae1fdf807af3b74be62da8a5b0319/> remove `index::Change::Unmerged` as it doesn't matter to Git either.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 8 commits contributed to the release over the course of 26 calendar days.
+ - 26 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
+    - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
+    - Merge pull request #1746 from GitoxideLabs/status ([`af704f5`](https://github.com/GitoxideLabs/gitoxide/commit/af704f57bb9480c47cdd393465264d586f1d4562))
+    - Remove `index::Change::Unmerged` as it doesn't matter to Git either. ([`0963abe`](https://github.com/GitoxideLabs/gitoxide/commit/0963abe3050ae1fdf807af3b74be62da8a5b0319))
+    - Merge pull request #1410 from GitoxideLabs/status ([`0ab4f64`](https://github.com/GitoxideLabs/gitoxide/commit/0ab4f64407b7fa0924830f7b7bd2f5b0ba1cc16e))
+    - Add `index()` to diff two indices ([`3b8c971`](https://github.com/GitoxideLabs/gitoxide/commit/3b8c9711dac45d317781b571062ae7448b076e50))
+    - Adapt to changes in `gix-traverse` ([`1de4e70`](https://github.com/GitoxideLabs/gitoxide/commit/1de4e70569cd7c3bfcc9094b7591699b5b419608))
+    - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
+</details>
+
 ## 0.49.0 (2024-12-22)
 
 ### Bug Fixes
@@ -35,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release over the course of 28 calendar days.
+ - 8 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -47,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.3, gix-object v0.46.1, gix-command v0.4.0, gix-filter v0.16.0, gix-fs v0.12.1, gix-traverse v0.43.1, gix-worktree-stream v0.18.0, gix-archive v0.18.0, gix-ref v0.49.1, gix-prompt v0.9.0, gix-url v0.28.2, gix-credentials v0.26.0, gix-diff v0.49.0, gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0, safety bump 16 crates ([`c1ba571`](https://github.com/GitoxideLabs/gitoxide/commit/c1ba5719132227410abefeb54e3032b015233e94))
     - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1705 from GitoxideLabs/merge ([`520c832`](https://github.com/GitoxideLabs/gitoxide/commit/520c832cfcfb34eb7617be55ebe2719ab35595fd))
     - Add support for not tracking single empty files. ([`d3f5f27`](https://github.com/GitoxideLabs/gitoxide/commit/d3f5f27732ec5dfb496a3f9d0dd17a3a79d408f3))

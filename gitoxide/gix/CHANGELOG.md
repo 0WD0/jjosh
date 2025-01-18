@@ -5,21 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.69.1 (2024-12-22)
+## Unreleased
+
+### Chore
+
+ - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
+   That way clippy will allow to use the fantastic `Option::is_some_and()`
+   and friends.
+
+### New Features
+
+ - <csr-id-da0e1c7a442e67a73a080ed2ffe80c65ed7851ed/> add `Repository::upstream_branch_and_remote_name_for_tracking_branch()`
+   It's a way to learn about the Remote and upstream branch which would
+   match the given local tracking branch.
+ - <csr-id-5b6e5c8b0cfa714d0de0dc89d0a8fa7794e102a0/> more often check for interrupts in status iterator
+ - <csr-id-3b53982db092e6c57a4ab9c979f7c104a7ced207/> add `tree::Editor|editor::Cursor::get()` to see if an entry is loaded at path.
+   This can be useful to get a feeling for how far the tree was already made available,
+   even though it won't reveal if an entry was edited.
+ - <csr-id-8ae9e5729bd9e7d6308bd226f510b3415381de89/> `Repository::is_dirty()` now also checks for tree/index changes.
+   This copmpletes the `is_dirty()` implementation.
+ - <csr-id-83f3d93eaa1d7a96e0fa60840502f211c20edc3b/> `Repository::tree_index_status()` to see the changes between a tree and an index.
+   It also respects `status.rename` and `status.renameLimit` to configure rename tracking.
+ - <csr-id-592e250f8f01788d37f9fb7b1938b67446042bf3/> add `Tree::depthfirst()` with a delegate.
+   This allows a depth-first traversal with a delegate.
+ - <csr-id-25efbfb72e5a043ce8f7d196c1f7104ef93394df/> Add `blame` plumbing crate to the top-level.
+   For now, it doesn't come with a simplified `gix` API though.
 
 ### Bug Fixes
 
+ - <csr-id-cd8fabf583e75f59feda7a78b8710f26a8200cbb/> `Repository::status()` detects files added to the index in an unborn repository.
+   Previously it wouldn't show them.
+ - <csr-id-84019cb42cff153c305cb718307493df42a134a4/> `Respository::status()` iterator won't fail in unborn directories.
+ - <csr-id-bc022845ace1962a2a85f9272cdbc0cf24745c62/> worktrees of submodules now know their correct worktree
+   Previously they would use a very incorrect worktree which would cause
+   the status to be calculated very wrongly.
+ - <csr-id-3bbd1f7b60b09f9862ee88293c316a359d79e3d8/> status-iterator won't swallow legitimate modification during 'racy-git'.
+   When a modification is marked as being racy, then previously the iterator would have
+   kept the whole modification even though it should just have tracked the single change.
+   
+   This made the legitimate modification disappear.
+ - <csr-id-a03bde58176e68850fa2d3299f9901a9b36b892f/> `write_blob_stream()` does not need `Seek` trait anymore.
+   Internally, it has to turn it into a buffer so it's not needed anymore.
+   It also counteracts the idea of using a stream with arbitrarily big files.
+ - <csr-id-a987e682aefa352ceaffa05d56545c9bc9c14934/> `Submodule::status()` now konws about tree-index changes as well.
+   This completes the status implementation.
  - <csr-id-51a430114493de392ce0c60f462d6e3ff36475a4/> remove unused fetch-error variants
    Note that it's a breaking change, but it's on top of a previous breaking change
    so folks would already have to update explicitly.
+
+### Other
+
+ - <csr-id-9db21601b61601c01cd2419543e2c461a7dd568d/> make really clear that `Repository::worktrees()` lists linked worktrees.
+   Excluding the main worktree which isn't always present.
+
+### New Features (BREAKING)
+
+ - <csr-id-801689b4aa860e1054dd9362a59d76077f31f248/> add `status::Platform::into_iter()` for obtaining a complete status.
+   Note that it is still possible to disable the head-index status.
+   
+   Types moved around, effectivey removing the `iter::` module for most
+   more general types, i.e. those that are quite genericlally useful in
+   a status.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-a6f397f529953ac4177962059c9e6d9bcee2b657/> all `config::Snapshot` access now uses the new `Key` trait.
+   That way one can officially use "section.name" strings or `&Section::NAME`.
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release.
- - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
+ - 39 commits contributed to the release over the course of 26 calendar days.
+ - 26 days passed between releases.
+ - 18 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
 
 ### Commit Details
 
@@ -27,11 +93,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <details><summary>view details</summary>
 
+ * **[#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)**
+    - `Repository::status()` detects files added to the index in an unborn repository. ([`cd8fabf`](https://github.com/GitoxideLabs/gitoxide/commit/cd8fabf583e75f59feda7a78b8710f26a8200cbb))
  * **Uncategorized**
+    - Merge pull request #1774 from EliahKagan/complex-graph-no-baseline-next ([`90e08f1`](https://github.com/GitoxideLabs/gitoxide/commit/90e08f18d9cd2630f245d3a190e7bc5585bd4bc7))
+    - Use parse_spec_no_baseline with :/ for all 2.47.* on CI ([`fe33fa7`](https://github.com/GitoxideLabs/gitoxide/commit/fe33fa7ab639ee0005167fd7a16712446fa522bb))
+    - Merge pull request #1772 from GitoxideLabs/improvements ([`4c8200f`](https://github.com/GitoxideLabs/gitoxide/commit/4c8200f374b146456df7568fe5a7e9c3d10b8502))
+    - Merge pull request #1769 from GitoxideLabs/improvements ([`47e44c5`](https://github.com/GitoxideLabs/gitoxide/commit/47e44c51f6dfb8f70b12633dd95698d481077bea))
+    - `Respository::status()` iterator won't fail in unborn directories. ([`84019cb`](https://github.com/GitoxideLabs/gitoxide/commit/84019cb42cff153c305cb718307493df42a134a4))
+    - Merge pull request #1768 from GitoxideLabs/improvements ([`34fa6bb`](https://github.com/GitoxideLabs/gitoxide/commit/34fa6bbcdaafa9a690dd7504c42d286e4dce0fd1))
+    - Adapt to changes in `gix-status` ([`25d480c`](https://github.com/GitoxideLabs/gitoxide/commit/25d480c1e48ffc89431cbdddb1e028c8d399e6d9))
+    - Merge pull request #1750 from GitoxideLabs/odb-issue ([`e4fb21e`](https://github.com/GitoxideLabs/gitoxide/commit/e4fb21eb73e7cdb43e30df49eb72512e2836dad1))
+    - Reproduce issue with 'too many packs' for slotmap ([`dbf079f`](https://github.com/GitoxideLabs/gitoxide/commit/dbf079f4b70db01ae4f850796ae6006d45d3f99c))
+    - Merge pull request #1763 from GitoxideLabs/better-refspec-primitives ([`af8f201`](https://github.com/GitoxideLabs/gitoxide/commit/af8f2019723dd9ee3ac46a935910946fcc15e8bb))
+    - Add `Repository::upstream_branch_and_remote_name_for_tracking_branch()` ([`da0e1c7`](https://github.com/GitoxideLabs/gitoxide/commit/da0e1c7a442e67a73a080ed2ffe80c65ed7851ed))
+    - Adapt to changes in `gix-refspec` ([`6d7dd9b`](https://github.com/GitoxideLabs/gitoxide/commit/6d7dd9bced4a1a0e8175e047be838746a95aa596))
+    - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
+    - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
+    - Make really clear that `Repository::worktrees()` lists linked worktrees. ([`9db2160`](https://github.com/GitoxideLabs/gitoxide/commit/9db21601b61601c01cd2419543e2c461a7dd568d))
+    - Worktrees of submodules now know their correct worktree ([`bc02284`](https://github.com/GitoxideLabs/gitoxide/commit/bc022845ace1962a2a85f9272cdbc0cf24745c62))
+    - Merge pull request #1752 from GitoxideLabs/git-shell ([`1ca480a`](https://github.com/GitoxideLabs/gitoxide/commit/1ca480aa4093328a7e047e770fdffdb8cc6d8e8d))
+    - Thanks clippy ([`9193b05`](https://github.com/GitoxideLabs/gitoxide/commit/9193b05b2528f62d829447ccc50314bd4cffc415))
+    - Merge pull request #1749 from GitoxideLabs/status ([`8d84818`](https://github.com/GitoxideLabs/gitoxide/commit/8d84818240d44e1f5fe78a231b5d9bffd0283918))
+    - More often check for interrupts in status iterator ([`5b6e5c8`](https://github.com/GitoxideLabs/gitoxide/commit/5b6e5c8b0cfa714d0de0dc89d0a8fa7794e102a0))
+    - Merge pull request #1746 from GitoxideLabs/status ([`af704f5`](https://github.com/GitoxideLabs/gitoxide/commit/af704f57bb9480c47cdd393465264d586f1d4562))
+    - Add `tree::Editor|editor::Cursor::get()` to see if an entry is loaded at path. ([`3b53982`](https://github.com/GitoxideLabs/gitoxide/commit/3b53982db092e6c57a4ab9c979f7c104a7ced207))
+    - Status-iterator won't swallow legitimate modification during 'racy-git'. ([`3bbd1f7`](https://github.com/GitoxideLabs/gitoxide/commit/3bbd1f7b60b09f9862ee88293c316a359d79e3d8))
+    - `write_blob_stream()` does not need `Seek` trait anymore. ([`a03bde5`](https://github.com/GitoxideLabs/gitoxide/commit/a03bde58176e68850fa2d3299f9901a9b36b892f))
+    - Merge pull request #1410 from GitoxideLabs/status ([`0ab4f64`](https://github.com/GitoxideLabs/gitoxide/commit/0ab4f64407b7fa0924830f7b7bd2f5b0ba1cc16e))
+    - `Submodule::status()` now konws about tree-index changes as well. ([`a987e68`](https://github.com/GitoxideLabs/gitoxide/commit/a987e682aefa352ceaffa05d56545c9bc9c14934))
+    - Add `status::Platform::into_iter()` for obtaining a complete status. ([`801689b`](https://github.com/GitoxideLabs/gitoxide/commit/801689b4aa860e1054dd9362a59d76077f31f248))
+    - All `config::Snapshot` access now uses the new `Key` trait. ([`a6f397f`](https://github.com/GitoxideLabs/gitoxide/commit/a6f397f529953ac4177962059c9e6d9bcee2b657))
+    - `Repository::is_dirty()` now also checks for tree/index changes. ([`8ae9e57`](https://github.com/GitoxideLabs/gitoxide/commit/8ae9e5729bd9e7d6308bd226f510b3415381de89))
+    - `Repository::tree_index_status()` to see the changes between a tree and an index. ([`83f3d93`](https://github.com/GitoxideLabs/gitoxide/commit/83f3d93eaa1d7a96e0fa60840502f211c20edc3b))
+    - Add `Tree::depthfirst()` with a delegate. ([`592e250`](https://github.com/GitoxideLabs/gitoxide/commit/592e250f8f01788d37f9fb7b1938b67446042bf3))
+    - Adapt to changes in `gix-traverse` ([`1de4e70`](https://github.com/GitoxideLabs/gitoxide/commit/1de4e70569cd7c3bfcc9094b7591699b5b419608))
+    - Merge pull request #1453 from cruessler/gix-blame ([`6ed9976`](https://github.com/GitoxideLabs/gitoxide/commit/6ed9976abaa3915b50efa46c46b195f3a1fc4ff7))
+    - Add `blame` plumbing crate to the top-level. ([`25efbfb`](https://github.com/GitoxideLabs/gitoxide/commit/25efbfb72e5a043ce8f7d196c1f7104ef93394df))
+    - Release gix v0.69.1 ([`7659a65`](https://github.com/GitoxideLabs/gitoxide/commit/7659a651205c08ea4ec0cbf0b441a3bd17ec49dd))
     - Merge pull request #1740 from GitoxideLabs/cargo-improvements ([`3fb0c18`](https://github.com/GitoxideLabs/gitoxide/commit/3fb0c188cb42c624ebbf5add4140bf8518e05bb2))
     - Remove unused fetch-error variants ([`51a4301`](https://github.com/GitoxideLabs/gitoxide/commit/51a430114493de392ce0c60f462d6e3ff36475a4))
     - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
 </details>
+
+## 0.69.1 (2024-12-22)
+
+### Bug Fixes
+
+ - <csr-id-51a430114493de392ce0c60f462d6e3ff36475a4/> remove unused fetch-error variants
+   Note that it's a breaking change, but it's on top of a previous breaking change
+   so folks would already have to update explicitly.
 
 ## 0.69.0 (2024-12-22)
 

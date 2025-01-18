@@ -5,6 +5,164 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Chore
+
+ - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
+   That way clippy will allow to use the fantastic `Option::is_some_and()`
+   and friends.
+
+### Bug Fixes
+
+ - <csr-id-be0abafe883a09491762b496950089927264af8c/> Don't attempt +x if it was replaced by a non-regular file
+   This does not make a difference in typical cases, and anytime it
+   matters something has probably gone unexpectedly, but this narrows
+   the window of time during which a race condition could occur where
+   a regular file has been replaced with something else at the same
+   path (e.g. a directory) by some other process.
+   
+   An example of why it's valuable to avoid this is that if the entry
+   is a directory then executable permissions have a different meaning
+   and adding them could increase access unintentionally. Likewise,
+   when we set executable permissions we remove setuid, setgid, and
+   sticky bits, which also have different meanings for directories; in
+   particular, on a directory the sticky bit restricts deletion.
+   
+   (This also automatically avoids some problems in the case of
+   `finalize_entry` being called with a path to set executable that
+   was never a regular file in the first place. That should not
+   happen, though, and allowing that is not a goal of this change.)
+ - <csr-id-879d29deb6776e9dd9de2df4fc10bfccfb1292e7/> Don't set extra permissions with +x on existing file
+   This fixes a bug that occurred when a regular file tracked as
+   executable was checked out in a non-exclusive checkout on a
+   Unix-like system (where the destination is a filesystem that
+   supports Unix-style executable permissions). This occurs when
+   `destination_is_initially_empty: true` is not explicitly set.
+   
+   Whether the file existed before or not, it is created without
+   attempting to set its permissions to include executable bits, then
+   the executable bits are added afterwards. On Unix-like systems, the
+   file was given unrestricted 0777 permissions and was thus world
+   writable. This happened regardless of the process umask or any
+   other contextual factors.
+   
+   Although `0o777` is given as the mode both when permissions are set
+   on creation (using `OpenOptionsExt::mode` and `OpenOptions::open`,
+   which delegates to `open`), and when they are set after creation
+   (using `PermissionsExt::set_mode` and `std::fs::set_permissions`,
+   which delegates to `chmod`), the cases do not treat their mode
+   arguments equivalently.
+   
+   - The first situation worked correctly because `open` automatically
+     respects the current process umask. (The system takes care of
+     this, as it is part of the semantics of creating a new file and
+     specifying desired permissions.) So 777 was really expressing the
+     idea of maximal permissions of those considered safe under the
+     current configuration, including executable permissions.
+   
+   - But the second situation did not work correctly, because `chmod`
+     calls try to set the exact permissions specified (and usually
+     succeed). Unlike `open`, with `chmod` there is no implicit use of
+     the umask.
+   
+   Various fixes are possible. The fix implemented here hews to the
+   existing design as much as possible while avoiding setting any
+   write permissions (though existing write permissions are preserved)
+   and also avoiding setting executable permissions for whoever does
+   not have read permissions. We:
+   
+   1. Unset the setuid, setgid, and sticky bits, in the rare case that
+      any of them are set. Keeping them could be unsafe or have
+      unexpected effects when set for a file that may conceptually
+      hold different data or serve a different purpose (since this is
+      a checkout).
+   
+      For the setuid and setgid bits, it would be unsafe to keep them
+      when adding new executable permissions. The intent of setuid
+      and setgit bits is ambiguous in this situation, since they may
+      have been meant only to apply to an earlier version of the file,
+      especially since users may expect the file to be deleted and a
+      new file of the same name to be created, rather than to confer
+      extra abilities when executable bits are added in the future.
+      Unsetting them makes adding executable bits where read bits are
+      already present (which we will do) a reasonably safe operation.
+   
+      In the case of the setgid bit, another reason to remove it is
+      that, on some systems, the setgid bit in the absence of any
+      executable bits has the different meaning of enabling mandatory
+      file locking. If the setgid bit was set for this purpose, then
+      the effect of setting the EGID and potentialy elevating the
+      privileges of the user who runs it is surely not intended.
+   
+   2. Check which read bits (for owner, group, and other) are already
+      set on the file. We do this only by looking at the mode. For
+      example, ACLs do not participate.
+   
+   3. Set executable bits corresponding to the preexisting read bits.
+      That is, for each of the owner, group, and others, if it can
+      read (according to the file mode), set it to be able to execute
+      as well.
+   
+      In some cases, this may have a different effect from what would
+      happen if the file were created anew with the desired
+      permissions specified by a broad mode (e.g. 777) and subject to
+      the umask. This is because it is possible to have a umask that
+      limits read and execute permissions differently. Also, the file
+      may have had its permissions modified in some other way since
+      creation.
+   
+   The idea here is to keep the idea behind the way it worked before,
+   but avoid adding any write permissions or giving permissions to
+   users who don't already have any. This fixes the bug where
+   executable files were sometimes checked out with unrestricted,
+   world-writable permissions. However, this is not necessarily the
+   approach that will be kept long-term.
+   
+   This does not attempt to avoid effects that are fundamental to the
+   reuse of an existing file (versus the creation of a new one). In
+   particular, this currently assumes that observing changes due to a
+   checkout through other hard links to a file (whose link count is
+   higher than 1) is an intended or otherwise acceptable effect of
+   using multiple hard links.
+   
+   Another aspect of the current approach that is preserved so far but
+   that may eventually change is that some operations are done through
+   an open file object while others are done using the path, and there
+   may be unusual situations, perhaps involving long-running process
+   smudge filters and separate concurrent modification of the working
+   tree, where they diverge. However, the specific scenario of path
+   coming to refer to something that is no longer a regular file will
+   be covered in a subsequent commit.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 26 calendar days.
+ - 26 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1765 from EliahKagan/finalize-entry-next ([`8df5ba2`](https://github.com/GitoxideLabs/gitoxide/commit/8df5ba268b506e2d0a19899840a7e16fb6843a80))
+    - Avoid another "unused import" warning on Windows ([`c956d1b`](https://github.com/GitoxideLabs/gitoxide/commit/c956d1b915a0f8778f89c0c3ed155f4ce4ab9792))
+    - Merge pull request #1764 from EliahKagan/finalize-entry ([`12f672f`](https://github.com/GitoxideLabs/gitoxide/commit/12f672f20f622a8488356a12df2d773851a683d4))
+    - Don't attempt +x if it was replaced by a non-regular file ([`be0abaf`](https://github.com/GitoxideLabs/gitoxide/commit/be0abafe883a09491762b496950089927264af8c))
+    - Extract and test +x mode setting logic ([`bf33d2b`](https://github.com/GitoxideLabs/gitoxide/commit/bf33d2b49212f71a7af1aef34e0ffac41140815b))
+    - Don't set extra permissions with +x on existing file ([`879d29d`](https://github.com/GitoxideLabs/gitoxide/commit/879d29deb6776e9dd9de2df4fc10bfccfb1292e7))
+    - Test for excessive write permissions on nonexclusive checkout ([`4d4bf89`](https://github.com/GitoxideLabs/gitoxide/commit/4d4bf892e50f6b1bc9e5a22e5d8c69698ba2b38e))
+    - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
+    - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
+    - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
+</details>
+
 ## 0.16.0 (2024-12-22)
 
 A maintenance release without user-facing changes.
@@ -13,7 +171,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 28 calendar days.
+ - 4 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -25,6 +183,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0 ([`beb0ea8`](https://github.com/GitoxideLabs/gitoxide/commit/beb0ea8c4ff94c64b7773772a9d388ccb403f3c1))
     - Release gix-date v0.9.3, gix-object v0.46.1, gix-command v0.4.0, gix-filter v0.16.0, gix-fs v0.12.1, gix-traverse v0.43.1, gix-worktree-stream v0.18.0, gix-archive v0.18.0, gix-ref v0.49.1, gix-prompt v0.9.0, gix-url v0.28.2, gix-credentials v0.26.0, gix-diff v0.49.0, gix-dir v0.11.0, gix-revision v0.31.1, gix-merge v0.2.0, gix-pack v0.56.0, gix-odb v0.66.0, gix-shallow v0.1.0, gix-packetline v0.18.2, gix-transport v0.44.0, gix-protocol v0.47.0, gix-status v0.16.0, gix-worktree-state v0.16.0, gix v0.69.0, gitoxide-core v0.44.0, gitoxide v0.40.0, safety bump 16 crates ([`c1ba571`](https://github.com/GitoxideLabs/gitoxide/commit/c1ba5719132227410abefeb54e3032b015233e94))
     - Update changelogs prior to release ([`7ea8582`](https://github.com/GitoxideLabs/gitoxide/commit/7ea85821c6999e3e6cf50a2a009904e9c38642a4))
     - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
