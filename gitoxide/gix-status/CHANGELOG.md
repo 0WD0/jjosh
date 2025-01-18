@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.17.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
+<csr-id-c4e87454bfd4b92bcf2c8a47a031940cab6c2e18/>
 
 ### Chore
 
@@ -26,8 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release over the course of 26 calendar days.
- - 26 days passed between releases.
+ - 12 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -38,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1773 from GitoxideLabs/improvements ([`c2d1a5d`](https://github.com/GitoxideLabs/gitoxide/commit/c2d1a5d1050212ffae8072314f90613c10200b31))
     - Assure that the recently added `worktree_mode` actually represents it. ([`fc2021f`](https://github.com/GitoxideLabs/gitoxide/commit/fc2021fbfc1051b666ea9a2add6225dd9843e772))
     - Merge pull request #1768 from GitoxideLabs/improvements ([`34fa6bb`](https://github.com/GitoxideLabs/gitoxide/commit/34fa6bbcdaafa9a690dd7504c42d286e4dce0fd1))

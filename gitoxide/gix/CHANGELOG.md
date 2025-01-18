@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.70.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
+<csr-id-9db21601b61601c01cd2419543e2c461a7dd568d/>
 
 ### Chore
 
@@ -76,8 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 39 commits contributed to the release over the course of 26 calendar days.
- - 26 days passed between releases.
+ - 40 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
  - 18 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)
 
@@ -96,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)**
     - `Repository::status()` detects files added to the index in an unborn repository. ([`cd8fabf`](https://github.com/GitoxideLabs/gitoxide/commit/cd8fabf583e75f59feda7a78b8710f26a8200cbb))
  * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1774 from EliahKagan/complex-graph-no-baseline-next ([`90e08f1`](https://github.com/GitoxideLabs/gitoxide/commit/90e08f18d9cd2630f245d3a190e7bc5585bd4bc7))
     - Use parse_spec_no_baseline with :/ for all 2.47.* on CI ([`fe33fa7`](https://github.com/GitoxideLabs/gitoxide/commit/fe33fa7ab639ee0005167fd7a16712446fa522bb))
     - Merge pull request #1772 from GitoxideLabs/improvements ([`4c8200f`](https://github.com/GitoxideLabs/gitoxide/commit/4c8200f374b146456df7568fe5a7e9c3d10b8502))

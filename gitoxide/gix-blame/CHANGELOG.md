@@ -5,7 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.1.0 (2023-02-17)
+
+<csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
+<csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
+
+### Chore
+
+ - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
+ - <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
+
+### Bug Fixes
+
+ - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
+   This also means that the `git-*` prefixed crates of the `gitoxide` project
+   are effectively unmaintained.
+   Use the crates with the `gix-*` prefix instead.
+   
+   If you were using `git-repository`, then `gix` is its substitute.
+
+### New Features (BREAKING)
+
+ - <csr-id-3d8fa8fef9800b1576beab8a5bc39b821157a5ed/> upgrade edition to 2021 in most crates.
+   MSRV for this is 1.56, and we are now at 1.60 so should be compatible.
+   This isn't more than a patch release as it should break nobody
+   who is adhering to the MSRV, but let's be careful and mark it
+   breaking.
+   
+   Note that `git-features` and `git-pack` are still on edition 2018
+   as they make use of a workaround to support (safe) mutable access
+   to non-overlapping entries in a slice which doesn't work anymore
+   in edition 2021.
+
+## v0.0.0 (2025-01-18)
+
+### New Features (BREAKING)
+
+ - <csr-id-787cf6f5a838a96da49330c99a8530ac3206de50/> add `range` to `blame::file()`
 
 ### New Features
 
@@ -17,15 +53,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    and friends.
  - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
 
-### New Features (BREAKING)
+### Chore
 
- - <csr-id-787cf6f5a838a96da49330c99a8530ac3206de50/> add `range` to `blame::file()`
+ - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
+   That way clippy will allow to use the fantastic `Option::is_some_and()`
+   and friends.
+
+### Other
+
+ - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
+   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
+   
+   - Markdown documentation, except changelogs and other such files
+     where such changes should not be made.
+   
+   - Documentation comments (in .rs files).
+   
+   - Manifest (.toml) files, for the value of the `repository` key.
+   
+   - The comments appearing at the top of a sample hook that contains
+     a repository URL as an example.
+   
+   When making these changes, I also allowed my editor to remove
+   trailing whitespace in any lines in files already being edited
+   (since, in this case, there was no disadvantage to allowing this).
+   
+   The gitoxide repository URL changed when the repository was moved
+   into the recently created GitHub organization `GitoxideLabs`, as
+   detailed in #1406. Please note that, although I believe updating
+   the URLs to their new canonical values is useful, this is not
+   needed to fix any broken links, since `Byron/gitoxide` URLs
+   redirect (and hopefully will always redirect) to the coresponding
+   `GitoxideLabs/gitoxide` URLs.
+   
+   While this change should not break any URLs, some affected URLs
+   were already broken. This updates them, but they are still broken.
+   They will be fixed in a subsequent commit.
+   
+   This also does not update `Byron/gitoxide` URLs in test fixtures
+   or test cases, nor in the `Makefile`. (It may make sense to change
+   some of those too, but it is not really a documentation change.)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 44 commits contributed to the release.
+ - 46 commits contributed to the release.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -36,6 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Don't specify version numbers in dev-dependencies ([`7570daa`](https://github.com/GitoxideLabs/gitoxide/commit/7570daa50a93a2b99e9cd5228cb274f20839865f))
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1766 from cruessler/add-range-to-gix-blame ([`90fef01`](https://github.com/GitoxideLabs/gitoxide/commit/90fef0148376167763a3ebeff91a1cf9c236cf8a))
     - Refactor ([`1500c08`](https://github.com/GitoxideLabs/gitoxide/commit/1500c08736069153aab33842d2d877f42ad01f37))
     - Add `range` to `blame::file()` ([`787cf6f`](https://github.com/GitoxideLabs/gitoxide/commit/787cf6f5a838a96da49330c99a8530ac3206de50))
@@ -81,38 +156,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Add sample fixture ([`6d71e0d`](https://github.com/GitoxideLabs/gitoxide/commit/6d71e0d291f2a3b11c635949712ec86cf57d7449))
     - Add new `gix-blame` crate ([`f5f616d`](https://github.com/GitoxideLabs/gitoxide/commit/f5f616d8345898effc79d587c139e249f1c85ab6))
 </details>
-
-## v0.1.0 (2023-02-17)
-
-<csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
-<csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
-
-### Chore
-
- - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
- - <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
-
-### Bug Fixes
-
- - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
-   This also means that the `git-*` prefixed crates of the `gitoxide` project
-   are effectively unmaintained.
-   Use the crates with the `gix-*` prefix instead.
-   
-   If you were using `git-repository`, then `gix` is its substitute.
-
-### New Features (BREAKING)
-
- - <csr-id-3d8fa8fef9800b1576beab8a5bc39b821157a5ed/> upgrade edition to 2021 in most crates.
-   MSRV for this is 1.56, and we are now at 1.60 so should be compatible.
-   This isn't more than a patch release as it should break nobody
-   who is adhering to the MSRV, but let's be careful and mark it
-   breaking.
-   
-   Note that `git-features` and `git-pack` are still on edition 2018
-   as they make use of a workaround to support (safe) mutable access
-   to non-overlapping entries in a slice which doesn't work anymore
-   in edition 2021.
-
-## v0.0.0 (2020-07-25)
 

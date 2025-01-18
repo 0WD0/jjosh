@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.28.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
 ### Chore
 
@@ -24,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 55 calendar days.
+ - 7 commits contributed to the release over the course of 55 calendar days.
  - 55 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -36,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1763 from GitoxideLabs/better-refspec-primitives ([`af8f201`](https://github.com/GitoxideLabs/gitoxide/commit/af8f2019723dd9ee3ac46a935910946fcc15e8bb))
     - Add reverse-mapping via `MatchGroup::match_rhs()`. ([`aa56128`](https://github.com/GitoxideLabs/gitoxide/commit/aa56128a79b43033b3a366e3783b2c11880e3384))
     - Refactor refspec tests ([`2658464`](https://github.com/GitoxideLabs/gitoxide/commit/2658464b8d209fd3a0797958dce57440d98a5ea7))

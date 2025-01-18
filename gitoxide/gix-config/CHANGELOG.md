@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.43.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
 ### Chore
 
@@ -17,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 55 calendar days.
+ - 4 commits contributed to the release over the course of 55 calendar days.
  - 55 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
     - Merge pull request #1701 from GitoxideLabs/release ([`e8b3b41`](https://github.com/GitoxideLabs/gitoxide/commit/e8b3b41dd79b8f4567670b1f89dd8867b6134e9e))
@@ -3600,6 +3603,24 @@ This is a maintenance release without functional changes.
   - `len`
   - `from_env`
   - `open`
+  - `len`
+  - `from_env`
+  - `open`
+  - `len`
+  - `from_env`
+  - `open`
+  - `len`
+  - `from_env`
+  - `open`
+- `len`
+- `from_env`
+- `open`
+- `len`
+- `from_env`
+- `open`
+- `len`
+- `from_env`
+- `open`
 - `len`
 - `from_env`
 - `open`
@@ -3777,6 +3798,9 @@ This is a maintenance release without functional changes.
 - `parse_from_path` now accepts a `AsRef<Path>` instead of a `&Path`.
 - `parse_from_path` now returns an `ParserOrIoError<'static>` instead, from
   `ParserFromIoError`
+
+<csr-unknown>
+lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown/>
 
 ## v0.1.1 (2021-05-09)
 

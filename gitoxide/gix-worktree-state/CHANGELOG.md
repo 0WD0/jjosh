@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.17.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
 ### Chore
 
@@ -55,24 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    arguments equivalently.
    
    - The first situation worked correctly because `open` automatically
-     respects the current process umask. (The system takes care of
-     this, as it is part of the semantics of creating a new file and
-     specifying desired permissions.) So 777 was really expressing the
-     idea of maximal permissions of those considered safe under the
-     current configuration, including executable permissions.
-   
-   - But the second situation did not work correctly, because `chmod`
+   respects the current process umask. (The system takes care of
+   this, as it is part of the semantics of creating a new file and
+   specifying desired permissions.) So 777 was really expressing the
+   idea of maximal permissions of those considered safe under the
+   current configuration, including executable permissions.
+- But the second situation did not work correctly, because `chmod`
      calls try to set the exact permissions specified (and usually
      succeed). Unlike `open`, with `chmod` there is no implicit use of
      the umask.
-   
-   Various fixes are possible. The fix implemented here hews to the
-   existing design as much as possible while avoiding setting any
-   write permissions (though existing write permissions are preserved)
-   and also avoiding setting executable permissions for whoever does
-   not have read permissions. We:
-   
-   1. Unset the setuid, setgid, and sticky bits, in the rare case that
+1. Unset the setuid, setgid, and sticky bits, in the rare case that
       any of them are set. Keeping them could be unsafe or have
       unexpected effects when set for a file that may conceptually
       hold different data or serve a different purpose (since this is
@@ -94,12 +88,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       file locking. If the setgid bit was set for this purpose, then
       the effect of setting the EGID and potentialy elevating the
       privileges of the user who runs it is surely not intended.
-   
-   2. Check which read bits (for owner, group, and other) are already
+2. Check which read bits (for owner, group, and other) are already
       set on the file. We do this only by looking at the mode. For
       example, ACLs do not participate.
-   
-   3. Set executable bits corresponding to the preexisting read bits.
+3. Set executable bits corresponding to the preexisting read bits.
       That is, for each of the owner, group, and others, if it can
       read (according to the file mode), set it to be able to execute
       as well.
@@ -111,36 +103,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       limits read and execute permissions differently. Also, the file
       may have had its permissions modified in some other way since
       creation.
-   
-   The idea here is to keep the idea behind the way it worked before,
-   but avoid adding any write permissions or giving permissions to
-   users who don't already have any. This fixes the bug where
-   executable files were sometimes checked out with unrestricted,
-   world-writable permissions. However, this is not necessarily the
-   approach that will be kept long-term.
-   
-   This does not attempt to avoid effects that are fundamental to the
-   reuse of an existing file (versus the creation of a new one). In
-   particular, this currently assumes that observing changes due to a
-   checkout through other hard links to a file (whose link count is
-   higher than 1) is an intended or otherwise acceptable effect of
-   using multiple hard links.
-   
-   Another aspect of the current approach that is preserved so far but
-   that may eventually change is that some operations are done through
-   an open file object while others are done using the path, and there
-   may be unusual situations, perhaps involving long-running process
-   smudge filters and separate concurrent modification of the working
-   tree, where they diverge. However, the specific scenario of path
-   coming to refer to something that is no longer a regular file will
-   be covered in a subsequent commit.
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 10 commits contributed to the release over the course of 26 calendar days.
- - 26 days passed between releases.
+ - 11 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -151,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1765 from EliahKagan/finalize-entry-next ([`8df5ba2`](https://github.com/GitoxideLabs/gitoxide/commit/8df5ba268b506e2d0a19899840a7e16fb6843a80))
     - Avoid another "unused import" warning on Windows ([`c956d1b`](https://github.com/GitoxideLabs/gitoxide/commit/c956d1b915a0f8778f89c0c3ed155f4ce4ab9792))
     - Merge pull request #1764 from EliahKagan/finalize-entry ([`12f672f`](https://github.com/GitoxideLabs/gitoxide/commit/12f672f20f622a8488356a12df2d773851a683d4))
@@ -162,6 +132,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
     - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
 </details>
+
+<csr-unknown>
+Various fixes are possible. The fix implemented here hews to theexisting design as much as possible while avoiding setting anywrite permissions (though existing write permissions are preserved)and also avoiding setting executable permissions for whoever doesnot have read permissions. We:The idea here is to keep the idea behind the way it worked before,but avoid adding any write permissions or giving permissions tousers who don’t already have any. This fixes the bug whereexecutable files were sometimes checked out with unrestricted,world-writable permissions. However, this is not necessarily theapproach that will be kept long-term.This does not attempt to avoid effects that are fundamental to thereuse of an existing file (versus the creation of a new one). Inparticular, this currently assumes that observing changes due to acheckout through other hard links to a file (whose link count ishigher than 1) is an intended or otherwise acceptable effect ofusing multiple hard links.Another aspect of the current approach that is preserved so far butthat may eventually change is that some operations are done throughan open file object while others are done using the path, and theremay be unusual situations, perhaps involving long-running processsmudge filters and separate concurrent modification of the workingtree, where they diverge. However, the specific scenario of pathcoming to refer to something that is no longer a regular file willbe covered in a subsequent commit.<csr-unknown/>
 
 ## 0.16.0 (2024-12-22)
 
