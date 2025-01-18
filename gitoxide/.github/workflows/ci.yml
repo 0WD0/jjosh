@@ -135,6 +135,7 @@ jobs:
           - windows-latest
           - macos-latest
           - ubuntu-latest
+          - ubuntu-24.04-arm
 
     runs-on: ${{ matrix.os }}
 
@@ -198,9 +199,22 @@ jobs:
             etc/test-fixtures-windows-expected-failures-see-issue-1358.txt actual-failures.txt
 
   test-32bit:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        container-arch: [ i386, arm32v7 ]
+        include:
+          - container-arch: i386
+            runner-arch: amd64
+            runner-os: ubuntu-latest
+            toolchain: stable-i686-unknown-linux-gnu
+          - container-arch: arm32v7
+            runner-arch: arm64
+            runner-os: ubuntu-24.04-arm
+            toolchain: stable-armv7-unknown-linux-gnueabihf
 
-    container: i386/debian:stable-slim
+    runs-on: ${{ matrix.runner-os }}
+
+    container: ${{ matrix.container-arch }}/debian:stable-slim
 
     steps:
       - name: Prerequisites
@@ -213,17 +227,18 @@ jobs:
             git
             jq
             libssl-dev
-            libstdc++6:amd64  # To support external 64-bit Node.js for actions.
+            libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
             pkgconf
           )
-          dpkg --add-architecture amd64
+          dpkg --add-architecture ${{ matrix.runner-arch }}
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable-i686-unknown-linux-gnu  # Otherwise it may misdetect based on the amd64 kernel.
+          # Avoid possible misdetection based on the 64-bit running kernel.
+          toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -234,34 +249,6 @@ jobs:
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
         run: cargo nextest run --workspace --no-fail-fast
-
-  test-32bit-cross:
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        target: [ armv7-linux-androideabi ]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-      - name: Install cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-      - name: check
-        run: cross check -p gix --target ${{ matrix.target }}
-      - name: Test (unit)
-        run: |
-          # Run some high-level unit tests that exercise various pure Rust code to ease building test binaries.
-          # We would prefer `-p gix`. But with `cross`, fixture scripts try to run amd64 `git` as an armv7 binary.
-          cross test -p gix-hashtable --target ${{ matrix.target }}
 
   lint:
     runs-on: ubuntu-latest
@@ -438,7 +425,6 @@ jobs:
       - test-journey
       - test-fast
       - test-32bit
-      - test-32bit-cross
       - lint
       - cargo-deny
       - check-packetline
