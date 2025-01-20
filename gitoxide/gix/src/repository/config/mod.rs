@@ -42,6 +42,12 @@ impl crate::Repository {
         &self.options
     }
 
+    /// Return the big-file threshold above which Git will not perform a diff anymore or try to delta-diff packs,
+    /// as configured by `core.bigFileThreshold`, or the default value.
+    pub fn big_file_threshold(&self) -> Result<u64, config::unsigned_integer::Error> {
+        self.config.big_file_threshold()
+    }
+
     /// Obtain options for use when connecting via `ssh`.
     #[cfg(feature = "blocking-network-client")]
     pub fn ssh_connect_options(
