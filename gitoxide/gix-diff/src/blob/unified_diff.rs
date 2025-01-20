@@ -1,5 +1,6 @@
-//! Originally based on https://github.com/pascalkuthe/imara-diff/pull/14.
+//! Facilities to produce the unified diff format.
 //!
+//! Originally based on <https://github.com/pascalkuthe/imara-diff/pull/14>.
 
 /// Defines the size of the context printed before and after each change.
 ///
@@ -25,21 +26,50 @@ impl ContextSize {
     }
 }
 
+/// A utility trait for use in [`UnifiedDiff`](super::UnifiedDiff).
+pub trait ConsumeHunk {
+    /// The item this instance produces after consuming all hunks.
+    type Out;
+
+    /// Consume a single `hunk` in unified diff format, that would be prefixed with `header`.
+    /// Note that all newlines are added.
+    ///
+    /// Note that the [`UnifiedDiff`](super::UnifiedDiff) sink will wrap its output in an [`std::io::Result`].
+    /// After this method returned its first error, it will not be called anymore.
+    ///
+    /// The following is hunk-related information and the same that is used in the `header`.
+    /// * `before_hunk_start` is the 1-based first line of this hunk in the old file.
+    /// * `before_hunk_len` the amount of lines of this hunk in the old file.
+    /// * `after_hunk_start` is the 1-based first line of this hunk in the new file.
+    /// * `after_hunk_len` the amount of lines of this hunk in the new file.
+    fn consume_hunk(
+        &mut self,
+        before_hunk_start: u32,
+        before_hunk_len: u32,
+        after_hunk_start: u32,
+        after_hunk_len: u32,
+        header: &str,
+        hunk: &[u8],
+    ) -> std::io::Result<()>;
+    /// Called after the last hunk is consumed to produce an output.
+    fn finish(self) -> Self::Out;
+}
+
 pub(super) mod _impl {
+    use super::{ConsumeHunk, ContextSize};
+    use bstr::{ByteSlice, ByteVec};
     use imara_diff::{intern, Sink};
-    use std::fmt::{Display, Write};
+    use intern::{InternedInput, Interner, Token};
     use std::hash::Hash;
+    use std::io::ErrorKind;
     use std::ops::Range;
 
-    use super::ContextSize;
-    use intern::{InternedInput, Interner, Token};
-
-    /// A [`Sink`] that creates a textual diff
-    /// in the format typically output by git or gnu-diff if the `-u` option is used
-    pub struct UnifiedDiff<'a, W, T>
+    /// A [`Sink`] that creates a textual diff in the format typically output by git or `gnu-diff` if the `-u` option is used,
+    /// and passes it in full to a consumer.
+    pub struct UnifiedDiff<'a, T, D>
     where
-        W: Write,
-        T: Hash + Eq + Display,
+        T: Hash + Eq + AsRef<[u8]>,
+        D: ConsumeHunk,
     {
         before: &'a [Token],
         after: &'a [Token],
@@ -53,85 +83,92 @@ pub(super) mod _impl {
         /// Symmetrical context before and after the changed hunk.
         ctx_size: u32,
 
-        buffer: String,
-        dst: W,
+        buffer: Vec<u8>,
+        header_buf: String,
+        delegate: D,
+        newline: &'a str,
+
+        err: Option<std::io::Error>,
     }
 
-    impl<'a, T> UnifiedDiff<'a, String, T>
+    impl<'a, T, D> UnifiedDiff<'a, T, D>
     where
-        T: Hash + Eq + Display,
+        T: Hash + Eq + AsRef<[u8]>,
+        D: ConsumeHunk,
     {
-        /// Create a new `UnifiedDiffBuilder` for the given `input`,
-        /// displaying `context_size` lines of context around each change,
-        /// that will return a [`String`].
-        pub fn new(input: &'a InternedInput<T>, context_size: ContextSize) -> Self {
+        /// Create a new instance to create unified diff using the lines in `input`,
+        /// which also must be used when running the diff algorithm.
+        /// `context_size` is the amount of lines around each hunk which will be passed
+        ///to `consume_hunk`.
+        ///
+        /// `consume_hunk` is called for each hunk in unified-diff format, as created from each line separated by `newline_separator`,
+        pub fn new(
+            input: &'a InternedInput<T>,
+            consume_hunk: D,
+            newline_separator: &'a str,
+            context_size: ContextSize,
+        ) -> Self {
             Self {
                 before_hunk_start: 0,
                 after_hunk_start: 0,
                 before_hunk_len: 0,
                 after_hunk_len: 0,
-                buffer: String::with_capacity(8),
-                dst: String::new(),
+                buffer: Vec::with_capacity(8),
+                header_buf: String::new(),
+                delegate: consume_hunk,
                 interner: &input.interner,
                 before: &input.before,
                 after: &input.after,
                 pos: 0,
                 ctx_size: context_size.symmetrical,
-            }
-        }
-    }
+                newline: newline_separator,
 
-    impl<'a, W, T> UnifiedDiff<'a, W, T>
-    where
-        W: Write,
-        T: Hash + Eq + Display,
-    {
-        /// Create a new `UnifiedDiffBuilder` for the given `input`,
-        /// displaying `context_size` lines of context around each change,
-        /// that will writes it output to the provided implementation of [`Write`].
-        pub fn with_writer(input: &'a InternedInput<T>, writer: W, context_size: Option<u32>) -> Self {
-            Self {
-                before_hunk_start: 0,
-                after_hunk_start: 0,
-                before_hunk_len: 0,
-                after_hunk_len: 0,
-                buffer: String::with_capacity(8),
-                dst: writer,
-                interner: &input.interner,
-                before: &input.before,
-                after: &input.after,
-                pos: 0,
-                ctx_size: context_size.unwrap_or(3),
+                err: None,
             }
         }
 
         fn print_tokens(&mut self, tokens: &[Token], prefix: char) {
             for &token in tokens {
-                writeln!(&mut self.buffer, "{prefix}{}", self.interner[token]).unwrap();
+                self.buffer.push_char(prefix);
+                self.buffer.push_str(&self.interner[token]);
+                self.buffer.push_str(self.newline.as_bytes());
             }
         }
 
-        fn flush(&mut self) {
+        fn flush(&mut self) -> std::io::Result<()> {
             if self.before_hunk_len == 0 && self.after_hunk_len == 0 {
-                return;
+                return Ok(());
             }
 
             let end = (self.pos + self.ctx_size).min(self.before.len() as u32);
             self.update_pos(end, end);
 
-            writeln!(
-                &mut self.dst,
-                "@@ -{},{} +{},{} @@",
+            self.header_buf.clear();
+
+            std::fmt::Write::write_fmt(
+                &mut self.header_buf,
+                format_args!(
+                    "@@ -{},{} +{},{} @@{nl}",
+                    self.before_hunk_start + 1,
+                    self.before_hunk_len,
+                    self.after_hunk_start + 1,
+                    self.after_hunk_len,
+                    nl = self.newline
+                ),
+            )
+            .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
+            self.delegate.consume_hunk(
                 self.before_hunk_start + 1,
                 self.before_hunk_len,
                 self.after_hunk_start + 1,
                 self.after_hunk_len,
-            )
-            .unwrap();
-            write!(&mut self.dst, "{}", &self.buffer).unwrap();
+                &self.header_buf,
+                &self.buffer,
+            )?;
             self.buffer.clear();
             self.before_hunk_len = 0;
-            self.after_hunk_len = 0
+            self.after_hunk_len = 0;
+            Ok(())
         }
 
         fn update_pos(&mut self, print_to: u32, move_to: u32) {
@@ -143,18 +180,24 @@ pub(super) mod _impl {
         }
     }
 
-    impl<W, T> Sink for UnifiedDiff<'_, W, T>
+    impl<T, D> Sink for UnifiedDiff<'_, T, D>
     where
-        W: Write,
-        T: Hash + Eq + Display,
+        T: Hash + Eq + AsRef<[u8]>,
+        D: ConsumeHunk,
     {
-        type Out = W;
+        type Out = std::io::Result<D::Out>;
 
         fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
+            if self.err.is_some() {
+                return;
+            }
             if ((self.pos == 0) && (before.start - self.pos > self.ctx_size))
                 || (before.start - self.pos > 2 * self.ctx_size)
             {
-                self.flush();
+                if let Err(err) = self.flush() {
+                    self.err = Some(err);
+                    return;
+                }
                 self.pos = before.start - self.ctx_size;
                 self.before_hunk_start = self.pos;
                 self.after_hunk_start = after.start - self.ctx_size;
@@ -167,8 +210,46 @@ pub(super) mod _impl {
         }
 
         fn finish(mut self) -> Self::Out {
-            self.flush();
-            self.dst
+            if let Err(err) = self.flush() {
+                self.err = Some(err);
+            }
+            if let Some(err) = self.err {
+                return Err(err);
+            }
+            Ok(self.delegate.finish())
+        }
+    }
+
+    /// An implementation that fails if the input isn't UTF-8.
+    impl ConsumeHunk for String {
+        type Out = Self;
+
+        fn consume_hunk(&mut self, _: u32, _: u32, _: u32, _: u32, header: &str, hunk: &[u8]) -> std::io::Result<()> {
+            self.push_str(header);
+            self.push_str(
+                hunk.to_str()
+                    .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?,
+            );
+            Ok(())
+        }
+
+        fn finish(self) -> Self::Out {
+            self
+        }
+    }
+
+    /// An implementation that writes hunks into a byte buffer.
+    impl ConsumeHunk for Vec<u8> {
+        type Out = Self;
+
+        fn consume_hunk(&mut self, _: u32, _: u32, _: u32, _: u32, header: &str, hunk: &[u8]) -> std::io::Result<()> {
+            self.push_str(header);
+            self.push_str(hunk);
+            Ok(())
+        }
+
+        fn finish(self) -> Self::Out {
+            self
         }
     }
 }

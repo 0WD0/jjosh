@@ -11,7 +11,6 @@ pub mod pipeline;
 ///
 pub mod platform;
 
-///
 pub mod unified_diff;
 pub use unified_diff::_impl::UnifiedDiff;
 
