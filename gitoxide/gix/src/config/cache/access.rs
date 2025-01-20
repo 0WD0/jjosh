@@ -162,7 +162,6 @@ impl Cache {
             .copied()
     }
 
-    #[cfg(feature = "blob-diff")]
     pub(crate) fn big_file_threshold(&self) -> Result<u64, config::unsigned_integer::Error> {
         Ok(self
             .resolved

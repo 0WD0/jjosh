@@ -192,3 +192,8 @@ EOF
   echo $'[remote "any"]\n\turl=anyurl' >>config
 
 )
+
+git init big-file-threshold
+(cd big-file-threshold
+  git config core.bigFileThreshold 42
+)

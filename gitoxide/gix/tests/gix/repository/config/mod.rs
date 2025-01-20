@@ -2,6 +2,20 @@ mod config_snapshot;
 mod identity;
 mod remote;
 
+#[test]
+fn big_file_threshold() -> crate::Result {
+    let repo = repo("with-hasconfig");
+    assert_eq!(
+        repo.big_file_threshold()?,
+        512 * 1024 * 1024,
+        "Git really handles huge files, and this is the default"
+    );
+
+    let repo = crate::repository::config::repo("big-file-threshold");
+    assert_eq!(repo.big_file_threshold()?, 42, "It picks up configured values as well");
+    Ok(())
+}
+
 #[cfg(feature = "blocking-network-client")]
 mod ssh_options {
     use std::ffi::OsStr;
@@ -38,12 +52,10 @@ mod ssh_options {
 #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
 mod transport_options;
 
-#[cfg(feature = "blocking-network-client")]
 pub fn repo(name: &str) -> gix::Repository {
     repo_opts(name, |opts| opts.strict_config(true))
 }
 
-#[cfg(feature = "blocking-network-client")]
 pub fn repo_opts(name: &str, modify: impl FnOnce(gix::open::Options) -> gix::open::Options) -> gix::Repository {
     let dir = gix_testtools::scripted_fixture_read_only("make_config_repos.sh").unwrap();
     gix::open_opts(dir.join(name), modify(gix::open::Options::isolated())).unwrap()
