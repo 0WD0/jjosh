@@ -289,7 +289,8 @@ pub(crate) fn finalize_entry(
         if let Some(new_perm) = set_mode_executable(old_perm) {
             // TODO: If we keep `fchmod`, maybe change `set_mode_executable` not to use `std::fs::Permissions`.
             use std::os::unix::fs::PermissionsExt;
-            let mode = rustix::fs::Mode::from_bits(new_perm.mode())
+            let raw_mode = new_perm.mode().try_into().expect("mode fits in `st_mode`");
+            let mode = rustix::fs::Mode::from_bits(raw_mode)
                 .expect("`set_mode_executable` shouldn't preserve or add unknown bits");
             rustix::fs::fchmod(&file, mode).map_err(std::io::Error::from)?;
         }
