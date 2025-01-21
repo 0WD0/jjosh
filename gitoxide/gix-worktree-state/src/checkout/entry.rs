@@ -287,7 +287,10 @@ pub(crate) fn finalize_entry(
     if let Some(path) = set_executable_after_creation {
         let old_perm = std::fs::symlink_metadata(path)?.permissions();
         if let Some(new_perm) = set_mode_executable(old_perm) {
-            std::fs::set_permissions(path, new_perm)?;
+            // TODO: If the `fchmod` approach is kept, `set_mode_executable` shouldn't operate on std::fs::Permissions.
+            use std::os::{fd::AsFd, unix::fs::PermissionsExt};
+            rustix::fs::fchmod(file.as_fd(), new_perm.mode().into())
+                .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))?;
         }
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
