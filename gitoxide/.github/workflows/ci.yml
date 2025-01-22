@@ -406,7 +406,6 @@ jobs:
       # List all jobs that are intended NOT to block PR auto-merge here.
       EXPECTED_NONBLOCKING_JOBS: |-
         test-fast-arm
-        test-fixtures-windows
         cargo-deny-advisories
         wasm
         tests-pass
@@ -443,6 +442,7 @@ jobs:
       - test
       - test-journey
       - test-fast
+      - test-fixtures-windows
       - test-32bit
       - lint
       - cargo-deny
