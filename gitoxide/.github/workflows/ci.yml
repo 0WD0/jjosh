@@ -135,7 +135,6 @@ jobs:
           - windows-latest
           - macos-latest
           - ubuntu-latest
-          - ubuntu-24.04-arm
 
     runs-on: ${{ matrix.os }}
 
@@ -149,6 +148,25 @@ jobs:
       - name: cargo check default features
         if: startsWith(matrix.os, 'windows')
         run: cargo check --workspace --bins --examples
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Test (nextest)
+        env:
+          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
+        run: cargo nextest run --workspace --no-fail-fast
+      - name: Doctest
+        run: cargo test --workspace --doc --no-fail-fast
+      - name: Check that tracked archives are up to date
+        run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
+
+  test-fast-arm:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
@@ -387,6 +405,7 @@ jobs:
     env:
       # List all jobs that are intended NOT to block PR auto-merge here.
       EXPECTED_NONBLOCKING_JOBS: |-
+        test-fast-arm
         test-fixtures-windows
         cargo-deny-advisories
         wasm
