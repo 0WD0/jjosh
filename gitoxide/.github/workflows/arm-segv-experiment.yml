@@ -7,9 +7,9 @@ jobs:
     strategy:
       matrix:
         os-ver: [ '22.04', '24.04' ]
-        channel: [ stable, beta, nightly ]
+        channel: [ stable, beta ]  # `gix-macros::macros momo::ux` currently fails on `nightly`.
         increase-stack: [ false, true ]
-        number: [ 0 ]  # FIXME: Increase, so results are meaningful.
+        number: [ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' ]
 
       fail-fast: false
 
