@@ -275,20 +275,21 @@ pub(crate) fn open_file(
     try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, set_executable_after_creation))
 }
 
-/// Close `file` and store its stats in `entry`, possibly setting `file` executable depending on `set_executable_after_creation`.
-#[cfg_attr(windows, allow(unused_variables))]
+/// Close `file` and store its stats in `entry`, possibly setting `file` executable depending on
+/// `set_executable_after_creation`.
 pub(crate) fn finalize_entry(
     entry: &mut gix_index::Entry,
     file: std::fs::File,
-    set_executable_after_creation: Option<&Path>,
+    #[cfg_attr(windows, allow(unused_variables))] set_executable_after_creation: Option<&Path>,
 ) -> Result<(), crate::checkout::Error> {
     // For possibly existing, overwritten files, we must change the file mode explicitly.
     #[cfg(unix)]
     if let Some(path) = set_executable_after_creation {
         let old_perm = std::fs::symlink_metadata(path)?.permissions();
         if let Some(new_perm) = set_mode_executable(old_perm) {
-            // TODO: If we keep `fchmod`, maybe change `set_mode_executable` not to use `std::fs::Permissions`.
+            // TODO: If we keep `fchmod`, maybe `set_mode_executable` shouldn't use `std::fs::Permissions`.
             use std::os::unix::fs::PermissionsExt;
+            #[allow(clippy::useless_conversion)] // mode_t is u32 on many but not all OSes. It's u16 on macOS.
             let raw_mode = new_perm.mode().try_into().expect("mode fits in `st_mode`");
             let mode = rustix::fs::Mode::from_bits(raw_mode)
                 .expect("`set_mode_executable` shouldn't preserve or add unknown bits");
