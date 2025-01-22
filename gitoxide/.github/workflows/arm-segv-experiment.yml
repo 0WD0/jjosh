@@ -1,0 +1,37 @@
+name: AArch64 SIGSEGV experiment
+
+on: push
+
+jobs:
+  test-fast:
+    strategy:
+      matrix:
+        os-ver: [ '22.04', '24.04' ]
+        channel: [ stable, beta, nightly ]
+        increase-stack: [ false, true ]
+        number: [ 0 ]  # FIXME: Increase, so results are meaningful.
+
+      fail-fast: false
+
+    runs-on: ubuntu-${{ matrix.os-ver }}-arm
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.channel }}
+      # - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Set RUST_MIN_STACK
+        if: matrix.increase-stack
+        run: echo RUST_MIN_STACK=16777216 >>"$GITHUB_ENV"
+      - name: Test (nextest)
+        env:
+          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
+        run: cargo nextest run --workspace --no-fail-fast
+      - name: Doctest
+        run: cargo test --workspace --doc --no-fail-fast
+      - name: Check that tracked archives are up to date
+        run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
