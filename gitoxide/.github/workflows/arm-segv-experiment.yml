@@ -6,12 +6,12 @@ jobs:
   test-fast:
     strategy:
       matrix:
-        num-high: [ 0 ]  # [ 0, 1, 2 ]
+        num-high: [ 0, 1, 2, 3 ]
         os-ver: [ '22.04', '24.04' ]
-        channel: [ stable, beta, nightly ]
+        channel: [ stable, beta ]  # `gix-macros::macros momo::ux` currently fails on `nightly`.
         get-rust-by: [ rt-action, curl-sh ]
         get-nextest-by: [ i-action, cargo-qi ]
-        num-low: [ 0 ]  # [ 0, 1, 2 ]
+        num-low: [ 0, 1, 2, 3 ]
 
       fail-fast: false
 
