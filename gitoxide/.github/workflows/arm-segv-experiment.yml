@@ -6,10 +6,10 @@ jobs:
   test-fast:
     strategy:
       matrix:
+        num-high: [ 0, 1, 2, 3, 4, 5, 6, 7 ]
         os-ver: [ '22.04', '24.04' ]
-        channel: [ stable, beta ]  # `gix-macros::macros momo::ux` currently fails on `nightly`.
-        increase-stack: [ false, true ]
-        number: [ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' ]
+        channel: [ stable, beta ]
+        num-low: [ 0, 1, 2, 3, 4, 5, 6, 7 ]
 
       fail-fast: false
 
@@ -24,9 +24,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      - name: Set RUST_MIN_STACK
-        if: matrix.increase-stack
-        run: echo RUST_MIN_STACK=16777216 >>"$GITHUB_ENV"
+      # - name: Set RUST_MIN_STACK
+      #   if: matrix.increase-stack
+      #   run: echo RUST_MIN_STACK=16777216 >>"$GITHUB_ENV"
       - name: Test (nextest)
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
