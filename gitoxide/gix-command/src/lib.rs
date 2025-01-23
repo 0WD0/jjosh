@@ -93,19 +93,33 @@ mod prepare {
 
     /// Builder
     impl Prepare {
-        /// If called, the command will not be executed directly, but with `sh`, but only if the
-        /// command passed to [`prepare`](super::prepare()) requires this.
+        /// If called, the command will be checked for characters that are typical for shell scripts, and if found will use `sh` to execute it
+        /// or whatever is set as [`with_shell_program()`](Self::with_shell_program()).
+        /// If the command isn't valid UTF-8, a shell will always be used.
         ///
-        /// This also allows to pass shell scripts as command, or use commands that contain arguments which are subsequently
-        /// parsed by `sh`.
-        pub fn with_shell(mut self) -> Self {
+        /// If a shell is used, then arguments given here with [arg()](Self::arg) or [args()](Self::args) will be substituted via `"$@"` if it's not
+        /// already present in the command.
+        ///
+        /// If this method is not called, commands are always executed verbatim, without the use of a shell.
+        pub fn command_may_be_shell_script(mut self) -> Self {
             self.use_shell = self.command.to_str().map_or(true, |cmd| {
                 cmd.as_bytes().find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some()
             });
             self
         }
 
-        /// Set the name or path to the shell `program` to use, to avoid using the default shell which is `sh`.
+        /// If called, unconditionally use a shell to execute the command and its arguments, and `sh` to execute it,
+        /// or whatever is set as [`with_shell_program()`](Self::with_shell_program()).
+        ///
+        /// If a shell is used, then arguments given here with [arg()](Self::arg) or [args()](Self::args) will be substituted via `"$@"` if it's not
+        /// already present in the command.
+        ///
+        /// If this method is not called, commands are always executed verbatim, without the use of a shell.
+        pub fn with_shell(mut self) -> Self {
+            self.use_shell = true;
+            self
+        }
+        /// Set the name or path to the shell `program` to use if a shell is to be used, to avoid using the default shell which is `sh`.
         pub fn with_shell_program(mut self, program: impl Into<OsString>) -> Self {
             self.shell_program = Some(program.into());
             self
@@ -113,7 +127,7 @@ mod prepare {
 
         /// Unconditionally turn off using the shell when spawning the command.
         /// Note that not using the shell is the default so an effective use of this method
-        /// is some time after [`with_shell()`][Prepare::with_shell()] was called.
+        /// is some time after [`command_may_be_shell_script()`](Prepare::command_may_be_shell_script()) was called.
         pub fn without_shell(mut self) -> Self {
             self.use_shell = false;
             self
@@ -128,18 +142,20 @@ mod prepare {
             self
         }
 
-        /// Use a shell, but try to split arguments by hand if this can be safely done without a shell.
+        /// Like [`command_may_be_shell_script()`](Prepare::command_may_be_shell_script()), but try to split arguments by hand if this can be safely done without a shell.
         ///
-        /// If that's not the case, use a shell instead.
-        pub fn with_shell_allow_manual_argument_splitting(mut self) -> Self {
+        /// This is useful on platforms where spawning processes is slow, or where many processes have to be spawned in a raw which should be sped up.
+        /// Manual argument splitting is enabled by default on Windows only.
+        pub fn command_may_be_shell_script_allow_manual_argument_splitting(mut self) -> Self {
             self.allow_manual_arg_splitting = true;
-            self.with_shell()
+            self.command_may_be_shell_script()
         }
 
-        /// Use a shell, but prohibit splitting arguments by hand even if this could be safely done without a shell.
-        pub fn with_shell_disallow_manual_argument_splitting(mut self) -> Self {
+        /// Like [`command_may_be_shell_script()`](Prepare::command_may_be_shell_script()), but don't allow to bypass the shell even if manual argument splitting
+        /// can be performed safely.
+        pub fn command_may_be_shell_script_disallow_manual_argument_splitting(mut self) -> Self {
             self.allow_manual_arg_splitting = false;
-            self.with_shell()
+            self.command_may_be_shell_script()
         }
 
         /// Configure the process to use `stdio` for _stdin.
