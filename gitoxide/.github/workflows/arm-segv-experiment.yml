@@ -6,10 +6,12 @@ jobs:
   test-fast:
     strategy:
       matrix:
-        num-high: [ 0, 1, 2, 3, 4, 5, 6, 7 ]
+        num-high: [ 0 ]  # [ 0, 1, 2 ]
         os-ver: [ '22.04', '24.04' ]
-        channel: [ stable, beta ]
-        num-low: [ 0, 1, 2, 3, 4, 5, 6, 7 ]
+        channel: [ stable, beta, nightly ]
+        get-rust-by: [ rt-action, curl-sh ]
+        get-nextest-by: [ i-action, cargo-qi ]
+        num-low: [ 0 ]  # [ 0, 1, 2 ]
 
       fail-fast: false
 
@@ -17,16 +19,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - if: matrix.get-rust-by == 'rt-action'
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.channel }}
+      - if: matrix.get-rust-by == 'curl-sh'
+        name: Install Rust via sh.rustup.rs
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+            sh -s -- -y --default-toolchain ${{ matrix.channel }}
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
       # - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - if: matrix.get-nextest-by == 'i-action'
+        uses: taiki-e/install-action@v2
         with:
           tool: nextest
-      # - name: Set RUST_MIN_STACK
-      #   if: matrix.increase-stack
-      #   run: echo RUST_MIN_STACK=16777216 >>"$GITHUB_ENV"
+      - if: matrix.get-nextest-by == 'cargo-qi'
+        name: Install nextest with quickinstall/binstall
+        run: |
+          cargo install cargo-quickinstall
+          cargo quickinstall cargo-binstall
+          cargo quickinstall cargo-nextest
       - name: Test (nextest)
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
