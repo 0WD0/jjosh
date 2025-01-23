@@ -29,7 +29,7 @@ impl ProgramKind {
         desired_version: Protocol,
         disallow_shell: bool,
     ) -> Result<gix_command::Prepare, ssh::invocation::Error> {
-        let mut prepare = gix_command::prepare(ssh_cmd).with_shell();
+        let mut prepare = gix_command::prepare(ssh_cmd).command_may_be_shell_script();
         if disallow_shell {
             prepare.use_shell = false;
         }

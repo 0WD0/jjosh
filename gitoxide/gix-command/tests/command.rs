@@ -246,7 +246,8 @@ mod prepare {
     #[test]
     fn multiple_arguments_in_one_line_with_auto_split() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("echo first second third").with_shell_allow_manual_argument_splitting(),
+            gix_command::prepare("echo first second third")
+                .command_may_be_shell_script_allow_manual_argument_splitting(),
         );
         assert_eq!(
             format!("{cmd:?}"),
@@ -267,7 +268,8 @@ mod prepare {
 
     #[test]
     fn single_and_multiple_arguments_as_part_of_command_with_shell() {
-        let cmd = std::process::Command::from(gix_command::prepare("ls first second third").with_shell());
+        let cmd =
+            std::process::Command::from(gix_command::prepare("ls first second third").command_may_be_shell_script());
         assert_eq!(
             format!("{cmd:?}"),
             if cfg!(windows) {
@@ -283,7 +285,7 @@ mod prepare {
     fn single_and_multiple_arguments_as_part_of_command_with_given_shell() {
         let cmd = std::process::Command::from(
             gix_command::prepare("ls first second third")
-                .with_shell()
+                .command_may_be_shell_script()
                 .with_shell_program("/somepath/to/bash"),
         );
         assert_eq!(
@@ -299,7 +301,11 @@ mod prepare {
 
     #[test]
     fn single_and_complex_arguments_as_part_of_command_with_shell() {
-        let cmd = std::process::Command::from(gix_command::prepare("ls --foo \"a b\"").arg("additional").with_shell());
+        let cmd = std::process::Command::from(
+            gix_command::prepare("ls --foo \"a b\"")
+                .arg("additional")
+                .command_may_be_shell_script(),
+        );
         assert_eq!(
             format!("{cmd:?}"),
             if cfg!(windows) {
@@ -314,7 +320,7 @@ mod prepare {
     #[test]
     fn single_and_complex_arguments_with_auto_split() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo=\"a b\"").with_shell_allow_manual_argument_splitting(),
+            gix_command::prepare("ls --foo=\"a b\"").command_may_be_shell_script_allow_manual_argument_splitting(),
         );
         assert_eq!(
             format!("{cmd:?}"),
@@ -326,15 +332,29 @@ mod prepare {
     #[test]
     fn single_and_complex_arguments_without_auto_split() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo=\"a b\"").with_shell_disallow_manual_argument_splitting(),
+            gix_command::prepare("ls --foo=\"a b\"").command_may_be_shell_script_disallow_manual_argument_splitting(),
         );
         assert_eq!(format!("{cmd:?}"), quoted(&[SH, "-c", r#"ls --foo=\"a b\""#, "--"]));
     }
 
     #[test]
+    fn single_and_simple_arguments_without_auto_split_with_shell() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("ls")
+                .arg("--foo=a b")
+                .command_may_be_shell_script_disallow_manual_argument_splitting()
+                .with_shell(),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            quoted(&[SH, "-c", "ls \\\"$@\\\"", "--", "--foo=a b"])
+        );
+    }
+
+    #[test]
     fn single_and_complex_arguments_will_not_auto_split_on_special_characters() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo=~/path").with_shell_allow_manual_argument_splitting(),
+            gix_command::prepare("ls --foo=~/path").command_may_be_shell_script_allow_manual_argument_splitting(),
         );
         assert_eq!(
             format!("{cmd:?}"),
@@ -345,7 +365,8 @@ mod prepare {
 
     #[test]
     fn tilde_path_and_multiple_arguments_as_part_of_command_with_shell() {
-        let cmd = std::process::Command::from(gix_command::prepare("~/bin/exe --foo \"a b\"").with_shell());
+        let cmd =
+            std::process::Command::from(gix_command::prepare("~/bin/exe --foo \"a b\"").command_may_be_shell_script());
         assert_eq!(
             format!("{cmd:?}"),
             format!(r#""{SH}" "-c" "~/bin/exe --foo \"a b\"" "--""#),
@@ -355,7 +376,11 @@ mod prepare {
 
     #[test]
     fn script_with_dollar_at() {
-        let cmd = std::process::Command::from(gix_command::prepare("echo \"$@\" >&2").with_shell().arg("store"));
+        let cmd = std::process::Command::from(
+            gix_command::prepare("echo \"$@\" >&2")
+                .command_may_be_shell_script()
+                .arg("store"),
+        );
         assert_eq!(
             format!("{cmd:?}"),
             format!(r#""{SH}" "-c" "echo \"$@\" >&2" "--" "store""#),
@@ -374,7 +399,7 @@ mod spawn {
         let out = gix_command::prepare("echo $FIRST $SECOND")
             .env("FIRST", "first")
             .env("SECOND", "second")
-            .with_shell()
+            .command_may_be_shell_script()
             .spawn()?
             .wait_with_output()?;
         assert_eq!(out.stdout.as_bstr(), "first second\n");
@@ -385,12 +410,15 @@ mod spawn {
     #[cfg(unix)]
     fn disallow_shell() -> crate::Result {
         let out = gix_command::prepare("PATH= echo hi")
-            .with_shell()
+            .command_may_be_shell_script()
             .spawn()?
             .wait_with_output()?;
         assert_eq!(out.stdout.as_bstr(), "hi\n");
 
-        let mut cmd: std::process::Command = gix_command::prepare("echo hi").with_shell().without_shell().into();
+        let mut cmd: std::process::Command = gix_command::prepare("echo hi")
+            .command_may_be_shell_script()
+            .without_shell()
+            .into();
         assert!(
             cmd.env_remove("PATH").spawn().is_err(),
             "no command named 'echo hi' exists"
@@ -400,9 +428,13 @@ mod spawn {
 
     #[test]
     fn script_with_dollar_at() -> crate::Result {
-        let out = std::process::Command::from(gix_command::prepare("echo \"$@\"").with_shell().arg("arg"))
-            .spawn()?
-            .wait_with_output()?;
+        let out = std::process::Command::from(
+            gix_command::prepare("echo \"$@\"")
+                .command_may_be_shell_script()
+                .arg("arg"),
+        )
+        .spawn()?
+        .wait_with_output()?;
         assert_eq!(
             out.stdout.to_str_lossy().trim(),
             "arg",
@@ -433,7 +465,7 @@ mod spawn {
         #[test]
         fn command_in_path_with_args() -> crate::Result {
             assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "dir.exe -a" })
-                .with_shell()
+                .command_may_be_shell_script()
                 .spawn()?
                 .wait()?
                 .success());
@@ -442,14 +474,18 @@ mod spawn {
 
         #[test]
         fn sh_shell_specific_script_code() -> crate::Result {
-            assert!(gix_command::prepare(":;:;:").with_shell().spawn()?.wait()?.success());
+            assert!(gix_command::prepare(":;:;:")
+                .command_may_be_shell_script()
+                .spawn()?
+                .wait()?
+                .success());
             Ok(())
         }
 
         #[test]
         fn sh_shell_specific_script_code_with_single_extra_arg() -> crate::Result {
             let out = gix_command::prepare("printf")
-                .with_shell()
+                .command_may_be_shell_script()
                 .arg("1")
                 .spawn()?
                 .wait_with_output()?;
@@ -461,7 +497,7 @@ mod spawn {
         #[test]
         fn sh_shell_specific_script_code_with_multiple_extra_args() -> crate::Result {
             let out = gix_command::prepare("printf")
-                .with_shell()
+                .command_may_be_shell_script()
                 .arg("%s")
                 .arg("arg")
                 .spawn()?

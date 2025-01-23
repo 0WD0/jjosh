@@ -82,14 +82,14 @@ impl Program {
                 args.insert_str(0, git_program.to_string_lossy().as_ref());
                 gix_command::prepare(gix_path::from_bstr(args.as_bstr()).into_owned())
                     .arg(action.as_arg(true))
-                    .with_shell_allow_manual_argument_splitting()
+                    .command_may_be_shell_script_allow_manual_argument_splitting()
                     .into()
             }
             Kind::ExternalShellScript(for_shell)
             | Kind::ExternalPath {
                 path_and_args: for_shell,
             } => gix_command::prepare(gix_path::from_bstr(for_shell.as_bstr()).as_ref())
-                .with_shell()
+                .command_may_be_shell_script()
                 .arg(action.as_arg(true))
                 .into(),
         };

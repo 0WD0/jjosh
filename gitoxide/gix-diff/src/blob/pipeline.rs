@@ -543,7 +543,7 @@ impl Driver {
         let cmd = gix_command::prepare(gix_path::from_bstr(command).into_owned())
             // TODO: Add support for an actual Context, validate it *can* match Git
             .with_context(Default::default())
-            .with_shell()
+            .command_may_be_shell_script()
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
