@@ -214,7 +214,7 @@ pub(super) mod inner {
                 Ok(merge::Command {
                     cmd: gix_command::prepare(gix_path::from_bstring(cmd))
                         .with_context(context)
-                        .with_shell()
+                        .command_may_be_shell_script()
                         .stdin(Stdio::null())
                         .stdout(Stdio::inherit())
                         .stderr(Stdio::inherit())

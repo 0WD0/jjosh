@@ -116,7 +116,7 @@ pub fn connect(
                 .stderr(Stdio::null())
                 .stdout(Stdio::null())
                 .stdin(Stdio::null())
-                .with_shell()
+                .command_may_be_shell_script()
                 .arg("-G")
                 .arg(match url.host_as_argument() {
                     Usable(host) => host,
