@@ -352,6 +352,44 @@ mod prepare {
     }
 
     #[test]
+    fn quoted_command_without_argument_splitting() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("ls")
+                .arg("--foo=a b")
+                .command_may_be_shell_script_disallow_manual_argument_splitting()
+                .with_shell()
+                .with_quoted_command(),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            quoted(&[SH, "-c", "\\'ls\\' \\\"$@\\\"", "--", "--foo=a b"]),
+            "looks strange thanks to debug printing, but is the right amount of quotes actually"
+        );
+    }
+
+    #[test]
+    fn quoted_windows_command_without_argument_splitting() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("C:\\Users\\O'Shaughnessy\\with space.exe")
+                .arg("--foo='a b'")
+                .command_may_be_shell_script_disallow_manual_argument_splitting()
+                .with_shell()
+                .with_quoted_command(),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            quoted(&[
+                SH,
+                "-c",
+                "\\'C:\\\\Users\\\\O\\'\\\\\\'\\'Shaughnessy\\\\with space.exe\\' \\\"$@\\\"",
+                "--",
+                "--foo=\\'a b\\'"
+            ]),
+            "again, a lot of extra backslashes, but it's correct outside of the debug formatting"
+        );
+    }
+
+    #[test]
     fn single_and_complex_arguments_will_not_auto_split_on_special_characters() {
         let cmd = std::process::Command::from(
             gix_command::prepare("ls --foo=~/path").command_may_be_shell_script_allow_manual_argument_splitting(),
@@ -386,6 +424,20 @@ mod prepare {
             format!(r#""{SH}" "-c" "echo \"$@\" >&2" "--" "store""#),
             "this is how credential helpers have to work as for some reason they don't get '$@' added in Git.\
             We deal with it by not doubling the '$@' argument, which seems more flexible."
+        );
+    }
+
+    #[test]
+    fn script_with_dollar_at_has_no_quoting() {
+        let cmd = std::process::Command::from(
+            gix_command::prepare("echo \"$@\" >&2")
+                .command_may_be_shell_script()
+                .with_quoted_command()
+                .arg("store"),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            format!(r#""{SH}" "-c" "echo \"$@\" >&2" "--" "store""#)
         );
     }
 }

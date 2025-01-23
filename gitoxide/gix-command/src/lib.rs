@@ -28,6 +28,9 @@ pub struct Prepare {
     pub env: Vec<(OsString, OsString)>,
     /// If `true`, we will use `shell_program` or `sh` to execute the `command`.
     pub use_shell: bool,
+    /// If `true`, `command` is assumed to be a command or path to the program to execute, and it will be shell-quoted
+    /// to assure it will be executed as is and without splitting across whitespace.
+    pub quote_command: bool,
     /// The name or path to the shell program to use instead of `sh`.
     pub shell_program: Option<OsString>,
     /// If `true` (default `true` on windows and `false` everywhere else)
@@ -119,6 +122,15 @@ mod prepare {
             self.use_shell = true;
             self
         }
+
+        /// If  [`with_shell()`](Self::with_shell()) is set, then quote the command to assure its path is left intact.
+        ///
+        /// Note that this should not be used if the command is a script - quoting is only the right choice if it's known to be a program path.
+        pub fn with_quoted_command(mut self) -> Self {
+            self.quote_command = true;
+            self
+        }
+
         /// Set the name or path to the shell `program` to use if a shell is to be used, to avoid using the default shell which is `sh`.
         pub fn with_shell_program(mut self, program: impl Into<OsString>) -> Self {
             self.shell_program = Some(program.into());
@@ -236,6 +248,11 @@ mod prepare {
                         cmd.arg("-c");
                         if !prep.args.is_empty() {
                             if prep.command.to_str().map_or(true, |cmd| !cmd.contains("$@")) {
+                                if prep.quote_command {
+                                    if let Ok(command) = gix_path::os_str_into_bstr(&prep.command) {
+                                        prep.command = gix_path::from_bstring(gix_quote::single(command)).into();
+                                    }
+                                }
                                 prep.command.push(" \"$@\"");
                             } else {
                                 gix_trace::debug!(
@@ -458,6 +475,7 @@ pub fn prepare(cmd: impl Into<OsString>) -> Prepare {
         args: Vec::new(),
         env: Vec::new(),
         use_shell: false,
+        quote_command: false,
         allow_manual_arg_splitting: cfg!(windows),
     }
 }

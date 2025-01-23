@@ -1576,6 +1576,7 @@ version = "0.4.1"
 dependencies = [
  "bstr",
  "gix-path 0.10.14",
+ "gix-quote 0.4.15",
  "gix-testtools",
  "gix-trace 0.1.12",
  "shell-words",
