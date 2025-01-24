@@ -285,14 +285,23 @@ pub(crate) fn finalize_entry(
     // For possibly existing, overwritten files, we must change the file mode explicitly.
     #[cfg(unix)]
     if let Some(path) = set_executable_after_creation {
-        let old_raw_mode = rustix::fs::fstat(&file).map_err(std::io::Error::from)?.st_mode;
-        let new_mode = let_readers_execute(old_raw_mode);
-        rustix::fs::fchmod(&file, new_mode).map_err(std::io::Error::from)?;
+        set_executable(&file)?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
     //       revisit this once there is a bug to fix.
     entry.stat = Stat::from_fs(&gix_index::fs::Metadata::from_file(&file)?)?;
     file.close()?;
+    Ok(())
+}
+
+/// Use `fstat` and `fchmod` on a file descriptor to make a regular file executable.
+///
+/// See `let_readers_execute` for the exact details of how the mode is transformed.
+#[cfg(unix)]
+fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
+    let old_raw_mode = rustix::fs::fstat(&file)?.st_mode;
+    let new_mode = let_readers_execute(old_raw_mode);
+    rustix::fs::fchmod(&file, new_mode)?;
     Ok(())
 }
 
