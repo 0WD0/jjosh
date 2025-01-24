@@ -135,7 +135,7 @@ where
             };
 
             // For possibly existing, overwritten files, we must change the file mode explicitly.
-            finalize_entry(entry, file, set_executable_after_creation.then_some(dest))?;
+            finalize_entry(entry, file, set_executable_after_creation)?;
             num_bytes
         }
         gix_index::entry::Mode::SYMLINK => {
@@ -275,16 +275,15 @@ pub(crate) fn open_file(
     try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, set_executable_after_creation))
 }
 
-/// Close `file` and store its stats in `entry`, possibly setting `file` executable depending on
-/// `set_executable_after_creation`.
+/// Close `file` and store its stats in `entry`, possibly setting `file` executable.
 pub(crate) fn finalize_entry(
     entry: &mut gix_index::Entry,
     file: std::fs::File,
-    #[cfg_attr(windows, allow(unused_variables))] set_executable_after_creation: Option<&Path>,
+    #[cfg_attr(windows, allow(unused_variables))] set_executable_after_creation: bool,
 ) -> Result<(), crate::checkout::Error> {
     // For possibly existing, overwritten files, we must change the file mode explicitly.
     #[cfg(unix)]
-    if let Some(path) = set_executable_after_creation {
+    if set_executable_after_creation {
         set_executable(&file)?;
     }
     // NOTE: we don't call `file.sync_all()` here knowing that some filesystems don't handle this well.
