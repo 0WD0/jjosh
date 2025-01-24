@@ -298,9 +298,9 @@ pub(crate) fn finalize_entry(
 /// See `let_readers_execute` for the exact details of how the mode is transformed.
 #[cfg(unix)]
 fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
-    let old_raw_mode = rustix::fs::fstat(&file)?.st_mode;
+    let old_raw_mode = rustix::fs::fstat(file)?.st_mode;
     let new_mode = let_readers_execute(old_raw_mode);
-    rustix::fs::fchmod(&file, new_mode)?;
+    rustix::fs::fchmod(file, new_mode)?;
     Ok(())
 }
 
