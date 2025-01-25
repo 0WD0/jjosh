@@ -507,7 +507,7 @@ mod spawn {
     #[cfg(unix)]
     #[test]
     fn direct_command_with_absolute_command_path() -> crate::Result {
-        assert!(gix_command::prepare("/bin/ls").spawn()?.wait()?.success());
+        assert!(gix_command::prepare("/usr/bin/env").spawn()?.wait()?.success());
         Ok(())
     }
 
