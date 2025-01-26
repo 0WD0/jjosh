@@ -138,3 +138,11 @@ fn thread_safe_repository_is_sync() -> crate::Result {
     f(crate::util::basic_repo()?.into_sync());
     Ok(())
 }
+
+#[test]
+#[cfg(feature = "parallel")]
+fn repository_is_send() -> crate::Result {
+    fn f<T: Send + Clone>(_t: T) {}
+    f(crate::util::basic_repo()?);
+    Ok(())
+}
