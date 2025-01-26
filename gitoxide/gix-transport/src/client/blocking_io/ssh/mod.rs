@@ -111,8 +111,8 @@ pub fn connect(
     let ssh_cmd = options.ssh_command();
     let mut kind = options.kind.unwrap_or_else(|| ProgramKind::from(ssh_cmd));
     if options.kind.is_none() && kind == ProgramKind::Simple {
-        let mut cmd = std::process::Command::from(
-            gix_command::prepare(ssh_cmd)
+        let mut cmd = std::process::Command::from({
+            let mut prepare = gix_command::prepare(ssh_cmd)
                 .stderr(Stdio::null())
                 .stdout(Stdio::null())
                 .stdin(Stdio::null())
@@ -122,8 +122,12 @@ pub fn connect(
                     Usable(host) => host,
                     Dangerous(host) => Err(Error::AmbiguousHostName { host: host.into() })?,
                     Absent => panic!("BUG: host should always be present in SSH URLs"),
-                }),
-        );
+                });
+            if options.disallow_shell {
+                prepare.use_shell = false;
+            }
+            prepare
+        });
         gix_features::trace::debug!(cmd = ?cmd, "invoking `ssh` for feature check");
         kind = if cmd.status().ok().is_some_and(|status| status.success()) {
             ProgramKind::Ssh
