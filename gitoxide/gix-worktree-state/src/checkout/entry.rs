@@ -311,7 +311,7 @@ fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
 /// Set-user-ID and set-group-ID bits are unset for safety. The sticky bit is also unset.
 ///
 /// This returns only mode bits, not file type. The return value can be used in chmod or fchmod.
-#[cfg(unix)]
+#[cfg(any(unix, test))]
 fn let_readers_execute(mut mode: u32) -> u32 {
     assert_eq!(mode & 0o170000, 0o100000, "bug in caller if not from a regular file");
     mode &= 0o777; // Clear type, non-rwx mode bits (setuid, setgid, sticky).
@@ -319,7 +319,7 @@ fn let_readers_execute(mut mode: u32) -> u32 {
     mode
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     #[test]
     fn let_readers_execute() {
