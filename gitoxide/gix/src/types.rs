@@ -150,7 +150,9 @@ pub struct Reference<'r> {
 /// and explicitly. This is to have the fastest-possible default configuration available by default, but allow
 /// those who experiment with workloads to get speed boosts of 2x or more.
 ///
-/// Note: when built with `default-features = false`, this type is **not** `Send`.
+/// ### `Send` only with `parallel` feature
+///
+/// When built with `default-features = false`, this type is **not** `Send`.
 /// The minimal feature set to activate `Send` is `features = ["parallel"]`.
 pub struct Repository {
     /// A ref store with shared ownership (or the equivalent of it).
@@ -186,8 +188,10 @@ pub struct Repository {
 ///
 /// Note that it can also cheaply be cloned, and it will retain references to all contained resources.
 ///
-/// Note: when built with `default-features = false`, this type is **not** `Send` or `Sync`.
-/// The minimal feature set to activate `Send + Sync` is `features = ["parallel"]`.
+/// ### `Send` only with `parallel` feature
+///
+/// When built with `default-features = false`, this type is **not** `Send`.
+/// The minimal feature set to activate `Send` is `features = ["parallel"]`.
 #[derive(Clone)]
 pub struct ThreadSafeRepository {
     /// A store for references to point at objects
