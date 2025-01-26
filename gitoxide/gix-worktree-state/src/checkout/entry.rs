@@ -298,9 +298,10 @@ pub(crate) fn finalize_entry(
 /// See `let_readers_execute` for the exact details of how the mode is transformed.
 #[cfg(unix)]
 fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
-    let old_raw_mode = rustix::fs::fstat(file)?.st_mode;
-    let new_mode = let_readers_execute(old_raw_mode);
-    rustix::fs::fchmod(file, new_mode)?;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let old_mode = file.metadata()?.mode();
+    let new_mode = let_readers_execute(old_mode);
+    file.set_permissions(std::fs::Permissions::from_mode(new_mode))?;
     Ok(())
 }
 
@@ -309,17 +310,13 @@ fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
 /// Currently this adds executable bits for whoever has read bits already. It doesn't use the umask.
 /// Set-user-ID and set-group-ID bits are unset for safety. The sticky bit is also unset.
 ///
-/// This returns only mode bits, not file type. The return value can be passed to chmod or fchmod.
+/// This returns only mode bits, not file type. The return value can be used in chmod or fchmod.
 #[cfg(unix)]
-fn let_readers_execute(mut raw_mode: rustix::fs::RawMode) -> rustix::fs::Mode {
-    assert_eq!(
-        raw_mode & 0o170000,
-        0o100000,
-        "bug in caller if not from a regular file"
-    );
-    raw_mode &= 0o777; // Clear type, non-rwx mode bits (setuid, setgid, sticky).
-    raw_mode |= (raw_mode & 0o444) >> 2; // Let readers also execute.
-    rustix::fs::Mode::from_bits(raw_mode).expect("all bits recognized")
+fn let_readers_execute(mut mode: u32) -> u32 {
+    assert_eq!(mode & 0o170000, 0o100000, "bug in caller if not from a regular file");
+    mode &= 0o777; // Clear type, non-rwx mode bits (setuid, setgid, sticky).
+    mode |= (mode & 0o444) >> 2; // Let readers also execute.
+    mode
 }
 
 #[cfg(all(test, unix))]
@@ -372,8 +369,7 @@ mod tests {
             (0o106400, 0o500),
             (0o102462, 0o572),
         ];
-        for (st_mode, raw_expected) in cases {
-            let expected = rustix::fs::Mode::from_bits(raw_expected).expect("expected mode is a mode");
+        for (st_mode, expected) in cases {
             let actual = super::let_readers_execute(st_mode);
             assert_eq!(
                 actual, expected,
