@@ -128,6 +128,7 @@ pub fn connect(
     ))
 }
 
+#[allow(clippy::result_large_err)]
 fn determine_client_kind(
     known_kind: Option<ProgramKind>,
     ssh_cmd: &OsStr,
@@ -147,6 +148,7 @@ fn determine_client_kind(
     Ok(kind)
 }
 
+#[allow(clippy::result_large_err)]
 fn build_client_feature_check_command(ssh_cmd: &OsStr, url: &Url, disallow_shell: bool) -> Result<Command, Error> {
     let mut prepare = gix_command::prepare(ssh_cmd)
         .stderr(Stdio::null())
