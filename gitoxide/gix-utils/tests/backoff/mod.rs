@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use gix_utils::backoff::Exponential;
+use gix_utils::backoff::Quadratic;
 
 const EXPECTED_TILL_SECOND: &[usize] = &[
     1usize, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225, 256, 289, 324, 361, 400, 441, 484, 529, 576,
@@ -8,9 +8,9 @@ const EXPECTED_TILL_SECOND: &[usize] = &[
 ];
 
 #[test]
-fn random_exponential_produces_values_in_the_correct_range() {
+fn random_quadratic_produces_values_in_the_correct_range() {
     let mut num_identities = 0;
-    for (actual, expected) in Exponential::default_with_random().zip(EXPECTED_TILL_SECOND) {
+    for (actual, expected) in Quadratic::default_with_random().zip(EXPECTED_TILL_SECOND) {
         let actual: usize = actual.as_millis().try_into().unwrap();
         if actual == *expected {
             num_identities += 1;
@@ -33,9 +33,9 @@ fn random_exponential_produces_values_in_the_correct_range() {
 #[test]
 fn how_many_iterations_for_a_second_of_waittime() {
     let max = Duration::from_millis(1000);
-    assert_eq!(Exponential::default().until_no_remaining(max).count(), 14);
+    assert_eq!(Quadratic::default().until_no_remaining(max).count(), 14);
     assert_eq!(
-        Exponential::default()
+        Quadratic::default()
             .until_no_remaining(max)
             .reduce(|acc, n| acc + n)
             .unwrap(),
@@ -47,7 +47,7 @@ fn how_many_iterations_for_a_second_of_waittime() {
 #[test]
 fn output_with_default_settings() {
     assert_eq!(
-        Exponential::default().take(33).collect::<Vec<_>>(),
+        Quadratic::default().take(33).collect::<Vec<_>>(),
         EXPECTED_TILL_SECOND
             .iter()
             .map(|n| Duration::from_millis(*n as u64))
