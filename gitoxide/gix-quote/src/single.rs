@@ -2,8 +2,8 @@ use bstr::{BStr, BString, ByteSlice, ByteVec};
 
 /// Transforms the given `value` to be suitable for use as an argument for Bourne shells by wrapping it into single quotes.
 ///
-/// Every single-quote `'` is escaped with `\'`, every exclamation mark `!` is escaped with `\!`, and the entire string is enclosed
-/// in single quotes.
+/// Every single-quote `'` is escaped as `'\''`, every exclamation mark `!` is escaped as `'\!'`,
+/// and the entire string is enclosed in single quotes.
 pub fn single(mut value: &BStr) -> BString {
     let mut quoted = BString::new(b"'".to_vec());
 
