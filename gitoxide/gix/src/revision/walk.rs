@@ -155,7 +155,7 @@ pub struct Platform<'repo> {
     /// The owning repository.
     pub repo: &'repo Repository,
     pub(crate) tips: Vec<ObjectId>,
-    pub(crate) prune: Vec<ObjectId>,
+    pub(crate) boundary: Vec<ObjectId>,
     pub(crate) sorting: Sorting,
     pub(crate) parents: gix_traverse::commit::Parents,
     pub(crate) use_commit_graph: Option<bool>,
@@ -171,7 +171,7 @@ impl<'repo> Platform<'repo> {
             parents: Default::default(),
             use_commit_graph: None,
             commit_graph: None,
-            prune: Vec::new(),
+            boundary: Vec::new(),
         }
     }
 }
@@ -210,15 +210,16 @@ impl Platform<'_> {
         self
     }
 
-    /// Prune the commit with the given `ids` such that they won't be returned, and such that none of their ancestors is returned either.
+    /// Don't cross the given `ids` during traversal.
     ///
-    /// Note that this forces the [sorting](Self::sorting) to
-    /// [`ByCommitTimeCutoff`](Sorting::ByCommitTimeCutoff) configured with
-    /// the oldest available commit time, ensuring that no commits older than the oldest of `ids` will be returned either.
-    ///
+    /// Note that this forces the [sorting](Self::sorting()) to [`ByCommitTimeCutoff`](Sorting::ByCommitTimeCutoff)
+    /// configured with the oldest available commit time, ensuring that no commits older than the oldest of `ids` will be returned either.
     /// Also note that commits that can't be accessed or are missing are simply ignored for the purpose of obtaining the cutoff date.
-    #[doc(alias = "hide", alias = "git2")]
-    pub fn with_pruned(mut self, ids: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
+    ///
+    /// A boundary is distinctly different from exclusive refsepcs `^branch-to-not-list` in Git log.
+    ///
+    /// If this is not desired, [set the sorting](Self::sorting()) to something else right after this call.
+    pub fn with_boundary(mut self, ids: impl IntoIterator<Item = impl Into<ObjectId>>) -> Self {
         let (mut cutoff, order) = match self.sorting {
             Sorting::ByCommitTimeCutoff { seconds, order } => (Some(seconds), order),
             Sorting::ByCommitTime(order) => (None, order),
@@ -226,13 +227,13 @@ impl Platform<'_> {
         };
         for id in ids.into_iter() {
             let id = id.into();
-            if !self.prune.contains(&id) {
+            if !self.boundary.contains(&id) {
                 if let Some(time) = self.repo.find_commit(id).ok().and_then(|c| c.time().ok()) {
                     if cutoff.is_none() || cutoff > Some(time.seconds) {
                         cutoff = time.seconds.into();
                     }
                 }
-                self.prune.push(id);
+                self.boundary.push(id);
             }
         }
 
@@ -260,9 +261,9 @@ impl<'repo> Platform<'repo> {
             parents,
             use_commit_graph,
             commit_graph,
-            mut prune,
+            mut boundary,
         } = self;
-        prune.sort();
+        boundary.sort();
         Ok(revision::Walk {
             repo,
             inner: Box::new(
@@ -277,7 +278,7 @@ impl<'repo> Platform<'repo> {
                             return false;
                         }
                         let id = id.to_owned();
-                        if prune.binary_search(&id).is_ok() {
+                        if boundary.binary_search(&id).is_ok() {
                             return false;
                         }
                         match shallow_commits.as_ref() {
