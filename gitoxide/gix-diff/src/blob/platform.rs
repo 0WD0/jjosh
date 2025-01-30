@@ -110,10 +110,24 @@ pub mod resource {
             }
         }
 
-        /// Produce an iterator over lines, separated by LF or CRLF, suitable to create tokens using
-        /// [`imara_diff::intern::InternedInput`].
+        /// Produce an iterator over lines, separated by LF or CRLF and thus keeping newlines.
+        ///
+        /// Note that this will cause unusual diffs if a file didn't end in newline but lines were added
+        /// on the other side.
+        ///
+        /// Suitable to create tokens using [`imara_diff::intern::InternedInput`].
         pub fn intern_source(&self) -> imara_diff::sources::ByteLines<'a, true> {
             crate::blob::sources::byte_lines_with_terminator(self.data.as_slice().unwrap_or_default())
+        }
+
+        /// Produce an iterator over lines, but remove LF or CRLF.
+        ///
+        /// This produces the expected diffs when lines were added at the end of a file that didn't end
+        /// with a newline before the change.
+        ///
+        /// Suitable to create tokens using [`imara_diff::intern::InternedInput`].
+        pub fn intern_source_strip_newline_separators(&self) -> imara_diff::sources::ByteLines<'a, false> {
+            crate::blob::sources::byte_lines(self.data.as_slice().unwrap_or_default())
         }
     }
 
@@ -228,8 +242,15 @@ pub mod prepare_diff {
 
     impl<'a> Outcome<'a> {
         /// Produce an instance of an interner which `git` would use to perform diffs.
+        ///
+        /// Note that newline separators will be removed to improve diff quality
+        /// at the end of files that didn't have a newline, but had lines added
+        /// past the end.
         pub fn interned_input(&self) -> imara_diff::intern::InternedInput<&'a [u8]> {
-            crate::blob::intern::InternedInput::new(self.old.intern_source(), self.new.intern_source())
+            crate::blob::intern::InternedInput::new(
+                self.old.intern_source_strip_newline_separators(),
+                self.new.intern_source_strip_newline_separators(),
+            )
         }
     }
 
