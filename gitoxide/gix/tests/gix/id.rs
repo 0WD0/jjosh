@@ -140,7 +140,7 @@ mod ancestors {
         for use_commit_graph in [false, true] {
             let commits_graph_order = head
                 .ancestors()
-                .with_pruned(Some(hex_to_id("bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac")))
+                .with_boundary(Some(hex_to_id("bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac")))
                 .use_commit_graph(use_commit_graph)
                 .all()?
                 .map(|c| c.map(|c| c.id))
