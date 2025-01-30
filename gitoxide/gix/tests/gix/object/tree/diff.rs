@@ -59,10 +59,17 @@ fn changes_against_tree_modified() -> crate::Result {
             diff.lines(|hunk| {
                 match hunk {
                     lines::Change::Deletion { .. } => unreachable!("there was no deletion"),
-                    lines::Change::Addition { lines } => assert_eq!(
-                        lines,
-                        vec![expected_data[expected_previous_data.len()..].as_bytes().as_bstr()]
-                    ),
+                    lines::Change::Addition { lines } => {
+                        assert_eq!(lines.len(), 1);
+                        assert_eq!(
+                            lines[0],
+                            expected_data[expected_previous_data.len()..]
+                                .as_bytes()
+                                .as_bstr()
+                                .trim(),
+                            "diffed lines don't have newlines anymore"
+                        );
+                    }
                     lines::Change::Modification { .. } => unreachable!("there was no modification"),
                 };
                 Ok::<_, Infallible>(())
