@@ -26,6 +26,19 @@ impl ContextSize {
     }
 }
 
+/// Specify where to put a newline.
+#[derive(Debug, Copy, Clone)]
+pub enum NewlineSeparator<'a> {
+    /// Place the given newline separator, like `\n`, after each patch header as well as after each line.
+    /// This is the right choice if tokens don't include newlines.
+    AfterHeaderAndLine(&'a str),
+    /// Place the given newline separator, like `\n`, only after each patch header or if a line doesn't contain a newline.
+    /// This is the right choice if tokens do include newlines.
+    /// Note that diff-tokens *with* newlines may diff strangely at the end of files when lines have been appended,
+    /// as it will make the last line look like it changed just because the whitespace at the end 'changed'.
+    AfterHeaderAndWhenNeeded(&'a str),
+}
+
 /// A utility trait for use in [`UnifiedDiff`](super::UnifiedDiff).
 pub trait ConsumeHunk {
     /// The item this instance produces after consuming all hunks.
@@ -56,7 +69,7 @@ pub trait ConsumeHunk {
 }
 
 pub(super) mod _impl {
-    use super::{ConsumeHunk, ContextSize};
+    use super::{ConsumeHunk, ContextSize, NewlineSeparator};
     use bstr::{ByteSlice, ByteVec};
     use imara_diff::{intern, Sink};
     use intern::{InternedInput, Interner, Token};
@@ -86,7 +99,7 @@ pub(super) mod _impl {
         buffer: Vec<u8>,
         header_buf: String,
         delegate: D,
-        newline: &'a str,
+        newline: NewlineSeparator<'a>,
 
         err: Option<std::io::Error>,
     }
@@ -101,11 +114,11 @@ pub(super) mod _impl {
         /// `context_size` is the amount of lines around each hunk which will be passed
         ///to `consume_hunk`.
         ///
-        /// `consume_hunk` is called for each hunk in unified-diff format, as created from each line separated by `newline_separator`,
+        /// `consume_hunk` is called for each hunk in unified-diff format, as created from each line separated by `newline_separator`.
         pub fn new(
             input: &'a InternedInput<T>,
             consume_hunk: D,
-            newline_separator: &'a str,
+            newline_separator: NewlineSeparator<'a>,
             context_size: ContextSize,
         ) -> Self {
             Self {
@@ -130,8 +143,18 @@ pub(super) mod _impl {
         fn print_tokens(&mut self, tokens: &[Token], prefix: char) {
             for &token in tokens {
                 self.buffer.push_char(prefix);
-                self.buffer.push_str(&self.interner[token]);
-                self.buffer.push_str(self.newline.as_bytes());
+                let line = &self.interner[token];
+                self.buffer.push_str(line);
+                match self.newline {
+                    NewlineSeparator::AfterHeaderAndLine(nl) => {
+                        self.buffer.push_str(nl);
+                    }
+                    NewlineSeparator::AfterHeaderAndWhenNeeded(nl) => {
+                        if !line.as_ref().ends_with_str(nl) {
+                            self.buffer.push_str(nl);
+                        }
+                    }
+                }
             }
         }
 
@@ -153,7 +176,11 @@ pub(super) mod _impl {
                     self.before_hunk_len,
                     self.after_hunk_start + 1,
                     self.after_hunk_len,
-                    nl = self.newline
+                    nl = match self.newline {
+                        NewlineSeparator::AfterHeaderAndLine(nl) | NewlineSeparator::AfterHeaderAndWhenNeeded(nl) => {
+                            nl
+                        }
+                    }
                 ),
             )
             .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
