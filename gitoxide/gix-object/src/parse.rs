@@ -41,14 +41,14 @@ pub(crate) fn any_header_field_multi_line<'a, E: ParserError<&'a [u8]> + AddCont
 pub(crate) fn header_field<'a, T, E: ParserError<&'a [u8]>>(
     i: &mut &'a [u8],
     name: &'static [u8],
-    parse_value: impl Parser<&'a [u8], T, E>,
+    parse_value: impl ModalParser<&'a [u8], T, E>,
 ) -> ModalResult<T, E> {
     terminated(preceded(terminated(name, SPACE), parse_value), NL).parse_next(i)
 }
 
 pub(crate) fn any_header_field<'a, T, E: ParserError<&'a [u8]>>(
     i: &mut &'a [u8],
-    parse_value: impl Parser<&'a [u8], T, E>,
+    parse_value: impl ModalParser<&'a [u8], T, E>,
 ) -> ModalResult<(&'a [u8], T), E> {
     terminated((terminated(take_till(1.., SPACE_OR_NL), SPACE), parse_value), NL).parse_next(i)
 }
