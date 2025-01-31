@@ -5,7 +5,6 @@ use winnow::{
     combinator::{alt, eof, opt, preceded, repeat, terminated},
     error::{AddContext, ParserError, StrContext},
     prelude::*,
-    stream::Stream as _,
     token::{rest, take_till},
 };
 

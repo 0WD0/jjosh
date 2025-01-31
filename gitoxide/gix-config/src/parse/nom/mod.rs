@@ -3,9 +3,9 @@ use std::borrow::Cow;
 use bstr::{BStr, ByteSlice};
 use winnow::{
     combinator::{alt, delimited, opt, preceded, repeat},
-    error::{InputError as NomError, ParserError as _},
+    error::{ErrMode, InputError as NomError, ParserError as _},
     prelude::*,
-    stream::{Offset as _, Stream as _},
+    stream::Offset as _,
     token::{one_of, take_till, take_while},
 };
 
@@ -133,7 +133,10 @@ fn section_header<'i>(i: &mut &'i [u8]) -> ModalResult<section::Header<'i>, NomE
     // No spaces must be between section name and section start
     let name = preceded('[', take_while(1.., is_section_char).map(bstr::ByteSlice::as_bstr)).parse_next(i)?;
 
-    if opt(one_of::<_, _, NomError<&[u8]>>(']')).parse_next(i)?.is_some() {
+    if opt(one_of::<_, _, ErrMode<NomError<&[u8]>>>(']'))
+        .parse_next(i)?
+        .is_some()
+    {
         // Either section does not have a subsection or using deprecated
         // subsection syntax at this point.
         let header = match memchr::memrchr(b'.', name.as_bytes()) {

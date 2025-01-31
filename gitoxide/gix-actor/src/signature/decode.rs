@@ -201,7 +201,7 @@ mod tests {
                             .map_err(to_bstr_err)
                             .expect_err("parse fails as > is missing")
                             .to_string(),
-                        "in fail at 'hello < 12345 -1215'\n  0: invalid Closing '>' not found at 'hello < 12345 -1215'\n  1: expected `<name> <<email>> <timestamp> <+|-><HHMM>` at 'hello < 12345 -1215'\n"
+                        " at 'hello < 12345 -1215'\n  0: invalid Closing '>' not found at 'hello < 12345 -1215'\n  1: expected `<name> <<email>> <timestamp> <+|-><HHMM>` at 'hello < 12345 -1215'\n"
                     );
         }
 
