@@ -159,7 +159,7 @@ impl<'a> Iterator for TreeRefIter<'a> {
                 self.data = &[];
                 #[allow(clippy::unit_arg)]
                 Some(Err(crate::decode::Error::with_err(
-                    winnow::error::ErrMode::from_error_kind(&failing, winnow::error::ErrorKind::Verify),
+                    winnow::error::ErrMode::from_input(&failing),
                     failing,
                 )))
             }
@@ -236,16 +236,13 @@ mod decode {
         ))
     }
 
-    pub fn tree<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> PResult<TreeRef<'a>, E> {
+    pub fn tree<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<TreeRef<'a>, E> {
         let mut out = Vec::new();
         let mut i = &**i;
         while !i.is_empty() {
             let Some((rest, entry)) = fast_entry(i) else {
                 #[allow(clippy::unit_arg)]
-                return Err(winnow::error::ErrMode::from_error_kind(
-                    &i,
-                    winnow::error::ErrorKind::Verify,
-                ));
+                return Err(winnow::error::ErrMode::from_input(&i));
             };
             i = rest;
             out.push(entry);

@@ -3,7 +3,7 @@ pub(crate) mod function {
     use bstr::ByteSlice;
     use gix_date::{time::Sign, OffsetInSeconds, SecondsSinceUnixEpoch, Time};
     use gix_utils::btoi::to_signed;
-    use winnow::error::{ErrMode, ErrorKind};
+    use winnow::error::ErrMode;
     use winnow::stream::Stream;
     use winnow::{
         combinator::{alt, opt, separated_pair, terminated},
@@ -18,7 +18,7 @@ pub(crate) mod function {
     /// Parse a signature from the bytes input `i` using `nom`.
     pub fn decode<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
         i: &mut &'a [u8],
-    ) -> PResult<SignatureRef<'a>, E> {
+    ) -> ModalResult<SignatureRef<'a>, E> {
         separated_pair(
             identity,
             opt(b" "),
@@ -68,31 +68,29 @@ pub(crate) mod function {
     /// Parse an identity from the bytes input `i` (like `name <email>`) using `nom`.
     pub fn identity<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
         i: &mut &'a [u8],
-    ) -> PResult<IdentityRef<'a>, E> {
+    ) -> ModalResult<IdentityRef<'a>, E> {
         let start = i.checkpoint();
         let eol_idx = i.find_byte(b'\n').unwrap_or(i.len());
-        let right_delim_idx =
-            i[..eol_idx]
-                .rfind_byte(b'>')
-                .ok_or(ErrMode::Cut(E::from_error_kind(i, ErrorKind::Eof).add_context(
-                    i,
-                    &start,
-                    StrContext::Label("Closing '>' not found"),
-                )))?;
+        let right_delim_idx = i[..eol_idx]
+            .rfind_byte(b'>')
+            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
+                i,
+                &start,
+                StrContext::Label("Closing '>' not found"),
+            )))?;
         let i_name_and_email = &i[..right_delim_idx];
         let skip_from_right = i_name_and_email
             .iter()
             .rev()
             .take_while(|b| b.is_ascii_whitespace() || **b == b'>')
             .count();
-        let left_delim_idx =
-            i_name_and_email
-                .find_byte(b'<')
-                .ok_or(ErrMode::Cut(E::from_error_kind(i, ErrorKind::Eof).add_context(
-                    &i_name_and_email,
-                    &start,
-                    StrContext::Label("Opening '<' not found"),
-                )))?;
+        let left_delim_idx = i_name_and_email
+            .find_byte(b'<')
+            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
+                &i_name_and_email,
+                &start,
+                StrContext::Label("Opening '<' not found"),
+            )))?;
         let skip_from_left = i[left_delim_idx..]
             .iter()
             .take_while(|b| b.is_ascii_whitespace() || **b == b'<')
@@ -102,7 +100,7 @@ pub(crate) mod function {
 
         let email = i
             .get(left_delim_idx + skip_from_left..right_delim_idx - skip_from_right)
-            .ok_or(ErrMode::Cut(E::from_error_kind(i, ErrorKind::Eof).add_context(
+            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
                 &i_name_and_email,
                 &start,
                 StrContext::Label("Skipped parts run into each other"),
@@ -126,7 +124,7 @@ mod tests {
 
         fn decode<'i>(
             i: &mut &'i [u8],
-        ) -> PResult<SignatureRef<'i>, winnow::error::TreeError<&'i [u8], winnow::error::StrContext>> {
+        ) -> ModalResult<SignatureRef<'i>, winnow::error::TreeError<&'i [u8], winnow::error::StrContext>> {
             signature::decode.parse_next(i)
         }
 
@@ -203,7 +201,7 @@ mod tests {
                             .map_err(to_bstr_err)
                             .expect_err("parse fails as > is missing")
                             .to_string(),
-                        "in end of file at 'hello < 12345 -1215'\n  0: invalid Closing '>' not found at 'hello < 12345 -1215'\n  1: expected `<name> <<email>> <timestamp> <+|-><HHMM>` at 'hello < 12345 -1215'\n"
+                        "in fail at 'hello < 12345 -1215'\n  0: invalid Closing '>' not found at 'hello < 12345 -1215'\n  1: expected `<name> <<email>> <timestamp> <+|-><HHMM>` at 'hello < 12345 -1215'\n"
                     );
         }
 

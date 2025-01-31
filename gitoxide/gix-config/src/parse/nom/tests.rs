@@ -167,6 +167,8 @@ mod config_name {
 }
 
 mod section {
+    use winnow::error::InputError;
+
     use crate::parse::{
         error::ParseNode,
         tests::util::{
@@ -177,7 +179,10 @@ mod section {
         Event, Section,
     };
 
-    fn section<'a>(mut i: &'a [u8], node: &mut ParseNode) -> winnow::IResult<&'a [u8], Section<'a>> {
+    fn section<'a>(
+        mut i: &'a [u8],
+        node: &mut ParseNode,
+    ) -> winnow::ModalResult<(&'a [u8], Section<'a>), InputError<&'a [u8]>> {
         let mut header = None;
         let mut events = Vec::new();
         super::section(&mut i, node, &mut |e| match &header {
@@ -507,13 +512,17 @@ mod section {
 
 mod value_continuation {
     use bstr::ByteSlice;
+    use winnow::error::InputError;
 
     use crate::parse::{
         tests::util::{newline_custom_event, newline_event, value_done_event, value_not_done_event},
         Event,
     };
 
-    pub fn value_impl<'a>(mut i: &'a [u8], events: &mut Vec<Event<'a>>) -> winnow::IResult<&'a [u8], ()> {
+    pub fn value_impl<'a>(
+        mut i: &'a [u8],
+        events: &mut Vec<Event<'a>>,
+    ) -> winnow::ModalResult<(&'a [u8], ()), InputError<&'a [u8]>> {
         super::value_impl(&mut i, &mut |e| events.push(e)).map(|_| (i, ()))
     }
 
@@ -772,6 +781,8 @@ mod value_no_continuation {
 }
 
 mod key_value_pair {
+    use winnow::error::InputError;
+
     use crate::parse::{
         error::ParseNode,
         tests::util::{name_event, value_event, whitespace_event},
@@ -782,7 +793,7 @@ mod key_value_pair {
         mut i: &'a [u8],
         node: &mut ParseNode,
         events: &mut Vec<Event<'a>>,
-    ) -> winnow::IResult<&'a [u8], ()> {
+    ) -> winnow::ModalResult<(&'a [u8], ()), InputError<&'a [u8]>> {
         super::key_value_pair(&mut i, node, &mut |e| events.push(e)).map(|_| (i, ()))
     }
 

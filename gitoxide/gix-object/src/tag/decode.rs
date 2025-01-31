@@ -1,16 +1,16 @@
 use winnow::{
-    combinator::{alt, delimited, eof, opt, preceded, rest, terminated},
+    combinator::{alt, delimited, eof, opt, preceded, terminated},
     error::{AddContext, ParserError, StrContext},
     prelude::*,
     stream::AsChar,
-    token::{take_until, take_while},
+    token::{rest, take_until, take_while},
 };
 
 use crate::{parse, parse::NL, BStr, ByteSlice, TagRef};
 
 pub fn git_tag<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
     i: &mut &'a [u8],
-) -> PResult<TagRef<'a>, E> {
+) -> ModalResult<TagRef<'a>, E> {
     (
         (|i: &mut _| parse::header_field(i, b"object", parse::hex_hash))
             .context(StrContext::Expected("object <40 lowercase hex char>".into())),
@@ -36,7 +36,7 @@ pub fn git_tag<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
         .parse_next(i)
 }
 
-pub fn message<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> PResult<(&'a BStr, Option<&'a BStr>), E> {
+pub fn message<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<(&'a BStr, Option<&'a BStr>), E> {
     const PGP_SIGNATURE_BEGIN: &[u8] = b"\n-----BEGIN PGP SIGNATURE-----";
     const PGP_SIGNATURE_END: &[u8] = b"-----END PGP SIGNATURE-----";
 
