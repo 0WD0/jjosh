@@ -7,22 +7,23 @@ use gix_object::{
     bstr::{BStr, BString},
     FindExt,
 };
+use gix_traverse::commit::find as find_commit;
+use smallvec::SmallVec;
 use std::num::NonZeroU32;
 use std::ops::Range;
 
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
-/// at `traverse[0]:<file_path>` originated in.
+/// at `suspect:<file_path>` originated in.
 ///
 /// ## Paramters
 ///
 /// * `odb`
 ///    - Access to database objects, also for used for diffing.
 ///    - Should have an object cache for good diff performance.
-/// * `traverse`
-///    - The list of commits from the most recent to prior ones, following all parents sorted
-///      by time.
-///    - It's paramount that older commits are returned after newer ones.
-///    - The first commit returned here is the first eligible commit to be responsible for parts of `file_path`.
+/// * `suspect`
+///    - The first commit to be responsible for parts of `file_path`.
+/// * `cache`
+///    - Optionally, the commitgraph cache.
 /// * `file_path`
 ///    - A *slash-separated* worktree-relative path to the file to blame.
 /// * `range`
@@ -60,20 +61,14 @@ use std::ops::Range;
 // <---><----------><-------><-----><------->
 // <---><---><-----><-------><-----><------->
 // <---><---><-----><-------><-----><-><-><->
-pub fn file<E>(
+pub fn file(
     odb: impl gix_object::Find + gix_object::FindHeader,
-    traverse: impl IntoIterator<Item = Result<gix_traverse::commit::Info, E>>,
+    suspect: ObjectId,
+    cache: Option<gix_commitgraph::Graph>,
     resource_cache: &mut gix_diff::blob::Platform,
     file_path: &BStr,
     range: Option<Range<u32>>,
-) -> Result<Outcome, Error>
-where
-    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-{
-    let mut traverse = traverse.into_iter().peekable();
-    let Some(Ok(suspect)) = traverse.peek().map(|res| res.as_ref().map(|item| item.id)) else {
-        return Err(Error::EmptyTraversal);
-    };
+) -> Result<Outcome, Error> {
     let _span = gix_trace::coarse!("gix_blame::file()", ?file_path, ?suspect);
 
     let mut stats = Statistics::default();
@@ -84,13 +79,7 @@ where
         commit_id: suspect,
     })?;
     let blamed_file_blob = odb.find_blob(&blamed_file_entry_id, &mut buf)?.data.to_vec();
-    let num_lines_in_blamed = {
-        let mut interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
-        tokens_for_diffing(&blamed_file_blob)
-            .tokenize()
-            .map(|token| interner.intern(token))
-            .count()
-    } as u32;
+    let num_lines_in_blamed = tokens_for_diffing(&blamed_file_blob).tokenize().count() as u32;
 
     // Binary or otherwise empty?
     if num_lines_in_blamed == 0 {
@@ -103,30 +92,40 @@ where
         suspects: [(suspect, range_in_blamed_file)].into(),
     }];
 
+    let (mut buf, mut buf2) = (Vec::new(), Vec::new());
+    let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
+    let mut queue: gix_revwalk::PriorityQueue<CommitTime, ObjectId> = gix_revwalk::PriorityQueue::new();
+    queue.insert(commit_time(commit)?, suspect);
+
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
     let mut previous_entry: Option<(ObjectId, ObjectId)> = None;
-    'outer: while let Some(item) = traverse.next() {
+    'outer: while let Some(suspect) = queue.pop_value() {
+        stats.commits_traversed += 1;
         if hunks_to_blame.is_empty() {
             break;
         }
-        let commit = item.map_err(|err| Error::Traverse(err.into()))?;
-        let suspect = commit.id;
-        stats.commits_traversed += 1;
 
-        let parent_ids = commit.parent_ids;
+        let is_still_suspect = hunks_to_blame.iter().any(|hunk| hunk.suspects.contains_key(&suspect));
+        if !is_still_suspect {
+            // There are no `UnblamedHunk`s associated with this `suspect`, so we can continue with
+            // the next one.
+            continue 'outer;
+        }
+
+        let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
+        let parent_ids: ParentIds = collect_parents(commit, &odb, cache.as_ref(), &mut buf2)?;
         if parent_ids.is_empty() {
-            if traverse.peek().is_none() {
-                // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the `id` of
-                // the last `item` that was yielded by `traverse`, so it makes sense to assign the
-                // remaining lines to it, even though we don’t explicitly check whether that is true
-                // here. We could perhaps use diff-tree-to-tree to compare `suspect`
-                // against an empty tree to validate this assumption.
+            if queue.is_empty() {
+                // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the
+                // `id` of the last `item` that was yielded by `queue`, so it makes sense to assign
+                // the remaining lines to it, even though we don’t explicitly check whether that is
+                // true here. We could perhaps use diff-tree-to-tree to compare `suspect` against
+                // an empty tree to validate this assumption.
                 if unblamed_to_out_is_done(&mut hunks_to_blame, &mut out, suspect) {
                     break 'outer;
                 }
             }
-
             // There is more, keep looking.
             continue;
         }
@@ -143,7 +142,41 @@ where
             continue;
         };
 
-        for (pid, parent_id) in parent_ids.iter().enumerate() {
+        // This block asserts that, for every `UnblamedHunk`, all lines in the *Blamed File* are
+        // identical to the corresponding lines in the *Source File*.
+        #[cfg(debug_assertions)]
+        {
+            let source_blob = odb.find_blob(&entry_id, &mut buf)?.data.to_vec();
+            let mut source_interner = gix_diff::blob::intern::Interner::new(source_blob.len() / 100);
+            let source_lines_as_tokens: Vec<_> = tokens_for_diffing(&source_blob)
+                .tokenize()
+                .map(|token| source_interner.intern(token))
+                .collect();
+
+            let mut blamed_interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
+            let blamed_lines_as_tokens: Vec<_> = tokens_for_diffing(&blamed_file_blob)
+                .tokenize()
+                .map(|token| blamed_interner.intern(token))
+                .collect();
+
+            for hunk in hunks_to_blame.iter() {
+                if let Some(range_in_suspect) = hunk.suspects.get(&suspect) {
+                    let range_in_blamed_file = hunk.range_in_blamed_file.clone();
+
+                    for (blamed_line_number, source_line_number) in range_in_blamed_file.zip(range_in_suspect.clone()) {
+                        let source_token = source_lines_as_tokens[source_line_number as usize];
+                        let blame_token = blamed_lines_as_tokens[blamed_line_number as usize];
+
+                        let source_line = BString::new(source_interner[source_token].into());
+                        let blamed_line = BString::new(blamed_interner[blame_token].into());
+
+                        assert_eq!(source_line, blamed_line);
+                    }
+                }
+            }
+        }
+
+        for (pid, (parent_id, parent_commit_time)) in parent_ids.iter().enumerate() {
             if let Some(parent_entry_id) =
                 find_path_entry_in_commit(&odb, parent_id, file_path, &mut buf, &mut buf2, &mut stats)?
             {
@@ -153,17 +186,19 @@ where
                 }
                 if no_change_in_entry {
                     pass_blame_from_to(suspect, *parent_id, &mut hunks_to_blame);
+                    queue.insert(*parent_commit_time, *parent_id);
                     continue 'outer;
                 }
             }
         }
 
         let more_than_one_parent = parent_ids.len() > 1;
-        for parent_id in parent_ids {
+        for (parent_id, parent_commit_time) in parent_ids {
+            queue.insert(parent_commit_time, parent_id);
             let changes_for_file_path = tree_diff_at_file_path(
                 &odb,
                 file_path,
-                commit.id,
+                suspect,
                 parent_id,
                 &mut stats,
                 &mut diff_state,
@@ -588,8 +623,51 @@ fn find_path_entry_in_commit(
     Ok(res.map(|e| e.oid))
 }
 
-/// Return an iterator over tokens for use in diffing. These usually lines, but iit's important to unify them
-/// so the later access shows the right thing.
+type CommitTime = i64;
+
+fn commit_time(commit: gix_traverse::commit::Either<'_, '_>) -> Result<CommitTime, gix_object::decode::Error> {
+    match commit {
+        gix_traverse::commit::Either::CommitRefIter(commit_ref_iter) => {
+            commit_ref_iter.committer().map(|c| c.time.seconds)
+        }
+        gix_traverse::commit::Either::CachedCommit(commit) => Ok(commit.committer_timestamp() as i64),
+    }
+}
+
+type ParentIds = SmallVec<[(gix_hash::ObjectId, i64); 2]>;
+
+fn collect_parents(
+    commit: gix_traverse::commit::Either<'_, '_>,
+    odb: &impl gix_object::Find,
+    cache: Option<&gix_commitgraph::Graph>,
+    buf: &mut Vec<u8>,
+) -> Result<ParentIds, Error> {
+    let mut parent_ids: ParentIds = Default::default();
+    match commit {
+        gix_traverse::commit::Either::CachedCommit(commit) => {
+            let cache = cache
+                .as_ref()
+                .expect("find returned a cached commit, so we expect cache to be present");
+            for parent_pos in commit.iter_parents() {
+                let parent = cache.commit_at(parent_pos?);
+                parent_ids.push((parent.id().to_owned(), parent.committer_timestamp() as i64));
+            }
+        }
+        gix_traverse::commit::Either::CommitRefIter(commit_ref_iter) => {
+            for id in commit_ref_iter.parent_ids() {
+                let parent = odb.find_commit_iter(id.as_ref(), buf).ok();
+                let parent_commit_time = parent
+                    .and_then(|parent| parent.committer().ok().map(|committer| committer.time.seconds))
+                    .unwrap_or_default();
+                parent_ids.push((id, parent_commit_time));
+            }
+        }
+    };
+    Ok(parent_ids)
+}
+
+/// Return an iterator over tokens for use in diffing. These are usually lines, but it's important
+/// to unify them so the later access shows the right thing.
 pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
     gix_diff::blob::sources::byte_lines_with_terminator(data)
 }
