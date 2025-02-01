@@ -7,7 +7,7 @@ use gix_object::{
     bstr::{BStr, BString},
     FindExt,
 };
-use gix_traverse::commit::find;
+use gix_traverse::commit::find as find_commit;
 use smallvec::SmallVec;
 use std::num::NonZeroU32;
 use std::ops::Range;
@@ -79,13 +79,7 @@ pub fn file(
         commit_id: suspect,
     })?;
     let blamed_file_blob = odb.find_blob(&blamed_file_entry_id, &mut buf)?.data.to_vec();
-    let num_lines_in_blamed = {
-        let mut interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
-        tokens_for_diffing(&blamed_file_blob)
-            .tokenize()
-            .map(|token| interner.intern(token))
-            .count()
-    } as u32;
+    let num_lines_in_blamed = tokens_for_diffing(&blamed_file_blob).tokenize().count() as u32;
 
     // Binary or otherwise empty?
     if num_lines_in_blamed == 0 {
@@ -98,36 +92,29 @@ pub fn file(
         suspects: [(suspect, range_in_blamed_file)].into(),
     }];
 
-    let mut buf = Vec::new();
-    let commit = find(cache.as_ref(), &odb, &suspect, &mut buf)?;
-
+    let (mut buf, mut buf2) = (Vec::new(), Vec::new());
+    let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
     let mut queue: gix_revwalk::PriorityQueue<CommitTime, ObjectId> = gix_revwalk::PriorityQueue::new();
-
-    let commit_time = commit_time(commit);
-    queue.insert(commit_time, suspect);
+    queue.insert(commit_time(commit)?, suspect);
 
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
     let mut previous_entry: Option<(ObjectId, ObjectId)> = None;
     'outer: while let Some(suspect) = queue.pop_value() {
+        stats.commits_traversed += 1;
         if hunks_to_blame.is_empty() {
             break;
         }
 
         let is_still_suspect = hunks_to_blame.iter().any(|hunk| hunk.suspects.contains_key(&suspect));
-
         if !is_still_suspect {
             // There are no `UnblamedHunk`s associated with this `suspect`, so we can continue with
             // the next one.
             continue 'outer;
         }
 
-        stats.commits_traversed += 1;
-
-        let commit = find(cache.as_ref(), &odb, &suspect, &mut buf)?;
-
-        let parent_ids: ParentIds = collect_parents(commit, &odb, cache.as_ref());
-
+        let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
+        let parent_ids: ParentIds = collect_parents(commit, &odb, cache.as_ref(), &mut buf2)?;
         if parent_ids.is_empty() {
             if queue.is_empty() {
                 // I’m not entirely sure if this is correct yet. `suspect`, at this point, is the
@@ -139,7 +126,6 @@ pub fn file(
                     break 'outer;
                 }
             }
-
             // There is more, keep looking.
             continue;
         }
@@ -639,27 +625,12 @@ fn find_path_entry_in_commit(
 
 type CommitTime = i64;
 
-fn commit_time(commit: gix_traverse::commit::Either<'_, '_>) -> CommitTime {
+fn commit_time(commit: gix_traverse::commit::Either<'_, '_>) -> Result<CommitTime, gix_object::decode::Error> {
     match commit {
         gix_traverse::commit::Either::CommitRefIter(commit_ref_iter) => {
-            let mut commit_time = 0;
-            for token in commit_ref_iter {
-                use gix_object::commit::ref_iter::Token as T;
-                match token {
-                    Ok(T::Tree { .. }) => continue,
-                    Ok(T::Parent { .. }) => continue,
-                    Ok(T::Author { .. }) => continue,
-                    Ok(T::Committer { signature }) => {
-                        commit_time = signature.time.seconds;
-                        break;
-                    }
-                    Ok(_unused_token) => break,
-                    Err(_err) => todo!(),
-                }
-            }
-            commit_time
+            commit_ref_iter.committer().map(|c| c.time.seconds)
         }
-        gix_traverse::commit::Either::CachedCommit(commit) => commit.committer_timestamp() as i64,
+        gix_traverse::commit::Either::CachedCommit(commit) => Ok(commit.committer_timestamp() as i64),
     }
 }
 
@@ -669,46 +640,30 @@ fn collect_parents(
     commit: gix_traverse::commit::Either<'_, '_>,
     odb: &impl gix_object::Find,
     cache: Option<&gix_commitgraph::Graph>,
-) -> ParentIds {
+    buf: &mut Vec<u8>,
+) -> Result<ParentIds, Error> {
     let mut parent_ids: ParentIds = Default::default();
-
     match commit {
         gix_traverse::commit::Either::CachedCommit(commit) => {
             let cache = cache
                 .as_ref()
                 .expect("find returned a cached commit, so we expect cache to be present");
-            for parent_id in commit.iter_parents() {
-                match parent_id {
-                    Ok(pos) => {
-                        let parent = cache.commit_at(pos);
-
-                        parent_ids.push((parent.id().to_owned(), parent.committer_timestamp() as i64));
-                    }
-                    Err(_) => todo!(),
-                }
+            for parent_pos in commit.iter_parents() {
+                let parent = cache.commit_at(parent_pos?);
+                parent_ids.push((parent.id().to_owned(), parent.committer_timestamp() as i64));
             }
         }
         gix_traverse::commit::Either::CommitRefIter(commit_ref_iter) => {
-            for token in commit_ref_iter {
-                match token {
-                    Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
-                    Ok(gix_object::commit::ref_iter::Token::Parent { id }) => {
-                        let mut buf = Vec::new();
-                        let parent = odb.find_commit_iter(id.as_ref(), &mut buf).ok();
-                        let parent_commit_time = parent
-                            .and_then(|parent| parent.committer().ok().map(|committer| committer.time.seconds))
-                            .unwrap_or_default();
-
-                        parent_ids.push((id, parent_commit_time));
-                    }
-                    Ok(_unused_token) => break,
-                    Err(_err) => todo!(),
-                }
+            for id in commit_ref_iter.parent_ids() {
+                let parent = odb.find_commit_iter(id.as_ref(), buf).ok();
+                let parent_commit_time = parent
+                    .and_then(|parent| parent.committer().ok().map(|committer| committer.time.seconds))
+                    .unwrap_or_default();
+                parent_ids.push((id, parent_commit_time));
             }
         }
     };
-
-    parent_ids
+    Ok(parent_ids)
 }
 
 /// Return an iterator over tokens for use in diffing. These are usually lines, but it's important
