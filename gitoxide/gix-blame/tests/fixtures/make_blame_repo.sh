@@ -198,6 +198,33 @@ git commit -q -m c14.2
 
 git merge branch-that-has-one-of-the-changes || true
 
+# This is to verify that, even though commits `c15`, `c15.1` and `merge` are
+# not chronologically ordered (`c15.1` has a `CommitDate` that is before
+# `c15`’s `CommitDate`), the resulting blame is still correct.
+#
+# ---c15------c15.2
+#     \        \
+#      c15.1----merge
+echo -e "line 1\nline 2\n line 3" > file-topo-order-different-than-date-order.txt
+git add file-topo-order-different-than-date-order.txt
+git commit -q -m c15
+
+git checkout -b branch-that-has-earlier-commit
+
+echo -e "line 1\nline 2\n line 3 changed" > file-topo-order-different-than-date-order.txt
+git add file-topo-order-different-than-date-order.txt
+# `GIT_COMMITTER_DATE` is set to "2000-01-02 00:00:00 +0000" in
+# `tests/tools/src/lib.rs` and is the default `CommitDate` used in
+# `make_blame_repo.sh`.
+GIT_COMMITTER_DATE="1999-12-31 00:00:00 +0000" git commit -q -m c15.1
+
+git checkout main
+echo -e "line 1 changed\nline 2\n line 3" > file-topo-order-different-than-date-order.txt
+git add file-topo-order-different-than-date-order.txt
+git commit -q -m c15.2
+
+git merge branch-that-has-earlier-commit || true
+
 git blame --porcelain simple.txt > .git/simple.baseline
 git blame --porcelain -L 1,2 simple.txt > .git/simple-lines-1-2.baseline
 git blame --porcelain multiline-hunks.txt > .git/multiline-hunks.baseline
@@ -217,6 +244,7 @@ git blame --porcelain file-in-one-chain-of-ancestors.txt > .git/file-in-one-chai
 git blame --porcelain different-file-in-another-chain-of-ancestors.txt > .git/different-file-in-another-chain-of-ancestors.baseline
 git blame --porcelain file-only-changed-in-branch.txt > .git/file-only-changed-in-branch.baseline
 git blame --porcelain file-changed-in-two-branches.txt > .git/file-changed-in-two-branches.baseline
+git blame --porcelain file-topo-order-different-than-date-order.txt > .git/file-topo-order-different-than-date-order.baseline
 
 git blame --porcelain empty-lines-histogram.txt > .git/empty-lines-histogram.baseline
 
