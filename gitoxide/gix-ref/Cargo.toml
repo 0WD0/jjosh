@@ -33,7 +33,7 @@ gix-lock = { version = "^16.0.0", path = "../gix-lock" }
 gix-tempfile = { version = "^16.0.0", default-features = false, path = "../gix-tempfile" }
 
 thiserror = "2.0.0"
-winnow = { version = "0.6", features = ["simd"] }
+winnow = { version = "0.7.0", features = ["simd"] }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 
 # packed refs

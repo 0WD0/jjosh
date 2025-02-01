@@ -76,10 +76,10 @@ pub mod decode {
     use crate::{file::log::LineRef, parse::hex_hash};
     use gix_object::bstr::{BStr, ByteSlice};
     use winnow::{
-        combinator::{alt, eof, fail, opt, preceded, rest, terminated},
+        combinator::{alt, eof, fail, opt, preceded, terminated},
         error::{AddContext, ParserError, StrContext},
         prelude::*,
-        token::take_while,
+        token::{rest, take_while},
     };
 
     ///
@@ -121,7 +121,7 @@ pub mod decode {
         }
     }
 
-    fn message<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> PResult<&'a BStr, E> {
+    fn message<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<&'a BStr, E> {
         if i.is_empty() {
             rest.map(ByteSlice::as_bstr).parse_next(i)
         } else {
@@ -133,7 +133,7 @@ pub mod decode {
 
     fn one<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
         bytes: &mut &'a [u8],
-    ) -> PResult<LineRef<'a>, E> {
+    ) -> ModalResult<LineRef<'a>, E> {
         let mut tokens = bytes.splitn(2, |b| *b == b'\t');
         if let (Some(mut first), Some(mut second)) = (tokens.next(), tokens.next()) {
             let (old, new, signature) = (
