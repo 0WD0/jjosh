@@ -70,7 +70,8 @@ pub mod pipeline {
 pub struct Pipeline<'repo> {
     inner: gix_filter::Pipeline,
     cache: gix_worktree::Stack,
-    repo: &'repo Repository,
+    /// The repository this pipeline is associated with.
+    pub repo: &'repo Repository,
 }
 
 /// Lifecycle
