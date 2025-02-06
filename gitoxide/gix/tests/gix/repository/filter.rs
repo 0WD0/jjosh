@@ -10,7 +10,7 @@ fn pipeline_in_nonbare_repo_without_index() -> crate::Result {
 use gix::bstr::ByteSlice;
 use gix_filter::driver::apply::Delay;
 
-use crate::util::{named_repo, named_subrepo_opts};
+use crate::util::{hex_to_id, named_repo, named_subrepo_opts};
 
 #[test]
 fn pipeline_in_repo_without_special_options() -> crate::Result {
@@ -28,6 +28,53 @@ fn pipeline_in_repo_without_special_options() -> crate::Result {
         assert!(!out.is_changed(), "no filtering is configured, nothing changes");
     }
 
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn pipeline_worktree_file_to_object() -> crate::Result {
+    let repo = named_repo("repo_with_untracked_files.sh")?;
+    let (mut pipe, index) = repo.filter_pipeline(None)?;
+    fn take_two<A, B, C>(t: Option<(A, B, C)>) -> Option<(A, B)> {
+        t.map(|t| (t.0, t.1))
+    }
+
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("file".into(), &index)?),
+        Some((
+            hex_to_id("d95f3ad14dee633a758d2e331151e950dd13e4ed"),
+            gix::object::tree::EntryKind::Blob
+        ))
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("link".into(), &index)?),
+        Some((
+            hex_to_id("1a010b1c0f081b2e8901d55307a15c29ff30af0e"),
+            gix::object::tree::EntryKind::Link
+        ))
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("exe".into(), &index)?),
+        Some((
+            hex_to_id("a9128c283485202893f5af379dd9beccb6e79486"),
+            gix::object::tree::EntryKind::BlobExecutable
+        ))
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("missing".into(), &index)?),
+        None,
+        "Missing files are specifically typed and no error"
+    );
+    assert!(
+        repo.work_dir().expect("non-bare").join("fifo").exists(),
+        "there is a fifo"
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("fifo".into(), &index)?),
+        None,
+        "untrackable entries are just ignored as if they didn't exist"
+    );
     Ok(())
 }
 
