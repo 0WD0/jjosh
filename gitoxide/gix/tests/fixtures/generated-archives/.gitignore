@@ -8,3 +8,4 @@
 /make_signatures_repo.tar
 /make_diff_repos.tar
 /make_submodule_with_worktree.tar
+/repo_with_untracked_files.tar
