@@ -4,6 +4,7 @@ use std::borrow::Cow;
 pub use gix_filter as plumbing;
 use gix_object::Find;
 
+use crate::prelude::ObjectIdExt;
 use crate::{
     bstr::BStr,
     config::{
@@ -207,6 +208,9 @@ impl Pipeline<'_> {
     }
 
     /// Add the worktree file at `rela_path` to the object database and return its `(id, entry, symlink_metadata)` for use in a tree or in the index, for instance.
+    /// If `rela_path` is a directory *and* is a repository with its `HEAD` pointing to a commit, it will also be provided with the appropriate kind.
+    /// Note that this can easily lead to embedded repositories as no submodule-crosscheck is performed. Otherwise, unreadable repositories or directories
+    /// are ignored with `None` as return value.
     ///
     /// `index` is used in particularly rare cases where the CRLF filter in auto-mode tries to determine whether to apply itself,
     /// and it should match the state used when [instantiating this instance](Self::new()).
@@ -257,6 +261,14 @@ impl Pipeline<'_> {
                 gix_object::tree::EntryKind::Blob
             };
             (id, kind)
+        } else if md.is_dir() {
+            let Some(submodule_repo) = crate::open_opts(&path, repo.open_options().clone()).ok() else {
+                return Ok(None);
+            };
+            let Some(id) = submodule_repo.head_id().ok() else {
+                return Ok(None);
+            };
+            (id.detach().attach(repo), gix_object::tree::EntryKind::Commit)
         } else {
             // This is probably a type-change to something we can't track.
             return Ok(None);
