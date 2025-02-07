@@ -35,11 +35,32 @@ fn pipeline_in_repo_without_special_options() -> crate::Result {
 #[cfg(unix)]
 fn pipeline_worktree_file_to_object() -> crate::Result {
     let repo = named_repo("repo_with_untracked_files.sh")?;
+    let work_dir = repo.work_dir().expect("non-bare");
     let (mut pipe, index) = repo.filter_pipeline(None)?;
     fn take_two<A, B, C>(t: Option<(A, B, C)>) -> Option<(A, B)> {
         t.map(|t| (t.0, t.1))
     }
 
+    let submodule_id = hex_to_id("a047f8183ba2bb7eb00ef89e60050c5fde740483");
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("embedded-repository".into(), &index)?),
+        Some((submodule_id, gix::object::tree::EntryKind::Commit))
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("submodule".into(), &index)?),
+        Some((submodule_id, gix::object::tree::EntryKind::Commit))
+    );
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("uninitialized-embedded-repository".into(), &index)?),
+        None,
+        "repositories that don't have HEAD pointing to an ID yet are ignored"
+    );
+    assert!(work_dir.join("empty-dir").is_dir());
+    assert_eq!(
+        take_two(pipe.worktree_file_to_object("empty-dir".into(), &index)?),
+        None,
+        "directories that aren't even repos are also ignored"
+    );
     assert_eq!(
         take_two(pipe.worktree_file_to_object("file".into(), &index)?),
         Some((
@@ -66,10 +87,7 @@ fn pipeline_worktree_file_to_object() -> crate::Result {
         None,
         "Missing files are specifically typed and no error"
     );
-    assert!(
-        repo.work_dir().expect("non-bare").join("fifo").exists(),
-        "there is a fifo"
-    );
+    assert!(work_dir.join("fifo").exists(), "there is a fifo");
     assert_eq!(
         take_two(pipe.worktree_file_to_object("fifo".into(), &index)?),
         None,
