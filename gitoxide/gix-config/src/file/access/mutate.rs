@@ -86,10 +86,8 @@ impl<'event> File<'event> {
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name)
             .ok()
             .and_then(|it| {
-                it.rev().find(|id| {
-                    let s = &self.sections[id];
-                    filter(s.meta())
-                })
+                it.rev()
+                    .find(|id| self.sections.get(id).is_some_and(|s| filter(s.meta())))
             }) {
             Some(id) => {
                 let nl = self.detect_newline_style_smallvec();
@@ -305,7 +303,7 @@ impl<'event> File<'event> {
             .section_ids_by_name_and_subname(name, subsection_name)
             .ok()?
             .rev()
-            .find(|id| filter(self.sections.get(id).expect("each id has a section").meta()))?;
+            .find(|id| self.sections.get(id).is_some_and(|section| filter(section.meta())))?;
         self.section_order.remove(
             self.section_order
                 .iter()
