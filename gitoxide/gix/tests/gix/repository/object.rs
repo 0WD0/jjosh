@@ -536,8 +536,6 @@ mod tag {
 mod commit_as {
     use gix_testtools::tempfile;
 
-    use crate::util::restricted_and_git;
-
     #[test]
     fn specify_committer_and_author() -> crate::Result {
         let tmp = tempfile::tempdir()?;
@@ -545,7 +543,7 @@ mod commit_as {
             &tmp,
             gix::create::Kind::WithWorktree,
             Default::default(),
-            restricted_and_git(),
+            gix::open::Options::isolated(),
         )?
         .to_thread_local();
         let empty_tree = repo.empty_tree();

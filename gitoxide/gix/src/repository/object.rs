@@ -254,7 +254,7 @@ impl crate::Repository {
         self.tag_reference(name, tag_id, constraint).map_err(Into::into)
     }
 
-    /// Similar to [`commit(…)`][crate::Repository::commit()], but allows to create the commit with `committer` and `author` specified.
+    /// Similar to [`commit(…)`](crate::Repository::commit()), but allows to create the commit with `committer` and `author` specified.
     ///
     /// This forces setting the commit time and author time by hand. Note that typically, committer and author are the same.
     pub fn commit_as<'a, 'c, Name, E>(
@@ -307,28 +307,35 @@ impl crate::Repository {
         };
 
         let commit_id = self.write_object(&commit)?;
-        self.edit_reference(RefEdit {
-            change: Change::Update {
-                log: LogChange {
-                    mode: RefLog::AndReference,
-                    force_create_reflog: false,
-                    message: crate::reference::log::message("commit", commit.message.as_ref(), commit.parents.len()),
-                },
-                expected: match commit.parents.first().map(|p| Target::Object(*p)) {
-                    Some(previous) => {
-                        if reference.as_bstr() == "HEAD" {
-                            PreviousValue::MustExistAndMatch(previous)
-                        } else {
-                            PreviousValue::ExistingMustMatch(previous)
+        self.edit_references_as(
+            Some(RefEdit {
+                change: Change::Update {
+                    log: LogChange {
+                        mode: RefLog::AndReference,
+                        force_create_reflog: false,
+                        message: crate::reference::log::message(
+                            "commit",
+                            commit.message.as_ref(),
+                            commit.parents.len(),
+                        ),
+                    },
+                    expected: match commit.parents.first().map(|p| Target::Object(*p)) {
+                        Some(previous) => {
+                            if reference.as_bstr() == "HEAD" {
+                                PreviousValue::MustExistAndMatch(previous)
+                            } else {
+                                PreviousValue::ExistingMustMatch(previous)
+                            }
                         }
-                    }
-                    None => PreviousValue::MustNotExist,
+                        None => PreviousValue::MustNotExist,
+                    },
+                    new: Target::Object(commit_id.inner),
                 },
-                new: Target::Object(commit_id.inner),
-            },
-            name: reference,
-            deref: true,
-        })?;
+                name: reference,
+                deref: true,
+            }),
+            Some(committer),
+        )?;
         Ok(commit_id)
     }
 
