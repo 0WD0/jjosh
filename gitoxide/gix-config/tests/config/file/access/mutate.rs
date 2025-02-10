@@ -25,7 +25,7 @@ mod remove_section {
     }
 
     #[test]
-    fn removal_is_complete_and_sections_can_be_readded() {
+    fn removal_is_complete_and_sections_can_be_read() {
         let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2").unwrap();
         assert_eq!(file.sections().count(), 2);
 
@@ -33,17 +33,51 @@ mod remove_section {
         assert_eq!(removed.header().name(), "core");
         assert_eq!(removed.header().subsection_name(), None);
         assert_eq!(file.sections().count(), 1);
+        assert_eq!(file.remove_section("core", None), None, "it's OK to try again");
 
         let removed = file.remove_section("core", Some("name".into())).expect("found");
         assert_eq!(removed.header().name(), "core");
         assert_eq!(removed.header().subsection_name().expect("present"), "name");
         assert_eq!(file.sections().count(), 0);
+        assert_eq!(file.remove_section("core", Some("name".into())), None);
 
         file.section_mut_or_create_new("core", None).expect("creation succeeds");
         file.section_mut_or_create_new("core", Some("name".into()))
             .expect("creation succeeds");
     }
 }
+mod remove_section_filter {
+    #[test]
+    fn removal_of_section_is_complete() {
+        let mut file = gix_config::File::try_from("[core] \na = b\nb=c\n\n[core \"name\"]\nd = 1\ne = 2").unwrap();
+        assert_eq!(file.sections().count(), 2);
+
+        let removed = file
+            .remove_section_filter("core", None, |_| true)
+            .expect("removed correct section");
+        assert_eq!(removed.header().name(), "core");
+        assert_eq!(removed.header().subsection_name(), None);
+        assert_eq!(file.sections().count(), 1);
+        let removed = file
+            .remove_section_filter("core", Some("name".into()), |_| true)
+            .expect("found");
+        assert_eq!(removed.header().name(), "core");
+        assert_eq!(removed.header().subsection_name().expect("present"), "name");
+        assert_eq!(file.sections().count(), 0);
+
+        assert_eq!(
+            file.remove_section_filter("core", None, |_| true),
+            None,
+            "it's OK to try again"
+        );
+        assert_eq!(file.remove_section_filter("core", Some("name".into()), |_| true), None);
+
+        file.section_mut_or_create_new("core", None).expect("creation succeeds");
+        file.section_mut_or_create_new("core", Some("name".into()))
+            .expect("creation succeeds");
+    }
+}
+
 mod rename_section {
     use std::borrow::Cow;
 
