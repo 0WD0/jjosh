@@ -190,7 +190,7 @@ pub struct Tag {
 /// cannot be mutated or serialized. Instead, one will [convert](ObjectRef::into_owned()) them into their [`mutable`](Object) counterparts
 /// which support mutation and serialization.
 ///
-/// An `ObjectRef` is representing [`Trees`], [`Blobs`], [`Commits`], or [`Tags`].
+/// An `ObjectRef` is representing [`Trees`](TreeRef), [`Blobs`](BlobRef), [`Commits`](CommitRef), or [`Tags`](TagRef).
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
@@ -209,7 +209,7 @@ pub enum ObjectRef<'a> {
 /// They either created using object [construction](Object) or by [deserializing existing objects](ObjectRef::from_bytes())
 /// and converting these [into mutable copies](ObjectRef::into_owned()) for adjustments.
 ///
-/// An `Object` is representing [`Trees`], [`Blobs`], [`Commits`] or [`Tags`].
+/// An `Object` is representing [`Trees`](Tree), [`Blobs`](Blob), [`Commits`](Commit), or [`Tags`](Tag).
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(clippy::large_enum_variant, missing_docs)]
