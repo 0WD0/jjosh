@@ -113,6 +113,19 @@ impl<'a> CommitRef<'a> {
     }
 }
 
+/// Conversion
+impl CommitRef<'_> {
+    /// Copy all fields of this instance into a fully owned commit, consuming this instance.
+    pub fn into_owned(self) -> Commit {
+        self.into()
+    }
+
+    /// Copy all fields of this instance into a fully owned commit, internally cloning this instance.
+    pub fn to_owned(self) -> Commit {
+        self.clone().into()
+    }
+}
+
 impl Commit {
     /// Returns a convenient iterator over all extra headers.
     pub fn extra_headers(&self) -> ExtraHeaders<impl Iterator<Item = (&BStr, &BStr)>> {
