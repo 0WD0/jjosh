@@ -167,7 +167,8 @@ mod relative {
 
         #[test]
         fn two_weeks_ago() {
-            assert_eq!(parse_inner("2 weeks ago").unwrap().unwrap(), Span::new().weeks(2));
+            let actual = parse_inner("2 weeks ago").unwrap().unwrap();
+            assert_eq!(actual.fieldwise(), Span::new().weeks(2));
         }
     }
 }
