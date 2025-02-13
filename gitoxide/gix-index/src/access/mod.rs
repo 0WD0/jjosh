@@ -553,6 +553,10 @@ impl State {
     pub fn tree(&self) -> Option<&extension::Tree> {
         self.tree.as_ref()
     }
+    /// Remove the `tree` extension.
+    pub fn remove_tree(&mut self) -> Option<extension::Tree> {
+        self.tree.take()
+    }
     /// Access the `link` extension.
     pub fn link(&self) -> Option<&extension::Link> {
         self.link.as_ref()
@@ -560,6 +564,10 @@ impl State {
     /// Obtain the resolve-undo extension.
     pub fn resolve_undo(&self) -> Option<&extension::resolve_undo::Paths> {
         self.resolve_undo.as_ref()
+    }
+    /// Remove the resolve-undo extension.
+    pub fn remove_resolve_undo(&mut self) -> Option<extension::resolve_undo::Paths> {
+        self.resolve_undo.take()
     }
     /// Obtain the untracked extension.
     pub fn untracked(&self) -> Option<&extension::UntrackedCache> {
