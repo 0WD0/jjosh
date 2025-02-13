@@ -518,7 +518,8 @@ impl State {
 
     /// Physically remove all entries for which `should_remove(idx, path, entry)` returns `true`, traversing them from first to last.
     ///
-    /// Note that the memory used for the removed entries paths is not freed, as it's append-only.
+    /// Note that the memory used for the removed entries paths is not freed, as it's append-only, and
+    /// that some extensions might refer to paths which are now deleted.
     ///
     /// ### Performance
     ///
@@ -533,6 +534,16 @@ impl State {
             index += 1;
             res
         });
+    }
+
+    /// Physically remove the entry at `index`, or panic if the entry didn't exist.
+    ///
+    /// This call is typically made after looking up `index`, so it's clear that it will not panic.
+    ///
+    /// Note that the memory used for the removed entries paths is not freed, as it's append-only, and
+    /// that some extensions might refer to paths which are now deleted.
+    pub fn remove_entry_at_index(&mut self, index: usize) -> Entry {
+        self.entries.remove(index)
     }
 }
 
