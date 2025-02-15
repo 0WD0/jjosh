@@ -222,7 +222,7 @@ pub fn to_native_path_on_windows<'a>(path: impl Into<Cow<'a, BStr>>) -> Cow<'a, 
 pub fn to_unix_separators_on_windows<'a>(path: impl Into<Cow<'a, BStr>>) -> Cow<'a, BStr> {
     #[cfg(windows)]
     {
-        replace(path, b'\\', b'/')
+        to_unix_separators(path)
     }
     #[cfg(not(windows))]
     {
