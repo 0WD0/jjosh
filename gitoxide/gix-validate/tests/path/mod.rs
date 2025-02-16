@@ -1,9 +1,9 @@
 #[test]
 fn component_is_windows_device() {
-    for device in ["con", "CONIN$", "lpt1.txt", "AUX", "Prn", "NUL", "COM9"] {
+    for device in ["con", "CONIN$", "lpt1.txt", "AUX", "Prn", "NUL", "COM9", "nul.a.b "] {
         assert!(gix_validate::path::component_is_windows_device(device.into()));
     }
-    for not_device in ["coni", "CONIN", "lpt", "AUXi", "aPrn", "NULl", "COM"] {
+    for not_device in ["coni", "CONIN", "lpt", "AUXi", "aPrn", "NULl", "COM", "a.nul.b "] {
         assert!(!gix_validate::path::component_is_windows_device(not_device.into()));
     }
 }
@@ -82,6 +82,9 @@ mod component {
         mktest!(conin_without_dollar, b"conin");
         mktest!(not_con, b"com");
         mktest!(also_not_con, b"co");
+        mktest!(con_as_middle, b"x.CON.zip");
+        mktest!(con_after_space, b" CON");
+        mktest!(con_after_space_mixed, b" coN.tar.xz");
         mktest!(not_nul, b"null");
         mktest!(
             not_dot_gitmodules_shorter_hfs,
@@ -248,6 +251,8 @@ mod component {
         mktest!(prn_mixed_with_extension, b"PrN.abc", Error::WindowsReservedName);
         mktest!(con, b"CON", Error::WindowsReservedName);
         mktest!(con_with_extension, b"CON.abc", Error::WindowsReservedName);
+        mktest!(con_with_middle, b"CON.tar.xz", Error::WindowsReservedName);
+        mktest!(con_mixed_with_middle, b"coN.tar.xz ", Error::WindowsReservedName);
         mktest!(
             conout_mixed_with_extension,
             b"ConOut$  .xyz",
