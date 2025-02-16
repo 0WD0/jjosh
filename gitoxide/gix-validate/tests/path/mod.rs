@@ -266,7 +266,10 @@ mod component {
             Error::WindowsPathPrefix,
             ALL_OPTS
         );
+        mktest!(unc_net_path, br"\\host", Error::PathSeparator, ALL_OPTS);
         mktest!(unc_path, br"\\?\pictures", Error::PathSeparator, ALL_OPTS);
+        mktest!(unc_device_path, br"\\.\pictures", Error::PathSeparator, ALL_OPTS);
+        mktest!(unc_nt_obj_path, br"\??\pictures", Error::PathSeparator, ALL_OPTS);
 
         #[test]
         fn ntfs_gitmodules() {
