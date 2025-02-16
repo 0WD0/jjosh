@@ -53,10 +53,10 @@ mod component {
 
         mktest!(ascii, b"ascii-only_and-that");
         mktest!(unicode, "😁👍👌".as_bytes());
-        mktest!(backslashes_on_unix, b"\\", UNIX_OPTS);
+        mktest!(backslashes_on_unix, br"\", UNIX_OPTS);
         mktest!(drive_letters_on_unix, b"c:", UNIX_OPTS);
         mktest!(virtual_drive_letters_on_unix, "֍:".as_bytes(), UNIX_OPTS);
-        mktest!(unc_path_on_unix, b"\\\\?\\pictures", UNIX_OPTS);
+        mktest!(unc_path_on_unix, br"\\?\pictures", UNIX_OPTS);
         mktest!(not_dot_git_longer, b".gitu", NO_OPTS);
         mktest!(not_dot_git_longer_all, b".gitu");
         mktest!(not_dot_gitmodules_shorter, b".gitmodule", Symlink, NO_OPTS);
@@ -66,7 +66,7 @@ mod component {
         mktest!(dot_gitmodules_as_file, b".gitmodules", UNIX_OPTS);
         mktest!(
             starts_with_dot_git_with_backslashes_on_linux,
-            b".git\\hooks\\pre-commit",
+            br".git\hooks\pre-commit",
             UNIX_OPTS
         );
         mktest!(not_dot_git_shorter, b".gi", NO_OPTS);
@@ -136,7 +136,7 @@ mod component {
         mktest!(dot_git_upper, b".GIT", Error::DotGitDir, NO_OPTS);
         mktest!(
             starts_with_dot_git_with_backslashes_on_windows,
-            b".git\\hooks\\pre-commit",
+            br".git\hooks\pre-commit",
             Error::PathSeparator
         );
         mktest!(dot_git_upper_hfs, ".GIT\u{200e}".as_bytes(), Error::DotGitDir);
@@ -225,10 +225,10 @@ mod component {
         mktest!(path_separator_slash_trailing, b"a/", Error::PathSeparator);
         mktest!(path_separator_slash_only, b"/", Error::PathSeparator);
         mktest!(slashes_on_windows, b"/", Error::PathSeparator, ALL_OPTS);
-        mktest!(backslashes_on_windows, b"\\", Error::PathSeparator, ALL_OPTS);
-        mktest!(path_separator_backslash_between, b"a\\b", Error::PathSeparator);
-        mktest!(path_separator_backslash_leading, b"\\a", Error::PathSeparator);
-        mktest!(path_separator_backslash_trailing, b"a\\", Error::PathSeparator);
+        mktest!(backslashes_on_windows, br"\", Error::PathSeparator, ALL_OPTS);
+        mktest!(path_separator_backslash_between, br"a\b", Error::PathSeparator);
+        mktest!(path_separator_backslash_leading, br"\a", Error::PathSeparator);
+        mktest!(path_separator_backslash_trailing, br"a\", Error::PathSeparator);
         mktest!(aux_mixed, b"Aux", Error::WindowsReservedName);
         mktest!(aux_with_extension, b"aux.c", Error::WindowsReservedName);
         mktest!(com_lower, b"com1", Error::WindowsReservedName);
@@ -261,7 +261,7 @@ mod component {
             Error::WindowsPathPrefix,
             ALL_OPTS
         );
-        mktest!(unc_path, b"\\\\?\\pictures", Error::PathSeparator, ALL_OPTS);
+        mktest!(unc_path, br"\\?\pictures", Error::PathSeparator, ALL_OPTS);
 
         #[test]
         fn ntfs_gitmodules() {
