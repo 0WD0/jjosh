@@ -446,7 +446,6 @@ mod spawn {
     use bstr::ByteSlice;
 
     #[test]
-    #[cfg(unix)]
     fn environment_variables_are_passed_one_by_one() -> crate::Result {
         let out = gix_command::prepare("echo $FIRST $SECOND")
             .env("FIRST", "first")
