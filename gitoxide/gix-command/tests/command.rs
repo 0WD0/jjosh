@@ -459,10 +459,9 @@ mod spawn {
     }
 
     #[test]
-    #[cfg(unix)]
     fn disallow_shell() -> crate::Result {
         let out = gix_command::prepare("PATH= echo hi")
-            .command_may_be_shell_script()
+            .command_may_be_shell_script_disallow_manual_argument_splitting()
             .spawn()?
             .wait_with_output()?;
         assert_eq!(out.stdout.as_bstr(), "hi\n");
