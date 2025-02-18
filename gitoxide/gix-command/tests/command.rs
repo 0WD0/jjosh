@@ -446,7 +446,6 @@ mod spawn {
     use bstr::ByteSlice;
 
     #[test]
-    #[cfg(unix)]
     fn environment_variables_are_passed_one_by_one() -> crate::Result {
         let out = gix_command::prepare("echo $FIRST $SECOND")
             .env("FIRST", "first")
@@ -459,10 +458,9 @@ mod spawn {
     }
 
     #[test]
-    #[cfg(unix)]
     fn disallow_shell() -> crate::Result {
         let out = gix_command::prepare("PATH= echo hi")
-            .command_may_be_shell_script()
+            .command_may_be_shell_script_disallow_manual_argument_splitting()
             .spawn()?
             .wait_with_output()?;
         assert_eq!(out.stdout.as_bstr(), "hi\n");
