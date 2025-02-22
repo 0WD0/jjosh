@@ -98,7 +98,6 @@ check:
     cargo check -p gix-status --all-features
     cargo check -p gix-features --all-features
     cargo check -p gix-features --features parallel
-    cargo check -p gix-features --features fs-walkdir-parallel
     cargo check -p gix-features --features fs-read-dir
     cargo check -p gix-features --features rustsha1
     cargo check -p gix-features --features fast-sha1
