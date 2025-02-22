@@ -234,17 +234,17 @@ impl file::Store {
                     }
                     Tag | LocalBranch | RemoteBranch | Note => (commondir.into(), name),
                     MainRef | MainPseudoRef => (commondir.into(), sn),
-                    LinkedRef { name: worktree_name } => sn
-                        .category()
-                        .is_some_and(|cat| cat.is_worktree_private())
-                        .then(|| {
+                    LinkedRef { name: worktree_name } => {
+                        if sn.category().is_some_and(|cat| cat.is_worktree_private()) {
                             if is_reflog {
                                 (linked_git_dir(worktree_name).into(), sn)
                             } else {
                                 (commondir.into(), name)
                             }
-                        })
-                        .unwrap_or((commondir.into(), sn)),
+                        } else {
+                            (commondir.into(), sn)
+                        }
+                    }
                     PseudoRef | Bisect | Rewritten | WorktreePrivate => (self.git_dir.as_path().into(), name),
                 }
             })
