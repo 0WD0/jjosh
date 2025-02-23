@@ -8,6 +8,7 @@ authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 version = "0.41.0"
+rust-version = "1.74"
 default-run = "gix"
 include = ["src/**/*", "/build.rs", "LICENSE-*", "README.md"]
 resolver = "2"
