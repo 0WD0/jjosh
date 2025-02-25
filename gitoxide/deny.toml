@@ -28,7 +28,6 @@ allow = [
     "ISC",
     "LicenseRef-ring",
     "OpenSSL",
-    "Unicode-DFS-2016",
     "Zlib",
     "MPL-2.0",
     "Unicode-3.0"
