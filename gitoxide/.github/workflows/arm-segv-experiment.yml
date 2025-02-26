@@ -1,0 +1,101 @@
+name: AArch64 SIGSEGV experiment
+
+on: push
+
+jobs:
+  test-fast:
+    strategy:
+      matrix:
+        num-high: [ 0, 1, 2, 3 ]
+        os-ver: [ '22.04', '24.04' ]
+        channel: [ stable, beta ]  # `gix-macros::macros momo::ux` currently fails on `nightly`.
+        get-rust-by: [ rt-action, curl-sh ]
+        get-nextest-by: [ i-action, cargo-qi ]
+        num-low: [ 0, 1, 2, 3 ]
+
+      fail-fast: false
+
+    runs-on: ubuntu-${{ matrix.os-ver }}-arm
+
+    steps:
+      - uses: actions/checkout@v4
+      - if: matrix.get-rust-by == 'rt-action'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.channel }}
+      - if: matrix.get-rust-by == 'curl-sh'
+        name: Install Rust via sh.rustup.rs
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+            sh -s -- -y --default-toolchain ${{ matrix.channel }}
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+      # - uses: Swatinem/rust-cache@v2
+      - if: matrix.get-nextest-by == 'i-action'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - if: matrix.get-nextest-by == 'cargo-qi'
+        name: Install nextest with quickinstall/binstall
+        run: |
+          cargo install cargo-quickinstall
+          cargo quickinstall cargo-binstall
+          cargo quickinstall cargo-nextest
+      - name: Test (nextest)
+        env:
+          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
+        run: cargo nextest run --workspace --no-fail-fast
+      - name: Doctest
+        run: cargo test --workspace --doc --no-fail-fast
+      - name: Check that tracked archives are up to date
+        run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
+
+  test-32bit:
+    strategy:
+      matrix:
+        container-arch: [ arm32v7 ]
+        num-high: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        os-ver: [ '22.04', '24.04' ]
+        num-low: [0, 1, 2, 3, 4, 5, 6, 7]
+        include:
+          - container-arch: arm32v7
+            runner-arch: arm64
+            toolchain: stable-armv7-unknown-linux-gnueabihf
+
+      fail-fast: false
+
+    runs-on: ubuntu-${{ matrix.os-ver }}-arm
+
+    container: ${{ matrix.container-arch }}/debian:stable-slim
+
+    steps:
+      - name: Prerequisites
+        run: |
+          prerequisites=(
+            build-essential
+            ca-certificates
+            cmake
+            curl
+            git
+            jq
+            libssl-dev
+            libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
+            pkgconf
+          )
+          dpkg --add-architecture ${{ matrix.runner-arch }}
+          apt-get update
+          apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
+        shell: bash
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Avoid possible misdetection based on the 64-bit running kernel.
+          toolchain: ${{ matrix.toolchain }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Make `system` scope nonempty for "GitInstallation" tests
+        run: git config --system gitoxide.imaginary.arbitraryVariable arbitraryValue
+      - name: Test (nextest)
+        env:
+          GIX_TEST_IGNORE_ARCHIVES: '1'
+        run: cargo nextest run --workspace --no-fail-fast
