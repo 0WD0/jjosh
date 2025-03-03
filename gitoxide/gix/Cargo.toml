@@ -264,6 +264,9 @@ fast-sha1 = ["gix-features/fast-sha1"]
 ## Note that this will cause duplicate symbol errors if the application also depends on `zlib` - use `zlib-ng-compat` in that case.
 zlib-ng = ["gix-features/zlib-ng"]
 
+## Use the rust-based zlib backend, which can compress and decompress significantly faster and is on par with zlib-ng or even faster.
+zlib-rs = ["gix-features/zlib-rs"]
+
 ## Use zlib-ng via its zlib-compat API. Useful if you already need zlib for C
 ## code elsewhere in your dependencies. Otherwise, use `zlib-ng`.
 zlib-ng-compat = ["gix-features/zlib-ng-compat"]
@@ -406,7 +409,9 @@ document-features = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 # For additional features that aren't enabled by default due to MSRV
-gix = { path = ".", default-features = false, features = ["need-more-recent-msrv"] }
+gix = { path = ".", default-features = false, features = [
+    "need-more-recent-msrv",
+] }
 pretty_assertions = "1.4.0"
 gix-testtools = { path = "../tests/tools" }
 is_ci = "1.1.1"
