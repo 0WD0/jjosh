@@ -13,10 +13,7 @@ pub fn list(
     if format != OutputFormat::Human {
         bail!("Only human output format is supported at the moment");
     }
-    let repo = gix::open_opts(
-        repo.git_dir(),
-        repo.open_options().clone().lossy_config(false).cli_overrides(overrides),
-    )?;
+    let repo = gix::open_opts(repo.git_dir(), repo.open_options().clone().cli_overrides(overrides))?;
     let config = repo.config_snapshot();
     if let Some(frontmatter) = config.frontmatter() {
         for event in frontmatter {

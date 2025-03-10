@@ -11,7 +11,7 @@ pub(crate) struct StageOne {
     pub buf: Vec<u8>,
 
     pub is_bare: bool,
-    pub lossy: Option<bool>,
+    pub lossy: bool,
     pub object_hash: gix_hash::Kind,
     pub reflog: Option<gix_ref::store::WriteReflog>,
     pub precompose_unicode: bool,
@@ -24,7 +24,7 @@ impl StageOne {
         common_dir: &std::path::Path,
         git_dir: &std::path::Path,
         git_dir_trust: gix_sec::Trust,
-        lossy: Option<bool>,
+        lossy: bool,
         lenient: bool,
     ) -> Result<Self, Error> {
         let mut buf = Vec::with_capacity(512);
@@ -109,7 +109,7 @@ fn load_config(
     buf: &mut Vec<u8>,
     source: gix_config::Source,
     git_dir_trust: gix_sec::Trust,
-    lossy: Option<bool>,
+    lossy: bool,
     lenient: bool,
 ) -> Result<gix_config::File<'static>, Error> {
     let metadata = gix_config::file::Metadata::from(source)
