@@ -47,6 +47,8 @@ http-client-reqwest-rust-tls-trust-dns = [
 ]
 ## Stacks with `blocking-http-transport-reqwest` and enables `https://` via the `native-tls` crate.
 http-client-reqwest-native-tls = ["http-client-reqwest", "reqwest/default-tls"]
+## Allows sending credentials over cleartext HTTP. For testing purposes only.
+http-client-insecure-credentials = []
 ## If set, an async implementations of the git transports becomes available in `crate::client`.
 ## Suitable for implementing your own transports while using git's way of communication, typically in conjunction with a custom server.
 ## **Note** that the _blocking_ client has a wide range of available transports, with the _async_ version of it supporting only the TCP based `git` transport leaving you
@@ -66,12 +68,12 @@ serde = ["dep:serde"]
 [[test]]
 name = "blocking-transport"
 path = "tests/blocking-transport.rs"
-required-features = ["blocking-client", "maybe-async/is_sync"]
+required-features = ["blocking-client", "http-client-insecure-credentials", "maybe-async/is_sync"]
 
 [[test]]
 name = "blocking-transport-http-only"
 path = "tests/blocking-transport-http.rs"
-required-features = ["http-client-curl", "maybe-async/is_sync"]
+required-features = ["http-client-curl", "http-client-insecure-credentials", "maybe-async/is_sync"]
 
 [[test]]
 name = "async-transport"
