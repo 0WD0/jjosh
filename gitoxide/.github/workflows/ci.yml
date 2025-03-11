@@ -390,7 +390,6 @@ jobs:
         cargo-deny-advisories
         wasm
         tests-pass
-        test-32bit
 
     defaults:
       run:
@@ -425,6 +424,7 @@ jobs:
       - test-journey
       - test-fast
       - test-fixtures-windows
+      - test-32bit
       - lint
       - cargo-deny
       - check-packetline
