@@ -176,7 +176,7 @@ gix = { version = "^0.70.0", path = "gix", default-features = false }
 
 clap = { version = "4.1.1", features = ["derive", "cargo"] }
 clap_complete = "4.4.3"
-prodash = { version = "29.0.0", optional = true }
+prodash = { version = "29.0.1", optional = true }
 is-terminal = { version = "0.4.0", optional = true }
 env_logger = { version = "0.10.0", default-features = false }
 crosstermion = { version = "0.14.0", optional = true, default-features = false }
