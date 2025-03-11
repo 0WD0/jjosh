@@ -1,4 +1,7 @@
+gix-diff-tests::diff index::renames_by_identity
+gix-diff-tests::diff tree_with_rewrites::renames_by_identity
 gix-glob::glob pattern::matching::compare_baseline_with_ours
+gix-merge::merge tree::run_baseline
 gix-pathspec::pathspec parse::baseline
 gix-pathspec::pathspec parse::valid::glob_negations_are_always_literal
 gix-pathspec::pathspec parse::valid::whitespace_in_pathspec
