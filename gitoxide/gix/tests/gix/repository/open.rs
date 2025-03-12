@@ -1,7 +1,7 @@
+use crate::util::named_subrepo_opts;
+use gix::bstr::BString;
 use std::borrow::Cow;
 use std::error::Error;
-
-use crate::util::named_subrepo_opts;
 
 #[test]
 fn on_root_with_decomposed_unicode() -> crate::Result {
@@ -47,6 +47,10 @@ fn on_root_with_decomposed_unicode() -> crate::Result {
             Cow::Owned(_),
         ));
     }
+    assert!(
+        repo.workdir_path("").expect("non-bare").is_dir(),
+        "decomposed or not, we generate a valid path given what Git would store"
+    );
 
     Ok(())
 }
@@ -129,6 +133,20 @@ fn none_bare_repo_without_index() -> crate::Result {
     )?;
     assert!(!repo.is_bare(), "worktree isn't dependent on an index file");
     assert!(repo.worktree().is_some());
+    assert_eq!(
+        repo.workdir_path(BString::from("this")).map(|p| p.is_file()),
+        Some(true)
+    );
+    #[allow(clippy::needless_borrows_for_generic_args)]
+    let actual = repo.workdir_path(&BString::from("this")).map(|p| p.is_file());
+    assert_eq!(actual, Some(true));
+    assert!(
+        repo.workdir_path("this")
+            .expect("non-bare")
+            .strip_prefix(repo.workdir().expect("non-bare"))
+            .is_ok(),
+        "this is a minimal path"
+    );
     Ok(())
 }
 

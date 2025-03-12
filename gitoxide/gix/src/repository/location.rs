@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::bstr::BStr;
 use gix_path::realpath::MAX_SYMLINKS;
 
 impl crate::Repository {
@@ -57,6 +58,16 @@ impl crate::Repository {
     /// Return the work tree containing all checked out files, if there is one.
     pub fn workdir(&self) -> Option<&std::path::Path> {
         self.work_tree.as_deref()
+    }
+
+    /// Turn `rela_path` into a path qualified with the [`workdir()`](Self::workdir()) of this instance,
+    /// if one is available.
+    pub fn workdir_path(&self, rela_path: impl AsRef<BStr>) -> Option<PathBuf> {
+        self.workdir().and_then(|wd| {
+            gix_path::try_from_bstr(rela_path.as_ref())
+                .ok()
+                .map(|rela| wd.join(rela))
+        })
     }
 
     // TODO: tests, respect precomposeUnicode
