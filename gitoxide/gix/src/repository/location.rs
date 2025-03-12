@@ -39,7 +39,7 @@ impl crate::Repository {
     /// The path to the `.gitmodules` file in the worktree, if a worktree is available.
     #[cfg(feature = "attributes")]
     pub fn modules_path(&self) -> Option<PathBuf> {
-        self.work_dir().map(|wtd| wtd.join(crate::submodule::MODULES_FILE))
+        self.workdir().map(|wtd| wtd.join(crate::submodule::MODULES_FILE))
     }
 
     /// The path to the `.git` directory itself, or equivalent if this is a bare repository.
@@ -48,8 +48,14 @@ impl crate::Repository {
     }
 
     /// Return the work tree containing all checked out files, if there is one.
+    #[deprecated = "Use `workdir()` instead"]
     #[doc(alias = "workdir", alias = "git2")]
     pub fn work_dir(&self) -> Option<&std::path::Path> {
+        self.work_tree.as_deref()
+    }
+
+    /// Return the work tree containing all checked out files, if there is one.
+    pub fn workdir(&self) -> Option<&std::path::Path> {
         self.work_tree.as_deref()
     }
 
@@ -65,7 +71,7 @@ impl crate::Repository {
     /// Note that the CWD is obtained once upon instantiation of the repository.
     // TODO: tests, details - there is a lot about environment variables to change things around.
     pub fn prefix(&self) -> Result<Option<&Path>, gix_path::realpath::Error> {
-        let (root, current_dir) = match self.work_dir().zip(self.options.current_dir.as_deref()) {
+        let (root, current_dir) = match self.workdir().zip(self.options.current_dir.as_deref()) {
             Some((work_dir, cwd)) => (work_dir, cwd),
             None => return Ok(None),
         };

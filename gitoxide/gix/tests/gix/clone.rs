@@ -503,7 +503,7 @@ mod blocking_io {
         let index = repo.index()?;
         assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
 
-        assure_index_entries_on_disk(&index, repo.work_dir().expect("non-bare"));
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
         Ok(())
     }
     #[test]
@@ -550,7 +550,7 @@ mod blocking_io {
         let index = repo.index()?;
         assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
 
-        assure_index_entries_on_disk(&index, repo.work_dir().expect("non-bare"));
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
         Ok(())
     }
 

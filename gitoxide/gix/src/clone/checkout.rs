@@ -92,7 +92,7 @@ pub mod main_worktree {
                 .repo
                 .as_ref()
                 .expect("BUG: this method may only be called until it is successful");
-            let workdir = repo.work_dir().ok_or_else(|| Error::BareRepository {
+            let workdir = repo.workdir().ok_or_else(|| Error::BareRepository {
                 git_dir: repo.git_dir().to_owned(),
             })?;
 
@@ -173,7 +173,7 @@ impl PrepareCheckout {
 impl Drop for PrepareCheckout {
     fn drop(&mut self) {
         if let Some(repo) = self.repo.take() {
-            std::fs::remove_dir_all(repo.work_dir().unwrap_or_else(|| repo.path())).ok();
+            std::fs::remove_dir_all(repo.workdir().unwrap_or_else(|| repo.path())).ok();
         }
     }
 }
