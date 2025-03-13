@@ -667,6 +667,7 @@ mod blocking_io {
             assert!(!repo.index_path().is_file(), "newly initialized repos have no index");
             let head = repo.head()?;
             assert!(head.is_unborn());
+            assert_eq!(repo.head_tree_id_or_empty()?, repo.empty_tree().id());
 
             assert!(
                 head.log_iter().all()?.is_none(),
