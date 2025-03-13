@@ -83,7 +83,7 @@ pub enum ArgumentSafety<'a> {
 /// URLs may contain passwords and using standard [formatting](std::fmt::Display) will redact
 /// such password, whereas [lossless serialization](Url::to_bstring()) will contain all parts of the
 /// URL.
-/// **Beware that some URls still print secrets if they use them outside of the designated password fields.**
+/// **Beware that some URLs still print secrets if they use them outside of the designated password fields.**
 ///
 /// Also note that URLs that fail to parse are typically stored in [the resulting error](parse::Error) type
 /// and printed in full using its display implementation.
