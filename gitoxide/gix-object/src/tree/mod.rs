@@ -44,11 +44,98 @@ pub struct Editor<'a> {
 /// create it by converting [`EntryKind`] into `EntryMode`.
 #[derive(Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct EntryMode(pub u16);
+pub struct EntryMode {
+    // Represents the value read from Git, except that "040000" is represented with 0o140000 but
+    // "40000" is represented with 0o40000
+    internal: u16,
+}
+
+impl TryFrom<u32> for tree::EntryMode {
+    type Error = u32;
+    fn try_from(mode: u32) -> Result<Self, Self::Error> {
+        Ok(match mode {
+            0o40000 | 0o120000 | 0o160000 => EntryMode { internal: mode as u16 },
+            blob_mode if blob_mode & 0o100000 == 0o100000 => EntryMode { internal: mode as u16 },
+            _ => return Err(mode),
+        })
+    }
+}
+
+impl EntryMode {
+    /// Expose the value as a u16 (lossy, unlike the internal representation that is hidden)
+    pub const fn value(self) -> u16 {
+        self.internal
+    }
+
+    /// Return the representation as used in the git internal format, which is octal and written
+    /// to the `backing` buffer. The respective sub-slice that was written to is returned.
+    pub fn as_bytes<'a>(&self, backing: &'a mut [u8; 6]) -> &'a BStr {
+        if self.internal == 0 {
+            std::slice::from_ref(&b'0')
+        } else {
+            for (idx, backing_octet) in backing.iter_mut().enumerate() {
+                let bit_pos = 3 /* because base 8 and 2^3 == 8*/ * (6 - idx - 1);
+                let oct_mask = 0b111 << bit_pos;
+                let digit = (self.internal & oct_mask) >> bit_pos;
+                *backing_octet = b'0' + digit as u8;
+            }
+            if backing[1] == b'4' {
+                &backing[1..6]
+            } else {
+                &backing[0..6]
+            }
+        }
+        .into()
+    }
+
+    /// Construct an EntryMode from bytes represented as in the git internal format
+    /// Return the mode and the remainder of the bytes
+    pub(crate) fn extract_from_bytes(i: &[u8]) -> Option<(Self, &'_ [u8])> {
+        let mut mode = 0;
+        let mut idx = 0;
+        let mut space_pos = 0;
+        if i.is_empty() {
+            return None;
+        }
+        // const fn, this is why we can't have nice things (like `.iter().any()`)
+        while idx < i.len() {
+            let b = i[idx];
+            // Delimiter, return what we got
+            if b == b' ' {
+                space_pos = idx;
+                break;
+            }
+            // Not a pure octal input
+            // Performance matters here, so `!(b'0'..=b'7').contains(&b)` won't do
+            #[allow(clippy::manual_range_contains)]
+            if b < b'0' || b > b'7' {
+                return None;
+            }
+            // More than 6 octal digits we must have hit the delimiter or the input was malformed
+            if idx > 6 {
+                return None;
+            }
+            mode = (mode << 3) + (b - b'0') as u16;
+            idx += 1;
+        }
+        Some((Self { internal: mode }, &i[(space_pos + 1)..]))
+    }
+
+    /// Construct an EntryMode from bytes represented as in the git internal format
+    pub fn from_bytes(i: &[u8]) -> Option<Self> {
+        Self::extract_from_bytes(i).map(|(mode, _rest)| mode)
+    }
+}
 
 impl std::fmt::Debug for EntryMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EntryMode({:#o})", self.0)
+        write!(f, "EntryMode(0o{})", self.as_bytes(&mut Default::default()))
+    }
+}
+
+impl std::fmt::Octal for EntryMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_bytes(&mut Default::default()))
     }
 }
 
@@ -74,7 +161,7 @@ pub enum EntryKind {
 
 impl From<EntryKind> for EntryMode {
     fn from(value: EntryKind) -> Self {
-        EntryMode(value as u16)
+        EntryMode { internal: value as u16 }
     }
 }
 
@@ -100,22 +187,14 @@ impl EntryKind {
     }
 }
 
-impl std::ops::Deref for EntryMode {
-    type Target = u16;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 const IFMT: u16 = 0o170000;
 
 impl EntryMode {
     /// Discretize the raw mode into an enum with well-known state while dropping unnecessary details.
     pub const fn kind(&self) -> EntryKind {
-        let etype = self.0 & IFMT;
+        let etype = self.value() & IFMT;
         if etype == 0o100000 {
-            if self.0 & 0o000100 == 0o000100 {
+            if self.value() & 0o000100 == 0o000100 {
                 EntryKind::BlobExecutable
             } else {
                 EntryKind::Blob
@@ -131,27 +210,27 @@ impl EntryMode {
 
     /// Return true if this entry mode represents a Tree/directory
     pub const fn is_tree(&self) -> bool {
-        self.0 & IFMT == EntryKind::Tree as u16
+        self.value() & IFMT == EntryKind::Tree as u16
     }
 
     /// Return true if this entry mode represents the commit of a submodule.
     pub const fn is_commit(&self) -> bool {
-        self.0 & IFMT == EntryKind::Commit as u16
+        self.value() & IFMT == EntryKind::Commit as u16
     }
 
     /// Return true if this entry mode represents a symbolic link
     pub const fn is_link(&self) -> bool {
-        self.0 & IFMT == EntryKind::Link as u16
+        self.value() & IFMT == EntryKind::Link as u16
     }
 
     /// Return true if this entry mode represents anything BUT Tree/directory
     pub const fn is_no_tree(&self) -> bool {
-        self.0 & IFMT != EntryKind::Tree as u16
+        self.value() & IFMT != EntryKind::Tree as u16
     }
 
     /// Return true if the entry is any kind of blob.
     pub const fn is_blob(&self) -> bool {
-        self.0 & IFMT == 0o100000
+        self.value() & IFMT == 0o100000
     }
 
     /// Return true if the entry is an executable blob.
@@ -177,27 +256,6 @@ impl EntryMode {
             Link => "link",
             Commit => "commit",
         }
-    }
-
-    /// Return the representation as used in the git internal format, which is octal and written
-    /// to the `backing` buffer. The respective sub-slice that was written to is returned.
-    pub fn as_bytes<'a>(&self, backing: &'a mut [u8; 6]) -> &'a BStr {
-        if self.0 == 0 {
-            std::slice::from_ref(&b'0')
-        } else {
-            let mut nb = 0;
-            let mut n = self.0;
-            while n > 0 {
-                let remainder = (n % 8) as u8;
-                backing[nb] = b'0' + remainder;
-                n /= 8;
-                nb += 1;
-            }
-            let res = &mut backing[..nb];
-            res.reverse();
-            res
-        }
-        .into()
     }
 }
 

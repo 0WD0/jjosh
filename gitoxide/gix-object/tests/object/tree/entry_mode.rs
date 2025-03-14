@@ -16,11 +16,14 @@ fn is_methods() {
     }
 
     assert!(mode(EntryKind::Blob).is_blob());
-    assert!(EntryMode(0o100645).is_blob());
-    assert_eq!(EntryMode(0o100645).kind(), EntryKind::Blob);
-    assert!(!EntryMode(0o100675).is_executable());
-    assert!(EntryMode(0o100700).is_executable());
-    assert_eq!(EntryMode(0o100700).kind(), EntryKind::BlobExecutable);
+    assert!(EntryMode::from_bytes(b"100645").unwrap().is_blob());
+    assert_eq!(EntryMode::from_bytes(b"100645").unwrap().kind(), EntryKind::Blob);
+    assert!(!EntryMode::from_bytes(b"100675").unwrap().is_executable());
+    assert!(EntryMode::from_bytes(b"100700").unwrap().is_executable());
+    assert_eq!(
+        EntryMode::from_bytes(b"100700").unwrap().kind(),
+        EntryKind::BlobExecutable
+    );
     assert!(!mode(EntryKind::Blob).is_link());
     assert!(mode(EntryKind::BlobExecutable).is_blob());
     assert!(mode(EntryKind::BlobExecutable).is_executable());
@@ -29,17 +32,19 @@ fn is_methods() {
 
     assert!(!mode(EntryKind::Link).is_blob());
     assert!(mode(EntryKind::Link).is_link());
-    assert!(EntryMode(0o121234).is_link());
-    assert_eq!(EntryMode(0o121234).kind(), EntryKind::Link);
+    assert!(EntryMode::from_bytes(b"121234").unwrap().is_link());
+    assert_eq!(EntryMode::from_bytes(b"121234").unwrap().kind(), EntryKind::Link);
     assert!(mode(EntryKind::Link).is_blob_or_symlink());
     assert!(mode(EntryKind::Tree).is_tree());
-    assert!(EntryMode(0o040101).is_tree());
-    assert_eq!(EntryMode(0o040101).kind(), EntryKind::Tree);
+    assert!(EntryMode::from_bytes(b"040101").unwrap().is_tree());
+    assert_eq!(EntryMode::from_bytes(b"040101").unwrap().kind(), EntryKind::Tree);
+    assert!(EntryMode::from_bytes(b"40101").unwrap().is_tree());
+    assert_eq!(EntryMode::from_bytes(b"40101").unwrap().kind(), EntryKind::Tree);
     assert!(mode(EntryKind::Commit).is_commit());
-    assert!(EntryMode(0o167124).is_commit());
-    assert_eq!(EntryMode(0o167124).kind(), EntryKind::Commit);
+    assert!(EntryMode::from_bytes(b"167124").unwrap().is_commit());
+    assert_eq!(EntryMode::from_bytes(b"167124").unwrap().kind(), EntryKind::Commit);
     assert_eq!(
-        EntryMode(0o000000).kind(),
+        EntryMode::from_bytes(b"000000").unwrap().kind(),
         EntryKind::Commit,
         "commit is really 'anything else' as `kind()` can't fail"
     );
@@ -58,13 +63,19 @@ fn as_bytes() {
         (EntryKind::Link.into(), EntryKind::Link.as_octal_str()),
         (EntryKind::Commit.into(), EntryKind::Commit.as_octal_str()),
         (
-            EntryMode::try_from(b"100744 ".as_ref()).expect("valid"),
+            EntryMode::from_bytes(b"100744 ".as_ref()).expect("valid"),
             "100744".into(),
         ),
         (
-            EntryMode::try_from(b"100644 ".as_ref()).expect("valid"),
+            EntryMode::from_bytes(b"100644 ".as_ref()).expect("valid"),
             "100644".into(),
         ),
+        // Show incorrect behaviour: b"040000" doesn't round-trip
+        (
+            EntryMode::from_bytes(b"040000".as_ref()).expect("valid"),
+            "40000".into(),
+        ),
+        (EntryMode::from_bytes(b"40000".as_ref()).expect("valid"), "40000".into()),
     ] {
         assert_eq!(mode.as_bytes(&mut buf), expected);
     }
