@@ -269,7 +269,15 @@ pub fn file(
                     unreachable!("We already found file_path in suspect^{{tree}}, so it can't be deleted")
                 }
                 gix_diff::tree::recorder::Change::Modification { previous_oid, oid, .. } => {
-                    let changes = blob_changes(&odb, resource_cache, oid, previous_oid, file_path, &mut stats)?;
+                    let changes = blob_changes(
+                        &odb,
+                        resource_cache,
+                        oid,
+                        previous_oid,
+                        file_path,
+                        options.diff_algorithm,
+                        &mut stats,
+                    )?;
                     hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent_id);
                 }
             }
@@ -553,6 +561,7 @@ fn blob_changes(
     oid: ObjectId,
     previous_oid: ObjectId,
     file_path: &BStr,
+    diff_algorithm: gix_diff::blob::Algorithm,
     stats: &mut Statistics,
 ) -> Result<Vec<Change>, Error> {
     /// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Source File*.
@@ -631,7 +640,7 @@ fn blob_changes(
     let number_of_lines_in_destination = input.after.len();
     let change_recorder = ChangeRecorder::new(number_of_lines_in_destination as u32);
 
-    let res = gix_diff::blob::diff(gix_diff::blob::Algorithm::Histogram, &input, change_recorder);
+    let res = gix_diff::blob::diff(diff_algorithm, &input, change_recorder);
     stats.blobs_diffed += 1;
     Ok(res)
 }
