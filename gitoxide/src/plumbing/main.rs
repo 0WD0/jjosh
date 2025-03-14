@@ -1555,10 +1555,17 @@ pub fn main() -> Result<()> {
             progress_keep_open,
             None,
             move |_progress, out, err| {
+                let repo = repository(Mode::Lenient)?;
+                let diff_algorithm = repo.diff_algorithm()?;
+
                 core::repository::blame::blame_file(
-                    repository(Mode::Lenient)?,
+                    repo,
                     &file,
-                    gix::blame::Options { range, since },
+                    gix::blame::Options {
+                        diff_algorithm,
+                        range,
+                        since,
+                    },
                     out,
                     statistics.then_some(err),
                 )
