@@ -653,21 +653,25 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 }
 
 fn bash_program() -> &'static Path {
-    // TODO(deps): *Maybe* add something to `gix-path` like `env::shell()` that can be used to
-    //             find bash and, once the version `gix-testtools` depends on has it, use it.
+    // TODO(deps): Unify with `gix_path::env::shell()` by having both call a more general function
+    //             in `gix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
     static GIT_BASH: Lazy<PathBuf> = Lazy::new(|| {
         if cfg!(windows) {
             GIT_CORE_DIR
                 .ancestors()
                 .nth(3)
-                .map(OsString::from)
-                .map(|mut raw_path| {
-                    // Go down to where `bash.exe` usually is. Keep using `/` separators (not `\`).
-                    raw_path.push("/usr/bin/bash.exe");
-                    raw_path
+                .map(OsStr::new)
+                .iter()
+                .flat_map(|prefix| {
+                    // Go down to places `bash.exe` usually is. Keep using `/` separators, not `\`.
+                    ["/bin/bash.exe", "/usr/bin/bash.exe"].into_iter().map(|suffix| {
+                        let mut raw_path = (*prefix).to_owned();
+                        raw_path.push(suffix);
+                        raw_path
+                    })
                 })
                 .map(PathBuf::from)
-                .filter(|bash| bash.is_file())
+                .find(|bash| bash.is_file())
                 .unwrap_or_else(|| "bash.exe".into())
         } else {
             "bash".into()
