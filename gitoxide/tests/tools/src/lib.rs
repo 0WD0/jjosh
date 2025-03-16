@@ -652,7 +652,35 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_CONFIG_VALUE_3", "always")
 }
 
-fn bash_program() -> &'static Path {
+/// Get the path attempted as a `bash` interpreter, for fixture scripts having no `#!` we can use.
+///
+/// This is rarely called on Unix-like systems, provided that fixture scripts have usable shebang
+/// (`#!`) lines and are marked executable. However, Windows does not recognize `#!` when executing
+/// a file. If all fixture scripts that cannot be directly executed are `bash` scripts or can be
+/// treated as such, fixture generation still works on Windows, as long as this function manages to
+/// find or guess a suitable `bash` interpreter.
+///
+/// ### Search order
+///
+/// This function is used internally. It is public to facilitate diagnostic use. The following
+/// details are subject to change without warning, and changes are treated as non-breaking.
+///
+/// The `bash.exe` found in a path search is not always suitable on Windows. This is mainly because
+/// `bash.exe` in `System32`, which is associated with WSL, would often be found first. But even
+/// where that is not the case, the best `bash.exe` to use to run fixture scripts to set up Git
+/// repositories for testing is usually one associated with Git for Windows, even if some other
+/// `bash.exe` would be found in a path search. Currently, the search order we use is as follows:
+///
+/// 1. The shim `bash.exe`, which sets environment variables when run and is, on some systems,
+///    needed to find the POSIX utilities that scripts need (or correct versions of them).
+///
+/// 2. The non-shim `bash.exe`, which is sometimes available even when the shim is not available.
+///    This is mainly because the Git for Windows SDK does not come with a `bash.exe` shim.
+///
+/// 3. As a fallback, the simple name `bash.exe`, which triggers a path search when run.
+///
+/// On non-Windows systems, the simple name `bash` is used, which triggers a path search when run.
+pub fn bash_program() -> &'static Path {
     // TODO(deps): Unify with `gix_path::env::shell()` by having both call a more general function
     //             in `gix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
     static GIT_BASH: Lazy<PathBuf> = Lazy::new(|| {
