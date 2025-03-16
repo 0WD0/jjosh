@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu -o pipefail
+set -eux -o pipefail
 
 function tick () {
   if test -z "${tick+set}"
@@ -190,6 +190,7 @@ git init --bare bad-url-rewriting
 (cd bad-url-rewriting
 
   git remote add origin https://github.com/foobar/gitoxide
+  nl -ba config >&2
   cat <<EOF >> config
 
 [remote "origin"]
@@ -201,6 +202,7 @@ git init --bare bad-url-rewriting
 [url "https://github.com/byron/"]
   insteadOf = https://github.com/foobar/
 EOF
+  nl -ba config >&2
 
   {
     git remote get-url origin
