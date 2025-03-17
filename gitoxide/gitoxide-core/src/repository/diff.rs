@@ -141,7 +141,10 @@ pub fn file(
         .path_and_mode()
         .context(format!("rev-spec '{new_revspec}' must contain a path"))?;
 
-    let mut resource_cache = repo.diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())?;
+    let mut resource_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
+        Default::default(),
+    )?;
 
     resource_cache.set_resource(
         old_blob_id.into(),
