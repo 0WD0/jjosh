@@ -1,10 +1,10 @@
-use gix::bstr::{BStr, BString, ByteSlice};
+use anyhow::Context;
+use gix::bstr::{BString, ByteSlice};
 use gix::diff::blob::intern::TokenSource;
 use gix::diff::blob::UnifiedDiffBuilder;
 use gix::objs::tree::EntryMode;
 use gix::odb::store::RefreshMode;
 use gix::prelude::ObjectIdExt;
-use gix::ObjectId;
 
 pub fn tree(
     mut repo: gix::Repository,
@@ -118,156 +118,42 @@ fn typed_location(mut location: BString, mode: EntryMode) -> BString {
 pub fn file(
     mut repo: gix::Repository,
     out: &mut dyn std::io::Write,
-    old_treeish: BString,
-    new_treeish: BString,
-    path: BString,
+    old_revspec: BString,
+    new_revspec: BString,
 ) -> Result<(), anyhow::Error> {
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
     repo.objects.refresh = RefreshMode::Never;
 
-    let old_tree_id = repo.rev_parse_single(old_treeish.as_bstr())?;
-    let new_tree_id = repo.rev_parse_single(new_treeish.as_bstr())?;
+    let old_resolved_revspec = repo.rev_parse(old_revspec.as_bstr())?;
+    let new_resolved_revspec = repo.rev_parse(new_revspec.as_bstr())?;
 
-    let old_tree = old_tree_id.object()?.peel_to_tree()?;
-    let new_tree = new_tree_id.object()?.peel_to_tree()?;
+    let old_blob_id = old_resolved_revspec
+        .single()
+        .context(format!("rev-spec '{old_revspec}' must resolve to a single object"))?;
+    let new_blob_id = new_resolved_revspec
+        .single()
+        .context(format!("rev-spec '{new_revspec}' must resolve to a single object"))?;
 
-    let mut old_tree_buf = Vec::new();
-    let mut new_tree_buf = Vec::new();
-
-    use gix::diff::object::FindExt;
-
-    let old_tree_iter = repo.objects.find_tree_iter(&old_tree.id(), &mut old_tree_buf)?;
-    let new_tree_iter = repo.objects.find_tree_iter(&new_tree.id(), &mut new_tree_buf)?;
-
-    use gix::diff::tree::{
-        recorder::{self, Location},
-        Recorder,
-    };
-
-    struct FindChangeToPath {
-        inner: Recorder,
-        interesting_path: BString,
-        change: Option<recorder::Change>,
-    }
-
-    impl FindChangeToPath {
-        fn new(interesting_path: &BStr) -> Self {
-            let inner = Recorder::default().track_location(Some(Location::Path));
-
-            FindChangeToPath {
-                inner,
-                interesting_path: interesting_path.into(),
-                change: None,
-            }
-        }
-    }
-
-    use gix::diff::tree::{visit, Visit};
-
-    impl Visit for FindChangeToPath {
-        fn pop_front_tracked_path_and_set_current(&mut self) {
-            self.inner.pop_front_tracked_path_and_set_current();
-        }
-
-        fn push_back_tracked_path_component(&mut self, component: &BStr) {
-            self.inner.push_back_tracked_path_component(component);
-        }
-
-        fn push_path_component(&mut self, component: &BStr) {
-            self.inner.push_path_component(component);
-        }
-
-        fn pop_path_component(&mut self) {
-            self.inner.pop_path_component();
-        }
-
-        fn visit(&mut self, change: visit::Change) -> visit::Action {
-            if self.inner.path() == self.interesting_path {
-                self.change = Some(match change {
-                    visit::Change::Deletion {
-                        entry_mode,
-                        oid,
-                        relation,
-                    } => recorder::Change::Deletion {
-                        entry_mode,
-                        oid,
-                        path: self.inner.path_clone(),
-                        relation,
-                    },
-                    visit::Change::Addition {
-                        entry_mode,
-                        oid,
-                        relation,
-                    } => recorder::Change::Addition {
-                        entry_mode,
-                        oid,
-                        path: self.inner.path_clone(),
-                        relation,
-                    },
-                    visit::Change::Modification {
-                        previous_entry_mode,
-                        previous_oid,
-                        entry_mode,
-                        oid,
-                    } => recorder::Change::Modification {
-                        previous_entry_mode,
-                        previous_oid,
-                        entry_mode,
-                        oid,
-                        path: self.inner.path_clone(),
-                    },
-                });
-
-                visit::Action::Cancel
-            } else {
-                visit::Action::Continue
-            }
-        }
-    }
-
-    let mut recorder = FindChangeToPath::new(path.as_ref());
-    let state = gix::diff::tree::State::default();
-    let result = gix::diff::tree(old_tree_iter, new_tree_iter, state, &repo.objects, &mut recorder);
-
-    let change = match result {
-        Ok(_) | Err(gix::diff::tree::Error::Cancelled) => recorder.change,
-        Err(error) => return Err(error.into()),
-    };
-
-    let Some(change) = change else {
-        anyhow::bail!(
-            "There was no change to {} between {} and {}",
-            &path,
-            old_treeish,
-            new_treeish
-        )
-    };
+    let (old_path, _) = old_resolved_revspec
+        .path_and_mode()
+        .context(format!("rev-spec '{old_revspec}' must contain a path"))?;
+    let (new_path, _) = new_resolved_revspec
+        .path_and_mode()
+        .context(format!("rev-spec '{new_revspec}' must contain a path"))?;
 
     let mut resource_cache = repo.diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())?;
 
-    let (previous_oid, oid) = match change {
-        recorder::Change::Addition { oid, .. } => {
-            // Setting `previous_oid` to `ObjectId::empty_blob` makes `diff` see an addition.
-            (ObjectId::empty_blob(gix::hash::Kind::Sha1), oid)
-        }
-        recorder::Change::Deletion { oid: previous_oid, .. } => {
-            // Setting `oid` to `ObjectId::empty_blob` makes `diff` see a deletion.
-            (previous_oid, ObjectId::empty_blob(gix::hash::Kind::Sha1))
-        }
-        recorder::Change::Modification { previous_oid, oid, .. } => (previous_oid, oid),
-    };
-
     resource_cache.set_resource(
-        previous_oid,
+        old_blob_id.into(),
         gix::object::tree::EntryKind::Blob,
-        path.as_slice().into(),
+        old_path,
         gix::diff::blob::ResourceKind::OldOrSource,
         &repo.objects,
     )?;
     resource_cache.set_resource(
-        oid,
+        new_blob_id.into(),
         gix::object::tree::EntryKind::Blob,
-        path.as_slice().into(),
+        new_path,
         gix::diff::blob::ResourceKind::NewOrDestination,
         &repo.objects,
     )?;

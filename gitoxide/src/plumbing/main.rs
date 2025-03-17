@@ -278,9 +278,8 @@ pub fn main() -> Result<()> {
                 },
             ),
             crate::plumbing::options::diff::SubCommands::File {
-                old_treeish,
-                new_treeish,
-                path,
+                old_revspec,
+                new_revspec,
             } => prepare_and_run(
                 "diff-file",
                 trace,
@@ -289,7 +288,7 @@ pub fn main() -> Result<()> {
                 progress_keep_open,
                 None,
                 move |_progress, out, _err| {
-                    core::repository::diff::file(repository(Mode::Lenient)?, out, old_treeish, new_treeish, path)
+                    core::repository::diff::file(repository(Mode::Lenient)?, out, old_revspec, new_revspec)
                 },
             ),
         },
