@@ -1,7 +1,8 @@
 use anyhow::Context;
 use gix::bstr::{BString, ByteSlice};
 use gix::diff::blob::intern::TokenSource;
-use gix::diff::blob::UnifiedDiffBuilder;
+use gix::diff::blob::unified_diff::{ContextSize, NewlineSeparator};
+use gix::diff::blob::UnifiedDiff;
 use gix::objs::tree::EntryMode;
 use gix::odb::store::RefreshMode;
 use gix::prelude::ObjectIdExt;
@@ -163,14 +164,6 @@ pub fn file(
 
     let outcome = resource_cache.prepare_diff()?;
 
-    let old_data = String::from_utf8_lossy(outcome.old.data.as_slice().unwrap_or_default());
-    let new_data = String::from_utf8_lossy(outcome.new.data.as_slice().unwrap_or_default());
-
-    let input =
-        gix::diff::blob::intern::InternedInput::new(tokens_for_diffing(&old_data), tokens_for_diffing(&new_data));
-
-    let unified_diff_builder = UnifiedDiffBuilder::new(&input);
-
     use gix::diff::blob::platform::prepare_diff::Operation;
 
     let algorithm = match outcome.operation {
@@ -184,13 +177,25 @@ pub fn file(
         }
     };
 
-    let unified_diff = gix::diff::blob::diff(algorithm, &input, unified_diff_builder);
+    let interner = gix::diff::blob::intern::InternedInput::new(
+        tokens_for_diffing(outcome.old.data.as_slice().unwrap_or_default()),
+        tokens_for_diffing(outcome.new.data.as_slice().unwrap_or_default()),
+    );
+
+    let unified_diff = UnifiedDiff::new(
+        &interner,
+        String::new(),
+        NewlineSeparator::AfterHeaderAndLine("\n"),
+        ContextSize::symmetrical(3),
+    );
+
+    let unified_diff = gix::diff::blob::diff(algorithm, &interner, unified_diff)?;
 
     out.write_all(unified_diff.as_bytes())?;
 
     Ok(())
 }
 
-pub(crate) fn tokens_for_diffing(data: &str) -> impl TokenSource<Token = &str> {
-    gix::diff::blob::sources::lines(data)
+pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
+    gix::diff::blob::sources::byte_lines(data)
 }
