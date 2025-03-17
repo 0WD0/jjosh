@@ -192,6 +192,7 @@ macro_rules! mktest {
                 &mut resource_cache,
                 format!("{}.txt", $case).as_str().into(),
                 gix_blame::Options {
+                    diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                     range: None,
                     since: None,
                 },
@@ -262,6 +263,7 @@ fn diff_disparity() {
             &mut resource_cache,
             format!("{case}.txt").as_str().into(),
             gix_blame::Options {
+                diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: None,
                 since: None,
             },
@@ -293,6 +295,7 @@ fn line_range() {
         &mut resource_cache,
         "simple.txt".into(),
         gix_blame::Options {
+            diff_algorithm: gix_diff::blob::Algorithm::Histogram,
             range: Some(1..2),
             since: None,
         },
@@ -323,6 +326,7 @@ fn since() {
         &mut resource_cache,
         "simple.txt".into(),
         gix_blame::Options {
+            diff_algorithm: gix_diff::blob::Algorithm::Histogram,
             range: None,
             since: Some(gix_date::parse("2025-01-31", None).unwrap()),
         },
