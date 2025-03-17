@@ -327,6 +327,31 @@ jobs:
       - name: Test (nextest)
         run: cargo nextest run --target $env:TARGET --workspace --no-fail-fast size
 
+  # TODO: If this is kept, then remove `fail-fast: false`; run only a subset of the tests, unless
+  # building and running the whole test suite is fast; install the cross target early via
+  # `dtolnay/rust-toolchain`, listing it as an additional target; and add a `Swatinem/rust-cache`
+  # step to cache dependencies.
+  test-cross:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        moniker: [ android, s390x ]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v3
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - name: Test (unit)
+        env:
+          RUST_BACKTRACE: '1'
+        run: just cross-test-${{ matrix.moniker }}
+
   lint:
     runs-on: ubuntu-latest
 
@@ -484,6 +509,7 @@ jobs:
     env:
       # List all jobs that are intended NOT to block PR auto-merge here.
       EXPECTED_NONBLOCKING_JOBS: |-
+        test-cross
         cargo-deny-advisories
         wasm
         tests-pass
