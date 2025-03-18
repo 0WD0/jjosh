@@ -203,13 +203,13 @@ jobs:
           $log = 'setup-log.txt'
           # Inno Setup args reference: https://jrsoftware.org/ishelp/index.php?topic=setupcmdline
           $arguments = @(
-              '/VERYSILENT',
-              '/SUPPRESSMSGBOXES',
-              '/ALLUSERS',
-              "/LOG=$log",
-              '/NORESTART',
-              '/CLOSEAPPLICATIONS',
-              '/FORCECLOSEAPPLICATIONS'
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/ALLUSERS',
+            "/LOG=$log",
+            '/NORESTART',
+            '/CLOSEAPPLICATIONS',
+            '/FORCECLOSEAPPLICATIONS'
           )
 
           mkdir $workingDir | Out-Null
