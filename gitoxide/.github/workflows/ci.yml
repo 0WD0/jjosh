@@ -191,7 +191,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Upgrade Git for Windows to latest (pre)release
+      - name: Upgrade Git for Windows to latest stable release
         # This upgrades Git to work around https://github.com/GitoxideLabs/gitoxide/issues/1849.
         # TODO: Remove this step once the runner image has Git 2.49.0 or higher.
         env:
@@ -214,8 +214,7 @@ jobs:
 
           mkdir $workingDir | Out-Null
           cd $workingDir
-          $newestTag = gh release list --repo $repo --limit 1 --json tagName --jq '.[0].tagName'
-          gh release download $newestTag --repo $repo --pattern $pattern
+          gh release download --repo $repo --pattern $pattern
           $installer = Get-Item $pattern
           Start-Process -FilePath $installer -ArgumentList $arguments -NoNewWindow -Wait
 
