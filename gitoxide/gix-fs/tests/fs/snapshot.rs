@@ -50,5 +50,8 @@ fn has_nanosecond_times(root: &Path) -> std::io::Result<bool> {
     std::fs::write(&test_file, "b")?;
     let second_time = test_file.metadata()?.modified()?;
 
-    Ok(first_time != second_time)
+    Ok(second_time.duration_since(first_time).is_ok_and(|d|
+            // This can be falsely false if a filesystem would be ridiculously fast,
+            // which means a test won't run even though it could. But that's OK, and unlikely.
+            d.subsec_nanos() != 0))
 }
