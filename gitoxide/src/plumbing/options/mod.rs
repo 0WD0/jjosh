@@ -517,6 +517,15 @@ pub mod diff {
             #[clap(value_parser = crate::shared::AsBString)]
             new_treeish: BString,
         },
+        /// Diff two versions of a file.
+        File {
+            /// A rev-spec representing the 'before' or old state of the file, like '@~100:file'
+            #[clap(value_parser = crate::shared::AsBString)]
+            old_revspec: BString,
+            /// A rev-spec representing the 'after' or new state of the file, like ':file'
+            #[clap(value_parser = crate::shared::AsBString)]
+            new_revspec: BString,
+        },
     }
 }
 

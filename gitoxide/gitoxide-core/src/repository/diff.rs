@@ -1,4 +1,8 @@
+use anyhow::Context;
 use gix::bstr::{BString, ByteSlice};
+use gix::diff::blob::intern::TokenSource;
+use gix::diff::blob::unified_diff::{ContextSize, NewlineSeparator};
+use gix::diff::blob::UnifiedDiff;
 use gix::objs::tree::EntryMode;
 use gix::odb::store::RefreshMode;
 use gix::prelude::ObjectIdExt;
@@ -110,4 +114,87 @@ fn typed_location(mut location: BString, mode: EntryMode) -> BString {
         location.push(b'/');
     }
     location
+}
+
+pub fn file(
+    mut repo: gix::Repository,
+    out: &mut dyn std::io::Write,
+    old_revspec: BString,
+    new_revspec: BString,
+) -> Result<(), anyhow::Error> {
+    repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
+    repo.objects.refresh = RefreshMode::Never;
+
+    let old_resolved_revspec = repo.rev_parse(old_revspec.as_bstr())?;
+    let new_resolved_revspec = repo.rev_parse(new_revspec.as_bstr())?;
+
+    let old_blob_id = old_resolved_revspec
+        .single()
+        .context(format!("rev-spec '{old_revspec}' must resolve to a single object"))?;
+    let new_blob_id = new_resolved_revspec
+        .single()
+        .context(format!("rev-spec '{new_revspec}' must resolve to a single object"))?;
+
+    let (old_path, _) = old_resolved_revspec
+        .path_and_mode()
+        .context(format!("rev-spec '{old_revspec}' must contain a path"))?;
+    let (new_path, _) = new_resolved_revspec
+        .path_and_mode()
+        .context(format!("rev-spec '{new_revspec}' must contain a path"))?;
+
+    let mut resource_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
+        Default::default(),
+    )?;
+
+    resource_cache.set_resource(
+        old_blob_id.into(),
+        gix::object::tree::EntryKind::Blob,
+        old_path,
+        gix::diff::blob::ResourceKind::OldOrSource,
+        &repo.objects,
+    )?;
+    resource_cache.set_resource(
+        new_blob_id.into(),
+        gix::object::tree::EntryKind::Blob,
+        new_path,
+        gix::diff::blob::ResourceKind::NewOrDestination,
+        &repo.objects,
+    )?;
+
+    let outcome = resource_cache.prepare_diff()?;
+
+    use gix::diff::blob::platform::prepare_diff::Operation;
+
+    let algorithm = match outcome.operation {
+        Operation::InternalDiff { algorithm } => algorithm,
+        Operation::ExternalCommand { .. } => {
+            unreachable!("We disabled that")
+        }
+        Operation::SourceOrDestinationIsBinary => {
+            anyhow::bail!("Source or destination is binary and we can't diff that")
+        }
+    };
+
+    let interner = gix::diff::blob::intern::InternedInput::new(
+        tokens_for_diffing(outcome.old.data.as_slice().unwrap_or_default()),
+        tokens_for_diffing(outcome.new.data.as_slice().unwrap_or_default()),
+    );
+
+    let unified_diff = UnifiedDiff::new(
+        &interner,
+        String::new(),
+        NewlineSeparator::AfterHeaderAndLine("\n"),
+        ContextSize::symmetrical(3),
+    );
+
+    let unified_diff = gix::diff::blob::diff(algorithm, &interner, unified_diff)?;
+
+    out.write_all(unified_diff.as_bytes())?;
+
+    Ok(())
+}
+
+pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
+    gix::diff::blob::sources::byte_lines(data)
 }
