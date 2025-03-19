@@ -11,7 +11,7 @@ fn journey() -> Result<(), Box<dyn std::error::Error>> {
 
 fn do_journey() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = tempfile::tempdir().unwrap();
-    if !has_nanosecond_times(tmp.path())? {
+    if !has_granular_times(tmp.path())? {
         return Ok(());
     }
 
@@ -48,17 +48,21 @@ fn do_journey() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn has_nanosecond_times(root: &Path) -> std::io::Result<bool> {
-    let test_file = root.join("nanosecond-test");
+fn has_granular_times(root: &Path) -> std::io::Result<bool> {
+    let n = 100;
 
-    std::fs::write(&test_file, "a")?;
-    let first_time = test_file.metadata()?.modified()?;
+    let names: Vec<_> = (0..n).map(|i| format!("{i:03}")).collect();
+    for name in &names {
+        std::fs::write(root.join(name), name)?;
+    }
+    let mut times = Vec::new();
+    for name in names {
+        times.push(root.join(name).symlink_metadata()?.modified()?);
+    }
+    times.sort();
+    times.dedup();
 
-    std::fs::write(&test_file, "b")?;
-    let second_time = test_file.metadata()?.modified()?;
-
-    Ok(second_time.duration_since(first_time).is_ok_and(|d|
-            // This can be falsely false if a filesystem would be ridiculously fast,
-            // which means a test won't run even though it could. But that's OK, and unlikely.
-            d.subsec_nanos() != 0))
+    // This could be wrongly false if a filesystem has very precise timings yet is ridiculously
+    // fast. Then the `journey` test wouldn't run, though it could. But that's OK, and unlikely.
+    Ok(times.len() == n)
 }
