@@ -169,7 +169,6 @@ pub fn file(
     let algorithm = match outcome.operation {
         Operation::InternalDiff { algorithm } => algorithm,
         Operation::ExternalCommand { .. } => {
-            // `unreachable!` is also used in [`Platform::lines()`](gix::object::blob::diff::Platform::lines()).
             unreachable!("We disabled that")
         }
         Operation::SourceOrDestinationIsBinary => {
