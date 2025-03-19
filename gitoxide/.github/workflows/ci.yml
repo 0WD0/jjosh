@@ -162,6 +162,7 @@ jobs:
           - macos-latest
           - ubuntu-latest
           - ubuntu-24.04-arm
+      fail-fast: false
 
     runs-on: ${{ matrix.os }}
 
@@ -265,6 +266,7 @@ jobs:
             runner-arch: arm64
             runner-os: ubuntu-24.04-arm
             host-triple: armv7-unknown-linux-gnueabihf
+      fail-fast: false
 
     runs-on: ${{ matrix.runner-os }}
 

@@ -3,6 +3,13 @@ use std::path::Path;
 
 #[test]
 fn journey() -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..250 {
+        do_journey()?;
+    }
+    Ok(())
+}
+
+fn do_journey() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = tempfile::tempdir().unwrap();
     if !has_nanosecond_times(tmp.path())? {
         return Ok(());
