@@ -3,4 +3,4 @@ Error: Verification failure
 
 Caused by:
     0: Failed to verify index file checksum
-    1: expected 0eba66e6b391eb83efc3ec9fc8a3087788911c0a, got fa9a8a630eacc2d3df00aff604bec2451ccbc8ff
+    1: Hash was fa9a8a630eacc2d3df00aff604bec2451ccbc8ff, but should have been 0eba66e6b391eb83efc3ec9fc8a3087788911c0a

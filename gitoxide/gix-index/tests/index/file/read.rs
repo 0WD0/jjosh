@@ -328,7 +328,7 @@ fn v2_split_index_recursion_is_handled_gracefully() {
     let err = try_file("v2_split_index_recursive").expect_err("recursion fails gracefully");
     assert!(matches!(
         err,
-        gix_index::file::init::Error::Decode(gix_index::decode::Error::ChecksumMismatch { .. })
+        gix_index::file::init::Error::Decode(gix_index::decode::Error::Verify(_))
     ));
 }
 

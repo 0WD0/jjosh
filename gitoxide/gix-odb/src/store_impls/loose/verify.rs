@@ -19,11 +19,11 @@ pub mod integrity {
             kind: gix_object::Kind,
             id: gix_hash::ObjectId,
         },
-        #[error("{kind} object {expected} wasn't re-encoded without change - new hash is {actual}")]
-        ObjectHashMismatch {
+        #[error("{kind} object wasn't re-encoded without change")]
+        ObjectEncodeMismatch {
+            #[source]
+            source: gix_hash::verify::Error,
             kind: gix_object::Kind,
-            actual: gix_hash::ObjectId,
-            expected: gix_hash::ObjectId,
         },
         #[error("Objects were deleted during iteration - try again")]
         Retry,
@@ -77,14 +77,13 @@ impl Store {
                 .try_find(&id, &mut buf)
                 .map_err(|_| integrity::Error::Retry)?
                 .ok_or(integrity::Error::Retry)?;
-            let actual_id = sink.write_buf(object.kind, object.data).expect("sink never fails");
-            if actual_id != id {
-                return Err(integrity::Error::ObjectHashMismatch {
+            sink.write_buf(object.kind, object.data)
+                .expect("sink never fails")
+                .verify(&id)
+                .map_err(|err| integrity::Error::ObjectEncodeMismatch {
+                    source: err,
                     kind: object.kind,
-                    actual: actual_id,
-                    expected: id,
-                });
-            }
+                })?;
             object.decode().map_err(|err| integrity::Error::ObjectDecode {
                 source: err,
                 kind: object.kind,

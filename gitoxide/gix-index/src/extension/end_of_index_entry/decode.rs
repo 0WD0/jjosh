@@ -29,7 +29,10 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
 
     let (offset, checksum) = ext_data.split_at(4);
     let offset = from_be_u32(offset) as usize;
-    if offset < header::SIZE || offset > start_of_eoie || checksum.len() != gix_hash::Kind::Sha1.len_in_bytes() {
+    let Ok(checksum) = gix_hash::oid::try_from_bytes(checksum) else {
+        return None;
+    };
+    if offset < header::SIZE || offset > start_of_eoie || checksum.kind() != gix_hash::Kind::Sha1 {
         return None;
     }
 
@@ -41,7 +44,7 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
         last_chunk = Some(chunk);
     }
 
-    if hasher.finalize().as_slice() != checksum {
+    if hasher.finalize().verify(checksum).is_err() {
         return None;
     }
     // The last-to-this chunk ends where ours starts

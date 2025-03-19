@@ -180,12 +180,8 @@ where
                 let actual_id = hash.finalize();
                 if self.mode == input::Mode::Restore {
                     id = actual_id;
-                }
-                if id != actual_id {
-                    return Err(input::Error::ChecksumMismatch {
-                        actual: actual_id,
-                        expected: id,
-                    });
+                } else {
+                    actual_id.verify(&id)?;
                 }
             }
             Some(id)

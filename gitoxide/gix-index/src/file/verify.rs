@@ -9,11 +9,8 @@ mod error {
     pub enum Error {
         #[error("Could not read index file to generate hash")]
         Io(#[from] std::io::Error),
-        #[error("Index checksum should have been {expected}, but was {actual}")]
-        ChecksumMismatch {
-            actual: gix_hash::ObjectId,
-            expected: gix_hash::ObjectId,
-        },
+        #[error("Index checksum mismatch")]
+        Verify(#[from] gix_hash::verify::Error),
     }
 }
 pub use error::Error;
@@ -25,19 +22,15 @@ impl File {
         if let Some(checksum) = self.checksum {
             let num_bytes_to_hash = self.path.metadata()?.len() - checksum.as_bytes().len() as u64;
             let should_interrupt = AtomicBool::new(false);
-            let actual = gix_hash::bytes_of_file(
+            gix_hash::bytes_of_file(
                 &self.path,
                 num_bytes_to_hash,
                 checksum.kind(),
                 &mut gix_features::progress::Discard,
                 &should_interrupt,
-            )?;
-            (actual == checksum).then_some(()).ok_or(Error::ChecksumMismatch {
-                actual,
-                expected: checksum,
-            })
-        } else {
-            Ok(())
+            )?
+            .verify(&checksum)?;
         }
+        Ok(())
     }
 }

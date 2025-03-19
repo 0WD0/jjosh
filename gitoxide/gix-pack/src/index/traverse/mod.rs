@@ -126,12 +126,9 @@ impl index::File {
         E: std::error::Error + Send + Sync + 'static,
     {
         Ok(if check.file_checksum() {
-            if self.pack_checksum() != pack.checksum() {
-                return Err(Error::PackMismatch {
-                    actual: pack.checksum(),
-                    expected: self.pack_checksum(),
-                });
-            }
+            pack.checksum()
+                .verify(&self.pack_checksum())
+                .map_err(Error::PackMismatch)?;
             let (pack_res, id) = parallel::join(
                 move || pack.verify_checksum(pack_progress, should_interrupt),
                 move || self.verify_checksum(index_progress, should_interrupt),
@@ -210,15 +207,12 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     if check.object_checksum() {
-        let actual_oid = gix_object::compute_hash(index_entry.oid.kind(), object_kind, decompressed);
-        if actual_oid != index_entry.oid {
-            return Err(Error::PackObjectMismatch {
-                actual: actual_oid,
-                expected: index_entry.oid,
+        gix_object::Data::new(object_kind, decompressed)
+            .verify_checksum(&index_entry.oid)
+            .map_err(|source| Error::PackObjectVerify {
                 offset: index_entry.pack_offset,
-                kind: object_kind,
-            });
-        }
+                source,
+            })?;
         if let Some(desired_crc32) = index_entry.crc32 {
             let actual_crc32 = pack_entry_crc32();
             if actual_crc32 != desired_crc32 {

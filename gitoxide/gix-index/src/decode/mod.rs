@@ -22,11 +22,8 @@ mod error {
         Extension(#[from] extension::decode::Error),
         #[error("Index trailer should have been {expected} bytes long, but was {actual}")]
         UnexpectedTrailerLength { expected: usize, actual: usize },
-        #[error("Shared index checksum was {actual_checksum} but should have been {expected_checksum}")]
-        ChecksumMismatch {
-            actual_checksum: gix_hash::ObjectId,
-            expected_checksum: gix_hash::ObjectId,
-        },
+        #[error("Shared index checksum mismatch")]
+        Verify(#[from] gix_hash::verify::Error),
     }
 }
 pub use error::Error;
@@ -217,12 +214,7 @@ impl State {
         let checksum = gix_hash::ObjectId::from_bytes_or_panic(data);
         let checksum = (!checksum.is_null()).then_some(checksum);
         if let Some((expected_checksum, actual_checksum)) = expected_checksum.zip(checksum) {
-            if actual_checksum != expected_checksum {
-                return Err(Error::ChecksumMismatch {
-                    actual_checksum,
-                    expected_checksum,
-                });
-            }
+            actual_checksum.verify(&expected_checksum)?;
         }
         let EntriesOutcome {
             entries,

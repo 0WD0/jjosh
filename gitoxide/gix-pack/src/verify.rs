@@ -10,11 +10,8 @@ pub mod checksum {
     pub enum Error {
         #[error("Interrupted by user")]
         Interrupted,
-        #[error("expected {expected}, got {actual}")]
-        Mismatch {
-            expected: gix_hash::ObjectId,
-            actual: gix_hash::ObjectId,
-        },
+        #[error(transparent)]
+        Verify(#[from] gix_hash::verify::Error),
     }
 }
 
@@ -26,8 +23,8 @@ pub fn fan(data: &[u32]) -> Option<usize> {
 }
 
 /// Calculate the hash of the given kind by trying to read the file from disk at `data_path` or falling back on the mapped content in `data`.
-/// `Ok(desired_hash)` or `Err(Some(actual_hash))` is returned if the hash matches or mismatches.
-/// If the `Err(None)` is returned, the operation was interrupted.
+/// `Ok(expected)` or [`checksum::Error::Verify`] is returned if the hash matches or mismatches.
+/// If the [`checksum::Error::Interrupted`] is returned, the operation was interrupted.
 pub fn checksum_on_disk_or_mmap(
     data_path: &Path,
     data: &[u8],
@@ -56,9 +53,6 @@ pub fn checksum_on_disk_or_mmap(
         }
     };
 
-    if actual == expected {
-        Ok(actual)
-    } else {
-        Err(checksum::Error::Mismatch { actual, expected })
-    }
+    actual.verify(&expected)?;
+    Ok(actual)
 }
