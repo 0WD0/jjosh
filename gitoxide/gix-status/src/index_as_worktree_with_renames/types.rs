@@ -129,7 +129,9 @@ pub enum Entry<'index, ContentChange, SubmoduleStatus> {
         /// [CollapsedEntriesEmissionMode::OnStatusMismatch](gix_dir::walk::CollapsedEntriesEmissionMode::OnStatusMismatch).
         /// It will also be `Some(dir_status)` if that option was [CollapsedEntriesEmissionMode::All](gix_dir::walk::CollapsedEntriesEmissionMode::All).
         dirwalk_entry_collapsed_directory_status: Option<gix_dir::entry::Status>,
-        /// The object id after the rename, specifically hashed in order to determine equality.
+        /// The object id as it would appear if the entry was written to the object database, specifically hashed in order to determine equality.
+        /// Note that it doesn't (necessarily) exist in the object database, and may be [null](gix_hash::ObjectId::null) if no hashing
+        /// was performed.
         dirwalk_entry_id: gix_hash::ObjectId,
         /// It's `None` if the 'source.id' is equal to `dirwalk_entry_id`, as identity made an actual diff computation unnecessary.
         /// Otherwise, and if enabled, it's `Some(stats)` to indicate how similar both entries were.
