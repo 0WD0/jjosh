@@ -24,6 +24,9 @@ pub use object_id::{decode, ObjectId};
 ///
 pub mod prefix;
 
+///
+pub mod verify;
+
 /// A partial, owned hash possibly identifying an object uniquely, whose non-prefix bytes are zeroed.
 ///
 /// An example would `0000000000000000000000000000000032bd3242`, where `32bd3242` is the prefix,
