@@ -652,21 +652,60 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_CONFIG_VALUE_3", "always")
 }
 
-fn bash_program() -> &'static Path {
-    if cfg!(windows) {
-        // TODO(deps): Once `gix_path::env::shell()` is available, maybe do `shell().parent()?.join("bash.exe")`
-        static GIT_BASH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+/// Get the path attempted as a `bash` interpreter, for fixture scripts having no `#!` we can use.
+///
+/// This is rarely called on Unix-like systems, provided that fixture scripts have usable shebang
+/// (`#!`) lines and are marked executable. However, Windows does not recognize `#!` when executing
+/// a file. If all fixture scripts that cannot be directly executed are `bash` scripts or can be
+/// treated as such, fixture generation still works on Windows, as long as this function manages to
+/// find or guess a suitable `bash` interpreter.
+///
+/// ### Search order
+///
+/// This function is used internally. It is public to facilitate diagnostic use. The following
+/// details are subject to change without warning, and changes are treated as non-breaking.
+///
+/// The `bash.exe` found in a path search is not always suitable on Windows. This is mainly because
+/// `bash.exe` in `System32`, which is associated with WSL, would often be found first. But even
+/// where that is not the case, the best `bash.exe` to use to run fixture scripts to set up Git
+/// repositories for testing is usually one associated with Git for Windows, even if some other
+/// `bash.exe` would be found in a path search. Currently, the search order we use is as follows:
+///
+/// 1. The shim `bash.exe`, which sets environment variables when run and is, on some systems,
+///    needed to find the POSIX utilities that scripts need (or correct versions of them).
+///
+/// 2. The non-shim `bash.exe`, which is sometimes available even when the shim is not available.
+///    This is mainly because the Git for Windows SDK does not come with a `bash.exe` shim.
+///
+/// 3. As a fallback, the simple name `bash.exe`, which triggers a path search when run.
+///
+/// On non-Windows systems, the simple name `bash` is used, which triggers a path search when run.
+pub fn bash_program() -> &'static Path {
+    // TODO(deps): Unify with `gix_path::env::shell()` by having both call a more general function
+    //             in `gix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
+    static GIT_BASH: Lazy<PathBuf> = Lazy::new(|| {
+        if cfg!(windows) {
             GIT_CORE_DIR
-                .parent()?
-                .parent()?
-                .parent()
-                .map(|installation_dir| installation_dir.join("bin").join("bash.exe"))
-                .filter(|bash| bash.is_file())
-        });
-        GIT_BASH.as_deref().unwrap_or(Path::new("bash.exe"))
-    } else {
-        Path::new("bash")
-    }
+                .ancestors()
+                .nth(3)
+                .map(OsStr::new)
+                .iter()
+                .flat_map(|prefix| {
+                    // Go down to places `bash.exe` usually is. Keep using `/` separators, not `\`.
+                    ["/bin/bash.exe", "/usr/bin/bash.exe"].into_iter().map(|suffix| {
+                        let mut raw_path = (*prefix).to_owned();
+                        raw_path.push(suffix);
+                        raw_path
+                    })
+                })
+                .map(PathBuf::from)
+                .find(|bash| bash.is_file())
+                .unwrap_or_else(|| "bash.exe".into())
+        } else {
+            "bash".into()
+        }
+    });
+    GIT_BASH.as_ref()
 }
 
 fn write_failure_marker(failure_marker: &Path) {
@@ -1058,5 +1097,33 @@ mod tests {
     #[cfg(not(windows))]
     fn bash_program_ok_for_platform() {
         assert_eq!(bash_program(), Path::new("bash"));
+    }
+
+    #[test]
+    fn bash_program_unix_path() {
+        let path = bash_program()
+            .to_str()
+            .expect("This test depends on the bash path being valid Unicode");
+        assert!(
+            !path.contains('\\'),
+            "The path to bash should have no backslashes, barring very unusual environments"
+        );
+    }
+
+    fn is_rooted_relative(path: impl AsRef<Path>) -> bool {
+        let p = path.as_ref();
+        p.is_relative() && p.has_root()
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn unix_style_absolute_is_rooted_relative() {
+        assert!(is_rooted_relative("/bin/bash"), "can detect paths like /bin/bash");
+    }
+
+    #[test]
+    fn bash_program_absolute_or_unrooted() {
+        let bash = bash_program();
+        assert!(!is_rooted_relative(bash), "{bash:?}");
     }
 }
