@@ -69,6 +69,7 @@ pub struct Info {
 
 /// Information about a commit that can be obtained either from a [`gix_object::CommitRefIter`] or
 /// a [`gix_commitgraph::file::Commit`].
+#[derive(Clone, Copy)]
 pub enum Either<'buf, 'cache> {
     /// See [`gix_object::CommitRefIter`].
     CommitRefIter(gix_object::CommitRefIter<'buf>),
