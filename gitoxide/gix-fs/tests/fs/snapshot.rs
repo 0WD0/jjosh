@@ -4,7 +4,7 @@ use std::path::Path;
 #[test]
 fn journey() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = tempfile::tempdir().unwrap();
-    if !has_nanosecond_times(tmp.path())? {
+    if !has_granular_times(tmp.path())? {
         return Ok(());
     }
 
@@ -41,17 +41,28 @@ fn journey() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn has_nanosecond_times(root: &Path) -> std::io::Result<bool> {
-    let test_file = root.join("nanosecond-test");
+fn has_granular_times(root: &Path) -> std::io::Result<bool> {
+    let n = 50;
 
-    std::fs::write(&test_file, "a")?;
-    let first_time = test_file.metadata()?.modified()?;
+    let paths = (0..n).map(|i| root.join(format!("{i:03}")));
+    for (index, path) in paths.clone().enumerate() {
+        std::fs::write(&path, index.to_string().as_bytes())?;
+    }
+    let mut times = Vec::new();
+    for path in paths {
+        times.push(path.symlink_metadata()?.modified()?);
+    }
+    times.sort();
+    times.dedup();
 
-    std::fs::write(&test_file, "b")?;
-    let second_time = test_file.metadata()?.modified()?;
-
-    Ok(second_time.duration_since(first_time).is_ok_and(|d|
-            // This can be falsely false if a filesystem would be ridiculously fast,
-            // which means a test won't run even though it could. But that's OK, and unlikely.
-            d.subsec_nanos() != 0))
+    // This could be wrongly false if a filesystem has very precise timings yet is ridiculously
+    // fast. Then the `journey` test wouldn't run, though it could. But that's OK, and unlikely.
+    if cfg!(target_os = "macos") && is_ci::cached() {
+        assert_eq!(
+            times.len(),
+            n,
+            "should have very granular timestamps at least on macOS on CI"
+        );
+    }
+    Ok(times.len() == n)
 }
