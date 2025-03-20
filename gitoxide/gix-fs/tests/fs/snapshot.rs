@@ -64,5 +64,9 @@ fn has_granular_times(root: &Path) -> std::io::Result<bool> {
 
     // This could be wrongly false if a filesystem has very precise timings yet is ridiculously
     // fast. Then the `journey` test wouldn't run, though it could. But that's OK, and unlikely.
+    // However, for now, on CI, on macOS only, we assert the expectation of high granularity.
+    if cfg!(target_os = "macos") && is_ci::cached() {
+        assert_eq!(times.len(), n);
+    }
     Ok(times.len() == n)
 }
