@@ -66,7 +66,8 @@ crc32 = ["dep:crc32fast"]
 zlib = ["dep:flate2", "flate2?/rust_backend", "dep:thiserror"]
 ## Use the C-based zlib-ng backend, which can compress and decompress significantly faster.
 zlib-ng = ["zlib", "flate2?/zlib-ng"]
-## Use the rust-based zlib backend, which can compress and decompress significantly faster and is on par with zlib-ng or even faster.
+## Use the high-performance rust-based zlib backend en par with zlib-ng.
+## Note that this will cause duplicate symbol errors if the application also depends on `zlib`, without remediation.
 zlib-rs = ["zlib", "flate2?/zlib-rs"]
 ## Use zlib-ng via its zlib-compat API. Useful if you already need zlib for C
 ## code elsewhere in your dependencies. Otherwise, use zlib-ng.
