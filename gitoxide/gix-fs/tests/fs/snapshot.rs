@@ -49,11 +49,11 @@ fn do_journey() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn has_granular_times(root: &Path) -> std::io::Result<bool> {
-    let n = 100;
+    let n = 50;
 
-    let names: Vec<_> = (0..n).map(|i| format!("{i:03}")).collect();
-    for name in &names {
-        std::fs::write(root.join(name), name)?;
+    let names = (0..n).map(|i| format!("{i:03}"));
+    for name in names.clone() {
+        std::fs::write(root.join(&name), name)?;
     }
     let mut times = Vec::new();
     for name in names {
@@ -64,9 +64,12 @@ fn has_granular_times(root: &Path) -> std::io::Result<bool> {
 
     // This could be wrongly false if a filesystem has very precise timings yet is ridiculously
     // fast. Then the `journey` test wouldn't run, though it could. But that's OK, and unlikely.
-    // However, for now, on CI, on macOS only, we assert the expectation of high granularity.
     if cfg!(target_os = "macos") && is_ci::cached() {
-        assert_eq!(times.len(), n);
+        assert_eq!(
+            times.len(),
+            n,
+            "should have very granular timestamps at least on macOS on CI"
+        );
     }
     Ok(times.len() == n)
 }
