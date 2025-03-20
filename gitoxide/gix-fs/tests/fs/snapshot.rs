@@ -51,13 +51,13 @@ fn do_journey() -> Result<(), Box<dyn std::error::Error>> {
 fn has_granular_times(root: &Path) -> std::io::Result<bool> {
     let n = 50;
 
-    let names = (0..n).map(|i| format!("{i:03}"));
-    for name in names.clone() {
-        std::fs::write(root.join(&name), name)?;
+    let paths = (0..n).map(|i| root.join(format!("{i:03}")));
+    for (index, path) in paths.clone().enumerate() {
+        std::fs::write(&path, index.to_string().as_bytes())?;
     }
     let mut times = Vec::new();
-    for name in names {
-        times.push(root.join(name).symlink_metadata()?.modified()?);
+    for path in paths {
+        times.push(path.symlink_metadata()?.modified()?);
     }
     times.sort();
     times.dedup();
