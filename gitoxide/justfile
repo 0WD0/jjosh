@@ -3,7 +3,7 @@
 #   like a script, with `./justfile test`, for example.
 
 default:
-    {{ just_executable() }} --list
+    {{ quote(just_executable()) }} --list
 
 alias t := test
 alias c := check
@@ -192,10 +192,10 @@ unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
 target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
-ein := target_dir / "debug/ein"
-gix := target_dir / "debug/gix"
-jtt := target_dir / "debug/jtt"
-it := target_dir / "debug/it"
+ein := quote(target_dir / "debug/ein")
+gix := quote(target_dir / "debug/gix")
+jtt := quote(target_dir / "debug/jtt")
+it := quote(target_dir / "debug/it")
 
 # run journey tests (max)
 journey-tests:
@@ -258,7 +258,7 @@ find-yanked:
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
     cargo build -p internal-tools
-    "{{ it }}" check-mode
+    {{ it }} check-mode
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
