@@ -243,7 +243,9 @@ audit:
 nextest *FLAGS='--workspace':
     cargo nextest run {{ FLAGS }}
 
-summarize EXPRESSION='all()': (nextest '--workspace --run-ignored all --no-fail-fast --status-level none --final-status-level none -E' quote(EXPRESSION))
+summarize EXPRESSION='all()':
+    cargo nextest run --workspace --run-ignored all --no-fail-fast \
+        --status-level none --final-status-level none -E {{ quote(EXPRESSION) }}
 
 # run nightly rustfmt for its extra features, but check that it won't upset stable rustfmt
 fmt:
