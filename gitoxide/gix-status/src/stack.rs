@@ -1,6 +1,7 @@
-use std::path::{Path, PathBuf};
-
+use bstr::BStr;
 use gix_fs::Stack;
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 
 use crate::SymlinkCheck;
 
@@ -26,6 +27,22 @@ impl SymlinkCheck {
     pub fn verified_path(&mut self, relative_path: &Path) -> std::io::Result<&Path> {
         self.inner.make_relative_path_current(relative_path, &mut Delegate)?;
         Ok(self.inner.current())
+    }
+
+    /// Like [`Self::verified_path()`], but do not fail if there is no directory entry at `relative_path` or on the way
+    /// to `relative_path`. Instead.
+    /// For convenience, this incarnation is tuned to be easy to use with Git paths, i.e. slash-separated `BString` path.
+    pub fn verified_path_allow_nonexisting(&mut self, relative_path: &BStr) -> std::io::Result<Cow<'_, Path>> {
+        let rela_path = gix_path::try_from_bstr(relative_path).map_err(std::io::Error::other)?;
+        if let Err(err) = self.verified_path(&rela_path) {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                Ok(Cow::Owned(self.inner.root().join(rela_path)))
+            } else {
+                Err(err)
+            }
+        } else {
+            Ok(Cow::Borrowed(self.inner.current()))
+        }
     }
 }
 
