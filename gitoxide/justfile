@@ -196,7 +196,7 @@ unit-tests-flaky:
 # depend on this to pre-generate metadata, and/or use it inside a recipe as `"$({{ j }} dbg)"`
 [private]
 dbg:
-    set -eux; \
+    set -eu; \
         target_dir="$(cargo metadata --format-version 1 | jq -r .target_directory)"; \
         test -n "$target_dir"; \
         echo "$target_dir/debug"
