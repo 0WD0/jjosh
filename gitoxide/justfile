@@ -2,8 +2,10 @@
 # ^ A shebang isn't required, but allows a justfile to be executed
 #   like a script, with `./justfile test`, for example.
 
+j := quote(just_executable())
+
 default:
-    {{ quote(just_executable()) }} --list
+    {{ j }} --list
 
 alias t := test
 alias c := check
@@ -191,35 +193,37 @@ unit-tests:
 unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
-target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
-ein := quote(target_dir / 'debug/ein')
-gix := quote(target_dir / 'debug/gix')
-jtt := quote(target_dir / 'debug/jtt')
-it := quote(target_dir / 'debug/it')
+# depend on this to pre-generate metadata, and/or use it inside a recipe as `"$({{ j }} dbg)"`
+[private]
+dbg:
+    set -eux; \
+        target_dir="$(cargo metadata --format-version 1 | jq -r .target_directory)"; \
+        test -n "$target_dir"; \
+        echo "$target_dir/debug"
 
 # run journey tests (max)
-journey-tests:
+journey-tests: dbg
     cargo build --features http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt
-    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 
 # run journey tests (max-pure)
-journey-tests-pure:
+journey-tests-pure: dbg
     cargo build --no-default-features --features max-pure
     cargo build -p gix-testtools --bin jtt
-    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max-pure
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max-pure
 
 # run journey tests (small)
-journey-tests-small:
+journey-tests-small: dbg
     cargo build --no-default-features --features small
     cargo build -p gix-testtools
-    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} small
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" small
 
 # run journey tests (lean-async)
-journey-tests-async:
+journey-tests-async: dbg
     cargo build --no-default-features --features lean-async
     cargo build -p gix-testtools
-    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} async
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" async
 
 # Run cargo-diet on all crates to see that they are still in bound
 check-size:
@@ -260,7 +264,7 @@ find-yanked:
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
     cargo build -p internal-tools
-    {{ it }} check-mode
+    cargo run -p internal-tools -- check-mode
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
