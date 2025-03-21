@@ -113,7 +113,7 @@ pub struct Platform {
     pub attr_stack: gix_worktree::Stack,
 
     /// The way we convert resources into diffable states.
-    filter_mode: pipeline::Mode,
+    pub filter_mode: pipeline::Mode,
     /// A continuously growing cache keeping ready-for-diff blobs by their path in the worktree,
     /// as that is what affects their final diff-able state.
     ///
