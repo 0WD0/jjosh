@@ -201,29 +201,29 @@ it := quote(target_dir / 'debug/it')
 journey-tests:
     cargo build --features http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max
+    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max
 
 # run journey tests (max-pure)
 journey-tests-pure:
     cargo build --no-default-features --features max-pure
     cargo build -p gix-testtools --bin jtt
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max-pure
+    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max-pure
 
 # run journey tests (small)
 journey-tests-small:
     cargo build --no-default-features --features small
     cargo build -p gix-testtools
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} small
+    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} small
 
 # run journey tests (lean-async)
 journey-tests-async:
     cargo build --no-default-features --features lean-async
     cargo build -p gix-testtools
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} async
+    tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} async
 
 # Run cargo-diet on all crates to see that they are still in bound
 check-size:
-    ./etc/check-package-size.sh
+    etc/check-package-size.sh
 
 # Check the minimal support rust version for currently installed Rust version
 ci-check-msrv:
@@ -264,4 +264,4 @@ check-mode:
 
 # Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
 copy-packetline:
-    ./etc/copy-packetline.sh
+    etc/copy-packetline.sh
