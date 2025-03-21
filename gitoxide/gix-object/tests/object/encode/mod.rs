@@ -74,6 +74,7 @@ mod tag {
     round_trip!(
         gix_object::Tag,
         gix_object::TagRef,
+        "tag/empty_missing_nl.txt",
         "tag/empty.txt",
         "tag/no-tagger.txt",
         "tag/whitespace.txt",
