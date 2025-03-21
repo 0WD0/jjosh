@@ -144,7 +144,7 @@ check:
     cargo check --no-default-features --features max-control
 
 # Run cargo doc on all crates
-doc $RUSTDOCFLAGS="-D warnings":
+doc $RUSTDOCFLAGS='-D warnings':
     cargo doc --workspace --no-deps --features need-more-recent-msrv
     cargo doc --features=max,lean,small --workspace --no-deps --features need-more-recent-msrv
 
@@ -158,9 +158,9 @@ unit-tests:
     cargo nextest run -p gix-archive --features tar
     cargo nextest run -p gix-archive --features tar_gz
     cargo nextest run -p gix-archive --features zip
-    cargo nextest run -p gix-status-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-worktree-state-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-worktree-tests --features "gix-features-parallel"
+    cargo nextest run -p gix-status-tests --features gix-features-parallel
+    cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel
+    cargo nextest run -p gix-worktree-tests --features gix-features-parallel
     cd gix-object; \
         set -ex; \
         cargo nextest run; \
@@ -172,10 +172,10 @@ unit-tests:
     cargo nextest run -p gix-odb-tests --features gix-features-parallel
     cargo nextest run -p gix-pack --all-features
     cargo nextest run -p gix-pack-tests --features all-features
-    cargo nextest run -p gix-pack-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-index-tests --features "gix-features-parallel"
+    cargo nextest run -p gix-pack-tests --features gix-features-parallel
+    cargo nextest run -p gix-index-tests --features gix-features-parallel
     cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline
-    cargo nextest run -p gix-packetline --features "async-io" --test async-packetline
+    cargo nextest run -p gix-packetline --features async-io --test async-packetline
     cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync
     cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync
     cargo nextest run -p gix-transport --features async-client
@@ -192,10 +192,10 @@ unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
 target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
-ein := quote(target_dir / "debug/ein")
-gix := quote(target_dir / "debug/gix")
-jtt := quote(target_dir / "debug/jtt")
-it := quote(target_dir / "debug/it")
+ein := quote(target_dir / 'debug/ein')
+gix := quote(target_dir / 'debug/gix')
+jtt := quote(target_dir / 'debug/jtt')
+it := quote(target_dir / 'debug/it')
 
 # run journey tests (max)
 journey-tests:
@@ -240,10 +240,10 @@ audit:
     cargo deny check advisories bans licenses sources
 
 # run tests with `cargo nextest` (all unit-tests, no doc-tests, faster)
-nextest *FLAGS="--workspace":
+nextest *FLAGS='--workspace':
     cargo nextest run {{ FLAGS }}
 
-summarize EXPRESSION="all()": (nextest "--workspace --run-ignored all --no-fail-fast --status-level none --final-status-level none -E" quote(EXPRESSION))
+summarize EXPRESSION='all()': (nextest '--workspace --run-ignored all --no-fail-fast --status-level none --final-status-level none -E' quote(EXPRESSION))
 
 # run nightly rustfmt for its extra features, but check that it won't upset stable rustfmt
 fmt:
