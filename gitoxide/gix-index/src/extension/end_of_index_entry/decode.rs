@@ -13,10 +13,10 @@ use crate::{
 /// stored prior to this one to assure they are correct.
 ///
 /// If the checksum wasn't matched, we will ignore this extension entirely.
-pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
+pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Result<Option<usize>, gix_hash::hasher::Error> {
     let hash_len = object_hash.len_in_bytes();
     if data.len() < MIN_SIZE_WITH_HEADER + hash_len {
-        return None;
+        return Ok(None);
     }
 
     let start_of_eoie = data.len() - MIN_SIZE_WITH_HEADER - hash_len;
@@ -24,16 +24,16 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
 
     let (signature, ext_size, ext_data) = extension::decode::header(ext_data);
     if signature != SIGNATURE || ext_size as usize != MIN_SIZE {
-        return None;
+        return Ok(None);
     }
 
     let (offset, checksum) = ext_data.split_at(4);
     let offset = from_be_u32(offset) as usize;
     let Ok(checksum) = gix_hash::oid::try_from_bytes(checksum) else {
-        return None;
+        return Ok(None);
     };
     if offset < header::SIZE || offset > start_of_eoie || checksum.kind() != gix_hash::Kind::Sha1 {
-        return None;
+        return Ok(None);
     }
 
     let mut hasher = gix_hash::hasher(gix_hash::Kind::Sha1);
@@ -45,12 +45,12 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
     }
 
     if hasher.finalize().verify(checksum).is_err() {
-        return None;
+        return Ok(None);
     }
     // The last-to-this chunk ends where ours starts
     if last_chunk.map_or(true, |s| s.as_ptr_range().end != (&data[start_of_eoie]) as *const _) {
-        return None;
+        return Ok(None);
     }
 
-    Some(offset)
+    Ok(Some(offset))
 }

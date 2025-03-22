@@ -19,6 +19,13 @@ pub mod integrity {
             kind: gix_object::Kind,
             id: gix_hash::ObjectId,
         },
+        #[error("{kind} object {expected} could not be hashed")]
+        ObjectHasher {
+            #[source]
+            source: gix_hash::hasher::Error,
+            kind: gix_object::Kind,
+            expected: gix_hash::ObjectId,
+        },
         #[error("{kind} object wasn't re-encoded without change")]
         ObjectEncodeMismatch {
             #[source]

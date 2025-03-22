@@ -86,6 +86,7 @@ impl File {
                     )
                     .map_err(|err| match err {
                         hasher::io::Error::Io(err) => Error::Io(err),
+                        hasher::io::Error::Hasher(err) => Error::Decode(err.into()),
                     })?
                     .verify(&expected)
                     .map_err(decode::Error::from)?;

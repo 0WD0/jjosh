@@ -11,6 +11,8 @@ pub mod checksum {
     pub enum Error {
         #[error("Interrupted by user")]
         Interrupted,
+        #[error("Failed to hash data")]
+        Hasher(#[from] gix_hash::hasher::Error),
         #[error(transparent)]
         Verify(#[from] gix_hash::verify::Error),
     }

@@ -55,6 +55,8 @@ pub mod verify {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
+        #[error("Failed to hash object")]
+        Hasher(#[from] gix_hash::hasher::Error),
         #[error(transparent)]
         Verify(#[from] gix_hash::verify::Error),
     }

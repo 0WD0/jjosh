@@ -11,7 +11,7 @@ pub fn write_to(
     hash_kind: gix_hash::Kind,
     offset_to_extensions: u32,
     prior_extensions: impl IntoIterator<Item = (Signature, u32)>,
-) -> Result<(), std::io::Error> {
+) -> Result<(), gix_hash::hasher::io::Error> {
     out.write_all(&SIGNATURE)?;
     let extension_size: u32 = 4 + hash_kind.len_in_bytes() as u32;
     out.write_all(&extension_size.to_be_bytes())?;

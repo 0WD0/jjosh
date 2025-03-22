@@ -16,6 +16,8 @@ mod error {
     pub enum Error {
         #[error(transparent)]
         Header(#[from] decode::header::Error),
+        #[error("Could not hash index data")]
+        Hasher(#[from] gix_hash::hasher::Error),
         #[error("Could not parse entry at index {index}")]
         Entry { index: u32 },
         #[error("Mandatory extension wasn't implemented or malformed.")]
@@ -64,7 +66,7 @@ impl State {
     ) -> Result<(Self, Option<gix_hash::ObjectId>), Error> {
         let _span = gix_features::trace::detail!("gix_index::State::from_bytes()", options = ?_options);
         let (version, num_entries, post_header_data) = header::decode(data, object_hash)?;
-        let start_of_extensions = extension::end_of_index_entry::decode(data, object_hash);
+        let start_of_extensions = extension::end_of_index_entry::decode(data, object_hash)?;
 
         let mut num_threads = gix_features::parallel::num_threads(thread_limit);
         let path_backing_buffer_size = entries::estimate_path_storage_requirements_in_bytes(

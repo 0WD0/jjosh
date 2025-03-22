@@ -48,6 +48,8 @@ pub mod apply {
     pub enum Error {
         #[error("Could not allocate buffer")]
         OutOfMemory(#[from] std::collections::TryReserveError),
+        #[error("Could not hash blob")]
+        Hasher(#[from] gix_hash::hasher::Error),
     }
 }
 
