@@ -805,11 +805,7 @@ mod utils {
             move |tree: &Tree| {
                 buf.clear();
                 tree.write_to(&mut buf)?;
-                let header = gix_object::encode::loose_header(gix_object::Kind::Tree, buf.len() as u64);
-                let mut hasher = gix_features::hash::hasher(gix_hash::Kind::Sha1);
-                hasher.update(&header);
-                hasher.update(&buf);
-                let id = hasher.digest().into();
+                let id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf);
                 store.borrow_mut().insert(id, tree.clone());
                 let old = num_writes.get();
                 num_writes.set(old + 1);
