@@ -40,8 +40,8 @@ pub fn message<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<(&
     const PGP_SIGNATURE_BEGIN: &[u8] = b"\n-----BEGIN PGP SIGNATURE-----";
     const PGP_SIGNATURE_END: &[u8] = b"-----END PGP SIGNATURE-----";
 
-    if i.is_empty() {
-        return Ok((b"".as_bstr(), None));
+    if i.iter().all(|b| *b == b'\n') {
+        return i.map(|message: &[u8]| (message.as_bstr(), None)).parse_next(i);
     }
     delimited(
         NL,

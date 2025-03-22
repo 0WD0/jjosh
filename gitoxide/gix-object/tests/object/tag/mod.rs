@@ -54,7 +54,7 @@ mod iter {
                 Token::Name(b"empty".as_bstr()),
                 Token::Tagger(tagger),
                 Token::Body {
-                    message: b"".as_bstr(),
+                    message: b"\n".as_bstr(),
                     pgp_signature: None,
                 }
             ]
@@ -155,7 +155,7 @@ fn invalid() {
 mod from_bytes {
     use gix_actor::SignatureRef;
     use gix_date::Time;
-    use gix_object::{bstr::ByteSlice, Kind, TagRef};
+    use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 
     use crate::{fixture_name, signature, tag::tag_fixture, Sign};
 
@@ -170,8 +170,29 @@ mod from_bytes {
 
     #[test]
     fn empty() -> crate::Result {
+        let fixture = fixture_name("tag", "empty.txt");
+        let tag_ref = TagRef::from_bytes(&fixture)?;
         assert_eq!(
-            TagRef::from_bytes(&fixture_name("tag", "empty.txt"))?,
+            tag_ref,
+            TagRef {
+                target: b"01dd4e2a978a9f5bd773dae6da7aa4a5ac1cdbbc".as_bstr(),
+                name: b"empty".as_bstr(),
+                target_kind: Kind::Commit,
+                message: b"\n".as_bstr(),
+                tagger: Some(signature(1592381636)),
+                pgp_signature: None
+            }
+        );
+        assert_eq!(tag_ref.size(), 140);
+        Ok(())
+    }
+
+    #[test]
+    fn empty_missing_nl() -> crate::Result {
+        let fixture = fixture_name("tag", "empty_missing_nl.txt");
+        let tag_ref = TagRef::from_bytes(&fixture)?;
+        assert_eq!(
+            tag_ref,
             TagRef {
                 target: b"01dd4e2a978a9f5bd773dae6da7aa4a5ac1cdbbc".as_bstr(),
                 name: b"empty".as_bstr(),
@@ -181,6 +202,7 @@ mod from_bytes {
                 pgp_signature: None
             }
         );
+        assert_eq!(tag_ref.size(), 139);
         Ok(())
     }
 
