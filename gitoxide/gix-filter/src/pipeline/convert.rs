@@ -50,13 +50,15 @@ pub mod to_worktree {
     #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
+        Ident(#[from] crate::ident::apply::Error),
+        #[error(transparent)]
+        Eol(#[from] crate::eol::convert_to_worktree::Error),
+        #[error(transparent)]
         Worktree(#[from] crate::worktree::encode_to_worktree::Error),
         #[error(transparent)]
         Driver(#[from] crate::driver::apply::Error),
         #[error(transparent)]
         Configuration(#[from] super::configuration::Error),
-        #[error("Could not allocate buffer")]
-        OutOfMemory(#[from] std::collections::TryReserveError),
     }
 }
 
