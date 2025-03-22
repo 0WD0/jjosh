@@ -5,7 +5,7 @@ use gix_url::{expand_path, expand_path::ForUser};
 
 #[cfg(windows)]
 fn expected_path() -> std::path::PathBuf {
-    Path::new("C:\\UserProfiles\\byron\\hello\\git").into()
+    Path::new(r"C:\UserProfiles\byron\hello\git").into()
 }
 
 #[cfg(not(windows))]
@@ -15,7 +15,7 @@ fn expected_path() -> std::path::PathBuf {
 
 #[cfg(windows)]
 fn user_home(name: &str) -> std::path::PathBuf {
-    Path::new("C:\\").join("UserProfiles").join(name)
+    Path::new(r"C:\").join("UserProfiles").join(name)
 }
 
 #[cfg(not(windows))]

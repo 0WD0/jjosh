@@ -45,8 +45,8 @@ fn from_tree_validation() -> crate::Result {
         let err = State::from_tree(&tree_id, &odb, Default::default()).unwrap_err();
         assert_eq!(
             err.source().expect("inner").to_string(),
-            "Path separators like / or \\ are not allowed",
-            "Note that this effectively tests what would happen on Windows, where \\ also isn't allowed"
+            r"Path separators like / or \ are not allowed",
+            r"Note that this effectively tests what would happen on Windows, where \ also isn't allowed"
         );
     }
     Ok(())

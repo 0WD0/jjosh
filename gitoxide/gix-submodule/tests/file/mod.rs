@@ -76,8 +76,8 @@ mod is_active_platform {
                 ("submodule", false),
                 ("a/b", false),
                 (".a/..c", false),
-                ("a/d\\", false),
-                ("a\\e", false)
+                (r"a/d\", false),
+                (r"a\e", false)
             ]
         );
         Ok(())
@@ -98,8 +98,8 @@ mod is_active_platform {
                 ("submodule", false),
                 ("a/b", false),
                 (".a/..c", true),
-                ("a/d\\", false),
-                ("a\\e", false)
+                (r"a/d\", false),
+                (r"a\e", false)
             ]
         );
         Ok(())
@@ -120,8 +120,8 @@ mod is_active_platform {
                 ("submodule", false),
                 ("a/b", false),
                 (".a/..c", true),
-                ("a/d\\", false),
-                ("a\\e", false)
+                (r"a/d\", false),
+                (r"a\e", false)
             ]
         );
         Ok(())
@@ -140,8 +140,8 @@ mod is_active_platform {
                 ("submodule", true),
                 ("a/b", false),
                 (".a/..c", false),
-                ("a/d\\", false),
-                ("a\\e", false)
+                (r"a/d\", false),
+                (r"a\e", false)
             ]
         );
         assert_eq!(
@@ -154,8 +154,8 @@ mod is_active_platform {
                 ("submodule", false),
                 ("a/b", true),
                 (".a/..c", true),
-                ("a/d\\", true),
-                ("a\\e", true)
+                (r"a/d\", true),
+                (r"a\e", true)
             ]
         );
         Ok(())
@@ -183,9 +183,9 @@ mod path {
     fn validate_upon_retrieval() {
         assert!(matches!(
             submodule_path(if cfg!(windows) {
-                "c:\\\\hello"
+                r"c:\\hello"
             } else {
-                "/definitely/absolute\\\\"
+                r"/definitely/absolute\\"
             }),
             Error::Absolute { .. }
         ));

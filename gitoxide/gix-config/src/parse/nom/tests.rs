@@ -88,7 +88,7 @@ mod section_headers {
 
     #[test]
     fn eof_after_escape_in_sub_section() {
-        assert!(section_header.parse_peek(b"[hello \"hello\\").is_err());
+        assert!(section_header.parse_peek(br#"[hello "hello\"#).is_err());
     }
 
     #[test]
@@ -124,7 +124,7 @@ mod sub_section {
 
     #[test]
     fn zero_copy_simple() {
-        let actual = sub_section.parse_peek(b"name\"").unwrap().1;
+        let actual = sub_section.parse_peek(br#"name""#).unwrap().1;
         assert_eq!(actual.as_ref(), "name");
         assert!(matches!(actual, Cow::Borrowed(_)));
     }
@@ -301,7 +301,7 @@ mod section {
                     whitespace_event(" "),
                     Event::KeyValueSeparator,
                     whitespace_event(" "),
-                    value_event("\"lol\"")
+                    value_event(r#""lol""#)
                 ]
             })
         );
@@ -370,7 +370,7 @@ mod section {
                     whitespace_event(" "),
                     Event::KeyValueSeparator,
                     whitespace_event(" "),
-                    value_event("\"lol\"")
+                    value_event(r#""lol""#)
                 ]
             })
         );
@@ -567,7 +567,7 @@ mod value_continuation {
         let mut events = Vec::new();
         assert!(
             value_impl(b"hello\\\r\r\n        world", &mut events).is_err(),
-            "\\r must be followed by \\n"
+            r"\r must be followed by \n"
         );
     }
 
@@ -634,9 +634,9 @@ mod value_continuation {
             vec![
                 value_not_done_event("1"),
                 newline_event(),
-                value_not_done_event("\"2\" a"),
+                value_not_done_event(r#""2" a"#),
                 newline_event(),
-                value_not_done_event("\\\"3 b\\\""),
+                value_not_done_event(r#"\"3 b\""#),
                 newline_event(),
                 value_done_event("4")
             ]
@@ -664,9 +664,9 @@ mod value_continuation {
             vec![
                 value_not_done_event("\"1"),
                 newline_event(),
-                value_not_done_event("\"2\" a"),
+                value_not_done_event(r#""2" a"#),
                 newline_event(),
-                value_not_done_event("\\\"3 b\\\""),
+                value_not_done_event(r#"\"3 b\""#),
                 newline_event(),
                 value_done_event("4 \"")
             ]
@@ -761,7 +761,7 @@ mod value_no_continuation {
 
     #[test]
     fn garbage_after_continuation_is_err() {
-        assert!(value_impl(b"hello \\afwjdls", &mut Default::default()).is_err());
+        assert!(value_impl(br"hello \afwjdls", &mut Default::default()).is_err());
     }
 
     #[test]

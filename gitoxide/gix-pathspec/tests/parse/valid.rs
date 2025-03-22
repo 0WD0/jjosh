@@ -19,7 +19,7 @@ fn repeated_matcher_keywords() {
 
 #[test]
 fn glob_negations_are_always_literal() {
-    check_valid_inputs([("!a", pat_with_path("!a")), ("\\!a", pat_with_path("\\!a"))]);
+    check_valid_inputs([("!a", pat_with_path("!a")), (r"\!a", pat_with_path(r"\!a"))]);
 }
 
 #[test]

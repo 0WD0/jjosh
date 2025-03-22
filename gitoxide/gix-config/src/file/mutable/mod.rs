@@ -23,10 +23,10 @@ fn escape_value(value: &BStr) -> BString {
 
     for b in value.iter().copied() {
         match b {
-            b'\n' => buf.push_str("\\n"),
-            b'\t' => buf.push_str("\\t"),
-            b'"' => buf.push_str("\\\""),
-            b'\\' => buf.push_str("\\\\"),
+            b'\n' => buf.push_str(r"\n"),
+            b'\t' => buf.push_str(r"\t"),
+            b'"' => buf.push_str(r#"\""#),
+            b'\\' => buf.push_str(r"\\"),
             _ => buf.push(b),
         }
     }

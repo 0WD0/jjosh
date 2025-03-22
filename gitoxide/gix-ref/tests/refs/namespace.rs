@@ -30,10 +30,10 @@ mod expand {
     #[test]
     fn backslashes_are_no_component_separators_and_invalid() {
         assert!(matches!(
-            gix_ref::namespace::expand("foo\\bar").expect_err("empty invalid"),
+            gix_ref::namespace::expand(r"foo\bar").expect_err("empty invalid"),
             gix_validate::reference::name::Error::Tag(
                 gix_validate::tag::name::Error::InvalidByte{byte}
-            ) if byte == "\\"
+            ) if byte == r"\"
         ));
     }
 

@@ -459,7 +459,7 @@ pub(crate) mod convert_to_diffable {
             gix_filter::Pipeline::default(),
             vec![gix_diff::blob::Driver {
                 name: "c".into(),
-                binary_to_text_command: Some("printf '\\0'; cat <".into()),
+                binary_to_text_command: Some(r"printf '\0'; cat <".into()),
                 ..Default::default()
             }],
             default_options(),

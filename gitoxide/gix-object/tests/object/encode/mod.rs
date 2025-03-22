@@ -133,7 +133,7 @@ mod tree {
         let err = tree.write_to(&mut std::io::sink()).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Nullbytes are invalid in file paths as they are separators: \"hi\\0ho\""
+            r#"Nullbytes are invalid in file paths as they are separators: "hi\0ho""#
         );
     }
 

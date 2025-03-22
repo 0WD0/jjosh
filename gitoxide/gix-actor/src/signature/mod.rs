@@ -82,7 +82,7 @@ pub(crate) mod write {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub(crate) enum Error {
-        #[error("Signature name or email must not contain '<', '>' or \\n")]
+        #[error(r"Signature name or email must not contain '<', '>' or \n")]
         IllegalCharacter,
     }
 

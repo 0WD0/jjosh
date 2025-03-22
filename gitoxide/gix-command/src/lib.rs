@@ -290,10 +290,10 @@ mod prepare {
                                         prep.command = gix_path::from_bstring(gix_quote::single(command)).into();
                                     }
                                 }
-                                prep.command.push(" \"$@\"");
+                                prep.command.push(r#" "$@""#);
                             } else {
                                 gix_trace::debug!(
-                                    "Will not add '\"$@\"' to '{:?}' as it seems to contain '$@' already",
+                                    r#"Will not add '"$@"' to '{:?}' as it seems to contain '$@' already"#,
                                     prep.command
                                 );
                             }
@@ -434,7 +434,7 @@ pub mod shebang {
         let mut line = buf.lines().next()?;
         line = line.strip_prefix(b"#!")?;
 
-        let slash_idx = line.rfind_byteset(b"/\\")?;
+        let slash_idx = line.rfind_byteset(br"/\")?;
         Some(match line[slash_idx..].find_byte(b' ') {
             Some(space_idx) => {
                 let space = slash_idx + space_idx;

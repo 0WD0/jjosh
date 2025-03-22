@@ -58,7 +58,7 @@ mod program_kind {
                 "/bin/ssh",
                 "/bin/SSH",
                 #[cfg(windows)]
-                "c:\\bin\\ssh.exe",
+                r"c:\bin\ssh.exe",
             ] {
                 assert_eq!(
                     ProgramKind::from(OsStr::new(name_or_path)),

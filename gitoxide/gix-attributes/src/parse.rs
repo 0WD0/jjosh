@@ -20,7 +20,7 @@ mod error {
     #[derive(thiserror::Error, Debug)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("Line {line_number} has a negative pattern, for literal characters use \\!: {line}")]
+        #[error(r"Line {line_number} has a negative pattern, for literal characters use \!: {line}")]
         PatternNegation { line_number: usize, line: BString },
         #[error("Attribute in line {line_number} has non-ascii characters or starts with '-': {attribute}")]
         AttributeName { line_number: usize, attribute: BString },

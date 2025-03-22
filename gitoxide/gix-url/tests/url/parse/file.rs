@@ -80,7 +80,7 @@ fn shortest_possible_absolute_path() -> crate::Result {
 fn shortest_possible_relative_path() -> crate::Result {
     assert_url_roundtrip("a", url_alternate(Scheme::File, None, None, None, b"a"))?;
     assert_url_roundtrip("../", url_alternate(Scheme::File, None, None, None, b"../"))?;
-    assert_url_roundtrip("..\\", url_alternate(Scheme::File, None, None, None, b"..\\"))?;
+    assert_url_roundtrip(r"..\", url_alternate(Scheme::File, None, None, None, br"..\"))?;
     assert_url_roundtrip("./", url_alternate(Scheme::File, None, None, None, b"./"))?;
     assert_url_roundtrip(".", url_alternate(Scheme::File, None, None, None, b"."))?;
     assert_url_roundtrip("..", url_alternate(Scheme::File, None, None, None, b".."))?;
@@ -94,13 +94,13 @@ fn no_relative_paths_if_protocol() -> crate::Result {
     assert_url_roundtrip("file://a/", url(Scheme::File, None, "a", None, b"/"))?;
     if cfg!(windows) {
         assert_eq!(
-            gix_url::parse("file://.\\".into())?,
-            url(Scheme::File, None, ".", None, b"\\"),
+            gix_url::parse(r"file://.\".into())?,
+            url(Scheme::File, None, ".", None, br"\"),
             "we are just as none-sensical as git here due to special handling."
         );
     } else {
         assert_matches::assert_matches!(
-            gix_url::parse("file://.\\".into()),
+            gix_url::parse(r"file://.\".into()),
             Err(gix_url::parse::Error::MissingRepositoryPath { .. }),
             "DEVIATION: on windows, this parses with git into something nonsensical Diag: url=file://./ Diag: protocol=file Diag: hostandport=./ Diag: path=//./"
         );
@@ -132,8 +132,8 @@ mod windows {
 
     #[test]
     fn reproduce_1063() -> crate::Result {
-        let input = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\tmp.vIa4tyjv17";
-        let url_input = "file://C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\tmp.vIa4tyjv17";
+        let input = r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp.vIa4tyjv17";
+        let url_input = r"file://C:\Users\RUNNER~1\AppData\Local\Temp\tmp.vIa4tyjv17";
         assert_url(url_input, url(Scheme::File, None, None, None, input.as_bytes()))?;
         assert_url(input, url_alternate(Scheme::File, None, None, None, input.as_bytes()))?;
         Ok(())
@@ -142,13 +142,13 @@ mod windows {
     #[test]
     fn url_from_absolute_path() -> crate::Result {
         assert_url(
-            url::Url::from_directory_path("c:\\users\\1")
+            url::Url::from_directory_path(r"c:\users\1")
                 .expect("valid")
                 .to_file_path()
                 .expect("valid path")
                 .to_string_lossy()
                 .as_ref(),
-            url_alternate(Scheme::File, None, None, None, b"C:\\users\\1\\"),
+            url_alternate(Scheme::File, None, None, None, br"C:\users\1\"),
         )?;
         // A special hack to support URLs on windows that are prefixed with `/` even though absolute.
         let url = assert_url("file:///c:/users/2", url(Scheme::File, None, None, None, b"c:/users/2"))?;
@@ -167,8 +167,8 @@ mod windows {
     #[test]
     fn file_path_with_backslashes_without_protocol() -> crate::Result {
         assert_url_roundtrip(
-            "x:\\path\\to\\git",
-            url_alternate(Scheme::File, None, None, None, b"x:\\path\\to\\git"),
+            r"x:\path\to\git",
+            url_alternate(Scheme::File, None, None, None, br"x:\path\to\git"),
         )
     }
 
@@ -211,8 +211,8 @@ mod unix {
     #[test]
     fn file_path_with_backslashes_without_protocol() -> crate::Result {
         assert_url_roundtrip(
-            "x:\\path\\to\\git",
-            url_alternate(Scheme::Ssh, None, "x", None, b"\\path\\to\\git"),
+            r"x:\path\to\git",
+            url_alternate(Scheme::Ssh, None, "x", None, br"\path\to\git"),
         )
     }
 

@@ -9,7 +9,7 @@ pub fn single(mut value: &BStr) -> BString {
 
     while let Some(pos) = value.find_byteset(b"'!") {
         quoted.extend_from_slice(&value[..pos]);
-        quoted.push_str(b"'\\");
+        quoted.push_str(br"'\");
         quoted.push(value[pos]);
         quoted.push(b'\'');
 

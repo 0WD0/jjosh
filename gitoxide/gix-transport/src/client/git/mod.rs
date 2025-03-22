@@ -109,7 +109,7 @@ mod message {
         #[test]
         fn version_2_without_host_and_version() {
             assert_eq!(
-                git::message::connect(Service::UploadPack, Protocol::V2, b"hello\\world", None, &[]),
+                git::message::connect(Service::UploadPack, Protocol::V2, br"hello\world", None, &[]),
                 "git-upload-pack hello\\world\0\0version=2\0"
             );
         }
@@ -132,7 +132,7 @@ mod message {
                 git::message::connect(
                     Service::UploadPack,
                     Protocol::V1,
-                    b"hello\\world",
+                    br"hello\world",
                     Some(&("host".into(), None)),
                     &[]
                 ),
@@ -145,7 +145,7 @@ mod message {
                 git::message::connect(
                     Service::UploadPack,
                     Protocol::V1,
-                    b"hello\\world",
+                    br"hello\world",
                     Some(&("host".into(), None)),
                     &[("key", Some("value")), ("value-only", None)]
                 ),
@@ -158,7 +158,7 @@ mod message {
                 git::message::connect(
                     Service::UploadPack,
                     Protocol::V1,
-                    b"hello\\world",
+                    br"hello\world",
                     Some(&("host".into(), Some(404))),
                     &[]
                 ),

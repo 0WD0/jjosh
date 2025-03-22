@@ -43,7 +43,7 @@ fn common_values_and_names_by_path() -> crate::Result {
             v.dedup();
             v
         },
-        [".a/..c", "a/b", "a/d\\", "a\\e", "submodule"]
+        [".a/..c", "a/b", r"a/d\", r"a\e", "submodule"]
             .into_iter()
             .map(|n| n.as_bytes().as_bstr())
             .collect::<Vec<_>>(),

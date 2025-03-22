@@ -8,7 +8,7 @@ fn p(input: &str) -> &Path {
 
 #[test]
 fn no_change_if_there_are_no_trailing_relative_components() {
-    for input in ["./a/b/c/d", "/absolute/path", "C:\\hello\\world"] {
+    for input in ["./a/b/c/d", "/absolute/path", r"C:\hello\world"] {
         let path = p(input);
         assert_eq!(normalize(path.into(), &std::env::current_dir().unwrap()).unwrap(), path);
     }

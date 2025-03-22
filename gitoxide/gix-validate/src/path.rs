@@ -8,13 +8,13 @@ pub mod component {
     pub enum Error {
         #[error("A path component must not be empty")]
         Empty,
-        #[error("Path separators like / or \\ are not allowed")]
+        #[error(r"Path separators like / or \ are not allowed")]
         PathSeparator,
         #[error("Windows path prefixes are not allowed")]
         WindowsPathPrefix,
         #[error("Windows device-names may have side-effects and are not allowed")]
         WindowsReservedName,
-        #[error("Trailing spaces or dots, and the following characters anywhere, are forbidden in Windows paths, along with non-printable ones: <>:\"|?*")]
+        #[error(r#"Trailing spaces or dots, and the following characters anywhere, are forbidden in Windows paths, along with non-printable ones: <>:"|?*"#)]
         WindowsIllegalCharacter,
         #[error("The .git name may never be used")]
         DotGitDir,
@@ -79,7 +79,7 @@ pub fn component(
         return Err(component::Error::Empty);
     }
     if protect_windows {
-        if input.find_byteset(b"/\\").is_some() {
+        if input.find_byteset(br"/\").is_some() {
             return Err(component::Error::PathSeparator);
         }
         if input.chars().nth(1) == Some(':') {

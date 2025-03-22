@@ -623,7 +623,7 @@ mod exe_info {
                 Some("/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig"),
             ),
             (win_msys, Some("C:/git-sdk-64/etc/gitconfig")),
-            (win_msys_old, Some("C:\\ProgramData/Git/config")),
+            (win_msys_old, Some(r"C:\ProgramData/Git/config")),
             (win_cmd, Some("C:/Program Files/Git/etc/gitconfig")),
             (linux, Some("/home/parallels/.gitconfig")),
             (bogus, None),
@@ -645,7 +645,7 @@ fn config_to_base_path() {
             "/Applications/Xcode.app/Contents/Developer/usr/share/git-core",
         ),
         ("C:/git-sdk-64/etc/gitconfig", "C:/git-sdk-64/etc"),
-        ("C:\\ProgramData/Git/config", "C:\\ProgramData/Git"),
+        (r"C:\ProgramData/Git/config", r"C:\ProgramData/Git"),
         ("C:/Program Files/Git/etc/gitconfig", "C:/Program Files/Git/etc"),
     ] {
         assert_eq!(super::config_to_base_path(Path::new(input)), Path::new(expected));

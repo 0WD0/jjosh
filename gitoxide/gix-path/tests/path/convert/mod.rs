@@ -5,7 +5,7 @@ use gix_path::{to_unix_separators, to_windows_separators};
 fn assure_unix_separators() {
     assert_eq!(to_unix_separators(b"no-backslash".as_bstr()).as_bstr(), "no-backslash");
 
-    assert_eq!(to_unix_separators(b"\\a\\b\\\\".as_bstr()).as_bstr(), "/a/b//");
+    assert_eq!(to_unix_separators(br"\a\b\\".as_bstr()).as_bstr(), "/a/b//");
 }
 
 #[test]
@@ -15,7 +15,7 @@ fn assure_windows_separators() {
         "no-backslash"
     );
 
-    assert_eq!(to_windows_separators(b"/a/b//".as_bstr()).as_bstr(), "\\a\\b\\\\");
+    assert_eq!(to_windows_separators(b"/a/b//".as_bstr()).as_bstr(), r"\a\b\\");
 }
 
 mod normalize;
