@@ -20,8 +20,8 @@ mod from_git_dir_file {
         let (path, _) = write_and_read(b"gitdir: C:/absolute/path/.git")?;
         assert_eq!(path, Path::new("C:/absolute/path/.git"));
 
-        let (path, _) = write_and_read(b"gitdir: C:\\absolute\\path\\.git")?;
-        assert_eq!(path, Path::new("C:\\absolute\\path\\.git"));
+        let (path, _) = write_and_read(br"gitdir: C:\absolute\path\.git")?;
+        assert_eq!(path, Path::new(r"C:\absolute\path\.git"));
         Ok(())
     }
 

@@ -122,7 +122,7 @@ fn writes_through_symlinks_are_prevented_even_if_overwriting_is_allowed() {
         assert_eq!(
             stripped_prefix(&destination, &worktree_files),
             paths([
-                if cfg!(windows) { "A-dir\\a" } else { "A-dir/a" },
+                if cfg!(windows) { r"A-dir\a" } else { "A-dir/a" },
                 "A-file",
                 "FAKE-DIR",
                 "FAKE-FILE"
@@ -407,7 +407,7 @@ fn keep_going_collects_results() {
                 if cfg!(unix) {
                     "dir/sub-dir/symlink"
                 } else {
-                    "dir\\sub-dir\\symlink"
+                    r"dir\sub-dir\symlink"
                 },
                 "empty",
                 "executable",

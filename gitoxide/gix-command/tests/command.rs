@@ -52,13 +52,13 @@ mod shebang {
                 "trimming works for tabs as well"
             );
             assert_eq!(
-                parse("#!\\bin\\sh"),
-                exe("\\bin\\sh"),
+                parse(r"#!\bin\sh"),
+                exe(r"\bin\sh"),
                 "backslashes are recognized as path separator"
             );
             assert_eq!(
                 parse("#!C:\\Program Files\\shell.exe\r\nsome stuff"),
-                exe("C:\\Program Files\\shell.exe"),
+                exe(r"C:\Program Files\shell.exe"),
                 "absolute windows paths are fine"
             );
             assert_eq!(
@@ -192,8 +192,8 @@ mod context {
     #[test]
     fn glob_pathspecs_sets_env_only() {
         for (value, expected) in [
-            (false, "GIT_NOGLOB_PATHSPECS=\"1\""),
-            (true, "GIT_GLOB_PATHSPECS=\"1\""),
+            (false, r#"GIT_NOGLOB_PATHSPECS="1""#),
+            (true, r#"GIT_GLOB_PATHSPECS="1""#),
         ] {
             let ctx = Context {
                 glob_pathspecs: Some(value),
@@ -305,7 +305,7 @@ mod prepare {
     #[test]
     fn single_and_complex_arguments_as_part_of_command_with_shell() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo \"a b\"")
+            gix_command::prepare(r#"ls --foo "a b""#)
                 .arg("additional")
                 .command_may_be_shell_script(),
         );
@@ -324,7 +324,7 @@ mod prepare {
     #[test]
     fn single_and_complex_arguments_with_auto_split() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo=\"a b\"").command_may_be_shell_script_allow_manual_argument_splitting(),
+            gix_command::prepare(r#"ls --foo="a b""#).command_may_be_shell_script_allow_manual_argument_splitting(),
         );
         assert_eq!(
             format!("{cmd:?}"),
@@ -336,7 +336,7 @@ mod prepare {
     #[test]
     fn single_and_complex_arguments_without_auto_split() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("ls --foo=\"a b\"").command_may_be_shell_script_disallow_manual_argument_splitting(),
+            gix_command::prepare(r#"ls --foo="a b""#).command_may_be_shell_script_disallow_manual_argument_splitting(),
         );
         assert_eq!(format!("{cmd:?}"), quoted(&[*SH, "-c", r#"ls --foo=\"a b\""#, "--"]));
     }
@@ -351,7 +351,7 @@ mod prepare {
         );
         assert_eq!(
             format!("{cmd:?}"),
-            quoted(&[*SH, "-c", "ls \\\"$@\\\"", "--", "--foo=a b"])
+            quoted(&[*SH, "-c", r#"ls \"$@\""#, "--", "--foo=a b"])
         );
     }
 
@@ -366,7 +366,7 @@ mod prepare {
         );
         assert_eq!(
             format!("{cmd:?}"),
-            quoted(&[*SH, "-c", "\\'ls\\' \\\"$@\\\"", "--", "--foo=a b"]),
+            quoted(&[*SH, "-c", r#"\'ls\' \"$@\""#, "--", "--foo=a b"]),
             "looks strange thanks to debug printing, but is the right amount of quotes actually"
         );
     }
@@ -374,7 +374,7 @@ mod prepare {
     #[test]
     fn quoted_windows_command_without_argument_splitting() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("C:\\Users\\O'Shaughnessy\\with space.exe")
+            gix_command::prepare(r"C:\Users\O'Shaughnessy\with space.exe")
                 .arg("--foo='a b'")
                 .command_may_be_shell_script_disallow_manual_argument_splitting()
                 .with_shell()
@@ -385,9 +385,9 @@ mod prepare {
             quoted(&[
                 *SH,
                 "-c",
-                "\\'C:\\\\Users\\\\O\\'\\\\\\'\\'Shaughnessy\\\\with space.exe\\' \\\"$@\\\"",
+                r#"\'C:\\Users\\O\'\\\'\'Shaughnessy\\with space.exe\' \"$@\""#,
                 "--",
-                "--foo=\\'a b\\'"
+                r"--foo=\'a b\'"
             ]),
             "again, a lot of extra backslashes, but it's correct outside of the debug formatting"
         );
@@ -409,7 +409,7 @@ mod prepare {
     #[test]
     fn tilde_path_and_multiple_arguments_as_part_of_command_with_shell() {
         let cmd =
-            std::process::Command::from(gix_command::prepare("~/bin/exe --foo \"a b\"").command_may_be_shell_script());
+            std::process::Command::from(gix_command::prepare(r#"~/bin/exe --foo "a b""#).command_may_be_shell_script());
         let sh = *SH;
         assert_eq!(
             format!("{cmd:?}"),
@@ -421,7 +421,7 @@ mod prepare {
     #[test]
     fn script_with_dollar_at() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("echo \"$@\" >&2")
+            gix_command::prepare(r#"echo "$@" >&2"#)
                 .command_may_be_shell_script()
                 .arg("store"),
         );
@@ -437,7 +437,7 @@ mod prepare {
     #[test]
     fn script_with_dollar_at_has_no_quoting() {
         let cmd = std::process::Command::from(
-            gix_command::prepare("echo \"$@\" >&2")
+            gix_command::prepare(r#"echo "$@" >&2"#)
                 .command_may_be_shell_script()
                 .with_quoted_command()
                 .arg("store"),
@@ -487,7 +487,7 @@ mod spawn {
     #[test]
     fn script_with_dollar_at() -> crate::Result {
         let out = std::process::Command::from(
-            gix_command::prepare("echo \"$@\"")
+            gix_command::prepare(r#"echo "$@""#)
                 .command_may_be_shell_script()
                 .arg("arg"),
         )

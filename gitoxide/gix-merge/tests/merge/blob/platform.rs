@@ -463,7 +463,7 @@ theirs
 
         let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
         assert_eq!(
-            platform_ref.builtin_merge(BuiltinDriver::Text, &mut out, &mut input, Default::default(),),
+            platform_ref.builtin_merge(BuiltinDriver::Text, &mut out, &mut input, Default::default()),
             res,
             "we can't enforce it, it will just default to using binary"
         );
@@ -689,7 +689,7 @@ mod prepare_merge {
             },
         )?;
         let expected_idx = 1;
-        assert_eq!(prepared.driver, DriverChoice::Index(expected_idx),);
+        assert_eq!(prepared.driver, DriverChoice::Index(expected_idx));
         assert_eq!(
             prepared.options.resolve_binary_with,
             Some(builtin_driver::binary::ResolveWith::Ours),

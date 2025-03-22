@@ -2,7 +2,7 @@ use std::process::Command;
 
 fn main() {
     let version = Command::new(if cfg!(windows) { "git.exe" } else { "git" })
-        .args(["describe", "--match=v*\\.*\\.*"])
+        .args(["describe", r"--match=v*\.*\.*"])
         .output()
         .ok()
         .and_then(|out| parse_describe(&out.stdout))

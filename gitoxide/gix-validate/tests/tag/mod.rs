@@ -140,8 +140,8 @@ mod name {
         mktests!(contains_questionmark_san, b"prefix?suffix", "prefix-suffix");
         mktestb!(contains_open_bracket, b"prefix[suffix");
         mktests!(contains_open_bracket_san, b"prefix[suffix", "prefix-suffix");
-        mktestb!(contains_backslash, b"prefix\\suffix");
-        mktests!(contains_backslash_san, b"prefix\\suffix", "prefix-suffix");
+        mktestb!(contains_backslash, br"prefix\suffix");
+        mktests!(contains_backslash_san, br"prefix\suffix", "prefix-suffix");
         mktestb!(contains_circumflex, b"prefix^suffix");
         mktests!(contains_circumflex_san, b"prefix^suffix", "prefix-suffix");
         mktestb!(contains_tilde, b"prefix~suffix");

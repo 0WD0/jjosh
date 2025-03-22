@@ -49,7 +49,7 @@ fn quotes_right_next_to_each_other() {
 #[test]
 fn escaped_quotes_are_kept() {
     let cow = normalize_bstr(r#""hello \"\" world""#);
-    assert_eq!(cow, cow_str("hello \"\" world").clone(),);
+    assert_eq!(cow, cow_str("hello \"\" world").clone());
     assert!(matches!(cow, Cow::Owned(_)));
 }
 

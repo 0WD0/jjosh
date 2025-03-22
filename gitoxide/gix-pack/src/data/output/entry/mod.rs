@@ -142,7 +142,7 @@ impl output::Entry {
                 if let Err(err) = std::io::copy(&mut &*obj.data, &mut out) {
                     match err.kind() {
                         std::io::ErrorKind::Other => return Err(Error::ZlibDeflate(err)),
-                        err => unreachable!("Should never see other errors than zlib, but got {:?}", err,),
+                        err => unreachable!("Should never see other errors than zlib, but got {:?}", err),
                     }
                 }
                 out.flush()?;

@@ -56,7 +56,7 @@ fn compress_data(obj: &gix_object::Data<'_>) -> Result<Vec<u8>, input::Error> {
         match err.kind() {
             std::io::ErrorKind::Other => return Err(input::Error::Io(err)),
             err => {
-                unreachable!("Should never see other errors than zlib, but got {:?}", err,)
+                unreachable!("Should never see other errors than zlib, but got {:?}", err)
             }
         }
     }

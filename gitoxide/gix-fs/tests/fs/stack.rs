@@ -218,7 +218,7 @@ fn relative_components_are_invalid() {
     );
     assert_eq!(
         s.current().to_string_lossy(),
-        if cfg!(windows) { ".\\a\\b" } else { "./a/b" },
+        if cfg!(windows) { r".\a\b" } else { "./a/b" },
         "dot is silently ignored"
     );
     s.make_relative_path_current("a//b/".as_ref(), &mut r)
@@ -243,7 +243,7 @@ fn absolute_paths_are_invalid() -> crate::Result {
     let err = s.make_relative_path_current("/".as_ref(), &mut r).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "Input path \"/\" contains relative or absolute components",
+        r#"Input path "/" contains relative or absolute components"#,
         "a leading slash is always considered absolute"
     );
     s.make_relative_path_current("a/".as_ref(), &mut r)?;
@@ -252,19 +252,19 @@ fn absolute_paths_are_invalid() -> crate::Result {
         p("./a/"),
         "trailing slashes aren't a problem at this stage, as they cannot cause a 'breakout'"
     );
-    s.make_relative_path_current("b\\".as_ref(), &mut r)?;
+    s.make_relative_path_current(r"b\".as_ref(), &mut r)?;
     assert_eq!(
         s.current(),
-        p("./b\\"),
+        p(r"./b\"),
         "trailing backslashes are fine both on Windows and Unix - on Unix it's part of the filename"
     );
 
     #[cfg(windows)]
     {
-        let err = s.make_relative_path_current("\\".as_ref(), &mut r).unwrap_err();
+        let err = s.make_relative_path_current(r"\".as_ref(), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Input path \"\\\" contains relative or absolute components",
+            r#"Input path "\" contains relative or absolute components"#,
             "on Windows, backslashes are considered absolute and replace the base if it is relative, \
             hence they are forbidden."
         );
@@ -272,13 +272,13 @@ fn absolute_paths_are_invalid() -> crate::Result {
         let err = s.make_relative_path_current("c:".as_ref(), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Input path \"c:\" contains relative or absolute components",
+            r#"Input path "c:" contains relative or absolute components"#,
             "on Windows, drive-letters without trailing backslash or slash are also absolute (even though they ought to be relative)"
         );
-        let err = s.make_relative_path_current("c:\\".as_ref(), &mut r).unwrap_err();
+        let err = s.make_relative_path_current(r"c:\".as_ref(), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Input path \"c:\\\" contains relative or absolute components",
+            r#"Input path "c:\" contains relative or absolute components"#,
             "on Windows, drive-letters are absolute, which is expected"
         );
 
@@ -290,7 +290,7 @@ fn absolute_paths_are_invalid() -> crate::Result {
             but we just turn it into a presumably invalid path which is fine, i.e. we get a joined path"
         );
         let err = s
-            .make_relative_path_current(r#"\\localhost\hello"#.as_ref(), &mut r)
+            .make_relative_path_current(r"\\localhost\hello".as_ref(), &mut r)
             .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -466,9 +466,9 @@ fn delegate_calls_are_consistent() -> crate::Result {
 
     #[cfg(not(windows))]
     {
-        s.make_relative_path_current("\\/b".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\/b".as_ref(), &mut r)?;
         dirs.pop();
-        dirs.push(root.join("\\"));
+        dirs.push(root.join(r"\"));
         assert_eq!(
             r,
             Record {
@@ -479,7 +479,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
             "a backslash is a normal character outside of Windows, so it's fine to have it as component"
         );
 
-        s.make_relative_path_current("\\".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\".as_ref(), &mut r)?;
         assert_eq!(
             r,
             Record {
@@ -490,11 +490,11 @@ fn delegate_calls_are_consistent() -> crate::Result {
         );
         assert_eq!(
             s.current().to_string_lossy(),
-            "./\\",
-            "a backslash can also be a valid leaf component - here we only popped the 'b', leaving the \\ 'directory'"
+            r"./\",
+            r"a backslash can also be a valid leaf component - here we only popped the 'b', leaving the \ 'directory'"
         );
 
-        s.make_relative_path_current("\\\\".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\\".as_ref(), &mut r)?;
         dirs.pop();
         assert_eq!(
             r,
@@ -506,14 +506,14 @@ fn delegate_calls_are_consistent() -> crate::Result {
         );
         assert_eq!(
             s.current().to_string_lossy(),
-            "./\\\\",
+            r"./\\",
             "the backslash can also be an ordinary leaf, without the need for it to be a directory"
         );
     }
 
     #[cfg(windows)]
     {
-        s.make_relative_path_current("c\\/d".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"c\/d".as_ref(), &mut r)?;
         dirs.pop();
         dirs.push(root.join("c"));
         assert_eq!(
@@ -526,7 +526,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         );
         assert_eq!(
             s.current().to_string_lossy(),
-            ".\\c\\d",
+            r".\c\d",
             "the backslash is a path-separator, and so is the `/`, which is turned into backslash"
         );
     }

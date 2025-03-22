@@ -117,7 +117,7 @@ fn exclamation_marks_must_be_escaped_or_error_unlike_gitignore() {
 
 #[test]
 fn invalid_escapes_in_quotes_are_an_error() {
-    assert!(matches!(try_line(r#""\!hello""#), Err(parse::Error::Unquote(_)),),);
+    assert!(matches!(try_line(r#""\!hello""#), Err(parse::Error::Unquote(_))));
     assert!(lenient_lines(r#""\!hello""#).is_empty());
 }
 

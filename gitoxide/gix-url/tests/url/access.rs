@@ -13,7 +13,7 @@ mod canonicalized {
         #[cfg(not(windows))]
         let url = gix_url::parse("/this/path/does/not/exist".into())?;
         #[cfg(windows)]
-        let url = gix_url::parse("C:\\non\\existing".into())?;
+        let url = gix_url::parse(r"C:\non\existing".into())?;
         assert_eq!(url.canonicalized(&std::env::current_dir()?)?, url);
         Ok(())
     }

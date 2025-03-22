@@ -15,8 +15,8 @@ mod is_absolute {
     mod not_on_windows {
         #[test]
         fn drive_prefixes_are_false() {
-            assert!(!gix_path::is_absolute("c:\\abs/path"));
-            assert!(!gix_path::is_absolute("c:\\abs\\path"));
+            assert!(!gix_path::is_absolute(r"c:\abs/path"));
+            assert!(!gix_path::is_absolute(r"c:\abs\path"));
         }
     }
 
@@ -24,19 +24,19 @@ mod is_absolute {
     mod on_windows {
         #[test]
         fn drive_prefixes_are_true() {
-            assert!(gix_path::is_absolute("c:\\abs/path"));
-            assert!(gix_path::is_absolute("c:\\abs\\path"));
+            assert!(gix_path::is_absolute(r"c:\abs/path"));
+            assert!(gix_path::is_absolute(r"c:\abs\path"));
         }
 
         #[test]
         fn relative_paths_with_backslashes_are_false() {
-            assert!(!gix_path::is_absolute(".\\rel/path"));
-            assert!(!gix_path::is_absolute("rel\\path"));
+            assert!(!gix_path::is_absolute(r".\rel/path"));
+            assert!(!gix_path::is_absolute(r"rel\path"));
         }
 
         #[test]
         fn path_starting_with_backslash_is_false() {
-            assert!(!gix_path::is_absolute("\\rel\\path"));
+            assert!(!gix_path::is_absolute(r"\rel\path"));
         }
     }
 }

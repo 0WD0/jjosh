@@ -20,7 +20,7 @@ mod write {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     enum Error {
-        #[error("Messages must not contain newlines\\n")]
+        #[error(r"Messages must not contain newlines (\n)")]
         IllegalCharacter,
     }
 
@@ -96,7 +96,7 @@ pub mod decode {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(
                     f,
-                    "{:?} did not match '<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\\t<message>'",
+                    r"{:?} did not match '<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\t<message>'",
                     self.input
                 )
             }
@@ -142,7 +142,7 @@ pub mod decode {
                 gix_actor::signature::decode.context(StrContext::Expected("<name> <<email>> <timestamp>".into())),
             )
                 .context(StrContext::Expected(
-                    "<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\\t<message>".into(),
+                    r"<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\t<message>".into(),
                 ))
                 .parse_next(&mut first)?;
 
@@ -163,7 +163,7 @@ pub mod decode {
                     gix_actor::signature::decode.context(StrContext::Expected("<name> <<email>> <timestamp>".into())),
                 )
                     .context(StrContext::Expected(
-                        "<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\\t<message>".into(),
+                        r"<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\t<message>".into(),
                     )),
                 alt((
                     preceded(

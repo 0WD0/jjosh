@@ -161,7 +161,7 @@ mod text {
                     num_diverging += 1;
                 } else {
                     if case.expected.contains_str("<<<<<<<") {
-                        assert_eq!(actual, Resolution::Conflict, "{}: resolution mismatch", case.name,);
+                        assert_eq!(actual, Resolution::Conflict, "{}: resolution mismatch", case.name);
                     } else {
                         assert!(
                             matches!(

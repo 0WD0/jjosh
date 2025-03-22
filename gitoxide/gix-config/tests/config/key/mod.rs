@@ -20,8 +20,8 @@ fn valid_and_invalid() {
     assert_eq!(key.subsection_name.unwrap(), "quux.bar");
     assert_eq!(key.value_name, "baz");
 
-    let key = "includeIf.gitdir/i:C:\\bare.git.path".as_key();
-    assert_eq!(key.subsection_name, Some("gitdir/i:C:\\bare.git".into()),);
+    let key = r"includeIf.gitdir/i:C:\bare.git.path".as_key();
+    assert_eq!(key.subsection_name, Some(r"gitdir/i:C:\bare.git".into()));
 }
 
 mod _ref {
@@ -56,10 +56,10 @@ mod _ref {
         );
 
         assert_eq!(
-            KeyRef::parse_unvalidated("includeIf.gitdir/i:C:\\bare.git.path".into()),
+            KeyRef::parse_unvalidated(r"includeIf.gitdir/i:C:\bare.git.path".into()),
             Some(KeyRef {
                 section_name: "includeIf",
-                subsection_name: Some("gitdir/i:C:\\bare.git".into()),
+                subsection_name: Some(r"gitdir/i:C:\bare.git".into()),
                 value_name: "path"
             })
         );

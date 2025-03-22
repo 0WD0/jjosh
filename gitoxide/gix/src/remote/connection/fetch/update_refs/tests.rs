@@ -778,7 +778,7 @@ mod update {
             }
             _ => unreachable!("only updates"),
         }
-        assert_eq!(edit.name.as_bstr(), "refs/remotes/origin/new-HEAD",);
+        assert_eq!(edit.name.as_bstr(), "refs/remotes/origin/new-HEAD");
     }
 
     #[test]

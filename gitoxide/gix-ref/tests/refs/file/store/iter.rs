@@ -73,14 +73,14 @@ mod with_namespace {
             );
             assert_eq!(
                 store
-                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr(),)?
+                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr())?
                     .name,
                 fullname,
                 "it will find namespaced items just by their shortened (but not shortest) name"
             );
             assert!(
                 store
-                    .try_find(reference.name_without_namespace(&ns_two).expect("namespaced"),)?
+                    .try_find(reference.name_without_namespace(&ns_two).expect("namespaced"))?
                     .is_none(),
                 "it won't find namespaced items by their full name without namespace"
             );
@@ -167,7 +167,7 @@ mod with_namespace {
 
         for fullname in ref_names {
             assert_eq!(
-                ns_store.find(fullname.as_bstr(),)?.name,
+                ns_store.find(fullname.as_bstr())?.name,
                 fullname,
                 "it finds namespaced items by fully qualified name, excluding namespace"
             );
@@ -179,7 +179,7 @@ mod with_namespace {
             );
             assert_eq!(
                 ns_store
-                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr(),)?
+                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr())?
                     .name,
                 fullname,
                 "it finds partial names within the namespace"
@@ -275,9 +275,9 @@ fn loose_iter_with_broken_refs() -> crate::Result {
         "there is exactly one invalid item, and it didn't abort the iterator most importantly"
     );
     #[cfg(not(windows))]
-    let msg = "The reference at \"refs/broken\" could not be instantiated";
+    let msg = r#"The reference at "refs/broken" could not be instantiated"#;
     #[cfg(windows)]
-    let msg = "The reference at \"refs\\broken\" could not be instantiated";
+    let msg = r#"The reference at "refs\broken" could not be instantiated"#;
     assert_eq!(
         actual[first_error].as_ref().expect_err("unparsable ref").to_string(),
         msg
@@ -320,7 +320,7 @@ fn loose_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
     #[cfg(not(windows))]
     let abs_path = "/hello";
     #[cfg(windows)]
-    let abs_path = "c:\\hello";
+    let abs_path = r"c:\hello";
 
     match store.loose_iter_prefixed(abs_path.as_ref()) {
         Ok(_) => unreachable!("absolute paths aren't allowed"),
@@ -372,7 +372,7 @@ fn loose_iter_with_partial_prefix() -> crate::Result {
 
     assert_eq!(
         actual,
-        vec!["refs/heads/d1", "refs/heads/dt1",]
+        vec!["refs/heads/d1", "refs/heads/dt1"]
             .into_iter()
             .map(String::from)
             .collect::<Vec<_>>(),
@@ -419,7 +419,7 @@ fn overlay_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
     #[cfg(not(windows))]
     let abs_path = "/hello";
     #[cfg(windows)]
-    let abs_path = "c:\\hello";
+    let abs_path = r"c:\hello";
 
     match store.iter()?.prefixed(abs_path.as_ref()) {
         Ok(_) => unreachable!("absolute paths aren't allowed"),

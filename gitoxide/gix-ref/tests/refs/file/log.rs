@@ -17,7 +17,7 @@ mod line {
 
         #[test]
         fn round_trips() -> crate::Result {
-            let lines = &["0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	commit (initial): c1\n", 
+            let lines = &["0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	commit (initial): c1\n",
                          "0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	\n"];
             for line in lines {
                 let line = log::LineRef::from_bytes(line.as_bytes())?;
@@ -98,7 +98,7 @@ mod iter {
                             .source()
                             .expect("source")
                             .to_string(),
-                        "buffer too small for line size, got until \"0000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\\tcommit (initial): c1\""
+                        r#"buffer too small for line size, got until "0000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\tcommit (initial): c1""#
                     );
                     assert!(iter.next().is_none(), "iterator depleted");
                 }
@@ -221,7 +221,10 @@ mod iter {
 
             let mut iter = gix_ref::file::log::iter::forward(log_first_broken.as_bytes());
             let err = iter.next().expect("error is not none").expect_err("the line is broken");
-            assert_eq!(err.to_string(), "In line 1: \"0000000000000000000000000000000000000000 134385fbroken7062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\\tcommit\" did not match '<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\\t<message>'");
+            assert_eq!(
+                err.to_string(),
+                r#"In line 1: "0000000000000000000000000000000000000000 134385fbroken7062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000\tcommit" did not match '<old-hexsha> <new-hexsha> <name> <<email>> <timestamp> <tz>\t<message>'"#
+            );
             assert!(iter.next().expect("a second line").is_ok(), "line parses ok");
             assert!(iter.next().is_none(), "iterator exhausted");
         }

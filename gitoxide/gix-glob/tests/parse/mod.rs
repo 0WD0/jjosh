@@ -78,7 +78,7 @@ fn leading_exclamation_marks_can_be_escaped_with_backslash() {
     assert_eq!(gix_glob::parse(br"\!hello"), pat("!hello", Mode::NO_SUB_DIR, None));
     assert_eq!(
         gix_glob::Pattern::from_bytes_without_negation(br"\!hello"),
-        pat("\\!hello", Mode::NO_SUB_DIR, Some(0)),
+        pat(r"\!hello", Mode::NO_SUB_DIR, Some(0)),
         "negation can be disabled entirely, leaving escapes in place"
     );
 }
@@ -129,7 +129,7 @@ fn trailing_spaces_are_taken_literally() {
 fn trailing_spaces_can_be_escaped_to_be_literal() {
     assert_eq!(
         gix_glob::parse(br"a  \ "),
-        pat("a  \\ ", Mode::NO_SUB_DIR, Some(3)),
+        pat(r"a  \ ", Mode::NO_SUB_DIR, Some(3)),
         "there is no escaping"
     );
     assert_eq!(

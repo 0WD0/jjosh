@@ -261,7 +261,7 @@ fn compare_states(actual: &State, actual_version: Version, expected: &State, opt
         expected.entries().len(),
         "entry count mismatch in {fixture:?}",
     );
-    assert_eq!(actual.entries(), expected.entries(), "entries mismatch in {fixture:?}",);
+    assert_eq!(actual.entries(), expected.entries(), "entries mismatch in {fixture:?}");
     assert_eq!(
         actual.path_backing(),
         expected.path_backing(),

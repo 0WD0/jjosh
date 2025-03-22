@@ -67,7 +67,7 @@ mod http {
         assert_eq!(follow_redirects, FollowRedirects::All);
         assert_eq!(low_speed_limit_bytes_per_second, 5120);
         assert_eq!(low_speed_time_seconds, 10);
-        assert_eq!(proxy.as_deref(), Some("http://localhost:9090"),);
+        assert_eq!(proxy.as_deref(), Some("http://localhost:9090"));
         assert!(
             proxy_authenticate.is_none(),
             "no username means no authentication required"

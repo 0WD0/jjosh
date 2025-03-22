@@ -387,7 +387,7 @@ fn from_empty_invalid_write() -> crate::Result {
         .unwrap_err();
     assert_eq!(
         err.to_string(),
-        "Nullbytes are invalid in file paths as they are separators: \"with\\0null\""
+        r#"Nullbytes are invalid in file paths as they are separators: "with\0null""#
     );
 
     let err = edit.upsert(Some(""), EntryKind::Blob, any_blob()).unwrap_err();

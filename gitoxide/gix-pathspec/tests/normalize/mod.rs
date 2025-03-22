@@ -102,7 +102,7 @@ fn relative_path_breaks_out_of_working_tree() {
         err.to_string(),
         format!(
             "The path '{}' leaves the repository",
-            if cfg!(windows) { "a\\../../b" } else { "a/../../b" }
+            if cfg!(windows) { r"a\../../b" } else { "a/../../b" }
         )
     );
 }

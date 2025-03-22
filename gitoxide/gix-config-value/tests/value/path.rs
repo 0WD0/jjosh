@@ -10,7 +10,7 @@ mod interpolate {
 
     #[test]
     fn backslash_is_not_special_and_they_are_not_escaping_anything() -> crate::Result {
-        for path in ["C:\\foo\\bar", "/foo/bar"] {
+        for path in [r"C:\foo\bar", "/foo/bar"] {
             let actual = gix_config_value::Path::from(Cow::Borrowed(b(path))).interpolate(Default::default())?;
             assert_eq!(actual, Path::new(path));
             assert!(
@@ -31,8 +31,8 @@ mod interpolate {
 
     #[test]
     fn prefix_substitutes_git_install_dir() {
-        for git_install_dir in &["/tmp/git", "C:\\git"] {
-            for (val, expected) in &[("%(prefix)/foo/bar", "foo/bar"), ("%(prefix)/foo\\bar", "foo\\bar")] {
+        for git_install_dir in &["/tmp/git", r"C:\git"] {
+            for (val, expected) in &[("%(prefix)/foo/bar", "foo/bar"), (r"%(prefix)/foo\bar", r"foo\bar")] {
                 let expected =
                     std::path::PathBuf::from(format!("{}{}{}", git_install_dir, std::path::MAIN_SEPARATOR, expected));
                 assert_eq!(
@@ -103,7 +103,7 @@ mod interpolate {
     fn tilde_with_given_user() -> crate::Result {
         let home = std::env::current_dir()?;
 
-        for path_suffix in &["foo/bar", "foo\\bar", ""] {
+        for path_suffix in &["foo/bar", r"foo\bar", ""] {
             let path = format!("~user{}{}", std::path::MAIN_SEPARATOR, path_suffix);
             let expected = home.join("user").join(path_suffix);
 

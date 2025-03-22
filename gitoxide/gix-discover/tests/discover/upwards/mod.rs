@@ -98,7 +98,7 @@ fn from_working_dir_no_config() -> crate::Result {
     for name in ["worktree-no-config-after-init", "worktree-no-config"] {
         let dir = repo_path()?.join(name);
         let (path, trust) = gix_discover::upwards(&dir)?;
-        assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None },);
+        assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None });
         assert_eq!(path.as_ref(), dir, "a working tree dir yields the git dir");
         assert_eq!(trust, expected_trust());
     }

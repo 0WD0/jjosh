@@ -74,7 +74,7 @@ fn assorted() -> crate::Result {
         #[cfg(not(windows))]
         let absolute_path = Path::new("/c/d/.git");
         #[cfg(windows)]
-        let absolute_path = Path::new("C:\\c\\d\\.git");
+        let absolute_path = Path::new(r"C:\c\d\.git");
         assert_eq!(
             realpath_opts(absolute_path, cwd, symlinks_disabled)?,
             absolute_path,

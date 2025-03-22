@@ -85,7 +85,7 @@ mod xdg_config {
         #[cfg(unix)]
         assert_eq!(actual.to_str(), Some("marker/git/test"));
         #[cfg(windows)]
-        assert_eq!(actual.to_str(), Some("marker\\git\\test"));
+        assert_eq!(actual.to_str(), Some(r"marker\git\test"));
     }
 
     #[test]
@@ -95,6 +95,6 @@ mod xdg_config {
         #[cfg(unix)]
         assert_eq!(actual.to_str(), Some("marker/.config/git/test"));
         #[cfg(windows)]
-        assert_eq!(actual.to_str(), Some("marker\\.config\\git\\test"));
+        assert_eq!(actual.to_str(), Some(r"marker\.config\git\test"));
     }
 }

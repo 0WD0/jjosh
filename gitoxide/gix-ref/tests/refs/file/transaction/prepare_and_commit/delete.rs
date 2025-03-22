@@ -414,7 +414,7 @@ fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_
         "only one edit even though technically two places were changed"
     );
     assert!(
-        store.try_find("newer-as-loose",)?.is_none(),
+        store.try_find("newer-as-loose")?.is_none(),
         "reference is deleted everywhere"
     );
     Ok(())

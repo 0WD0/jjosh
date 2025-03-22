@@ -598,7 +598,7 @@ mod writable {
             {
                 let unprefixed_name = "refs/heads/new";
                 let reference = store.find(unprefixed_name)?;
-                assert_eq!(reference.target.id(), new_id_main,);
+                assert_eq!(reference.target.id(), new_id_main);
                 assert_eq!(
                     reflog_for_name(&store, reference.name.as_ref(), &mut buf),
                     vec![new_id_main.to_string()]
