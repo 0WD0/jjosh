@@ -1,12 +1,12 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
-set -eox pipefail
+set -eux -o pipefail
 
-ROOT=$1
-OUTPUT_CORPUS=$2
-FIXTURES_DIR=$(readlink -f $ROOT/gix-object/tests/fixtures/tag)
+root="$1"
+output_corpus="$2"
+fixtures_dir="$(readlink -f -- "$root/gix-object/tests/fixtures/tag")"
 
-echo $ROOT
-echo $FIXTURES_DIR
+echo "$root"
+echo "$fixtures_dir"
 
-zip -j $OUTPUT_CORPUS $FIXTURES_DIR/*
+zip -j "$output_corpus" "$fixtures_dir"/*

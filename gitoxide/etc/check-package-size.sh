@@ -4,17 +4,17 @@ set -eu -o pipefail
 
 function enter () {
   local dir="${1:?need directory to enter}"
-  echo -n $'  in' $dir $'\t→\t'
-  cd $dir
+  printf '  in %s \t→\t' "$dir"
+  cd -- "$dir"
 }
 
 function indent () {
-  "$@" | grep "package size" | while read -r line; do
-    echo "    " $line
+  "$@" | grep -F 'package size' | while IFS= read -r line; do
+    echo "     $line"
   done
 }
 
-echo "in root: gitoxide CLI"
+echo 'in root: gitoxide CLI'
 (enter gix-fsck && indent cargo diet -n --package-size-limit 10KB)
 (enter gix-actor && indent cargo diet -n --package-size-limit 10KB)
 (enter gix-archive && indent cargo diet -n --package-size-limit 10KB)

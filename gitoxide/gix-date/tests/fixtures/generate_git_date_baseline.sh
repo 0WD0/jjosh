@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-git init;
+git init
 
 function baseline() {
-    local test_date=$1 # first argument is the date to test
-    local test_name=$2 # second argument is the format name for re-formatting
+    local test_date="$1" # first argument is the date to test
+    local test_name="$2" # second argument is the format name for re-formatting
 
-    git -c section.key="$test_date" config --type=expiry-date section.key && status=0 || status=$?
+    local status=0
+    git -c section.key="$test_date" config --type=expiry-date section.key || status="$?"
+
     {
-        echo "$test_date"
-        echo "$test_name"
-        echo "$status"
-        if [ $status == 0 ]
-        then
-          git -c section.key="$test_date" config --type=expiry-date section.key
-        else
-          echo "-1"
-        fi
+      echo "$test_date"
+      echo "$test_name"
+      echo "$status"
+      if [ "$status" = 0 ]; then
+        git -c section.key="$test_date" config --type=expiry-date section.key
+      else
+        echo '-1'
+      fi
     } >> baseline.git
 }
 
@@ -43,4 +44,3 @@ baseline '1234567890' 'UNIX'
 baseline '1660874655 +0800' 'RAW'
 
 # Note that we can't necessarily put 64bit dates here yet as `git` on the system might not yet support it.
-
