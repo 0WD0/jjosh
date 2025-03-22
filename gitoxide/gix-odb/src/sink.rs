@@ -53,6 +53,6 @@ impl gix_object::Write for Sink {
             c.reset();
         }
 
-        Ok(hasher.finalize())
+        Ok(hasher.try_finalize()?)
     }
 }

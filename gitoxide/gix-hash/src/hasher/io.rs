@@ -76,7 +76,7 @@ pub fn bytes_with_hasher(
         }
     }
 
-    let id = hasher.finalize();
+    let id = hasher.try_finalize()?;
     progress.show_throughput(start);
     Ok(id)
 }

@@ -180,7 +180,7 @@ where
             }
 
             if let Some(hash) = self.hash.take() {
-                let actual_id = hash.finalize();
+                let actual_id = hash.try_finalize().map_err(hasher::io::Error::from)?;
                 if self.mode == input::Mode::Restore {
                     id = actual_id;
                 } else {
@@ -190,7 +190,7 @@ where
             Some(id)
         } else if self.mode == input::Mode::Restore {
             let hash = self.hash.clone().expect("in restore mode a hash is set");
-            Some(hash.finalize())
+            Some(hash.try_finalize().map_err(hasher::io::Error::from)?)
         } else {
             None
         })

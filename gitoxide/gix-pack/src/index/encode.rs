@@ -137,7 +137,7 @@ mod function {
 
         let bytes_written_without_trailer = out.bytes;
         let out = out.inner.into_inner().map_err(io::Error::from)?;
-        let index_hash = out.hash.finalize();
+        let index_hash = out.hash.try_finalize()?;
         out.inner.write_all(index_hash.as_slice())?;
         out.inner.flush()?;
 

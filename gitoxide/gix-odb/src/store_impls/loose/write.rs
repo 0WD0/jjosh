@@ -130,7 +130,11 @@ impl Store {
         &self,
         hasher::io::Write { hash, inner: file }: hasher::io::Write<CompressedTempfile>,
     ) -> Result<gix_hash::ObjectId, Error> {
-        let id = hash.finalize();
+        let id = hash.try_finalize().map_err(|err| Error::Io {
+            source: err.into(),
+            message: "hash tempfile in",
+            path: self.path.to_owned(),
+        })?;
         let object_path = loose::hash_path(&id, self.path.clone());
         let object_dir = object_path
             .parent()

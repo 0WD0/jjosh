@@ -193,10 +193,7 @@ impl crate::index::File {
                      entry,
                      decompressed: bytes,
                      ..
-                 }| {
-                    modify_base(data, entry, bytes, version.hash());
-                    Ok::<_, Error>(())
-                },
+                 }| { modify_base(data, entry, bytes, version.hash()) },
                 traverse::Options {
                     object_progress: Box::new(
                         root_progress.add_child_with_id("Resolving".into(), ProgressId::ResolveObjects.into()),
@@ -228,7 +225,7 @@ impl crate::index::File {
                 let header = crate::data::header::encode(pack_version, 0);
                 let mut hasher = gix_hash::hasher(object_hash);
                 hasher.update(&header);
-                hasher.finalize()
+                hasher.try_finalize().map_err(hasher::io::Error::from)?
             }
             None => return Err(Error::IteratorInvariantTrailer),
         };
@@ -254,8 +251,14 @@ impl crate::index::File {
     }
 }
 
-fn modify_base(entry: &mut TreeEntry, pack_entry: &crate::data::Entry, decompressed: &[u8], hash: gix_hash::Kind) {
+fn modify_base(
+    entry: &mut TreeEntry,
+    pack_entry: &crate::data::Entry,
+    decompressed: &[u8],
+    hash: gix_hash::Kind,
+) -> Result<(), hasher::Error> {
     let object_kind = pack_entry.header.as_kind().expect("base object as source of iteration");
-    let id = gix_object::compute_hash(hash, object_kind, decompressed);
+    let id = gix_object::try_compute_hash(hash, object_kind, decompressed)?;
     entry.id = id;
+    Ok(())
 }

@@ -147,7 +147,7 @@ fn new_inmemory_writes() -> (
         move |tree: &Tree| {
             buf.clear();
             tree.write_to(&mut buf)?;
-            let id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf);
+            let id = gix_object::try_compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf)?;
             let mut borrowed = store.borrow_mut();
             match borrowed.entry(id) {
                 Entry::Occupied(_) => {}

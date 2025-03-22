@@ -30,7 +30,7 @@ fn resources_of_worktree_and_odb_and_check_link() -> crate::Result {
 
     let mut db = ObjectDb::default();
     let a_content = "a-content";
-    let id = db.insert(a_content);
+    let id = db.insert(a_content)?;
     platform.set_resource(
         id,
         EntryKind::BlobExecutable,
@@ -194,7 +194,7 @@ fn diff_binary() -> crate::Result {
 
     let mut db = ObjectDb::default();
     let a_content = "b";
-    let id = db.insert(a_content);
+    let id = db.insert(a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;
@@ -235,7 +235,7 @@ fn diff_performed_despite_external_command() -> crate::Result {
 
     let mut db = ObjectDb::default();
     let a_content = "b";
-    let id = db.insert(a_content);
+    let id = db.insert(a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;
@@ -277,7 +277,7 @@ fn diff_skipped_due_to_external_command_and_enabled_option() -> crate::Result {
 
     let mut db = ObjectDb::default();
     let a_content = "b";
-    let id = db.insert(a_content);
+    let id = db.insert(a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;

@@ -156,7 +156,7 @@ impl File {
         let data_len_without_trailer = self.data.len() - self.hash_len;
         let mut hasher = gix_hash::hasher(self.object_hash());
         hasher.update(&self.data[..data_len_without_trailer]);
-        let actual = hasher.finalize();
+        let actual = hasher.try_finalize()?;
         actual.verify(self.checksum())?;
         Ok(actual)
     }

@@ -85,7 +85,11 @@ impl Store {
                 .map_err(|_| integrity::Error::Retry)?
                 .ok_or(integrity::Error::Retry)?;
             sink.write_buf(object.kind, object.data)
-                .expect("sink never fails")
+                .map_err(|err| integrity::Error::ObjectHasher {
+                    source: *err.downcast().expect("sink can only fail in hasher"),
+                    kind: object.kind,
+                    expected: id,
+                })?
                 .verify(&id)
                 .map_err(|err| integrity::Error::ObjectEncodeMismatch {
                     source: err,

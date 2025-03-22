@@ -218,7 +218,7 @@ impl multi_index::File {
         }
 
         // write trailing checksum
-        let multi_index_checksum = out.inner.hash.finalize();
+        let multi_index_checksum = out.inner.hash.try_finalize().map_err(hasher::io::Error::from)?;
         out.inner
             .inner
             .write_all(multi_index_checksum.as_slice())

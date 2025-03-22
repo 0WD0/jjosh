@@ -92,7 +92,7 @@ fn copy_by_similarity_reports_limit_if_encountered() -> crate::Result {
             (Change::addition(), "a-cpy-2", "a"),
             (Change::modification(), "d", "ab"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -145,7 +145,7 @@ fn copy_by_id() -> crate::Result {
                 (Change::addition(), "a-cpy-2", "a"),
                 (Change::modification(), "d", "a"),
             ],
-        );
+        )?;
 
         let mut calls = 0;
         let out = util::assert_emit_with_objects(
@@ -218,7 +218,7 @@ fn copy_by_id_search_in_all_sources() -> crate::Result {
                 (Change::addition(), "a-cpy-1", "a"),
                 (Change::addition(), "a-cpy-2", "a"),
             ],
-        );
+        )?;
 
         let mut calls = 0;
         let content_id = hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e");
@@ -299,7 +299,7 @@ fn copy_by_50_percent_similarity() -> crate::Result {
             (Change::addition(), "a-cpy-2", "a\nc"),
             (Change::modification(), "d", "a"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -377,7 +377,7 @@ fn copy_by_id_in_additions_only() -> crate::Result {
             (Change::modification(), "a", "a"),
             (Change::modification(), "a-cpy-1", "a"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -429,7 +429,7 @@ fn rename_by_similarity_reports_limit_if_encountered() -> crate::Result {
             (Change::addition(), "b", "firt\nsecond\n"),
             (Change::addition(), "c", "second\nunrelated\n"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -475,7 +475,7 @@ fn rename_by_50_percent_similarity() -> crate::Result {
             (Change::addition(), "b", "firt\nsecond\n"),
             (Change::addition(), "c", "second\nunrelated\n"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -596,7 +596,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
             (Change::deletion(), "a", "first\nsecond\n"),
             (Change::addition(), "b", "firt\nsecond\n"),
         ],
-    );
+    )?;
 
     let mut calls = 0;
     let out = util::assert_emit_with_objects(
@@ -803,16 +803,16 @@ mod util {
     pub fn add_retained_blobs<'a>(
         tracker: &mut rewrites::Tracker<Change>,
         blobs: impl IntoIterator<Item = (Change, &'a str, &'a str)>,
-    ) -> ObjectDb {
+    ) -> crate::Result<ObjectDb> {
         let mut db = ObjectDb::default();
         for (mut change, location, data) in blobs {
-            change.id = db.insert(data);
+            change.id = db.insert(data)?;
             assert!(
                 tracker.try_push_change(change, location.into()).is_none(),
                 "input changes must be tracked"
             );
         }
-        db
+        Ok(db)
     }
 
     pub fn assert_emit(

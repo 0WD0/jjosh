@@ -72,7 +72,7 @@ pub(crate) mod convert_to_diffable {
 
             let mut db = ObjectDb::default();
             let b_content = "b-content";
-            let id = db.insert(b_content);
+            let id = db.insert(b_content)?;
 
             let out = filter.convert_to_diffable(
                 &id,
@@ -129,7 +129,7 @@ pub(crate) mod convert_to_diffable {
         assert_eq!(buf.len(), 0, "it should avoid querying that data in the first place");
 
         let mut db = ObjectDb::default();
-        let id = db.insert(large_content);
+        let id = db.insert(large_content)?;
         let out = filter.convert_to_diffable(
             &id,
             EntryKind::Blob,
@@ -211,7 +211,7 @@ pub(crate) mod convert_to_diffable {
         drop(tmp);
 
         let mut db = ObjectDb::default();
-        let id = db.insert(large_content);
+        let id = db.insert(large_content)?;
 
         let out = filter.convert_to_diffable(
             &id,
@@ -397,7 +397,7 @@ pub(crate) mod convert_to_diffable {
 
         let mut db = ObjectDb::default();
         let b_content = "b-content\n";
-        let id = db.insert(b_content);
+        let id = db.insert(b_content)?;
 
         let out = filter.convert_to_diffable(
             &id,
@@ -416,7 +416,7 @@ pub(crate) mod convert_to_diffable {
 
         let mut db = ObjectDb::default();
         let b_content = "b\n";
-        let id = db.insert(b_content);
+        let id = db.insert(b_content)?;
         let out = filter.convert_to_diffable(
             &id,
             EntryKind::Blob,
@@ -490,7 +490,7 @@ pub(crate) mod convert_to_diffable {
 
         let mut db = ObjectDb::default();
         let b_content = "b-co\0ntent\n";
-        let id = db.insert(b_content);
+        let id = db.insert(b_content)?;
 
         let out = filter.convert_to_diffable(
             &id,
@@ -509,7 +509,7 @@ pub(crate) mod convert_to_diffable {
 
         let platform = attributes.at_entry("c", None, &gix_object::find::Never)?;
 
-        let id = db.insert("b");
+        let id = db.insert("b")?;
         let out = filter.convert_to_diffable(
             &id,
             EntryKind::Blob,
@@ -638,7 +638,7 @@ pub(crate) mod convert_to_diffable {
         assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(buf.as_bstr(), "a\n", "unconditionally use git according to mode");
 
-        let id = db.insert("a\n");
+        let id = db.insert("a\n")?;
         for mode in worktree_modes {
             let out = filter.convert_to_diffable(
                 &id,
@@ -714,7 +714,7 @@ pub(crate) mod convert_to_diffable {
             assert_eq!(buf.len(), 0, "always cleared");
 
             buf.push(1);
-            let id = db.insert("link-target");
+            let id = db.insert("link-target")?;
             let out = filter.convert_to_diffable(
                 &id,
                 EntryKind::Link,
@@ -761,7 +761,7 @@ pub(crate) mod convert_to_diffable {
             assert_eq!(buf.len(), 0, "it's always cleared before any potential use");
         }
 
-        let id = db.insert("b\n");
+        let id = db.insert("b\n")?;
         for mode in all_modes {
             buf.push(1);
             let out = filter.convert_to_diffable(
@@ -814,7 +814,7 @@ pub(crate) mod convert_to_diffable {
             );
         }
 
-        let id = db.insert("c\n");
+        let id = db.insert("c\n")?;
         for mode in worktree_modes {
             let out = filter.convert_to_diffable(
                 &id,
@@ -863,7 +863,7 @@ pub(crate) mod convert_to_diffable {
             assert_eq!(buf.len(), 0);
         }
 
-        let id = db.insert("unset\n");
+        let id = db.insert("unset\n")?;
         for mode in all_modes {
             let out = filter.convert_to_diffable(
                 &id,
@@ -890,7 +890,7 @@ pub(crate) mod convert_to_diffable {
         }
 
         let platform = attributes.at_entry("d", None, &gix_object::find::Never)?;
-        let id = db.insert("d-in-db");
+        let id = db.insert("d-in-db")?;
         for mode in worktree_modes {
             let out = filter.convert_to_diffable(
                 &null,
@@ -959,7 +959,7 @@ pub(crate) mod convert_to_diffable {
             "no text filter, so git conversion was applied for worktree source"
         );
 
-        let id = db.insert("e-in-db");
+        let id = db.insert("e-in-db")?;
         let out = filter.convert_to_diffable(
             &id,
             EntryKind::Blob,

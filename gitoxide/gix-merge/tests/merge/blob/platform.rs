@@ -31,7 +31,7 @@ mod merge {
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs\0", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content);
+            let id = db.insert(content)?;
             platform.set_resource(
                 id,
                 EntryKind::Blob,
@@ -81,7 +81,7 @@ mod merge {
             ("any\0", ResourceKind::CurrentOrOurs),
             ("any\0", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content);
+            let id = db.insert(content)?;
             platform.set_resource(
                 id,
                 EntryKind::Blob,
@@ -131,7 +131,7 @@ mod merge {
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content);
+            let id = db.insert(content)?;
             platform.set_resource(id, EntryKind::Blob, "b".into(), kind, &db)?;
         }
 
@@ -284,7 +284,7 @@ theirs
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content);
+            let id = db.insert(content)?;
             platform.set_resource(id, EntryKind::Blob, "b".into(), kind, &db)?;
         }
 
@@ -313,7 +313,7 @@ theirs
             "we handle word-splitting and definitely pick-up what's written into the %A buffer"
         );
 
-        let id = db.insert("binary\0");
+        let id = db.insert("binary\0")?;
         platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::OtherOrTheirs, &db)?;
         let platform_ref = platform.prepare_merge(&db, Default::default())?;
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;

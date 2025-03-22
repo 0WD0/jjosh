@@ -12,11 +12,11 @@ mod tree;
 fn compute_hash() {
     let hk = gix_hash::Kind::Sha1;
     assert_eq!(
-        gix_object::compute_hash(hk, gix_object::Kind::Blob, &[]),
+        gix_object::try_compute_hash(hk, gix_object::Kind::Blob, &[]).expect("empty hash doesn’t collide"),
         gix_hash::ObjectId::empty_blob(hk)
     );
     assert_eq!(
-        gix_object::compute_hash(hk, gix_object::Kind::Tree, &[]),
+        gix_object::try_compute_hash(hk, gix_object::Kind::Tree, &[]).expect("empty hash doesn’t collide"),
         gix_hash::ObjectId::empty_tree(hk)
     );
 }

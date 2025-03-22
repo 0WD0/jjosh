@@ -68,7 +68,7 @@ pub fn apply(src: &[u8], object_hash: gix_hash::Kind, buf: &mut Vec<u8>) -> Resu
     while let Some(pos) = src[ofs..].find(b"$Id$") {
         let id = match id {
             None => {
-                let new_id = gix_object::compute_hash(object_hash, gix_object::Kind::Blob, src);
+                let new_id = gix_object::try_compute_hash(object_hash, gix_object::Kind::Blob, src)?;
                 id = new_id.into();
                 clear_and_set_capacity(buf, src.len() + HASH_LEN)?; // pre-allocate for one ID
                 new_id

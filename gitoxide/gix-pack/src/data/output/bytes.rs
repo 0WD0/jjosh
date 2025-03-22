@@ -126,7 +126,12 @@ where
                 }
             }
             None => {
-                let digest = self.output.hash.clone().finalize();
+                let digest = self
+                    .output
+                    .hash
+                    .clone()
+                    .try_finalize()
+                    .map_err(hasher::io::Error::from)?;
                 self.output
                     .inner
                     .write_all(digest.as_slice())
