@@ -95,7 +95,7 @@ mod matches {
         );
         stat2.ctime.secs = 1;
         assert!(
-            stat1.matches(&stat2, Options::default(),),
+            stat1.matches(&stat2, Options::default()),
             "ctime seconds are the same so stat matches (trust_ctime=true,use_nsec=false)"
         );
         assert!(

@@ -7,7 +7,7 @@ fn single_is_first_parent() {
     let rec = parse("@^");
 
     assert!(rec.kind.is_none());
-    assert_eq!(rec.get_ref(0), "HEAD",);
+    assert_eq!(rec.get_ref(0), "HEAD");
     assert_eq!(rec.prefix[0], None);
     assert_eq!(rec.traversal[0], Traversal::NthParent(1));
     assert_eq!(rec.calls, 2);
@@ -18,7 +18,7 @@ fn multiple_calls_stack() {
     let rec = parse("@^^^10^0^{tag}^020");
 
     assert!(rec.kind.is_none());
-    assert_eq!(rec.get_ref(0), "HEAD",);
+    assert_eq!(rec.get_ref(0), "HEAD");
     assert_eq!(rec.prefix[0], None);
     assert_eq!(
         rec.traversal,
@@ -44,7 +44,7 @@ fn followed_by_zero_is_peeling_to_commit() {
     let rec = parse("@^0");
 
     assert!(rec.kind.is_none());
-    assert_eq!(rec.get_ref(0), "HEAD",);
+    assert_eq!(rec.get_ref(0), "HEAD");
     assert_eq!(rec.prefix[0], None);
     assert_eq!(rec.traversal.len(), 0, "traversals by parent are never zero");
     assert_eq!(

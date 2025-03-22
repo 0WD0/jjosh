@@ -131,7 +131,7 @@ mod find {
 
         let obj = tag_ref.peel_to_kind(gix::object::Kind::Tree)?;
         assert!(obj.kind.is_tree());
-        assert_eq!(obj.id, hex_to_id("4b825dc642cb6eb9a060e54bf8d69288fbee4904"),);
+        assert_eq!(obj.id, hex_to_id("4b825dc642cb6eb9a060e54bf8d69288fbee4904"));
         assert_eq!(tag_ref.peel_to_tree()?.id, obj.id);
 
         assert_eq!(

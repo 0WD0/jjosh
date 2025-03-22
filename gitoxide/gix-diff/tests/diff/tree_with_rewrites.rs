@@ -422,7 +422,7 @@ fn renames_by_similarity_with_limit() -> crate::Result {
         "fuzzy tracking is effectively disabled due to limit"
     );
     let actual: Vec<_> = changes.iter().map(Change::location).collect();
-    assert_eq!(actual, ["f1", "f1-renamed", "f2", "f2-renamed"],);
+    assert_eq!(actual, ["f1", "f1-renamed", "f2", "f2-renamed"]);
 
     let out = out.expect("tracking enabled");
     assert_eq!(out.num_similarity_checks, 0);

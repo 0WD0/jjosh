@@ -579,7 +579,7 @@ fn unchanged_despite_filter() {
         symlink_metadata_calls: 5,
         ..Default::default()
     };
-    assert_eq!(actual_outcome, expected_outcome,);
+    assert_eq!(actual_outcome, expected_outcome);
 }
 
 #[test]
@@ -754,7 +754,7 @@ fn modified() {
             ),
         ],
     );
-    assert_eq!(actual_outcome, expected_outcome,);
+    assert_eq!(actual_outcome, expected_outcome);
 }
 
 #[test]

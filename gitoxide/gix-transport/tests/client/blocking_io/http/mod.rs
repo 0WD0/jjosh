@@ -123,7 +123,7 @@ fn http_will_use_pipelining() {
         }
     });
 
-    let url = format!("http://{}:{}/reponame", &addr.ip().to_string(), &addr.port(),);
+    let url = format!("http://{}:{}/reponame", &addr.ip().to_string(), &addr.port());
     let mut client =
         gix_transport::client::http::connect(url.try_into().expect("valid url"), gix_transport::Protocol::V2, false);
     match client.handshake(gix_transport::Service::UploadPack, &[]) {

@@ -81,7 +81,7 @@ fn full_format_with_dirty_suffix_is_recognized() {
     let rec = parse("cargo-smart-release-679-g3bee7fb-dirty");
     assert!(rec.kind.is_none());
     assert_eq!(rec.find_ref[0], None, "git does not see this as prefix, we do");
-    assert_eq!(rec.prefix[0], Some(gix_hash::Prefix::from_hex("3bee7fb").unwrap()),);
+    assert_eq!(rec.prefix[0], Some(gix_hash::Prefix::from_hex("3bee7fb").unwrap()));
     assert_eq!(rec.prefix_hint[0], anchor_hint());
     assert_eq!(rec.calls, 1);
 }
@@ -91,7 +91,7 @@ fn partial_format_with_dirty_suffix_is_recognized() {
     let spec = "abcdef1-dirty";
     let rec = parse(spec);
     assert!(rec.kind.is_none());
-    assert_eq!(rec.find_ref[0], None,);
+    assert_eq!(rec.find_ref[0], None);
     assert_eq!(
         rec.prefix[0],
         Some(gix_hash::Prefix::from_hex("abcdef1").unwrap()),
@@ -110,7 +110,7 @@ fn partial_format_lookalikes_are_never_considered() {
     let rec = parse(spec);
     assert!(rec.kind.is_none());
     assert_eq!(rec.get_ref(0), spec);
-    assert_eq!(rec.prefix[0], None,);
+    assert_eq!(rec.prefix[0], None);
     assert_eq!(rec.calls, 1, "we don't even try the prefix");
 }
 
@@ -127,6 +127,6 @@ fn partial_format_with_dirty_suffix_lookalikes_are_treated_as_refs() {
     .unwrap();
     assert!(rec.kind.is_none());
     assert_eq!(rec.get_ref(0), spec);
-    assert_eq!(rec.prefix[0], None,);
+    assert_eq!(rec.prefix[0], None);
     assert_eq!(rec.calls, 2);
 }

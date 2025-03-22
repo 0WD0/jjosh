@@ -21,7 +21,7 @@ fn valid_and_invalid() {
     assert_eq!(key.value_name, "baz");
 
     let key = r"includeIf.gitdir/i:C:\bare.git.path".as_key();
-    assert_eq!(key.subsection_name, Some(r"gitdir/i:C:\bare.git".into()),);
+    assert_eq!(key.subsection_name, Some(r"gitdir/i:C:\bare.git".into()));
 }
 
 mod _ref {

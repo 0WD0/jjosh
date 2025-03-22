@@ -43,7 +43,7 @@ fn git_config_no_system() {
                 _ => unreachable!("known set"),
             }
         })
-        .is_some(),);
+        .is_some());
 }
 
 #[test]

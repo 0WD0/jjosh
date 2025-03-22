@@ -168,7 +168,7 @@ pub mod baseline {
                 fixes: expected_fixes,
             } => {
                 let (actual, actual_fixes) = actual.unwrap();
-                assert_eq!(&actual_fixes, expected_fixes,);
+                assert_eq!(&actual_fixes, expected_fixes);
                 (actual.mappings, expected)
             }
         };

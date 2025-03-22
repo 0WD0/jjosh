@@ -187,7 +187,7 @@ fn typical_usecases() -> crate::Result {
         },
         |res, id| {
             let res = res?.expect("candidate found");
-            assert_eq!(res.name, Some(name.clone()),);
+            assert_eq!(res.name, Some(name.clone()));
             assert_eq!(res.id, id);
             assert_eq!(res.depth, 1);
             assert_eq!(res.commits_seen, 2);
@@ -236,7 +236,7 @@ fn shallow_yields_result_if_refs_are_available() -> crate::Result {
         },
         |res, id| {
             let res = res?.expect("found candidate");
-            assert_eq!(res.name, Some(name.clone()),);
+            assert_eq!(res.name, Some(name.clone()));
             assert_eq!(res.id, id);
             assert_eq!(res.depth, 1);
             assert_eq!(res.commits_seen, 2);

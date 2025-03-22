@@ -78,7 +78,7 @@ pub fn unique_path_in_tree(
     let mut suffix = 0;
     while editor.get(to_components_bstring_ref(&buf)).is_some() || tree.check_conflict(buf.as_bstr()).is_some() {
         buf.truncate(base_len);
-        buf.push_str(format!("_{suffix}",));
+        buf.push_str(format!("_{suffix}"));
         suffix += 1;
     }
     Ok(buf)

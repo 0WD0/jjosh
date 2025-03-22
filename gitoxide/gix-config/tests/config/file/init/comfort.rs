@@ -44,7 +44,7 @@ fn from_git_dir() -> crate::Result {
         "value",
         "a value from the local repo configuration"
     );
-    assert_eq!(config.string("a.local").expect("present").as_ref(), "value",);
+    assert_eq!(config.string("a.local").expect("present").as_ref(), "value");
     assert_eq!(
         config.string_by("a", None, "local-include").expect("present").as_ref(),
         "from-a.config",

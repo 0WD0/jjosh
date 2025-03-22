@@ -23,7 +23,7 @@ fn reflog_by_entry_for_current_branch() {
         let rec = parse(spec);
 
         assert!(rec.kind.is_none());
-        assert_eq!(rec.find_ref[0], None,);
+        assert_eq!(rec.find_ref[0], None);
         assert_eq!(
             rec.prefix[0], None,
             "neither ref nor prefixes are set, straight to navigation"
@@ -38,7 +38,7 @@ fn reflog_by_date_for_current_branch() {
     let rec = parse("@{1979-02-26 18:30:00}");
 
     assert!(rec.kind.is_none());
-    assert_eq!(rec.find_ref[0], None,);
+    assert_eq!(rec.find_ref[0], None);
     assert_eq!(
         rec.prefix[0], None,
         "neither ref nor prefixes are set, straight to navigation"
@@ -52,7 +52,7 @@ fn reflog_by_unix_timestamp_for_current_branch() {
     let rec = parse("@{100000000}");
 
     assert!(rec.kind.is_none());
-    assert_eq!(rec.find_ref[0], None,);
+    assert_eq!(rec.find_ref[0], None);
     assert_eq!(
         rec.prefix[0], None,
         "neither ref nor prefixes are set, straight to navigation"
@@ -104,7 +104,7 @@ fn reflog_by_date_for_given_ref_name() {
 
         assert!(rec.kind.is_none());
         assert_eq!(rec.get_ref(0), expected_ref);
-        assert_eq!(rec.prefix[0], None,);
+        assert_eq!(rec.prefix[0], None);
         assert_eq!(rec.current_branch_reflog_entry[0], Some("42 +0030".to_string()));
         assert_eq!(rec.calls, 2, "first the ref, then the reflog entry");
     }
@@ -121,7 +121,7 @@ fn reflog_by_entry_for_given_ref_name() {
 
         assert!(rec.kind.is_none());
         assert_eq!(rec.get_ref(0), expected_ref);
-        assert_eq!(rec.prefix[0], None,);
+        assert_eq!(rec.prefix[0], None);
         assert_eq!(rec.current_branch_reflog_entry[0], Some(expected_entry.to_string()));
         assert_eq!(rec.calls, 2, "first the ref, then the reflog entry");
     }
@@ -162,7 +162,7 @@ fn sibling_branch_for_branch_name() {
         let rec = parse(spec);
 
         assert!(rec.kind.is_none());
-        assert_eq!(rec.get_ref(0), ref_name,);
+        assert_eq!(rec.get_ref(0), ref_name);
         assert_eq!(rec.prefix[0], None, "neither ref nor prefix are explicitly set");
         assert_eq!(
             rec.sibling_branch[0].as_deref(),
@@ -200,7 +200,7 @@ fn nth_checked_out_branch() {
         let rec = parse(spec);
 
         assert!(rec.kind.is_none());
-        assert_eq!(rec.find_ref[0], None,);
+        assert_eq!(rec.find_ref[0], None);
         assert_eq!(
             rec.prefix[0], None,
             "neither ref nor prefixes are set, straight to navigation"

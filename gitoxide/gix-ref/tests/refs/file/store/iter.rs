@@ -73,14 +73,14 @@ mod with_namespace {
             );
             assert_eq!(
                 store
-                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr(),)?
+                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr())?
                     .name,
                 fullname,
                 "it will find namespaced items just by their shortened (but not shortest) name"
             );
             assert!(
                 store
-                    .try_find(reference.name_without_namespace(&ns_two).expect("namespaced"),)?
+                    .try_find(reference.name_without_namespace(&ns_two).expect("namespaced"))?
                     .is_none(),
                 "it won't find namespaced items by their full name without namespace"
             );
@@ -167,7 +167,7 @@ mod with_namespace {
 
         for fullname in ref_names {
             assert_eq!(
-                ns_store.find(fullname.as_bstr(),)?.name,
+                ns_store.find(fullname.as_bstr())?.name,
                 fullname,
                 "it finds namespaced items by fully qualified name, excluding namespace"
             );
@@ -179,7 +179,7 @@ mod with_namespace {
             );
             assert_eq!(
                 ns_store
-                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr(),)?
+                    .find(fullname.as_bstr().splitn_str(2, b"/").nth(1).expect("name").as_bstr())?
                     .name,
                 fullname,
                 "it finds partial names within the namespace"
@@ -372,7 +372,7 @@ fn loose_iter_with_partial_prefix() -> crate::Result {
 
     assert_eq!(
         actual,
-        vec!["refs/heads/d1", "refs/heads/dt1",]
+        vec!["refs/heads/d1", "refs/heads/dt1"]
             .into_iter()
             .map(String::from)
             .collect::<Vec<_>>(),

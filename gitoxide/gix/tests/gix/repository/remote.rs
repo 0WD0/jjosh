@@ -197,7 +197,7 @@ mod find_remote {
         let expected_push_url: BString = baseline.next().expect("push").into();
 
         let remote = repo.find_remote("origin")?;
-        assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), expected_fetch_url,);
+        assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), expected_fetch_url);
         {
             let actual_push_url = remote.url(Direction::Push).unwrap().to_bstring();
             assert_ne!(

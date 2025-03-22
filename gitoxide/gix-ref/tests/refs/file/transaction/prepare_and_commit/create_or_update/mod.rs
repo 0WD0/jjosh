@@ -683,7 +683,7 @@ fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_tho
                 },
                 expected: PreviousValue::MustExistAndMatch(Target::Object(hex_to_id(
                     "02a7a22d90d7c02fb494ed25551850b868e634f0"
-                )),),
+                ))),
                 new: Target::Object(new_id),
             },
             name: referent.as_bstr().try_into()?,
