@@ -127,10 +127,8 @@ fn resolve_revspec(
         Err(gix::revision::spec::parse::Error::FindReference(gix::refs::file::find::existing::Error::NotFound {
             name,
         })) => {
-            use std::os::unix::ffi::OsStrExt;
-
-            let root: Option<std::path::PathBuf> = repo.workdir().map(std::path::Path::to_path_buf);
-            let name: BString = BString::new(name.as_os_str().as_bytes().to_vec());
+            let root = repo.workdir().map(ToOwned::to_owned);
+            let name = gix::path::os_string_into_bstring(name.into())?;
 
             Ok((ObjectId::null(gix::hash::Kind::Sha1), root, name))
         }
