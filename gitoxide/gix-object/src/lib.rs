@@ -412,6 +412,17 @@ pub fn compute_hash(hash_kind: gix_hash::Kind, object_kind: Kind, data: &[u8]) -
     hasher.finalize()
 }
 
+/// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its `data`.
+pub fn try_compute_hash(
+    hash_kind: gix_hash::Kind,
+    object_kind: Kind,
+    data: &[u8],
+) -> Result<gix_hash::ObjectId, gix_hash::hasher::Error> {
+    let mut hasher = object_hasher(hash_kind, object_kind, data.len() as u64);
+    hasher.update(data);
+    hasher.try_finalize()
+}
+
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its data read from `stream`
 /// which has to yield exactly `stream_len` bytes.
 /// Use `progress` to learn about progress in bytes processed and `should_interrupt` to be able to abort the operation
