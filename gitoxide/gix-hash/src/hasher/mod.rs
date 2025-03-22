@@ -57,12 +57,6 @@ impl Hasher {
             }),
         }
     }
-
-    /// Finalize the hash and produce an object ID.
-    #[inline]
-    pub fn finalize(self) -> crate::ObjectId {
-        self.try_finalize().expect("Detected SHA-1 collision attack")
-    }
 }
 
 /// Produce a hasher suitable for the given kind of hash.
