@@ -2,33 +2,37 @@
 # ^ A shebang isn't required, but allows a justfile to be executed
 #   like a script, with `./justfile test`, for example.
 
+j := quote(just_executable())
+
+# List available recipes
 default:
-    {{ just_executable() }} --list
+    {{ j }} --list
 
 alias t := test
 alias c := check
 alias nt := nextest
 
-# run all tests, clippy, including journey tests, try building docs
+# Run all tests, clippy, including journey tests, try building docs
 test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests check-mode
 
-# run all tests, without clippy, and try building docs
+# Run all tests, without clippy, and try building docs
 ci-test: check doc unit-tests check-mode
 
-# run all journey tests - should be run in a fresh clone or after `cargo clean`
+# Run all journey tests - should be run in a fresh clone or after `cargo clean`
 ci-journey-tests: journey-tests-pure journey-tests-small journey-tests-async journey-tests
 
+# Clean the `target` directory
 clear-target:
     cargo clean
 
-# Run cargo clippy on all crates
+# Run `cargo clippy` on all crates
 clippy *clippy-args:
     cargo clippy --workspace --all-targets -- {{ clippy-args }}
     cargo clippy --workspace --no-default-features --features small -- {{ clippy-args }}
     cargo clippy --workspace --no-default-features --features max-pure -- {{ clippy-args }}
     cargo clippy --workspace --no-default-features --features lean-async --tests -- {{ clippy-args }}
 
-# Run cargo clippy on all crates, fixing what can be fixed, and format all code
+# Run `cargo clippy` on all crates, fixing what can be fixed, and format all code
 clippy-fix:
     cargo clippy --fix --workspace --all-targets
     cargo clippy --fix --allow-dirty --workspace --no-default-features --features small
@@ -143,12 +147,12 @@ check:
     cargo check -p gix-odb --features serde
     cargo check --no-default-features --features max-control
 
-# Run cargo doc on all crates
-doc $RUSTDOCFLAGS="-D warnings":
+# Run `cargo doc` on all crates
+doc $RUSTDOCFLAGS='-D warnings':
     cargo doc --workspace --no-deps --features need-more-recent-msrv
     cargo doc --features=max,lean,small --workspace --no-deps --features need-more-recent-msrv
 
-# run all unit tests
+# Run all unit tests
 unit-tests:
     cargo nextest run
     cargo test --doc
@@ -158,9 +162,9 @@ unit-tests:
     cargo nextest run -p gix-archive --features tar
     cargo nextest run -p gix-archive --features tar_gz
     cargo nextest run -p gix-archive --features zip
-    cargo nextest run -p gix-status-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-worktree-state-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-worktree-tests --features "gix-features-parallel"
+    cargo nextest run -p gix-status-tests --features gix-features-parallel
+    cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel
+    cargo nextest run -p gix-worktree-tests --features gix-features-parallel
     cd gix-object; \
         set -ex; \
         cargo nextest run; \
@@ -172,10 +176,10 @@ unit-tests:
     cargo nextest run -p gix-odb-tests --features gix-features-parallel
     cargo nextest run -p gix-pack --all-features
     cargo nextest run -p gix-pack-tests --features all-features
-    cargo nextest run -p gix-pack-tests --features "gix-features-parallel"
-    cargo nextest run -p gix-index-tests --features "gix-features-parallel"
+    cargo nextest run -p gix-pack-tests --features gix-features-parallel
+    cargo nextest run -p gix-index-tests --features gix-features-parallel
     cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline
-    cargo nextest run -p gix-packetline --features "async-io" --test async-packetline
+    cargo nextest run -p gix-packetline --features async-io --test async-packetline
     cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync
     cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync
     cargo nextest run -p gix-transport --features async-client
@@ -191,75 +195,80 @@ unit-tests:
 unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
-target_dir := `cargo metadata --format-version 1 | jq -r .target_directory`
-ein := target_dir / "debug/ein"
-gix := target_dir / "debug/gix"
-jtt := target_dir / "debug/jtt"
-it := target_dir / "debug/it"
+# Depend on this to pre-generate metadata, and/or use it inside a recipe as `"$({{ j }} dbg)"`
+[private]
+dbg:
+    set -eu; \
+        target_dir="$(cargo metadata --format-version 1 | jq -r .target_directory)"; \
+        test -n "$target_dir"; \
+        echo "$target_dir/debug"
 
-# run journey tests (max)
-journey-tests:
+# Run journey tests (`max`)
+journey-tests: dbg
     cargo build --features http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 
-# run journey tests (max-pure)
-journey-tests-pure:
+# Run journey tests (`max-pure`)
+journey-tests-pure: dbg
     cargo build --no-default-features --features max-pure
     cargo build -p gix-testtools --bin jtt
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} max-pure
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max-pure
 
-# run journey tests (small)
-journey-tests-small:
+# Run journey tests (`small`)
+journey-tests-small: dbg
     cargo build --no-default-features --features small
     cargo build -p gix-testtools
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} small
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" small
 
-# run journey tests (lean-async)
-journey-tests-async:
+# Run journey tests (`lean-async`)
+journey-tests-async: dbg
     cargo build --no-default-features --features lean-async
     cargo build -p gix-testtools
-    ./tests/journey.sh {{ ein }} {{ gix }} {{ jtt }} async
+    dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" async
 
-# Run cargo-diet on all crates to see that they are still in bound
+# Run `cargo diet` on all crates to see that they are still in bounds
 check-size:
-    ./etc/check-package-size.sh
+    etc/check-package-size.sh
 
-# Check the minimal support rust version for currently installed Rust version
+# Check the minimal support Rust version, with the currently installed Rust version
 ci-check-msrv:
     rustc --version
     cargo check -p gix
     cargo check -p gix --no-default-features --features async-network-client,max-performance
 
-# Enter a nix-shell able to build on macos
+# Enter a nix-shell able to build on macOS
 nix-shell-macos:
     nix-shell -p pkg-config openssl libiconv darwin.apple_sdk.frameworks.Security darwin.apple_sdk.frameworks.SystemConfiguration
 
-# run various auditing tools to assure we are legal and safe
+# Run various auditing tools to help us stay legal and safe
 audit:
     cargo deny check advisories bans licenses sources
 
-# run tests with `cargo nextest` (all unit-tests, no doc-tests, faster)
-nextest *FLAGS="--workspace":
+# Run tests with `cargo nextest` (all unit-tests, no doc-tests, faster)
+nextest *FLAGS='--workspace':
     cargo nextest run {{ FLAGS }}
 
-summarize EXPRESSION="all()": (nextest "--workspace --run-ignored all --no-fail-fast --status-level none --final-status-level none -E '" EXPRESSION "'")
+# Run tests with `cargo nextest`, skipping none except as filtered, omitting status reports
+summarize EXPRESSION='all()':
+    cargo nextest run --workspace --run-ignored all --no-fail-fast \
+        --status-level none --final-status-level none -E {{ quote(EXPRESSION) }}
 
-# run nightly rustfmt for its extra features, but check that it won't upset stable rustfmt
+# Run nightly `rustfmt` for its extra features, but check that it won't upset stable `rustfmt`
 fmt:
     cargo +nightly fmt --all -- --config-path rustfmt-nightly.toml
     cargo +stable fmt --all -- --check
-    just --fmt --unstable
+    {{ j }} --fmt --unstable
 
-# Cancel this after the first few seconds, as yanked crates will appear in warnings.
+# Cancel this after the first few seconds, as yanked crates will appear in warnings
 find-yanked:
     cargo install --debug --locked --no-default-features --features max-pure --path .
 
 # Find shell scripts whose +x/-x bits and magic bytes (e.g. `#!`) disagree
 check-mode:
     cargo build -p internal-tools
-    "{{ it }}" check-mode
+    cargo run -p internal-tools -- check-mode
 
-# Delete gix-packetline-blocking/src and regenerate from gix-packetline/src
+# Delete `gix-packetline-blocking/src` and regenerate from `gix-packetline/src`
 copy-packetline:
-    ./etc/copy-packetline.sh
+    etc/copy-packetline.sh
