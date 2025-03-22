@@ -137,8 +137,7 @@ jobs:
             os: windows-latest
           - target: aarch64-pc-windows-msvc
             os: windows-latest
-        # on linux we build with musl which causes trouble with open-ssl. For now, just build max-pure there
-        # even though we could also build with `--features max-control,http-client-reqwest,gitoxide-core-blocking-client,gix-features/fast-sha1` for fast hashing.
+        # on linux we build with musl which causes trouble with open-ssl. For now, just build max-pure there.
         # It's a TODO.
         exclude:
           - target: x86_64-unknown-linux-musl

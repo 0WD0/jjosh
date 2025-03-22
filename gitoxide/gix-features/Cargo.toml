@@ -77,10 +77,6 @@ zlib-stock = ["zlib", "flate2?/zlib"]
 ## may build in environments where other backends don't.
 zlib-rust-backend = ["zlib", "flate2?/rust_backend"]
 
-# TODO: Remove these.
-fast-sha1 = []
-rustsha1 = []
-
 #! ### Other
 
 ## Count cache hits and misses and print that debug information on drop.

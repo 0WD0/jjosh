@@ -217,7 +217,7 @@ blocking-http-transport-reqwest-native-tls = [
 #! #### Performance
 #!
 #! The reason these features exist is to allow optimization for compile time and optimize for compatibility by default. This means that some performance options around
-#! SHA1 and ZIP might not compile on all platforms, so it depends on the end-user who compiles the application to chose these based on their needs.
+#! ZIP might not compile on all platforms, so it depends on the end-user who compiles the application to chose these based on their needs.
 
 ## Activate features that maximize performance, like using threads, but leave everything else that might affect compatibility out to allow users more fine-grained
 ## control over performance features like which `zlib*` implementation to use.
@@ -249,11 +249,7 @@ pack-cache-lru-dynamic = ["gix-pack/pack-cache-lru-dynamic"]
 
 ## Activate other features that maximize performance, like usage of threads, `zlib-ng` and access to caching in object databases.
 ## Note that some platforms might suffer from compile failures, which is when `max-performance-safe` should be used.
-max-performance = ["max-performance-safe", "zlib-ng", "fast-sha1"]
-
-## If enabled, use assembly versions of sha1 on supported platforms.
-## This might cause compile failures as well which is why it can be turned off separately.
-fast-sha1 = ["gix-features/fast-sha1"]
+max-performance = ["max-performance-safe", "zlib-ng"]
 
 ## Use the C-based zlib-ng backend, which can compress and decompress significantly faster.
 ## Note that this will cause duplicate symbol errors if the application also depends on `zlib` - use `zlib-ng-compat` in that case.
