@@ -6,6 +6,7 @@ use gix::diff::blob::UnifiedDiff;
 use gix::objs::tree::EntryMode;
 use gix::odb::store::RefreshMode;
 use gix::prelude::ObjectIdExt;
+use gix::ObjectId;
 
 pub fn tree(
     mut repo: gix::Repository,
@@ -116,6 +117,36 @@ fn typed_location(mut location: BString, mode: EntryMode) -> BString {
     location
 }
 
+fn resolve_revspec(
+    repo: &gix::Repository,
+    revspec: BString,
+) -> Result<(ObjectId, Option<std::path::PathBuf>, BString), anyhow::Error> {
+    let result = repo.rev_parse(revspec.as_bstr());
+
+    match result {
+        Err(gix::revision::spec::parse::Error::FindReference(gix::refs::file::find::existing::Error::NotFound {
+            name,
+        })) => {
+            let root = repo.workdir().map(ToOwned::to_owned);
+            let name = gix::path::os_string_into_bstring(name.into())?;
+
+            Ok((ObjectId::null(gix::hash::Kind::Sha1), root, name))
+        }
+        Err(err) => Err(err.into()),
+        Ok(resolved_revspec) => {
+            let blob_id = resolved_revspec
+                .single()
+                .context(format!("rev-spec '{revspec}' must resolve to a single object"))?;
+
+            let (path, _) = resolved_revspec
+                .path_and_mode()
+                .context(format!("rev-spec '{revspec}' must contain a path"))?;
+
+            Ok((blob_id.into(), None, path.into()))
+        }
+    }
+}
+
 pub fn file(
     mut repo: gix::Repository,
     out: &mut dyn std::io::Write,
@@ -125,39 +156,27 @@ pub fn file(
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&**repo.index_or_empty()?));
     repo.objects.refresh = RefreshMode::Never;
 
-    let old_resolved_revspec = repo.rev_parse(old_revspec.as_bstr())?;
-    let new_resolved_revspec = repo.rev_parse(new_revspec.as_bstr())?;
+    let (old_blob_id, old_root, old_path) = resolve_revspec(&repo, old_revspec)?;
+    let (new_blob_id, new_root, new_path) = resolve_revspec(&repo, new_revspec)?;
 
-    let old_blob_id = old_resolved_revspec
-        .single()
-        .context(format!("rev-spec '{old_revspec}' must resolve to a single object"))?;
-    let new_blob_id = new_resolved_revspec
-        .single()
-        .context(format!("rev-spec '{new_revspec}' must resolve to a single object"))?;
-
-    let (old_path, _) = old_resolved_revspec
-        .path_and_mode()
-        .context(format!("rev-spec '{old_revspec}' must contain a path"))?;
-    let (new_path, _) = new_resolved_revspec
-        .path_and_mode()
-        .context(format!("rev-spec '{new_revspec}' must contain a path"))?;
+    let worktree_roots = gix::diff::blob::pipeline::WorktreeRoots { old_root, new_root };
 
     let mut resource_cache = repo.diff_resource_cache(
         gix::diff::blob::pipeline::Mode::ToGitUnlessBinaryToTextIsPresent,
-        Default::default(),
+        worktree_roots,
     )?;
 
     resource_cache.set_resource(
-        old_blob_id.into(),
+        old_blob_id,
         gix::object::tree::EntryKind::Blob,
-        old_path,
+        old_path.as_ref(),
         gix::diff::blob::ResourceKind::OldOrSource,
         &repo.objects,
     )?;
     resource_cache.set_resource(
-        new_blob_id.into(),
+        new_blob_id,
         gix::object::tree::EntryKind::Blob,
-        new_path,
+        new_path.as_ref(),
         gix::diff::blob::ResourceKind::NewOrDestination,
         &repo.objects,
     )?;
