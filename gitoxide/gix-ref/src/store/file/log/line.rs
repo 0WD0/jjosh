@@ -20,7 +20,7 @@ mod write {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     enum Error {
-        #[error(r"Messages must not contain newlines\n")]
+        #[error(r"Messages must not contain newlines (\n)")]
         IllegalCharacter,
     }
 
