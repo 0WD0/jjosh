@@ -452,12 +452,12 @@ fn tree_diff_at_file_path(
     lhs_tree_buf: &mut Vec<u8>,
     rhs_tree_buf: &mut Vec<u8>,
 ) -> Result<Option<gix_diff::tree::recorder::Change>, Error> {
-    let parent_tree_id = tree_id(find_commit(cache, &odb, &parent_id, commit_buf)?)?;
+    let parent_tree_id = find_commit(cache, &odb, &parent_id, commit_buf)?.tree_id()?;
 
     let parent_tree_iter = odb.find_tree_iter(&parent_tree_id, lhs_tree_buf)?;
     stats.trees_decoded += 1;
 
-    let tree_id = tree_id(find_commit(cache, &odb, &id, commit_buf)?)?;
+    let tree_id = find_commit(cache, &odb, &id, commit_buf)?.tree_id()?;
 
     let tree_iter = odb.find_tree_iter(&tree_id, rhs_tree_buf)?;
     stats.trees_decoded += 1;
@@ -654,7 +654,7 @@ fn find_path_entry_in_commit(
     buf2: &mut Vec<u8>,
     stats: &mut Statistics,
 ) -> Result<Option<ObjectId>, Error> {
-    let tree_id = tree_id(find_commit(cache, odb, commit, buf)?)?;
+    let tree_id = find_commit(cache, odb, commit, buf)?.tree_id()?;
     let tree_iter = odb.find_tree_iter(&tree_id, buf)?;
     stats.trees_decoded += 1;
 
@@ -708,13 +708,6 @@ fn collect_parents(
         }
     }
     Ok(parent_ids)
-}
-
-fn tree_id(commit: gix_traverse::commit::Either<'_, '_>) -> Result<ObjectId, Error> {
-    match commit {
-        gix_traverse::commit::Either::CommitRefIter(mut commit_ref_iter) => Ok(commit_ref_iter.tree_id()?),
-        gix_traverse::commit::Either::CachedCommit(commit) => Ok(commit.root_tree_id().into()),
-    }
 }
 
 /// Return an iterator over tokens for use in diffing. These are usually lines, but it's important
