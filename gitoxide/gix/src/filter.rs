@@ -172,7 +172,9 @@ impl Pipeline<'_> {
                 entry.matching_attributes(attrs);
             },
             &mut |buf| -> Result<_, gix_object::find::Error> {
-                let entry = match index.entry_by_path(gix_path::into_bstr(rela_path).as_ref()) {
+                let entry = match index
+                    .entry_by_path(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).as_ref())
+                {
                     None => return Ok(None),
                     Some(entry) => entry,
                 };
