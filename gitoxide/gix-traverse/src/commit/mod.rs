@@ -77,6 +77,17 @@ pub enum Either<'buf, 'cache> {
     CachedCommit(gix_commitgraph::file::Commit<'cache>),
 }
 
+impl Either<'_, '_> {
+    /// Get a commits `tree_id` by either getting it from a [`gix_commitgraph::Graph`], if
+    /// present, or a [`gix_object::CommitRefIter`] otherwise.
+    pub fn tree_id(self) -> Result<ObjectId, gix_object::decode::Error> {
+        match self {
+            Self::CommitRefIter(mut commit_ref_iter) => commit_ref_iter.tree_id(),
+            Self::CachedCommit(commit) => Ok(commit.root_tree_id().into()),
+        }
+    }
+}
+
 /// Find information about a commit by either getting it from a [`gix_commitgraph::Graph`], if
 /// present, or a [`gix_object::CommitRefIter`] otherwise.
 pub fn find<'cache, 'buf, Find>(
