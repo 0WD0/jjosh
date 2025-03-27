@@ -1,9 +1,9 @@
+use crate::SymlinkCheck;
 use bstr::BStr;
+use gix_fs::stack::ToNormalPathComponents;
 use gix_fs::Stack;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-
-use crate::SymlinkCheck;
 
 impl SymlinkCheck {
     /// Create a new stack that starts operating at `root`.
@@ -24,7 +24,7 @@ impl SymlinkCheck {
     /// ### Note
     ///
     /// On windows, no verification is performed, instead only the combined path is provided as usual.
-    pub fn verified_path(&mut self, relative_path: &Path) -> std::io::Result<&Path> {
+    pub fn verified_path(&mut self, relative_path: impl ToNormalPathComponents) -> std::io::Result<&Path> {
         self.inner.make_relative_path_current(relative_path, &mut Delegate)?;
         Ok(self.inner.current())
     }
@@ -34,7 +34,7 @@ impl SymlinkCheck {
     /// For convenience, this incarnation is tuned to be easy to use with Git paths, i.e. slash-separated `BString` path.
     pub fn verified_path_allow_nonexisting(&mut self, relative_path: &BStr) -> std::io::Result<Cow<'_, Path>> {
         let rela_path = gix_path::try_from_bstr(relative_path).map_err(std::io::Error::other)?;
-        if let Err(err) = self.verified_path(&rela_path) {
+        if let Err(err) = self.verified_path(rela_path.as_ref()) {
             if err.kind() == std::io::ErrorKind::NotFound {
                 Ok(Cow::Owned(self.inner.root().join(rela_path)))
             } else {

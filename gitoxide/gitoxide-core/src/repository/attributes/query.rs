@@ -8,10 +8,10 @@ pub struct Options {
 }
 
 pub(crate) mod function {
-    use std::{borrow::Cow, io, path::Path};
-
     use anyhow::bail;
     use gix::bstr::BStr;
+    use std::borrow::Cow;
+    use std::{io, path::Path};
 
     use crate::{
         is_dir_to_mode,
@@ -44,7 +44,7 @@ pub(crate) mod function {
                         .ok()
                         .map(|m| is_dir_to_mode(m.is_dir()));
 
-                    let entry = cache.at_entry(path.as_slice(), mode)?;
+                    let entry = cache.at_entry(&path, mode)?;
                     if !entry.matching_attributes(&mut matches) {
                         continue;
                     }

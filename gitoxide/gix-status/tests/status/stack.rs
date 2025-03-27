@@ -25,7 +25,7 @@ fn paths_not_going_through_symlink_directories_are_ok_and_point_to_correct_item(
             ("dir/dirlink", is_symlinked_dir),
         ] {
             assert!(
-                expectation(&stack.verified_path(rela_path.as_ref())?.symlink_metadata()?),
+                expectation(&stack.verified_path(rela_path)?.symlink_metadata()?),
                 "{rela_path:?} expectation failed"
             );
         }
@@ -35,7 +35,7 @@ fn paths_not_going_through_symlink_directories_are_ok_and_point_to_correct_item(
 
 #[test]
 fn leaf_file_does_not_have_to_exist() -> crate::Result {
-    assert!(!stack().verified_path("dir/does-not-exist".as_ref())?.exists());
+    assert!(!stack().verified_path("dir/does-not-exist")?.exists());
     Ok(())
 }
 
@@ -43,10 +43,7 @@ fn leaf_file_does_not_have_to_exist() -> crate::Result {
 #[cfg(not(windows))]
 fn intermediate_directories_have_to_exist_or_not_found_error() -> crate::Result {
     assert_eq!(
-        stack()
-            .verified_path("nonexisting-dir/file".as_ref())
-            .unwrap_err()
-            .kind(),
+        stack().verified_path("nonexisting-dir/file").unwrap_err().kind(),
         std::io::ErrorKind::NotFound
     );
     Ok(())
@@ -55,7 +52,7 @@ fn intermediate_directories_have_to_exist_or_not_found_error() -> crate::Result 
 #[test]
 #[cfg(windows)]
 fn intermediate_directories_do_not_have_exist_for_success() -> crate::Result {
-    assert!(stack().verified_path("nonexisting-dir/file".as_ref()).is_ok());
+    assert!(stack().verified_path("nonexisting-dir/file").is_ok());
     Ok(())
 }
 
@@ -67,16 +64,13 @@ fn intermediate_directories_do_not_have_exist_for_success() -> crate::Result {
 fn paths_leading_through_symlinks_are_rejected() {
     let mut stack = stack();
     assert_eq!(
-        stack
-            .verified_path("root-dirlink/file-in-dir".as_ref())
-            .unwrap_err()
-            .kind(),
+        stack.verified_path("root-dirlink/file-in-dir").unwrap_err().kind(),
         std::io::ErrorKind::Other,
         "root-dirlink is a symlink to a directory"
     );
 
     assert_eq!(
-        stack.verified_path("dir/dirlink/nothing".as_ref()).unwrap_err().kind(),
+        stack.verified_path("dir/dirlink/nothing").unwrap_err().kind(),
         std::io::ErrorKind::Other,
         "root-dirlink is a symlink to a directory"
     );

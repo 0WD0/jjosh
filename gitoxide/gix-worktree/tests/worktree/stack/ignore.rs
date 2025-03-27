@@ -1,9 +1,9 @@
+use crate::{hex_to_id, worktree::stack::probe_case};
 use bstr::{BStr, ByteSlice};
+use gix_fs::stack::ToNormalPathComponents;
 use gix_index::entry::Mode;
 use gix_worktree::{stack::state::ignore::Source, Stack};
 use std::fs::Metadata;
-
-use crate::{hex_to_id, worktree::stack::probe_case};
 
 struct IgnoreExpectations<'a> {
     lines: bstr::Lines<'a>,
@@ -170,7 +170,10 @@ fn check_against_baseline() -> crate::Result {
                 // OK: we provide negative patterns that matched on paths if there was no other match, while git doesn't.
             }
             (actual, expected) => {
-                panic!("actual {actual:?} didn't match {expected:?} at '{relative_entry}'");
+                panic!(
+                    "actual {actual:?} didn't match {expected:?} at '{relative_entry}': {components:?}",
+                    components = relative_entry.to_normal_path_components().collect::<Vec<_>>()
+                );
             }
         }
     }

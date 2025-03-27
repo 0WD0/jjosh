@@ -48,7 +48,7 @@ pub fn query(
                     .metadata()
                     .ok()
                     .map(|m| is_dir_to_mode(m.is_dir()));
-                let entry = cache.at_entry(path.as_slice(), mode)?;
+                let entry = cache.at_entry(&path, mode)?;
                 let match_ = entry
                     .matching_exclude_pattern()
                     .and_then(|m| (show_ignore_patterns || !m.pattern.is_negative()).then_some(m));

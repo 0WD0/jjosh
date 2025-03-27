@@ -1901,9 +1901,11 @@ dependencies = [
 name = "gix-fs"
 version = "0.13.0"
 dependencies = [
+ "bstr",
  "crossbeam-channel",
  "fastrand",
  "gix-features 0.40.0",
+ "gix-path 0.10.14",
  "gix-utils 0.1.14",
  "is_ci",
  "serde",

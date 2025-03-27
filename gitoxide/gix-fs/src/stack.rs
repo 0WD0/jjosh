@@ -1,7 +1,7 @@
+use crate::Stack;
+use bstr::{BStr, BString, ByteSlice};
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
-
-use crate::Stack;
 
 ///
 pub mod to_normal_path_components {
@@ -13,6 +13,8 @@ pub mod to_normal_path_components {
     pub enum Error {
         #[error("Input path \"{path}\" contains relative or absolute components", path = std::path::Path::new(.0.as_os_str()).display())]
         NotANormalComponent(OsString),
+        #[error("Could not convert to UTF8 or from UTF8 due to ill-formed input")]
+        IllegalUtf8,
     }
 }
 
@@ -29,6 +31,47 @@ impl ToNormalPathComponents for &Path {
             _ => Err(to_normal_path_components::Error::NotANormalComponent(
                 self.as_os_str().to_owned(),
             )),
+        })
+    }
+}
+
+impl ToNormalPathComponents for PathBuf {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+        self.components().map(|component| match component {
+            Component::Normal(os_str) => Ok(os_str),
+            _ => Err(to_normal_path_components::Error::NotANormalComponent(
+                self.as_os_str().to_owned(),
+            )),
+        })
+    }
+}
+
+impl ToNormalPathComponents for &BStr {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+        self.split(|b| *b == b'/').filter(|c| !c.is_empty()).map(|component| {
+            gix_path::try_from_byte_slice(component.as_bstr())
+                .map_err(|_| to_normal_path_components::Error::IllegalUtf8)
+                .map(Path::as_os_str)
+        })
+    }
+}
+
+impl ToNormalPathComponents for &str {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+        self.split('/').filter(|c| !c.is_empty()).map(|component| {
+            gix_path::try_from_byte_slice(component.as_bytes())
+                .map_err(|_| to_normal_path_components::Error::IllegalUtf8)
+                .map(Path::as_os_str)
+        })
+    }
+}
+
+impl ToNormalPathComponents for &BString {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+        self.split(|b| *b == b'/').filter(|c| !c.is_empty()).map(|component| {
+            gix_path::try_from_byte_slice(component.as_bstr())
+                .map_err(|_| to_normal_path_components::Error::IllegalUtf8)
+                .map(Path::as_os_str)
         })
     }
 }

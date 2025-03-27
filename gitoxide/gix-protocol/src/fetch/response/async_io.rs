@@ -124,7 +124,7 @@ impl Response {
                             io::ErrorKind::UnexpectedEof,
                             "Could not read message headline",
                         )));
-                    };
+                    }
 
                     match line.trim_end() {
                         "acknowledgments" => {
