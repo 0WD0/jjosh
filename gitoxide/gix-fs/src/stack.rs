@@ -19,22 +19,17 @@ pub mod to_normal_path_components {
 /// Obtain an iterator over `OsStr`-components which are normal, none-relative and not absolute.
 pub trait ToNormalPathComponents {
     /// Return an iterator over the normal components of a path, without the separator.
-    // TODO(MSRV): turn this into `impl Iterator` once MSRV is 1.75 or higher
-    fn to_normal_path_components(
-        &self,
-    ) -> Box<dyn Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> + '_>;
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>>;
 }
 
 impl ToNormalPathComponents for &Path {
-    fn to_normal_path_components(
-        &self,
-    ) -> Box<dyn Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> + '_> {
-        Box::new(self.components().map(|component| match component {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
+        self.components().map(|component| match component {
             Component::Normal(os_str) => Ok(os_str),
             _ => Err(to_normal_path_components::Error::NotANormalComponent(
                 self.as_os_str().to_owned(),
             )),
-        }))
+        })
     }
 }
 
