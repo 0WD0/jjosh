@@ -42,7 +42,9 @@ mod from_hex {
     }
 }
 
-mod empty {
+mod sha1 {
+    use std::str::FromStr as _;
+
     use gix_features::hash::hasher;
     use gix_hash::{Kind, ObjectId};
 
@@ -53,12 +55,56 @@ mod empty {
     }
 
     #[test]
-    fn blob() {
+    fn empty_blob() {
         assert_eq!(ObjectId::empty_blob(Kind::Sha1), hash_contents(b"blob 0\0"));
     }
 
     #[test]
-    fn tree() {
+    fn empty_tree() {
         assert_eq!(ObjectId::empty_tree(Kind::Sha1), hash_contents(b"tree 0\0"));
+    }
+
+    /// Check the test vectors from RFC 3174.
+    #[test]
+    fn rfc_3174() {
+        let fixtures: &[(&[u8], &str)] = &[
+            (b"abc", "A9 99 3E 36 47 06 81 6A BA 3E 25 71 78 50 C2 6C 9C D0 D8 9D"),
+            (
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+                "84 98 3E 44 1C 3B D2 6E BA AE 4A A1 F9 51 29 E5 E5 46 70 F1",
+            ),
+            (
+                &b"a".repeat(1000000),
+                "34 AA 97 3C D4 C4 DA A4 F6 1E EB 2B DB AD 27 31 65 34 01 6F",
+            ),
+            (
+                &b"0123456701234567012345670123456701234567012345670123456701234567".repeat(10),
+                "DE A3 56 A2 CD DD 90 C7 A7 EC ED C5 EB B5 63 93 4F 46 04 52",
+            ),
+        ];
+        for (input, output) in fixtures {
+            assert_eq!(
+                hash_contents(input),
+                ObjectId::from_str(&output.to_lowercase().replace(' ', "")).expect("RFC digests to be valid"),
+            );
+        }
+    }
+
+    /// Check the “SHA‐1 is a Shambles” chosen‐prefix collision.
+    ///
+    /// See <https://sha-mbles.github.io/>.
+    ///
+    /// We test these and not the earlier SHAttered PDFs because they are much smaller.
+    #[test]
+    fn shambles() {
+        let message_a = include_bytes!("../fixtures/shambles/messageA");
+        let message_b = include_bytes!("../fixtures/shambles/messageB");
+        assert_ne!(message_a, message_b);
+
+        // BUG: These should be detected as a collision attack.
+        let expected =
+            ObjectId::from_str("8ac60ba76f1999a1ab70223f225aefdc78d4ddc0").expect("Shambles digest to be valid");
+        assert_eq!(hash_contents(message_a), expected);
+        assert_eq!(hash_contents(message_b), expected);
     }
 }
