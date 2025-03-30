@@ -45,7 +45,7 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert!(out.driver_index.is_none(), "there was no driver");
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
             assert_eq!(buf.as_bstr(), a_content, "there is no transformations configured");
 
             let link_name = "link";
@@ -62,7 +62,7 @@ pub(crate) mod convert_to_diffable {
             )?;
 
             assert!(out.driver_index.is_none());
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
             assert_eq!(
                 buf.as_bstr(),
                 a_name,
@@ -86,7 +86,7 @@ pub(crate) mod convert_to_diffable {
             )?;
 
             assert!(out.driver_index.is_none(), "there was no driver");
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
             assert_eq!(buf.as_bstr(), b_content, "there is no transformations configured");
         }
 
@@ -203,7 +203,7 @@ pub(crate) mod convert_to_diffable {
             assert!(out.driver_index.is_none());
             assert_eq!(
                 out.data,
-                Some(pipeline::Data::Buffer),
+                Some(pipeline::Data::Buffer { is_derived: false }),
                 "links are always read and never considered large"
             );
             assert_eq!(buf.as_bstr(), large_content);
@@ -340,7 +340,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert!(out.driver_index.is_none(), "there was no driver");
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(
             buf.as_bstr(),
             a_content,
@@ -361,7 +361,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert!(out.driver_index.is_none(), "there was no driver");
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(
             buf.as_bstr(),
             "a\nb",
@@ -386,7 +386,7 @@ pub(crate) mod convert_to_diffable {
             )?;
 
             assert!(out.driver_index.is_none());
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
             assert_eq!(
                 buf.as_bstr(),
                 link_content,
@@ -411,7 +411,7 @@ pub(crate) mod convert_to_diffable {
         )?;
 
         assert!(out.driver_index.is_none(), "there was no driver");
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(buf.as_bstr(), "b-content\r\n", "LF to CRLF by worktree filtering");
 
         let mut db = ObjectDb::default();
@@ -429,7 +429,7 @@ pub(crate) mod convert_to_diffable {
         )?;
 
         assert!(out.driver_index.is_none(), "there was no driver");
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(buf.as_bstr(), "b\n", "no filtering was performed at all");
 
         Ok(())
@@ -524,11 +524,11 @@ pub(crate) mod convert_to_diffable {
         )?;
 
         assert_eq!(out.driver_index, Some(0));
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: true }));
         assert_eq!(
             buf.as_bstr(),
             "\0b",
-            "if binary-text-conversion is set, we don't care if it outputs zero bytes, let everything pass"
+            "if binary-text-conversion is set, we don't care if it outputs null-bytes, let everything pass"
         );
 
         Ok(())
@@ -613,7 +613,12 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(0));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(
+                out.data,
+                Some(pipeline::Data::Buffer {
+                    is_derived: !matches!(mode, pipeline::Mode::ToGit)
+                })
+            );
             assert_eq!(buf.as_bstr(), "to-text\na\n", "filter was applied");
         }
 
@@ -630,7 +635,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert_eq!(out.driver_index, Some(0));
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(buf.as_bstr(), "a\n", "unconditionally use git according to mode");
 
         let id = db.insert("a\n");
@@ -648,7 +653,7 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(0));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: true }));
             assert_eq!(buf.as_bstr(), "to-text\na\n", "filter was applied");
         }
 
@@ -665,7 +670,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert_eq!(out.driver_index, Some(0));
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(
             buf.as_bstr(),
             "a\n",
@@ -723,7 +728,7 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(4), "despite missing, we get driver information");
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
             assert_eq!(
                 buf.as_bstr(),
                 "link-target",
@@ -796,7 +801,12 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(2));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(
+                out.data,
+                Some(pipeline::Data::Buffer {
+                    is_derived: !matches!(mode, pipeline::Mode::ToGit)
+                })
+            );
             assert_eq!(
                 buf.as_bstr(),
                 "to-text\nc\n",
@@ -819,7 +829,7 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(2));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: true }));
             assert_eq!(
                 buf.as_bstr(),
                 "to-text\nc\n",
@@ -895,7 +905,12 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(3));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(
+                out.data,
+                Some(pipeline::Data::Buffer {
+                    is_derived: !matches!(mode, pipeline::Mode::ToGit)
+                })
+            );
             assert_eq!(
                 buf.as_bstr(),
                 "to-text\nd\n",
@@ -915,7 +930,7 @@ pub(crate) mod convert_to_diffable {
                 &mut buf,
             )?;
             assert_eq!(out.driver_index, Some(3));
-            assert_eq!(out.data, Some(pipeline::Data::Buffer));
+            assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: true }));
             assert_eq!(
                 buf.as_bstr(),
                 "to-text\nd-in-db",
@@ -937,7 +952,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert_eq!(out.driver_index, None);
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(
             buf.as_bstr(),
             "e\n",
@@ -958,7 +973,7 @@ pub(crate) mod convert_to_diffable {
             &mut buf,
         )?;
         assert_eq!(out.driver_index, None);
-        assert_eq!(out.data, Some(pipeline::Data::Buffer));
+        assert_eq!(out.data, Some(pipeline::Data::Buffer { is_derived: false }));
         assert_eq!(
             buf.as_bstr(),
             "e-in-db",

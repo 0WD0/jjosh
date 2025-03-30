@@ -101,7 +101,10 @@ pub mod resource {
             Resource {
                 driver_index: value.conversion.driver_index,
                 data: value.conversion.data.map_or(Data::Missing, |data| match data {
-                    pipeline::Data::Buffer => Data::Buffer(&value.buffer),
+                    pipeline::Data::Buffer { is_derived } => Data::Buffer {
+                        buf: &value.buffer,
+                        is_derived,
+                    },
                     pipeline::Data::Binary { size } => Data::Binary { size },
                 }),
                 mode: value.mode,
@@ -137,7 +140,15 @@ pub mod resource {
         /// The object is missing, either because it didn't exist in the working tree or because its `id` was null.
         Missing,
         /// The textual data as processed to be in a diffable state.
-        Buffer(&'a [u8]),
+        Buffer {
+            /// The buffer bytes.
+            buf: &'a [u8],
+            /// If `true`, a [binary to text filter](super::super::Driver::binary_to_text_command) was used to obtain the buffer,
+            /// making it a derived value.
+            ///
+            /// Applications should check for this to avoid treating the buffer content as (original) resource content.
+            is_derived: bool,
+        },
         /// The size that the binary blob had at the given revision, without having applied filters, as it's either
         /// considered binary or above the big-file threshold.
         ///
@@ -156,8 +167,16 @@ pub mod resource {
         /// Return ourselves as slice of bytes if this instance stores data.
         pub fn as_slice(&self) -> Option<&'a [u8]> {
             match self {
-                Data::Buffer(d) => Some(d),
+                Data::Buffer { buf, .. } => Some(buf),
                 Data::Binary { .. } | Data::Missing => None,
+            }
+        }
+
+        /// Returns `true` if the data in this instance is derived.
+        pub fn is_derived(&self) -> bool {
+            match self {
+                Data::Missing | Data::Binary { .. } => false,
+                Data::Buffer { is_derived, .. } => *is_derived,
             }
         }
     }
@@ -194,9 +213,8 @@ pub mod set_resource {
 
 ///
 pub mod prepare_diff {
-    use bstr::BStr;
-
     use crate::blob::platform::Resource;
+    use bstr::BStr;
 
     /// The kind of operation that should be performed based on the configuration of the resources involved in the diff.
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -234,6 +252,11 @@ pub mod prepare_diff {
     pub struct Outcome<'a> {
         /// The kind of diff that was actually performed. This may include skipping the internal diff as well.
         pub operation: Operation<'a>,
+        /// If `true`, a [binary to text filter](super::super::Driver::binary_to_text_command) was used to obtain the buffer
+        /// of `old` or `new`, making it a derived value.
+        ///
+        /// Applications should check for this to avoid treating the buffer content as (original) resource content.
+        pub old_or_new_is_derived: bool,
         /// The old or source of the diff operation.
         pub old: Resource<'a>,
         /// The new or destination of the diff operation.
@@ -421,7 +444,7 @@ impl Platform {
                     cmd.args(["/dev/null", ".", "."]);
                     None
                 }
-                resource::Data::Buffer(buf) => {
+                resource::Data::Buffer { buf, is_derived: _ } => {
                     let mut tmp = gix_tempfile::new(
                         std::env::temp_dir(),
                         gix_tempfile::ContainingDirectory::Exists,
@@ -524,10 +547,15 @@ impl Platform {
             .diff_cache
             .get(new_key)
             .ok_or(prepare_diff::Error::SourceOrDestinationUnset)?;
-        let mut out = prepare_diff::Outcome {
-            operation: prepare_diff::Operation::SourceOrDestinationIsBinary,
-            old: Resource::new(old_key, old),
-            new: Resource::new(new_key, new),
+        let mut out = {
+            let old = Resource::new(old_key, old);
+            let new = Resource::new(new_key, new);
+            prepare_diff::Outcome {
+                operation: prepare_diff::Operation::SourceOrDestinationIsBinary,
+                old_or_new_is_derived: old.data.is_derived() || new.data.is_derived(),
+                old,
+                new,
+            }
         };
 
         match (old.conversion.data, new.conversion.data) {
