@@ -42,7 +42,13 @@ impl WorktreeRoots {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum Data {
     /// The data to use for diffing was written into the buffer that was passed during the call to [`Pipeline::convert_to_diffable()`].
-    Buffer,
+    Buffer {
+        /// If `true`, a [binary to text filter](Driver::binary_to_text_command) was used to obtain the buffer,
+        /// making it a derived value.
+        ///
+        /// Applications should check for this to avoid treating the buffer content as (original) resource content.
+        is_derived: bool,
+    },
     /// The size that the binary blob had at the given revision, without having applied filters, as it's either
     /// considered binary or above the big-file threshold.
     ///
@@ -274,7 +280,7 @@ impl Pipeline {
                     })?;
                     target.map(|target| {
                         out.extend_from_slice(gix_path::into_bstr(target).as_ref());
-                        Data::Buffer
+                        Data::Buffer { is_derived: false }
                     })
                 } else {
                     let need_size_only = is_binary == Some(true);
@@ -312,7 +318,7 @@ impl Pipeline {
                                         None
                                     } else {
                                         run_cmd(rela_path, cmd, out)?;
-                                        Some(Data::Buffer)
+                                        Some(Data::Buffer { is_derived: true })
                                     }
                                 }
                                 None => {
@@ -370,7 +376,7 @@ impl Pipeline {
                                                 out.clear();
                                                 Data::Binary { size }
                                             } else {
-                                                Data::Buffer
+                                                Data::Buffer { is_derived: false }
                                             })
                                         }
                                         None => None,
@@ -403,6 +409,7 @@ impl Pipeline {
                             .try_find(id, out)
                             .map_err(gix_object::find::existing_object::Error::Find)?
                             .ok_or_else(|| gix_object::find::existing_object::Error::NotFound { oid: id.to_owned() })?;
+                        let mut is_derived = false;
                         if matches!(mode, EntryKind::Blob | EntryKind::BlobExecutable)
                             && convert == Mode::ToWorktreeAndBinaryToText
                             || (convert == Mode::ToGitUnlessBinaryToTextIsPresent
@@ -460,6 +467,7 @@ impl Pipeline {
                                     })?;
                                     out.clear();
                                     run_cmd(rela_path, cmd, out)?;
+                                    is_derived = true;
                                 }
                                 None => match res {
                                     ToWorktreeOutcome::Unchanged(_) => {}
@@ -490,7 +498,7 @@ impl Pipeline {
                             out.clear();
                             Data::Binary { size }
                         } else {
-                            Data::Buffer
+                            Data::Buffer { is_derived }
                         }
                     };
                     Some(data)
