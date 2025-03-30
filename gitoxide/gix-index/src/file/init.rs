@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use gix_hash::hasher;
+
 use crate::{decode, extension, File, State};
 
 mod error {
@@ -81,7 +83,10 @@ impl File {
                         object_hash,
                         &mut gix_features::progress::Discard,
                         &Default::default(),
-                    )?
+                    )
+                    .map_err(|err| match err {
+                        hasher::io::Error::Io(err) => Error::Io(err),
+                    })?
                     .verify(&expected)
                     .map_err(decode::Error::from)?;
                 }

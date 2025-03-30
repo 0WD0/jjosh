@@ -539,7 +539,7 @@ pub(super) mod function {
                         ToGitOutcome::Buffer(buf) => gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf),
                         ToGitOutcome::Process(mut stream) => {
                             buf.clear();
-                            stream.read_to_end(buf).map_err(Error::HashFile)?;
+                            stream.read_to_end(buf).map_err(|err| Error::HashFile(err.into()))?;
                             gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
                         }
                     }

@@ -136,7 +136,10 @@ criterion_main!(benches);
 
 type TreeStore = Rc<RefCell<gix_hashtable::HashMap<ObjectId, Tree>>>;
 
-fn new_inmemory_writes() -> (TreeStore, impl FnMut(&Tree) -> Result<ObjectId, std::io::Error>) {
+fn new_inmemory_writes() -> (
+    TreeStore,
+    impl FnMut(&Tree) -> Result<ObjectId, gix_hash::hasher::io::Error>,
+) {
     let store = TreeStore::default();
     let write_tree = {
         let store = store.clone();

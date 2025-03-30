@@ -15,7 +15,7 @@ mod error {
     #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
-        Io(#[from] std::io::Error),
+        Io(#[from] gix_hash::hasher::io::Error),
         #[error("Interrupted")]
         Interrupted,
         #[error(transparent)]
@@ -182,30 +182,34 @@ impl multi_index::File {
             cf.num_chunks().try_into().expect("BUG: wrote more than 256 chunks"),
             index_paths_sorted.len() as u32,
             object_hash,
-        )?;
+        )
+        .map_err(hasher::io::Error::from)?;
 
         {
             progress.set_name("Writing chunks".into());
             progress.init(Some(cf.num_chunks()), gix_features::progress::count("chunks"));
 
-            let mut chunk_write = cf.into_write(&mut out, bytes_written)?;
+            let mut chunk_write = cf
+                .into_write(&mut out, bytes_written)
+                .map_err(hasher::io::Error::from)?;
             while let Some(chunk_to_write) = chunk_write.next_chunk() {
                 match chunk_to_write {
                     multi_index::chunk::index_names::ID => {
-                        multi_index::chunk::index_names::write(&index_filenames_sorted, &mut chunk_write)?;
+                        multi_index::chunk::index_names::write(&index_filenames_sorted, &mut chunk_write)
                     }
-                    multi_index::chunk::fanout::ID => multi_index::chunk::fanout::write(&entries, &mut chunk_write)?,
-                    multi_index::chunk::lookup::ID => multi_index::chunk::lookup::write(&entries, &mut chunk_write)?,
+                    multi_index::chunk::fanout::ID => multi_index::chunk::fanout::write(&entries, &mut chunk_write),
+                    multi_index::chunk::lookup::ID => multi_index::chunk::lookup::write(&entries, &mut chunk_write),
                     multi_index::chunk::offsets::ID => {
-                        multi_index::chunk::offsets::write(&entries, num_large_offsets.is_some(), &mut chunk_write)?;
+                        multi_index::chunk::offsets::write(&entries, num_large_offsets.is_some(), &mut chunk_write)
                     }
                     multi_index::chunk::large_offsets::ID => multi_index::chunk::large_offsets::write(
                         &entries,
                         num_large_offsets.expect("available if planned"),
                         &mut chunk_write,
-                    )?,
+                    ),
                     unknown => unreachable!("BUG: forgot to implement chunk {:?}", std::str::from_utf8(&unknown)),
                 }
+                .map_err(hasher::io::Error::from)?;
                 progress.inc();
                 if should_interrupt.load(Ordering::Relaxed) {
                     return Err(Error::Interrupted);
@@ -215,7 +219,10 @@ impl multi_index::File {
 
         // write trailing checksum
         let multi_index_checksum = out.inner.hash.finalize();
-        out.inner.inner.write_all(multi_index_checksum.as_slice())?;
+        out.inner
+            .inner
+            .write_all(multi_index_checksum.as_slice())
+            .map_err(hasher::io::Error::from)?;
         out.progress.show_throughput(write_start);
 
         Ok(Outcome { multi_index_checksum })

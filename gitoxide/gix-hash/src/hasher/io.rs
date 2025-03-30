@@ -1,5 +1,13 @@
 use crate::{hasher, Hasher};
 
+/// The error type for I/O operations that compute hashes.
+#[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
 /// Compute the hash of `kind` for the bytes in the file at `path`, hashing only the first `num_bytes_from_start`
 /// while initializing and calling `progress`.
 ///
@@ -15,7 +23,7 @@ pub fn bytes_of_file(
     kind: crate::Kind,
     progress: &mut dyn gix_features::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
-) -> std::io::Result<crate::ObjectId> {
+) -> Result<crate::ObjectId, Error> {
     bytes(
         &mut std::fs::File::open(path)?,
         num_bytes_from_start,
@@ -32,7 +40,7 @@ pub fn bytes(
     kind: crate::Kind,
     progress: &mut dyn gix_features::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
-) -> std::io::Result<crate::ObjectId> {
+) -> Result<crate::ObjectId, Error> {
     bytes_with_hasher(read, num_bytes_from_start, hasher(kind), progress, should_interrupt)
 }
 
@@ -43,7 +51,7 @@ pub fn bytes_with_hasher(
     mut hasher: Hasher,
     progress: &mut dyn gix_features::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
-) -> std::io::Result<crate::ObjectId> {
+) -> Result<crate::ObjectId, Error> {
     let start = std::time::Instant::now();
     // init progress before the possibility for failure, as convenience in case people want to recover
     progress.init(
@@ -62,7 +70,7 @@ pub fn bytes_with_hasher(
         progress.inc_by(out.len());
         hasher.update(out);
         if should_interrupt.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Interrupted"));
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Interrupted").into());
         }
     }
 

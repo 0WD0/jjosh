@@ -1,6 +1,7 @@
 use std::{path::Path, sync::atomic::AtomicBool};
 
 use gix_features::progress::Progress;
+use gix_hash::hasher;
 
 ///
 pub mod checksum {
@@ -42,8 +43,10 @@ pub fn checksum_on_disk_or_mmap(
         should_interrupt,
     ) {
         Ok(id) => id,
-        Err(err) if err.kind() == std::io::ErrorKind::Interrupted => return Err(checksum::Error::Interrupted),
-        Err(_io_err) => {
+        Err(hasher::io::Error::Io(err)) if err.kind() == std::io::ErrorKind::Interrupted => {
+            return Err(checksum::Error::Interrupted);
+        }
+        Err(hasher::io::Error::Io(_io_err)) => {
             let start = std::time::Instant::now();
             let mut hasher = gix_hash::hasher(object_hash);
             hasher.update(&data[..data_len_without_trailer]);

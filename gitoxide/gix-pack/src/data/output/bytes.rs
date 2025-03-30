@@ -13,7 +13,7 @@ where
     E: std::error::Error + 'static,
 {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] hasher::io::Error),
     #[error(transparent)]
     Input(E),
 }
@@ -98,7 +98,9 @@ where
         let previous_written = self.written;
         if let Some((version, num_entries)) = self.header_info.take() {
             let header_bytes = crate::data::header::encode(version, num_entries);
-            self.output.write_all(&header_bytes[..])?;
+            self.output
+                .write_all(&header_bytes[..])
+                .map_err(hasher::io::Error::from)?;
             self.written += header_bytes.len() as u64;
         }
         match self.input.next() {
@@ -116,15 +118,21 @@ where
                         }
                         self.written - base_offset
                     });
-                    self.written += header.write_to(entry.decompressed_size as u64, &mut self.output)? as u64;
-                    self.written += std::io::copy(&mut &*entry.compressed_data, &mut self.output)?;
+                    self.written += header
+                        .write_to(entry.decompressed_size as u64, &mut self.output)
+                        .map_err(hasher::io::Error::from)? as u64;
+                    self.written += std::io::copy(&mut &*entry.compressed_data, &mut self.output)
+                        .map_err(hasher::io::Error::from)?;
                 }
             }
             None => {
                 let digest = self.output.hash.clone().finalize();
-                self.output.inner.write_all(digest.as_slice())?;
+                self.output
+                    .inner
+                    .write_all(digest.as_slice())
+                    .map_err(hasher::io::Error::from)?;
                 self.written += digest.as_slice().len() as u64;
-                self.output.inner.flush()?;
+                self.output.inner.flush().map_err(hasher::io::Error::from)?;
                 self.is_done = true;
                 self.trailer = Some(digest);
             }

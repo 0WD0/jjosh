@@ -7,7 +7,7 @@ use crate::{write, File, Version};
 #[allow(missing_docs)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] hasher::io::Error),
     #[error("Could not acquire lock for index file")]
     AcquireLock(#[from] gix_lock::acquire::Error),
     #[error("Could not commit lock for index file")]
@@ -21,7 +21,7 @@ impl File {
         &self,
         mut out: impl std::io::Write,
         options: write::Options,
-    ) -> std::io::Result<(Version, gix_hash::ObjectId)> {
+    ) -> Result<(Version, gix_hash::ObjectId), hasher::io::Error> {
         let _span = gix_features::trace::detail!("gix_index::File::write_to()", skip_hash = options.skip_hash);
         let (version, hash) = if options.skip_hash {
             let out: &mut dyn std::io::Write = &mut out;
@@ -49,7 +49,7 @@ impl File {
         let (version, digest) = self.write_to(&mut lock, options)?;
         match lock.into_inner() {
             Ok(lock) => lock.commit()?,
-            Err(err) => return Err(err.into_error().into()),
+            Err(err) => return Err(Error::Io(err.into_error().into())),
         };
         self.state.version = version;
         self.checksum = Some(digest);

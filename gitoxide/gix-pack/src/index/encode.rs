@@ -74,7 +74,7 @@ mod function {
         pack_hash: &gix_hash::ObjectId,
         kind: crate::index::Version,
         progress: &mut dyn DynNestedProgress,
-    ) -> io::Result<gix_hash::ObjectId> {
+    ) -> Result<gix_hash::ObjectId, hasher::io::Error> {
         use io::Write;
         assert_eq!(kind, crate::index::Version::V2, "Can only write V2 packs right now");
         assert!(
@@ -136,7 +136,7 @@ mod function {
         out.write_all(pack_hash.as_slice())?;
 
         let bytes_written_without_trailer = out.bytes;
-        let out = out.inner.into_inner()?;
+        let out = out.inner.into_inner().map_err(io::Error::from)?;
         let index_hash = out.hash.finalize();
         out.inner.write_all(index_hash.as_slice())?;
         out.inner.flush()?;

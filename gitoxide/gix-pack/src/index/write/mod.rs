@@ -2,6 +2,7 @@ use std::{io, sync::atomic::AtomicBool};
 
 pub use error::Error;
 use gix_features::progress::{self, prodash::DynNestedProgress, Count, Progress};
+use gix_hash::hasher;
 
 use crate::cache::delta::{traverse, Tree};
 
@@ -180,7 +181,7 @@ impl crate::index::File {
 
         root_progress.inc();
 
-        let (resolver, pack) = make_resolver()?;
+        let (resolver, pack) = make_resolver().map_err(hasher::io::Error::from)?;
         let sorted_pack_offsets_by_oid = {
             let traverse::Outcome { roots, children } = tree.traverse(
                 resolver,

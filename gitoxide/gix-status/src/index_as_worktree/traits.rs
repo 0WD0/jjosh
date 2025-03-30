@@ -1,7 +1,7 @@
 use std::{io::Read, sync::atomic::AtomicBool};
 
 use bstr::BStr;
-use gix_hash::ObjectId;
+use gix_hash::{hasher, ObjectId};
 use gix_index as index;
 use index::Entry;
 
@@ -149,7 +149,7 @@ impl CompareBlobs for HashEq {
             None => {
                 let file_hash = match stream.size() {
                     None => {
-                        stream.read_to_end(buf)?;
+                        stream.read_to_end(buf).map_err(hasher::io::Error::from)?;
                         gix_object::compute_hash(entry.id.kind(), gix_object::Kind::Blob, buf)
                     }
                     Some(len) => gix_object::compute_stream_hash(

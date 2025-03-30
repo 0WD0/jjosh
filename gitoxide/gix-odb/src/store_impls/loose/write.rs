@@ -14,7 +14,7 @@ use crate::store_impls::loose;
 pub enum Error {
     #[error("Could not {message} '{path}'")]
     Io {
-        source: io::Error,
+        source: hasher::io::Error,
         message: &'static str,
         path: PathBuf,
     },
@@ -31,12 +31,12 @@ impl gix_object::Write for Store {
     fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let mut to = self.dest()?;
         to.write_all(&object.loose_header()).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "write header to tempfile in",
             path: self.path.to_owned(),
         })?;
         object.write_to(&mut to).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "stream all data into tempfile in",
             path: self.path.to_owned(),
         })?;
@@ -51,13 +51,13 @@ impl gix_object::Write for Store {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, from.len() as u64))
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "write header to tempfile in",
                 path: self.path.to_owned(),
             })?;
 
         to.write_all(from).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "stream all data into tempfile in",
             path: self.path.to_owned(),
         })?;
@@ -77,14 +77,14 @@ impl gix_object::Write for Store {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, size))
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "write header to tempfile in",
                 path: self.path.to_owned(),
             })?;
 
         io::copy(&mut from, &mut to)
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "stream all data into tempfile in",
                 path: self.path.to_owned(),
             })
@@ -118,7 +118,7 @@ impl Store {
         }
         Ok(hasher::io::Write::new(
             deflate::Write::new(builder.tempfile_in(&self.path).map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "create named temp file in",
                 path: self.path.to_owned(),
             })?),
