@@ -182,7 +182,7 @@ fn empty_paths_are_noop_if_no_path_was_pushed_before() {
     let mut s = Stack::new(root.clone());
 
     let mut r = Record::default();
-    s.make_relative_path_current("".as_ref(), &mut r).unwrap();
+    s.make_relative_path_current("", &mut r).unwrap();
     assert_eq!(
         s.current_relative().to_string_lossy(),
         "",
@@ -196,7 +196,7 @@ fn relative_components_are_invalid() {
     let mut s = Stack::new(root.clone());
 
     let mut r = Record::default();
-    let err = s.make_relative_path_current("a/..".as_ref(), &mut r).unwrap_err();
+    let err = s.make_relative_path_current(p("a/.."), &mut r).unwrap_err();
     assert_eq!(
         err.to_string(),
         format!(
@@ -205,7 +205,7 @@ fn relative_components_are_invalid() {
         )
     );
 
-    s.make_relative_path_current("a/./b".as_ref(), &mut r)
+    s.make_relative_path_current(p("a/./b"), &mut r)
         .expect("dot is ignored");
     assert_eq!(
         r,
@@ -221,7 +221,7 @@ fn relative_components_are_invalid() {
         if cfg!(windows) { r".\a\b" } else { "./a/b" },
         "dot is silently ignored"
     );
-    s.make_relative_path_current("a//b/".as_ref(), &mut r)
+    s.make_relative_path_current(p("a//b/"), &mut r)
         .expect("multiple-slashes are ignored");
     assert_eq!(
         r,
@@ -240,19 +240,19 @@ fn absolute_paths_are_invalid() -> crate::Result {
     let mut s = Stack::new(root.clone());
 
     let mut r = Record::default();
-    let err = s.make_relative_path_current("/".as_ref(), &mut r).unwrap_err();
+    let err = s.make_relative_path_current(p("/"), &mut r).unwrap_err();
     assert_eq!(
         err.to_string(),
         r#"Input path "/" contains relative or absolute components"#,
         "a leading slash is always considered absolute"
     );
-    s.make_relative_path_current("a/".as_ref(), &mut r)?;
+    s.make_relative_path_current(p("a/"), &mut r)?;
     assert_eq!(
         s.current(),
         p("./a/"),
         "trailing slashes aren't a problem at this stage, as they cannot cause a 'breakout'"
     );
-    s.make_relative_path_current(r"b\".as_ref(), &mut r)?;
+    s.make_relative_path_current(p(r"b\"), &mut r)?;
     assert_eq!(
         s.current(),
         p(r"./b\"),
@@ -261,7 +261,7 @@ fn absolute_paths_are_invalid() -> crate::Result {
 
     #[cfg(windows)]
     {
-        let err = s.make_relative_path_current(r"\".as_ref(), &mut r).unwrap_err();
+        let err = s.make_relative_path_current(Path::new(r"\"), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
             r#"Input path "\" contains relative or absolute components"#,
@@ -269,20 +269,20 @@ fn absolute_paths_are_invalid() -> crate::Result {
             hence they are forbidden."
         );
 
-        let err = s.make_relative_path_current("c:".as_ref(), &mut r).unwrap_err();
+        let err = s.make_relative_path_current(Path::new("c:"), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
             r#"Input path "c:" contains relative or absolute components"#,
             "on Windows, drive-letters without trailing backslash or slash are also absolute (even though they ought to be relative)"
         );
-        let err = s.make_relative_path_current(r"c:\".as_ref(), &mut r).unwrap_err();
+        let err = s.make_relative_path_current(Path::new(r"c:\"), &mut r).unwrap_err();
         assert_eq!(
             err.to_string(),
             r#"Input path "c:\" contains relative or absolute components"#,
             "on Windows, drive-letters are absolute, which is expected"
         );
 
-        s.make_relative_path_current("֍:".as_ref(), &mut r)?;
+        s.make_relative_path_current(Path::new("֍:"), &mut r)?;
         assert_eq!(
             s.current().to_string_lossy(),
             ".\\֍:",
@@ -290,7 +290,7 @@ fn absolute_paths_are_invalid() -> crate::Result {
             but we just turn it into a presumably invalid path which is fine, i.e. we get a joined path"
         );
         let err = s
-            .make_relative_path_current(r"\\localhost\hello".as_ref(), &mut r)
+            .make_relative_path_current(Path::new(r"\\localhost\hello"), &mut r)
             .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -298,7 +298,9 @@ fn absolute_paths_are_invalid() -> crate::Result {
             "there is UNC paths as well"
         );
 
-        let err = s.make_relative_path_current(r#"\\?\C:"#.as_ref(), &mut r).unwrap_err();
+        let err = s
+            .make_relative_path_current(Path::new(r#"\\?\C:"#), &mut r)
+            .unwrap_err();
         assert_eq!(
             err.to_string(),
             r#"Input path "\\?\C:" contains relative or absolute components"#,
@@ -314,10 +316,10 @@ fn delegate_calls_are_consistent() -> crate::Result {
     let mut s = Stack::new(root.clone());
 
     assert_eq!(s.current(), root);
-    assert_eq!(s.current_relative(), Path::new(""));
+    assert_eq!(s.current_relative(), p(""));
 
     let mut r = Record::default();
-    s.make_relative_path_current("a/b".as_ref(), &mut r)?;
+    s.make_relative_path_current("a/b", &mut r)?;
     let mut dirs = vec![root.clone(), root.join("a")];
     assert_eq!(
         r,
@@ -329,7 +331,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         "it pushes the root-directory first, then the intermediate one"
     );
 
-    s.make_relative_path_current("a/b2".as_ref(), &mut r)?;
+    s.make_relative_path_current("a/b2", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -340,7 +342,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         "dirs remain the same as b2 is a leaf/file, hence the new `push`"
     );
 
-    s.make_relative_path_current("c/d/e".as_ref(), &mut r)?;
+    s.make_relative_path_current("c/d/e", &mut r)?;
     dirs.pop();
     dirs.extend([root.join("c"), root.join("c").join("d")]);
     assert_eq!(
@@ -354,7 +356,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
     );
 
     dirs.push(root.join("c").join("d").join("x"));
-    s.make_relative_path_current("c/d/x/z".as_ref(), &mut r)?;
+    s.make_relative_path_current("c/d/x/z", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -366,8 +368,8 @@ fn delegate_calls_are_consistent() -> crate::Result {
     );
 
     dirs.drain(1..).count();
-    s.make_relative_path_current("f".as_ref(), &mut r)?;
-    assert_eq!(s.current_relative(), Path::new("f"));
+    s.make_relative_path_current("f", &mut r)?;
+    assert_eq!(s.current_relative(), p("f"));
     assert_eq!(
         r,
         Record {
@@ -379,7 +381,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
     );
 
     dirs.push(root.join("x"));
-    s.make_relative_path_current("x/z".as_ref(), &mut r)?;
+    s.make_relative_path_current("x/z", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -391,7 +393,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
     );
 
     dirs.push(root.join("x").join("z"));
-    s.make_relative_path_current("x/z/a".as_ref(), &mut r)?;
+    s.make_relative_path_current("x/z/a", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -404,7 +406,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
 
     dirs.push(root.join("x").join("z").join("a"));
     dirs.push(root.join("x").join("z").join("a").join("b"));
-    s.make_relative_path_current("x/z/a/b/c".as_ref(), &mut r)?;
+    s.make_relative_path_current("x/z/a/b/c", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -416,7 +418,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
     );
 
     dirs.drain(1 /*root*/ + 1 /*x*/ + 1 /*x/z*/ ..).count();
-    s.make_relative_path_current("x/z".as_ref(), &mut r)?;
+    s.make_relative_path_current("x/z", &mut r)?;
     assert_eq!(
         r,
         Record {
@@ -432,7 +434,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         "the stack is state so keeps thinking it's a directory which is consistent. Git does it differently though."
     );
 
-    let err = s.make_relative_path_current("".as_ref(), &mut r).unwrap_err();
+    let err = s.make_relative_path_current(p(""), &mut r).unwrap_err();
     assert_eq!(
         err.to_string(),
         "empty inputs are not allowed",
@@ -440,7 +442,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         and besides that really shouldn't happen"
     );
 
-    s.make_relative_path_current("leaf".as_ref(), &mut r)?;
+    s.make_relative_path_current("leaf", &mut r)?;
     dirs.drain(1..).count();
     assert_eq!(
         r,
@@ -452,7 +454,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
         "reset as much as possible, with just a leaf-component and the root directory"
     );
 
-    s.make_relative_path_current("a//b".as_ref(), &mut r)?;
+    s.make_relative_path_current(p("a//b"), &mut r)?;
     dirs.push(root.join("a"));
     assert_eq!(
         r,
@@ -466,7 +468,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
 
     #[cfg(not(windows))]
     {
-        s.make_relative_path_current(r"\/b".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\/b", &mut r)?;
         dirs.pop();
         dirs.push(root.join(r"\"));
         assert_eq!(
@@ -479,7 +481,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
             "a backslash is a normal character outside of Windows, so it's fine to have it as component"
         );
 
-        s.make_relative_path_current(r"\".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\", &mut r)?;
         assert_eq!(
             r,
             Record {
@@ -494,7 +496,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
             r"a backslash can also be a valid leaf component - here we only popped the 'b', leaving the \ 'directory'"
         );
 
-        s.make_relative_path_current(r"\\".as_ref(), &mut r)?;
+        s.make_relative_path_current(r"\\", &mut r)?;
         dirs.pop();
         assert_eq!(
             r,
@@ -513,7 +515,7 @@ fn delegate_calls_are_consistent() -> crate::Result {
 
     #[cfg(windows)]
     {
-        s.make_relative_path_current(r"c\/d".as_ref(), &mut r)?;
+        s.make_relative_path_current(Path::new(r"c\/d"), &mut r)?;
         dirs.pop();
         dirs.push(root.join("c"));
         assert_eq!(

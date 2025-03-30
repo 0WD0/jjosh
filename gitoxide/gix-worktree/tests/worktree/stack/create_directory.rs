@@ -92,7 +92,7 @@ fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> crate::R
         let relative_path = format!("{dirname}/file");
         assert_eq!(
             cache
-                .at_path(&relative_path, IS_FILE, &gix_object::find::Never)
+                .at_path(&*relative_path, IS_FILE, &gix_object::find::Never)
                 .unwrap_err()
                 .kind(),
             std::io::ErrorKind::AlreadyExists
@@ -112,7 +112,9 @@ fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> crate::R
             *unlink_on_collision = true;
         }
         let relative_path = format!("{dirname}/file");
-        let path = cache.at_path(&relative_path, IS_FILE, &gix_object::find::Never)?.path();
+        let path = cache
+            .at_path(&*relative_path, IS_FILE, &gix_object::find::Never)?
+            .path();
         assert!(path.parent().unwrap().is_dir(), "directory was forcefully created");
         assert!(!path.exists());
     }
