@@ -10,7 +10,7 @@ pub mod checksum {
     pub enum Error {
         #[error("Interrupted by user")]
         Interrupted,
-        #[error("index checksum mismatch: expected {expected}, got {actual}")]
+        #[error("expected {expected}, got {actual}")]
         Mismatch {
             expected: gix_hash::ObjectId,
             actual: gix_hash::ObjectId,

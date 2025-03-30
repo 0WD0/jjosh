@@ -136,8 +136,8 @@ impl index::File {
                 move || pack.verify_checksum(pack_progress, should_interrupt),
                 move || self.verify_checksum(index_progress, should_interrupt),
             );
-            pack_res?;
-            id?
+            pack_res.map_err(Error::PackVerify)?;
+            id.map_err(Error::IndexVerify)?
         } else {
             self.index_checksum()
         })

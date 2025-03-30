@@ -279,9 +279,10 @@ impl File {
                         use index::traverse::Error::*;
                         match err {
                             Processor(err) => Processor(integrity::Error::IndexIntegrity(err)),
-                            VerifyChecksum(err) => VerifyChecksum(err),
+                            IndexVerify(err) => IndexVerify(err),
                             Tree(err) => Tree(err),
                             TreeTraversal(err) => TreeTraversal(err),
+                            PackVerify(err) => PackVerify(err),
                             PackDecode { id, offset, source } => PackDecode { id, offset, source },
                             PackMismatch { expected, actual } => PackMismatch { expected, actual },
                             EntryType(err) => EntryType(err),

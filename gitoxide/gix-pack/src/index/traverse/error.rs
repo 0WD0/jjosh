@@ -6,8 +6,8 @@ use crate::index;
 pub enum Error<E: std::error::Error + Send + Sync + 'static> {
     #[error("One of the traversal processors failed")]
     Processor(#[source] E),
-    #[error("Index file, pack file or object verification failed")]
-    VerifyChecksum(#[from] index::verify::checksum::Error),
+    #[error("Failed to verify index file checksum")]
+    IndexVerify(#[source] index::verify::checksum::Error),
     #[error("The pack delta tree index could not be built")]
     Tree(#[from] crate::cache::delta::from_offsets::Error),
     #[error("The tree traversal failed")]
@@ -25,6 +25,8 @@ pub enum Error<E: std::error::Error + Send + Sync + 'static> {
         expected: gix_hash::ObjectId,
         actual: gix_hash::ObjectId,
     },
+    #[error("Failed to verify pack file checksum")]
+    PackVerify(#[source] crate::verify::checksum::Error),
     #[error("The hash of {kind} object at offset {offset} didn't match the checksum in the index file: expected {expected}, got {actual}")]
     PackObjectMismatch {
         expected: gix_hash::ObjectId,
