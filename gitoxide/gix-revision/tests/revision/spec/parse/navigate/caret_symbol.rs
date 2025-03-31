@@ -1,6 +1,5 @@
-use gix_revision::{spec, spec::parse::delegate::Traversal};
-
 use crate::spec::parse::{parse, try_parse, PeelToOwned as PeelTo};
+use gix_revision::{spec, spec::parse::delegate::Traversal};
 
 #[test]
 fn single_is_first_parent() {
@@ -188,6 +187,23 @@ fn invalid_object_type() {
         matches!(err, spec::parse::Error::InvalidObject {input} if input == "Commit"),
         "these types are case sensitive"
     );
+}
+
+#[test]
+fn invalid_caret_without_previous_refname() {
+    let rec = parse(r"^^");
+    assert_eq!(rec.calls, 2);
+    assert_eq!(rec.kind, Some(gix_revision::spec::Kind::ExcludeReachable));
+    assert_eq!(
+        rec.traversal,
+        [Traversal::NthParent(1)],
+        "This can trip off an implementation as it's actually invalid, but looks valid"
+    );
+
+    for revspec in ["^^^HEAD", "^^HEAD"] {
+        let err = try_parse(revspec).unwrap_err();
+        assert!(matches!(err, spec::parse::Error::UnconsumedInput {input} if input == "HEAD"));
+    }
 }
 
 #[test]
