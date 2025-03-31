@@ -188,6 +188,8 @@ pub enum Error {
     },
     #[error(transparent)]
     Traverse(#[from] crate::revision::walk::iter::Error),
+    #[error("Tried to navigate the commit-graph without providing an anchor first")]
+    TraversalWithoutStartObject,
     #[error(transparent)]
     Walk(#[from] crate::revision::walk::Error),
     #[error("Spec does not contain a single object id")]

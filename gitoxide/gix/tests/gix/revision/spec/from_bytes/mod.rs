@@ -65,6 +65,12 @@ mod index {
         );
 
         assert_eq!(
+            parse_spec(":5:file", &repo).unwrap_err().to_string(),
+            "Path \"5:file\" did not exist in index at stage 0. It does not exist on disk",
+            "invalid stage ids are interpreted as part of the filename"
+        );
+
+        assert_eq!(
             parse_spec(":foo", &repo).unwrap_err().to_string(),
             "Path \"foo\" did not exist in index at stage 0. It does not exist on disk",
         );

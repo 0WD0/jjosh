@@ -356,6 +356,7 @@ EOF
   baseline "@^{/!-B}"    # negation from branch
   baseline ":file"      # index lookup, default stage 0
   baseline ":1:file"    # stage 1
+  baseline ":5:file"    # invalid stage
   baseline ":foo"       # not found
   # parents
   baseline "a"
@@ -380,6 +381,10 @@ EOF
   baseline "j"
   baseline "b^3^2"
   baseline "a^^3^2"
+
+  # invalid
+  baseline "^^"
+  baseline "^^HEAD"
 
   baseline "@{-1}"
   baseline "@{-2}"

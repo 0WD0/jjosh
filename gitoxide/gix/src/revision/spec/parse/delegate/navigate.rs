@@ -25,7 +25,13 @@ impl delegate::Navigate for Delegate<'_> {
 
         let mut replacements = Replacements::default();
         let mut errors = Vec::new();
-        let objs = self.objs[self.idx].as_mut()?;
+        let objs = match self.objs[self.idx].as_mut() {
+            Some(objs) => objs,
+            None => {
+                self.err.push(Error::TraversalWithoutStartObject);
+                return None;
+            }
+        };
         let repo = self.repo;
 
         for obj in objs.iter() {

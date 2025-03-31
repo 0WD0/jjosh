@@ -24,8 +24,16 @@ fn complex() -> crate::Result {
 #[test]
 fn freestanding_negation_yields_descriptive_error() -> crate::Result {
     let repo = repo("complex_graph")?;
-    let expected = "The rev-spec is malformed and misses a ref name";
-    assert_eq!(parse_spec("^", &repo).unwrap_err().to_string(), expected);
+    for revspec in ["^^", "^^HEAD"] {
+        assert_eq!(
+            parse_spec(revspec, &repo).unwrap_err().to_string(),
+            "Tried to navigate the commit-graph without providing an anchor first"
+        );
+    }
+    assert_eq!(
+        parse_spec("^", &repo).unwrap_err().to_string(),
+        "The rev-spec is malformed and misses a ref name"
+    );
     assert_eq!(
         parse_spec("^!", &repo).unwrap_err().to_string(),
         "The ref partially named \"!\" could not be found"
