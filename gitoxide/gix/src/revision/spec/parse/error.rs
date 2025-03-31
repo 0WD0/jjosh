@@ -105,7 +105,6 @@ impl Error {
     }
 
     pub(crate) fn from_errors(errors: Vec<Self>) -> Self {
-        assert!(!errors.is_empty());
         match errors.len() {
             0 => unreachable!(
                 "BUG: cannot create something from nothing, must have recorded some errors to call from_errors()"
