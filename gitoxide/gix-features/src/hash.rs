@@ -1,13 +1,5 @@
 //! Hash functions and hash utilities
 
-// TODO: Remove this.
-#[cfg(any(feature = "rustsha1", feature = "fast-sha1"))]
-pub use gix_hash::hasher::{
-    hasher,
-    io::{bytes, bytes_of_file, bytes_with_hasher, Write},
-    Digest, Hasher,
-};
-
 /// Compute a CRC32 hash from the given `bytes`, returning the CRC32 hash.
 ///
 /// When calling this function for the first time, `previous_value` should be `0`. Otherwise it

@@ -1845,7 +1845,6 @@ dependencies = [
  "crossbeam-channel",
  "document-features",
  "flate2",
- "gix-hash 0.16.0",
  "gix-trace 0.1.12",
  "gix-utils 0.1.14",
  "libc",
@@ -1961,8 +1960,8 @@ version = "0.16.0"
 dependencies = [
  "document-features",
  "faster-hex",
+ "gix-features 0.40.0",
  "gix-testtools",
- "prodash 29.0.1",
  "serde",
  "sha1-checked",
  "thiserror 2.0.12",

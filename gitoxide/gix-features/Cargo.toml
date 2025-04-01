@@ -24,7 +24,7 @@ progress = ["prodash"]
 ## Provide human-readable numbers as well as easier to read byte units for progress bars.
 progress-unit-human-numbers = ["prodash?/unit-human"]
 ## Provide human readable byte units for progress bars.
-progress-unit-bytes = ["dep:bytesize", "prodash?/unit-bytes", "gix-hash/progress-unit-bytes"]
+progress-unit-bytes = ["dep:bytesize", "prodash?/unit-bytes"]
 
 ## Provide utilities suitable for working with the `std::fs::read_dir()`.
 fs-read-dir = ["dep:gix-utils"]
@@ -107,7 +107,6 @@ path = "tests/pipe.rs"
 required-features = ["io-pipe"]
 
 [dependencies]
-gix-hash = { version = "^0.16.0", path = "../gix-hash" }
 gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 
 # for walkdir

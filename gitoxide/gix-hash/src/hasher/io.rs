@@ -1,32 +1,5 @@
 use crate::{hasher, Hasher};
 
-// Temporary, to avoid a circular dependency on `gix-features`.
-///
-mod gix_features {
-    ///
-    pub mod progress {
-        pub use prodash::{self, unit, Progress, Unit};
-
-        ///
-        #[cfg(feature = "progress-unit-bytes")]
-        pub fn bytes() -> Option<Unit> {
-            Some(unit::dynamic_and_mode(
-                unit::Bytes,
-                unit::display::Mode::with_throughput().and_percentage(),
-            ))
-        }
-
-        ///
-        #[cfg(not(feature = "progress-unit-bytes"))]
-        pub fn bytes() -> Option<Unit> {
-            Some(unit::label_and_mode(
-                "B",
-                unit::display::Mode::with_throughput().and_percentage(),
-            ))
-        }
-    }
-}
-
 /// Compute the hash of `kind` for the bytes in the file at `path`, hashing only the first `num_bytes_from_start`
 /// while initializing and calling `progress`.
 ///
@@ -35,8 +8,7 @@ mod gix_features {
 ///
 /// # Note
 ///
-/// * Interrupts are supported.
-// TODO: Fix link to `gix_features::interrupt`.
+/// * [Interrupts][gix_features::interrupt] are supported.
 pub fn bytes_of_file(
     path: &std::path::Path,
     num_bytes_from_start: u64,

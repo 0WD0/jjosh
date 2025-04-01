@@ -16,14 +16,11 @@ doctest = false
 test = false
 
 [features]
-# Temporary, to avoid a circular dependency on `gix-features`.
-progress-unit-bytes = ["prodash/unit-bytes"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde"]
 
 [dependencies]
-# Temporary, to avoid a circular dependency on `gix-features`.
-prodash = "29.0.1"
+gix-features = { version = "^0.40.0", path = "../gix-features", features = ["progress"] }
 
 thiserror = "2.0.0"
 faster-hex = { version = "0.9.0" }
