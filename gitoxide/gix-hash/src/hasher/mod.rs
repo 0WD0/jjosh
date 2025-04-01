@@ -1,7 +1,4 @@
-use sha1_checked::CollisionResult;
-
-/// A hash-digest produced by a [`Hasher`] hash implementation.
-pub type Digest = [u8; 20];
+use sha1_checked::{CollisionResult, Digest};
 
 /// The error returned by [`Hasher::try_finalize()`].
 #[derive(Debug, thiserror::Error)]
@@ -32,7 +29,6 @@ impl Default for Hasher {
 impl Hasher {
     /// Digest the given `bytes`.
     pub fn update(&mut self, bytes: &[u8]) {
-        use sha1_checked::Digest;
         self.0.update(bytes);
     }
 
@@ -66,15 +62,6 @@ impl Hasher {
     #[inline]
     pub fn finalize(self) -> crate::ObjectId {
         self.try_finalize().expect("Detected SHA-1 collision attack")
-    }
-
-    /// Finalize the hash and produce a digest.
-    #[inline]
-    pub fn digest(self) -> Digest {
-        self.finalize()
-            .as_slice()
-            .try_into()
-            .expect("SHA-1 object ID to be 20 bytes long")
     }
 }
 
