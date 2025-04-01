@@ -23,7 +23,7 @@ pub fn write_to(
         hasher.update(&signature);
         hasher.update(&size.to_be_bytes());
     }
-    out.write_all(&hasher.digest())?;
+    out.write_all(hasher.finalize().as_slice())?;
 
     Ok(())
 }

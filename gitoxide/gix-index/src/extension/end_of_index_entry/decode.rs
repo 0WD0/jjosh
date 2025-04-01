@@ -41,7 +41,7 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Option<usize> {
         last_chunk = Some(chunk);
     }
 
-    if hasher.digest() != checksum {
+    if hasher.finalize().as_slice() != checksum {
         return None;
     }
     // The last-to-this chunk ends where ours starts

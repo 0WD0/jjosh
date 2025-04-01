@@ -409,7 +409,7 @@ fn object_hasher(hash_kind: gix_hash::Kind, object_kind: Kind, object_size: u64)
 pub fn compute_hash(hash_kind: gix_hash::Kind, object_kind: Kind, data: &[u8]) -> gix_hash::ObjectId {
     let mut hasher = object_hasher(hash_kind, object_kind, data.len() as u64);
     hasher.update(data);
-    hasher.digest().into()
+    hasher.finalize()
 }
 
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its data read from `stream`

@@ -66,7 +66,7 @@ pub fn bytes_with_hasher(
         }
     }
 
-    let id = crate::ObjectId::from(hasher.digest());
+    let id = hasher.finalize();
     progress.show_throughput(start);
     Ok(id)
 }

@@ -137,7 +137,7 @@ mod function {
 
         let bytes_written_without_trailer = out.bytes;
         let out = out.inner.into_inner()?;
-        let index_hash: gix_hash::ObjectId = out.hash.digest().into();
+        let index_hash = out.hash.finalize();
         out.inner.write_all(index_hash.as_slice())?;
         out.inner.flush()?;
 

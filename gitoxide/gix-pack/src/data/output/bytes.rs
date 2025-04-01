@@ -121,12 +121,12 @@ where
                 }
             }
             None => {
-                let digest = self.output.hash.clone().digest();
-                self.output.inner.write_all(&digest[..])?;
-                self.written += digest.len() as u64;
+                let digest = self.output.hash.clone().finalize();
+                self.output.inner.write_all(digest.as_slice())?;
+                self.written += digest.as_slice().len() as u64;
                 self.output.inner.flush()?;
                 self.is_done = true;
-                self.trailer = Some(gix_hash::ObjectId::from(digest));
+                self.trailer = Some(digest);
             }
         }
         Ok(self.written - previous_written)

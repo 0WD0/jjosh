@@ -177,7 +177,7 @@ where
             }
 
             if let Some(hash) = self.hash.take() {
-                let actual_id = gix_hash::ObjectId::from(hash.digest());
+                let actual_id = hash.finalize();
                 if self.mode == input::Mode::Restore {
                     id = actual_id;
                 }
@@ -191,7 +191,7 @@ where
             Some(id)
         } else if self.mode == input::Mode::Restore {
             let hash = self.hash.clone().expect("in restore mode a hash is set");
-            Some(gix_hash::ObjectId::from(hash.digest()))
+            Some(hash.finalize())
         } else {
             None
         })

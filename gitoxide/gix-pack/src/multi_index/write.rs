@@ -214,7 +214,7 @@ impl multi_index::File {
         }
 
         // write trailing checksum
-        let multi_index_checksum: gix_hash::ObjectId = out.inner.hash.digest().into();
+        let multi_index_checksum = out.inner.hash.finalize();
         out.inner.inner.write_all(multi_index_checksum.as_slice())?;
         out.progress.show_throughput(write_start);
 

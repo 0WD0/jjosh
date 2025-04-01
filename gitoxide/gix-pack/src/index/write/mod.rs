@@ -227,7 +227,7 @@ impl crate::index::File {
                 let header = crate::data::header::encode(pack_version, 0);
                 let mut hasher = gix_hash::hasher(object_hash);
                 hasher.update(&header);
-                gix_hash::ObjectId::from(hasher.digest())
+                hasher.finalize()
             }
             None => return Err(Error::IteratorInvariantTrailer),
         };

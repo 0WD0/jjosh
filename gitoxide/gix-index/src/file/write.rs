@@ -31,7 +31,7 @@ impl File {
             let mut hasher = hasher::io::Write::new(&mut out, self.state.object_hash);
             let out: &mut dyn std::io::Write = &mut hasher;
             let version = self.state.write_to(out, options)?;
-            (version, gix_hash::ObjectId::from(hasher.hash.digest()))
+            (version, hasher.hash.finalize())
         };
         out.write_all(hash.as_slice())?;
         Ok((version, hash))

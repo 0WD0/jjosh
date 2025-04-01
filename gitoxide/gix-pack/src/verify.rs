@@ -52,7 +52,7 @@ pub fn checksum_on_disk_or_mmap(
             hasher.update(&data[..data_len_without_trailer]);
             progress.inc_by(data_len_without_trailer);
             progress.show_throughput(start);
-            gix_hash::ObjectId::from(hasher.digest())
+            hasher.finalize()
         }
     };
 
