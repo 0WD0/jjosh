@@ -225,7 +225,7 @@ impl crate::index::File {
             Some(ph) => ph,
             None if num_objects == 0 => {
                 let header = crate::data::header::encode(pack_version, 0);
-                let mut hasher = gix_features::hash::hasher(object_hash);
+                let mut hasher = gix_hash::hasher(object_hash);
                 hasher.update(&header);
                 gix_hash::ObjectId::from(hasher.digest())
             }

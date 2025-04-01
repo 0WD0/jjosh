@@ -5,6 +5,7 @@ use std::{
 };
 
 use gix_features::progress::{Count, DynNestedProgress, Progress};
+use gix_hash::hasher;
 
 use crate::multi_index;
 
@@ -83,7 +84,7 @@ impl multi_index::File {
         should_interrupt: &AtomicBool,
         Options { object_hash }: Options,
     ) -> Result<Outcome, Error> {
-        let out = gix_features::hash::Write::new(out, object_hash);
+        let out = hasher::io::Write::new(out, object_hash);
         let (index_paths_sorted, index_filenames_sorted) = {
             index_paths.sort();
             let file_names = index_paths

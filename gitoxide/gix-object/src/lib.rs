@@ -398,8 +398,8 @@ pub mod decode {
     }
 }
 
-fn object_hasher(hash_kind: gix_hash::Kind, object_kind: Kind, object_size: u64) -> gix_features::hash::Hasher {
-    let mut hasher = gix_features::hash::hasher(hash_kind);
+fn object_hasher(hash_kind: gix_hash::Kind, object_kind: Kind, object_size: u64) -> gix_hash::Hasher {
+    let mut hasher = gix_hash::hasher(hash_kind);
     hasher.update(&encode::loose_header(object_kind, object_size));
     hasher
 }
@@ -426,5 +426,5 @@ pub fn compute_stream_hash(
     should_interrupt: &std::sync::atomic::AtomicBool,
 ) -> std::io::Result<gix_hash::ObjectId> {
     let hasher = object_hasher(hash_kind, object_kind, stream_len);
-    gix_features::hash::bytes_with_hasher(stream, stream_len, hasher, progress, should_interrupt)
+    gix_hash::bytes_with_hasher(stream, stream_len, hasher, progress, should_interrupt)
 }

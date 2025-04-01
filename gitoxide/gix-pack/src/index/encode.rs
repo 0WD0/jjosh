@@ -36,10 +36,8 @@ pub(crate) fn fanout(iter: &mut dyn ExactSizeIterator<Item = u8>) -> [u32; 256] 
 mod function {
     use std::io;
 
-    use gix_features::{
-        hash,
-        progress::{self, DynNestedProgress},
-    };
+    use gix_features::progress::{self, DynNestedProgress};
+    use gix_hash::hasher;
 
     use super::{fanout, HIGH_BIT, LARGE_OFFSET_THRESHOLD};
     use crate::index::V2_SIGNATURE;
@@ -87,7 +85,7 @@ mod function {
         // Write header
         let mut out = Count::new(std::io::BufWriter::with_capacity(
             8 * 4096,
-            hash::Write::new(out, kind.hash()),
+            hasher::io::Write::new(out, kind.hash()),
         ));
         out.write_all(V2_SIGNATURE)?;
         out.write_all(&(kind as u32).to_be_bytes())?;

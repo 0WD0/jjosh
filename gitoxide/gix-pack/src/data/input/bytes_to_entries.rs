@@ -1,7 +1,7 @@
 use std::{fs, io};
 
-use gix_features::{hash::Hasher, zlib::Decompress};
-use gix_hash::ObjectId;
+use gix_features::zlib::Decompress;
+use gix_hash::{Hasher, ObjectId};
 
 use crate::data::input;
 
@@ -69,7 +69,7 @@ where
             version,
             objects_left: num_objects,
             hash: (mode != input::Mode::AsIs).then(|| {
-                let mut hash = gix_features::hash::hasher(object_hash);
+                let mut hash = gix_hash::hasher(object_hash);
                 hash.update(&header_data);
                 hash
             }),

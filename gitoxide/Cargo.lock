@@ -1615,7 +1615,6 @@ dependencies = [
  "document-features",
  "gix-chunk 0.4.11",
  "gix-date 0.9.3",
- "gix-features 0.40.0",
  "gix-hash 0.16.0",
  "gix-testtools",
  "memmap2",
@@ -1962,7 +1961,6 @@ version = "0.16.0"
 dependencies = [
  "document-features",
  "faster-hex",
- "gix-features 0.40.0",
  "gix-testtools",
  "prodash 29.0.1",
  "serde",

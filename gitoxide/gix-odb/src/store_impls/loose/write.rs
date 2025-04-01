@@ -1,6 +1,7 @@
 use std::{fs, io, io::Write, path::PathBuf};
 
-use gix_features::{hash, zlib::stream::deflate};
+use gix_features::zlib::stream::deflate;
+use gix_hash::hasher;
 use gix_object::WriteTo;
 use tempfile::NamedTempFile;
 
@@ -106,7 +107,7 @@ impl Store {
 }
 
 impl Store {
-    fn dest(&self) -> Result<hash::Write<CompressedTempfile>, Error> {
+    fn dest(&self) -> Result<hasher::io::Write<CompressedTempfile>, Error> {
         #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = tempfile::Builder::new();
         #[cfg(unix)]
@@ -115,7 +116,7 @@ impl Store {
             let perms = std::fs::Permissions::from_mode(0o444);
             builder.permissions(perms);
         }
-        Ok(hash::Write::new(
+        Ok(hasher::io::Write::new(
             deflate::Write::new(builder.tempfile_in(&self.path).map_err(|err| Error::Io {
                 source: err,
                 message: "create named temp file in",
@@ -127,7 +128,7 @@ impl Store {
 
     fn finalize_object(
         &self,
-        hash::Write { hash, inner: file }: hash::Write<CompressedTempfile>,
+        hasher::io::Write { hash, inner: file }: hasher::io::Write<CompressedTempfile>,
     ) -> Result<gix_hash::ObjectId, Error> {
         let id = gix_hash::ObjectId::from(hash.digest());
         let object_path = loose::hash_path(&id, self.path.clone());

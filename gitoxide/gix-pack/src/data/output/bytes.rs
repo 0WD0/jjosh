@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use gix_features::hash;
+use gix_hash::hasher;
 
 use crate::data::output;
 use crate::exact_vec;
@@ -24,7 +24,7 @@ pub struct FromEntriesIter<I, W> {
     /// An iterator for input [`output::Entry`] instances
     pub input: I,
     /// A way of writing encoded bytes.
-    output: hash::Write<W>,
+    output: hasher::io::Write<W>,
     /// Our trailing hash when done writing all input entries
     trailer: Option<gix_hash::ObjectId>,
     /// The amount of objects in the iteration and the version of the packfile to be written.
@@ -71,7 +71,7 @@ where
         );
         FromEntriesIter {
             input,
-            output: hash::Write::new(output, object_hash),
+            output: hasher::io::Write::new(output, object_hash),
             trailer: None,
             entry_version: version,
             pack_offsets_and_validity: exact_vec(num_entries as usize),

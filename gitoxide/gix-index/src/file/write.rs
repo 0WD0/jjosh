@@ -1,4 +1,4 @@
-use gix_features::hash;
+use gix_hash::hasher;
 
 use crate::{write, File, Version};
 
@@ -28,7 +28,7 @@ impl File {
             let version = self.state.write_to(out, options)?;
             (version, self.state.object_hash.null())
         } else {
-            let mut hasher = hash::Write::new(&mut out, self.state.object_hash);
+            let mut hasher = hasher::io::Write::new(&mut out, self.state.object_hash);
             let out: &mut dyn std::io::Write = &mut hasher;
             let version = self.state.write_to(out, options)?;
             (version, gix_hash::ObjectId::from(hasher.hash.digest()))

@@ -1,7 +1,5 @@
 use std::iter::Peekable;
 
-use gix_features::hash;
-
 use crate::data::input;
 
 /// An implementation of [`Iterator`] to write [encoded entries][input::Entry] to an inner implementation each time
@@ -95,7 +93,7 @@ where
 
         self.output.rewind()?;
         let interrupt_never = std::sync::atomic::AtomicBool::new(false);
-        let digest = hash::bytes(
+        let digest = gix_hash::bytes(
             &mut self.output,
             num_bytes_written,
             self.object_hash,

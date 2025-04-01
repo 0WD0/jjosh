@@ -75,7 +75,7 @@ impl File {
                     let _span = gix_features::trace::detail!("gix::open_index::hash_index", path = ?path);
                     let meta = file.metadata()?;
                     let num_bytes_to_hash = meta.len() - object_hash.len_in_bytes() as u64;
-                    let actual_hash = gix_features::hash::bytes(
+                    let actual_hash = gix_hash::bytes(
                         &mut file,
                         num_bytes_to_hash,
                         object_hash,

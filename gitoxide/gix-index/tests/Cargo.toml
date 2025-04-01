@@ -20,7 +20,7 @@ gix-features-parallel = ["gix-features/parallel"]
 
 [dev-dependencies]
 gix-index = { path = ".." }
-gix-features = { path = "../../gix-features", features = ["rustsha1", "progress"] }
+gix-features = { path = "../../gix-features", features = ["progress"] }
 gix-testtools = { path = "../../tests/tools" }
 gix-odb = { path = "../../gix-odb" }
 gix-object = { path = "../../gix-object" }

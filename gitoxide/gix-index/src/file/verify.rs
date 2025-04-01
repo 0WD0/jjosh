@@ -25,7 +25,7 @@ impl File {
         if let Some(checksum) = self.checksum {
             let num_bytes_to_hash = self.path.metadata()?.len() - checksum.as_bytes().len() as u64;
             let should_interrupt = AtomicBool::new(false);
-            let actual = gix_features::hash::bytes_of_file(
+            let actual = gix_hash::bytes_of_file(
                 &self.path,
                 num_bytes_to_hash,
                 checksum.kind(),

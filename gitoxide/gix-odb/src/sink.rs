@@ -36,7 +36,7 @@ impl gix_object::Write for Sink {
             Ok(())
         };
 
-        let mut hasher = gix_features::hash::hasher(self.object_hash);
+        let mut hasher = gix_hash::hasher(self.object_hash);
         hasher.update(&header);
         possibly_compress(&header).map_err(Box::new)?;
 
