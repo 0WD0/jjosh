@@ -230,11 +230,6 @@ max-control = ["parallel", "pack-cache-lru-static", "pack-cache-lru-dynamic"]
 ## No C toolchain is involved.
 max-performance-safe = ["max-control"]
 
-## If set, walkdir iterators will be multi-threaded which affects the listing of loose objects and references.
-## Note, however, that this will use `rayon` under the hood and spawn threads for each traversal to avoid a global rayon thread pool.
-## Thus this option is more interesting to one-off client applications, rather than the server.
-parallel-walkdir = ["gix-features/fs-walkdir-parallel"]
-
 ## The tempfile registry uses a better implementation of a thread-safe hashmap, relying on an external crate.
 ## This may be useful when tempfiles are created and accessed in a massively parallel fashion and you know that this is indeed faster than
 ## the simpler implementation that is the default.

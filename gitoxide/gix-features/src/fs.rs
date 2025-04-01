@@ -7,7 +7,7 @@
 //! * [`jwalk::WalkDir`](https://docs.rs/jwalk/0.5.1/jwalk/type.WalkDir.html) if `parallel` feature is enabled
 //! * [walkdir::WalkDir](https://docs.rs/walkdir/2.3.1/walkdir/struct.WalkDir.html) otherwise
 
-#[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel"))]
+#[cfg(feature = "walkdir")]
 mod shared {
     /// The desired level of parallelism.
     pub enum Parallelism {
@@ -21,7 +21,7 @@ mod shared {
     }
 }
 
-#[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel", feature = "fs-read-dir"))]
+#[cfg(any(feature = "walkdir", feature = "fs-read-dir"))]
 mod walkdir_precompose {
     use std::borrow::Cow;
     use std::ffi::OsStr;
@@ -83,13 +83,13 @@ mod walkdir_precompose {
 
     /// A platform over entries in a directory, which may or may not precompose unicode after retrieving
     /// paths from the file system.
-    #[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel"))]
+    #[cfg(feature = "walkdir")]
     pub struct WalkDir<T> {
         pub(crate) inner: Option<T>,
         pub(crate) precompose_unicode: bool,
     }
 
-    #[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel"))]
+    #[cfg(feature = "walkdir")]
     pub struct WalkDirIter<T, I, E>
     where
         T: Iterator<Item = Result<I, E>>,
@@ -99,7 +99,7 @@ mod walkdir_precompose {
         pub(crate) precompose_unicode: bool,
     }
 
-    #[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel"))]
+    #[cfg(feature = "walkdir")]
     impl<T, I, E> Iterator for WalkDirIter<T, I, E>
     where
         T: Iterator<Item = Result<I, E>>,
@@ -142,128 +142,7 @@ pub mod read_dir {
 }
 
 ///
-#[cfg(feature = "fs-walkdir-parallel")]
-pub mod walkdir {
-    use std::borrow::Cow;
-    use std::ffi::OsStr;
-    use std::fs::FileType;
-    use std::path::Path;
-
-    use jwalk::WalkDir as WalkDirImpl;
-    pub use jwalk::{DirEntry as DirEntryGeneric, DirEntryIter as DirEntryIterGeneric, Error};
-
-    pub use super::shared::Parallelism;
-
-    type DirEntryImpl = DirEntryGeneric<((), ())>;
-
-    /// A directory entry returned by [DirEntryIter].
-    pub type DirEntry = super::walkdir_precompose::DirEntry<DirEntryImpl>;
-    /// A platform to create a [DirEntryIter] from.
-    pub type WalkDir = super::walkdir_precompose::WalkDir<WalkDirImpl>;
-
-    impl super::walkdir_precompose::DirEntryApi for DirEntryImpl {
-        fn path(&self) -> Cow<'_, Path> {
-            self.path().into()
-        }
-
-        fn file_name(&self) -> Cow<'_, OsStr> {
-            self.file_name().into()
-        }
-
-        fn file_type(&self) -> std::io::Result<FileType> {
-            Ok(self.file_type())
-        }
-    }
-
-    impl IntoIterator for WalkDir {
-        type Item = Result<DirEntry, jwalk::Error>;
-        type IntoIter = DirEntryIter;
-
-        fn into_iter(self) -> Self::IntoIter {
-            DirEntryIter {
-                inner: self.inner.expect("always set (builder fix)").into_iter(),
-                precompose_unicode: self.precompose_unicode,
-            }
-        }
-    }
-
-    impl WalkDir {
-        /// Set the minimum component depth of paths of entries.
-        pub fn min_depth(mut self, min: usize) -> Self {
-            self.inner = Some(self.inner.take().expect("always set").min_depth(min));
-            self
-        }
-        /// Set the maximum component depth of paths of entries.
-        pub fn max_depth(mut self, max: usize) -> Self {
-            self.inner = Some(self.inner.take().expect("always set").max_depth(max));
-            self
-        }
-        /// Follow symbolic links.
-        pub fn follow_links(mut self, toggle: bool) -> Self {
-            self.inner = Some(self.inner.take().expect("always set").follow_links(toggle));
-            self
-        }
-    }
-
-    impl From<Parallelism> for jwalk::Parallelism {
-        fn from(v: Parallelism) -> Self {
-            match v {
-                Parallelism::Serial => jwalk::Parallelism::Serial,
-                Parallelism::ThreadPoolPerTraversal { thread_name } => std::thread::available_parallelism()
-                    .map_or_else(
-                        |_| Parallelism::Serial.into(),
-                        |threads| {
-                            let pool = jwalk::rayon::ThreadPoolBuilder::new()
-                                .num_threads(threads.get().min(16))
-                                .stack_size(128 * 1024)
-                                .thread_name(move |idx| format!("{thread_name} {idx}"))
-                                .build()
-                                .expect("we only set options that can't cause a build failure");
-                            jwalk::Parallelism::RayonExistingPool {
-                                pool: pool.into(),
-                                busy_timeout: None,
-                            }
-                        },
-                    ),
-            }
-        }
-    }
-
-    /// Instantiate a new directory iterator which will not skip hidden files, with the given level of `parallelism`.
-    ///
-    /// Use `precompose_unicode` to represent the `core.precomposeUnicode` configuration option.
-    pub fn walkdir_new(root: &Path, parallelism: Parallelism, precompose_unicode: bool) -> WalkDir {
-        WalkDir {
-            inner: WalkDirImpl::new(root)
-                .skip_hidden(false)
-                .parallelism(parallelism.into())
-                .into(),
-            precompose_unicode,
-        }
-    }
-
-    /// Instantiate a new directory iterator which will not skip hidden files and is sorted
-    ///
-    /// Use `precompose_unicode` to represent the `core.precomposeUnicode` configuration option.
-    pub fn walkdir_sorted_new(root: &Path, parallelism: Parallelism, precompose_unicode: bool) -> WalkDir {
-        WalkDir {
-            inner: WalkDirImpl::new(root)
-                .skip_hidden(false)
-                .sort(true)
-                .parallelism(parallelism.into())
-                .into(),
-            precompose_unicode,
-        }
-    }
-
-    type DirEntryIterImpl = DirEntryIterGeneric<((), ())>;
-
-    /// The Iterator yielding directory items
-    pub type DirEntryIter = super::walkdir_precompose::WalkDirIter<DirEntryIterImpl, DirEntryImpl, jwalk::Error>;
-}
-
-///
-#[cfg(all(feature = "walkdir", not(feature = "fs-walkdir-parallel")))]
+#[cfg(feature = "walkdir")]
 pub mod walkdir {
     use std::borrow::Cow;
     use std::ffi::OsStr;
@@ -338,8 +217,21 @@ pub mod walkdir {
     ///
     /// Use `precompose_unicode` to represent the `core.precomposeUnicode` configuration option.
     pub fn walkdir_sorted_new(root: &Path, _: Parallelism, precompose_unicode: bool) -> WalkDir {
+        fn ft_to_number(ft: std::fs::FileType) -> usize {
+            if ft.is_file() {
+                1
+            } else {
+                2
+            }
+        }
         WalkDir {
-            inner: WalkDirImpl::new(root).sort_by_file_name().into(),
+            inner: WalkDirImpl::new(root)
+                .sort_by(|a, b| {
+                    ft_to_number(a.file_type())
+                        .cmp(&ft_to_number(b.file_type()))
+                        .then_with(|| a.file_name().cmp(b.file_name()))
+                })
+                .into(),
             precompose_unicode,
         }
     }
@@ -348,7 +240,7 @@ pub mod walkdir {
     pub type DirEntryIter = super::walkdir_precompose::WalkDirIter<walkdir::IntoIter, DirEntryImpl, walkdir::Error>;
 }
 
-#[cfg(any(feature = "walkdir", feature = "fs-walkdir-parallel"))]
+#[cfg(feature = "walkdir")]
 pub use self::walkdir::{walkdir_new, walkdir_sorted_new, WalkDir};
 
 /// Prepare open options which won't follow symlinks when the file is opened.

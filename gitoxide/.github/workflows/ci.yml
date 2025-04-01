@@ -391,7 +391,7 @@ jobs:
       - name: features of gix-features
         run: |
           set +x
-          for feature in progress fs-walkdir-parallel parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do
+          for feature in progress parallel io-pipe crc32 zlib zlib-rust-backend fast-sha1 rustsha1 cache-efficiency-debug; do
             (cd gix-features && cargo build --features "$feature" --target "$TARGET")
           done
       - name: crates with 'wasm' feature
