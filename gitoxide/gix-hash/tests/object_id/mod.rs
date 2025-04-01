@@ -45,23 +45,28 @@ mod from_hex {
 mod sha1 {
     use std::str::FromStr as _;
 
-    use gix_features::hash::hasher;
-    use gix_hash::{Kind, ObjectId};
+    use gix_hash::{hasher, Kind, ObjectId};
 
-    fn hash_contents(s: &[u8]) -> ObjectId {
+    fn hash_contents(s: &[u8]) -> Result<ObjectId, hasher::Error> {
         let mut hasher = hasher(Kind::Sha1);
         hasher.update(s);
-        ObjectId::Sha1(hasher.digest())
+        hasher.try_finalize()
     }
 
     #[test]
     fn empty_blob() {
-        assert_eq!(ObjectId::empty_blob(Kind::Sha1), hash_contents(b"blob 0\0"));
+        assert_eq!(
+            ObjectId::empty_blob(Kind::Sha1),
+            hash_contents(b"blob 0\0").expect("empty blob to not collide"),
+        );
     }
 
     #[test]
     fn empty_tree() {
-        assert_eq!(ObjectId::empty_tree(Kind::Sha1), hash_contents(b"tree 0\0"));
+        assert_eq!(
+            ObjectId::empty_tree(Kind::Sha1),
+            hash_contents(b"tree 0\0").expect("empty tree to not collide"),
+        );
     }
 
     /// Check the test vectors from RFC 3174.
@@ -84,7 +89,7 @@ mod sha1 {
         ];
         for (input, output) in fixtures {
             assert_eq!(
-                hash_contents(input),
+                hash_contents(input).expect("RFC inputs to not collide"),
                 ObjectId::from_str(&output.to_lowercase().replace(' ', "")).expect("RFC digests to be valid"),
             );
         }
@@ -101,10 +106,17 @@ mod sha1 {
         let message_b = include_bytes!("../fixtures/shambles/messageB");
         assert_ne!(message_a, message_b);
 
-        // BUG: These should be detected as a collision attack.
         let expected =
             ObjectId::from_str("8ac60ba76f1999a1ab70223f225aefdc78d4ddc0").expect("Shambles digest to be valid");
-        assert_eq!(hash_contents(message_a), expected);
-        assert_eq!(hash_contents(message_b), expected);
+
+        let Err(hasher::Error::CollisionAttack { digest }) = hash_contents(message_a) else {
+            panic!("expected Shambles input to collide");
+        };
+        assert_eq!(digest, expected);
+
+        let Err(hasher::Error::CollisionAttack { digest }) = hash_contents(message_b) else {
+            panic!("expected Shambles input to collide");
+        };
+        assert_eq!(digest, expected);
     }
 }

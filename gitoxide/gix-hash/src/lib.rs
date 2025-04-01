@@ -13,6 +13,11 @@
 mod borrowed;
 pub use borrowed::{oid, Error};
 
+/// Hash functions and hash utilities
+pub mod hasher;
+pub use hasher::io::{bytes, bytes_of_file, bytes_with_hasher};
+pub use hasher::{hasher, Hasher};
+
 mod object_id;
 pub use object_id::{decode, ObjectId};
 

@@ -1853,8 +1853,6 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "prodash 29.0.1",
- "sha1",
- "sha1_smol",
  "thiserror 2.0.12",
  "walkdir",
 ]
@@ -1966,7 +1964,9 @@ dependencies = [
  "faster-hex",
  "gix-features 0.40.0",
  "gix-testtools",
+ "prodash 29.0.1",
  "serde",
+ "sha1-checked",
  "thiserror 2.0.12",
 ]
 
@@ -4872,16 +4872,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
- "sha1-asm",
 ]
 
 [[package]]
-name = "sha1-asm"
-version = "0.5.3"
+name = "sha1-checked"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "286acebaf8b67c1130aedffad26f594eff0c1292389158135327d2e23aed582b"
+checksum = "89f599ac0c323ebb1c6082821a54962b839832b03984598375bff3975b804423"
 dependencies = [
- "cc",
+ "digest",
+ "sha1",
 ]
 
 [[package]]
