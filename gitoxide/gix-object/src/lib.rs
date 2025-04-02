@@ -406,10 +406,14 @@ fn object_hasher(hash_kind: gix_hash::Kind, object_kind: Kind, object_size: u64)
 
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its `data`.
 #[doc(alias = "hash_object", alias = "git2")]
-pub fn compute_hash(hash_kind: gix_hash::Kind, object_kind: Kind, data: &[u8]) -> gix_hash::ObjectId {
+pub fn compute_hash(
+    hash_kind: gix_hash::Kind,
+    object_kind: Kind,
+    data: &[u8],
+) -> Result<gix_hash::ObjectId, gix_hash::hasher::Error> {
     let mut hasher = object_hasher(hash_kind, object_kind, data.len() as u64);
     hasher.update(data);
-    hasher.finalize()
+    hasher.try_finalize()
 }
 
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its `data`.
@@ -418,9 +422,7 @@ pub fn try_compute_hash(
     object_kind: Kind,
     data: &[u8],
 ) -> Result<gix_hash::ObjectId, gix_hash::hasher::Error> {
-    let mut hasher = object_hasher(hash_kind, object_kind, data.len() as u64);
-    hasher.update(data);
-    hasher.try_finalize()
+    compute_hash(hash_kind, object_kind, data)
 }
 
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its data read from `stream`
