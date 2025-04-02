@@ -115,7 +115,7 @@ pub(super) mod function {
                             })?;
                             let mapped = crate::commands::copy_royal::remapped(data);
                             (
-                                gix::objs::try_compute_hash(
+                                gix::objs::compute_hash(
                                     repo.object_hash(),
                                     gix::object::Kind::Blob,
                                     mapped.as_bytes(),

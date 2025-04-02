@@ -536,14 +536,12 @@ pub(super) mod function {
                             should_interrupt,
                         )
                         .map_err(Error::HashFile)?,
-                        ToGitOutcome::Buffer(buf) => {
-                            gix_object::try_compute_hash(object_hash, gix_object::Kind::Blob, buf)
-                                .map_err(|err| Error::HashFile(err.into()))?
-                        }
+                        ToGitOutcome::Buffer(buf) => gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
+                            .map_err(|err| Error::HashFile(err.into()))?,
                         ToGitOutcome::Process(mut stream) => {
                             buf.clear();
                             stream.read_to_end(buf).map_err(|err| Error::HashFile(err.into()))?;
-                            gix_object::try_compute_hash(object_hash, gix_object::Kind::Blob, buf)
+                            gix_object::compute_hash(object_hash, gix_object::Kind::Blob, buf)
                                 .map_err(|err| Error::HashFile(err.into()))?
                         }
                     }
@@ -551,7 +549,7 @@ pub(super) mod function {
                 Kind::Symlink => {
                     let path = worktree_root.join(gix_path::from_bstr(rela_path));
                     let target = gix_path::into_bstr(std::fs::read_link(path).map_err(Error::ReadLink)?);
-                    gix_object::try_compute_hash(object_hash, gix_object::Kind::Blob, &target)
+                    gix_object::compute_hash(object_hash, gix_object::Kind::Blob, &target)
                         .map_err(|err| Error::HashFile(err.into()))?
                 }
                 Kind::Directory | Kind::Repository => object_hash.null(),

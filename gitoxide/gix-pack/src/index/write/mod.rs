@@ -258,7 +258,7 @@ fn modify_base(
     hash: gix_hash::Kind,
 ) -> Result<(), hasher::Error> {
     let object_kind = pack_entry.header.as_kind().expect("base object as source of iteration");
-    let id = gix_object::try_compute_hash(hash, object_kind, decompressed)?;
+    let id = gix_object::compute_hash(hash, object_kind, decompressed)?;
     entry.id = id;
     Ok(())
 }

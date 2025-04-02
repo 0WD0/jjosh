@@ -172,7 +172,7 @@ impl crate::Repository {
     }
 
     fn write_object_inner(&self, buf: &[u8], kind: gix_object::Kind) -> Result<Id<'_>, object::write::Error> {
-        let oid = gix_object::try_compute_hash(self.object_hash(), kind, buf)
+        let oid = gix_object::compute_hash(self.object_hash(), kind, buf)
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
         if self.objects.exists(&oid) {
             return Ok(oid.attach(self));
@@ -190,7 +190,7 @@ impl crate::Repository {
     /// pre-hashing the data, and checking if the object is already present.
     pub fn write_blob(&self, bytes: impl AsRef<[u8]>) -> Result<Id<'_>, object::write::Error> {
         let bytes = bytes.as_ref();
-        let oid = gix_object::try_compute_hash(self.object_hash(), gix_object::Kind::Blob, bytes)
+        let oid = gix_object::compute_hash(self.object_hash(), gix_object::Kind::Blob, bytes)
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
         if self.objects.exists(&oid) {
             return Ok(oid.attach(self));
@@ -216,7 +216,7 @@ impl crate::Repository {
     }
 
     fn write_blob_stream_inner(&self, buf: &[u8]) -> Result<Id<'_>, object::write::Error> {
-        let oid = gix_object::try_compute_hash(self.object_hash(), gix_object::Kind::Blob, buf)
+        let oid = gix_object::compute_hash(self.object_hash(), gix_object::Kind::Blob, buf)
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
         if self.objects.exists(&oid) {
             return Ok(oid.attach(self));
