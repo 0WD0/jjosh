@@ -428,7 +428,7 @@ pub fn compute_stream_hash(
     stream_len: u64,
     progress: &mut dyn gix_features::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
-) -> Result<gix_hash::ObjectId, gix_hash::hasher::io::Error> {
+) -> Result<gix_hash::ObjectId, gix_hash::io::Error> {
     let hasher = object_hasher(hash_kind, object_kind, stream_len);
     gix_hash::bytes_with_hasher(stream, stream_len, hasher, progress, should_interrupt)
 }

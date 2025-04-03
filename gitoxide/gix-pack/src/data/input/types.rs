@@ -1,12 +1,10 @@
-use gix_hash::hasher;
-
 /// Returned by [`BytesToEntriesIter::new_from_header()`][crate::data::input::BytesToEntriesIter::new_from_header()] and as part
 /// of `Item` of [`BytesToEntriesIter`][crate::data::input::BytesToEntriesIter].
 #[derive(thiserror::Error, Debug)]
 #[allow(missing_docs)]
 pub enum Error {
     #[error("An IO operation failed while streaming an entry")]
-    Io(#[from] hasher::io::Error),
+    Io(#[from] gix_hash::io::Error),
     #[error(transparent)]
     PackParse(#[from] crate::data::header::decode::Error),
     #[error("Failed to verify pack checksum in trailer")]

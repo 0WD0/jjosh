@@ -793,7 +793,7 @@ mod utils {
 
     pub(super) fn new_inmemory_writes() -> (
         TreeStore,
-        impl FnMut(&Tree) -> Result<ObjectId, gix_hash::hasher::io::Error>,
+        impl FnMut(&Tree) -> Result<ObjectId, gix_hash::io::Error>,
         impl Fn() -> usize,
     ) {
         let store = TreeStore::default();

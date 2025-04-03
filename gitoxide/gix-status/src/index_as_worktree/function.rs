@@ -9,7 +9,6 @@ use bstr::BStr;
 use filetime::FileTime;
 use gix_features::parallel::{in_parallel_if, Reduce};
 use gix_filter::pipeline::convert::ToGitOutcome;
-use gix_hash::hasher;
 use gix_object::FindExt;
 
 use crate::index_as_worktree::Context;
@@ -564,8 +563,8 @@ where
             let platform = self
                 .attr_stack
                 .at_entry(self.rela_path, Some(self.entry.mode), &self.objects)
-                .map_err(hasher::io::Error::from)?;
-            let file = std::fs::File::open(self.path).map_err(hasher::io::Error::from)?;
+                .map_err(gix_hash::io::Error::from)?;
+            let file = std::fs::File::open(self.path).map_err(gix_hash::io::Error::from)?;
             let out = self
                 .filter
                 .convert_to_git(

@@ -36,11 +36,9 @@ pub(crate) fn fanout(iter: &mut dyn ExactSizeIterator<Item = u8>) -> [u32; 256] 
 mod function {
     use std::io;
 
-    use gix_features::progress::{self, DynNestedProgress};
-    use gix_hash::hasher;
-
     use super::{fanout, HIGH_BIT, LARGE_OFFSET_THRESHOLD};
     use crate::index::V2_SIGNATURE;
+    use gix_features::progress::{self, DynNestedProgress};
 
     struct Count<W> {
         bytes: u64,
@@ -74,7 +72,7 @@ mod function {
         pack_hash: &gix_hash::ObjectId,
         kind: crate::index::Version,
         progress: &mut dyn DynNestedProgress,
-    ) -> Result<gix_hash::ObjectId, hasher::io::Error> {
+    ) -> Result<gix_hash::ObjectId, gix_hash::io::Error> {
         use io::Write;
         assert_eq!(kind, crate::index::Version::V2, "Can only write V2 packs right now");
         assert!(
@@ -85,7 +83,7 @@ mod function {
         // Write header
         let mut out = Count::new(std::io::BufWriter::with_capacity(
             8 * 4096,
-            hasher::io::Write::new(out, kind.hash()),
+            gix_hash::io::Write::new(out, kind.hash()),
         ));
         out.write_all(V2_SIGNATURE)?;
         out.write_all(&(kind as u32).to_be_bytes())?;

@@ -1,7 +1,6 @@
 use std::{fs, io, io::Write, path::PathBuf};
 
 use gix_features::zlib::stream::deflate;
-use gix_hash::hasher;
 use gix_object::WriteTo;
 use tempfile::NamedTempFile;
 
@@ -14,7 +13,7 @@ use crate::store_impls::loose;
 pub enum Error {
     #[error("Could not {message} '{path}'")]
     Io {
-        source: hasher::io::Error,
+        source: gix_hash::io::Error,
         message: &'static str,
         path: PathBuf,
     },
@@ -107,7 +106,7 @@ impl Store {
 }
 
 impl Store {
-    fn dest(&self) -> Result<hasher::io::Write<CompressedTempfile>, Error> {
+    fn dest(&self) -> Result<gix_hash::io::Write<CompressedTempfile>, Error> {
         #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = tempfile::Builder::new();
         #[cfg(unix)]
@@ -116,7 +115,7 @@ impl Store {
             let perms = std::fs::Permissions::from_mode(0o444);
             builder.permissions(perms);
         }
-        Ok(hasher::io::Write::new(
+        Ok(gix_hash::io::Write::new(
             deflate::Write::new(builder.tempfile_in(&self.path).map_err(|err| Error::Io {
                 source: err.into(),
                 message: "create named temp file in",
@@ -128,7 +127,7 @@ impl Store {
 
     fn finalize_object(
         &self,
-        hasher::io::Write { hash, inner: file }: hasher::io::Write<CompressedTempfile>,
+        gix_hash::io::Write { hash, inner: file }: gix_hash::io::Write<CompressedTempfile>,
     ) -> Result<gix_hash::ObjectId, Error> {
         let id = hash.try_finalize().map_err(|err| Error::Io {
             source: err.into(),

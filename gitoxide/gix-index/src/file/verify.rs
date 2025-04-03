@@ -1,7 +1,5 @@
 use std::sync::atomic::AtomicBool;
 
-use gix_hash::hasher;
-
 use crate::File;
 
 mod error {
@@ -10,7 +8,7 @@ mod error {
     #[allow(missing_docs)]
     pub enum Error {
         #[error("Could not read index file to generate hash")]
-        Io(#[from] gix_hash::hasher::io::Error),
+        Io(#[from] gix_hash::io::Error),
         #[error("Index checksum mismatch")]
         Verify(#[from] gix_hash::verify::Error),
     }
@@ -23,7 +21,7 @@ impl File {
         let _span = gix_features::trace::coarse!("gix_index::File::verify_integrity()");
         if let Some(checksum) = self.checksum {
             let num_bytes_to_hash =
-                self.path.metadata().map_err(hasher::io::Error::from)?.len() - checksum.as_bytes().len() as u64;
+                self.path.metadata().map_err(gix_hash::io::Error::from)?.len() - checksum.as_bytes().len() as u64;
             let should_interrupt = AtomicBool::new(false);
             gix_hash::bytes_of_file(
                 &self.path,

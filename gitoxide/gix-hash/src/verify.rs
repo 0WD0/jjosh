@@ -5,8 +5,8 @@ use crate::{oid, ObjectId};
 #[allow(missing_docs)]
 #[error("Hash was {actual}, but should have been {expected}")]
 pub struct Error {
-    actual: ObjectId,
-    expected: ObjectId,
+    pub actual: ObjectId,
+    pub expected: ObjectId,
 }
 
 impl oid {

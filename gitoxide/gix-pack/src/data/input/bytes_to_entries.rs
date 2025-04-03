@@ -1,7 +1,7 @@
 use std::{fs, io};
 
 use gix_features::zlib::Decompress;
-use gix_hash::{hasher, Hasher, ObjectId};
+use gix_hash::{Hasher, ObjectId};
 
 use crate::data::input;
 
@@ -52,7 +52,7 @@ where
         object_hash: gix_hash::Kind,
     ) -> Result<BytesToEntriesIter<BR>, input::Error> {
         let mut header_data = [0u8; 12];
-        read.read_exact(&mut header_data).map_err(hasher::io::Error::from)?;
+        read.read_exact(&mut header_data).map_err(gix_hash::io::Error::from)?;
 
         let (version, num_objects) = crate::data::header::decode(&header_data)?;
         assert_eq!(
@@ -97,7 +97,7 @@ where
             }
             None => crate::data::Entry::from_read(&mut self.read, self.offset, self.hash_len),
         }
-        .map_err(hasher::io::Error::from)?;
+        .map_err(gix_hash::io::Error::from)?;
 
         // Decompress object to learn its compressed bytes
         let compressed_buf = self.compressed_buf.take().unwrap_or_else(|| Vec::with_capacity(4096));
@@ -114,7 +114,7 @@ where
             decompressor: &mut self.decompressor,
         };
 
-        let bytes_copied = io::copy(&mut decompressed_reader, &mut io::sink()).map_err(hasher::io::Error::from)?;
+        let bytes_copied = io::copy(&mut decompressed_reader, &mut io::sink()).map_err(gix_hash::io::Error::from)?;
         if bytes_copied != entry.decompressed_size {
             return Err(input::Error::IncompletePack {
                 actual: bytes_copied,
@@ -141,7 +141,7 @@ where
             let header_len = entry
                 .header
                 .write_to(bytes_copied, &mut header_buf.as_mut())
-                .map_err(hasher::io::Error::from)?;
+                .map_err(gix_hash::io::Error::from)?;
             let state = gix_features::hash::crc32_update(0, &header_buf[..header_len]);
             Some(gix_features::hash::crc32_update(state, &compressed))
         } else {
@@ -180,7 +180,7 @@ where
             }
 
             if let Some(hash) = self.hash.take() {
-                let actual_id = hash.try_finalize().map_err(hasher::io::Error::from)?;
+                let actual_id = hash.try_finalize().map_err(gix_hash::io::Error::from)?;
                 if self.mode == input::Mode::Restore {
                     id = actual_id;
                 } else {
@@ -190,7 +190,7 @@ where
             Some(id)
         } else if self.mode == input::Mode::Restore {
             let hash = self.hash.clone().expect("in restore mode a hash is set");
-            Some(hash.try_finalize().map_err(hasher::io::Error::from)?)
+            Some(hash.try_finalize().map_err(gix_hash::io::Error::from)?)
         } else {
             None
         })
@@ -273,7 +273,7 @@ impl crate::data::File {
     /// Returns an iterator over [`Entries`][crate::data::input::Entry], without making use of the memory mapping.
     pub fn streaming_iter(&self) -> Result<BytesToEntriesIter<impl io::BufRead>, input::Error> {
         let reader =
-            io::BufReader::with_capacity(4096 * 8, fs::File::open(&self.path).map_err(hasher::io::Error::from)?);
+            io::BufReader::with_capacity(4096 * 8, fs::File::open(&self.path).map_err(gix_hash::io::Error::from)?);
         BytesToEntriesIter::new_from_header(
             reader,
             input::Mode::Verify,

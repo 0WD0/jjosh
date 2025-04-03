@@ -1,7 +1,5 @@
 use std::iter::Peekable;
 
-use gix_hash::hasher;
-
 use crate::data::input;
 
 /// An implementation of [`Iterator`] to write [encoded entries][input::Entry] to an inner implementation each time
@@ -66,7 +64,7 @@ where
         self.trailer
     }
 
-    fn next_inner(&mut self, entry: input::Entry) -> Result<input::Entry, hasher::io::Error> {
+    fn next_inner(&mut self, entry: input::Entry) -> Result<input::Entry, gix_hash::io::Error> {
         if self.num_entries == 0 {
             let header_bytes = crate::data::header::encode(self.data_version, 0);
             self.output.write_all(&header_bytes[..])?;
@@ -82,7 +80,7 @@ where
         Ok(entry)
     }
 
-    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> Result<(), hasher::io::Error> {
+    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> Result<(), gix_hash::io::Error> {
         let header_bytes = crate::data::header::encode(self.data_version, self.num_entries);
         let num_bytes_written = if last_entry.is_some() {
             self.output.stream_position()?

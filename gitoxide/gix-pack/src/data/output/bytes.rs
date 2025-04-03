@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use gix_hash::hasher;
-
 use crate::data::output;
 use crate::exact_vec;
 
@@ -13,7 +11,7 @@ where
     E: std::error::Error + 'static,
 {
     #[error(transparent)]
-    Io(#[from] hasher::io::Error),
+    Io(#[from] gix_hash::io::Error),
     #[error(transparent)]
     Input(E),
 }
@@ -24,7 +22,7 @@ pub struct FromEntriesIter<I, W> {
     /// An iterator for input [`output::Entry`] instances
     pub input: I,
     /// A way of writing encoded bytes.
-    output: hasher::io::Write<W>,
+    output: gix_hash::io::Write<W>,
     /// Our trailing hash when done writing all input entries
     trailer: Option<gix_hash::ObjectId>,
     /// The amount of objects in the iteration and the version of the packfile to be written.
@@ -71,7 +69,7 @@ where
         );
         FromEntriesIter {
             input,
-            output: hasher::io::Write::new(output, object_hash),
+            output: gix_hash::io::Write::new(output, object_hash),
             trailer: None,
             entry_version: version,
             pack_offsets_and_validity: exact_vec(num_entries as usize),
@@ -100,7 +98,7 @@ where
             let header_bytes = crate::data::header::encode(version, num_entries);
             self.output
                 .write_all(&header_bytes[..])
-                .map_err(hasher::io::Error::from)?;
+                .map_err(gix_hash::io::Error::from)?;
             self.written += header_bytes.len() as u64;
         }
         match self.input.next() {
@@ -120,9 +118,9 @@ where
                     });
                     self.written += header
                         .write_to(entry.decompressed_size as u64, &mut self.output)
-                        .map_err(hasher::io::Error::from)? as u64;
+                        .map_err(gix_hash::io::Error::from)? as u64;
                     self.written += std::io::copy(&mut &*entry.compressed_data, &mut self.output)
-                        .map_err(hasher::io::Error::from)?;
+                        .map_err(gix_hash::io::Error::from)?;
                 }
             }
             None => {
@@ -131,13 +129,13 @@ where
                     .hash
                     .clone()
                     .try_finalize()
-                    .map_err(hasher::io::Error::from)?;
+                    .map_err(gix_hash::io::Error::from)?;
                 self.output
                     .inner
                     .write_all(digest.as_slice())
-                    .map_err(hasher::io::Error::from)?;
+                    .map_err(gix_hash::io::Error::from)?;
                 self.written += digest.as_slice().len() as u64;
-                self.output.inner.flush().map_err(hasher::io::Error::from)?;
+                self.output.inner.flush().map_err(gix_hash::io::Error::from)?;
                 self.is_done = true;
                 self.trailer = Some(digest);
             }
