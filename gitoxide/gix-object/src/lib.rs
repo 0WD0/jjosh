@@ -398,16 +398,22 @@ pub mod decode {
     }
 }
 
+fn object_hasher(hash_kind: gix_hash::Kind, object_kind: Kind, object_size: u64) -> gix_hash::Hasher {
+    let mut hasher = gix_hash::hasher(hash_kind);
+    hasher.update(&encode::loose_header(object_kind, object_size));
+    hasher
+}
+
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its `data`.
 #[doc(alias = "hash_object", alias = "git2")]
-pub fn compute_hash(hash_kind: gix_hash::Kind, object_kind: Kind, data: &[u8]) -> gix_hash::ObjectId {
-    let header = encode::loose_header(object_kind, data.len() as u64);
-
-    let mut hasher = gix_features::hash::hasher(hash_kind);
-    hasher.update(&header);
+pub fn compute_hash(
+    hash_kind: gix_hash::Kind,
+    object_kind: Kind,
+    data: &[u8],
+) -> Result<gix_hash::ObjectId, gix_hash::hasher::Error> {
+    let mut hasher = object_hasher(hash_kind, object_kind, data.len() as u64);
     hasher.update(data);
-
-    hasher.digest().into()
+    hasher.try_finalize()
 }
 
 /// A function to compute a hash of kind `hash_kind` for an object of `object_kind` and its data read from `stream`
@@ -422,10 +428,7 @@ pub fn compute_stream_hash(
     stream_len: u64,
     progress: &mut dyn gix_features::progress::Progress,
     should_interrupt: &std::sync::atomic::AtomicBool,
-) -> std::io::Result<gix_hash::ObjectId> {
-    let header = encode::loose_header(object_kind, stream_len);
-    let mut hasher = gix_features::hash::hasher(hash_kind);
-
-    hasher.update(&header);
-    gix_features::hash::bytes_with_hasher(stream, stream_len, hasher, progress, should_interrupt)
+) -> Result<gix_hash::ObjectId, gix_hash::io::Error> {
+    let hasher = object_hasher(hash_kind, object_kind, stream_len);
+    gix_hash::bytes_with_hasher(stream, stream_len, hasher, progress, should_interrupt)
 }

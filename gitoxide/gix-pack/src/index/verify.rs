@@ -220,7 +220,7 @@ impl index::File {
                         .add_child_with_id("Sha1 of index".into(), integrity::ProgressId::ChecksumBytes.into()),
                     should_interrupt,
                 )
-                .map_err(Into::into)
+                .map_err(index::traverse::Error::IndexVerify)
                 .map(|id| integrity::Outcome {
                     actual_index_checksum: id,
                     pack_traverse_statistics: None,

@@ -17,7 +17,7 @@ pub enum Error {
     #[error("Could not open worktree file for reading")]
     OpenWorktreeFile(std::io::Error),
     #[error(transparent)]
-    HashFile(std::io::Error),
+    HashFile(gix_hash::io::Error),
     #[error("Could not read worktree link content")]
     ReadLink(std::io::Error),
     #[error(transparent)]

@@ -894,8 +894,6 @@ See its [README.md](https://github.com/GitoxideLabs/gitoxide/blob/main/gix-lock/
         * `in_parallel`
         * `join`
     * _When off all functions execute serially_
-* **fast-sha1**
-    * provides a faster SHA1 implementation using CPU intrinsics
 * [x] API documentation
 
 ### gix-tui

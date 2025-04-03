@@ -23,7 +23,6 @@ serde = ["dep:serde", "smallvec/serde", "gix-hash/serde"]
 
 [dependencies]
 gix-features = { version = "^0.40.0", path = "../gix-features", features = [
-    "rustsha1",
     "progress",
 ] }
 gix-hash = { version = "^0.16.0", path = "../gix-hash" }

@@ -359,7 +359,7 @@ impl<'index> State<'_, 'index> {
             Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
                 return Ok(Some(Change::Removed.into()))
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(Error::Io(err.into())),
         };
         self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
         let metadata = match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
@@ -385,7 +385,7 @@ impl<'index> State<'_, 'index> {
                 return Ok(Some(Change::Removed.into()))
             }
             Err(err) => {
-                return Err(err.into());
+                return Err(Error::Io(err.into()));
             }
         };
         if entry.flags.contains(gix_index::entry::Flags::INTENT_TO_ADD) {
@@ -562,8 +562,9 @@ where
             self.buf.clear();
             let platform = self
                 .attr_stack
-                .at_entry(self.rela_path, Some(self.entry.mode), &self.objects)?;
-            let file = std::fs::File::open(self.path)?;
+                .at_entry(self.rela_path, Some(self.entry.mode), &self.objects)
+                .map_err(gix_hash::io::Error::from)?;
+            let file = std::fs::File::open(self.path).map_err(gix_hash::io::Error::from)?;
             let out = self
                 .filter
                 .convert_to_git(
@@ -574,7 +575,7 @@ where
                     },
                     &mut |buf| Ok(self.objects.find_blob(self.id, buf).map(|_| Some(()))?),
                 )
-                .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                .map_err(|err| Error::Io(io::Error::new(io::ErrorKind::Other, err).into()))?;
             let len = match out {
                 ToGitOutcome::Unchanged(_) => Some(self.file_len),
                 ToGitOutcome::Process(_) | ToGitOutcome::Buffer(_) => None,

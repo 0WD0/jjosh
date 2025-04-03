@@ -35,7 +35,3 @@ This file is for tracking features that are less well implemented or less powerf
 * **gix-url** _might_ be more restrictive than what git allows as for the most part, it uses a browser grade URL parser.
     * Thus far there is no proof for this, and as _potential remedy_ we could certainly re-implement exactly what git does
       to handle its URLs.
-
-### `gix-features`
-
-* **sha1** isn't hardened (i.e. doesn't have collision detection). Needs [to be contributed](https://github.com/GitoxideLabs/gitoxide/issues/585).

@@ -180,7 +180,7 @@ impl crate::index::File {
 
         root_progress.inc();
 
-        let (resolver, pack) = make_resolver()?;
+        let (resolver, pack) = make_resolver().map_err(gix_hash::io::Error::from)?;
         let sorted_pack_offsets_by_oid = {
             let traverse::Outcome { roots, children } = tree.traverse(
                 resolver,
@@ -192,10 +192,7 @@ impl crate::index::File {
                      entry,
                      decompressed: bytes,
                      ..
-                 }| {
-                    modify_base(data, entry, bytes, version.hash());
-                    Ok::<_, Error>(())
-                },
+                 }| { modify_base(data, entry, bytes, version.hash()) },
                 traverse::Options {
                     object_progress: Box::new(
                         root_progress.add_child_with_id("Resolving".into(), ProgressId::ResolveObjects.into()),
@@ -225,9 +222,9 @@ impl crate::index::File {
             Some(ph) => ph,
             None if num_objects == 0 => {
                 let header = crate::data::header::encode(pack_version, 0);
-                let mut hasher = gix_features::hash::hasher(object_hash);
+                let mut hasher = gix_hash::hasher(object_hash);
                 hasher.update(&header);
-                gix_hash::ObjectId::from(hasher.digest())
+                hasher.try_finalize().map_err(gix_hash::io::Error::from)?
             }
             None => return Err(Error::IteratorInvariantTrailer),
         };
@@ -253,8 +250,14 @@ impl crate::index::File {
     }
 }
 
-fn modify_base(entry: &mut TreeEntry, pack_entry: &crate::data::Entry, decompressed: &[u8], hash: gix_hash::Kind) {
+fn modify_base(
+    entry: &mut TreeEntry,
+    pack_entry: &crate::data::Entry,
+    decompressed: &[u8],
+    hash: gix_hash::Kind,
+) -> Result<(), gix_hash::hasher::Error> {
     let object_kind = pack_entry.header.as_kind().expect("base object as source of iteration");
-    let id = gix_object::compute_hash(hash, object_kind, decompressed);
+    let id = gix_object::compute_hash(hash, object_kind, decompressed)?;
     entry.id = id;
+    Ok(())
 }

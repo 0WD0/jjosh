@@ -279,23 +279,14 @@ impl File {
                         use index::traverse::Error::*;
                         match err {
                             Processor(err) => Processor(integrity::Error::IndexIntegrity(err)),
-                            VerifyChecksum(err) => VerifyChecksum(err),
+                            IndexVerify(err) => IndexVerify(err),
                             Tree(err) => Tree(err),
                             TreeTraversal(err) => TreeTraversal(err),
+                            PackVerify(err) => PackVerify(err),
                             PackDecode { id, offset, source } => PackDecode { id, offset, source },
-                            PackMismatch { expected, actual } => PackMismatch { expected, actual },
+                            PackMismatch(err) => PackMismatch(err),
                             EntryType(err) => EntryType(err),
-                            PackObjectMismatch {
-                                expected,
-                                actual,
-                                offset,
-                                kind,
-                            } => PackObjectMismatch {
-                                expected,
-                                actual,
-                                offset,
-                                kind,
-                            },
+                            PackObjectVerify { offset, source } => PackObjectVerify { offset, source },
                             Crc32Mismatch {
                                 expected,
                                 actual,

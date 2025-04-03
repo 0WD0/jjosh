@@ -13,11 +13,22 @@
 mod borrowed;
 pub use borrowed::{oid, Error};
 
+/// Hash functions and hash utilities
+pub mod hasher;
+pub use hasher::_impl::{hasher, Hasher};
+
+/// Error types for utility hash functions
+pub mod io;
+pub use io::_impl::{bytes, bytes_of_file, bytes_with_hasher};
+
 mod object_id;
 pub use object_id::{decode, ObjectId};
 
 ///
 pub mod prefix;
+
+///
+pub mod verify;
 
 /// A partial, owned hash possibly identifying an object uniquely, whose non-prefix bytes are zeroed.
 ///

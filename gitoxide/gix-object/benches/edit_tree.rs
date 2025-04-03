@@ -136,7 +136,7 @@ criterion_main!(benches);
 
 type TreeStore = Rc<RefCell<gix_hashtable::HashMap<ObjectId, Tree>>>;
 
-fn new_inmemory_writes() -> (TreeStore, impl FnMut(&Tree) -> Result<ObjectId, std::io::Error>) {
+fn new_inmemory_writes() -> (TreeStore, impl FnMut(&Tree) -> Result<ObjectId, gix_hash::io::Error>) {
     let store = TreeStore::default();
     let write_tree = {
         let store = store.clone();
@@ -144,11 +144,7 @@ fn new_inmemory_writes() -> (TreeStore, impl FnMut(&Tree) -> Result<ObjectId, st
         move |tree: &Tree| {
             buf.clear();
             tree.write_to(&mut buf)?;
-            let header = gix_object::encode::loose_header(gix_object::Kind::Tree, buf.len() as u64);
-            let mut hasher = gix_features::hash::hasher(gix_hash::Kind::Sha1);
-            hasher.update(&header);
-            hasher.update(&buf);
-            let id = hasher.digest().into();
+            let id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf)?;
             let mut borrowed = store.borrow_mut();
             match borrowed.entry(id) {
                 Entry::Occupied(_) => {}

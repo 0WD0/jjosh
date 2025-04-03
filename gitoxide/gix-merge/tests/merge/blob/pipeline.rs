@@ -67,7 +67,7 @@ fn without_transformation() -> crate::Result {
 
         let mut db = ObjectDb::default();
         let b_content = "b-content";
-        let id = db.insert(b_content);
+        let id = db.insert(b_content)?;
 
         let out = filter.convert_to_mergeable(
             &id,
@@ -148,7 +148,7 @@ fn binary_below_large_file_threshold() -> crate::Result {
     assert_eq!(buf.as_bstr(), binary_content);
 
     let mut db = ObjectDb::default();
-    let id = db.insert(binary_content);
+    let id = db.insert(binary_content)?;
     let out = filter.convert_to_mergeable(
         &id,
         EntryKind::Blob,
@@ -203,7 +203,7 @@ fn above_large_file_threshold() -> crate::Result {
 
     drop(tmp);
     let mut db = ObjectDb::default();
-    let id = db.insert(large_content);
+    let id = db.insert(large_content)?;
 
     let out = filter.convert_to_mergeable(
         &id,
@@ -352,7 +352,7 @@ fn worktree_filter() -> crate::Result {
             "worktree files need to be converted back to what's stored in Git"
         );
 
-        let id = db.insert(a_content);
+        let id = db.insert(a_content)?;
         let out = filter.convert_to_mergeable(
             &id,
             EntryKind::Blob,
@@ -385,7 +385,7 @@ fn worktree_filter() -> crate::Result {
     drop(tmp);
 
     let b_content = "b-content\n";
-    let id = db.insert(b_content);
+    let id = db.insert(b_content)?;
 
     let out = filter.convert_to_mergeable(
         &id,
@@ -403,7 +403,7 @@ fn worktree_filter() -> crate::Result {
 
     let mut db = ObjectDb::default();
     let b_content = "b-content\r\n";
-    let id = db.insert(b_content);
+    let id = db.insert(b_content)?;
     let out = filter.convert_to_mergeable(
         &id,
         EntryKind::Blob,

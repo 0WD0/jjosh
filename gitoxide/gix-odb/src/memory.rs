@@ -219,7 +219,7 @@ where
         let mut buf = Vec::new();
         from.read_to_end(&mut buf)?;
 
-        let id = gix_object::compute_hash(self.object_hash, kind, &buf);
+        let id = gix_object::compute_hash(self.object_hash, kind, &buf)?;
         map.borrow_mut().insert(id, (kind, buf));
         Ok(id)
     }

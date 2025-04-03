@@ -67,7 +67,7 @@ impl State {
             extensions,
             skip_hash: _,
         }: Options,
-    ) -> std::io::Result<Version> {
+    ) -> Result<Version, gix_hash::io::Error> {
         let _span = gix_features::trace::detail!("gix_index::State::write()");
         let version = self.detect_required_version();
 

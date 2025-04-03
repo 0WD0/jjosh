@@ -1,6 +1,6 @@
 use std::{fs, io, io::Write, path::PathBuf};
 
-use gix_features::{hash, zlib::stream::deflate};
+use gix_features::zlib::stream::deflate;
 use gix_object::WriteTo;
 use tempfile::NamedTempFile;
 
@@ -13,7 +13,7 @@ use crate::store_impls::loose;
 pub enum Error {
     #[error("Could not {message} '{path}'")]
     Io {
-        source: io::Error,
+        source: gix_hash::io::Error,
         message: &'static str,
         path: PathBuf,
     },
@@ -30,12 +30,12 @@ impl gix_object::Write for Store {
     fn write(&self, object: &dyn WriteTo) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
         let mut to = self.dest()?;
         to.write_all(&object.loose_header()).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "write header to tempfile in",
             path: self.path.to_owned(),
         })?;
         object.write_to(&mut to).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "stream all data into tempfile in",
             path: self.path.to_owned(),
         })?;
@@ -50,13 +50,13 @@ impl gix_object::Write for Store {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, from.len() as u64))
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "write header to tempfile in",
                 path: self.path.to_owned(),
             })?;
 
         to.write_all(from).map_err(|err| Error::Io {
-            source: err,
+            source: err.into(),
             message: "stream all data into tempfile in",
             path: self.path.to_owned(),
         })?;
@@ -76,14 +76,14 @@ impl gix_object::Write for Store {
         let mut to = self.dest().map_err(Box::new)?;
         to.write_all(&gix_object::encode::loose_header(kind, size))
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "write header to tempfile in",
                 path: self.path.to_owned(),
             })?;
 
         io::copy(&mut from, &mut to)
             .map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "stream all data into tempfile in",
                 path: self.path.to_owned(),
             })
@@ -106,7 +106,7 @@ impl Store {
 }
 
 impl Store {
-    fn dest(&self) -> Result<hash::Write<CompressedTempfile>, Error> {
+    fn dest(&self) -> Result<gix_hash::io::Write<CompressedTempfile>, Error> {
         #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = tempfile::Builder::new();
         #[cfg(unix)]
@@ -115,9 +115,9 @@ impl Store {
             let perms = std::fs::Permissions::from_mode(0o444);
             builder.permissions(perms);
         }
-        Ok(hash::Write::new(
+        Ok(gix_hash::io::Write::new(
             deflate::Write::new(builder.tempfile_in(&self.path).map_err(|err| Error::Io {
-                source: err,
+                source: err.into(),
                 message: "create named temp file in",
                 path: self.path.to_owned(),
             })?),
@@ -127,9 +127,13 @@ impl Store {
 
     fn finalize_object(
         &self,
-        hash::Write { hash, inner: file }: hash::Write<CompressedTempfile>,
+        gix_hash::io::Write { hash, inner: file }: gix_hash::io::Write<CompressedTempfile>,
     ) -> Result<gix_hash::ObjectId, Error> {
-        let id = gix_hash::ObjectId::from(hash.digest());
+        let id = hash.try_finalize().map_err(|err| Error::Io {
+            source: err.into(),
+            message: "hash tempfile in",
+            path: self.path.to_owned(),
+        })?;
         let object_path = loose::hash_path(&id, self.path.clone());
         let object_dir = object_path
             .parent()

@@ -78,11 +78,11 @@ enum Error {
     },
     #[error("Object didn't verify after right after writing it")]
     Verify(#[from] objs::data::verify::Error),
-    #[error("{kind} object {expected} wasn't re-encoded without change - new hash is {actual}")]
+    #[error("{kind} object wasn't re-encoded without change")]
     ObjectEncodeMismatch {
+        #[source]
+        source: gix::hash::verify::Error,
         kind: object::Kind,
-        actual: ObjectId,
-        expected: ObjectId,
     },
     #[error("The recently written file for loose object {id} could not be found")]
     WrittenFileMissing { id: ObjectId },
@@ -201,7 +201,7 @@ pub fn pack_or_pack_index(
                         kind: object_kind,
                         id: index_entry.oid,
                     })?;
-                    if written_id != index_entry.oid {
+                    if let Err(err) = written_id.verify(&index_entry.oid) {
                         if let object::Kind::Tree = object_kind {
                             progress.info(format!(
                                 "The tree in pack named {} was written as {} due to modes 100664 and 100640 rewritten as 100644.",
@@ -209,9 +209,8 @@ pub fn pack_or_pack_index(
                             ));
                         } else {
                             return Err(Error::ObjectEncodeMismatch {
+                                source: err,
                                 kind: object_kind,
-                                actual: index_entry.oid,
-                                expected: written_id,
                             });
                         }
                     }
