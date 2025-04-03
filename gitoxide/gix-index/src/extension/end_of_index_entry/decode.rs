@@ -28,15 +28,15 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Result<Option<usize>,
     }
 
     let (offset, checksum) = ext_data.split_at(4);
-    let offset = from_be_u32(offset) as usize;
     let Ok(checksum) = gix_hash::oid::try_from_bytes(checksum) else {
         return Ok(None);
     };
-    if offset < header::SIZE || offset > start_of_eoie || checksum.kind() != gix_hash::Kind::Sha1 {
+    let offset = from_be_u32(offset) as usize;
+    if offset < header::SIZE || offset > start_of_eoie || checksum.kind() != object_hash {
         return Ok(None);
     }
 
-    let mut hasher = gix_hash::hasher(gix_hash::Kind::Sha1);
+    let mut hasher = gix_hash::hasher(object_hash);
     let mut last_chunk = None;
     for (signature, chunk) in extension::Iter::new(&data[offset..data.len() - MIN_SIZE_WITH_HEADER - hash_len]) {
         hasher.update(&signature);
