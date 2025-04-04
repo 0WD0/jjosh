@@ -79,11 +79,7 @@ pub(crate) mod function {
                 StrContext::Label("Closing '>' not found"),
             )))?;
         let i_name_and_email = &i[..right_delim_idx];
-        let skip_from_right = i_name_and_email
-            .iter()
-            .rev()
-            .take_while(|b| b.is_ascii_whitespace() || **b == b'>')
-            .count();
+        let skip_from_right = i_name_and_email.iter().rev().take_while(|b| **b == b'>').count();
         let left_delim_idx = i_name_and_email
             .find_byte(b'<')
             .ok_or(ErrMode::Cut(E::from_input(i).add_context(
@@ -91,10 +87,7 @@ pub(crate) mod function {
                 &start,
                 StrContext::Label("Opening '<' not found"),
             )))?;
-        let skip_from_left = i[left_delim_idx..]
-            .iter()
-            .take_while(|b| b.is_ascii_whitespace() || **b == b'<')
-            .count();
+        let skip_from_left = i[left_delim_idx..].iter().take_while(|b| **b == b'<').count();
         let mut name = i[..left_delim_idx].as_bstr();
         name = name.strip_suffix(b" ").unwrap_or(name).as_bstr();
 
@@ -161,6 +154,17 @@ mod tests {
                     .expect("parse to work")
                     .1,
                 signature("Sebastian Thiel", "byronimo@gmail.com", 1528473343, Sign::Plus, 9000)
+            );
+        }
+
+        #[test]
+        fn email_with_space() {
+            assert_eq!(
+                decode
+                    .parse_peek(b"Sebastian Thiel <\tbyronimo@gmail.com > 1528473343 +0230")
+                    .expect("parse to work")
+                    .1,
+                signature("Sebastian Thiel", "\tbyronimo@gmail.com ", 1528473343, Sign::Plus, 9000)
             );
         }
 
