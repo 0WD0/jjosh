@@ -240,7 +240,7 @@ nix-shell-macos:
 
 # Run various auditing tools to help us stay legal and safe
 audit:
-    cargo deny check advisories bans licenses sources
+    cargo deny --workspace --all-features check advisories bans licenses sources
 
 # Run tests with `cargo nextest` (all unit-tests, no doc-tests, faster)
 nextest *FLAGS='--workspace':
