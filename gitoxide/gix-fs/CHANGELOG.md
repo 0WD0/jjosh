@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.14.0 (2025-04-04)
 
 ### New Features
 
@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 22 commits contributed to the release.
+ - 23 commits contributed to the release.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1896](https://github.com/GitoxideLabs/gitoxide/issues/1896)
 
@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1896](https://github.com/GitoxideLabs/gitoxide/issues/1896)**
     - Improve detection of nanosecond support in `gix-fs` ([`2c9b214`](https://github.com/GitoxideLabs/gitoxide/commit/2c9b214a47fefd1e44f989e479b5afe17341200e))
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1913 from GitoxideLabs/improvements ([`5fa79d9`](https://github.com/GitoxideLabs/gitoxide/commit/5fa79d90ee97009e7368c359278f76f715518423))
     - Deduplicate `ToNormalPathComponent` logic ([`dda9599`](https://github.com/GitoxideLabs/gitoxide/commit/dda959973460be348b034636ab9a7e99674b10bf))
     - Merge pull request #1909 from cruessler/take-to-components-in-fs-stack ([`5cb5337`](https://github.com/GitoxideLabs/gitoxide/commit/5cb5337efd7679d8a2ab4bd5e6a5da8c366f7f1a))

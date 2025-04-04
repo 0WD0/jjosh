@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.51.0 (2025-04-04)
+
+<csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/>
 
 ### Other
 
@@ -19,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 16 commits contributed to the release.
+ - 17 commits contributed to the release.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)
 
@@ -38,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)**
     - Reproduce the overlay-iterator issue causing double-refs. ([`a06c409`](https://github.com/GitoxideLabs/gitoxide/commit/a06c409d58fac109eb3d28436d4394d6e54a59f2))
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1851 from GitoxideLabs/fix-1850 ([`cd96b64`](https://github.com/GitoxideLabs/gitoxide/commit/cd96b6439d119c5189a8e7349d2e7e2533db41b5))
     - Adjust expectations according to changed sort-order ([`56ba898`](https://github.com/GitoxideLabs/gitoxide/commit/56ba8986675b6f3c3032fd48a3498a10c63d65aa))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))

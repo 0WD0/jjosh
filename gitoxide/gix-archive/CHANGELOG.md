@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.20.0 (2025-04-04)
+
+<csr-id-00d1a0020e5784ef45148b7456059c28323c751e/>
+<csr-id-3ae99a42f51cd2d6c55c6abbd1ead86bf8bf2e1f/>
 
 ### Other
 
@@ -30,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release.
+ - 8 commits contributed to the release.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -41,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1873 from NobodyXu/zlib-rs ([`316f113`](https://github.com/GitoxideLabs/gitoxide/commit/316f11322f156760a0e344a3bda33e11ca4e8862))
     - Add new feature zlib-rs ([`8b1b55c`](https://github.com/GitoxideLabs/gitoxide/commit/8b1b55c337e65071156856771daee3cbcead1e24))
     - Merge pull request #1891 from GitoxideLabs/dependabot/cargo/cargo-e1feb93277 ([`339bdf8`](https://github.com/GitoxideLabs/gitoxide/commit/339bdf8c482fab9b812f69ee29bc59894ffcd287))

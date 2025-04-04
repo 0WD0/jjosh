@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.5.0 (2025-04-04)
+
+<csr-id-4e7306e9f995586069b388d1fe95d29b219f5610/>
 
 ### New Features
 
@@ -45,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 16 commits contributed to the release.
+ - 17 commits contributed to the release.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1799](https://github.com/GitoxideLabs/gitoxide/issues/1799)
 
@@ -58,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1799](https://github.com/GitoxideLabs/gitoxide/issues/1799)**
     - Add `Preprae::with_quoted_command()` ([`435984b`](https://github.com/GitoxideLabs/gitoxide/commit/435984bffda225ee923aa2c9fdbbf730d7719f74))
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
     - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
     - Merge pull request #1862 from EliahKagan/run-ci/consistent-sh ([`0ba3147`](https://github.com/GitoxideLabs/gitoxide/commit/0ba31474968ddbe7f2b2d54a756eeeb8a28fbabf))

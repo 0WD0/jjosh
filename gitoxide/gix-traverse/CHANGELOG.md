@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.45.0 (2025-04-04)
 
 ### New Features
 
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release.
+ - 12 commits contributed to the release.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1910 from cruessler/add-tree-id-to-either ([`544cdaf`](https://github.com/GitoxideLabs/gitoxide/commit/544cdafbb58bb3e39bf19a19eb02d5296a7361aa))
     - Add `commit::Either::tree_id()` ([`625f9dd`](https://github.com/GitoxideLabs/gitoxide/commit/625f9dd651d97ac8014aabafc16719f99bfeaa13))
     - Merge pull request #1901 from cruessler/make-either-copy ([`85b060c`](https://github.com/GitoxideLabs/gitoxide/commit/85b060c777cb893c85d60168f9b748ce78c0f146))

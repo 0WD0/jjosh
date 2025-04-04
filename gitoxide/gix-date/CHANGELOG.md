@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.9.4 (2025-04-04)
+
+<csr-id-3ae99a42f51cd2d6c55c6abbd1ead86bf8bf2e1f/>
 
 ### Other
 
@@ -15,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release.
+ - 9 commits contributed to the release.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -32,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1908 from EliahKagan/run-ci/scripts ([`c8c42b4`](https://github.com/GitoxideLabs/gitoxide/commit/c8c42b4b86e8bf7d8f0f7130d2da98dfed246be9))
     - Add regenerated `generate_git_date_baseline` archive ([`2dbd7ba`](https://github.com/GitoxideLabs/gitoxide/commit/2dbd7ba901245ec17ec9a966e435922fc859292a))
     - Fix a few ShellCheck warnings and stylistic inconsistencies ([`e5e2c6f`](https://github.com/GitoxideLabs/gitoxide/commit/e5e2c6fbf9337219edb79ce97b56b3be91bc14e5))

@@ -5,71 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
-
-### New Features (BREAKING)
-
- - <csr-id-e9a493c204979d1a155c198331277662d26aec58/> add `diff_algorithm` to `blame::file()`
- - <csr-id-e08cf8811e25c91ca410963703ce98db32be3681/> add `since` to `blame::file()`
- - <csr-id-1250df3f9c10f66e4b8e227809831f3088482960/> skip uninteresting commits for blame
-   This is breaking because it takes a commitgraph cache as argument
-   , and because it replaces the `traverse` by `suspect`.
-   
-   Switch to date order for traversing the commit history, as opposed to
-   topo order. This is also what `git blame` does.
-   
-   Skip suspects that have no associated unblamed hunks
-   
-   Pass blame to parent in `process_change`. `git`’s algorithm only seems
-   to keep the current suspect for unblamed hunks that were the direct
-   result of splitting an existing unblamed hunk because it matched with a
-   change. All other hunks appear to be blamed on the parent without
-   further checks.
-   
-   Add assertion that lines always match.
-
-### Commit Statistics
-
-<csr-read-only-do-not-edit/>
-
- - 18 commits contributed to the release.
- - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
-
-### Thanks Clippy
-
-<csr-read-only-do-not-edit/>
-
-[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
-
-### Commit Details
-
-<csr-read-only-do-not-edit/>
-
-<details><summary>view details</summary>
-
- * **Uncategorized**
-    - Merge pull request #1910 from cruessler/add-tree-id-to-either ([`544cdaf`](https://github.com/GitoxideLabs/gitoxide/commit/544cdafbb58bb3e39bf19a19eb02d5296a7361aa))
-    - Make use `gix_traverse::commit::Either::tree_id()` ([`3fad860`](https://github.com/GitoxideLabs/gitoxide/commit/3fad860aaffb53fd27b6d2b959ad8a8d1ab9ac63))
-    - Merge pull request #1901 from cruessler/make-either-copy ([`85b060c`](https://github.com/GitoxideLabs/gitoxide/commit/85b060c777cb893c85d60168f9b748ce78c0f146))
-    - Derive Clone and Copy for Either ([`3c1b1df`](https://github.com/GitoxideLabs/gitoxide/commit/3c1b1df9320c11e754931e292689c6075bddbfa9))
-    - Merge pull request #1888 from cruessler/respect-diff-algorithm-in-blame ([`dce127e`](https://github.com/GitoxideLabs/gitoxide/commit/dce127e63f7788c5424e2da2cf4e3112f9c3b159))
-    - Add `diff_algorithm` to `blame::file()` ([`e9a493c`](https://github.com/GitoxideLabs/gitoxide/commit/e9a493c204979d1a155c198331277662d26aec58))
-    - Merge pull request #1858 from cruessler/add-git-blame-since ([`7059609`](https://github.com/GitoxideLabs/gitoxide/commit/70596096e35ff8a910dacd6fefdc31d162282b81))
-    - Add `since` to `blame::file()` ([`e08cf88`](https://github.com/GitoxideLabs/gitoxide/commit/e08cf8811e25c91ca410963703ce98db32be3681))
-    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
-    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
-    - Merge pull request #1824 from cruessler/replace-find-commit-by-find ([`8ab0a6b`](https://github.com/GitoxideLabs/gitoxide/commit/8ab0a6b458327d3dc057bec3d4e09bea04dee388))
-    - Replace `odb.find_commit` by `gix_traverse::commit::find` ([`e09ec3e`](https://github.com/GitoxideLabs/gitoxide/commit/e09ec3e438b5503f21eb784c5781b52e0b1f8a1b))
-    - Merge pull request #1743 from cruessler/skip-uninteresting-commits-for-blame ([`aa05ef0`](https://github.com/GitoxideLabs/gitoxide/commit/aa05ef0d143d7ca14272f6cd36a40d2ed839fe76))
-    - Refactor ([`4428838`](https://github.com/GitoxideLabs/gitoxide/commit/442883800bc3abe63592ec36cb03b7c7e55c0f34))
-    - Skip uninteresting commits for blame ([`1250df3`](https://github.com/GitoxideLabs/gitoxide/commit/1250df3f9c10f66e4b8e227809831f3088482960))
-    - Merge pull request #1823 from cruessler/add-test-for-differing-date-and-topo-order ([`18e163e`](https://github.com/GitoxideLabs/gitoxide/commit/18e163e5df653f698a356b26da4f7e1c31fac9ad))
-    - Add test for commits not ordered chronologically ([`a9de4f0`](https://github.com/GitoxideLabs/gitoxide/commit/a9de4f0898148eb45ca8a229c14e65f5dbf56906))
-    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
-</details>
-
-## v0.1.0 (2023-02-17)
+## v0.1.0 (2025-04-04)
 
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
 <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
@@ -100,6 +36,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    as they make use of a workaround to support (safe) mutable access
    to non-overlapping entries in a slice which doesn't work anymore
    in edition 2021.
+ - <csr-id-e9a493c204979d1a155c198331277662d26aec58/> add `diff_algorithm` to `blame::file()`
+ - <csr-id-e08cf8811e25c91ca410963703ce98db32be3681/> add `since` to `blame::file()`
+ - <csr-id-1250df3f9c10f66e4b8e227809831f3088482960/> skip uninteresting commits for blame
+   This is breaking because it takes a commitgraph cache as argument
+   , and because it replaces the `traverse` by `suspect`.
+   
+   Switch to date order for traversing the commit history, as opposed to
+   topo order. This is also what `git blame` does.
+   
+   Skip suspects that have no associated unblamed hunks
+   
+   Pass blame to parent in `process_change`. `git`’s algorithm only seems
+   to keep the current suspect for unblamed hunks that were the direct
+   result of splitting an existing unblamed hunk because it matched with a
+   change. All other hunks appear to be blamed on the parent without
+   further checks.
+   
+   Add assertion that lines always match.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 19 commits contributed to the release.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Merge pull request #1910 from cruessler/add-tree-id-to-either ([`544cdaf`](https://github.com/GitoxideLabs/gitoxide/commit/544cdafbb58bb3e39bf19a19eb02d5296a7361aa))
+    - Make use `gix_traverse::commit::Either::tree_id()` ([`3fad860`](https://github.com/GitoxideLabs/gitoxide/commit/3fad860aaffb53fd27b6d2b959ad8a8d1ab9ac63))
+    - Merge pull request #1901 from cruessler/make-either-copy ([`85b060c`](https://github.com/GitoxideLabs/gitoxide/commit/85b060c777cb893c85d60168f9b748ce78c0f146))
+    - Derive Clone and Copy for Either ([`3c1b1df`](https://github.com/GitoxideLabs/gitoxide/commit/3c1b1df9320c11e754931e292689c6075bddbfa9))
+    - Merge pull request #1888 from cruessler/respect-diff-algorithm-in-blame ([`dce127e`](https://github.com/GitoxideLabs/gitoxide/commit/dce127e63f7788c5424e2da2cf4e3112f9c3b159))
+    - Add `diff_algorithm` to `blame::file()` ([`e9a493c`](https://github.com/GitoxideLabs/gitoxide/commit/e9a493c204979d1a155c198331277662d26aec58))
+    - Merge pull request #1858 from cruessler/add-git-blame-since ([`7059609`](https://github.com/GitoxideLabs/gitoxide/commit/70596096e35ff8a910dacd6fefdc31d162282b81))
+    - Add `since` to `blame::file()` ([`e08cf88`](https://github.com/GitoxideLabs/gitoxide/commit/e08cf8811e25c91ca410963703ce98db32be3681))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1824 from cruessler/replace-find-commit-by-find ([`8ab0a6b`](https://github.com/GitoxideLabs/gitoxide/commit/8ab0a6b458327d3dc057bec3d4e09bea04dee388))
+    - Replace `odb.find_commit` by `gix_traverse::commit::find` ([`e09ec3e`](https://github.com/GitoxideLabs/gitoxide/commit/e09ec3e438b5503f21eb784c5781b52e0b1f8a1b))
+    - Merge pull request #1743 from cruessler/skip-uninteresting-commits-for-blame ([`aa05ef0`](https://github.com/GitoxideLabs/gitoxide/commit/aa05ef0d143d7ca14272f6cd36a40d2ed839fe76))
+    - Refactor ([`4428838`](https://github.com/GitoxideLabs/gitoxide/commit/442883800bc3abe63592ec36cb03b7c7e55c0f34))
+    - Skip uninteresting commits for blame ([`1250df3`](https://github.com/GitoxideLabs/gitoxide/commit/1250df3f9c10f66e4b8e227809831f3088482960))
+    - Merge pull request #1823 from cruessler/add-test-for-differing-date-and-topo-order ([`18e163e`](https://github.com/GitoxideLabs/gitoxide/commit/18e163e5df653f698a356b26da4f7e1c31fac9ad))
+    - Add test for commits not ordered chronologically ([`a9de4f0`](https://github.com/GitoxideLabs/gitoxide/commit/a9de4f0898148eb45ca8a229c14e65f5dbf56906))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
 
 ## v0.0.0 (2025-01-18)
 

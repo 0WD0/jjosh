@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.18.0 (2025-04-04)
 
 ### Changed
+
+<csr-id-de939de5c746fddcfca216a27ae4b5e7b4b24d40/>
+<csr-id-0becc913c57afd8a0bf95e97c14ba1130f662f1a/>
 
  - <csr-id-51724d15a4ae5a41b4a97412b2a847366c61f98d/> Get and set mode using std, still on open file descriptor
    This replaces explicit `fstat` and `fchmod` calls (via `rustix`)
@@ -20,158 +23,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    
    - `File::metadata` either:
    
-      * calls `fstat`, or
-   
-      * calls `statx` in a way that causes it to operate similarly to
+   * calls `fstat`, or
+ * calls `statx` in a way that causes it to operate similarly to
         `fstat` (this is used on Linux, in versions with `statx`).
-   
-     This is not explicitly documented, though calling `stat` or
-     `lstat`, or calling `statx` in a way that would cause it to
-     behave like `stat` or `lstat` rather than `fstat`, would not
-     preserve the documented behavior of `File::metadata`, which
-     operates on a `File` and does not take a path.
-   
-   - `File::set_permissions` calls `fchmod`.
-   
-     This is explicitly documented and `fchmod` is listed as an alias
-     for documentation purposes. But it is noted as an implementation
-     detail that may change without warning. However, calling `chmod`
-     or `lchmod` would not preserve the documented behavior of
-     `File::set_permissions`, which (like `File::metadata`) operates
-     on a `File` and does not take a path.
-   
-   While these details can, in principle, change without warning, per
-   https://doc.rust-lang.org/stable/std/io/index.html#platform-specific-behavior,
-   it seems that, in preserving the documented semantics of operating
-   on the file referenced by the file descriptor (rather than a path),
-   the behavior would still have to be correct for our use here.
-   
-   The change in this commit intends to maintain the effect of #1803
-   with two minor improvements for maintainability and clarity:
-   
-   - No longer require `gix-worktree-state` to depend directly on
+- No longer require `gix-worktree-state` to depend directly on
      `rustix`. (This is minor because it still depends transitively on
      it through `gix-fs`, though some uses of `rustix::fs` in `gix-fs`
      might likewise be possible to replace in the future.)
-   
-   - Use the standard library's slightly higher level interface where
+- Use the standard library's slightly higher level interface where
      modes are treated as `u32` even on operating systems where they
      are different (e.g. `u16` on macOS). This removes operations that
      do not correspond to what the code is conceptually doing. It also
      lets the function that computes the new mode from the old mode no
      longer depend on a type that differs across Unix-like targets.
-   
-   Importantly, this continues to differ from the pre-#1803 behavior
-   of using functions that operated on paths.
-   
-   For reading metadata on a file on Unix-like systems, the current
-   general correspondence between Rust `std`, POSIX functions, and
-   `statx`, where the rightmost three columns pertain to how `statx`
-   is called, is:
-   
-   | std::fs::*       | POSIX | fd       | path | *distinctive* flags |
-   |------------------|-------|----------|------|---------------------|
-   | metadata         | stat  | AT_FDCWD | path | (none)              |
-   | symlink_metadata | lstat | AT_FDCWD | path | AT_SYMLINK_NOFOLLOW |
-   | File::metadata   | fstat | file     | ""   | AT_EMPTY_PATH       |
-   
-   For writing metadata on a file on Unix-like systems, the current
-   correspondence between Rust `std` and POSIX functions is:
-   
-   | std::fs::*            | POSIX  |
-   |-----------------------| -------|
-   | set_permissions       | chmod  |
-   | (none)                | lchmod |
-   | File::set_permissions | fchmod |
-   
-   It may be that some uses of `rustix::fs` facilities can be
-   similarly replaced in `gix_fs`, but this commit does not include
-   any such changes.
- - <csr-id-de939de5c746fddcfca216a27ae4b5e7b4b24d40/> Get mode before +x using open file descriptor, not path
-   This uses `fstat` rather than a method that delegates to `lstat`,
-   to get the current mode bits of the still-open file using the open
-   file descriptor (obtained from the `File` object) rather than
-   opening the path, which could be a different file in the case of
-   concurrent modification by code outside gitoxide.
-   
-   This is half of the change to using the file descriptor rather than
-   the path for the operations that adjust the mode by adding
-   executable bitsi. (As before, they are added for whoever already
-   had read bits, and we remove setuid, setgid, and sticky bits, so
-   that +x does not cause a security problem or other potentially
-   unexpected effects.)
-   
-   The other half of this change was already done, appearing in a
-   recent `change:` commit. It consisted of setting the mode using
-   `fchmod` instead of a method that delegated to `chmod`. With only
-   that change, the overall effect would be worse, since possible
-   race conditions could introduce even greater inconsistency. With
-   both changes, the effect is consistent. Race conditions can still
-   occur, but their effect is probably less severe than before either
-   of the changes were made.
-   
-   One of the ways this may be less subject to race conditions is
-   that, because neither obtaining the old mode nor setting the new
-   one uses a path, but only the open file descriptor, an unexpected
-   typechange will not occur: having opened a regular file, the open
-   file will not turn into a directory, symlink, or anything else,
-   *as seen by* the open file descriptor. The file may be moved or
-   replaced, but the open file descriptor "follows" the move and does
-   not alias the separate file that now has the original path.
-   
-   Because we only intend to add executable bits to regular files, it
-   is no longer necessary to handle this as a race condition and keep
-   going. Attempting to add +x to any other type of thing should now
-   only be possible if there is a bug in the caller. So the check for
-   that, and the associated Option<...> logic used to keep things
-   testable, is not needed.
-   
-   This still does the check, but panics if the file descriptor does
-   not represent a regular file. The tests of this are mostly removed,
-   but two tests that it does panic for the kinds of non-regular files
-   we are most likely to encounter are added. (It may eventually make
-   sense check this and panic only in debug builds, or not at all.)
-   
-   There are now two `fstat` calls: the one that is added to check the
-   `st_mode` to figure out what to pass to `fchmod`, and the
-   preexisting higher level invocation (that delegates to `fstat`)
-   done just before closing the file, to update `entry.stat`. Using
-   the same call for both and accounting for any effect of `fchmod`
-   might be more complicated, but more importantly, it does not seem
-   like it would be correct. If attempting to set the permissions
-   reports success but has an unexpected effect, perhaps due to
-   restrictions of the underlying filesystem or how it is mounted
-   (which we may not be guarnateed to have detected in a probe to
-   decide if +x is supported), we would want the real stat.
-   
-   Because this no longer uses `Permissions` and `PermissionsExt`
-   facilities to check the mode before adding executable bits or to
-   add the executable bits, it also includes some refactoring that is
-   possible now that they are not being used.
- - <csr-id-0becc913c57afd8a0bf95e97c14ba1130f662f1a/> Set +x via open file descriptor, not path
-   When executable permissions were set on a file being checked out,
-   and when it was done after the file was already created, this was
-   done on its path, using `chmod` (via a higher level abstraction).
-   But we have an open `File` object for it already, at that point.
-   
-   This uses `fchmod` on the existing open file descriptor (obtained
-   from the `File` object), instead of `chmod` on the path.
-   
-   (Since #1764, the file mode has also been read first, to figure out
-   what new mode to set it to for +x. That uses `lstat` (via a higher
-   level abstraction). The change here is therefore really only half
-   of what should be done. To complete it, and also to avoid new
-   problems due to a new inconsistency, that should be done with
-   `fstat` on the file descriptor instead of `lstat` on the path. That
-   will be done in a directly fortcoming commit -- after portability
-   issues in the type of the `st_mode` field, which is not actually
-   `u32` on all systems, are examined.)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 19 commits contributed to the release.
+ - 20 commits contributed to the release.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -188,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1909 from cruessler/take-to-components-in-fs-stack ([`5cb5337`](https://github.com/GitoxideLabs/gitoxide/commit/5cb5337efd7679d8a2ab4bd5e6a5da8c366f7f1a))
     - Use `gix_fs::stack::ToNormalPathComponents` everywhere. ([`1f98edb`](https://github.com/GitoxideLabs/gitoxide/commit/1f98edbaa51caaf152eda289b769388676259a06))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
@@ -208,6 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Set +x via open file descriptor, not path ([`0becc91`](https://github.com/GitoxideLabs/gitoxide/commit/0becc913c57afd8a0bf95e97c14ba1130f662f1a))
     - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
 </details>
+
+<csr-unknown>
+This is not explicitly documented, though calling stat orlstat, or calling statx in a way that would cause it tobehave like stat or lstat rather than fstat, would notpreserve the documented behavior of File::metadata, whichoperates on a File and does not take a path.File::set_permissions calls fchmod.This is explicitly documented and fchmod is listed as an aliasfor documentation purposes. But it is noted as an implementationdetail that may change without warning. However, calling chmodor lchmod would not preserve the documented behavior ofFile::set_permissions, which (like File::metadata) operateson a File and does not take a path.While these details can, in principle, change without warning, perhttps://doc.rust-lang.org/stable/std/io/index.html#platform-specific-behavior,it seems that, in preserving the documented semantics of operatingon the file referenced by the file descriptor (rather than a path),the behavior would still have to be correct for our use here.The change in this commit intends to maintain the effect of #1803with two minor improvements for maintainability and clarity:Importantly, this continues to differ from the pre-#1803 behaviorof using functions that operated on paths.For reading metadata on a file on Unix-like systems, the currentgeneral correspondence between Rust std, POSIX functions, andstatx, where the rightmost three columns pertain to how statxis called, is:std::fs::*POSIXfdpathdistinctive flagsmetadatastatAT_FDCWDpath(none)symlink_metadatalstatAT_FDCWDpathAT_SYMLINK_NOFOLLOWFile::metadatafstatfile“”AT_EMPTY_PATHFor writing metadata on a file on Unix-like systems, the currentcorrespondence between Rust std and POSIX functions is:std::fs::*POSIXset_permissionschmod(none)lchmodFile::set_permissionsfchmodIt may be that some uses of rustix::fs facilities can besimilarly replaced in gix_fs, but this commit does not includeany such changes. Get mode before +x using open file descriptor, not pathThis uses fstat rather than a method that delegates to lstat,to get the current mode bits of the still-open file using the openfile descriptor (obtained from the File object) rather thanopening the path, which could be a different file in the case ofconcurrent modification by code outside gitoxide.This is half of the change to using the file descriptor rather thanthe path for the operations that adjust the mode by addingexecutable bitsi. (As before, they are added for whoever alreadyhad read bits, and we remove setuid, setgid, and sticky bits, sothat +x does not cause a security problem or other potentiallyunexpected effects.)The other half of this change was already done, appearing in arecent change: commit. It consisted of setting the mode usingfchmod instead of a method that delegated to chmod. With onlythat change, the overall effect would be worse, since possiblerace conditions could introduce even greater inconsistency. Withboth changes, the effect is consistent. Race conditions can stilloccur, but their effect is probably less severe than before eitherof the changes were made.One of the ways this may be less subject to race conditions isthat, because neither obtaining the old mode nor setting the newone uses a path, but only the open file descriptor, an unexpectedtypechange will not occur: having opened a regular file, the openfile will not turn into a directory, symlink, or anything else,as seen by the open file descriptor. The file may be moved orreplaced, but the open file descriptor “follows” the move and doesnot alias the separate file that now has the original path.Because we only intend to add executable bits to regular files, itis no longer necessary to handle this as a race condition and keepgoing. Attempting to add +x to any other type of thing should nowonly be possible if there is a bug in the caller. So the check forthat, and the associated Option<…> logic used to keep thingstestable, is not needed.This still does the check, but panics if the file descriptor doesnot represent a regular file. The tests of this are mostly removed,but two tests that it does panic for the kinds of non-regular fileswe are most likely to encounter are added. (It may eventually makesense check this and panic only in debug builds, or not at all.)There are now two fstat calls: the one that is added to check thest_mode to figure out what to pass to fchmod, and thepreexisting higher level invocation (that delegates to fstat)done just before closing the file, to update entry.stat. Usingthe same call for both and accounting for any effect of fchmodmight be more complicated, but more importantly, it does not seemlike it would be correct. If attempting to set the permissionsreports success but has an unexpected effect, perhaps due torestrictions of the underlying filesystem or how it is mounted(which we may not be guarnateed to have detected in a probe todecide if +x is supported), we would want the real stat.Because this no longer uses Permissions and PermissionsExtfacilities to check the mode before adding executable bits or toadd the executable bits, it also includes some refactoring that ispossible now that they are not being used. Set +x via open file descriptor, not pathWhen executable permissions were set on a file being checked out,and when it was done after the file was already created, this wasdone on its path, using chmod (via a higher level abstraction).But we have an open File object for it already, at that point.This uses fchmod on the existing open file descriptor (obtainedfrom the File object), instead of chmod on the path.(Since #1764, the file mode has also been read first, to figure outwhat new mode to set it to for +x. That uses lstat (via a higherlevel abstraction). The change here is therefore really only halfof what should be done. To complete it, and also to avoid newproblems due to a new inconsistency, that should be done withfstat on the file descriptor instead of lstat on the path. Thatwill be done in a directly fortcoming commit – after portabilityissues in the type of the st_mode field, which is not actuallyu32 on all systems, are examined.)<csr-unknown/>
 
 ## 0.17.0 (2025-01-18)
 
@@ -333,9 +207,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))
     - Merge pull request #1739 from GitoxideLabs/new-release ([`d22937f`](https://github.com/GitoxideLabs/gitoxide/commit/d22937f91b8ecd0ece0930c4df9d580f3819b2fe))
 </details>
-
-<csr-unknown>
-But the second situation did not work correctly, because chmodcalls try to set the exact permissions specified (and usuallysucceed). Unlike open, with chmod there is no implicit use ofthe umask.<csr-unknown/>
 
 ## 0.16.0 (2024-12-22)
 

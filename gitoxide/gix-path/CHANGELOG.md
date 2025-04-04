@@ -5,31 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.10.15 (2025-04-04)
+
+<csr-id-028635165ddd98322d8b902fe0714fe2d0699a3e/>
 
 ### Bug Fixes
+
+<csr-id-10af2d005fbe92a289be01492206c6e8a38ab0bd/>
 
  - <csr-id-1f269b0d5aa958f25423db1f83d144781bf22024/> Check prefix and prefer shim in `gix_path::env::shell()`
    This makes a few changes to make `shell()` more robust:
    
    1. Check the last two components of the path `git --exec-path`
-      gave, to make sure they are `libexec/git-core`.
+   gave, to make sure they are `libexec/git-core`.
    
-      (The check is done in such a way that the separator may be `/`
-      or `\`, though a `\` separator here would be unexpected. We
-      permit it because it may plausibly be present due to an
-      overriden `GIT_EXEC_PATH` that breaks with Git's own behavior of
-      using `/` but that is otherwise fully usable.)
+   (The check is done in such a way that the separator may be `/`
+   or `\`, though a `\` separator here would be unexpected. We
+   permit it because it may plausibly be present due to an
+   overriden `GIT_EXEC_PATH` that breaks with Git's own behavior of
+   using `/` but that is otherwise fully usable.)
    
-      If the directory is not named `git-core`, or it is a top-level
-      directory (no parent),  or its parent is not named `libexec`,
-      then it is not reasonable to guess that this is in a directory
-      where it would be safe to use `sh.exe` in the expected relative
-      location. (Even if safe, such a layout does not suggest that a
-      `sh.exe` found in it would be better choice than the fallback of
-      just doing a `PATH` search.)
-   
-   2. Check the grandparent component (that `../..` would go to) of
+   If the directory is not named `git-core`, or it is a top-level
+   directory (no parent),  or its parent is not named `libexec`,
+   then it is not reasonable to guess that this is in a directory
+   where it would be safe to use `sh.exe` in the expected relative
+   location. (Even if safe, such a layout does not suggest that a
+   `sh.exe` found in it would be better choice than the fallback of
+   just doing a `PATH` search.)
+2. Check the grandparent component (that `../..` would go to) of
       the path `git --exec-path` gave, to make sure it is recognized
       name of a platform-specific `usr`-like directory that has been
       used in MSYS2.
@@ -37,8 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       This is to avoid traversing up out of less common directory
       trees that have some different and shallower structure than
       found in a typical Git for Windows or MSYS2 installation.
-   
-   3. Instead of using only the `(git root)/usr/bin/sh.exe` non-shim,
+3. Instead of using only the `(git root)/usr/bin/sh.exe` non-shim,
       prefer the `(git root)/bin/sh.exe` shim. If that is not found,
       fall back to the `(git root)/usr/bin/sh.exe` non-shim, mainly to
       support the Git for Windows SDK, which doesn't have the shim.
@@ -62,11 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       that. But it exacerbates #1868 (as described there), so if the
       Git for Windows `sh.exe` shim continues to work as it currently
       does, then further improvements may be called for here.
- - <csr-id-10af2d005fbe92a289be01492206c6e8a38ab0bd/> Use `/` in `gix_path::env::shell()` and check existence
-   This makes the path returned by `gix_path::env::shell()` on Windows
-   more usable by:
-   
-   1. Adding components with `/` separators. While in principle a `\`
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+1. Adding components with `/` separators. While in principle a `\`
       should work, the path of the shell itself is used in shell
       scripts (script files and `sh -c` operands) that may not account
       for the presence of backslashes, and it is also harder to read
@@ -89,31 +88,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       other software, much of which may otherwise be working, has
       similar expectations. Using `/` instead of `\` works whether `\`
       is expected to be displayed quoted or not.
-   
-   2. Check that the path to the shell plausibly has a shell there,
+2. Check that the path to the shell plausibly has a shell there,
       only using it if it a file or a non-broken file symlink. When
       this is not the case, the fallback short name is used instead.
-   
-   3. The fallback short name is changed from `sh` to `sh.exe`, since
+3. The fallback short name is changed from `sh` to `sh.exe`, since
       the `.exe` suffix is appended in other short names on Windows,
       such as `git.exe`, as well as being part of the filename
       component of the path we build for the shell when using the
       implementation provided as part of Git for Windows.
-   
-   Those changes only affect Windows.
-   
-   This also adds tests for (1) and (2) above, as well as for the
-   expectation that we get an absolute path, to make sure we don't
-   build a path that would be absolute on a Unix-like system but is
-   relative on Windows (a path that starts with just one `/` or `\`).
-   
-   These tests are not Windows-specific, since all these expectations
-   should already hold on Unix-like systems, where currently we are
-   using the hard-coded path `/bin/sh`, which is an absolute path on
-   those systems. (Some Unix-like systems may technically not have
-   `/bin/sh` or it may not be the best path to use for a shell that
-   should be POSIX-compatible, but we are already relying on this,
-   and handling that better is outside the scope of the changes here.)
 
 ### Other
 
@@ -134,7 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 24 commits contributed to the release.
+ - 25 commits contributed to the release.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -151,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
     - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
     - Merge pull request #1862 from EliahKagan/run-ci/consistent-sh ([`0ba3147`](https://github.com/GitoxideLabs/gitoxide/commit/0ba31474968ddbe7f2b2d54a756eeeb8a28fbabf))
@@ -176,6 +159,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Remove TODOs about using `path-slash` to handle escapes ([`a810d1f`](https://github.com/GitoxideLabs/gitoxide/commit/a810d1faa29803fb9d42a7d645a1ab41fe7a45de))
     - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
 </details>
+
+<csr-unknown>
+This makes things more robust overall than either preferring thenon-shim or just doing a path search for sh as was done beforethat. But it exacerbates #1868 (as described there), so if theGit for Windows sh.exe shim continues to work as it currentlydoes, then further improvements may be called for here. Use / in gix_path::env::shell() and check existenceThis makes the path returned by gix_path::env::shell() on Windowsmore usable by:Those changes only affect Windows.This also adds tests for (1) and (2) above, as well as for theexpectation that we get an absolute path, to make sure we don’tbuild a path that would be absolute on a Unix-like system but isrelative on Windows (a path that starts with just one / or \).These tests are not Windows-specific, since all these expectationsshould already hold on Unix-like systems, where currently we areusing the hard-coded path /bin/sh, which is an absolute path onthose systems. (Some Unix-like systems may technically not have/bin/sh or it may not be the best path to use for a shell thatshould be POSIX-compatible, but we are already relying on this,and handling that better is outside the scope of the changes here.)<csr-unknown/>
 
 ## 0.10.14 (2025-01-18)
 
