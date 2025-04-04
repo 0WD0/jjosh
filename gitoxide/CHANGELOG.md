@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.42.0 (2025-04-04)
+
+<csr-id-dd366a52d46078729a6e36468211b97c92c2921d/>
+
+### New Features
+
+ - <csr-id-dbb15328d7b26aaa51ceadcd5a8cb021155023b3/> add first 'debug' version of `gix diff file`
+
+### Refactor
+
+ - <csr-id-dd366a52d46078729a6e36468211b97c92c2921d/> use revspecs for revision and path
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 14 commits contributed to the release.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1880 from cruessler/add-gix-diff-file ([`b10cc6f`](https://github.com/GitoxideLabs/gitoxide/commit/b10cc6f0f2c3757677d9fdb3c01196d371ac6631))
+    - Apply suggestions from code review ([`1039ae9`](https://github.com/GitoxideLabs/gitoxide/commit/1039ae95981a21340c77739891baa742b801a604))
+    - Use revspecs for revision and path ([`dd366a5`](https://github.com/GitoxideLabs/gitoxide/commit/dd366a52d46078729a6e36468211b97c92c2921d))
+    - Add first 'debug' version of `gix diff file` ([`dbb1532`](https://github.com/GitoxideLabs/gitoxide/commit/dbb15328d7b26aaa51ceadcd5a8cb021155023b3))
+    - Merge pull request #1888 from cruessler/respect-diff-algorithm-in-blame ([`dce127e`](https://github.com/GitoxideLabs/gitoxide/commit/dce127e63f7788c5424e2da2cf4e3112f9c3b159))
+    - Adapt to changes in `gix-blame` ([`8a31d88`](https://github.com/GitoxideLabs/gitoxide/commit/8a31d88dab3f2a79d4a0343f62d63a8d074ed94d))
+    - Merge pull request #1859 from cruessler/add-failing-test-for-as-time ([`36a846f`](https://github.com/GitoxideLabs/gitoxide/commit/36a846f23ae0a3dfe95648605f0f618ccb55a881))
+    - Merge pull request #1858 from cruessler/add-git-blame-since ([`7059609`](https://github.com/GitoxideLabs/gitoxide/commit/70596096e35ff8a910dacd6fefdc31d162282b81))
+    - Add test for `--since` ([`330711d`](https://github.com/GitoxideLabs/gitoxide/commit/330711d69b343d3f4d59b3c9d9b87f75408fdc25))
+    - Adapt to changes in `gix-blame` ([`e7084d8`](https://github.com/GitoxideLabs/gitoxide/commit/e7084d8db829bbc33aea958a997deb1db4b5a453))
+    - Merge pull request #1861 from GitoxideLabs/revert-lazylock ([`6acca19`](https://github.com/GitoxideLabs/gitoxide/commit/6acca19163196f8402603cb031cb1d37f7178a43))
+    - Don't use LazyLock just yet. ([`147eb41`](https://github.com/GitoxideLabs/gitoxide/commit/147eb4196acea76110b4adb26a295089e2365df5))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+</details>
+
 ## 0.41.0 (2025-01-18)
 
 ### New Features

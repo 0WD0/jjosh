@@ -5,6 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.5.0 (2025-04-04)
+
+<csr-id-4e7306e9f995586069b388d1fe95d29b219f5610/>
+
+### New Features
+
+ - <csr-id-c7d06a6f4343d4362f4d82e6583b85cc2829fb2b/> Use `gix_path::env::shell()` in `gix-command` for sh
+ - <csr-id-435984bffda225ee923aa2c9fdbbf730d7719f74/> add `Preprae::with_quoted_command()`
+   That way it's possible to execute shell commands with spaces in their paths, for example.
+
+### Other
+
+ - <csr-id-4e7306e9f995586069b388d1fe95d29b219f5610/> Revise and somewhat expand `Prepare` docs
+   This revises the `gix_command::Prepare` documentation, mainly for
+   clarity but also to add some information and cover or explain some
+   cases that were not (or not as fully) covered before.
+   
+   This builds on recent documentation changes, such as those in #1800.
+   
+   Less importantly, this also:
+   
+   - Wraps `Prepare` documentation comments to a more consistent
+     width, when doing so improved unrendered readability.
+   
+   - Made a trace message more precise, to avoid obscuring a subtlety
+     about the distinction between what we are looking for and what we
+     are adding, since that might occasionally relate to the reason
+     someone is examining trace messages.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-667de433f2cd769323ec5534944a6eba01a8ae40/> rename `with_shell()` to `command_may_be_shell_script()`, add `with_shell()` to enforce using a shell.
+   That way it's clear the shell will only be used if the command
+   actually is a shell script.
+   
+   This also renames `with_shell_*` variants to `command_may_be_shell_script_*` variants, without
+   a respective `with_shell_*` alternative.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 17 commits contributed to the release.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1799](https://github.com/GitoxideLabs/gitoxide/issues/1799)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1799](https://github.com/GitoxideLabs/gitoxide/issues/1799)**
+    - Add `Preprae::with_quoted_command()` ([`435984b`](https://github.com/GitoxideLabs/gitoxide/commit/435984bffda225ee923aa2c9fdbbf730d7719f74))
+ * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
+    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
+    - Merge pull request #1862 from EliahKagan/run-ci/consistent-sh ([`0ba3147`](https://github.com/GitoxideLabs/gitoxide/commit/0ba31474968ddbe7f2b2d54a756eeeb8a28fbabf))
+    - Use `gix_path::env::shell()` in `gix-command` for sh ([`c7d06a6`](https://github.com/GitoxideLabs/gitoxide/commit/c7d06a6f4343d4362f4d82e6583b85cc2829fb2b))
+    - Merge pull request #1845 from EliahKagan/shell-tests-windows ([`2efce72`](https://github.com/GitoxideLabs/gitoxide/commit/2efce72ada61149ef3823f4e15fdbc75157745ec))
+    - Test environment_variables_are_passed_one_by_one on Windows ([`4fc1092`](https://github.com/GitoxideLabs/gitoxide/commit/4fc1092dee396dbb0b8f5f6df07fee127965ee47))
+    - Fix and enable disallow_shell test on Windows ([`0e451d0`](https://github.com/GitoxideLabs/gitoxide/commit/0e451d050e12343353a8976eb6bef2c6f8e54851))
+    - Merge pull request #1813 from EliahKagan/prepare-doc ([`38a0d9a`](https://github.com/GitoxideLabs/gitoxide/commit/38a0d9a083afab33e8a3cb66ab4acbc4e83d8486))
+    - Revise and somewhat expand `Prepare` docs ([`4e7306e`](https://github.com/GitoxideLabs/gitoxide/commit/4e7306e9f995586069b388d1fe95d29b219f5610))
+    - Merge pull request #1810 from bryceberger/bryce/push-oqkslowuuqyz ([`10937b0`](https://github.com/GitoxideLabs/gitoxide/commit/10937b080f41af05f84bba25555a4e3190b2b070))
+    - Fix hardcoded path test on nixos ([`b085899`](https://github.com/GitoxideLabs/gitoxide/commit/b085899bf09cd3a252617785f1fc13c3b65bdae3))
+    - Merge pull request #1801 from GitoxideLabs/improvements ([`02efddd`](https://github.com/GitoxideLabs/gitoxide/commit/02efddd0a093295746dcb640bae1652b80daf45c))
+    - Merge pull request #1800 from GitoxideLabs/improvements ([`cc7b614`](https://github.com/GitoxideLabs/gitoxide/commit/cc7b614e541aa4a485f470f36516589619e2de5e))
+    - Rename `with_shell()` to `command_may_be_shell_script()`, add `with_shell()` to enforce using a shell. ([`667de43`](https://github.com/GitoxideLabs/gitoxide/commit/667de433f2cd769323ec5534944a6eba01a8ae40))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
 ## 0.4.1 (2025-01-18)
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
@@ -19,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release over the course of 27 calendar days.
+ - 5 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -31,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))

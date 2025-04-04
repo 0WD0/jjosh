@@ -5,6 +5,164 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.15 (2025-04-04)
+
+<csr-id-028635165ddd98322d8b902fe0714fe2d0699a3e/>
+
+### Bug Fixes
+
+<csr-id-10af2d005fbe92a289be01492206c6e8a38ab0bd/>
+
+ - <csr-id-1f269b0d5aa958f25423db1f83d144781bf22024/> Check prefix and prefer shim in `gix_path::env::shell()`
+   This makes a few changes to make `shell()` more robust:
+   
+   1. Check the last two components of the path `git --exec-path`
+   gave, to make sure they are `libexec/git-core`.
+   
+   (The check is done in such a way that the separator may be `/`
+   or `\`, though a `\` separator here would be unexpected. We
+   permit it because it may plausibly be present due to an
+   overriden `GIT_EXEC_PATH` that breaks with Git's own behavior of
+   using `/` but that is otherwise fully usable.)
+   
+   If the directory is not named `git-core`, or it is a top-level
+   directory (no parent),  or its parent is not named `libexec`,
+   then it is not reasonable to guess that this is in a directory
+   where it would be safe to use `sh.exe` in the expected relative
+   location. (Even if safe, such a layout does not suggest that a
+   `sh.exe` found in it would be better choice than the fallback of
+   just doing a `PATH` search.)
+2. Check the grandparent component (that `../..` would go to) of
+      the path `git --exec-path` gave, to make sure it is recognized
+      name of a platform-specific `usr`-like directory that has been
+      used in MSYS2.
+   
+      This is to avoid traversing up out of less common directory
+      trees that have some different and shallower structure than
+      found in a typical Git for Windows or MSYS2 installation.
+3. Instead of using only the `(git root)/usr/bin/sh.exe` non-shim,
+      prefer the `(git root)/bin/sh.exe` shim. If that is not found,
+      fall back to the `(git root)/usr/bin/sh.exe` non-shim, mainly to
+      support the Git for Windows SDK, which doesn't have the shim.
+   
+      The reason to prefer the shim is that it sets environment
+      variables, including prepending `bin` directories that provide
+      tools one would expect to have when using it. Without this,
+      common POSIX commands may be unavailable, or different and
+      incompatible implementations of them may be found.
+   
+      In particular, if they are found in a different MSYS2
+      installation whose `msys-2.0.dll` is of a different version or
+      otherwise a different build, then calling them directly may
+      produce strange behavior. See:
+   
+      - https://cygwin.com/faq.html#faq.using.multiple-copies
+      - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   
+      This makes things more robust overall than either preferring the
+      non-shim or just doing a path search for `sh` as was done before
+      that. But it exacerbates #1868 (as described there), so if the
+      Git for Windows `sh.exe` shim continues to work as it currently
+      does, then further improvements may be called for here.
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+1. Adding components with `/` separators. While in principle a `\`
+      should work, the path of the shell itself is used in shell
+      scripts (script files and `sh -c` operands) that may not account
+      for the presence of backslashes, and it is also harder to read
+      paths with `\` in contexts where it appears escaped, which may
+      include various messages from Rust code and shell scripts.
+   
+      The path before what we add will already use `/` and never `\`,
+      unless `GIT_EXEC_PATH` has been set to a strange value, because
+      it is based on `git --exec-path`, which by default gives a path
+      with `/` separators. Thus, ensuring that the part we add uses `/`
+      should be sufficient to get a path without `\` in all cases when
+      it is clearly reasonable to do so. This therefore also usually
+      increases stylistic consistency of the path, which is another
+      factor that makes it more user-friendly in messages.
+   
+      This is needed to get tests to pass since changing `gix-command`
+      to use `gix_path::env::shell()` on Windows, where a path is
+      formatted in away that sometimes quotes `\` characters. Their
+      expectations could be adjusted, but it seems likely that various
+      other software, much of which may otherwise be working, has
+      similar expectations. Using `/` instead of `\` works whether `\`
+      is expected to be displayed quoted or not.
+2. Check that the path to the shell plausibly has a shell there,
+      only using it if it a file or a non-broken file symlink. When
+      this is not the case, the fallback short name is used instead.
+3. The fallback short name is changed from `sh` to `sh.exe`, since
+      the `.exe` suffix is appended in other short names on Windows,
+      such as `git.exe`, as well as being part of the filename
+      component of the path we build for the shell when using the
+      implementation provided as part of Git for Windows.
+
+### Other
+
+ - <csr-id-028635165ddd98322d8b902fe0714fe2d0699a3e/> Fix `to_windows_separators` docstring, revise others
+   The `gix_path::convert::to_windows_separators` documentation
+   comment had inadvertently described the opposite of what this
+   function does, saying it changed backslashed to slashes and that
+   the effect was like a Unix path. This fixes the docstring so it
+   saye `to_windows_separators` changes slashes to backslashes, and
+   moves the text that likens it to paths on Unix to the
+   `to_unix_separators` docstring, where it applies.
+   
+   This also makes a number of other more minor revisions for
+   clarity and stylistic consistency to documentation comments on
+   other functions in the `gix_path::convert` module.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 25 commits contributed to the release.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
+    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
+    - Merge pull request #1862 from EliahKagan/run-ci/consistent-sh ([`0ba3147`](https://github.com/GitoxideLabs/gitoxide/commit/0ba31474968ddbe7f2b2d54a756eeeb8a28fbabf))
+    - Compile the new tests on all platforms ([`b70cdb1`](https://github.com/GitoxideLabs/gitoxide/commit/b70cdb19fbb194a97099afeb2ab208bd1355ee75))
+    - Expand `git_for_windows_root()` comments ([`c824b92`](https://github.com/GitoxideLabs/gitoxide/commit/c824b9297824d52103d6ea40f49356d5d8b489e6))
+    - Add some tests for finding associated executables ([`fb67059`](https://github.com/GitoxideLabs/gitoxide/commit/fb6705913727640a595792403ff35928d4d29d8d))
+    - Revise `find_git_associated_windows_executable` future directions ([`56dc3cc`](https://github.com/GitoxideLabs/gitoxide/commit/56dc3cc008eb9eb9094450b1da327a34bfc9c850))
+    - Generalize the `gix_path::env::auxiliary` helpers ([`17b5c31`](https://github.com/GitoxideLabs/gitoxide/commit/17b5c31978a7868b2e2f36cd1c5f57c7a23eab1a))
+    - Simplify code and comments ([`0a6a056`](https://github.com/GitoxideLabs/gitoxide/commit/0a6a0568ce91534f551e87270ac076b79bf5c204))
+    - Remove a potentially misleading docstring paragraph ([`bd26745`](https://github.com/GitoxideLabs/gitoxide/commit/bd267454e4261ea48e6a35b25ea5febffc0187b3))
+    - Divide helpers more logically, expand doc comments ([`9d9ec58`](https://github.com/GitoxideLabs/gitoxide/commit/9d9ec58d5ee77873399b51faa9d5e8ddd1e82f30))
+    - Move `shell()` helpers to a helper module ([`0b75b23`](https://github.com/GitoxideLabs/gitoxide/commit/0b75b231c48ef2509a3cef0a8a719418b4ff9d45))
+    - Don't match `libexec/git-core` in `usr`; refactor ([`83574e1`](https://github.com/GitoxideLabs/gitoxide/commit/83574e1636e3a25b48c3c6198e8c17e6e81d04e9))
+    - Check prefix and prefer shim in `gix_path::env::shell()` ([`1f269b0`](https://github.com/GitoxideLabs/gitoxide/commit/1f269b0d5aa958f25423db1f83d144781bf22024))
+    - Revise `gix_path::env` docstrings for clarity ([`da7d70e`](https://github.com/GitoxideLabs/gitoxide/commit/da7d70ede6fe9fe10a0500c284d8f27610f613df))
+    - Use `/` in `gix_path::env::shell()` and check existence ([`10af2d0`](https://github.com/GitoxideLabs/gitoxide/commit/10af2d005fbe92a289be01492206c6e8a38ab0bd))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1841 from EliahKagan/no-esc-todo ([`ad7a94e`](https://github.com/GitoxideLabs/gitoxide/commit/ad7a94ed6385e5c35c0fdaef420425d8e170334f))
+    - Merge pull request #1843 from EliahKagan/convert-doc ([`bb64ee1`](https://github.com/GitoxideLabs/gitoxide/commit/bb64ee170fd308d83b7925e19627ed297bcdbb38))
+    - Clarify `to_unix_separators{,_on_windows}` relationship ([`42875c9`](https://github.com/GitoxideLabs/gitoxide/commit/42875c9e4314bc2c92478393bc8dda4400fc397b))
+    - Fix `to_windows_separators` docstring, revise others ([`0286351`](https://github.com/GitoxideLabs/gitoxide/commit/028635165ddd98322d8b902fe0714fe2d0699a3e))
+    - Remove TODOs about using `path-slash` to handle escapes ([`a810d1f`](https://github.com/GitoxideLabs/gitoxide/commit/a810d1faa29803fb9d42a7d645a1ab41fe7a45de))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
+<csr-unknown>
+This makes things more robust overall than either preferring thenon-shim or just doing a path search for sh as was done beforethat. But it exacerbates #1868 (as described there), so if theGit for Windows sh.exe shim continues to work as it currentlydoes, then further improvements may be called for here. Use / in gix_path::env::shell() and check existenceThis makes the path returned by gix_path::env::shell() on Windowsmore usable by:Those changes only affect Windows.This also adds tests for (1) and (2) above, as well as for theexpectation that we get an absolute path, to make sure we don’tbuild a path that would be absolute on a Unix-like system but isrelative on Windows (a path that starts with just one / or \).These tests are not Windows-specific, since all these expectationsshould already hold on Unix-like systems, where currently we areusing the hard-coded path /bin/sh, which is an absolute path onthose systems. (Some Unix-like systems may technically not have/bin/sh or it may not be the best path to use for a shell thatshould be POSIX-compatible, but we are already relying on this,and handling that better is outside the scope of the changes here.)<csr-unknown/>
+
 ## 0.10.14 (2025-01-18)
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
@@ -34,7 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 12 commits contributed to the release over the course of 55 calendar days.
+ - 13 commits contributed to the release over the course of 55 calendar days.
  - 55 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -46,6 +204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))

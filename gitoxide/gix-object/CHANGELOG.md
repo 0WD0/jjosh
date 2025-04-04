@@ -5,6 +5,132 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.48.0 (2025-04-04)
+
+<csr-id-866affde8ef17f201884b8a4b36cc4c7f449d6fe/>
+
+### New Features
+
+ - <csr-id-bf851283f9d451a2a5c55a44c0474126baa2b8fb/> add `commit::ExtraHeaders::find_pos()`, and expose "gpgsig" header name.
+   That way it it's easier to manipulate existing extra-header fields.
+ - <csr-id-527fd3d19a307fe878fd8e3ca54ed10140ac6fa7/> add `CommitRef|TagRef|BlobRef::into_owned()` as shortcut.
+   Otherwise one would have to know it converts into `Commit` via `From`.
+
+### Bug Fixes
+
+ - <csr-id-f69890cafd08db95231a02d08fbbcb02689e99c4/> Support empty tags with or without trailing NL
+   When representing an annotated tag with an empty commit message, we used
+   to only support a tag ending with two newlines (one after the tagger
+   line + one after the empty commit message).
+   
+   This was due to a misconception that annotated tags ending with a single
+   NL shouldn't exist in the wild since there isn't an obvious way to
+   create them from with `git`.
+   This misconception shows up in the discussion thread for
+   [issue 603](https://github.com/GitoxideLabs/gitoxide/issues/603)
+   
+   It turns out that both encodings of empty annotated tags appear in the
+   wild.
+   
+   We must be able to parse either and roundtrip for either.
+   
+   Before [PR 604](https://github.com/GitoxideLabs/gitoxide/pull/604), we
+   used to special case the empty tag msg case and not add a NL.
+   To be able to represent `b""`, `b"\n"`, `b"\n\n"`..., we special case
+   any `message` that is a pure sequence of `b'\n'` and actually parse the
+   `b'\n'` into the tag's message.
+   
+   This allows us to calculate the correct size that matches the number of
+   bytes that git would produce, as well as round-trip to and from the
+   commit encoding.
+   
+   The existing tests (in particular `round_trip` for `empty.txt` and
+   `empty_missing_nl.txt`) convince me that the logic is sound.
+   Also, the size being `139` bytes for `empty_missing_nl.txt` and `140`
+   bytes for `empty.txt` matches the output of `cat file | wc -l` for each
+   file.
+
+### Other
+
+ - <csr-id-866affde8ef17f201884b8a4b36cc4c7f449d6fe/> `Repository::commit()` now explains how to create a commit without ref updates.
+
+### Changed (BREAKING)
+
+ - <csr-id-a68f1156b4a24e49ceb165bdaa9f4fa8e4c70cd9/> drop migration shims for fallible hashing
+   Since the APIs were already adjusted and all callers migrated, we
+   only need to drop the migration shims.
+ - <csr-id-b5ac93a9a02c97bd611d455091c60bfbd5f49efa/> make `gix_object::compute_hash` fallible
+   `compute_stream_hash` is already fallible, so we don’t want to keep
+   the `try_*` prefix on the fallible API.
+ - <csr-id-5095f44db58014f4a35ea8996a90d56d2ac19d45/> adjust error return types to handle collision detection
+   This does mean a lot of churn across the tree, but the change is
+   usually just an adjustment to variants of an existing error type,
+   so I expect that most downstream users will require little to no
+   adaption for this change.
+ - <csr-id-4f2b6496109573237f82ee30058cbb93abf3e338/> use separate error type for I/O hashing operations
+   Prepare for hashing becoming fallible.
+ - <csr-id-54e57649f0e0b15c0bd1d3233e41524cb91a8cb9/> adjust hash verification return types for the common interface
+   This mostly just affects return types – using
+   `git_hash::verify::Error` instead of bespoke duplicated versions
+   thereof, and occasionally returning an `ObjectId` instead of `()`
+   for convenience.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 33 commits contributed to the release.
+ - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Merge pull request #1915 from emilazy/push-qvyqmopsoltr ([`4660f7a`](https://github.com/GitoxideLabs/gitoxide/commit/4660f7a6f71873311f68f170b0f1f6659a02829d))
+    - Refactor ([`4501086`](https://github.com/GitoxideLabs/gitoxide/commit/4501086adc544e675b3043c4c23b78a6c6711d8b))
+    - Drop migration shims for fallible hashing ([`a68f115`](https://github.com/GitoxideLabs/gitoxide/commit/a68f1156b4a24e49ceb165bdaa9f4fa8e4c70cd9))
+    - Migrate `gix_object::{try_ =>}compute_hash` users ([`3d7e379`](https://github.com/GitoxideLabs/gitoxide/commit/3d7e379f26cbe53ddb430427b8e88ce0966be456))
+    - Make `gix_object::compute_hash` fallible ([`b5ac93a`](https://github.com/GitoxideLabs/gitoxide/commit/b5ac93a9a02c97bd611d455091c60bfbd5f49efa))
+    - Migrate hashing API users to fallible versions ([`fbf6cc8`](https://github.com/GitoxideLabs/gitoxide/commit/fbf6cc897cfeff5ed2a2d5946c060e0cebbd1afd))
+    - Add fallible `gix_object::try_compute_hash` for migration ([`f2b07c0`](https://github.com/GitoxideLabs/gitoxide/commit/f2b07c0783ac98a08f648836e743cb0e6b4fdc7c))
+    - Adjust error return types to handle collision detection ([`5095f44`](https://github.com/GitoxideLabs/gitoxide/commit/5095f44db58014f4a35ea8996a90d56d2ac19d45))
+    - Use separate error type for I/O hashing operations ([`4f2b649`](https://github.com/GitoxideLabs/gitoxide/commit/4f2b6496109573237f82ee30058cbb93abf3e338))
+    - Adjust hash verification return types for the common interface ([`54e5764`](https://github.com/GitoxideLabs/gitoxide/commit/54e57649f0e0b15c0bd1d3233e41524cb91a8cb9))
+    - Migrate all hashing API users to `gix_hash::Hasher::finalize()` ([`4e935ce`](https://github.com/GitoxideLabs/gitoxide/commit/4e935ce167428581f7e0351768b705164f71179a))
+    - Migrate all hashing API users to `gix_hash` ([`baa1430`](https://github.com/GitoxideLabs/gitoxide/commit/baa1430aed0dc8160a71cc675e2626780a2de052))
+    - Use `gix_object::compute_hash` in a test and benchmark ([`7805ffe`](https://github.com/GitoxideLabs/gitoxide/commit/7805ffe7ac0af6a413b491efeacdd7e4616df86b))
+    - Factor out private `gix_object::object_hasher` helper ([`cf261d5`](https://github.com/GitoxideLabs/gitoxide/commit/cf261d5b0ef647d389fce7c901d076cd9f9dd8e2))
+    - Merge pull request #1908 from EliahKagan/run-ci/scripts ([`c8c42b4`](https://github.com/GitoxideLabs/gitoxide/commit/c8c42b4b86e8bf7d8f0f7130d2da98dfed246be9))
+    - Fix a few ShellCheck warnings and stylistic inconsistencies ([`e5e2c6f`](https://github.com/GitoxideLabs/gitoxide/commit/e5e2c6fbf9337219edb79ce97b56b3be91bc14e5))
+    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
+    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
+    - Merge pull request #1903 from pierrechevalier83/tag_end_of_line ([`6caee49`](https://github.com/GitoxideLabs/gitoxide/commit/6caee4922c96c864a28eb9b1b52a013d2c11cd4e))
+    - Support empty tags with or without trailing NL ([`f69890c`](https://github.com/GitoxideLabs/gitoxide/commit/f69890cafd08db95231a02d08fbbcb02689e99c4))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1837 from GitoxideLabs/improvements ([`b4fe425`](https://github.com/GitoxideLabs/gitoxide/commit/b4fe425a1a7823790fab592c84aa8494d295640d))
+    - Add `commit::ExtraHeaders::find_pos()`, and expose "gpgsig" header name. ([`bf85128`](https://github.com/GitoxideLabs/gitoxide/commit/bf851283f9d451a2a5c55a44c0474126baa2b8fb))
+    - `Repository::commit()` now explains how to create a commit without ref updates. ([`866affd`](https://github.com/GitoxideLabs/gitoxide/commit/866affde8ef17f201884b8a4b36cc4c7f449d6fe))
+    - Add `CommitRef|TagRef|BlobRef::into_owned()` as shortcut. ([`527fd3d`](https://github.com/GitoxideLabs/gitoxide/commit/527fd3d19a307fe878fd8e3ca54ed10140ac6fa7))
+    - Merge pull request #1822 from epage/w7 ([`11ac79c`](https://github.com/GitoxideLabs/gitoxide/commit/11ac79c068181d4ed9f6a404e4875ad7c206520c))
+    - Upgrade to Winnow 0.7 ([`fdc57e7`](https://github.com/GitoxideLabs/gitoxide/commit/fdc57e79af6f7922d91ad8d7796943821f637124))
+    - Switch to ModalParser ([`0e71412`](https://github.com/GitoxideLabs/gitoxide/commit/0e71412e9b92166a5adcd2d9685d7c3ddbbd7014))
+    - Resolve Winnow deprecations ([`3cd3e2a`](https://github.com/GitoxideLabs/gitoxide/commit/3cd3e2a71beb01591afe732ab4ae914ed62a4ecf))
+    - Upgrade to Winnow 0.6.26 ([`783c4e6`](https://github.com/GitoxideLabs/gitoxide/commit/783c4e698234b8afaf8fbd25057aca11c5c66e75))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
 ## 0.47.0 (2025-01-18)
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
@@ -25,7 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release over the course of 27 calendar days.
+ - 9 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -37,6 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1762 from GitoxideLabs/fix-1759 ([`7ec21bb`](https://github.com/GitoxideLabs/gitoxide/commit/7ec21bb96ce05b29dde74b2efdf22b6e43189aab))
     - Bump `rust-version` to 1.70 ([`17835bc`](https://github.com/GitoxideLabs/gitoxide/commit/17835bccb066bbc47cc137e8ec5d9fe7d5665af0))

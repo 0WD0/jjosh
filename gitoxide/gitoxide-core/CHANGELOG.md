@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.46.0 (2025-04-04)
+
+<csr-id-d535dbc966fe5e7adc7ab81ee18e840dffaf361f/>
+<csr-id-dd366a52d46078729a6e36468211b97c92c2921d/>
+
+### Changed
+
+ - <csr-id-9800e9c25c2a61dbe5d502270a962f20bf305f47/> read config losslessly even without `debug_assertions`
+   This should hopefully not be a breaking change, as the same code
+   could produce the same behaviour if compiled with different flags,
+   and the semantic meaning of the resulting configuration should be
+   the same. But Hyrum’s law is always lurking…
+
+### New Features
+
+ - <csr-id-448fa5864909f79cb6815cb57db8e07c6cadcb68/> support bare paths in `gix diff file`
+ - <csr-id-76b7ec6951ba1b3829903ecbba2ddde836afbc20/> use ToGitUnlessBinaryToTextIsPresent
+ - <csr-id-dbb15328d7b26aaa51ceadcd5a8cb021155023b3/> add first 'debug' version of `gix diff file`
+
+### Refactor
+
+ - <csr-id-d535dbc966fe5e7adc7ab81ee18e840dffaf361f/> use UnifiedDiff instead of UnifiedDiffBuilder
+ - <csr-id-dd366a52d46078729a6e36468211b97c92c2921d/> use revspecs for revision and path
+
+### Changed (BREAKING)
+
+ - <csr-id-54e57649f0e0b15c0bd1d3233e41524cb91a8cb9/> adjust hash verification return types for the common interface
+   This mostly just affects return types – using
+   `git_hash::verify::Error` instead of bespoke duplicated versions
+   thereof, and occasionally returning an `ObjectId` instead of `()`
+   for convenience.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 27 commits contributed to the release.
+ - 7 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-sec v0.10.12, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0 ([`ada5a94`](https://github.com/GitoxideLabs/gitoxide/commit/ada5a9447dc3c210afbd8866fe939c3f3a024226))
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
+    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Merge pull request #1915 from emilazy/push-qvyqmopsoltr ([`4660f7a`](https://github.com/GitoxideLabs/gitoxide/commit/4660f7a6f71873311f68f170b0f1f6659a02829d))
+    - Adjust hash verification return types for the common interface ([`54e5764`](https://github.com/GitoxideLabs/gitoxide/commit/54e57649f0e0b15c0bd1d3233e41524cb91a8cb9))
+    - Merge pull request #1909 from cruessler/take-to-components-in-fs-stack ([`5cb5337`](https://github.com/GitoxideLabs/gitoxide/commit/5cb5337efd7679d8a2ab4bd5e6a5da8c366f7f1a))
+    - Use `gix_fs::stack::ToNormalPathComponents` everywhere. ([`1f98edb`](https://github.com/GitoxideLabs/gitoxide/commit/1f98edbaa51caaf152eda289b769388676259a06))
+    - Merge pull request #1902 from cruessler/make-gix-diff-file-accept-bare-path ([`40d8033`](https://github.com/GitoxideLabs/gitoxide/commit/40d8033ed90427fc868933c3eff2a63ad5224f85))
+    - Fix windows build ([`46f2e14`](https://github.com/GitoxideLabs/gitoxide/commit/46f2e14fe719dbacc97dc5d4d59a725694679089))
+    - Support bare paths in `gix diff file` ([`448fa58`](https://github.com/GitoxideLabs/gitoxide/commit/448fa5864909f79cb6815cb57db8e07c6cadcb68))
+    - Merge pull request #1880 from cruessler/add-gix-diff-file ([`b10cc6f`](https://github.com/GitoxideLabs/gitoxide/commit/b10cc6f0f2c3757677d9fdb3c01196d371ac6631))
+    - Apply suggestions from code review ([`1039ae9`](https://github.com/GitoxideLabs/gitoxide/commit/1039ae95981a21340c77739891baa742b801a604))
+    - Use UnifiedDiff instead of UnifiedDiffBuilder ([`d535dbc`](https://github.com/GitoxideLabs/gitoxide/commit/d535dbc966fe5e7adc7ab81ee18e840dffaf361f))
+    - Use ToGitUnlessBinaryToTextIsPresent ([`76b7ec6`](https://github.com/GitoxideLabs/gitoxide/commit/76b7ec6951ba1b3829903ecbba2ddde836afbc20))
+    - Use revspecs for revision and path ([`dd366a5`](https://github.com/GitoxideLabs/gitoxide/commit/dd366a52d46078729a6e36468211b97c92c2921d))
+    - Add first 'debug' version of `gix diff file` ([`dbb1532`](https://github.com/GitoxideLabs/gitoxide/commit/dbb15328d7b26aaa51ceadcd5a8cb021155023b3))
+    - Merge pull request #1884 from GitoxideLabs/improvements ([`0bf1d5b`](https://github.com/GitoxideLabs/gitoxide/commit/0bf1d5b9f0b0971b9f25a8e44b7818e37c78d68e))
+    - Merge pull request #1858 from cruessler/add-git-blame-since ([`7059609`](https://github.com/GitoxideLabs/gitoxide/commit/70596096e35ff8a910dacd6fefdc31d162282b81))
+    - Adapt to changes in `gix-blame` ([`e7084d8`](https://github.com/GitoxideLabs/gitoxide/commit/e7084d8db829bbc33aea958a997deb1db4b5a453))
+    - Adapt to changes in `gix` ([`abb53fb`](https://github.com/GitoxideLabs/gitoxide/commit/abb53fb236d0aa92905a9d54d4193cc7c89f341c))
+    - Merge pull request #1882 from emilazy/push-ylwwuwymlmwt ([`10e41ee`](https://github.com/GitoxideLabs/gitoxide/commit/10e41ee6d1d3607c3d26a66b488d7d1eabc45c6e))
+    - Read config losslessly even without `debug_assertions` ([`9800e9c`](https://github.com/GitoxideLabs/gitoxide/commit/9800e9c25c2a61dbe5d502270a962f20bf305f47))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1743 from cruessler/skip-uninteresting-commits-for-blame ([`aa05ef0`](https://github.com/GitoxideLabs/gitoxide/commit/aa05ef0d143d7ca14272f6cd36a40d2ed839fe76))
+    - Adapt to changes in `gix-blame` ([`fd63dd6`](https://github.com/GitoxideLabs/gitoxide/commit/fd63dd6bd0574a5207c23c0303cd3e86da7cb9d6))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
 ## 0.45.0 (2025-01-18)
 
 ### New Features
@@ -36,7 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 28 commits contributed to the release over the course of 27 calendar days.
+ - 29 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -54,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1766 from cruessler/add-range-to-gix-blame ([`90fef01`](https://github.com/GitoxideLabs/gitoxide/commit/90fef0148376167763a3ebeff91a1cf9c236cf8a))
     - Add `gix blame -L start,end` ([`4a78395`](https://github.com/GitoxideLabs/gitoxide/commit/4a783959c4862985cbffc4fe5cd2c1bed38383b1))
