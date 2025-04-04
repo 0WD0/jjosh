@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features (BREAKING)
+
+ - <csr-id-e9a493c204979d1a155c198331277662d26aec58/> add `diff_algorithm` to `blame::file()`
+ - <csr-id-e08cf8811e25c91ca410963703ce98db32be3681/> add `since` to `blame::file()`
+ - <csr-id-1250df3f9c10f66e4b8e227809831f3088482960/> skip uninteresting commits for blame
+   This is breaking because it takes a commitgraph cache as argument
+   , and because it replaces the `traverse` by `suspect`.
+   
+   Switch to date order for traversing the commit history, as opposed to
+   topo order. This is also what `git blame` does.
+   
+   Skip suspects that have no associated unblamed hunks
+   
+   Pass blame to parent in `process_change`. `git`’s algorithm only seems
+   to keep the current suspect for unblamed hunks that were the direct
+   result of splitting an existing unblamed hunk because it matched with a
+   change. All other hunks appear to be blamed on the parent without
+   further checks.
+   
+   Add assertion that lines always match.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 18 commits contributed to the release.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1910 from cruessler/add-tree-id-to-either ([`544cdaf`](https://github.com/GitoxideLabs/gitoxide/commit/544cdafbb58bb3e39bf19a19eb02d5296a7361aa))
+    - Make use `gix_traverse::commit::Either::tree_id()` ([`3fad860`](https://github.com/GitoxideLabs/gitoxide/commit/3fad860aaffb53fd27b6d2b959ad8a8d1ab9ac63))
+    - Merge pull request #1901 from cruessler/make-either-copy ([`85b060c`](https://github.com/GitoxideLabs/gitoxide/commit/85b060c777cb893c85d60168f9b748ce78c0f146))
+    - Derive Clone and Copy for Either ([`3c1b1df`](https://github.com/GitoxideLabs/gitoxide/commit/3c1b1df9320c11e754931e292689c6075bddbfa9))
+    - Merge pull request #1888 from cruessler/respect-diff-algorithm-in-blame ([`dce127e`](https://github.com/GitoxideLabs/gitoxide/commit/dce127e63f7788c5424e2da2cf4e3112f9c3b159))
+    - Add `diff_algorithm` to `blame::file()` ([`e9a493c`](https://github.com/GitoxideLabs/gitoxide/commit/e9a493c204979d1a155c198331277662d26aec58))
+    - Merge pull request #1858 from cruessler/add-git-blame-since ([`7059609`](https://github.com/GitoxideLabs/gitoxide/commit/70596096e35ff8a910dacd6fefdc31d162282b81))
+    - Add `since` to `blame::file()` ([`e08cf88`](https://github.com/GitoxideLabs/gitoxide/commit/e08cf8811e25c91ca410963703ce98db32be3681))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1824 from cruessler/replace-find-commit-by-find ([`8ab0a6b`](https://github.com/GitoxideLabs/gitoxide/commit/8ab0a6b458327d3dc057bec3d4e09bea04dee388))
+    - Replace `odb.find_commit` by `gix_traverse::commit::find` ([`e09ec3e`](https://github.com/GitoxideLabs/gitoxide/commit/e09ec3e438b5503f21eb784c5781b52e0b1f8a1b))
+    - Merge pull request #1743 from cruessler/skip-uninteresting-commits-for-blame ([`aa05ef0`](https://github.com/GitoxideLabs/gitoxide/commit/aa05ef0d143d7ca14272f6cd36a40d2ed839fe76))
+    - Refactor ([`4428838`](https://github.com/GitoxideLabs/gitoxide/commit/442883800bc3abe63592ec36cb03b7c7e55c0f34))
+    - Skip uninteresting commits for blame ([`1250df3`](https://github.com/GitoxideLabs/gitoxide/commit/1250df3f9c10f66e4b8e227809831f3088482960))
+    - Merge pull request #1823 from cruessler/add-test-for-differing-date-and-topo-order ([`18e163e`](https://github.com/GitoxideLabs/gitoxide/commit/18e163e5df653f698a356b26da4f7e1c31fac9ad))
+    - Add test for commits not ordered chronologically ([`a9de4f0`](https://github.com/GitoxideLabs/gitoxide/commit/a9de4f0898148eb45ca8a229c14e65f5dbf56906))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
 ## v0.1.0 (2023-02-17)
 
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
@@ -38,6 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    in edition 2021.
 
 ## v0.0.0 (2025-01-18)
+
+<csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
+<csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
 
 ### New Features (BREAKING)
 
@@ -98,7 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 46 commits contributed to the release.
+ - 47 commits contributed to the release.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -109,6 +176,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Don't specify version numbers in dev-dependencies ([`7570daa`](https://github.com/GitoxideLabs/gitoxide/commit/7570daa50a93a2b99e9cd5228cb274f20839865f))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1766 from cruessler/add-range-to-gix-blame ([`90fef01`](https://github.com/GitoxideLabs/gitoxide/commit/90fef0148376167763a3ebeff91a1cf9c236cf8a))

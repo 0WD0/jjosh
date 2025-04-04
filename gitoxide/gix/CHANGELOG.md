@@ -5,6 +5,148 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+ - <csr-id-9800e9c25c2a61dbe5d502270a962f20bf305f47/> read config losslessly even without `debug_assertions`
+   This should hopefully not be a breaking change, as the same code
+   could produce the same behaviour if compiled with different flags,
+   and the semantic meaning of the resulting configuration should be
+   the same. But Hyrum’s law is always lurking…
+
+### Documentation
+
+ - <csr-id-687322b45787a2552fb16a8d1fed8630318f9148/> specify ThreadSafeRepository is not Send/Sync without "parallel"
+
+### New Features
+
+ - <csr-id-5054780967ef7d5651d358337aa78e09b9007c38/> add `Repository::checkout_options()`.
+   It's a low-level set of options to drive (quite unsafe) checkouts.
+   They are unsafe as they may be configured to overwrite, and are in no
+   way similar to `git checkout`.
+ - <csr-id-02878c9c3418c904c61c8e0ef02f9448b11fd14c/> add `Repository::head_tree_id_or_empty()` for convenience.
+ - <csr-id-776f9bec5bb0ad04ccc6e082d10eb421de1483ee/> add `Repository::workdir_path()` to easily obtain a `Path` for worktree items.
+ - <csr-id-518fbbc7f4e66c908f33cc3b3dcf5f0a7d6f5d1b/> add `Repository::workdir()` as replacement for `Repository::work_dir()`.
+   Keep the latter as deprecated though.
+ - <csr-id-27e62d7e741b56418e174db0495a9ddc32f11b47/> `filter::Pipeline::worktree_file_to_object()` now can add `Commit` type objects.
+ - <csr-id-70ebd5f4128e7dcf83175ca05a70741434b71379/> add `filter::Pipeline::worktree_file_to_object()`.
+   That way it's easier to correctly add whole files into the object
+   database.
+ - <csr-id-23d2bed707e0c0cb164f3f279849536688ffa4c1/> make internal `repo` fields public for ease of use.
+   That way, functions or methods taking such a type as argument
+   have access to the underlying repository so it doesn't need
+   to be passed as separate argument.
+ - <csr-id-37582b089357ba9e06547374ea651c51d3608890/> add `blob::platform::Resource::intern_source_strip_newline_separators()`
+   That way it will be easier to have typical Git-style patches diffs around
+   files that don't end with a newline.
+ - <csr-id-f3257f3c0fd1b91aecdb8f1d947e9648080d162f/> add `Repository::big_file_threshold()` to easily learn what Git considers a big file.
+
+### Bug Fixes
+
+ - <csr-id-aa8daf89bcc3c26baeb7d850c19bb9a5d403f555/> Don't panic when rev-parsing `^^^` and similar
+ - <csr-id-dcdb8eae4b5c7897bef752a66bc17a8ee662da97/> `filter::Pipeline::convert_to_git()` now also works on Windows under all circumstances.
+ - <csr-id-9bec947deb4313a9d1eb701555d96ea829132976/> assure `Repository::commit_as()` also uses the committer for reflogs
+   Previously it would retrieve the configured committer, or trigger an error
+   if there was none despite the commiter being provided to `commit_as()`.
+   
+   This als adds `Repository::edit_references_as(committer)` to allow passing
+   a given committer.
+
+### Other
+
+ - <csr-id-866affde8ef17f201884b8a4b36cc4c7f449d6fe/> `Repository::commit()` now explains how to create a commit without ref updates.
+
+### Changed (BREAKING)
+
+ - <csr-id-fd12ef89af29bf0684fc1df3e7b76ff367dee994/> drop obsolete SHA‐1 features
+   The hashing API has moved to `gix_hash::hasher`, and we now use
+   `sha1-checked` unconditionally.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-b78e7dd99230077b694434e0ed7d236f97aba046/> make clear what `with_pruned()` is doing by renaming it to `with_boundary()`.
+   This is how it acts, and it's not at all the same as `hide()` in `git2`.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 54 commits contributed to the release.
+ - 17 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 2 unique issues were worked on: [#1829](https://github.com/GitoxideLabs/gitoxide/issues/1829), [#1914](https://github.com/GitoxideLabs/gitoxide/issues/1914)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1829](https://github.com/GitoxideLabs/gitoxide/issues/1829)**
+    - Assure `Repository::commit_as()` also uses the committer for reflogs ([`9bec947`](https://github.com/GitoxideLabs/gitoxide/commit/9bec947deb4313a9d1eb701555d96ea829132976))
+ * **[#1914](https://github.com/GitoxideLabs/gitoxide/issues/1914)**
+    - Don't panic when rev-parsing `^^^` and similar ([`aa8daf8`](https://github.com/GitoxideLabs/gitoxide/commit/aa8daf89bcc3c26baeb7d850c19bb9a5d403f555))
+ * **Uncategorized**
+    - Merge pull request #1915 from emilazy/push-qvyqmopsoltr ([`4660f7a`](https://github.com/GitoxideLabs/gitoxide/commit/4660f7a6f71873311f68f170b0f1f6659a02829d))
+    - Migrate `gix_object::{try_ =>}compute_hash` users ([`3d7e379`](https://github.com/GitoxideLabs/gitoxide/commit/3d7e379f26cbe53ddb430427b8e88ce0966be456))
+    - Migrate hashing API users to fallible versions ([`fbf6cc8`](https://github.com/GitoxideLabs/gitoxide/commit/fbf6cc897cfeff5ed2a2d5946c060e0cebbd1afd))
+    - Drop obsolete SHA‐1 features ([`fd12ef8`](https://github.com/GitoxideLabs/gitoxide/commit/fd12ef89af29bf0684fc1df3e7b76ff367dee994))
+    - Merge pull request #1851 from GitoxideLabs/fix-1850 ([`cd96b64`](https://github.com/GitoxideLabs/gitoxide/commit/cd96b6439d119c5189a8e7349d2e7e2533db41b5))
+    - Adapt to changes in `gix-features` ([`5f8bff8`](https://github.com/GitoxideLabs/gitoxide/commit/5f8bff844420a2ea1fb1f949650451d235251185))
+    - Merge pull request #1916 from GitoxideLabs/fix-1914 ([`32b54b3`](https://github.com/GitoxideLabs/gitoxide/commit/32b54b3ab7f101c6b9cd7c3349153c2fc71e496d))
+    - Merge pull request #1909 from cruessler/take-to-components-in-fs-stack ([`5cb5337`](https://github.com/GitoxideLabs/gitoxide/commit/5cb5337efd7679d8a2ab4bd5e6a5da8c366f7f1a))
+    - Use `gix_fs::stack::ToNormalPathComponents` everywhere. ([`1f98edb`](https://github.com/GitoxideLabs/gitoxide/commit/1f98edbaa51caaf152eda289b769388676259a06))
+    - Update MSRV to 1.75 for access to `impl` returns in traits. ([`569c186`](https://github.com/GitoxideLabs/gitoxide/commit/569c18685e714f9d89946ec69be4116d02f74a2a))
+    - Merge pull request #1911 from GitoxideLabs/improvements ([`bfa3253`](https://github.com/GitoxideLabs/gitoxide/commit/bfa32530c99ce7c7f7360b41a0d49183ac88cec4))
+    - `filter::Pipeline::convert_to_git()` now also works on Windows under all circumstances. ([`dcdb8ea`](https://github.com/GitoxideLabs/gitoxide/commit/dcdb8eae4b5c7897bef752a66bc17a8ee662da97))
+    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
+    - Drop trailing `,` just before `)` on same line in function calls ([`66a5ae1`](https://github.com/GitoxideLabs/gitoxide/commit/66a5ae1b586d583066402c801213a55141e2aad6))
+    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
+    - Merge pull request #1898 from GitoxideLabs/improvements ([`7255a5f`](https://github.com/GitoxideLabs/gitoxide/commit/7255a5fc0aa790b54e3176e8ecf066457acd9eef))
+    - Improve documentation of a field that one can easily get wrong otherwise. ([`5a1b3d6`](https://github.com/GitoxideLabs/gitoxide/commit/5a1b3d66b161a00c47f35cb5ad92f1c40554e538))
+    - Merge pull request #1873 from NobodyXu/zlib-rs ([`316f113`](https://github.com/GitoxideLabs/gitoxide/commit/316f11322f156760a0e344a3bda33e11ca4e8862))
+    - Review adjustments for zlib-rs support. ([`5e618b6`](https://github.com/GitoxideLabs/gitoxide/commit/5e618b6e7632a037326d759678bef452b32a3b30))
+    - Add new feature zlib-rs ([`8b1b55c`](https://github.com/GitoxideLabs/gitoxide/commit/8b1b55c337e65071156856771daee3cbcead1e24))
+    - Revert "Instrument make_remote_repos.sh to view `config` corruption" ([`9061fc4`](https://github.com/GitoxideLabs/gitoxide/commit/9061fc4260fe0d7b2c1ba345ae7923f2d3e37ad4))
+    - Instrument make_remote_repos.sh to view `config` corruption ([`d290ad9`](https://github.com/GitoxideLabs/gitoxide/commit/d290ad962fe88e2aa28d23d412117f59ee5664c0))
+    - Merge pull request #1884 from GitoxideLabs/improvements ([`0bf1d5b`](https://github.com/GitoxideLabs/gitoxide/commit/0bf1d5b9f0b0971b9f25a8e44b7818e37c78d68e))
+    - Merge pull request #1876 from joshtriplett/fix-tests-in-environments-with-env-variables-set ([`dc8bd63`](https://github.com/GitoxideLabs/gitoxide/commit/dc8bd63f608d6704d76c2fd68d2a3c9d425ce1c8))
+    - Fix tests when `GIT_AUTHOR_NAME` or `GIT_COMMITTER_NAME` are set ([`94dda22`](https://github.com/GitoxideLabs/gitoxide/commit/94dda22aa9e920de6ff3c1f076d5d1f5e6e5c4a6))
+    - Add `Repository::checkout_options()`. ([`5054780`](https://github.com/GitoxideLabs/gitoxide/commit/5054780967ef7d5651d358337aa78e09b9007c38))
+    - Add `Repository::head_tree_id_or_empty()` for convenience. ([`02878c9`](https://github.com/GitoxideLabs/gitoxide/commit/02878c9c3418c904c61c8e0ef02f9448b11fd14c))
+    - Add `Repository::workdir_path()` to easily obtain a `Path` for worktree items. ([`776f9be`](https://github.com/GitoxideLabs/gitoxide/commit/776f9bec5bb0ad04ccc6e082d10eb421de1483ee))
+    - Add `Repository::workdir()` as replacement for `Repository::work_dir()`. ([`518fbbc`](https://github.com/GitoxideLabs/gitoxide/commit/518fbbc7f4e66c908f33cc3b3dcf5f0a7d6f5d1b))
+    - Merge pull request #1882 from emilazy/push-ylwwuwymlmwt ([`10e41ee`](https://github.com/GitoxideLabs/gitoxide/commit/10e41ee6d1d3607c3d26a66b488d7d1eabc45c6e))
+    - Fix cargo-deny using a prodash-update and ignore directive ([`cf7f34d`](https://github.com/GitoxideLabs/gitoxide/commit/cf7f34dcd653ddafaaecb149d4b98efa97d5b871))
+    - Read config losslessly even without `debug_assertions` ([`9800e9c`](https://github.com/GitoxideLabs/gitoxide/commit/9800e9c25c2a61dbe5d502270a962f20bf305f47))
+    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
+    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
+    - Merge pull request #1837 from GitoxideLabs/improvements ([`b4fe425`](https://github.com/GitoxideLabs/gitoxide/commit/b4fe425a1a7823790fab592c84aa8494d295640d))
+    - `Repository::commit()` now explains how to create a commit without ref updates. ([`866affd`](https://github.com/GitoxideLabs/gitoxide/commit/866affde8ef17f201884b8a4b36cc4c7f449d6fe))
+    - Merge pull request #1835 from GitoxideLabs/fixes ([`503098d`](https://github.com/GitoxideLabs/gitoxide/commit/503098d1f93853502083fc4bf51675784879be12))
+    - Merge pull request #1834 from GitoxideLabs/improvements ([`5c327bb`](https://github.com/GitoxideLabs/gitoxide/commit/5c327bbfeb7c685a93962e087f72d1083a768b2d))
+    - `filter::Pipeline::worktree_file_to_object()` now can add `Commit` type objects. ([`27e62d7`](https://github.com/GitoxideLabs/gitoxide/commit/27e62d7e741b56418e174db0495a9ddc32f11b47))
+    - Merge pull request #1833 from GitoxideLabs/improvements ([`c042813`](https://github.com/GitoxideLabs/gitoxide/commit/c042813b13fadd414134dd6fc93b13d4da49577d))
+    - Add `filter::Pipeline::worktree_file_to_object()`. ([`70ebd5f`](https://github.com/GitoxideLabs/gitoxide/commit/70ebd5f4128e7dcf83175ca05a70741434b71379))
+    - Make internal `repo` fields public for ease of use. ([`23d2bed`](https://github.com/GitoxideLabs/gitoxide/commit/23d2bed707e0c0cb164f3f279849536688ffa4c1))
+    - Merge pull request #1821 from GitoxideLabs/improvements ([`914bf28`](https://github.com/GitoxideLabs/gitoxide/commit/914bf28409e8c319c25967f2bdb6aa71f2255879))
+    - Add `blob::platform::Resource::intern_source_strip_newline_separators()` ([`37582b0`](https://github.com/GitoxideLabs/gitoxide/commit/37582b089357ba9e06547374ea651c51d3608890))
+    - Merge pull request #1820 from GitoxideLabs/improvements ([`daa6d4a`](https://github.com/GitoxideLabs/gitoxide/commit/daa6d4a62489d16a6520c644f2b2ca180c9f5733))
+    - Make clear what `with_pruned()` is doing by renaming it to `with_boundary()`. ([`b78e7dd`](https://github.com/GitoxideLabs/gitoxide/commit/b78e7dd99230077b694434e0ed7d236f97aba046))
+    - Merge pull request #1807 from bryceberger/bryce/push-xqrmpyoxlosq ([`79cb655`](https://github.com/GitoxideLabs/gitoxide/commit/79cb65588aa9107b35706f0d6e16772fd43dc96e))
+    - Refactor ([`d7ddbb7`](https://github.com/GitoxideLabs/gitoxide/commit/d7ddbb73da487ba5dbc5d3c64eb764a9eb50b554))
+    - Specify ThreadSafeRepository is not Send/Sync without "parallel" ([`687322b`](https://github.com/GitoxideLabs/gitoxide/commit/687322b45787a2552fb16a8d1fed8630318f9148))
+    - Merge pull request #1785 from GitoxideLabs/improvements ([`1a69c40`](https://github.com/GitoxideLabs/gitoxide/commit/1a69c4080bc38ef9151bc8ebfb9d5f87f19b5755))
+    - Add `Repository::big_file_threshold()` to easily learn what Git considers a big file. ([`f3257f3`](https://github.com/GitoxideLabs/gitoxide/commit/f3257f3c0fd1b91aecdb8f1d947e9648080d162f))
+    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+</details>
+
 ## 0.70.0 (2025-01-18)
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
@@ -79,7 +221,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 40 commits contributed to the release over the course of 27 calendar days.
+ - 41 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 18 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)
@@ -99,6 +241,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1770](https://github.com/GitoxideLabs/gitoxide/issues/1770)**
     - `Repository::status()` detects files added to the index in an unborn repository. ([`cd8fabf`](https://github.com/GitoxideLabs/gitoxide/commit/cd8fabf583e75f59feda7a78b8710f26a8200cbb))
  * **Uncategorized**
+    - Release gix-utils v0.1.14, gix-actor v0.33.2, gix-hash v0.16.0, gix-trace v0.1.12, gix-features v0.40.0, gix-hashtable v0.7.0, gix-path v0.10.14, gix-validate v0.9.3, gix-object v0.47.0, gix-glob v0.18.0, gix-quote v0.4.15, gix-attributes v0.24.0, gix-command v0.4.1, gix-packetline-blocking v0.18.2, gix-filter v0.17.0, gix-fs v0.13.0, gix-chunk v0.4.11, gix-commitgraph v0.26.0, gix-revwalk v0.18.0, gix-traverse v0.44.0, gix-worktree-stream v0.19.0, gix-archive v0.19.0, gix-bitmap v0.2.14, gix-tempfile v16.0.0, gix-lock v16.0.0, gix-index v0.38.0, gix-config-value v0.14.11, gix-pathspec v0.9.0, gix-ignore v0.13.0, gix-worktree v0.39.0, gix-diff v0.50.0, gix-blame v0.0.0, gix-ref v0.50.0, gix-sec v0.10.11, gix-config v0.43.0, gix-prompt v0.9.1, gix-url v0.29.0, gix-credentials v0.27.0, gix-discover v0.38.0, gix-dir v0.12.0, gix-mailmap v0.25.2, gix-revision v0.32.0, gix-merge v0.3.0, gix-negotiate v0.18.0, gix-pack v0.57.0, gix-odb v0.67.0, gix-refspec v0.28.0, gix-shallow v0.2.0, gix-packetline v0.18.3, gix-transport v0.45.0, gix-protocol v0.48.0, gix-status v0.17.0, gix-submodule v0.17.0, gix-worktree-state v0.17.0, gix v0.70.0, gix-fsck v0.9.0, gitoxide-core v0.45.0, gitoxide v0.41.0, safety bump 42 crates ([`dea106a`](https://github.com/GitoxideLabs/gitoxide/commit/dea106a8c4fecc1f0a8f891a2691ad9c63964d25))
     - Update all changelogs prior to release ([`1f6390c`](https://github.com/GitoxideLabs/gitoxide/commit/1f6390c53ba68ce203ae59eb3545e2631dd8a106))
     - Merge pull request #1774 from EliahKagan/complex-graph-no-baseline-next ([`90e08f1`](https://github.com/GitoxideLabs/gitoxide/commit/90e08f18d9cd2630f245d3a190e7bc5585bd4bc7))
     - Use parse_spec_no_baseline with :/ for all 2.47.* on CI ([`fe33fa7`](https://github.com/GitoxideLabs/gitoxide/commit/fe33fa7ab639ee0005167fd7a16712446fa522bb))
