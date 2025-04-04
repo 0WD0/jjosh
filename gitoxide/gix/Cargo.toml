@@ -319,7 +319,7 @@ gix-discover = { version = "^0.39.0", path = "../gix-discover" }
 gix-tempfile = { version = "^17.0.0", path = "../gix-tempfile", default-features = false }
 gix-lock = { version = "^17.0.0", path = "../gix-lock" }
 gix-validate = { version = "^0.9.4", path = "../gix-validate" }
-gix-sec = { version = "^0.10.11", path = "../gix-sec" }
+gix-sec = { version = "^0.10.12", path = "../gix-sec" }
 gix-date = { version = "^0.9.4", path = "../gix-date" }
 gix-refspec = { version = "^0.29.0", path = "../gix-refspec" }
 gix-filter = { version = "^0.18.0", path = "../gix-filter", optional = true }

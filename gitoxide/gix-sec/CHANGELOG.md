@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.10.12 (2025-04-04)
 
 A maintenance release without user-facing changes.
 
@@ -24,7 +24,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Update `gix-path` dependency in `gix-sec` to make compile succeed ([`010fb20`](https://github.com/GitoxideLabs/gitoxide/commit/010fb2063d5bc7def17d2ad9e6f114fab21e92c7))
+    - Update `gix-path` dependency in `gix-sec` to make compile succeed ([`fb1b71d`](https://github.com/GitoxideLabs/gitoxide/commit/fb1b71da5fcd6f727f9bdd6cd1df575dc8bdac79))
     - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
 </details>
 

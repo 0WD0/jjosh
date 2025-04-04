@@ -1403,7 +1403,7 @@ dependencies = [
  "gix-refspec",
  "gix-revision",
  "gix-revwalk 0.19.0",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "gix-shallow",
  "gix-status",
  "gix-submodule",
@@ -1634,7 +1634,7 @@ dependencies = [
  "gix-glob 0.19.0",
  "gix-path 0.10.15",
  "gix-ref 0.51.0",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "memchr",
  "once_cell",
  "serde",
@@ -1654,7 +1654,7 @@ dependencies = [
  "gix-config",
  "gix-path 0.10.15",
  "gix-ref 0.51.0",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "gix-testtools",
  "serial_test",
 ]
@@ -1682,7 +1682,7 @@ dependencies = [
  "gix-config-value",
  "gix-path 0.10.15",
  "gix-prompt",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "gix-testtools",
  "gix-trace 0.1.12",
  "gix-url",
@@ -1796,7 +1796,7 @@ dependencies = [
  "gix-hash 0.14.2",
  "gix-path 0.10.14",
  "gix-ref 0.44.1",
- "gix-sec 0.10.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gix-sec 0.10.11",
  "thiserror 1.0.69",
 ]
 
@@ -1811,7 +1811,7 @@ dependencies = [
  "gix-hash 0.17.0",
  "gix-path 0.10.15",
  "gix-ref 0.51.0",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "gix-testtools",
  "is_ci",
  "serial_test",
@@ -2585,6 +2585,18 @@ dependencies = [
 [[package]]
 name = "gix-sec"
 version = "0.10.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d84dae13271f4313f8d60a166bf27e54c968c7c33e2ffd31c48cafe5da649875"
+dependencies = [
+ "bitflags 2.9.0",
+ "gix-path 0.10.14",
+ "libc",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "gix-sec"
+version = "0.10.12"
 dependencies = [
  "bitflags 2.9.0",
  "document-features",
@@ -2592,18 +2604,6 @@ dependencies = [
  "libc",
  "serde",
  "tempfile",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "gix-sec"
-version = "0.10.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d84dae13271f4313f8d60a166bf27e54c968c7c33e2ffd31c48cafe5da649875"
-dependencies = [
- "bitflags 2.9.0",
- "gix-path 0.10.14",
- "libc",
  "windows-sys 0.52.0",
 ]
 
@@ -2775,7 +2775,7 @@ dependencies = [
  "gix-pack",
  "gix-packetline",
  "gix-quote 0.5.0",
- "gix-sec 0.10.11",
+ "gix-sec 0.10.12",
  "gix-url",
  "maybe-async",
  "pin-project-lite",
