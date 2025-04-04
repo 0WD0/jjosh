@@ -64,7 +64,13 @@ impl TryFrom<u32> for tree::EntryMode {
 impl EntryMode {
     /// Expose the value as a u16 (lossy, unlike the internal representation that is hidden)
     pub const fn value(self) -> u16 {
-        self.internal
+        // Demangle the hack: In the case where the second leftmost octet is 4 (Tree), the leftmost bit is
+        // there to represent whether the bytes representation should have 5 or 6 octets
+        if self.internal & IFMT == 0o140000 {
+            0o040000
+        } else {
+            self.internal
+        }
     }
 
     /// Return the representation as used in the git internal format, which is octal and written
@@ -79,8 +85,14 @@ impl EntryMode {
                 let digit = (self.internal & oct_mask) >> bit_pos;
                 *backing_octet = b'0' + digit as u8;
             }
+            // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`
             if backing[1] == b'4' {
-                &backing[1..6]
+                if backing[0] == b'1' {
+                    backing[0] = b'0';
+                    &backing[0..6]
+                } else {
+                    &backing[1..6]
+                }
             } else {
                 &backing[0..6]
             }
@@ -117,6 +129,10 @@ impl EntryMode {
             }
             mode = (mode << 3) + (b - b'0') as u16;
             idx += 1;
+        }
+        // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`
+        if mode == 0o040000 && i[0] == b'0' {
+            mode += 0o100000;
         }
         Some((Self { internal: mode }, &i[(space_pos + 1)..]))
     }

@@ -70,10 +70,9 @@ fn as_bytes() {
             EntryMode::from_bytes(b"100644 ".as_ref()).expect("valid"),
             "100644".into(),
         ),
-        // Show incorrect behaviour: b"040000" doesn't round-trip
         (
             EntryMode::from_bytes(b"040000".as_ref()).expect("valid"),
-            "40000".into(),
+            "040000".into(),
         ),
         (EntryMode::from_bytes(b"40000".as_ref()).expect("valid"), "40000".into()),
     ] {
