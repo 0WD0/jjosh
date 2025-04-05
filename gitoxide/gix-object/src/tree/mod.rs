@@ -24,7 +24,7 @@ pub mod write;
 pub struct Editor<'a> {
     /// A way to lookup trees.
     find: &'a dyn crate::FindExt,
-    /// The kind of hashes to produce
+    /// The kind of hashes to produce>
     object_hash: gix_hash::Kind,
     /// All trees we currently hold in memory. Each of these may change while adding and removing entries.
     /// null-object-ids mark tree-entries whose value we don't know yet, they are placeholders that will be
@@ -46,7 +46,7 @@ pub struct Editor<'a> {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EntryMode {
     // Represents the value read from Git, except that "040000" is represented with 0o140000 but
-    // "40000" is represented with 0o40000
+    // "40000" is represented with 0o40000.
     internal: u16,
 }
 
@@ -62,10 +62,10 @@ impl TryFrom<u32> for tree::EntryMode {
 }
 
 impl EntryMode {
-    /// Expose the value as a u16 (lossy, unlike the internal representation that is hidden)
+    /// Expose the value as u16 (lossy, unlike the internal representation that is hidden).
     pub const fn value(self) -> u16 {
         // Demangle the hack: In the case where the second leftmost octet is 4 (Tree), the leftmost bit is
-        // there to represent whether the bytes representation should have 5 or 6 octets
+        // there to represent whether the bytes representation should have 5 or 6 octets.
         if self.internal & IFMT == 0o140000 {
             0o040000
         } else {
@@ -85,7 +85,7 @@ impl EntryMode {
                 let digit = (self.internal & oct_mask) >> bit_pos;
                 *backing_octet = b'0' + digit as u8;
             }
-            // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`
+            // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`.
             if backing[1] == b'4' {
                 if backing[0] == b'1' {
                     backing[0] = b'0';
@@ -101,7 +101,7 @@ impl EntryMode {
     }
 
     /// Construct an EntryMode from bytes represented as in the git internal format
-    /// Return the mode and the remainder of the bytes
+    /// Return the mode and the remainder of the bytes.
     pub(crate) fn extract_from_bytes(i: &[u8]) -> Option<(Self, &'_ [u8])> {
         let mut mode = 0;
         let mut idx = 0;
@@ -109,7 +109,7 @@ impl EntryMode {
         if i.is_empty() {
             return None;
         }
-        // const fn, this is why we can't have nice things (like `.iter().any()`)
+        // const fn, this is why we can't have nice things (like `.iter().any()`).
         while idx < i.len() {
             let b = i[idx];
             // Delimiter, return what we got
@@ -117,27 +117,27 @@ impl EntryMode {
                 space_pos = idx;
                 break;
             }
-            // Not a pure octal input
-            // Performance matters here, so `!(b'0'..=b'7').contains(&b)` won't do
+            // Not a pure octal input.
+            // Performance matters here, so `!(b'0'..=b'7').contains(&b)` won't do.
             #[allow(clippy::manual_range_contains)]
             if b < b'0' || b > b'7' {
                 return None;
             }
-            // More than 6 octal digits we must have hit the delimiter or the input was malformed
+            // More than 6 octal digits we must have hit the delimiter or the input was malformed.
             if idx > 6 {
                 return None;
             }
             mode = (mode << 3) + (b - b'0') as u16;
             idx += 1;
         }
-        // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`
+        // Hack: `0o140000` represents `"040000"`, `0o40000` represents `"40000"`.
         if mode == 0o040000 && i[0] == b'0' {
             mode += 0o100000;
         }
         Some((Self { internal: mode }, &i[(space_pos + 1)..]))
     }
 
-    /// Construct an EntryMode from bytes represented as in the git internal format
+    /// Construct an EntryMode from bytes represented as in the git internal format.
     pub fn from_bytes(i: &[u8]) -> Option<Self> {
         Self::extract_from_bytes(i).map(|(mode, _rest)| mode)
     }
@@ -158,7 +158,7 @@ impl std::fmt::Octal for EntryMode {
 /// A discretized version of ideal and valid values for entry modes.
 ///
 /// Note that even though it can represent every valid [mode](EntryMode), it might
-/// loose information due to that as well.
+/// lose information due to that as well.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Ord, PartialOrd, Hash)]
 #[repr(u16)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
