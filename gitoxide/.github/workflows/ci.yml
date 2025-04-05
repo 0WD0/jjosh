@@ -344,10 +344,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Install tomlq
+        run: |
+          # The runner already has the `yq` command but not its associated `tomlq` command.
+          sudo apt-get update
+          sudo apt-get install yq
+      - name: Strict check, but omit gix-testtools
+        uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: --workspace --all-features
           command: check advisories
+          arguments: --workspace --all-features --exclude gix-testtools
+      - name: Configure less strict check
+        run: |
+          filter='.advisories.ignore += [
+            { id: "RUSTSEC-2025-0021", reason: "gix-testtools can’t upgrade from old gix-features yet" }
+          ]'
+          tomlq "$filter" deny.toml --toml-output > deny-but-ignore-RUSTSEC-2025-0021.toml
+      - name: Less strict check, but include gix-testtools
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+          arguments: --workspace --all-features
+          command-arguments: --config deny-but-ignore-RUSTSEC-2025-0021.toml
 
   cargo-deny:
     runs-on: ubuntu-latest
@@ -356,8 +374,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: --workspace --all-features
           command: check bans licenses sources
+          arguments: --workspace --all-features
 
   wasm:
     name: WebAssembly

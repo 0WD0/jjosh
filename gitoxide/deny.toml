@@ -9,8 +9,7 @@
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
 ignore = [
-    # `paste` - macro crate without replacement
-    "RUSTSEC-2024-0436"
+    { id = "RUSTSEC-2024-0436", reason = "`paste` - macro crate without replacement" },
 ]
 
 
@@ -29,7 +28,6 @@ allow = [
     "MIT",
     "MIT-0",
     "ISC",
-    "LicenseRef-ring",
     "OpenSSL",
     "Zlib",
     "MPL-2.0",
