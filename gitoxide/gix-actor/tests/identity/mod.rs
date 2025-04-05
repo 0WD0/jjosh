@@ -22,12 +22,22 @@ fn round_trip() -> gix_testtools::Result {
 
 #[test]
 fn lenient_parsing() -> gix_testtools::Result {
-    for input in [
-        "First Last<<fl <First Last<fl@openoffice.org >> >",
-        "First Last<fl <First Last<fl@openoffice.org>>\n",
+    for (input, expected_email) in [
+        (
+            "First Last<<fl <First Last<fl@openoffice.org >> >",
+            "fl <First Last<fl@openoffice.org >> ",
+        ),
+        (
+            "First Last<fl <First Last<fl@openoffice.org>>\n",
+            "fl <First Last<fl@openoffice.org",
+        ),
     ] {
         let identity = gix_actor::IdentityRef::from_bytes::<()>(input.as_bytes()).unwrap();
         assert_eq!(identity.name, "First Last");
+        assert_eq!(
+            identity.email, expected_email,
+            "emails are parsed but left as is for round-tripping"
+        );
         let signature: Identity = identity.into();
         let mut output = Vec::new();
         let err = signature.write_to(&mut output).unwrap_err();
