@@ -49,7 +49,7 @@ fn write_changes(
             } => {
                 writeln!(out, "A: {}", typed_location(location, entry_mode))?;
                 writeln!(out, "  {}", id.attach(repo).shorten_or_id())?;
-                writeln!(out, "  -> {:o}", entry_mode.0)?;
+                writeln!(out, "  -> {entry_mode:o}")?;
             }
             gix::diff::tree_with_rewrites::Change::Deletion {
                 location,
@@ -59,7 +59,7 @@ fn write_changes(
             } => {
                 writeln!(out, "D: {}", typed_location(location, entry_mode))?;
                 writeln!(out, "  {}", id.attach(repo).shorten_or_id())?;
-                writeln!(out, "  {:o} ->", entry_mode.0)?;
+                writeln!(out, "  {entry_mode:o} ->")?;
             }
             gix::diff::tree_with_rewrites::Change::Modification {
                 location,
@@ -76,7 +76,7 @@ fn write_changes(
                     id = id.attach(repo).shorten_or_id()
                 )?;
                 if previous_entry_mode != entry_mode {
-                    writeln!(out, "  {:o} -> {:o}", previous_entry_mode.0, entry_mode.0)?;
+                    writeln!(out, "  {previous_entry_mode:o} -> {entry_mode:o}")?;
                 }
             }
             gix::diff::tree_with_rewrites::Change::Rewrite {
@@ -101,7 +101,7 @@ fn write_changes(
                     id = id.attach(repo).shorten_or_id()
                 )?;
                 if source_entry_mode != entry_mode {
-                    writeln!(out, "  {:o} -> {:o}", source_entry_mode.0, entry_mode.0)?;
+                    writeln!(out, "  {source_entry_mode:o} -> {entry_mode:o}")?;
                 }
             }
         }

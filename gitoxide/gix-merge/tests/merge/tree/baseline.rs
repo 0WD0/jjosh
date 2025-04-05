@@ -262,7 +262,7 @@ fn parse_conflict_file_info(line: &str) -> Option<(Entry, Side)> {
         Entry {
             location: path.to_owned(),
             id: gix_hash::ObjectId::from_hex(hex_id.as_bytes()).unwrap(),
-            mode: EntryMode(gix_utils::btoi::to_signed_with_radix::<usize>(oct_mode.as_bytes(), 8).unwrap() as u16),
+            mode: EntryMode::try_from(oct_mode.as_bytes()).unwrap(),
         },
         match stage {
             "1" => Side::Ancestor,
@@ -339,7 +339,7 @@ pub fn visualize_tree(
                     mode = if mode.is_tree() {
                         "".into()
                     } else {
-                        format!("{:o}:", mode.0)
+                        format!("{mode:o}:")
                     }
                 )
             }
