@@ -5,6 +5,9 @@ use gix_actor::Identity;
 fn round_trip() -> gix_testtools::Result {
     static DEFAULTS: &[&[u8]] =     &[
         b"Sebastian Thiel <byronimo@gmail.com>",
+        b"Sebastian Thiel < byronimo@gmail.com>",
+        b"Sebastian Thiel <byronimo@gmail.com  >",
+        b"Sebastian Thiel <\tbyronimo@gmail.com \t >",
         ".. ☺️Sebastian 王知明 Thiel🙌 .. <byronimo@gmail.com>".as_bytes(),
         b".. whitespace  \t  is explicitly allowed    - unicode aware trimming must be done elsewhere  <byronimo@gmail.com>"
     ];
@@ -19,15 +22,21 @@ fn round_trip() -> gix_testtools::Result {
 
 #[test]
 fn lenient_parsing() -> gix_testtools::Result {
-    for input in [
-        "First Last<<fl <First Last<fl@openoffice.org >> >",
-        "First Last<fl <First Last<fl@openoffice.org>>\n",
+    for (input, expected_email) in [
+        (
+            "First Last<<fl <First Last<fl@openoffice.org >> >",
+            "fl <First Last<fl@openoffice.org >> ",
+        ),
+        (
+            "First Last<fl <First Last<fl@openoffice.org>>\n",
+            "fl <First Last<fl@openoffice.org",
+        ),
     ] {
         let identity = gix_actor::IdentityRef::from_bytes::<()>(input.as_bytes()).unwrap();
         assert_eq!(identity.name, "First Last");
         assert_eq!(
-            identity.email, "fl <First Last<fl@openoffice.org",
-            "extra trailing and leading angled parens are stripped"
+            identity.email, expected_email,
+            "emails are parsed but left as is for round-tripping"
         );
         let signature: Identity = identity.into();
         let mut output = Vec::new();

@@ -87,6 +87,7 @@ mod commit {
     round_trip!(
         gix_object::Commit,
         gix_object::CommitRef,
+        "commit/email-with-space.txt",
         "commit/signed-whitespace.txt",
         "commit/two-multiline-headers.txt",
         "commit/mergetag.txt",

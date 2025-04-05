@@ -28,9 +28,13 @@ pub mod signature;
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Identity {
-    /// The actors name.
+    /// The actors name, potentially with whitespace as parsed.
+    ///
+    /// Use [IdentityRef::trim()] or trim manually to be able to clean it up.
     pub name: BString,
-    /// The actor's email.
+    /// The actor's email, potentially with whitespace and garbage as parsed.
+    ///
+    /// Use [IdentityRef::trim()] or trim manually to be able to clean it up.
     pub email: BString,
 }
 
@@ -38,10 +42,14 @@ pub struct Identity {
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IdentityRef<'a> {
-    /// The actors name.
+    /// The actors name, potentially with whitespace as parsed.
+    ///
+    /// Use [IdentityRef::trim()] or trim manually to be able to clean it up.
     #[cfg_attr(feature = "serde", serde(borrow))]
     pub name: &'a BStr,
-    /// The actor's email.
+    /// The actor's email, potentially with whitespace and garbage as parsed.
+    ///
+    /// Use [IdentityRef::trim()] or trim manually to be able to clean it up.
     pub email: &'a BStr,
 }
 
@@ -51,9 +59,13 @@ pub struct IdentityRef<'a> {
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Signature {
-    /// The actors name.
+    /// The actors name, potentially with whitespace as parsed.
+    ///
+    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub name: BString,
-    /// The actor's email.
+    /// The actor's email, potentially with whitespace and garbage as parsed.
+    ///
+    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: BString,
     /// The time stamp at which the signature is performed.
     pub time: Time,
@@ -65,10 +77,14 @@ pub struct Signature {
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SignatureRef<'a> {
-    /// The actor's name.
+    /// The actors name, potentially with whitespace as parsed.
+    ///
+    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     #[cfg_attr(feature = "serde", serde(borrow))]
     pub name: &'a BStr,
-    /// The actor's email.
+    /// The actor's email, potentially with whitespace and garbage as parsed.
+    ///
+    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: &'a BStr,
     /// The time stamp at which the signature was performed.
     pub time: gix_date::Time,
