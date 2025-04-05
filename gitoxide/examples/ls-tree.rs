@@ -54,8 +54,8 @@ fn run(args: Args) -> anyhow::Result<()> {
     for entry in entries {
         writeln!(
             out,
-            "{:06o} {:4} {}    {}",
-            *entry.mode,
+            "{:>6o} {:4} {}    {}",
+            entry.mode,
             entry.mode.as_str(),
             entry.hash,
             entry.path

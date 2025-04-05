@@ -101,6 +101,10 @@ fn special_trees() -> crate::Result {
             expected_entry_count,
             "{name}"
         );
+        // Show we can roundtrip
+        let mut buf: Vec<u8> = Default::default();
+        actual.write_to(&mut buf).expect("Failed to write bytes to buffer");
+        assert_eq!(buf, fixture);
     }
     Ok(())
 }

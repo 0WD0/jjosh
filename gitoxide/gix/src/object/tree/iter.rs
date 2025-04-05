@@ -50,8 +50,8 @@ impl std::fmt::Display for EntryRef<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:06o} {:>6} {}\t{}",
-            *self.mode(),
+            "{:>6o} {:>6} {}\t{}",
+            self.mode(),
             self.mode().as_str(),
             self.id().shorten_or_id(),
             self.filename()
