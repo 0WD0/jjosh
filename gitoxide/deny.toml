@@ -29,7 +29,6 @@ allow = [
     "MIT",
     "MIT-0",
     "ISC",
-    "LicenseRef-ring",
     "OpenSSL",
     "Zlib",
     "MPL-2.0",
