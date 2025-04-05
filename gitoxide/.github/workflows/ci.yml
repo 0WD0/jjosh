@@ -312,22 +312,19 @@ jobs:
   test-32bit-windows:
     runs-on: windows-latest
 
-    env:
-      TARGET: i686-pc-windows-msvc
-
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
-          targets: ${{ env.TARGET }}
+          toolchain: stable-i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - name: cargo check default features
-        run: cargo check --target $env:TARGET --workspace --bins --examples
+        run: cargo check --workspace --bins --examples
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Test (nextest)
-        run: cargo nextest run --target $env:TARGET --workspace --no-fail-fast
+        run: cargo nextest run --workspace --no-fail-fast
 
   lint:
     runs-on: ubuntu-latest
