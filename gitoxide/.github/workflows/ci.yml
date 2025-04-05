@@ -133,7 +133,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies
-        run: sudo apt-get install -y --no-install-recommends liblzma-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends liblzma-dev
       - uses: extractions/setup-just@v3
       - uses: taiki-e/install-action@v2
         with:
