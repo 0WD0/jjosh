@@ -465,6 +465,45 @@ fn overlay_iter_reproduce_1850() -> crate::Result {
 }
 
 #[test]
+fn overlay_iter_reproduce_1928() -> crate::Result {
+    let store = store_at("make_repo_for_1928_repro.sh")?;
+    let ref_names = store
+        .iter()?
+        .all()?
+        .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
+        .collect::<Result<Vec<_>, _>>()?;
+    insta::assert_debug_snapshot!(ref_names, @r#"
+    [
+        (
+            "refs/heads/a-",
+            Object(
+                Sha1(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),
+            ),
+        ),
+        (
+            "refs/heads/a/b",
+            Object(
+                Sha1(2222222222222222222222222222222222222222),
+            ),
+        ),
+        (
+            "refs/heads/a0",
+            Object(
+                Sha1(cccccccccccccccccccccccccccccccccccccccc),
+            ),
+        ),
+        (
+            "refs/heads/a/b",
+            Object(
+                Sha1(bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb),
+            ),
+        ),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
 fn overlay_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
     let store = store_with_packed_refs()?;
     #[cfg(not(windows))]
