@@ -344,6 +344,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
+          arguments: --workspace --all-features
           command: check advisories
 
   cargo-deny:
@@ -353,6 +354,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
+          arguments: --workspace --all-features
           command: check bans licenses sources
 
   wasm:
