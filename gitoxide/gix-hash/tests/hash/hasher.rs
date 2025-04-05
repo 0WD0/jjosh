@@ -1,12 +1,15 @@
 use gix_hash::{Hasher, ObjectId};
+use gix_testtools::size_ok;
 
 #[test]
 fn size_of_hasher() {
-    assert_eq!(
-        std::mem::size_of::<Hasher>(),
-        if cfg!(target_arch = "x86") { 820 } else { 824 },
-        "The size of this type may be relevant when hashing millions of objects,\
-        and shouldn't change unnoticed. The DetectionState alone clocks in at 724 bytes."
+    let actual = std::mem::size_of::<Hasher>();
+    let expected = 824;
+    assert!(
+        size_ok(actual, expected),
+        "The size of this type may be relevant when hashing millions of objects, and shouldn't\
+        change unnoticed: {actual} <~ {expected}\
+        (The DetectionState alone clocked in at 724 bytes when last examined.)"
     );
 }
 
