@@ -4,8 +4,7 @@
 //! along with runtime costs for maintaining a global [`rayon`](https://docs.rs/rayon) thread pool.
 //!
 //! For information on how to use the [`WalkDir`] type, have a look at
-//! * [`jwalk::WalkDir`](https://docs.rs/jwalk/0.5.1/jwalk/type.WalkDir.html) if `parallel` feature is enabled
-//! * [walkdir::WalkDir](https://docs.rs/walkdir/2.3.1/walkdir/struct.WalkDir.html) otherwise
+// TODO: Move all this to `gix-fs` in a breaking change.
 
 #[cfg(feature = "walkdir")]
 mod shared {
@@ -217,19 +216,32 @@ pub mod walkdir {
     ///
     /// Use `precompose_unicode` to represent the `core.precomposeUnicode` configuration option.
     pub fn walkdir_sorted_new(root: &Path, _: Parallelism, precompose_unicode: bool) -> WalkDir {
-        fn ft_to_number(ft: std::fs::FileType) -> usize {
-            if ft.is_file() {
-                1
-            } else {
-                2
-            }
-        }
         WalkDir {
             inner: WalkDirImpl::new(root)
                 .sort_by(|a, b| {
-                    ft_to_number(a.file_type())
-                        .cmp(&ft_to_number(b.file_type()))
-                        .then_with(|| a.file_name().cmp(b.file_name()))
+                    let storage_a;
+                    let storage_b;
+                    let a_name = match gix_path::os_str_into_bstr(a.file_name()) {
+                        Ok(f) => f,
+                        Err(_) => {
+                            storage_a = a.file_name().to_string_lossy();
+                            storage_a.as_ref().into()
+                        }
+                    };
+                    let b_name = match gix_path::os_str_into_bstr(b.file_name()) {
+                        Ok(f) => f,
+                        Err(_) => {
+                            storage_b = b.file_name().to_string_lossy();
+                            storage_b.as_ref().into()
+                        }
+                    };
+                    // "common." < "common/" < "common0"
+                    let common = a_name.len().min(b_name.len());
+                    a_name[..common].cmp(&b_name[..common]).then_with(|| {
+                        let a = a_name.get(common).or_else(|| a.file_type().is_dir().then_some(&b'/'));
+                        let b = b_name.get(common).or_else(|| b.file_type().is_dir().then_some(&b'/'));
+                        a.cmp(&b)
+                    })
                 })
                 .into(),
             precompose_unicode,
