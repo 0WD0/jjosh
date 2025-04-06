@@ -843,7 +843,7 @@ fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() 
         .commit(committer().to_ref())?;
     assert_eq!(
             edits.len(),
-            2,
+            4,
             "it claims to have performed all desired operations, even though some don't make it into the pack as 'side-car'"
         );
 
