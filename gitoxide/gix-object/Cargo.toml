@@ -41,7 +41,7 @@ serde = [
 verbose-object-parsing-errors = ["winnow/std"]
 
 [dependencies]
-gix-features = { version = "^0.41.0", path = "../gix-features", features = [
+gix-features = { version = "^0.41.1", path = "../gix-features", features = [
     "progress",
 ] }
 gix-hash = { version = "^0.17.0", path = "../gix-hash" }

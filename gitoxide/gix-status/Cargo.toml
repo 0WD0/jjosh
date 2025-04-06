@@ -25,7 +25,7 @@ gix-fs = { version = "^0.14.0", path = "../gix-fs" }
 gix-hash = { version = "^0.17.0", path = "../gix-hash" }
 gix-object = { version = "^0.48.0", path = "../gix-object" }
 gix-path = { version = "^0.10.15", path = "../gix-path" }
-gix-features = { version = "^0.41.0", path = "../gix-features", features = ["progress"] }
+gix-features = { version = "^0.41.1", path = "../gix-features", features = ["progress"] }
 gix-filter = { version = "^0.18.0", path = "../gix-filter" }
 gix-worktree = { version = "^0.40.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
 gix-pathspec = { version = "^0.10.0", path = "../gix-pathspec" }
