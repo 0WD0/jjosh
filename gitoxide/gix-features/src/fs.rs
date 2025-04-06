@@ -4,8 +4,7 @@
 //! along with runtime costs for maintaining a global [`rayon`](https://docs.rs/rayon) thread pool.
 //!
 //! For information on how to use the [`WalkDir`] type, have a look at
-//! * [`jwalk::WalkDir`](https://docs.rs/jwalk/0.5.1/jwalk/type.WalkDir.html) if `parallel` feature is enabled
-//! * [walkdir::WalkDir](https://docs.rs/walkdir/2.3.1/walkdir/struct.WalkDir.html) otherwise
+// TODO: Move all this to `gix-fs` in a breaking change.
 
 #[cfg(feature = "walkdir")]
 mod shared {
@@ -220,9 +219,22 @@ pub mod walkdir {
         WalkDir {
             inner: WalkDirImpl::new(root)
                 .sort_by(|a, b| {
-                    // Ignore non-utf8 file name on Windows, which would probably be rejected by caller.
-                    let a_name = gix_path::os_str_into_bstr(a.file_name()).unwrap_or("".as_ref());
-                    let b_name = gix_path::os_str_into_bstr(b.file_name()).unwrap_or("".as_ref());
+                    let storage_a;
+                    let storage_b;
+                    let a_name = match gix_path::os_str_into_bstr(a.file_name()) {
+                        Ok(f) => f,
+                        Err(_) => {
+                            storage_a = a.file_name().to_string_lossy();
+                            storage_a.as_ref().into()
+                        }
+                    };
+                    let b_name = match gix_path::os_str_into_bstr(b.file_name()) {
+                        Ok(f) => f,
+                        Err(_) => {
+                            storage_b = b.file_name().to_string_lossy();
+                            storage_b.as_ref().into()
+                        }
+                    };
                     // "common." < "common/" < "common0"
                     let common = a_name.len().min(b_name.len());
                     a_name[..common].cmp(&b_name[..common]).then_with(|| {
