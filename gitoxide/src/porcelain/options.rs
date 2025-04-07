@@ -5,11 +5,11 @@ use std::path::PathBuf;
 #[clap(name = "ein", about = "The rusty git", version = option_env!("GIX_VERSION"))]
 #[clap(subcommand_required = true)]
 pub struct Args {
-    /// Do not display verbose messages and progress information
+    /// Do not display verbose messages and progress information.
     #[clap(long, short = 'q')]
     pub quiet: bool,
 
-    /// Bring up a terminal user interface displaying progress visually
+    /// Bring up a terminal user interface displaying progress visually.
     #[clap(long, conflicts_with("quiet"))]
     pub progress: bool,
     /// The amount of threads to use. If unset, use all cores, if 0 use al physical cores.
@@ -36,8 +36,8 @@ pub enum Subcommands {
         /// Defaults to the current working directory.
         directory: Option<PathBuf>,
     },
+    /// A selection of useful tools.
     #[cfg(feature = "gitoxide-core-tools")]
-    /// A selection of useful tools
     #[clap(subcommand)]
     Tool(ToolCommands),
     /// Generate shell completions to stdout or a directory.
@@ -49,6 +49,7 @@ pub enum Subcommands {
         /// The output directory in case multiple files are generated. If not provided, will write to stdout.
         out_dir: Option<String>,
     },
+    /// Panic immediately, to test panic behavior.
     #[cfg(debug_assertions)]
     Panic,
 }
@@ -117,7 +118,7 @@ pub mod tools {
         /// This is an expensive option, and typically cuts speed in half.
         #[arg(long, short = 'C')]
         pub find_copies_harder: bool,
-        /// path to the git repository to generate the database for
+        /// Path to the Git repository to generate the database for.
         #[arg(default_value = ".")]
         pub repo_dir: std::path::PathBuf,
         #[clap(subcommand)]
