@@ -22,7 +22,7 @@ gix-command = { version = "^0.5.0", path = "../gix-command" }
 gix-quote = { version = "^0.5.0", path = "../gix-quote" }
 gix-utils = { version = "^0.2.0", path = "../gix-utils" }
 gix-path = { version = "^0.10.15", path = "../gix-path" }
-gix-packetline = { package = "gix-packetline-blocking", version = "^0.18.3", path = "../gix-packetline-blocking" }
+gix-packetline-blocking = { version = "^0.18.3", path = "../gix-packetline-blocking" }
 gix-attributes = { version = "^0.25.0", path = "../gix-attributes" }
 
 encoding_rs = "0.8.32"

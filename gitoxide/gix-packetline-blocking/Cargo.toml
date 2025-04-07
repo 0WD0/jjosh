@@ -24,9 +24,6 @@ blocking-io = []
 ## DO NOT USE, instead use `gix-packetline` directly.
 async-io = []
 
-## DO NOT USE, instead use `gix-packetline` directly (and still don't specify `futures-lite`).
-futures-lite = []
-
 #! ### Other
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "bstr/serde"]
