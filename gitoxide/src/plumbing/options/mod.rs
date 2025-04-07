@@ -22,10 +22,10 @@ pub struct Args {
     #[clap(long, short = 'c', value_parser = crate::shared::AsBString)]
     pub config: Vec<BString>,
 
-    #[clap(long, short = 't')]
     /// The amount of threads to use for some operations.
     ///
     /// If unset, or the value is 0, there is no limit and all logical cores can be used.
+    #[clap(long, short = 't')]
     pub threads: Option<usize>,
 
     /// Display verbose messages and progress information
@@ -41,7 +41,7 @@ pub struct Args {
     #[clap(long, conflicts_with("verbose"))]
     pub no_verbose: bool,
 
-    /// Bring up a terminal user interface displaying progress visually
+    /// Bring up a terminal user interface displaying progress visually.
     #[cfg(feature = "prodash-render-tui")]
     #[clap(long, conflicts_with("verbose"))]
     pub progress: bool,
@@ -80,13 +80,13 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommands {
-    /// Subcommands for creating worktree archives
+    /// Subcommands for creating worktree archives.
     #[cfg(feature = "gitoxide-core-tools-archive")]
     Archive(archive::Platform),
-    /// Remove untracked files from the working tree
+    /// Remove untracked files from the working tree.
     #[cfg(feature = "gitoxide-core-tools-clean")]
     Clean(clean::Command),
-    /// Subcommands for interacting with commit-graph files
+    /// Subcommands for interacting with commit-graph files.
     #[clap(subcommand)]
     CommitGraph(commitgraph::Subcommands),
     /// Interact with the object database.
@@ -111,10 +111,10 @@ pub enum Subcommands {
     /// A program just like `git credential`.
     #[clap(subcommand)]
     Credential(credential::Subcommands),
-    /// Fetch data from remotes and store it in the repository
+    /// Fetch data from remotes and store it in the repository.
     #[cfg(feature = "gitoxide-core-blocking-client")]
     Fetch(fetch::Platform),
-    /// Clone a repository into a new directory
+    /// Clone a repository into a new directory.
     #[cfg(feature = "gitoxide-core-blocking-client")]
     Clone(clone::Platform),
     /// Interact with the mailmap.
@@ -129,7 +129,7 @@ pub enum Subcommands {
     /// Interact with the exclude files like .gitignore.
     #[clap(subcommand)]
     Exclude(exclude::Subcommands),
-    /// Interact with a worktree index like .git/index
+    /// Interact with a worktree index like .git/index.
     #[clap(subcommand)]
     Index(index::Subcommands),
     /// Interact with submodules.
@@ -140,7 +140,9 @@ pub enum Subcommands {
         /// The object to print to stdout.
         revspec: String,
     },
+    /// Check for changes in the repository, treating this as an error.
     IsClean,
+    /// Check for changes in the repository, treating their absence as an error.
     IsChanged,
     /// Show which git configuration values are used or planned.
     ConfigTree,
@@ -150,14 +152,15 @@ pub enum Subcommands {
     Corpus(corpus::Platform),
     MergeBase(merge_base::Command),
     Merge(merge::Platform),
+    /// Print paths relevant to the Git installation.
     Env,
     Diff(diff::Platform),
     Log(log::Platform),
     Worktree(worktree::Platform),
-    /// Subcommands that need no git repository to run.
+    /// Subcommands that need no Git repository to run.
     #[clap(subcommand)]
     Free(free::Subcommands),
-    /// Blame lines in a file
+    /// Blame lines in a file.
     Blame {
         /// Print additional statistics to help understanding performance.
         #[clap(long, short = 's')]
@@ -271,7 +274,7 @@ pub mod status {
     }
 
     #[derive(Debug, clap::Parser)]
-    #[command(about = "compute repository status similar to `git status`")]
+    #[command(about = "Compute repository status similar to `git status`")]
     pub struct Platform {
         /// The way status data is displayed.
         #[clap(long, short = 'f')]
@@ -318,7 +321,7 @@ pub mod worktree {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum SubCommands {
-        /// List all worktrees, along with some accompanying information
+        /// List all worktrees, along with some accompanying information.
         List,
     }
 }
@@ -328,7 +331,7 @@ pub mod corpus {
     use std::path::PathBuf;
 
     #[derive(Debug, clap::Parser)]
-    #[command(about = "run algorithms on a corpus of git repositories and store their results for later analysis")]
+    #[command(about = "Run algorithms on a corpus of git repositories and store their results for later analysis")]
     pub struct Platform {
         /// The path to the database to read and write depending on the sub-command.
         #[arg(long, default_value = "corpus.db")]
@@ -441,7 +444,7 @@ pub mod merge {
     }
 
     #[derive(Debug, clap::Parser)]
-    #[command(about = "perform merges of various kinds")]
+    #[command(about = "Perform merges of various kinds")]
     pub struct Platform {
         #[clap(subcommand)]
         pub cmd: SubCommands,
@@ -499,7 +502,7 @@ pub mod merge {
 pub mod diff {
     use gix::bstr::BString;
 
-    /// Print all changes between two objects
+    /// Print all changes between two objects.
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
         #[clap(subcommand)]
@@ -532,7 +535,7 @@ pub mod diff {
 pub mod log {
     use gix::bstr::BString;
 
-    /// List all commits in a repository, optionally limited to those that change a given path
+    /// List all commits in a repository, optionally limited to those that change a given path.
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
         /// The git path specification to show a log for.
@@ -544,7 +547,7 @@ pub mod log {
 pub mod config {
     use gix::bstr::BString;
 
-    /// Print all entries in a configuration file or access other sub-commands
+    /// Print all entries in a configuration file or access other sub-commands.
     #[derive(Debug, clap::Parser)]
     #[clap(subcommand_required(false))]
     pub struct Platform {
@@ -942,7 +945,7 @@ pub mod credential {
 pub mod commitgraph {
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// Verify the integrity of a commit graph file
+        /// Verify the integrity of a commit graph file.
         Verify {
             /// output statistical information about the graph.
             #[clap(long, short = 's')]
@@ -975,7 +978,7 @@ pub mod revision {
             Git,
             /// The version that would be checked out into the worktree, including filters.
             Worktree,
-            /// The version that would be diffed (Worktree + Text-Conversion)
+            /// The version that would be diffed (Worktree + Text-Conversion).
             Diff,
             /// The version that would be diffed if there is a text-conversion, or the one stored in Git otherwise.
             DiffOrGit,
@@ -1037,10 +1040,10 @@ pub mod attributes {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// Run `git check-attr`  and `git check-ignore` on all files of the index or all files passed via stdin and validate that
-        /// we get the same outcome when computing attributes.
+        /// Run `git check-attr` and `git check-ignore` on all files of the index or all files
+        /// passed via stdin and validate that we get the same outcome when computing attributes.
         ValidateBaseline {
-            /// Print various statistics to stderr
+            /// Print various statistics to stderr.
             #[clap(long, short = 's')]
             statistics: bool,
             /// Don't validated excludes as obtaining them with `check-ignore` can be very slow.
@@ -1049,10 +1052,10 @@ pub mod attributes {
         },
         /// List all attributes of the given path-specs and display the result similar to `git check-attr`.
         Query {
-            /// Print various statistics to stderr
+            /// Print various statistics to stderr.
             #[clap(long, short = 's')]
             statistics: bool,
-            /// The git path specifications to list attributes for, or unset to read from stdin one per line.
+            /// The Git path specifications to list attributes for, or unset to read from stdin one per line.
             #[clap(value_parser = CheckPathSpec)]
             pathspec: Vec<BString>,
         },
@@ -1069,7 +1072,7 @@ pub mod exclude {
     pub enum Subcommands {
         /// Check if path-specs are excluded and print the result similar to `git check-ignore`.
         Query {
-            /// Print various statistics to stderr
+            /// Print various statistics to stderr.
             #[clap(long, short = 's')]
             statistics: bool,
             /// Show actual ignore patterns instead of un-excluding an entry.
@@ -1108,7 +1111,7 @@ pub mod index {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// Print all entries to standard output
+        /// Print all entries to standard output.
         Entries {
             /// How to output index entries.
             #[clap(long, short = 'f', default_value = "simple", value_enum)]
@@ -1124,7 +1127,7 @@ pub mod index {
             /// Display submodule entries as well if their repository exists.
             #[clap(long, short = 'r')]
             recurse_submodules: bool,
-            /// Print various statistics to stderr
+            /// Print various statistics to stderr.
             #[clap(long, short = 's')]
             statistics: bool,
             /// The git path specifications to match entries to print.
@@ -1138,8 +1141,10 @@ pub mod index {
             #[clap(long, short = 'f')]
             force: bool,
             /// Path to the index file to be written.
-            /// If none is given it will be kept in memory only as a way to measure performance. One day we will probably write the index
-            /// back by default, but that requires us to write more of the index to work.
+            ///
+            /// If none is given it will be kept in memory only as a way to measure performance.
+            /// One day we will probably write the index back by default, but that requires us to
+            /// write more of the index to work.
             #[clap(long, short = 'i')]
             index_output_path: Option<PathBuf>,
             /// Don't write the trailing hash for a performance gain.
@@ -1160,7 +1165,7 @@ pub mod submodule {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// Print all direct submodules to standard output
+        /// Print all direct submodules to standard output.
         List {
             /// Set the suffix to append if the repository is dirty (not counting untracked files).
             #[clap(short = 'd', long)]
