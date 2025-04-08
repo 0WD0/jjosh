@@ -791,7 +791,7 @@ fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs(
 
     assert_eq!(
         edits.len(),
-        9,
+        11,
         "there are a certain amount of loose refs that are packed"
     );
 
@@ -843,7 +843,7 @@ fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() 
         .commit(committer().to_ref())?;
     assert_eq!(
             edits.len(),
-            4,
+            2,
             "it claims to have performed all desired operations, even though some don't make it into the pack as 'side-car'"
         );
 

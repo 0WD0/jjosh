@@ -255,7 +255,7 @@ fn no_packed_available_thus_no_iteration_possible() -> crate::Result {
 #[test]
 fn packed_file_iter() -> crate::Result {
     let store = store_with_packed_refs()?;
-    assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 9);
+    assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 11);
     Ok(())
 }
 
@@ -264,7 +264,7 @@ fn loose_iter_with_broken_refs() -> crate::Result {
     let store = store()?;
 
     let mut actual: Vec<_> = store.loose_iter()?.collect();
-    assert_eq!(actual.len(), 19);
+    assert_eq!(actual.len(), 18);
     actual.sort_by_key(Result::is_err);
     let first_error = actual
         .iter()
@@ -273,7 +273,7 @@ fn loose_iter_with_broken_refs() -> crate::Result {
         .expect("there is an error");
 
     assert_eq!(
-        first_error, 18,
+        first_error, 17,
         "there is exactly one invalid item, and it didn't abort the iterator most importantly"
     );
     #[cfg(not(windows))]
@@ -293,18 +293,17 @@ fn loose_iter_with_broken_refs() -> crate::Result {
         ref_paths,
         vec![
             "d1",
-            "heads-loose",
             "heads/A",
             "heads/d1",
             "heads/dt1",
             "heads/main",
             "heads/multi-link-target1",
-            "heads/sub/dir/loose",
             "loop-a",
             "loop-b",
             "multi-link",
+            "prefix/feature-suffix",
+            "prefix/feature/sub/dir/algo",
             "remotes/origin/HEAD",
-            "remotes/origin/heads",
             "remotes/origin/main",
             "remotes/origin/multi-link-target3",
             "tags/dt1",
@@ -355,7 +354,6 @@ fn loose_iter_with_prefix() -> crate::Result {
             "refs/heads/dt1",
             "refs/heads/main",
             "refs/heads/multi-link-target1",
-            "refs/heads/sub/dir/loose",
         ]
         .into_iter()
         .map(String::from)
@@ -381,13 +379,11 @@ fn loose_iter_with_partial_prefix_dir() -> crate::Result {
     assert_eq!(
         actual,
         vec![
-            "refs/heads-loose",
             "refs/heads/A",
             "refs/heads/d1",
             "refs/heads/dt1",
             "refs/heads/main",
             "refs/heads/multi-link-target1",
-            "refs/heads/sub/dir/loose",
         ]
         .into_iter()
         .map(String::from)
@@ -435,14 +431,11 @@ fn overlay_iter() -> crate::Result {
     assert_eq!(
         ref_names,
         vec![
-            ("refs/heads-packed".into(), Symbolic("refs/heads/main".try_into()?),),
             (b"refs/heads/A".as_bstr().to_owned(), Object(c1)),
             (b"refs/heads/main".into(), Object(c1)),
             ("refs/heads/newer-as-loose".into(), Object(c2)),
-            (
-                "refs/heads/sub/dir/packed".into(),
-                Symbolic("refs/heads/main".try_into()?),
-            ),
+            ("refs/prefix/feature-suffix".into(), Object(c1)),
+            ("refs/prefix/feature/sub/dir/algo".into(), Object(c1)),
             (
                 "refs/remotes/origin/HEAD".into(),
                 Symbolic("refs/remotes/origin/main".try_into()?),
@@ -558,7 +551,6 @@ fn overlay_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
 
 #[test]
 fn overlay_prefixed_iter() -> crate::Result {
-    // Test 'refs/heads/' with slash.
     use gix_ref::Target::*;
 
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
@@ -575,42 +567,6 @@ fn overlay_prefixed_iter() -> crate::Result {
             (b"refs/heads/A".as_bstr().to_owned(), Object(c1)),
             (b"refs/heads/main".into(), Object(c1)),
             ("refs/heads/newer-as-loose".into(), Object(c2)),
-            (
-                b"refs/heads/sub/dir/packed".into(),
-                Symbolic("refs/heads/main".try_into()?)
-            ),
-        ]
-    );
-    Ok(())
-}
-
-#[test]
-fn overlay_partial_prefix_dir_iter() -> crate::Result {
-    // Test 'refs/heads/' without slash.
-    use gix_ref::Target::*;
-
-    let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
-    let ref_names = store
-        .iter()?
-        .prefixed(b"refs/heads".as_bstr().into())?
-        .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
-        .collect::<Result<Vec<_>, _>>()?;
-    let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
-    let c2 = hex_to_id("9902e3c3e8f0c569b4ab295ddf473e6de763e1e7");
-    assert_eq!(
-        ref_names,
-        vec![
-            (
-                b"refs/heads-packed".as_bstr().to_owned(),
-                Symbolic("refs/heads/main".try_into()?)
-            ),
-            (b"refs/heads/A".as_bstr().to_owned(), Object(c1)),
-            (b"refs/heads/main".into(), Object(c1)),
-            ("refs/heads/newer-as-loose".into(), Object(c2)),
-            (
-                b"refs/heads/sub/dir/packed".into(),
-                Symbolic("refs/heads/main".try_into()?)
-            ),
         ]
     );
     Ok(())
@@ -628,5 +584,57 @@ fn overlay_partial_prefix_iter() -> crate::Result {
         .collect::<Result<Vec<_>, _>>()?;
     let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
     assert_eq!(ref_names, vec![(b"refs/heads/main".as_bstr().to_owned(), Object(c1)),]);
+    Ok(())
+}
+
+#[test]
+/// The prefix `refs/d` should match `refs/d1` but not `refs/heads/d1`.
+fn overlay_partial_prefix_iter_reproduce_1934() -> crate::Result {
+    use gix_ref::Target::*;
+
+    let store = store_at("make_ref_repository.sh")?;
+    let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
+
+    let ref_names = store
+        .iter()?
+        .prefixed(b"refs/d".as_bstr().into())?
+        .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
+        .collect::<Result<Vec<_>, _>>()?;
+    // Should not match `refs/heads/d1`.
+    assert_eq!(ref_names, vec![("refs/d1".into(), Object(c1)),]);
+    Ok(())
+}
+
+#[test]
+fn overlay_partial_prefix_iter_when_prefix_is_dir() -> crate::Result {
+    // Test 'refs/prefix/' with and without trailing slash.
+    use gix_ref::Target::*;
+
+    let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
+    let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
+
+    let ref_names = store
+        .iter()?
+        .prefixed(b"refs/prefix/feature".as_bstr().into())?
+        .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        ref_names,
+        vec![
+            ("refs/prefix/feature-suffix".into(), Object(c1)),
+            ("refs/prefix/feature/sub/dir/algo".into(), Object(c1)),
+        ]
+    );
+
+    let ref_names = store
+        .iter()?
+        .prefixed(b"refs/prefix/feature/".as_bstr().into())?
+        .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        ref_names,
+        vec![("refs/prefix/feature/sub/dir/algo".into(), Object(c1)),]
+    );
+
     Ok(())
 }
