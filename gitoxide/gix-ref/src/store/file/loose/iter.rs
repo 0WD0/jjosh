@@ -87,7 +87,7 @@ impl file::Store {
     /// Return an iterator over all loose references that start with the given `prefix`.
     ///
     /// Otherwise it's similar to [`loose_iter()`][file::Store::loose_iter()].
-    pub fn loose_iter_prefixed(&self, prefix: Cow<'_, BStr>) -> std::io::Result<LooseThenPacked<'_, '_>> {
-        self.iter_prefixed_packed(prefix, None)
+    pub fn loose_iter_prefixed<'a>(&self, prefix: impl Into<Cow<'a, BStr>>) -> std::io::Result<LooseThenPacked<'_, '_>> {
+        self.iter_prefixed_packed(prefix.into(), None)
     }
 }

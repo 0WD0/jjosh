@@ -197,9 +197,9 @@ impl Platform<'_> {
 
     /// As [`iter(…)`][file::Store::iter()], but filters by `prefix`, i.e. "refs/heads/" or
     /// "refs/heads/feature-".
-    pub fn prefixed(&self, prefix: Cow<'_, BStr>) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    pub fn prefixed<'a>(&self, prefix: impl Into<Cow<'a, BStr>>) -> std::io::Result<LooseThenPacked<'_, '_>> {
         self.store
-            .iter_prefixed_packed(prefix, self.packed.as_ref().map(|b| &***b))
+            .iter_prefixed_packed(prefix.into(), self.packed.as_ref().map(|b| &***b))
     }
 }
 
@@ -284,8 +284,9 @@ impl<'a> IterInfo<'a> {
         .peekable()
     }
 
-    fn from_prefix(base: &'a Path, prefix: Cow<'a, BStr>, precompose_unicode: bool) -> std::io::Result<Self> {
-        let prefix_path = gix_path::from_bstring(prefix.as_ref());
+    fn from_prefix(base: &'a Path, prefix: impl Into<Cow<'a, BStr>>, precompose_unicode: bool) -> std::io::Result<Self> {
+        let prefix = prefix.into();
+        let prefix_path = gix_path::from_bstring(prefix.clone().into_owned());
         if prefix_path.is_absolute() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -375,7 +376,7 @@ impl file::Store {
                 self.iter_from_info(git_dir_info, common_dir_info, packed)
             }
             Some(namespace) => {
-                let prefix = namespace.to_owned().into_namespaced_prefix(prefix.as_ref());
+                let prefix = namespace.to_owned().into_namespaced_prefix(&prefix);
                 let git_dir_info = IterInfo::from_prefix(self.git_dir(), prefix.clone(), self.precompose_unicode)?;
                 let common_dir_info = self
                     .common_dir()

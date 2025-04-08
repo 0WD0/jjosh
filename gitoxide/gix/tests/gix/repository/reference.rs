@@ -48,7 +48,7 @@ mod set_namespace {
 
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/tags/".as_bstr().into())?
+                .prefixed(b"refs/tags/".as_bstr())?
                 .filter_map(Result::ok)
                 .map(|r| r.name().as_bstr().to_owned())
                 .collect::<Vec<_>>(),
@@ -125,7 +125,7 @@ mod iter_references {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/heads/".as_bstr().into())?
+                .prefixed(b"refs/heads/".as_bstr())?
                 .filter_map(Result::ok)
                 .map(|r| (
                     r.name().as_bstr().to_string(),
@@ -156,7 +156,7 @@ mod iter_references {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/heads/".as_bstr().into())?
+                .prefixed(b"refs/heads/".as_bstr())?
                 .peeled()?
                 .filter_map(Result::ok)
                 .map(|r| (
