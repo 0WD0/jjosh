@@ -1,12 +1,28 @@
 version: 2
 updates:
-  # We only use Dependabot *version* updates for GitHub Actions. Rust dependencies are checked via
-  # `cargo deny` and manually updated (see https://github.com/GitoxideLabs/gitoxide/issues/144), or
-  # by Dependabot *security* updates (which don't need the `cargo` ecosystem to be listed here).
+  # Only GitHub Actions dependencies receive Dependabot *version* updates. Rust dependencies are
+  # checked via `cargo deny` (https://github.com/GitoxideLabs/gitoxide/issues/144) and updated
+  # manually or via Dependabot *security* updates (which the restrictions here do not constrain).
+  - package-ecosystem: cargo
+    directory: '/'
+    schedule:
+      # We include this required key, but it only applies to version updates, which are suppressed.
+      interval: monthly
+    # Disable version updates for Rust dependencies. Security updates are still allowed.
+    open-pull-requests-limit: 0
+    commit-message:
+      # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
+      prefix: ''
+    groups:
+      cargo:
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
       interval: weekly
+    commit-message:
+      # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
+      prefix: ''
     groups:
       github-actions:
         patterns: ['*']
