@@ -110,7 +110,7 @@ gix-path = { version = "^0.10.15", path = "../gix-path", optional = true }
 gix-utils = { version = "^0.2.0", path = "../gix-utils", optional = true }
 
 # 'parallel' feature
-crossbeam-channel = { version = "0.5.0", optional = true }
+crossbeam-channel = { version = "0.5.15", optional = true }
 parking_lot = { version = "0.12.0", default-features = false, optional = true }
 
 walkdir = { version = "2.3.2", optional = true } # used when parallel is off
