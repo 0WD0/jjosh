@@ -200,7 +200,7 @@ mod impl_ {
             }
 
             let mut is_member = 0;
-            if CheckTokenMembership(0, token_owner, &mut is_member) == 0 {
+            if CheckTokenMembership(std::ptr::null_mut(), token_owner, &mut is_member) == 0 {
                 error!("Couldn't check if user is an administrator");
             }
 
