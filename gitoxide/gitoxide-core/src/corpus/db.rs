@@ -118,7 +118,7 @@ pub fn create(path: impl AsRef<std::path::Path>) -> anyhow::Result<rusqlite::Con
     CREATE TABLE if not exists task(
         id integer PRIMARY KEY,
         short_name UNIQUE, -- the unique and permanent identifier for the task
-        description text UNIQUE -- the descriptive name of the task, it can be changed at will 
+        description text UNIQUE -- the descriptive name of the task, it can be changed at will
     )
     "#,
     )?;
@@ -148,8 +148,9 @@ pub fn create(path: impl AsRef<std::path::Path>) -> anyhow::Result<rusqlite::Con
 /// Utilities
 impl Engine {
     pub(crate) fn runner_id_or_insert(&self) -> anyhow::Result<Id> {
-        let sys =
-            sysinfo::System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
+        let sys = sysinfo::System::new_with_specifics(
+            RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_frequency()),
+        );
         let cpu = &sys.cpus()[0];
         let vendor = Some(cpu.vendor_id().to_owned());
         let host = sysinfo::System::host_name();
