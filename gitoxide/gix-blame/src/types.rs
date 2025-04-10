@@ -1,11 +1,9 @@
 use crate::file::function::tokens_for_diffing;
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
+use smallvec::SmallVec;
 use std::num::NonZeroU32;
-use std::{
-    collections::BTreeMap,
-    ops::{AddAssign, Range, SubAssign},
-};
+use std::ops::{AddAssign, Range, SubAssign};
 
 /// Options to be passed to [`file()`](crate::file()).
 #[derive(Default, Debug, Clone)]
@@ -198,8 +196,23 @@ impl LineRange for Range<u32> {
 pub struct UnblamedHunk {
     /// The range in the file that is being blamed that this hunk represents.
     pub range_in_blamed_file: Range<u32>,
-    /// Maps a commit to the range in a source file (i.e. *Blamed File* at a revision) that is equal to `range_in_blamed_file`.
-    pub suspects: BTreeMap<ObjectId, Range<u32>>,
+    /// Maps a commit to the range in a source file (i.e. *Blamed File* at a revision) that is
+    /// equal to `range_in_blamed_file`. Since `suspects` rarely contains more than 1 item, it can
+    /// efficiently be stored as a `SmallVec`.
+    pub suspects: SmallVec<[(ObjectId, Range<u32>); 1]>,
+}
+
+impl UnblamedHunk {
+    pub(crate) fn has_suspect(&self, suspect: &ObjectId) -> bool {
+        self.suspects.iter().any(|entry| entry.0 == *suspect)
+    }
+
+    pub(crate) fn get_range(&self, suspect: &ObjectId) -> Option<&Range<u32>> {
+        self.suspects
+            .iter()
+            .find(|entry| entry.0 == *suspect)
+            .map(|entry| &entry.1)
+    }
 }
 
 #[derive(Debug)]
