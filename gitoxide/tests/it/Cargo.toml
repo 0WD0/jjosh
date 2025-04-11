@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.86"
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.35", features = ["derive"] }
 gix = { version = "^0.71.0", path = "../../gix", default-features = false, features = ["attributes", "revision"] }
-once_cell = "1.20.2"
+once_cell = "1.21.3"
 regex = { version = "1.11.1", default-features = false, features = ["std"] }

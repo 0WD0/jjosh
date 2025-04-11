@@ -23,11 +23,11 @@ gix-date = { version = "^0.9.4", path = "../gix-date" }
 gix-utils = { version = "^0.2.0", path = "../gix-utils" }
 
 thiserror = "2.0.0"
-bstr = { version = "1.3.0", default-features = false, features = [
+bstr = { version = "1.12.0", default-features = false, features = [
     "std",
     "unicode",
 ] }
-winnow = { version = "0.7.0", features = ["simd"] }
+winnow = { version = "0.7.6", features = ["simd"] }
 itoa = "1.0.1"
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
     "derive",

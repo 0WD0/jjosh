@@ -21,7 +21,7 @@ gix-config-value = { version = "^0.14.12", path = "../gix-config-value" }
 thiserror = "2.0.0"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "0.38.4", features = ["termios"] }
+rustix = { version = "1.0.3", features = ["termios"] }
 parking_lot = "0.12.1"
 
 [dev-dependencies]

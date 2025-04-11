@@ -7,8 +7,7 @@ mod locations {
     use std::path::{Path, PathBuf};
 
     use known_folders::{get_known_folder_path, KnownFolder};
-    use windows::core::Result as WindowsResult;
-    use windows::Win32::Foundation::BOOL;
+    use windows::core::{Result as WindowsResult, BOOL};
     use windows::Win32::System::Threading::{GetCurrentProcess, IsWow64Process};
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE};
     use winreg::RegKey;

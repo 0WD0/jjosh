@@ -21,4 +21,4 @@ gix-tempfile = { version = "^17.0.0", default-features = false, path = "../gix-t
 thiserror = "2.0.0"
 
 [dev-dependencies]
-tempfile = "3.2.0"
+tempfile = "3.19.1"

@@ -16,10 +16,10 @@ averages
 	decompressed object size [B]:  9621;
 
 compression
-	compressed entries size       : 51.8 KB
-	decompressed entries size     : 103.7 KB
-	total object size             : 288.7 KB
-	pack size                     : 51.9 KB
+	compressed entries size       : 51.8 kB
+	decompressed entries size     : 103.7 kB
+	total object size             : 288.7 kB
+	pack size                     : 51.9 kB
 
 	num trees                     : 15
 	num blobs                     : 5
@@ -43,10 +43,10 @@ averages
 	decompressed object size [B]:  2093;
 
 compression
-	compressed entries size       : 48.9 KB
-	decompressed entries size     : 132.8 KB
-	total object size             : 140.2 KB
-	pack size                     : 49.1 KB
+	compressed entries size       : 48.9 kB
+	decompressed entries size     : 132.8 kB
+	total object size             : 140.2 kB
+	pack size                     : 49.1 kB
 
 	num trees                     : 2
 	num blobs                     : 63

@@ -236,10 +236,10 @@ fn print_statistics(out: &mut impl io::Write, stats: &index::traverse::Statistic
     #[rustfmt::skip]
     writeln!(
         out, "\t{:<width$}: {}\n\t{:<width$}: {}\n\t{:<width$}: {}\n\t{:<width$}: {}",
-        "compressed entries size", ByteSize(stats.total_compressed_entries_size),
-        "decompressed entries size", ByteSize(stats.total_decompressed_entries_size),
-        "total object size", ByteSize(stats.total_object_size),
-        "pack size", ByteSize(stats.pack_size),
+        "compressed entries size", ByteSize(stats.total_compressed_entries_size).display().si(),
+        "decompressed entries size", ByteSize(stats.total_decompressed_entries_size).display().si(),
+        "total object size", ByteSize(stats.total_object_size).display().si(),
+        "pack size", ByteSize(stats.pack_size).display().si(),
         width = width
     )?;
     #[rustfmt::skip]

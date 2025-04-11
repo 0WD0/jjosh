@@ -58,8 +58,8 @@ gix-fsck = { version = "^0.10.0", path = "../gix-fsck" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 anyhow = "1.0.42"
 thiserror = "2.0.0"
-bytesize = "1.0.1"
-tempfile = "3.1.0"
+bytesize = "2.0.1"
+tempfile = "3.19.1"
 
 # for async-client
 async-trait = { version = "0.1.51", optional = true }
@@ -74,16 +74,16 @@ gix-url = { version = "^0.30.0", path = "../gix-url", optional = true }
 jwalk = { version = "0.8.0", optional = true }
 
 # for 'hours'
-fs-err = { version = "2.6.0", optional = true }
+fs-err = { version = "3.1.0", optional = true }
 crossbeam-channel = { version = "0.5.15", optional = true }
-smallvec = { version = "1.10.0", optional = true }
+smallvec = { version = "1.15.0", optional = true }
 
 # for 'query' and 'corpus'
-rusqlite = { version = "0.32.1", optional = true, features = ["bundled"] }
+rusqlite = { version = "0.34.0", optional = true, features = ["bundled"] }
 
 # for 'corpus'
 parking_lot = { version = "0.12.1", optional = true }
-sysinfo = { version = "0.31.2", optional = true, default-features = false, features = ["system"] }
+sysinfo = { version = "0.34.2", optional = true, default-features = false, features = ["system"] }
 serde_json = { version = "1.0.65", optional = true }
 tracing-forest = { version = "0.1.5", features = ["serde"], optional = true }
 tracing-subscriber = { version = "0.3.17", optional = true }
