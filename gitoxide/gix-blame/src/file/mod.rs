@@ -39,7 +39,7 @@ fn process_change(
     // 3. `change` *must* be returned if it is not fully included in `hunk`.
     match (hunk, change) {
         (Some(hunk), Some(Change::Unchanged(unchanged))) => {
-            let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
+            let Some(range_in_suspect) = hunk.get_range(&suspect) else {
                 // We don’t clone blame to `parent` as `suspect` has nothing to do with this
                 // `hunk`.
                 new_hunks_to_blame.push(hunk);
@@ -102,7 +102,7 @@ fn process_change(
             }
         }
         (Some(hunk), Some(Change::AddedOrReplaced(added, number_of_lines_deleted))) => {
-            let Some(range_in_suspect) = hunk.suspects.get(&suspect).cloned() else {
+            let Some(range_in_suspect) = hunk.get_range(&suspect).cloned() else {
                 new_hunks_to_blame.push(hunk);
                 return (None, Some(Change::AddedOrReplaced(added, number_of_lines_deleted)));
             };
@@ -247,7 +247,7 @@ fn process_change(
             }
         }
         (Some(hunk), Some(Change::Deleted(line_number_in_destination, number_of_lines_deleted))) => {
-            let Some(range_in_suspect) = hunk.suspects.get(&suspect) else {
+            let Some(range_in_suspect) = hunk.get_range(&suspect) else {
                 new_hunks_to_blame.push(hunk);
                 return (
                     None,
@@ -359,12 +359,16 @@ fn process_changes(
 
 impl UnblamedHunk {
     fn shift_by(mut self, suspect: ObjectId, offset: Offset) -> Self {
-        self.suspects.entry(suspect).and_modify(|e| *e = e.shift_by(offset));
+        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == suspect) {
+            if let Some((_, ref mut range_in_suspect)) = self.suspects.get_mut(position) {
+                *range_in_suspect = range_in_suspect.shift_by(offset);
+            }
+        }
         self
     }
 
     fn split_at(self, suspect: ObjectId, line_number_in_destination: u32) -> Either<Self, (Self, Self)> {
-        match self.suspects.get(&suspect) {
+        match self.get_range(&suspect) {
             None => Either::Left(self),
             Some(range_in_suspect) => {
                 if !range_in_suspect.contains(&line_number_in_destination) {
@@ -405,34 +409,38 @@ impl UnblamedHunk {
     /// This is like [`Self::pass_blame()`], but easier to use in places where the 'passing' is
     /// done 'inline'.
     fn passed_blame(mut self, from: ObjectId, to: ObjectId) -> Self {
-        if let Some(range_in_suspect) = self.suspects.remove(&from) {
-            self.suspects.insert(to, range_in_suspect);
+        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == from) {
+            if let Some((ref mut commit_id, _)) = self.suspects.get_mut(position) {
+                *commit_id = to;
+            }
         }
         self
     }
 
     /// Transfer all ranges from the commit at `from` to the commit at `to`.
     fn pass_blame(&mut self, from: ObjectId, to: ObjectId) {
-        if let Some(range_in_suspect) = self.suspects.remove(&from) {
-            self.suspects.insert(to, range_in_suspect);
+        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == from) {
+            if let Some((ref mut commit_id, _)) = self.suspects.get_mut(position) {
+                *commit_id = to;
+            }
         }
     }
 
     fn clone_blame(&mut self, from: ObjectId, to: ObjectId) {
-        if let Some(range_in_suspect) = self.suspects.get(&from) {
-            self.suspects.insert(to, range_in_suspect.clone());
+        if let Some(range_in_suspect) = self.get_range(&from) {
+            self.suspects.push((to, range_in_suspect.clone()));
         }
     }
 
     fn remove_blame(&mut self, suspect: ObjectId) {
-        self.suspects.remove(&suspect);
+        self.suspects.retain(|entry| entry.0 != suspect);
     }
 }
 
 impl BlameEntry {
     /// Create an offset from a portion of the *Blamed File*.
     fn from_unblamed_hunk(unblamed_hunk: &UnblamedHunk, commit_id: ObjectId) -> Option<Self> {
-        let range_in_source_file = unblamed_hunk.suspects.get(&commit_id)?;
+        let range_in_source_file = unblamed_hunk.get_range(&commit_id)?;
 
         Some(Self {
             start_in_blamed_file: unblamed_hunk.range_in_blamed_file.start,

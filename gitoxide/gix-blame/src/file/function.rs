@@ -114,7 +114,7 @@ pub fn file(
             break;
         }
 
-        let is_still_suspect = hunks_to_blame.iter().any(|hunk| hunk.suspects.contains_key(&suspect));
+        let is_still_suspect = hunks_to_blame.iter().any(|hunk| hunk.has_suspect(&suspect));
         if !is_still_suspect {
             // There are no `UnblamedHunk`s associated with this `suspect`, so we can continue with
             // the next one.
@@ -189,7 +189,7 @@ pub fn file(
                 .collect();
 
             for hunk in hunks_to_blame.iter() {
-                if let Some(range_in_suspect) = hunk.suspects.get(&suspect) {
+                if let Some(range_in_suspect) = hunk.get_range(&suspect) {
                     let range_in_blamed_file = hunk.range_in_blamed_file.clone();
 
                     for (blamed_line_number, source_line_number) in range_in_blamed_file.zip(range_in_suspect.clone()) {
