@@ -22,7 +22,7 @@ serde = ["dep:serde", "bstr/serde"]
 gix-path = { version = "^0.10.15", path = "../gix-path" }
 
 thiserror = "2.0.0"
-bstr = { version = "1.0.1", default-features = false, features = ["std"] }
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 bitflags = "2"
 

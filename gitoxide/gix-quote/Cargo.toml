@@ -17,5 +17,5 @@ doctest = false
 [dependencies]
 gix-utils = { version = "^0.2.0", path = "../gix-utils" }
 
-bstr = { version = "1.3.0", default-features = false, features = ["std"] }
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 thiserror = "2.0.0"

@@ -93,7 +93,7 @@ serde = { version = "1.0.114", optional = true, default-features = false, featur
     "std",
     "derive",
 ] }
-bstr = { version = "1.3.0", default-features = false, features = [
+bstr = { version = "1.12.0", default-features = false, features = [
     "std",
     "unicode",
 ] }

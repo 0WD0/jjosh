@@ -26,7 +26,7 @@ gix-object = { version = "^0.48.0", path = "../gix-object" }
 gix-ignore = { version = "^0.14.0", path = "../gix-ignore" }
 gix-utils = { version = "^0.2.0", path = "../gix-utils", features = ["bstr"] }
 
-bstr = { version = "1.5.0", default-features = false }
+bstr = { version = "1.12.0", default-features = false }
 thiserror = "2.0.0"
 
 [dev-dependencies]
