@@ -3,7 +3,7 @@
 use std::{
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use futures_io::AsyncWrite;
@@ -75,7 +75,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Writer<T> {
                 State::WriteData(written) => {
                     while *written != buf.len() {
                         let data = &buf[*written..*written + (buf.len() - *written).min(MAX_DATA_LEN)];
-                        let n = futures_lite::ready!(this.inner.as_mut().poll_write(cx, data))?;
+                        let n = ready!(this.inner.as_mut().poll_write(cx, data))?;
                         if n == 0 {
                             return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
                         }
