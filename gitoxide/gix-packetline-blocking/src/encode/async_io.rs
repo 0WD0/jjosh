@@ -3,7 +3,7 @@
 use std::{
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use futures_io::AsyncWrite;
@@ -56,7 +56,6 @@ fn into_io_err(err: Error) -> io::Error {
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for LineWriter<'_, W> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
-        use futures_lite::ready;
         let mut this = self.project();
         loop {
             match &mut this.state {

@@ -3,11 +3,10 @@
 use std::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use futures_io::{AsyncBufRead, AsyncRead};
-use futures_lite::ready;
 
 use crate::{decode, read::ProgressAction, BandRef, PacketLineRef, StreamingPeekableIter, TextRef, U16_HEX_BYTES};
 
