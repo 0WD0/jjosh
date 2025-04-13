@@ -1,7 +1,4 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use gix_features::fs::walkdir::DirEntryIter;
 use gix_object::bstr::ByteSlice;
@@ -11,7 +8,7 @@ use crate::{file::iter::LooseThenPacked, store_impl::file, BStr, BString, FullNa
 /// An iterator over all valid loose reference paths as seen from a particular base directory.
 pub(in crate::store_impl::file) struct SortedLoosePaths {
     pub(crate) base: PathBuf,
-    /// A optional prefix to match against if the prefix is not the same as the `file_walk` path.
+    /// An prefix like `refs/heads/foo/` or `refs/heads/prefix` that a returned reference must match against..
     prefix: Option<BString>,
     file_walk: Option<DirEntryIter>,
 }
@@ -48,12 +45,10 @@ impl Iterator for SortedLoosePaths {
                     let full_name = full_path
                         .strip_prefix(&self.base)
                         .expect("prefix-stripping cannot fail as base is within our root");
-                    let full_name = match gix_path::try_into_bstr(full_name) {
-                        Ok(name) => {
-                            let name = gix_path::to_unix_separators_on_windows(name);
-                            name.into_owned()
-                        }
-                        Err(_) => continue, // TODO: silently skipping ill-formed UTF-8 on windows here, maybe there are better ways?
+                    let Ok(full_name) = gix_path::try_into_bstr(full_name)
+                        .map(|name| gix_path::to_unix_separators_on_windows(name).into_owned())
+                    else {
+                        continue;
                     };
                     if let Some(prefix) = &self.prefix {
                         if !full_name.starts_with(prefix) {
@@ -86,11 +81,15 @@ impl file::Store {
 
     /// Return an iterator over all loose references that start with the given `prefix`.
     ///
-    /// Otherwise it's similar to [`loose_iter()`][file::Store::loose_iter()].
-    pub fn loose_iter_prefixed<'a>(
-        &self,
-        prefix: impl Into<Cow<'a, BStr>>,
-    ) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    /// Otherwise, it's similar to [`loose_iter()`](file::Store::loose_iter()).
+    ///
+    /// Note that if a prefix isn't using a trailing `/`, like in `refs/heads/foo`, it will effectively
+    /// start the traversal in the parent directory, e.g. `refs/heads/` and list everything inside that
+    /// starts with `foo`, like `refs/heads/foo` and `refs/heads/foobar`.
+    ///
+    /// Prefixes are relative paths with slash-separated components.
+    // TODO: use `RelativePath` type instead (see #1921), or a trait that helps convert into it.
+    pub fn loose_iter_prefixed<'a>(&self, prefix: impl Into<&'a BStr>) -> std::io::Result<LooseThenPacked<'_, '_>> {
         self.iter_prefixed_packed(prefix.into(), None)
     }
 }

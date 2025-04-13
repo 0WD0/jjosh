@@ -1,4 +1,4 @@
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
 use gix_object::bstr::{BStr, BString, ByteSlice, ByteVec};
 
@@ -18,9 +18,12 @@ impl Namespace {
         gix_path::from_byte_slice(&self.0)
     }
     /// Append the given `prefix` to this namespace so it becomes usable for prefixed iteration.
-    pub fn into_namespaced_prefix(mut self, prefix: &BStr) -> Cow<'_, BStr> {
-        self.0.push_str(prefix);
-        gix_path::to_unix_separators_on_windows(self.0)
+    ///
+    /// The prefix is a relative path with slash-separated path components.
+    // TODO: use `RelativePath` type instead (see #1921), or a trait that helps convert into it.
+    pub fn into_namespaced_prefix<'a>(mut self, prefix: impl Into<&'a BStr>) -> BString {
+        self.0.push_str(prefix.into());
+        gix_path::to_unix_separators_on_windows(self.0).into_owned()
     }
     pub(crate) fn into_namespaced_name(mut self, name: &FullNameRef) -> FullName {
         self.0.push_str(name.as_bstr());

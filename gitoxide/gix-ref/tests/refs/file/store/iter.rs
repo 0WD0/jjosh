@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use gix_object::bstr::ByteSlice;
 
 use crate::{
@@ -326,7 +324,7 @@ fn loose_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
     #[cfg(windows)]
     let abs_path = r"c:\hello";
 
-    match store.loose_iter_prefixed(Cow::Borrowed(abs_path.as_ref())) {
+    match store.loose_iter_prefixed(abs_path) {
         Ok(_) => unreachable!("absolute paths aren't allowed"),
         Err(err) => assert_eq!(err.to_string(), "prefix must be a relative path, like 'refs/heads/'"),
     }
@@ -335,11 +333,9 @@ fn loose_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
 
 #[test]
 fn loose_iter_with_prefix() -> crate::Result {
-    // Test 'refs/heads/' with slash.
-    let store = store()?;
-
-    let actual = store
-        .loose_iter_prefixed(b"refs/heads/".as_bstr())?
+    let prefix_with_slash = b"refs/heads/";
+    let actual = store()?
+        .loose_iter_prefixed(prefix_with_slash)?
         .collect::<Result<Vec<_>, _>>()
         .expect("no broken ref in this subset")
         .into_iter()
@@ -365,11 +361,9 @@ fn loose_iter_with_prefix() -> crate::Result {
 
 #[test]
 fn loose_iter_with_partial_prefix_dir() -> crate::Result {
-    // Test 'refs/heads/' without slash.
-    let store = store()?;
-
-    let actual = store
-        .loose_iter_prefixed(b"refs/heads".as_bstr())?
+    let prefix_without_slash = b"refs/heads";
+    let actual = store()?
+        .loose_iter_prefixed(prefix_without_slash)?
         .collect::<Result<Vec<_>, _>>()
         .expect("no broken ref in this subset")
         .into_iter()
@@ -395,9 +389,7 @@ fn loose_iter_with_partial_prefix_dir() -> crate::Result {
 
 #[test]
 fn loose_iter_with_partial_prefix() -> crate::Result {
-    let store = store()?;
-
-    let actual = store
+    let actual = store()?
         .loose_iter_prefixed(b"refs/heads/d".as_bstr())?
         .collect::<Result<Vec<_>, _>>()
         .expect("no broken ref in this subset")
@@ -542,7 +534,7 @@ fn overlay_iter_with_prefix_wont_allow_absolute_paths() -> crate::Result {
     #[cfg(windows)]
     let abs_path = r"c:\hello";
 
-    match store.iter()?.prefixed(Cow::Borrowed(abs_path.as_ref())) {
+    match store.iter()?.prefixed(abs_path) {
         Ok(_) => unreachable!("absolute paths aren't allowed"),
         Err(err) => assert_eq!(err.to_string(), "prefix must be a relative path, like 'refs/heads/'"),
     }
@@ -556,7 +548,7 @@ fn overlay_prefixed_iter() -> crate::Result {
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
     let ref_names = store
         .iter()?
-        .prefixed(b"refs/heads/".as_bstr())?
+        .prefixed(b"refs/heads/")?
         .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
         .collect::<Result<Vec<_>, _>>()?;
     let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
@@ -579,7 +571,7 @@ fn overlay_partial_prefix_iter() -> crate::Result {
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
     let ref_names = store
         .iter()?
-        .prefixed(b"refs/heads/m".as_bstr())? // 'm' is partial
+        .prefixed(b"refs/heads/m")? // 'm' is partial
         .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
         .collect::<Result<Vec<_>, _>>()?;
     let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
@@ -597,11 +589,14 @@ fn overlay_partial_prefix_iter_reproduce_1934() -> crate::Result {
 
     let ref_names = store
         .iter()?
-        .prefixed(b"refs/d".as_bstr())?
+        .prefixed(b"refs/d")?
         .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
         .collect::<Result<Vec<_>, _>>()?;
-    // Should not match `refs/heads/d1`.
-    assert_eq!(ref_names, vec![("refs/d1".into(), Object(c1)),]);
+    assert_eq!(
+        ref_names,
+        vec![("refs/d1".into(), Object(c1))],
+        "Should not match `refs/heads/d1`"
+    );
     Ok(())
 }
 
@@ -615,7 +610,7 @@ fn overlay_partial_prefix_iter_when_prefix_is_dir() -> crate::Result {
 
     let ref_names = store
         .iter()?
-        .prefixed(b"refs/prefix/feature".as_bstr())?
+        .prefixed(b"refs/prefix/feature")?
         .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(
@@ -628,7 +623,7 @@ fn overlay_partial_prefix_iter_when_prefix_is_dir() -> crate::Result {
 
     let ref_names = store
         .iter()?
-        .prefixed(b"refs/prefix/feature/".as_bstr())?
+        .prefixed(b"refs/prefix/feature/")?
         .map(|r| r.map(|r| (r.name.as_bstr().to_owned(), r.target)))
         .collect::<Result<Vec<_>, _>>()?;
     assert_eq!(

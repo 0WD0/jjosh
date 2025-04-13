@@ -195,9 +195,16 @@ impl Platform<'_> {
         self.store.iter_packed(self.packed.as_ref().map(|b| &***b))
     }
 
-    /// As [`iter(…)`][file::Store::iter()], but filters by `prefix`, i.e. "refs/heads/" or
+    /// As [`iter(…)`](file::Store::iter()), but filters by `prefix`, i.e. "refs/heads/" or
     /// "refs/heads/feature-".
-    pub fn prefixed<'a>(&self, prefix: impl Into<Cow<'a, BStr>>) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    ///
+    /// Note that if a prefix isn't using a trailing `/`, like in `refs/heads/foo`, it will effectively
+    /// start the traversal in the parent directory, e.g. `refs/heads/` and list everything inside that
+    /// starts with `foo`, like `refs/heads/foo` and `refs/heads/foobar`.
+    ///
+    /// Prefixes are relative paths with slash-separated components.
+    // TODO: use `RelativePath` type instead (see #1921), or a trait that helps convert into it.
+    pub fn prefixed<'a>(&self, prefix: impl Into<&'a BStr>) -> std::io::Result<LooseThenPacked<'_, '_>> {
         self.store
             .iter_prefixed_packed(prefix.into(), self.packed.as_ref().map(|b| &***b))
     }
@@ -227,7 +234,7 @@ pub(crate) enum IterInfo<'a> {
     BaseAndIterRoot {
         base: &'a Path,
         iter_root: PathBuf,
-        prefix: Cow<'a, Path>,
+        prefix: PathBuf,
         precompose_unicode: bool,
     },
     PrefixAndBase {
@@ -238,9 +245,9 @@ pub(crate) enum IterInfo<'a> {
     ComputedIterationRoot {
         /// The root to iterate over
         iter_root: PathBuf,
-        /// The top-level directory as boundary of all references, used to create their short-names after iteration
+        /// The top-level directory as boundary of all references, used to create their short-names after iteration.
         base: &'a Path,
-        /// The original prefix
+        /// The original prefix.
         prefix: Cow<'a, BStr>,
         /// If `true`, we will convert decomposed into precomposed unicode.
         precompose_unicode: bool,
@@ -290,7 +297,7 @@ impl<'a> IterInfo<'a> {
         precompose_unicode: bool,
     ) -> std::io::Result<Self> {
         let prefix = prefix.into();
-        let prefix_path = gix_path::from_bstring(prefix.clone().into_owned());
+        let prefix_path = gix_path::from_bstr(prefix.as_ref());
         if prefix_path.is_absolute() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -309,7 +316,7 @@ impl<'a> IterInfo<'a> {
             Ok(IterInfo::BaseAndIterRoot {
                 base,
                 iter_root,
-                prefix: prefix_path.into(),
+                prefix: prefix_path.into_owned(),
                 precompose_unicode,
             })
         } else {
@@ -363,16 +370,23 @@ impl file::Store {
         }
     }
 
-    /// As [`iter(…)`][file::Store::iter()], but filters by `prefix`, i.e. "refs/heads/" or
-    /// "refs/heads/feature-".
-    pub fn iter_prefixed_packed<'s, 'p>(
+    /// As [`iter(…)`](file::Store::iter()), but filters by `prefix`, i.e. `refs/heads/` or
+    /// `refs/heads/feature-`.
+    /// Note that if a prefix isn't using a trailing `/`, like in `refs/heads/foo`, it will effectively
+    /// start the traversal in the parent directory, e.g. `refs/heads/` and list everything inside that
+    /// starts with `foo`, like `refs/heads/foo` and `refs/heads/foobar`.
+    ///
+    /// Prefixes are relative paths with slash-separated components.
+    // TODO: use `RelativePath` type instead (see #1921), or a trait that helps convert into it.
+    pub fn iter_prefixed_packed<'a, 's, 'p>(
         &'s self,
-        prefix: Cow<'_, BStr>,
+        prefix: impl Into<&'a BStr>,
         packed: Option<&'p packed::Buffer>,
     ) -> std::io::Result<LooseThenPacked<'p, 's>> {
+        let prefix = prefix.into();
         match self.namespace.as_ref() {
             None => {
-                let git_dir_info = IterInfo::from_prefix(self.git_dir(), prefix.clone(), self.precompose_unicode)?;
+                let git_dir_info = IterInfo::from_prefix(self.git_dir(), prefix, self.precompose_unicode)?;
                 let common_dir_info = self
                     .common_dir()
                     .map(|base| IterInfo::from_prefix(base, prefix, self.precompose_unicode))
@@ -380,7 +394,7 @@ impl file::Store {
                 self.iter_from_info(git_dir_info, common_dir_info, packed)
             }
             Some(namespace) => {
-                let prefix = namespace.to_owned().into_namespaced_prefix(&prefix);
+                let prefix = namespace.to_owned().into_namespaced_prefix(prefix);
                 let git_dir_info = IterInfo::from_prefix(self.git_dir(), prefix.clone(), self.precompose_unicode)?;
                 let common_dir_info = self
                     .common_dir()
