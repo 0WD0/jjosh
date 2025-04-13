@@ -1,10 +1,7 @@
 #![allow(clippy::result_large_err)]
-use gix_features::threading::OwnShared;
-use std::ffi::OsStr;
-use std::{borrow::Cow, path::PathBuf};
-
 use super::{Error, Options};
 use crate::{
+    bstr,
     bstr::BString,
     config,
     config::{
@@ -14,6 +11,9 @@ use crate::{
     open::Permissions,
     ThreadSafeRepository,
 };
+use gix_features::threading::OwnShared;
+use std::ffi::OsStr;
+use std::{borrow::Cow, path::PathBuf};
 
 #[derive(Default, Clone)]
 pub(crate) struct EnvironmentOverrides {
@@ -347,9 +347,10 @@ impl ThreadSafeRepository {
         refs.namespace.clone_from(&config.refs_namespace);
         let replacements = replacement_objects_refs_prefix(&config.resolved, lenient_config, filter_config_section)?
             .and_then(|prefix| {
+                use bstr::ByteSlice;
                 let _span = gix_trace::detail!("find replacement objects");
                 let platform = refs.iter().ok()?;
-                let iter = platform.prefixed(prefix.clone()).ok()?;
+                let iter = platform.prefixed(prefix.as_bstr()).ok()?;
                 let replacements = iter
                     .filter_map(Result::ok)
                     .filter_map(|r: gix_ref::Reference| {

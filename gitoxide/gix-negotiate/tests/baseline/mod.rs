@@ -71,7 +71,7 @@ fn run() -> crate::Result {
                 // }
                 for tip in lookup_names(&["HEAD"]).into_iter().chain(
                     refs.iter()?
-                        .prefixed(b"refs/heads".as_bstr())?
+                        .prefixed(b"refs/heads")?
                         .filter_map(Result::ok)
                         .map(|r| r.target.into_id()),
                 ) {
