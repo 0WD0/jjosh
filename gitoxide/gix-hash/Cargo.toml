@@ -20,7 +20,7 @@ test = false
 serde = ["dep:serde"]
 
 [dependencies]
-gix-features = { version = "^0.41.1", path = "../gix-features", features = ["progress"] }
+gix-features = { version = "^0.42.0", path = "../gix-features", features = ["progress"] }
 
 thiserror = "2.0.0"
 faster-hex = { version = "0.10.0" }

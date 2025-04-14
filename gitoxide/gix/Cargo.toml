@@ -344,7 +344,7 @@ gix-traverse = { version = "^0.45.0", path = "../gix-traverse" }
 gix-diff = { version = "^0.51.0", path = "../gix-diff", default-features = false }
 gix-merge = { version = "^0.4.0", path = "../gix-merge", default-features = false, optional = true }
 gix-mailmap = { version = "^0.26.0", path = "../gix-mailmap", optional = true }
-gix-features = { version = "^0.41.1", path = "../gix-features", features = [
+gix-features = { version = "^0.42.0", path = "../gix-features", features = [
     "progress",
     "once_cell",
 ] }
