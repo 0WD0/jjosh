@@ -20,6 +20,8 @@ pub mod component {
         DotGitDir,
         #[error("The .gitmodules file must not be a symlink")]
         SymlinkedGitModules,
+        #[error("Relative components '.' and '..' are disallowed")]
+        Relative,
     }
 
     /// Further specify what to check for in [`component()`](super::component())
@@ -77,6 +79,9 @@ pub fn component(
 ) -> Result<&BStr, component::Error> {
     if input.is_empty() {
         return Err(component::Error::Empty);
+    }
+    if input == ".." || input == "." {
+        return Err(component::Error::Relative);
     }
     if protect_windows {
         if input.find_byteset(br"/\").is_some() {

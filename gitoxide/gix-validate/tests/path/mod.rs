@@ -253,6 +253,10 @@ mod component {
         mktest!(con_with_extension, b"CON.abc", Error::WindowsReservedName);
         mktest!(con_with_middle, b"CON.tar.xz", Error::WindowsReservedName);
         mktest!(con_mixed_with_middle, b"coN.tar.xz ", Error::WindowsReservedName);
+        mktest!(dot_dot, b"..", Error::Relative);
+        mktest!(dot_dot_no_opts, b"..", Error::Relative, NO_OPTS);
+        mktest!(single_dot, b".", Error::Relative);
+        mktest!(single_dot_no_opts, b".", Error::Relative, NO_OPTS);
         mktest!(
             conout_mixed_with_extension,
             b"ConOut$  .xyz",
