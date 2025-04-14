@@ -50,12 +50,3 @@ deny = [
     # end range due to https://github.com/serde-rs/serde/pull/2590
     { name = "serde_derive", version = ">1.0.171, <1.0.185" },
 ]
-
-
-[[licenses.clarify]]
-name = "ring"
-expression = "LicenseRef-ring"
-license-files = [
-    { path = "LICENSE", hash = 0xbd0eed23 },
-]
-
