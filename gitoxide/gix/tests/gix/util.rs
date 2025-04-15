@@ -38,7 +38,9 @@ pub fn named_subrepo_opts(
     name: &str,
     opts: open::Options,
 ) -> std::result::Result<Repository, gix::open::Error> {
-    let repo_path = gix_testtools::scripted_fixture_read_only(fixture).unwrap().join(name);
+    let repo_path = gix_testtools::scripted_fixture_read_only(fixture)
+        .map_err(|err| gix::open::Error::Io(std::io::Error::other(err)))?
+        .join(name);
     Ok(ThreadSafeRepository::open_opts(repo_path, opts)?.to_thread_local())
 }
 
