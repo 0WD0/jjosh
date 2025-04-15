@@ -77,10 +77,10 @@ pub struct Stack {
 }
 
 #[cfg(unix)]
-/// Returns whether a a file has the executable permission set.
+/// Returns whether a file has the executable permission set.
 pub fn is_executable(metadata: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
-    (metadata.mode() & 0o100) != 0
+    (metadata.mode() & 0o111) != 0
 }
 
 /// Classifiers for IO-errors.
