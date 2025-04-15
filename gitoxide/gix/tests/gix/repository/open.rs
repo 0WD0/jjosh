@@ -56,6 +56,33 @@ fn on_root_with_decomposed_unicode() -> crate::Result {
 }
 
 #[test]
+fn non_bare_reftable() -> crate::Result {
+    let repo = match named_subrepo_opts(
+        "make_reftable_repo.sh",
+        "reftable-clone",
+        gix::open::Options::isolated(),
+    ) {
+        Ok(r) => r,
+        Err(_) if *gix_testtools::GIT_VERSION < (2, 44, 0) => {
+            eprintln!("Fixture script failure ignored as it looks like Git isn't recent enough.");
+            return Ok(());
+        }
+        Err(err) => panic!("{err}"),
+    };
+    assert!(
+        repo.head_id().is_err(),
+        "Trying to do anything with head will fail as we don't support reftables yet"
+    );
+    assert!(!repo.is_bare());
+    assert_ne!(
+        repo.workdir(),
+        None,
+        "Otherwise it can be used, but it's hard to do without refs"
+    );
+    Ok(())
+}
+
+#[test]
 fn bare_repo_with_index() -> crate::Result {
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
