@@ -583,13 +583,10 @@ fn scripted_fixture_read_only_with_args_inner(
                 };
                 if !output.status.success() {
                     write_failure_marker(&failure_marker);
+                    eprintln!("stdout: {}", output.stdout.as_bstr());
+                    eprintln!("stderr: {}", output.stderr.as_bstr());
+                    return Err(format!("fixture script of {cmd:?} failed").into());
                 }
-                assert!(
-                    output.status.success(),
-                    "fixture script of {cmd:?} failed: stdout: {}\nstderr: {}",
-                    output.stdout.as_bstr(),
-                    output.stderr.as_bstr()
-                );
                 create_archive_if_we_should(
                     &script_result_directory,
                     &archive_file_path,
