@@ -84,10 +84,11 @@ impl PackId {
 /// An index that changes only if the packs directory changes and its contents is re-read.
 #[derive(Default)]
 pub struct SlotMapIndex {
-    /// The index into the slot map at which we expect an index or pack file. Neither of these might be loaded yet.
+    /// The index into the slot map at which we expect an index or pack file. Neither of these might be already loaded.
     pub(crate) slot_indices: Vec<usize>,
-    /// A list of loose object databases as resolved by their alternates file in the `object_directory`. The first entry is this objects
-    /// directory loose file database. All other entries are the loose stores of alternates.
+    /// A list of loose object databases as resolved by their alternates file in the `object_directory`.
+    /// The first entry is this repository's directory for the loose file database.
+    /// All other entries are the loose stores of alternates.
     /// It's in an Arc to be shared to Handles, but not to be shared across SlotMapIndices.
     pub(crate) loose_dbs: Arc<Vec<crate::loose::Store>>,
 
