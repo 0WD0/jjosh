@@ -102,6 +102,39 @@ mod blocking_and_async_io {
             )?;
             Ok(())
         }
+        fn check_fetch_output(
+            repo: &gix::Repository,
+            out: gix::remote::fetch::Outcome,
+            expected_count: usize,
+        ) -> gix_testtools::Result {
+            for local_tracking_branch_name in out.ref_map.mappings.into_iter().filter_map(|m| m.local) {
+                let r = repo.find_reference(&local_tracking_branch_name)?;
+                r.id()
+                    .object()
+                    .expect("object should be present after fetching, triggering pack refreshes works");
+                repo.head_ref()?.unwrap().set_target_id(r.id(), "post fetch")?;
+            }
+            check_odb_accessability(repo, expected_count)?;
+            Ok(())
+        }
+        fn check_odb_accessability(repo: &gix::Repository, expected_count: usize) -> gix_testtools::Result {
+            let mut count_unique = 0;
+            // TODO: somehow there is a lot of duplication when receiving objects.
+            let mut seen = gix_hashtable::HashSet::default();
+            for id in repo.objects.iter()? {
+                let id = id?;
+                if !seen.insert(id) {
+                    continue;
+                }
+                let _obj = repo.find_object(id)?;
+                count_unique += 1;
+            }
+            assert_eq!(
+                count_unique, expected_count,
+                "Each round we receive exactly one commit, effectively"
+            );
+            Ok(())
+        }
         for max_packs in 1..=3 {
             let remote_dir = tempfile::tempdir()?;
             let mut remote_repo = gix::init_bare(remote_dir.path())?;
@@ -128,25 +161,33 @@ mod blocking_and_async_io {
                     Fetch,
                 )
                 .expect("remote is configured after clone")?;
-            for _round_to_create_pack in 1..12 {
+            let minimum_slots = 5;
+            let slots = Slots::AsNeededByDiskState {
+                multiplier: 1.1,
+                minimum: minimum_slots,
+            };
+            let one_more_than_minimum = minimum_slots + 1;
+            for round_to_create_pack in 1..one_more_than_minimum {
+                let expected_object_count = round_to_create_pack + 1 + 1 /* first commit + tree */;
                 create_empty_commit(&remote_repo)?;
                 match remote
                     .connect(Fetch)?
                     .prepare_fetch(gix::progress::Discard, Default::default())?
                     .receive(gix::progress::Discard, &IS_INTERRUPTED)
                 {
-                    Ok(out) => {
-                        for local_tracking_branch_name in out.ref_map.mappings.into_iter().filter_map(|m| m.local) {
-                            let r = local_repo.find_reference(&local_tracking_branch_name)?;
-                            r.id()
-                                .object()
-                                .expect("object should be present after fetching, triggering pack refreshes works");
-                            local_repo.head_ref()?.unwrap().set_target_id(r.id(), "post fetch")?;
-                        }
+                    Ok(out) => check_fetch_output(&local_repo, out, expected_object_count)?,
+                    Err(err) => {
+                        assert!(err
+                            .to_string()
+                            .starts_with("The slotmap turned out to be too small with "));
+                        // But opening a new repo will always be able to read all objects
+                        // as it dynamically sizes the otherwise static slotmap.
+                        let local_repo = gix::open_opts(
+                            local_repo.path(),
+                            gix::open::Options::isolated().object_store_slots(slots),
+                        )?;
+                        check_odb_accessability(&local_repo, expected_object_count)?;
                     }
-                    Err(err) => assert!(err
-                        .to_string()
-                        .starts_with("The slotmap turned out to be too small with ")),
                 }
             }
         }
