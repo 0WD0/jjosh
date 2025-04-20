@@ -1,5 +1,5 @@
 mod set_namespace {
-    use gix::{bstr::ByteSlice, refs::transaction::PreviousValue};
+    use gix::refs::transaction::PreviousValue;
     use gix_testtools::tempfile;
 
     fn easy_repo_rw() -> crate::Result<(gix::Repository, tempfile::TempDir)> {
@@ -48,7 +48,7 @@ mod set_namespace {
 
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/tags/".as_bstr())?
+                .prefixed("refs/tags/")?
                 .filter_map(Result::ok)
                 .map(|r| r.name().as_bstr().to_owned())
                 .collect::<Vec<_>>(),
@@ -81,8 +81,6 @@ mod set_namespace {
 }
 
 mod iter_references {
-    use gix::bstr::ByteSlice;
-
     use crate::util::hex_to_id;
 
     fn repo() -> crate::Result<gix::Repository> {
@@ -125,7 +123,7 @@ mod iter_references {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/heads/".as_bstr())?
+                .prefixed("refs/heads/")?
                 .filter_map(Result::ok)
                 .map(|r| (
                     r.name().as_bstr().to_string(),
@@ -156,7 +154,7 @@ mod iter_references {
         let repo = repo()?;
         assert_eq!(
             repo.references()?
-                .prefixed(b"refs/heads/".as_bstr())?
+                .prefixed(b"refs/heads/")?
                 .peeled()?
                 .filter_map(Result::ok)
                 .map(|r| (

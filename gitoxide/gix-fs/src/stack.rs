@@ -50,30 +50,43 @@ fn component_to_os_str<'a>(
 
 impl ToNormalPathComponents for &BStr {
     fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
-        self.split(|b| *b == b'/').filter_map(bytes_component_to_os_str)
+        self.split(|b| *b == b'/')
+            .filter_map(|c| bytes_component_to_os_str(c, self))
     }
 }
 
 impl ToNormalPathComponents for &str {
     fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
-        self.split('/').filter_map(|c| bytes_component_to_os_str(c.as_bytes()))
+        self.split('/')
+            .filter_map(|c| bytes_component_to_os_str(c.as_bytes(), (*self).into()))
     }
 }
 
 impl ToNormalPathComponents for &BString {
     fn to_normal_path_components(&self) -> impl Iterator<Item = Result<&OsStr, to_normal_path_components::Error>> {
-        self.split(|b| *b == b'/').filter_map(bytes_component_to_os_str)
+        self.split(|b| *b == b'/')
+            .filter_map(|c| bytes_component_to_os_str(c, self.as_bstr()))
     }
 }
 
-fn bytes_component_to_os_str(component: &[u8]) -> Option<Result<&OsStr, to_normal_path_components::Error>> {
+fn bytes_component_to_os_str<'a>(
+    component: &'a [u8],
+    path: &BStr,
+) -> Option<Result<&'a OsStr, to_normal_path_components::Error>> {
     if component.is_empty() {
         return None;
     }
-    gix_path::try_from_byte_slice(component.as_bstr())
+    let component = match gix_path::try_from_byte_slice(component.as_bstr())
         .map_err(|_| to_normal_path_components::Error::IllegalUtf8)
-        .map(Path::as_os_str)
-        .into()
+    {
+        Ok(c) => c,
+        Err(err) => return Some(Err(err)),
+    };
+    let component = component.components().next()?;
+    Some(component_to_os_str(
+        component,
+        gix_path::try_from_byte_slice(path.as_ref()).ok()?,
+    ))
 }
 
 /// Access
