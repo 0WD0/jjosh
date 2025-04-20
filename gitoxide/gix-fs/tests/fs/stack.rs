@@ -246,6 +246,19 @@ fn absolute_paths_are_invalid() -> crate::Result {
         r#"Input path "/" contains relative or absolute components"#,
         "a leading slash is always considered absolute"
     );
+    s.make_relative_path_current("/", &mut r)?;
+    assert_eq!(
+        s.current(),
+        s.root(),
+        "as string this is a no-op as it's just split by /"
+    );
+
+    let err = s.make_relative_path_current("../breakout", &mut r).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        r#"Input path "../breakout" contains relative or absolute components"#,
+        "otherwise breakout attempts are detected"
+    );
     s.make_relative_path_current(p("a/"), &mut r)?;
     assert_eq!(
         s.current(),
