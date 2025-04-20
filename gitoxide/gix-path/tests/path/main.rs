@@ -2,6 +2,7 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 mod convert;
 mod realpath;
+mod relative_path;
 mod home_dir {
     #[test]
     fn returns_existing_directory() {

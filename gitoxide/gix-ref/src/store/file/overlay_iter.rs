@@ -13,7 +13,7 @@ use crate::{
 };
 
 use gix_object::bstr::ByteSlice;
-use gix_path::relative_path::RelativePath;
+use gix_path::RelativePath;
 
 /// An iterator stepping through sorted input of loose references and packed references, preferring loose refs over otherwise
 /// equivalent packed references.
@@ -294,9 +294,9 @@ impl<'a> IterInfo<'a> {
     }
 
     fn from_prefix(base: &'a Path, prefix: &'a RelativePath, precompose_unicode: bool) -> std::io::Result<Self> {
-        let prefix_path = gix_path::from_bstr(prefix);
+        let prefix_path = gix_path::from_bstr(prefix.as_ref().as_bstr());
         let iter_root = base.join(&prefix_path);
-        if prefix.ends_with(b"/") {
+        if prefix.as_ref().ends_with(b"/") {
             Ok(IterInfo::BaseAndIterRoot {
                 base,
                 iter_root,
@@ -310,7 +310,7 @@ impl<'a> IterInfo<'a> {
                 .to_owned();
             Ok(IterInfo::ComputedIterationRoot {
                 base,
-                prefix: prefix.into(),
+                prefix: prefix.as_ref().as_bstr().into(),
                 iter_root,
                 precompose_unicode,
             })

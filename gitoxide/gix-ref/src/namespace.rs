@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use gix_object::bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_path::relative_path::RelativePath;
+use gix_path::RelativePath;
 
 use crate::{FullName, FullNameRef, Namespace, PartialNameRef};
 

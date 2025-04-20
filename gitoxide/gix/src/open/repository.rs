@@ -12,7 +12,7 @@ use crate::{
 };
 use gix_features::threading::OwnShared;
 use gix_object::bstr::ByteSlice;
-use gix_path::relative_path::RelativePath;
+use gix_path::RelativePath;
 use std::ffi::OsStr;
 use std::{borrow::Cow, path::PathBuf};
 

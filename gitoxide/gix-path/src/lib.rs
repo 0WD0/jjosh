@@ -65,3 +65,4 @@ pub mod env;
 
 ///
 pub mod relative_path;
+pub use relative_path::types::RelativePath;

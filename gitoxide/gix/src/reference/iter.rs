@@ -1,7 +1,7 @@
 //!
 #![allow(clippy::empty_docs)]
 
-use gix_path::relative_path::RelativePath;
+use gix_path::RelativePath;
 use gix_ref::file::ReferenceExt;
 
 /// A platform to create iterators over references.
@@ -43,8 +43,6 @@ impl Platform<'_> {
     /// Return an iterator over all references that match the given `prefix`.
     ///
     /// These are of the form `refs/heads/` or `refs/remotes/origin`, and must not contain relative paths components like `.` or `..`.
-    // TODO: Create a custom `Path` type that enforces the requirements of git naturally, this type is surprising possibly on windows
-    //       and when not using a trailing '/' to signal directories.
     pub fn prefixed<'a>(
         &self,
         prefix: impl TryInto<&'a RelativePath, Error = gix_path::relative_path::Error>,

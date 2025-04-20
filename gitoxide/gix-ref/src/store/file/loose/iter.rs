@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use gix_features::fs::walkdir::DirEntryIter;
 use gix_object::bstr::ByteSlice;
-use gix_path::relative_path::RelativePath;
+use gix_path::RelativePath;
 
 use crate::{file::iter::LooseThenPacked, store_impl::file, BString, FullName};
 
