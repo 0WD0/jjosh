@@ -23,7 +23,8 @@ tar = ["dep:tar", "dep:gix-path"]
 tar_gz = ["tar", "dep:flate2"]
 
 ## Enable the `zip` archive format.
-zip = ["dep:zip"]
+## This also enables the `flate2` dependency in order to enable `zlib-rs` on it.
+zip = ["dep:flate2", "dep:zip"]
 
 
 [dependencies]
@@ -32,10 +33,8 @@ gix-object = { version = "^0.48.0", path = "../gix-object" }
 gix-path = { version = "^0.10.15", path = "../gix-path", optional = true }
 gix-date = { version = "^0.9.4", path = "../gix-date" }
 
-flate2 = { version = "1.1.1", optional = true }
-zip = { version = "2.6.1", optional = true, default-features = false, features = [
-    "deflate",
-] }
+flate2 = { version = "1.1.1", optional = true, default-features = false, features = ["zlib-rs"] }
+zip = { version = "2.6.1", optional = true, default-features = false, features = ["deflate"] }
 jiff = { version = "0.2.6", default-features = false, features = ["std"] }
 
 thiserror = "2.0.0"

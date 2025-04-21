@@ -54,30 +54,23 @@ io-pipe = ["dep:bytes"]
 ## provide a proven and fast `crc32` implementation.
 crc32 = ["dep:crc32fast"]
 
-#! ### Mutually Exclusive ZLIB
-
-## Enable the usage of zlib related utilities to compress or decompress data.
-## The base `zlib` feature uses the `flate2` Rust crate; the other mutually exclusive features select the `flate2 backend.
-## Note that a competitive Zlib implementation is critical to `gitoxide's` object database performance.
-## Enabling this without enabling one of the other features below will use a low-performance pure-Rust backend.
-zlib = ["dep:flate2", "flate2?/rust_backend", "dep:thiserror"]
-## Use the C-based zlib-ng backend, which can compress and decompress significantly faster.
-zlib-ng = ["zlib", "flate2?/zlib-ng"]
-## Use the high-performance rust-based zlib backend on par with zlib-ng.
-## As of zlib-rs 0.5.0 (used by flate2 1.1.1), this no longer exports C symbols
-## by default, so it doesn't conflict with any other zlib library that might be
-## loaded into the same address space.
-zlib-rs = ["zlib", "flate2?/zlib-rs"]
-## Use zlib-ng via its zlib-compat API. Useful if you already need zlib for C
-## code elsewhere in your dependencies. Otherwise, use zlib-ng.
-zlib-ng-compat = ["zlib", "flate2?/zlib-ng-compat"]
-## Use a slower C-based backend which can compress and decompress significantly faster than the rust version.
-## Unlike `zlib-ng-compat`, this allows using dynamic linking with system `zlib` libraries and doesn't require cmake.
-zlib-stock = ["zlib", "flate2?/zlib"]
-## Pure Rust backend, available for completeness even though it's the default
-## if neither of the above options are set. Low performance, but pure Rust, so it
-## may build in environments where other backends don't.
-zlib-rust-backend = ["zlib", "flate2?/rust_backend"]
+## Enable the usage of zlib-related utilities to compress or decompress data.
+## This enables the `flate2` crate, and always uses the high-performance `zlib-rs` backend.
+## Note that the various past features for selecting zlib backends are now deprecated and do nothing.
+zlib = ["dep:flate2", "dep:thiserror"]
+## Deprecated: gix always uses zlib-rs.
+zlib-ng = ["zlib"]
+## Deprecated: gix always uses zlib-rs now. As of zlib-rs 0.5.0 (used by flate2
+## 1.1.1), this no longer exports C symbols # by default, so it doesn't
+## conflict with any other zlib library that might be loaded into the same
+## address space.
+zlib-rs = ["zlib"]
+## Deprecated: gix always uses zlib-rs.
+zlib-ng-compat = ["zlib"]
+## Deprecated: gix always uses zlib-rs.
+zlib-stock = ["zlib"]
+## Deprecated: gix always uses zlib-rs.
+zlib-rust-backend = ["zlib"]
 
 #! ### Other
 
@@ -128,7 +121,7 @@ bytesize = { version = "2.0.1", optional = true }
 bytes = { version = "1.0.0", optional = true }
 
 # zlib module
-flate2 = { version = "1.1.1", optional = true, default-features = false }
+flate2 = { version = "1.1.1", optional = true, default-features = false, features = ["zlib-rs"] }
 thiserror = { version = "2.0.0", optional = true }
 
 once_cell = { version = "1.21.3", optional = true }

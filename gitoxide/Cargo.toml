@@ -41,14 +41,15 @@ max = ["max-control", "fast", "gitoxide-core-tools-query", "gitoxide-core-tools-
 
 ## Like `max`, but only Rust is allowed.
 ##
-## This is the most compatible build as it won't need a C compiler or C toolchains to build. It's also not the fastest as or the most feature-rich in terms of available
-## transports as it uses Rust's HTTP implementation.
+## This is the most compatible build as it won't need a C compiler or C toolchains to build. Thanks to zlib-rs, you don't have to trade off between compatibility and performance.
+##
+## This uses Rust's HTTP implementation.
 ##
 ## As fast as possible, with TUI progress, progress line rendering with auto-configuration, all transports available but less mature pure Rust HTTP implementation, all `ein` tools, CLI colors and local-time support, JSON output, regex support for rev-specs.
-max-pure = ["max-control", "gix-features/zlib-rust-backend", "http-client-reqwest", "gitoxide-core-blocking-client"]
+max-pure = ["max-control", "http-client-reqwest", "gitoxide-core-blocking-client"]
 
 ## Like `max`, but with more control for configuration. See the *Package Maintainers* headline for more information.
-max-control = ["tracing", "fast-safe", "pretty-cli", "gitoxide-core-tools", "prodash-render-line", "prodash-render-tui", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
+max-control = ["tracing", "fast", "pretty-cli", "gitoxide-core-tools", "prodash-render-line", "prodash-render-tui", "prodash/render-line-autoconfigure", "gix/revparse-regex"]
 
 ## All the good stuff, with less fanciness for smaller binaries.
 ##
@@ -60,7 +61,7 @@ lean = ["fast", "tracing", "pretty-cli", "http-client-curl", "gitoxide-core-tool
 ## This build is essentially limited to local operations without any fanciness.
 ##
 ## Optimized for size, no parallelism thus much slower, progress line rendering.
-small = ["pretty-cli", "gix-features/zlib-rust-backend", "prodash-render-line", "is-terminal"]
+small = ["pretty-cli", "prodash-render-line", "is-terminal"]
 
 ## Like lean, but uses Rusts async implementations for networking.
 ##
@@ -74,37 +75,20 @@ small = ["pretty-cli", "gix-features/zlib-rust-backend", "prodash-render-line", 
 lean-async = ["fast", "tracing", "pretty-cli", "gitoxide-core-tools", "gitoxide-core-tools-query", "gitoxide-core-tools-corpus", "gitoxide-core-async-client", "prodash-render-line"]
 
 #! ### Package Maintainers
-#! `*-control` features leave it to you to configure C libraries, involving choices for `zlib` and transport implementation.
+#! `*-control` features leave it to you to configure C libraries, involving choices for HTTP transport implementation.
 #!
 #! Additional features *can* be provided with `--features` and are handled by the [`gix-features` crate](https://docs.rs/gix-features/latest).
-#! If nothing else is specified, the Rust implementation is used. ! Note that only one feature of each section can be enabled at a time.
-#!
-#! * **zlib**
-#!     - `gix-features/zlib-ng`
-#!     - `gix-features/zlib-ng-compat`
-#!     - `gix-features/zlib-stock`
-#!     - `gix-features/zlib-rust-backend` (*default if no choice is made*)
-#! * **HTTP** - see the *Building Blocks for mutually exclusive networking* headline
-#!
-#! #### Examples
-#!
-#! * `cargo build --release --no-default-features --features max-control,gix-features/zlib-stock,gitoxide-core-blocking-client,http-client-curl`
-#!     - Create a build just like `max`, but using the stock `zlib` library instead of `zlib-ng`
-#! * `cargo build --release --no-default-features --features max-control,http-client-reqwest,gitoxide-core-blocking-client,gix-features/zlib-ng`
-#!     - Create a build just like `max-pure`, but with faster compression due to `zlib-ng`.
+#! Note that only one HTTP transport can be enabled at a time. See the *Building Blocks for mutually exclusive networking* headline.
 
 #! ### Building Blocks
 #! Typical combinations of features of our dependencies, some of which are referred to in the `gitoxide` crate's code for conditional compilation.
 
-## Makes the crate execute as fast as possible by supporting parallel computation of otherwise long-running functions
-## as well as a faster zlib backend.
+## Makes the crate execute as fast as possible by supporting parallel computation of otherwise long-running functions.
 ## If disabled, the binary will be visibly smaller.
 fast = ["gix/max-performance", "gix/comfort"]
 
-## Makes the crate execute as fast as possible by supporting parallel computation of otherwise long-running functions
-## as well as a faster zlib backend.
-## If disabled, the binary will be visibly smaller.
-fast-safe = ["gix/max-performance-safe", "gix/comfort"]
+## Deprecated: identical to `fast`, as the fastest zlib backend is now the pure-Rust zlib-rs.
+fast-safe = ["fast"]
 
 ## Enable tracing in `gitoxide-core`.
 tracing = ["dep:tracing-forest", "dep:tracing-subscriber", "dep:tracing", "gix-features/tracing", "gix-features/tracing-detail"]
@@ -201,8 +185,8 @@ gix-ref = { opt-level = 3 }
 gix-hash = { opt-level = 3 }
 gix-actor = { opt-level = 3 }
 gix-config = { opt-level = 3 }
-miniz_oxide = { opt-level = 3 }
 sha1-checked = { opt-level = 3 }
+zlib-rs = { opt-level = 3 }
 
 [profile.release]
 overflow-checks = false

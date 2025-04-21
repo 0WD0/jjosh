@@ -551,15 +551,8 @@ title "gix commit-graph"
                   expect_run $WITH_FAILURE test -e "${PACK_FILE}".idx
                 }
 
-                if test "$kind" = "small" ; then
-                  suffix=miniz-oxide
-                elif test "$kind" = "max-pure"; then
-                  suffix=miniz-oxide-max
-                else
-                  suffix=zlib-ng
-                fi
                 it "creates all pack objects, but the broken ones" && {
-                  WITH_SNAPSHOT="$snapshot/broken-with-objects-dir-skip-checks-success-tree-$suffix" \
+                  WITH_SNAPSHOT="$snapshot/broken-with-objects-dir-skip-checks-success-tree" \
                   expect_run_sh $SUCCESSFULLY 'find . -type f | sort'
                 }
               )
