@@ -410,6 +410,11 @@ impl<'event> File<'event> {
         self.section_order.iter().map(move |id| (&self.sections[id], *id))
     }
 
+    /// Return an iterator over all section ids, in order of occurrence in the file itself.
+    pub fn section_ids(&mut self) -> impl Iterator<Item = SectionId> + '_ {
+        self.section_order.iter().copied()
+    }
+
     /// Return an iterator over all sections along with non-section events that are placed right after them,
     /// in order of occurrence in the file itself.
     ///
