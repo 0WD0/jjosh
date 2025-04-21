@@ -233,7 +233,7 @@ impl ThreadSafeRepository {
         let home = gix_path::env::home_dir().and_then(|home| env.home.check_opt(home));
 
         let mut filter_config_section = filter_config_section.unwrap_or(config::section::is_trusted);
-        let config = config::Cache::from_stage_one(
+        let mut config = config::Cache::from_stage_one(
             repo_config,
             common_dir_ref,
             head.as_ref().and_then(|head| head.target.try_name()),
@@ -248,14 +248,54 @@ impl ThreadSafeRepository {
             cli_config_overrides,
         )?;
 
-        if bail_if_untrusted && git_dir_trust != gix_sec::Trust::Full {
-            check_safe_directories(
-                &git_dir,
-                git_install_dir.as_deref(),
-                current_dir,
-                home.as_deref(),
-                &config,
-            )?;
+        // TODO: Testing - it's hard to get non-ownership reliably and without root.
+        //       For now tested manually with https://github.com/GitoxideLabs/gitoxide/issues/1912
+        if git_dir_trust != gix_sec::Trust::Full {
+            let safe_dirs: Vec<BString> = config
+                .resolved
+                .strings_filter(Safe::DIRECTORY, &mut Safe::directory_filter)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Cow::into_owned)
+                .collect();
+            if bail_if_untrusted {
+                check_safe_directories(
+                    &git_dir,
+                    git_install_dir.as_deref(),
+                    current_dir,
+                    home.as_deref(),
+                    &safe_dirs,
+                )?;
+            }
+            let Ok(mut resolved) = gix_features::threading::OwnShared::try_unwrap(config.resolved) else {
+                unreachable!("Shared ownership was just established, with one reference")
+            };
+            let section_ids: Vec<_> = resolved.section_ids().collect();
+            for id in section_ids {
+                let Some(mut section) = resolved.section_mut_by_id(id) else {
+                    continue;
+                };
+                let section_trusted_by_default = Safe::directory_filter(section.meta());
+                if section_trusted_by_default || section.meta().trust == gix_sec::Trust::Full {
+                    continue;
+                }
+                let Some(meta_path) = section.meta().path.as_deref() else {
+                    continue;
+                };
+                let config_file_is_safe = check_safe_directories(
+                    meta_path,
+                    git_install_dir.as_deref(),
+                    current_dir,
+                    home.as_deref(),
+                    &safe_dirs,
+                )
+                .is_ok();
+
+                if config_file_is_safe {
+                    section.set_trust(gix_sec::Trust::Full);
+                }
+            }
+            config.resolved = resolved.into();
         }
 
         // core.worktree might be used to overwrite the worktree directory
@@ -423,23 +463,20 @@ fn replacement_objects_refs_prefix(
 }
 
 fn check_safe_directories(
-    git_dir: &std::path::Path,
+    path_to_test: &std::path::Path,
     git_install_dir: Option<&std::path::Path>,
     current_dir: &std::path::Path,
     home: Option<&std::path::Path>,
-    config: &config::Cache,
+    safe_dirs: &[BString],
 ) -> Result<(), Error> {
     let mut is_safe = false;
-    let git_dir = match gix_path::realpath_opts(git_dir, current_dir, gix_path::realpath::MAX_SYMLINKS) {
+    let path_to_test = match gix_path::realpath_opts(path_to_test, current_dir, gix_path::realpath::MAX_SYMLINKS) {
         Ok(p) => p,
-        Err(_) => git_dir.to_owned(),
+        Err(_) => path_to_test.to_owned(),
     };
-    for safe_dir in config
-        .resolved
-        .strings_filter(Safe::DIRECTORY, &mut Safe::directory_filter)
-        .unwrap_or_default()
-    {
-        if safe_dir.as_ref() == "*" {
+    for safe_dir in safe_dirs {
+        let safe_dir = safe_dir.as_bstr();
+        if safe_dir == "*" {
             is_safe = true;
             continue;
         }
@@ -448,21 +485,32 @@ fn check_safe_directories(
             continue;
         }
         if !is_safe {
-            let safe_dir = match gix_config::Path::from(std::borrow::Cow::Borrowed(safe_dir.as_ref()))
+            let safe_dir = match gix_config::Path::from(Cow::Borrowed(safe_dir))
                 .interpolate(interpolate_context(git_install_dir, home))
             {
                 Ok(path) => path,
                 Err(_) => gix_path::from_bstr(safe_dir),
             };
-            if safe_dir == git_dir {
-                is_safe = true;
+            if !safe_dir.is_absolute() {
+                gix_trace::warn!(
+                    "safe.directory '{safe_dir}' not absolute",
+                    safe_dir = safe_dir.display()
+                );
                 continue;
+            }
+            if safe_dir.ends_with("*") {
+                let safe_dir = safe_dir.parent().expect("* is last component");
+                if path_to_test.strip_prefix(safe_dir).is_ok() {
+                    is_safe = true;
+                }
+            } else if safe_dir == path_to_test {
+                is_safe = true;
             }
         }
     }
     if is_safe {
         Ok(())
     } else {
-        Err(Error::UnsafeGitDir { path: git_dir })
+        Err(Error::UnsafeGitDir { path: path_to_test })
     }
 }
