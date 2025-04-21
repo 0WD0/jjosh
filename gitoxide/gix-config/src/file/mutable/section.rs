@@ -3,9 +3,6 @@ use std::{
     ops::{Deref, Range},
 };
 
-use bstr::{BStr, BString, ByteSlice, ByteVec};
-use smallvec::SmallVec;
-
 use crate::{
     file::{
         self,
@@ -16,6 +13,9 @@ use crate::{
     parse::{section::ValueName, Event},
     value::{normalize, normalize_bstr, normalize_bstring},
 };
+use bstr::{BStr, BString, ByteSlice, ByteVec};
+use gix_sec::Trust;
+use smallvec::SmallVec;
 
 /// A opaque type that represents a mutable reference to a section.
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
@@ -140,6 +140,14 @@ impl<'event> SectionMut<'_, 'event> {
                 Some(ret)
             }
         }
+    }
+
+    /// Set the trust level in the meta-data of this section to `trust`.
+    pub fn set_trust(&mut self, trust: Trust) -> &mut Self {
+        let mut meta = (*self.section.meta).clone();
+        meta.trust = trust;
+        self.section.meta = meta.into();
+        self
     }
 
     /// Removes the latest value by key and returns it, if it exists.
