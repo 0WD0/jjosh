@@ -370,11 +370,10 @@ impl Url {
 }
 
 /// This module contains extensions to the [Url] struct which are only intended to be used
-/// for testing code. Do not use this module in production! For all intends and purposes the APIs of
+/// for testing code. Do not use this module in production! For all intents and purposes, the APIs of
 /// all functions and types exposed by this module are considered unstable and are allowed to break
 /// even in patch releases!
 #[doc(hidden)]
-#[cfg(debug_assertions)]
 pub mod testing {
     use bstr::BString;
 
