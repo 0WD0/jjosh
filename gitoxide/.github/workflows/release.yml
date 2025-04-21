@@ -231,7 +231,6 @@ jobs:
       - name: Install packages (Ubuntu)
         # Because openssl doesn't work on musl by default, we resort to max-pure.
         # And that won't need any dependency, so we can skip this or use `continue-on-error`.
-        # Once we want to support better zlib performance, we might have to re-add it.
         if: matrix.os == 'ubuntu-latest-disabled'
         run: |
           sudo apt-get update
@@ -541,8 +540,6 @@ jobs:
           msystem: MINGW${{ startsWith(matrix.target, 'i686-') && '32' || '64' }}
           pacboy: cc:p
           path-type: inherit
-      - name: Install prerequisites
-        run: vcpkg install zlib:x64-windows-static-md
       - name: 'Installation from crates.io: gitoxide'
         run: cargo +${{ matrix.rust }} install --target ${{ matrix.target }} --no-default-features --features max-pure --target-dir install-artifacts --debug --force gitoxide
         shell: msys2 {0}

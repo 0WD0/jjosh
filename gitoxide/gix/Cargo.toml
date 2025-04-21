@@ -220,14 +220,11 @@ blocking-http-transport-reqwest-native-tls = [
 #! ZIP might not compile on all platforms, so it depends on the end-user who compiles the application to chose these based on their needs.
 
 ## Activate features that maximize performance, like using threads, but leave everything else that might affect compatibility out to allow users more fine-grained
-## control over performance features like which `zlib*` implementation to use.
+## control.
 ## No C toolchain is involved.
 max-control = ["parallel", "pack-cache-lru-static", "pack-cache-lru-dynamic"]
 
-## Activate features that maximize performance, like usage of threads, `and access to caching in object databases, skipping the ones known to cause compile failures
-## on some platforms.
-## Note that this configuration still uses a pure Rust zlib implementation which isn't the fastest compared to its C-alternatives.
-## No C toolchain is involved.
+## Deprecated: gix always uses zlib-rs, so this is equivalent to `max-performance`
 max-performance-safe = ["max-control"]
 
 ## The tempfile registry uses a better implementation of a thread-safe hashmap, relying on an external crate.
@@ -247,25 +244,20 @@ pack-cache-lru-static = ["gix-pack/pack-cache-lru-static"]
 ## Provide a hash-map based LRU cache whose eviction is based a memory cap calculated from object data.
 pack-cache-lru-dynamic = ["gix-pack/pack-cache-lru-dynamic"]
 
-## Activate other features that maximize performance, like usage of threads, `zlib-ng` and access to caching in object databases.
-## Note that some platforms might suffer from compile failures, which is when `max-performance-safe` should be used.
-max-performance = ["max-performance-safe", "zlib-ng"]
+## Enable all features required for performance. Currently, this is equivalent to `max-control`, as gix always uses zlib-rs.
+max-performance = ["max-control"]
 
-## Use the C-based zlib-ng backend, which can compress and decompress significantly faster.
-## Note that this will cause duplicate symbol errors if the application also depends on `zlib` - use `zlib-ng-compat` in that case.
-zlib-ng = ["gix-features/zlib-ng"]
+## Deprecated: gix always uses zlib-rs.
+zlib-ng = ["gix-features/zlib"]
 
-## Use the high-performance rust-based zlib backend en par with zlib-ng.
-## Note that this will cause duplicate symbol errors if the application also depends on `zlib`, without remedy.
-zlib-rs = ["gix-features/zlib-rs"]
+## Deprecated: gix always uses zlib-rs.
+zlib-rs = ["gix-features/zlib"]
 
-## Use zlib-ng via its zlib-compat API. Useful if you already need zlib for C
-## code elsewhere in your dependencies. Otherwise, use `zlib-ng`.
-zlib-ng-compat = ["gix-features/zlib-ng-compat"]
+## Deprecated: gix always uses zlib-rs.
+zlib-ng-compat = ["gix-features/zlib"]
 
-## Use a slower C-based backend which can compress and decompress significantly faster than the rust version.
-## Unlike `zlib-ng-compat`, this allows using dynamic linking with system `zlib` libraries and doesn't require cmake.
-zlib-stock = ["gix-features/zlib-stock"]
+## Deprecated: gix always uses zlib-rs.
+zlib-stock = ["gix-features/zlib"]
 
 #! #### Other
 #!
