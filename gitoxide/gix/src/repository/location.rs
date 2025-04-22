@@ -12,6 +12,7 @@ impl crate::Repository {
     }
 
     /// The trust we place in the git-dir, with lower amounts of trust causing access to configuration to be limited.
+    /// Note that if the git-dir is trusted but the worktree is not, the result is that the git-dir is also less trusted.
     pub fn git_dir_trust(&self) -> gix_sec::Trust {
         self.options.git_dir_trust.expect("definitely set by now")
     }

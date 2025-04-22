@@ -13,6 +13,8 @@ use crate::{
 use gix_features::threading::OwnShared;
 use gix_object::bstr::ByteSlice;
 use gix_path::RelativePath;
+use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::{borrow::Cow, path::PathBuf};
 
@@ -157,7 +159,7 @@ impl ThreadSafeRepository {
     ) -> Result<Self, Error> {
         let _span = gix_trace::detail!("open_from_paths()");
         let Options {
-            git_dir_trust,
+            ref mut git_dir_trust,
             object_store_slots,
             filter_config_section,
             lossy_config,
@@ -174,7 +176,7 @@ impl ThreadSafeRepository {
             ref cli_config_overrides,
             ref mut current_dir,
         } = options;
-        let git_dir_trust = git_dir_trust.expect("trust must be determined by now");
+        let git_dir_trust = git_dir_trust.as_mut().expect("trust must be determined by now");
 
         let mut common_dir = gix_discover::path::from_plain_file(git_dir.join("commondir").as_ref())
             .transpose()?
@@ -182,7 +184,7 @@ impl ThreadSafeRepository {
         let repo_config = config::cache::StageOne::new(
             common_dir.as_deref().unwrap_or(&git_dir),
             git_dir.as_ref(),
-            git_dir_trust,
+            *git_dir_trust,
             lossy_config,
             lenient_config,
         )?;
@@ -247,56 +249,6 @@ impl ThreadSafeRepository {
             api_config_overrides,
             cli_config_overrides,
         )?;
-
-        // TODO: Testing - it's hard to get non-ownership reliably and without root.
-        //       For now tested manually with https://github.com/GitoxideLabs/gitoxide/issues/1912
-        if git_dir_trust != gix_sec::Trust::Full {
-            let safe_dirs: Vec<BString> = config
-                .resolved
-                .strings_filter(Safe::DIRECTORY, &mut Safe::directory_filter)
-                .unwrap_or_default()
-                .into_iter()
-                .map(Cow::into_owned)
-                .collect();
-            if bail_if_untrusted {
-                check_safe_directories(
-                    &git_dir,
-                    git_install_dir.as_deref(),
-                    current_dir,
-                    home.as_deref(),
-                    &safe_dirs,
-                )?;
-            }
-            let Ok(mut resolved) = gix_features::threading::OwnShared::try_unwrap(config.resolved) else {
-                unreachable!("Shared ownership was just established, with one reference")
-            };
-            let section_ids: Vec<_> = resolved.section_ids().collect();
-            for id in section_ids {
-                let Some(mut section) = resolved.section_mut_by_id(id) else {
-                    continue;
-                };
-                let section_trusted_by_default = Safe::directory_filter(section.meta());
-                if section_trusted_by_default || section.meta().trust == gix_sec::Trust::Full {
-                    continue;
-                }
-                let Some(meta_path) = section.meta().path.as_deref() else {
-                    continue;
-                };
-                let config_file_is_safe = check_safe_directories(
-                    meta_path,
-                    git_install_dir.as_deref(),
-                    current_dir,
-                    home.as_deref(),
-                    &safe_dirs,
-                )
-                .is_ok();
-
-                if config_file_is_safe {
-                    section.set_trust(gix_sec::Trust::Full);
-                }
-            }
-            config.resolved = resolved.into();
-        }
 
         // core.worktree might be used to overwrite the worktree directory
         if !config.is_bare {
@@ -382,6 +334,83 @@ impl ThreadSafeRepository {
                 }
                 None => {}
             }
+        }
+
+        // TODO: Testing - it's hard to get non-ownership reliably and without root.
+        //       For now tested manually with https://github.com/GitoxideLabs/gitoxide/issues/1912
+        if *git_dir_trust != gix_sec::Trust::Full
+            || worktree_dir
+                .as_deref()
+                .is_some_and(|wd| !gix_sec::identity::is_path_owned_by_current_user(wd).unwrap_or(false))
+        {
+            let safe_dirs: Vec<BString> = config
+                .resolved
+                .strings_filter(Safe::DIRECTORY, &mut Safe::directory_filter)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Cow::into_owned)
+                .collect();
+            let test_dir = worktree_dir.as_deref().unwrap_or(git_dir.as_path());
+            let res = check_safe_directories(
+                test_dir,
+                git_install_dir.as_deref(),
+                current_dir,
+                home.as_deref(),
+                &safe_dirs,
+            );
+            if res.is_ok() {
+                *git_dir_trust = gix_sec::Trust::Full;
+            } else if bail_if_untrusted {
+                res?;
+            } else {
+                // This is how the worktree-trust can reduce the git-dir trust.
+                *git_dir_trust = gix_sec::Trust::Reduced;
+            }
+
+            let Ok(mut resolved) = gix_features::threading::OwnShared::try_unwrap(config.resolved) else {
+                unreachable!("Shared ownership was just established, with one reference")
+            };
+            let section_ids: Vec<_> = resolved.section_ids().collect();
+            let mut is_valid_by_path = BTreeMap::new();
+            for id in section_ids {
+                let Some(mut section) = resolved.section_mut_by_id(id) else {
+                    continue;
+                };
+                let section_trusted_by_default = Safe::directory_filter(section.meta());
+                if section_trusted_by_default || section.meta().trust == gix_sec::Trust::Full {
+                    continue;
+                }
+                let Some(meta_path) = section.meta().path.as_deref() else {
+                    continue;
+                };
+                match is_valid_by_path.entry(meta_path.to_owned()) {
+                    Entry::Occupied(entry) => {
+                        if *entry.get() {
+                            section.set_trust(gix_sec::Trust::Full);
+                        } else {
+                            continue;
+                        }
+                    }
+                    Entry::Vacant(entry) => {
+                        let config_file_is_safe = (meta_path.strip_prefix(test_dir).is_ok()
+                            && *git_dir_trust == gix_sec::Trust::Full)
+                            || check_safe_directories(
+                                meta_path,
+                                git_install_dir.as_deref(),
+                                current_dir,
+                                home.as_deref(),
+                                &safe_dirs,
+                            )
+                            .is_ok();
+
+                        entry.insert(config_file_is_safe);
+                        if config_file_is_safe {
+                            section.set_trust(gix_sec::Trust::Full);
+                        }
+                    }
+                }
+            }
+            config.resolved = resolved.into();
         }
 
         refs.write_reflog = config::cache::util::reflog_or_default(config.reflog, worktree_dir.is_some());
