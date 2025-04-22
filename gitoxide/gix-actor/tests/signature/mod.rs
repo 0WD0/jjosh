@@ -1,13 +1,14 @@
 mod write_to {
     mod invalid {
         use gix_actor::Signature;
+        use gix_date::Time;
 
         #[test]
         fn name() {
             let signature = Signature {
                 name: "invalid < middlename".into(),
                 email: "ok".into(),
-                time: "0 0000".into(),
+                time: Time::default(),
             };
             assert_eq!(
                 format!("{:?}", signature.write_to(&mut Vec::new())),
@@ -20,7 +21,7 @@ mod write_to {
             let signature = Signature {
                 name: "ok".into(),
                 email: "server>.example.com".into(),
-                time: "0 0000".into(),
+                time: Time::default(),
             };
             assert_eq!(
                 format!("{:?}", signature.write_to(&mut Vec::new())),
@@ -33,7 +34,7 @@ mod write_to {
             let signature = Signature {
                 name: "hello\nnewline".into(),
                 email: "name@example.com".into(),
-                time: "0 0000".into(),
+                time: Time::default(),
             };
             assert_eq!(
                 format!("{:?}", signature.write_to(&mut Vec::new())),
@@ -59,7 +60,6 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
     static DEFAULTS: &[&[u8]] =     &[
         b"Sebastian Thiel <byronimo@gmail.com> 1 -0030",
         b"Sebastian Thiel <byronimo@gmail.com> -1500 -0030",
-        b"Sebastian Thiel <byronimo@gmail.com> 1313584730 +051800", // Seen in the wild
         ".. ☺️Sebastian 王知明 Thiel🙌 .. <byronimo@gmail.com> 1528473343 +0230".as_bytes(),
         b".. whitespace  \t  is explicitly allowed    - unicode aware trimming must be done elsewhere  <byronimo@gmail.com> 1528473343 +0230"
     ];
@@ -70,6 +70,16 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
     }
+    Ok(())
+}
+
+#[test]
+fn signature_ref_round_trips_with_seconds_in_offset() -> Result<(), Box<dyn std::error::Error>> {
+    let input = b"Sebastian Thiel <byronimo@gmail.com> 1313584730 +051800"; // Seen in the wild
+    let signature: SignatureRef = gix_actor::SignatureRef::from_bytes::<()>(input).unwrap();
+    let mut output = Vec::new();
+    signature.write_to(&mut output)?;
+    assert_eq!(output.as_bstr(), input.as_bstr());
     Ok(())
 }
 

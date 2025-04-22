@@ -29,7 +29,7 @@ pub(crate) mod prepare_and_commit {
         gix_actor::Signature {
             name: "committer".into(),
             email: "committer@example.com".into(),
-            time: "1234 +0800".into(),
+            time: gix_date::parse_raw("1234 +0800").unwrap(),
         }
     }
 

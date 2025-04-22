@@ -219,6 +219,7 @@ mod writable {
         let new_id_main = hex_to_id(new_id_main_str);
         let new_id_linked_str = "22222222222222222262102c6a483440bfda2a03";
         let new_id_linked = hex_to_id(new_id_linked_str);
+        let mut buf = Vec::with_capacity(64);
 
         for packed in [false, true] {
             let (store, _odb, _tmp) = main_store(packed, Mode::Write)?;
@@ -227,6 +228,7 @@ mod writable {
                 t = t.packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdates(Box::new(EmptyCommit)));
             }
 
+            buf.clear();
             let edits = t
                 .prepare(
                     vec![
@@ -259,7 +261,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref())
+                .commit(committer().to_ref(&mut buf))
                 .expect("successful commit as even similar resolved names live in different base locations");
 
             assert_eq!(
@@ -477,6 +479,7 @@ mod writable {
         let new_id = hex_to_id(new_id_str);
         let new_id_main_str = "22222222222222227062102c6a483440bfda2a03";
         let new_id_main = hex_to_id(new_id_main_str);
+        let mut buf = Vec::with_capacity(64);
         for packed in [false, true] {
             let (store, _odb, _tmp) = worktree_store(packed, "w1", Mode::Write)?;
 
@@ -507,6 +510,7 @@ mod writable {
                 t = t.packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdates(Box::new(EmptyCommit)));
             }
 
+            buf.clear();
             let edits = t
                 .prepare(
                     vec![
@@ -539,7 +543,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref())
+                .commit(committer().to_ref(&mut buf))
                 .expect("successful commit as even similar resolved names live in different base locations");
 
             assert_eq!(

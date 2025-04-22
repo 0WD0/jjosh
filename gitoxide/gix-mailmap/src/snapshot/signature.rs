@@ -11,7 +11,7 @@ pub struct Signature<'a> {
     /// The possibly mapped email.
     pub email: Cow<'a, BStr>,
     /// The time stamp at which the signature is performed.
-    pub time: Cow<'a, BStr>,
+    pub time: gix_date::Time,
 }
 
 impl<'a> From<Signature<'a>> for gix_actor::Signature {
@@ -19,7 +19,7 @@ impl<'a> From<Signature<'a>> for gix_actor::Signature {
         gix_actor::Signature {
             name: s.name.into_owned(),
             email: s.email.into_owned(),
-            time: s.time.into_owned(),
+            time: s.time,
         }
     }
 }
@@ -29,7 +29,7 @@ impl<'a> From<gix_actor::SignatureRef<'a>> for Signature<'a> {
         Signature {
             name: s.name.into(),
             email: s.email.into(),
-            time: s.time.into(),
+            time: gix_date::Time::from_bytes(s.time).expect("Time must be valid"),
         }
     }
 }

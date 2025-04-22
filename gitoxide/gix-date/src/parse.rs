@@ -60,7 +60,8 @@ pub(crate) mod function {
         })
     }
 
-    pub(crate) fn parse_raw(input: &str) -> Option<Time> {
+    #[allow(missing_docs)]
+    pub fn parse_raw(input: &str) -> Option<Time> {
         let mut split = input.split_whitespace();
         let seconds: SecondsSinceUnixEpoch = split.next()?.parse().ok()?;
         let offset = split.next()?;

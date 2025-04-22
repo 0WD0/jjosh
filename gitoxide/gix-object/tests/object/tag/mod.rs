@@ -27,7 +27,8 @@ mod method {
         assert_eq!(target.to_string(), tag.target);
         assert_eq!(target_kind, tag.target_kind);
         assert_eq!(name, tag.name);
-        assert_eq!(tagger.as_ref().map(|s| s.to_ref()), tag.tagger);
+        let mut buf = Vec::with_capacity(64);
+        assert_eq!(tagger.as_ref().map(|s| s.to_ref(&mut buf)), tag.tagger);
         assert_eq!(message, tag.message);
         assert_eq!(pgp_signature.as_ref().map(|s| s.as_bstr()), tag.pgp_signature);
         Ok(())

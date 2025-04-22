@@ -67,13 +67,13 @@ pub struct Signature {
     /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: BString,
     /// The time stamp at which the signature is performed.
-    pub time: BString,
+    pub time: date::Time,
 }
 
 impl Signature {
     /// Seconds since unix epoch from the time
     pub fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
-        SignatureRef::from(self).seconds()
+        self.time.seconds
     }
 }
 /// A immutable signature is created by an actor at a certain time.

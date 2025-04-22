@@ -1,5 +1,6 @@
 mod _ref {
     use bstr::ByteSlice;
+    use gix_date::Time;
     use winnow::{error::StrContext, prelude::*};
 
     use crate::{signature::decode, IdentityRef, Signature, SignatureRef};
@@ -18,7 +19,7 @@ mod _ref {
             Signature {
                 name: self.name.to_owned(),
                 email: self.email.to_owned(),
-                time: self.time.to_owned(),
+                time: Time::from_bytes(self.time).expect("Time must be valid"),
             }
         }
 
@@ -43,14 +44,15 @@ mod _ref {
 
 mod convert {
     use crate::{Signature, SignatureRef};
+    use gix_date::Time;
 
     impl Signature {
         /// Borrow this instance as immutable
-        pub fn to_ref(&self) -> SignatureRef<'_> {
+        pub fn to_ref<'a>(&'a self, buf: &'a mut Vec<u8>) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.as_ref(),
                 email: self.email.as_ref(),
-                time: self.time.as_ref(),
+                time: self.time.to_ref(buf),
             }
         }
     }
@@ -61,14 +63,8 @@ mod convert {
             Signature {
                 name: name.to_owned(),
                 email: email.to_owned(),
-                time: time.to_owned(),
+                time: Time::from_bytes(time).expect("Time must be valid"),
             }
-        }
-    }
-
-    impl<'a> From<&'a Signature> for SignatureRef<'a> {
-        fn from(other: &'a Signature) -> SignatureRef<'a> {
-            other.to_ref()
         }
     }
 }
@@ -96,11 +92,12 @@ pub(crate) mod write {
     impl Signature {
         /// Serialize this instance to `out` in the git serialization format for actors.
         pub fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
-            self.to_ref().write_to(out)
+            let mut buf = Vec::<u8>::new();
+            self.to_ref(&mut buf).write_to(out)
         }
         /// Computes the number of bytes necessary to serialize this signature
         pub fn size(&self) -> usize {
-            self.to_ref().size()
+            self.name.len() + 2 /* space <*/ + self.email.len() +  2 /* > space */ + self.time.size()
         }
     }
 

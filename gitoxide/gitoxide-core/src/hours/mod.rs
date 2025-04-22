@@ -82,7 +82,8 @@ where
                         };
                         let name = string_ref(author.name.as_ref());
                         let email = string_ref(author.email.as_ref());
-                        let time = string_ref(author.time.as_ref());
+                        let mut buf = Vec::with_capacity(64);
+                        let time = string_ref(author.time.to_ref(&mut buf));
 
                         out.push((commit_idx, actor::SignatureRef { name, email, time }));
                     }

@@ -30,10 +30,11 @@ fn precompose_unicode_journey() -> crate::Result {
     assert!(!store_decomposed.precompose_unicode);
 
     let decomposed_ref = format!("refs/heads/{decomposed_a}");
+    let mut buf = Vec::with_capacity(64);
     store_decomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
 
     let r = store_decomposed.iter()?.all()?.next().expect("created one ref")?;
     assert_eq!(r.name.as_bstr(), decomposed_ref, "no transformation happens by default");
@@ -76,10 +77,11 @@ fn precompose_unicode_journey() -> crate::Result {
 
     let decomposed_u = "u\u{308}";
     let decomposed_ref = format!("refs/heads/{decomposed_u}");
+    buf.clear();
     let edits = store_precomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(
         edits[0].name.as_bstr(),
         decomposed_ref,
@@ -96,6 +98,7 @@ fn precompose_unicode_journey() -> crate::Result {
         store_precomposed.cached_packed_buffer()?.is_none(),
         "no packed-refs yet"
     );
+    buf.clear();
     let edits = store_precomposed
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -118,7 +121,7 @@ fn precompose_unicode_journey() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert!(
         store_precomposed.cached_packed_buffer()?.is_some(),
         "refs were written into the packed-refs file"
@@ -163,6 +166,7 @@ fn precompose_unicode_journey() -> crate::Result {
     );
     assert!(store_precomposed.reflog_exists(decomposed_ref.as_str())?);
 
+    buf.clear();
     let edits = store_precomposed
         .transaction()
         .prepare(
@@ -179,7 +183,7 @@ fn precompose_unicode_journey() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(
         edits[0].change.new_value().unwrap().try_name().unwrap().as_bstr(),
         decomposed_ref,
@@ -203,6 +207,7 @@ fn precompose_unicode_journey() -> crate::Result {
         store_precomposed_with_namespace.namespace = Some(gix_ref::namespace::expand(namespace)?.clone());
 
         // these edits are loose refs
+        buf.clear();
         let edits = store_precomposed_with_namespace
             .transaction()
             .prepare(
@@ -210,7 +215,7 @@ fn precompose_unicode_journey() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
         assert_eq!(
             edits[0].name.shorten(),
             decomposed_a,
@@ -233,6 +238,7 @@ fn precompose_unicode_journey() -> crate::Result {
         );
 
         // and these go straight to packed-refs
+        buf.clear();
         let edits = store_precomposed_with_namespace
             .transaction()
             .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -243,7 +249,7 @@ fn precompose_unicode_journey() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
         assert_eq!(
             edits[0].name.shorten(),
             decomposed_u,

@@ -157,17 +157,17 @@ fn enriched_signature<'a>(
         (Some(new_email), Some(new_name)) => Signature {
             email: new_email.to_owned().into(),
             name: new_name.to_owned().into(),
-            time: time.into(),
+            time: gix_date::Time::from_bytes(time).expect("Time must be valid"),
         },
         (Some(new_email), None) => Signature {
             email: new_email.to_owned().into(),
             name: name.into(),
-            time: time.into(),
+            time: gix_date::Time::from_bytes(time).expect("Time must be valid"),
         },
         (None, Some(new_name)) => Signature {
             email: email.into(),
             name: new_name.to_owned().into(),
-            time: time.into(),
+            time: gix_date::Time::from_bytes(time).expect("Time must be valid"),
         },
         (None, None) => unreachable!("BUG: ResolvedSignatures don't exist here when nothing is set"),
     }

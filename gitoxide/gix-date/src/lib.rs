@@ -17,7 +17,7 @@ pub mod time;
 pub mod parse;
 use bstr::{BStr, ByteSlice};
 pub use parse::function::parse;
-use parse::function::parse_raw;
+pub use parse::function::parse_raw;
 use parse::Error;
 use std::time::SystemTime;
 
@@ -43,6 +43,11 @@ impl Time {
     pub fn from_bytes(i: &BStr) -> Result<Self, Error> {
         let s = i.as_bstr().to_str().expect("Input must be ascii");
         parse_raw(s).ok_or(Error::InvalidDateString { input: s.into() })
+    }
+    /// Write time into buffer
+    pub fn to_ref<'a>(&self, buf: &'a mut Vec<u8>) -> &'a BStr {
+        self.write_to(buf).expect("write to memory cannot fail");
+        buf.as_bstr()
     }
 }
 
