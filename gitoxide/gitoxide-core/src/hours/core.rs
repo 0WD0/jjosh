@@ -17,7 +17,7 @@ const MINUTES_PER_HOUR: f32 = 60.0;
 pub const HOURS_PER_WORKDAY: f32 = 8.0;
 
 pub fn estimate_hours(
-    commits: &[(u32, gix::actor::SignatureRef<'static>)],
+    commits: &[(u32, super::SignatureRef<'static>)],
     stats: &[(u32, FileStats, LineStats)],
 ) -> WorkByEmail {
     assert!(!commits.is_empty());

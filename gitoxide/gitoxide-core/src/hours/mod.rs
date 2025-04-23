@@ -2,7 +2,6 @@ use std::{collections::BTreeSet, io, path::Path, time::Instant};
 
 use anyhow::bail;
 use gix::{
-    actor,
     bstr::{BStr, ByteSlice},
     prelude::*,
     progress, Count, NestedProgress, Progress,
@@ -25,6 +24,18 @@ pub struct Context<W> {
     pub omit_unify_identities: bool,
     /// Where to write our output to
     pub out: W,
+}
+
+pub struct SignatureRef<'a> {
+    name: &'a BStr,
+    email: &'a BStr,
+    time: gix_date::Time,
+}
+
+impl SignatureRef<'_> {
+    fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
+        self.time.seconds
+    }
 }
 
 /// Estimate the hours it takes to produce the content of the repository in `_working_dir_`, with `_refname_` for
@@ -82,10 +93,15 @@ where
                         };
                         let name = string_ref(author.name.as_ref());
                         let email = string_ref(author.email.as_ref());
-                        let mut buf = Vec::with_capacity(64);
-                        let time = string_ref(author.time.to_ref(&mut buf));
 
-                        out.push((commit_idx, actor::SignatureRef { name, email, time }));
+                        out.push((
+                            commit_idx,
+                            SignatureRef {
+                                name,
+                                email,
+                                time: author.time,
+                            },
+                        ));
                     }
                 }
                 out.shrink_to_fit();
