@@ -29,7 +29,7 @@ impl<'a> From<gix_actor::SignatureRef<'a>> for Signature<'a> {
         Signature {
             name: s.name.into(),
             email: s.email.into(),
-            time: gix_date::Time::from_bytes(s.time).expect("Time must be valid"),
+            time: gix_date::Time::from_bytes(s.time).unwrap_or_default(),
         }
     }
 }

@@ -36,6 +36,13 @@ pub mod snapshot;
 /// optionally name to find mappings to new names and/or emails.
 ///
 /// The memory layout is efficient, even though lots of small allocations are performed to store strings of emails and names.
+///
+/// ### Handling of invalid `SignatureRef::time`
+///
+/// As the `time` field in [`SignatureRef`](gix_actor::SignatureRef) as passed by the caller maybe invalid,
+/// something that should be very rare but is possible, we decided to not expose this fallibility in the API.
+/// Hence, the user may separately check for the correctness of `time`, which we replace with [`gix_date::Time::default()`]
+/// in case of parse errors.
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
 pub struct Snapshot {
     /// Sorted by `old_email`
