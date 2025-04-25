@@ -1,10 +1,13 @@
-use crate::bstr::BString;
-use crate::config::cache::util::ApplyLeniencyDefault;
-use crate::status::index_worktree::BuiltinSubmoduleStatus;
-use crate::status::{index_worktree, tree_index, Platform};
-use crate::worktree::IndexPersistedOrInMemory;
-use gix_status::index_as_worktree::{Change, EntryStatus};
 use std::sync::atomic::Ordering;
+
+use gix_status::index_as_worktree::{Change, EntryStatus};
+
+use crate::{
+    bstr::BString,
+    config::cache::util::ApplyLeniencyDefault,
+    status::{index_worktree, index_worktree::BuiltinSubmoduleStatus, tree_index, Platform},
+    worktree::IndexPersistedOrInMemory,
+};
 
 pub(super) mod types;
 use types::{ApplyChange, Item, Iter, Outcome};

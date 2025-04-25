@@ -2,8 +2,7 @@ use crate::{remote, util::restricted};
 
 #[cfg(all(feature = "worktree-mutation", feature = "blocking-network-client"))]
 mod blocking_io {
-    use std::path::Path;
-    use std::{borrow::Cow, sync::atomic::AtomicBool};
+    use std::{borrow::Cow, path::Path, sync::atomic::AtomicBool};
 
     use gix::{
         bstr::BString,
@@ -334,7 +333,7 @@ mod blocking_io {
             .next()
             .expect("one line")?
             .signature
-            .to_owned();
+            .to_owned()?;
         assert_eq!(sig.name, "no name configured during clone");
         assert_eq!(sig.email, "noEmailAvailable@example.com");
 

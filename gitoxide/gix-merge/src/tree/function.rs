@@ -1,20 +1,24 @@
-use crate::tree::utils::{
-    apply_change, perform_blob_merge, possibly_rewritten_location, rewrite_location_with_renamed_directory,
-    to_components, track, unique_path_in_tree, ChangeList, ChangeListRef, PossibleConflict, TrackedChange, TreeNodes,
-};
-use crate::tree::ConflictMapping::{Original, Swapped};
-use crate::tree::{
-    Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, ContentMerge, Error, Options, Outcome,
-    Resolution, ResolutionFailure, ResolveWith,
-};
+use std::{borrow::Cow, convert::Infallible};
+
 use bstr::{BString, ByteSlice};
-use gix_diff::tree::recorder::Location;
-use gix_diff::tree_with_rewrites::Change;
+use gix_diff::{tree::recorder::Location, tree_with_rewrites::Change};
 use gix_hash::ObjectId;
-use gix_object::tree::{EntryKind, EntryMode};
-use gix_object::{tree, FindExt};
-use std::borrow::Cow;
-use std::convert::Infallible;
+use gix_object::{
+    tree,
+    tree::{EntryKind, EntryMode},
+    FindExt,
+};
+
+use crate::tree::{
+    utils::{
+        apply_change, perform_blob_merge, possibly_rewritten_location, rewrite_location_with_renamed_directory,
+        to_components, track, unique_path_in_tree, ChangeList, ChangeListRef, PossibleConflict, TrackedChange,
+        TreeNodes,
+    },
+    Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping,
+    ConflictMapping::{Original, Swapped},
+    ContentMerge, Error, Options, Outcome, Resolution, ResolutionFailure, ResolveWith,
+};
 
 /// Perform a merge between `our_tree` and `their_tree`, using `base_tree` as merge-base.
 /// Note that `base_tree` can be an empty tree to indicate 'no common ancestor between the two sides'.

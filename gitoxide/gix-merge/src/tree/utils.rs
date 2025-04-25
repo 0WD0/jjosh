@@ -5,19 +5,23 @@
 //!
 //! Once such a case becomes a bug and is reproduced in testing, the debug-assertion will kick in and hopefully
 //! contribute to finding a fix faster.
-use crate::blob::builtin_driver::binary::Pick;
-use crate::blob::ResourceKind;
-use crate::tree::{
-    Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, Error, Options, Resolution,
-    ResolutionFailure,
-};
-use bstr::ByteSlice;
-use bstr::{BStr, BString, ByteVec};
+use std::collections::HashMap;
+
+use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_diff::tree_with_rewrites::{Change, ChangeRef};
 use gix_hash::ObjectId;
-use gix_object::tree;
-use gix_object::tree::{EntryKind, EntryMode};
-use std::collections::HashMap;
+use gix_object::{
+    tree,
+    tree::{EntryKind, EntryMode},
+};
+
+use crate::{
+    blob::{builtin_driver::binary::Pick, ResourceKind},
+    tree::{
+        Conflict, ConflictIndexEntry, ConflictIndexEntryPathHint, ConflictMapping, Error, Options, Resolution,
+        ResolutionFailure,
+    },
+};
 
 /// Assuming that `their_location` is the destination of *their* rewrite, check if *it* passes
 /// over a directory rewrite in *our* tree. If so, rewrite it so that we get the path

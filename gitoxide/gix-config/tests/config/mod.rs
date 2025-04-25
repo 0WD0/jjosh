@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_debug_formatting)]
 pub use gix_testtools::Result;
 
 mod file;

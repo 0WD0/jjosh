@@ -38,7 +38,7 @@ mod line {
             let line = log::LineRef::from_bytes(b"7b114132d03c468a9cd97836901553658c9792de 306cdbab5457c323d1201aa8a59b3639f600a758 First Last <first.last@example.com> 1727013187 +0200\trebase (pick): Replace Into<Range<u32>> by From<LineRange>")?;
             assert_eq!(line.signature.name, "First Last");
             assert_eq!(line.signature.email, "first.last@example.com");
-            assert_eq!(line.signature.time.seconds, 1727013187);
+            assert_eq!(line.signature.seconds(), 1727013187);
             assert_eq!(
                 line.message,
                 "rebase (pick): Replace Into<Range<u32>> by From<LineRange>"
@@ -107,9 +107,9 @@ mod iter {
         }
 
         mod with_buffer_big_enough_for_largest_line {
-            use crate::file::log::iter::reflog;
-            use crate::hex_to_id;
             use gix_ref::log::Line;
+
+            use crate::{file::log::iter::reflog, hex_to_id};
 
             #[test]
             fn single_line() -> crate::Result {

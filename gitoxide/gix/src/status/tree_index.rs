@@ -1,5 +1,4 @@
-use crate::config::tree;
-use crate::Repository;
+use crate::{config::tree, Repository};
 
 /// The error returned by [Repository::tree_index_status()].
 #[derive(Debug, thiserror::Error)]

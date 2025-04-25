@@ -1,11 +1,14 @@
-use crate::tree::baseline::Deviation;
+use std::path::Path;
+
 use gix_diff::Rewrites;
-use gix_merge::commit::Options;
-use gix_merge::tree::apply_index_entries::RemovalMode;
-use gix_merge::tree::{treat_as_unresolved, TreatAsUnresolved};
+use gix_merge::{
+    commit::Options,
+    tree::{apply_index_entries::RemovalMode, treat_as_unresolved, TreatAsUnresolved},
+};
 use gix_object::Write;
 use gix_worktree::stack::state::attributes;
-use std::path::Path;
+
+use crate::tree::baseline::Deviation;
 
 /// ### How to add a new baseline test
 ///

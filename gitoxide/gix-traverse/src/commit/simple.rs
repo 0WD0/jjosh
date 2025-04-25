@@ -1,9 +1,9 @@
+use std::{cmp::Reverse, collections::VecDeque};
+
 use gix_date::SecondsSinceUnixEpoch;
 use gix_hash::ObjectId;
 use gix_hashtable::HashSet;
 use smallvec::SmallVec;
-use std::cmp::Reverse;
-use std::collections::VecDeque;
 
 #[derive(Default, Debug, Copy, Clone)]
 /// The order with which to prioritize the search.
@@ -92,10 +92,11 @@ pub(super) struct State {
 
 ///
 mod init {
+    use std::cmp::Reverse;
+
     use gix_date::SecondsSinceUnixEpoch;
     use gix_hash::{oid, ObjectId};
     use gix_object::{CommitRefIter, FindExt};
-    use std::cmp::Reverse;
     use Err as Oldest;
     use Ok as Newest;
 
@@ -150,7 +151,7 @@ mod init {
                     let state = &mut self.state;
                     for commit_id in state.next.drain(..) {
                         let commit_iter = self.objects.find_commit_iter(&commit_id, &mut state.buf)?;
-                        let time = commit_iter.committer()?.time.seconds;
+                        let time = commit_iter.committer()?.seconds();
                         let key = to_queue_key(time, order);
                         match (cutoff_time, order) {
                             (Some(cutoff_time), _) if time >= cutoff_time => {
@@ -351,7 +352,7 @@ mod init {
 
                                 let parent = self.objects.find_commit_iter(id.as_ref(), &mut state.parents_buf).ok();
                                 let parent_commit_time = parent
-                                    .and_then(|parent| parent.committer().ok().map(|committer| committer.time.seconds))
+                                    .and_then(|parent| parent.committer().ok().map(|committer| committer.seconds()))
                                     .unwrap_or_default();
 
                                 let time = to_queue_key(parent_commit_time, order);

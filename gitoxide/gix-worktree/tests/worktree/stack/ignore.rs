@@ -1,9 +1,11 @@
-use crate::{hex_to_id, worktree::stack::probe_case};
+use std::fs::Metadata;
+
 use bstr::{BStr, ByteSlice};
 use gix_fs::stack::ToNormalPathComponents;
 use gix_index::entry::Mode;
 use gix_worktree::{stack::state::ignore::Source, Stack};
-use std::fs::Metadata;
+
+use crate::{hex_to_id, worktree::stack::probe_case};
 
 struct IgnoreExpectations<'a> {
     lines: bstr::Lines<'a>,

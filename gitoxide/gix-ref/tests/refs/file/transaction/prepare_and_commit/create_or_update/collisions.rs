@@ -1,3 +1,4 @@
+use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::{
     file::transaction::PackedRefs,
@@ -54,8 +55,9 @@ fn non_conflicting_creation_without_packed_refs_work() -> crate::Result {
         Fail::Immediately,
     )?;
 
-    t2.commit(committer().to_ref())?;
-    ongoing.commit(committer().to_ref())?;
+    let mut buf = TimeBuf::default();
+    t2.commit(committer().to_ref(&mut buf))?;
+    ongoing.commit(committer().to_ref(&mut buf))?;
 
     assert!(store.reflog_exists("refs/new")?);
     assert!(store.reflog_exists("refs/non-conflicting")?);
@@ -84,6 +86,7 @@ fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_d
 #[test]
 fn conflicting_creation_into_packed_refs() -> crate::Result {
     let (_dir, store) = empty_store()?;
+    let mut buf = TimeBuf::default();
     store
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -98,7 +101,7 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
 
     assert_eq!(
         store.cached_packed_buffer()?.expect("created").iter()?.count(),
@@ -147,7 +150,7 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(store.iter()?.all()?.count(), 3);
 
     {
@@ -201,7 +204,7 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(
         store.loose_iter()?.count(),
         2,
@@ -215,7 +218,7 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
 
     assert_eq!(
         store.iter()?.all()?.count(),

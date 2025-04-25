@@ -88,8 +88,7 @@ mod blocking_and_async_io {
     #[test]
     #[cfg(feature = "blocking-network-client")]
     fn fetch_more_packs_than_can_be_handled() -> gix_testtools::Result {
-        use gix::config::tree::User;
-        use gix::interrupt::IS_INTERRUPTED;
+        use gix::{config::tree::User, interrupt::IS_INTERRUPTED};
         use gix_odb::store::init::Slots;
         use gix_testtools::tempfile;
         fn create_empty_commit(repo: &gix::Repository) -> anyhow::Result<()> {

@@ -1,7 +1,8 @@
-use crate::util::named_subrepo_opts;
+use std::{borrow::Cow, error::Error};
+
 use gix::bstr::BString;
-use std::borrow::Cow;
-use std::error::Error;
+
+use crate::util::named_subrepo_opts;
 
 #[test]
 fn on_root_with_decomposed_unicode() -> crate::Result {

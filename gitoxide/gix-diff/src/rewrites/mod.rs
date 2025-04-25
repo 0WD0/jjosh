@@ -1,6 +1,6 @@
-use crate::tree::visit::ChangeId;
-use crate::Rewrites;
 use std::collections::BTreeSet;
+
+use crate::{tree::visit::ChangeId, Rewrites};
 
 /// Types related to the rename tracker for renames, rewrites and copies.
 pub mod tracker;

@@ -121,8 +121,7 @@ fn changes_against_tree_modified() -> crate::Result {
 }
 
 mod track_rewrites {
-    use std::collections::HashMap;
-    use std::convert::Infallible;
+    use std::{collections::HashMap, convert::Infallible};
 
     use gix::{
         diff::{
@@ -133,8 +132,7 @@ mod track_rewrites {
     };
     use gix_ref::bstr::BStr;
 
-    use crate::object::tree::diff::tree_named;
-    use crate::util::named_subrepo_opts;
+    use crate::{object::tree::diff::tree_named, util::named_subrepo_opts};
 
     #[test]
     #[cfg_attr(

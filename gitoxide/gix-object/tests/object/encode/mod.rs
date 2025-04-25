@@ -103,8 +103,7 @@ mod commit {
 }
 
 mod tree {
-    use gix_object::tree::EntryKind;
-    use gix_object::{tree, WriteTo};
+    use gix_object::{tree, tree::EntryKind, WriteTo};
 
     #[test]
     fn write_to_does_not_validate() {

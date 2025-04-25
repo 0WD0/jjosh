@@ -1,7 +1,8 @@
 use std::time::Instant;
 
-use crate::exact_vec;
 use gix_features::progress::{self, Progress};
+
+use crate::exact_vec;
 
 pub(crate) fn index_entries_sorted_by_offset_ascending(
     idx: &crate::index::File,

@@ -1,6 +1,8 @@
-use crate::file::{Offset, UnblamedHunk};
-use gix_hash::ObjectId;
 use std::ops::Range;
+
+use gix_hash::ObjectId;
+
+use crate::file::{Offset, UnblamedHunk};
 
 fn new_unblamed_hunk(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset: Offset) -> UnblamedHunk {
     assert!(
@@ -957,8 +959,11 @@ mod process_change {
 }
 
 mod process_changes {
-    use crate::file::tests::{new_unblamed_hunk, one_sha, zero_sha};
-    use crate::file::{process_changes, Change, Offset, UnblamedHunk};
+    use crate::file::{
+        process_changes,
+        tests::{new_unblamed_hunk, one_sha, zero_sha},
+        Change, Offset, UnblamedHunk,
+    };
 
     #[test]
     fn nothing() {

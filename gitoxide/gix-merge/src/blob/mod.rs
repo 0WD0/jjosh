@@ -1,9 +1,11 @@
 // TODO: remove this - only needed while &mut Vec<u8> isn't used.
 #![allow(clippy::ptr_arg)]
 
-use crate::blob::platform::{DriverChoice, ResourceRef};
-use bstr::BString;
 use std::path::PathBuf;
+
+use bstr::BString;
+
+use crate::blob::platform::{DriverChoice, ResourceRef};
 
 ///
 pub mod builtin_driver;

@@ -131,7 +131,7 @@ impl crate::Repository {
             &mut stream,
             |stream| {
                 if should_interrupt.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "Cancelled by user").into());
+                    return Err(std::io::Error::other("Cancelled by user").into());
                 }
                 let res = stream.next_entry();
                 blobs.inc();

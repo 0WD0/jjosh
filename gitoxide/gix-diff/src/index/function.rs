@@ -1,10 +1,10 @@
-use super::{Action, ChangeRef, Error, RewriteOptions};
-use crate::rewrites;
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
+
 use bstr::BStr;
 use gix_filter::attributes::glob::pattern::Case;
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::cmp::Ordering;
+
+use super::{Action, ChangeRef, Error, RewriteOptions};
+use crate::rewrites;
 
 /// Produce an entry-by-entry diff between `lhs` and `rhs`, sending changes to `cb(change) -> Action` for consumption,
 /// which would turn `lhs` into `rhs` if applied.

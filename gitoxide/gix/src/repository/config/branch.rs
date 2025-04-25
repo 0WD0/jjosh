@@ -2,13 +2,17 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 use gix_ref::{FullName, FullNameRef};
 
-use crate::bstr::BStr;
-use crate::config::cache::util::ApplyLeniencyDefault;
-use crate::config::tree::{Branch, Push};
-use crate::repository::{
-    branch_remote_ref_name, branch_remote_tracking_ref_name, upstream_branch_and_remote_name_for_tracking_branch,
+use crate::{
+    bstr::BStr,
+    config::{
+        cache::util::ApplyLeniencyDefault,
+        tree::{Branch, Push},
+    },
+    push, remote,
+    repository::{
+        branch_remote_ref_name, branch_remote_tracking_ref_name, upstream_branch_and_remote_name_for_tracking_branch,
+    },
 };
-use crate::{push, remote};
 
 /// Query configuration related to branches.
 impl crate::Repository {

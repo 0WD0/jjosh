@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         .context("First argument needs to be the directory to initialize the repository in")?;
     let mut repo = gix::init_bare(git_dir)?;
 
-    println!("Repo (bare): {:?}", repo.git_dir());
+    println!("Repo (bare): {}", repo.git_dir().display());
 
     let mut tree = gix::objs::Tree::empty();
     let empty_tree_id = repo.write_object(&tree)?.detach();

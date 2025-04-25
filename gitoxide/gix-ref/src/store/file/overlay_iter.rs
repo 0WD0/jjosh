@@ -6,14 +6,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use gix_object::bstr::ByteSlice;
+use gix_path::RelativePath;
+
 use crate::{
     file::{loose, loose::iter::SortedLoosePaths},
     store_impl::{file, packed},
     BStr, FullName, Namespace, Reference,
 };
-
-use gix_object::bstr::ByteSlice;
-use gix_path::RelativePath;
 
 /// An iterator stepping through sorted input of loose references and packed references, preferring loose refs over otherwise
 /// equivalent packed references.

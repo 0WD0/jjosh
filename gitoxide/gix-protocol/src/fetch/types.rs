@@ -1,5 +1,6 @@
-use crate::fetch::response::{Acknowledgement, ShallowUpdate, WantedRef};
 use std::path::PathBuf;
+
+use crate::fetch::response::{Acknowledgement, ShallowUpdate, WantedRef};
 
 /// Options for use in [`fetch()`](`crate::fetch()`)
 #[derive(Debug, Clone)]
@@ -38,8 +39,10 @@ pub struct Context<'a, T> {
 
 #[cfg(feature = "fetch")]
 mod with_fetch {
-    use crate::fetch;
-    use crate::fetch::{negotiate, refmap};
+    use crate::{
+        fetch,
+        fetch::{negotiate, refmap},
+    };
 
     /// For use in [`fetch`](crate::fetch()).
     pub struct NegotiateContext<'a, 'b, 'c, Objects, Alternates, AlternatesOut, AlternatesErr, Find>

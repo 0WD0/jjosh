@@ -110,9 +110,9 @@ impl<'a> CommitRef<'a> {
         MessageRef::from_bytes(self.message)
     }
 
-    /// Returns the time at which this commit was created.
+    /// Returns the time at which this commit was created, or a default time if it could not be parsed.
     pub fn time(&self) -> gix_date::Time {
-        self.committer.time
+        self.committer.time.parse().unwrap_or_default()
     }
 }
 

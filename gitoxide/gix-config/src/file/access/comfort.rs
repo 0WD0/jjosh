@@ -2,8 +2,7 @@ use std::borrow::Cow;
 
 use bstr::BStr;
 
-use crate::file::Metadata;
-use crate::{value, AsKey, File};
+use crate::{file::Metadata, value, AsKey, File};
 
 /// Comfortable API for accessing values
 impl File<'_> {

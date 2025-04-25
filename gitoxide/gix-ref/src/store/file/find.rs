@@ -6,9 +6,9 @@ use std::{
 
 pub use error::Error;
 
-use crate::name::is_pseudo_ref;
 use crate::{
     file,
+    name::is_pseudo_ref,
     store_impl::{file::loose, packed},
     BStr, BString, FullNameRef, PartialName, PartialNameRef, Reference,
 };

@@ -1,58 +1,60 @@
+use gix_date::parse::TimeBuf;
 use gix_mailmap::{Entry, Snapshot};
 use gix_testtools::fixture_bytes;
 
 #[test]
 fn try_resolve() {
     let snapshot = Snapshot::from_bytes(&fixture_bytes("typical.txt"));
+    let mut buf = TimeBuf::default();
     assert_eq!(
-        snapshot.try_resolve(signature("Foo", "Joe@example.com").to_ref()),
+        snapshot.try_resolve(signature("Foo", "Joe@example.com").to_ref(&mut buf)),
         Some(signature("Joe R. Developer", "joe@example.com")),
         "resolved signatures contain all original fields, and normalize the email as well to match the one that it was looked up with"
     );
     assert_eq!(
-        snapshot.try_resolve(signature("Joe", "bugs@example.com").to_ref()),
+        snapshot.try_resolve(signature("Joe", "bugs@example.com").to_ref(&mut buf)),
         Some(signature("Joe R. Developer", "joe@example.com")),
         "name and email can be mapped specifically"
     );
 
     assert_eq!(
-        snapshot.try_resolve(signature("Jane", "jane@laptop.(none)").to_ref()),
+        snapshot.try_resolve(signature("Jane", "jane@laptop.(none)").to_ref(&mut buf)),
         Some(signature("Jane Doe", "jane@example.com")),
         "fix name and email by email"
     );
     assert_eq!(
-        snapshot.try_resolve(signature("Jane", "jane@desktop.(none)").to_ref()),
+        snapshot.try_resolve(signature("Jane", "jane@desktop.(none)").to_ref(&mut buf)),
         Some(signature("Jane Doe", "jane@example.com")),
         "fix name and email by other email"
     );
 
     assert_eq!(
-        snapshot.try_resolve(signature("janE", "Bugs@example.com").to_ref()),
+        snapshot.try_resolve(signature("janE", "Bugs@example.com").to_ref(&mut buf)),
         Some(signature("Jane Doe", "jane@example.com")),
         "name and email can be mapped specifically, case insensitive matching of name"
     );
     assert_eq!(
-        snapshot.resolve(signature("janE", "jane@ipad.(none)").to_ref()),
+        snapshot.resolve(signature("janE", "jane@ipad.(none)").to_ref(&mut buf)),
         signature("janE", "jane@example.com"),
         "an email can be mapped by name and email specifically, both match case-insensitively"
     );
 
     let sig = signature("Jane", "other@example.com");
-    assert_eq!(snapshot.try_resolve(sig.to_ref()), None, "unmatched email");
+    assert_eq!(snapshot.try_resolve(sig.to_ref(&mut buf)), None, "unmatched email");
 
     assert_eq!(
-        snapshot.resolve(sig.to_ref()),
+        snapshot.resolve(sig.to_ref(&mut buf)),
         sig,
         "resolution always works here, returning a copy of the original"
     );
 
     let sig = signature("Jean", "bugs@example.com");
     assert_eq!(
-        snapshot.try_resolve(sig.to_ref()),
+        snapshot.try_resolve(sig.to_ref(&mut buf)),
         None,
         "matched email, unmatched name"
     );
-    assert_eq!(snapshot.resolve(sig.to_ref()), sig);
+    assert_eq!(snapshot.resolve(sig.to_ref(&mut buf)), sig);
 
     assert_eq!(
         snapshot.entries(),
@@ -85,16 +87,17 @@ fn non_name_and_name_mappings_will_not_clash() {
             "old-email",
         ),
     ];
+    let mut buf = TimeBuf::default();
     for entries in [entries.clone().into_iter().rev().collect::<Vec<_>>(), entries] {
         let snapshot = Snapshot::new(entries);
 
         assert_eq!(
-            snapshot.try_resolve(signature("replace-by-email", "Old-Email").to_ref()),
+            snapshot.try_resolve(signature("replace-by-email", "Old-Email").to_ref(&mut buf)),
             Some(signature("new-name", "old-email")),
             "it can match by email only, and the email is normalized"
         );
         assert_eq!(
-            snapshot.try_resolve(signature("old-name", "Old-Email").to_ref()),
+            snapshot.try_resolve(signature("old-name", "Old-Email").to_ref(&mut buf)),
             Some(signature("other-new-name", "other-new-email")),
             "it can match by email and name as well"
         );
@@ -117,26 +120,27 @@ fn non_name_and_name_mappings_will_not_clash() {
 #[test]
 fn overwrite_entries() {
     let snapshot = Snapshot::from_bytes(&fixture_bytes("overwrite.txt"));
+    let mut buf = TimeBuf::default();
     assert_eq!(
-        snapshot.try_resolve(signature("does not matter", "old-a-email").to_ref()),
+        snapshot.try_resolve(signature("does not matter", "old-a-email").to_ref(&mut buf)),
         Some(signature("A-overwritten", "old-a-email")),
         "email only by email"
     );
 
     assert_eq!(
-        snapshot.try_resolve(signature("to be replaced", "old-b-EMAIL").to_ref()),
+        snapshot.try_resolve(signature("to be replaced", "old-b-EMAIL").to_ref(&mut buf)),
         Some(signature("B-overwritten", "new-b-email-overwritten")),
         "name and email by email"
     );
 
     assert_eq!(
-        snapshot.try_resolve(signature("old-c", "old-C-email").to_ref()),
+        snapshot.try_resolve(signature("old-c", "old-C-email").to_ref(&mut buf)),
         Some(signature("C-overwritten", "new-c-email-overwritten")),
         "name and email by name and email"
     );
 
     assert_eq!(
-        snapshot.try_resolve(signature("unchanged", "old-d-email").to_ref()),
+        snapshot.try_resolve(signature("unchanged", "old-d-email").to_ref(&mut buf)),
         Some(signature("unchanged", "new-d-email-overwritten")),
         "email by email"
     );
@@ -161,11 +165,6 @@ fn signature(name: &str, email: &str) -> gix_actor::Signature {
     gix_actor::Signature {
         name: name.into(),
         email: email.into(),
-        time: gix_date::Time {
-            // marker
-            seconds: 42,
-            offset: 53,
-            sign: gix_date::time::Sign::Minus,
-        },
+        time: gix_date::parse_header("42 +0800").unwrap(),
     }
 }

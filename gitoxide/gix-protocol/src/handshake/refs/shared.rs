@@ -1,6 +1,9 @@
-use crate::fetch::response::ShallowUpdate;
-use crate::handshake::{refs::parse::Error, Ref};
 use bstr::{BStr, BString, ByteSlice};
+
+use crate::{
+    fetch::response::ShallowUpdate,
+    handshake::{refs::parse::Error, Ref},
+};
 
 impl From<InternalRef> for Ref {
     fn from(v: InternalRef) -> Self {

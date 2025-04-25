@@ -1,8 +1,3 @@
-use crate::{
-    hex_to_id,
-    rewrites::{Change, NULL_ID},
-};
-use gix_diff::tree::visit::Relation;
 use gix_diff::{
     blob::DiffLineStats,
     rewrites,
@@ -13,11 +8,16 @@ use gix_diff::{
         },
         Copies, CopySource,
     },
-    tree::visit::Action,
+    tree::visit::{Action, Relation},
     Rewrites,
 };
 use gix_object::tree::EntryKind;
 use pretty_assertions::assert_eq;
+
+use crate::{
+    hex_to_id,
+    rewrites::{Change, NULL_ID},
+};
 
 #[test]
 fn rename_by_id() -> crate::Result {

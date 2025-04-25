@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
+use gix_hash::ObjectId;
+
 use crate::{
     packed, peel,
     raw::Reference,
     store_impl::{file, file::log},
     Target,
 };
-use gix_hash::ObjectId;
 
 pub trait Sealed {}
 impl Sealed for crate::Reference {}

@@ -1,10 +1,16 @@
-use crate::fetch::{
-    negotiate, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags,
+use std::{
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
 };
-use crate::{fetch::Arguments, transport::packetline::read::ProgressAction};
+
 use gix_features::progress::DynNestedProgress;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::{
+    fetch::{
+        negotiate, Arguments, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags,
+    },
+    transport::packetline::read::ProgressAction,
+};
 
 /// Perform one fetch operation, relying on a `transport`.
 /// `negotiate` is used to run the negotiation of objects that should be contained in the pack, *if* one is to be received.

@@ -1,6 +1,7 @@
 // TODO: tests
-use gix_features::threading::{get_mut, get_ref, MutableOnDemand, OwnShared};
 use std::ops::Deref;
+
+use gix_features::threading::{get_mut, get_ref, MutableOnDemand, OwnShared};
 
 /// A structure holding enough information to reload a value if its on-disk representation changes as determined by its modified time.
 #[derive(Debug)]

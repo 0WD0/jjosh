@@ -4,8 +4,7 @@ use gix_object::{
     tree,
 };
 
-use crate::tree::visit::Relation;
-use crate::tree::{visit, Recorder, Visit};
+use crate::tree::{visit, visit::Relation, Recorder, Visit};
 
 /// Describe how to track the location of a change.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

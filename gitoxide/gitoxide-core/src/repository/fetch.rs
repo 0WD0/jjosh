@@ -169,7 +169,7 @@ pub(crate) mod function {
 
         let start = std::time::Instant::now();
         progress.set_name("layout graph".into());
-        progress.info(format!("writing {path:?}…"));
+        progress.info(format!("writing {}…", path.display()));
         let mut svg = SVGWriter::new();
         vg.do_it(false, false, false, &mut svg);
         std::fs::write(path, svg.finalize().as_bytes())?;

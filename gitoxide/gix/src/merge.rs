@@ -1,5 +1,4 @@
 pub use gix_merge as plumbing;
-
 pub use gix_merge::blob;
 
 ///

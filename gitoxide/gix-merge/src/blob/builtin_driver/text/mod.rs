@@ -1,5 +1,6 @@
-use bstr::BStr;
 use std::num::NonZeroU8;
+
+use bstr::BStr;
 
 /// The way the built-in [text driver](crate::blob::BuiltinDriver::Text) will express
 /// merge conflicts in the resulting file.

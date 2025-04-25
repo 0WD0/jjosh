@@ -4,8 +4,7 @@ use gix_transport::{client, Protocol};
 
 use crate::fetch::{
     response,
-    response::shallow_update_from_line,
-    response::{Acknowledgement, ShallowUpdate, WantedRef},
+    response::{shallow_update_from_line, Acknowledgement, ShallowUpdate, WantedRef},
     Response,
 };
 

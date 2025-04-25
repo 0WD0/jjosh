@@ -1,7 +1,7 @@
-use crate::odb::hex_to_id;
-use gix_object::Write;
-use gix_object::{tree, Exists, FindExt};
+use gix_object::{tree, Exists, FindExt, Write};
 use gix_testtools::tempfile::TempDir;
+
+use crate::odb::hex_to_id;
 
 #[test]
 fn without_memory() -> crate::Result {

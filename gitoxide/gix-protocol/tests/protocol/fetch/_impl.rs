@@ -2,16 +2,16 @@ mod fetch_fn {
     use std::borrow::Cow;
 
     use gix_features::progress::NestedProgress;
-    use gix_transport::client;
-    use maybe_async::maybe_async;
-
-    use super::{Action, Delegate};
-    use crate::fetch::Error;
     use gix_protocol::{
         credentials,
         fetch::{Arguments, Response},
         indicate_end_of_interaction, Command,
     };
+    use gix_transport::client;
+    use maybe_async::maybe_async;
+
+    use super::{Action, Delegate};
+    use crate::fetch::Error;
 
     /// A way to indicate how to treat the connection underlying the transport, potentially allowing to reuse it.
     #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -197,13 +197,12 @@ mod delegate {
     };
 
     use bstr::BString;
-    use gix_transport::client::Capabilities;
-
-    use gix_protocol::ls_refs;
     use gix_protocol::{
         fetch::{Arguments, Response},
         handshake::Ref,
+        ls_refs,
     };
+    use gix_transport::client::Capabilities;
 
     /// Defines what to do next after certain [`Delegate`] operations.
     #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -377,9 +376,9 @@ mod delegate {
         };
 
         use gix_features::progress::NestedProgress;
+        use gix_protocol::{fetch::Response, handshake::Ref};
 
         use super::DelegateBlocking;
-        use gix_protocol::{fetch::Response, handshake::Ref};
 
         /// The protocol delegate is the bare minimal interface needed to fully control the [`fetch`][gix_protocol::fetch()] operation.
         ///
@@ -438,9 +437,9 @@ mod delegate {
         use async_trait::async_trait;
         use futures_io::AsyncBufRead;
         use gix_features::progress::NestedProgress;
+        use gix_protocol::{fetch::Response, handshake::Ref};
 
         use super::DelegateBlocking;
-        use gix_protocol::{fetch::Response, handshake::Ref};
 
         /// The protocol delegate is the bare minimal interface needed to fully control the [`fetch`][gix_protocol::fetch()] operation.
         ///

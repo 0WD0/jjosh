@@ -1,11 +1,14 @@
 pub(super) mod function {
+    use std::{
+        ffi::{OsStr, OsString},
+        io::{BufRead, BufReader, Read},
+        process::{Command, Stdio},
+    };
+
     use anyhow::{bail, Context};
     use gix::bstr::ByteSlice;
     use once_cell::sync::Lazy;
     use regex::bytes::Regex;
-    use std::ffi::{OsStr, OsString};
-    use std::io::{BufRead, BufReader, Read};
-    use std::process::{Command, Stdio};
 
     pub fn check_mode() -> anyhow::Result<()> {
         let root = find_root()?;

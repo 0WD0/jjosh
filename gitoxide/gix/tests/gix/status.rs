@@ -17,12 +17,14 @@ pub fn repo(name: &str) -> crate::Result<gix::Repository> {
 }
 
 mod into_iter {
-    use crate::status::{repo, submodule_repo};
-    use crate::util::hex_to_id;
-    use gix::status::tree_index::TrackRenames;
-    use gix::status::Item;
+    use gix::status::{tree_index::TrackRenames, Item};
     use gix_diff::Rewrites;
     use gix_testtools::size_ok;
+
+    use crate::{
+        status::{repo, submodule_repo},
+        util::hex_to_id,
+    };
 
     #[test]
     fn item_size() {
@@ -167,10 +169,11 @@ mod into_iter {
 
 mod index_worktree {
     mod iter {
-        use crate::status::{repo, submodule_repo};
         use gix::status::index_worktree::Item;
         use gix_testtools::size_ok;
         use pretty_assertions::assert_eq;
+
+        use crate::status::{repo, submodule_repo};
 
         #[test]
         fn item_size() {

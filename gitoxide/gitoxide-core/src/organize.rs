@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use std::{
+    borrow::Cow,
     ffi::OsStr,
     path::{Path, PathBuf},
 };
@@ -138,9 +138,9 @@ fn handle(
 
     if let Some(parent_repo_path) = find_parent_repo(git_workdir) {
         progress.fail(format!(
-            "Skipping repository at {:?} as it is nested within repository {:?}",
+            "Skipping repository at '{}' as it is nested within repository '{}'",
             git_workdir.display(),
-            parent_repo_path
+            parent_repo_path.display()
         ));
         return Ok(());
     }
@@ -157,7 +157,7 @@ fn handle(
     };
     if url.path.is_empty() {
         progress.info(format!(
-            "Skipping repository at {:?} whose remote does not have a path: {:?}",
+            "Skipping repository at '{}' whose remote does not have a path: {}",
             git_workdir.display(),
             url.to_bstring()
         ));

@@ -5,7 +5,6 @@ use gix_protocol::{
     fetch::{Arguments, Response},
     handshake, ls_refs,
 };
-
 use gix_transport::client::Capabilities;
 
 use crate::fixture_bytes;
@@ -16,9 +15,8 @@ use _impl::{Action, DelegateBlocking};
 mod error {
     use std::io;
 
-    use gix_transport::client;
-
     use gix_protocol::{fetch::response, handshake, ls_refs};
+    use gix_transport::client;
 
     /// The error used in [`fetch()`][crate::fetch()].
     #[derive(Debug, thiserror::Error)]

@@ -11,13 +11,12 @@ use gix_features::parallel::{in_parallel_if, Reduce};
 use gix_filter::pipeline::convert::ToGitOutcome;
 use gix_object::FindExt;
 
-use crate::index_as_worktree::Context;
 use crate::{
     index_as_worktree::{
         traits,
         traits::{read_data::Stream, CompareBlobs, SubmoduleStatus},
         types::{Error, Options},
-        Change, Conflict, EntryStatus, Outcome, VisitEntry,
+        Change, Conflict, Context, EntryStatus, Outcome, VisitEntry,
     },
     is_dir_to_mode, AtomicU64, SymlinkCheck,
 };
@@ -575,7 +574,7 @@ where
                     },
                     &mut |buf| Ok(self.objects.find_blob(self.id, buf).map(|_| Some(()))?),
                 )
-                .map_err(|err| Error::Io(io::Error::new(io::ErrorKind::Other, err).into()))?;
+                .map_err(|err| Error::Io(io::Error::other(err).into()))?;
             let len = match out {
                 ToGitOutcome::Unchanged(_) => Some(self.file_len),
                 ToGitOutcome::Process(_) | ToGitOutcome::Buffer(_) => None,

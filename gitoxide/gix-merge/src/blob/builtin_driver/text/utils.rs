@@ -1,7 +1,8 @@
-use crate::blob::builtin_driver::text::ConflictStyle;
+use std::{iter::Peekable, ops::Range};
+
 use bstr::{BStr, ByteSlice, ByteVec};
-use std::iter::Peekable;
-use std::ops::Range;
+
+use crate::blob::builtin_driver::text::ConflictStyle;
 
 /// Used only when `diff3` is the conflict style as `zdiff3` automatically reduces hunks into nothing.
 /// Here we check if all hunks are the same.

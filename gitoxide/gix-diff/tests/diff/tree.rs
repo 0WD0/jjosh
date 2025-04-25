@@ -2,10 +2,10 @@ mod changes {
     mod to_obtain_tree {
         use std::collections::HashMap;
 
-        use gix_diff::tree::visit::Relation;
         use gix_diff::tree::{
             recorder,
             recorder::{Change::*, Location},
+            visit::Relation,
         };
         use gix_hash::{oid, ObjectId};
         use gix_object::{bstr::ByteSlice, tree::EntryKind, TreeRefIter};

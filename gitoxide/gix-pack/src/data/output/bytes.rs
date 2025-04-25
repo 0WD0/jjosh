@@ -1,7 +1,6 @@
 use std::io::Write;
 
-use crate::data::output;
-use crate::exact_vec;
+use crate::{data::output, exact_vec};
 
 /// The error returned by `next()` in the [`FromEntriesIter`] iterator.
 #[allow(missing_docs)]

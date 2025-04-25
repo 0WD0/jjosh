@@ -17,7 +17,7 @@ const MINUTES_PER_HOUR: f32 = 60.0;
 pub const HOURS_PER_WORKDAY: f32 = 8.0;
 
 pub fn estimate_hours(
-    commits: &[(u32, gix::actor::SignatureRef<'static>)],
+    commits: &[(u32, super::SignatureRef<'static>)],
     stats: &[(u32, FileStats, LineStats)],
 ) -> WorkByEmail {
     assert!(!commits.is_empty());
@@ -31,7 +31,7 @@ pub fn estimate_hours(
         let mut cur = commits.next().expect("at least one commit if we are here");
 
         for next in commits {
-            let change_in_minutes = (next.time.seconds.saturating_sub(cur.time.seconds)) as f32 / MINUTES_PER_HOUR;
+            let change_in_minutes = (next.seconds().saturating_sub(cur.seconds())) as f32 / MINUTES_PER_HOUR;
             if change_in_minutes < MAX_COMMIT_DIFFERENCE_IN_MINUTES {
                 hours += change_in_minutes / MINUTES_PER_HOUR;
             } else {
@@ -166,13 +166,11 @@ pub fn spawn_tree_delta_threads<'scope>(
                                             (true, true) => {
                                                 files.modified += 1;
                                                 if let Some(cache) = cache.as_mut() {
-                                                    let mut diff = change.diff(cache).map_err(|err| {
-                                                        std::io::Error::new(std::io::ErrorKind::Other, err)
-                                                    })?;
+                                                    let mut diff = change.diff(cache).map_err(std::io::Error::other)?;
                                                     let mut nl = 0;
-                                                    if let Some(counts) = diff.line_counts().map_err(|err| {
-                                                        std::io::Error::new(std::io::ErrorKind::Other, err)
-                                                    })? {
+                                                    if let Some(counts) =
+                                                        diff.line_counts().map_err(std::io::Error::other)?
+                                                    {
                                                         nl += counts.insertions as usize + counts.removals as usize;
                                                         lines.added += counts.insertions as usize;
                                                         lines.removed += counts.removals as usize;

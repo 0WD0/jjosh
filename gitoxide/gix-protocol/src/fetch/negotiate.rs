@@ -5,10 +5,11 @@
 //! 1. [`mark_complete_and_common_ref()`] - initialize the [`negotiator`](gix_negotiate::Negotiator) with all state known on the remote.
 //! 2. [`add_wants()`] is called if the call at 1) returned [`Action::MustNegotiate`].
 //! 3. [`one_round()`] is called for each negotiation round, providing information if the negotiation is done.
+use std::borrow::Cow;
+
 use gix_date::SecondsSinceUnixEpoch;
 use gix_negotiate::Flags;
 use gix_ref::file::ReferenceExt;
-use std::borrow::Cow;
 
 use crate::fetch::{refmap, RefMap, Shallow, Tags};
 

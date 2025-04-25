@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::bstr::BStr;
 use gix_path::realpath::MAX_SYMLINKS;
+
+use crate::bstr::BStr;
 
 impl crate::Repository {
     /// Return the path to the repository itself, containing objects, references, configuration, and more.

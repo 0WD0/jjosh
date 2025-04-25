@@ -1,10 +1,13 @@
-use crate::find::Header;
-use crate::Cache;
+use std::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+    sync::Arc,
+};
+
 use gix_object::Data;
-use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
-use std::sync::Arc;
+
+use crate::{find::Header, Cache};
 
 /// An object database to read from any implementation but write to memory.
 /// Previously written objects can be returned from memory upon query, which makes the view of objects consistent.

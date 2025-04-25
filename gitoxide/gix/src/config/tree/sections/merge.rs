@@ -1,8 +1,9 @@
-use crate::config;
-use crate::config::tree::SubSectionRequirement;
-use crate::config::{
-    tree::{keys, Key, Merge, Section},
-    Tree,
+use crate::{
+    config,
+    config::{
+        tree::{keys, Key, Merge, Section, SubSectionRequirement},
+        Tree,
+    },
 };
 
 impl Merge {
@@ -63,9 +64,11 @@ pub type ConflictStyle = keys::Any<validate::ConflictStyle>;
 
 #[cfg(feature = "merge")]
 mod conflict_style {
-    use crate::{bstr::BStr, config, config::tree::sections::merge::ConflictStyle};
-    use gix_merge::blob::builtin_driver::text;
     use std::borrow::Cow;
+
+    use gix_merge::blob::builtin_driver::text;
+
+    use crate::{bstr::BStr, config, config::tree::sections::merge::ConflictStyle};
 
     impl ConflictStyle {
         /// Derive the diff algorithm identified by `name`, case-insensitively.

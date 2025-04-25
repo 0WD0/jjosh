@@ -11,8 +11,9 @@ impl crate::WriteTo for Commit {
         for parent in &self.parents {
             encode::trusted_header_id(b"parent", parent, &mut out)?;
         }
-        encode::trusted_header_signature(b"author", &self.author.to_ref(), &mut out)?;
-        encode::trusted_header_signature(b"committer", &self.committer.to_ref(), &mut out)?;
+        let mut buf = gix_date::parse::TimeBuf::default();
+        encode::trusted_header_signature(b"author", &self.author.to_ref(&mut buf), &mut out)?;
+        encode::trusted_header_signature(b"committer", &self.committer.to_ref(&mut buf), &mut out)?;
         if let Some(encoding) = self.encoding.as_ref() {
             encode::header_field(b"encoding", encoding, &mut out)?;
         }

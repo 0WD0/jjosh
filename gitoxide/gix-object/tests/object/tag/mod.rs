@@ -1,10 +1,10 @@
-use gix_date::time::Sign;
 use gix_object::{bstr::ByteSlice, Kind, TagRef, TagRefIter};
 
 use crate::fixture_name;
 
 mod method {
     use bstr::ByteSlice;
+    use gix_date::parse::TimeBuf;
     use gix_object::TagRef;
     use pretty_assertions::assert_eq;
 
@@ -28,7 +28,8 @@ mod method {
         assert_eq!(target.to_string(), tag.target);
         assert_eq!(target_kind, tag.target_kind);
         assert_eq!(name, tag.name);
-        assert_eq!(tagger.as_ref().map(|s| s.to_ref()), tag.tagger);
+        let mut buf = TimeBuf::default();
+        assert_eq!(tagger.as_ref().map(|s| s.to_ref(&mut buf)), tag.tagger);
         assert_eq!(message, tag.message);
         assert_eq!(pgp_signature.as_ref().map(|s| s.as_bstr()), tag.pgp_signature);
         Ok(())
@@ -45,7 +46,7 @@ mod iter {
         let tag = fixture_name("tag", "empty.txt");
         let tag_iter = TagRefIter::from_bytes(&tag);
         let target_id = hex_to_id("01dd4e2a978a9f5bd773dae6da7aa4a5ac1cdbbc");
-        let tagger = Some(signature(1592381636));
+        let tagger = Some(signature("1592381636 +0800"));
         assert_eq!(
             tag_iter.collect::<Result<Vec<_>, _>>()?,
             vec![
@@ -110,7 +111,7 @@ KLMHist5yj0sw1E4hDTyQa0=
                 },
                 Token::TargetKind(Kind::Commit),
                 Token::Name(b"whitespace".as_bstr()),
-                Token::Tagger(Some(signature(1592382888))),
+                Token::Tagger(Some(signature("1592382888 +0800"))),
                 Token::Body {
                     message: b" \ttab\nnewline\n\nlast-with-trailer\n".as_bstr(),
                     pgp_signature: None
@@ -154,17 +155,13 @@ fn invalid() {
 
 mod from_bytes {
     use gix_actor::SignatureRef;
-    use gix_date::Time;
     use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 
-    use crate::{fixture_name, signature, tag::tag_fixture, Sign};
+    use crate::{fixture_name, signature, tag::tag_fixture};
 
     #[test]
     fn signed() -> crate::Result {
-        assert_eq!(
-            TagRef::from_bytes(&fixture_name("tag", "signed.txt"))?,
-            tag_fixture(9000)
-        );
+        assert_eq!(TagRef::from_bytes(&fixture_name("tag", "signed.txt"))?, tag_fixture());
         Ok(())
     }
 
@@ -179,7 +176,7 @@ mod from_bytes {
                 name: b"empty".as_bstr(),
                 target_kind: Kind::Commit,
                 message: b"\n".as_bstr(),
-                tagger: Some(signature(1592381636)),
+                tagger: Some(signature("1592381636 +0800")),
                 pgp_signature: None
             }
         );
@@ -198,7 +195,7 @@ mod from_bytes {
                 name: b"empty".as_bstr(),
                 target_kind: Kind::Commit,
                 message: b"".as_bstr(),
-                tagger: Some(signature(1592381636)),
+                tagger: Some(signature("1592381636 +0800")),
                 pgp_signature: None
             }
         );
@@ -215,7 +212,7 @@ mod from_bytes {
                 name: b"baz".as_bstr(),
                 target_kind: Kind::Commit,
                 message: b"hello\n\nworld".as_bstr(),
-                tagger: Some(signature(1592311808)),
+                tagger: Some(signature("1592311808 +0800")),
                 pgp_signature: None
             }
         );
@@ -263,7 +260,7 @@ KLMHist5yj0sw1E4hDTyQa0=
                 name: b"whitespace".as_bstr(),
                 target_kind: Kind::Commit,
                 message: b" \ttab\nnewline\n\nlast-with-trailer\n".as_bstr(),
-                tagger: Some(signature(1592382888)),
+                tagger: Some(signature("1592382888 +0800")),
                 pgp_signature: None
             }
         );
@@ -282,11 +279,7 @@ KLMHist5yj0sw1E4hDTyQa0=
                 tagger: Some(SignatureRef {
                     name: b"shemminger".as_bstr(),
                     email: b"shemminger".as_bstr(),
-                    time: Time {
-                        seconds: 0,
-                        offset: 0,
-                        sign: Sign::Plus
-                    }
+                    time: "",
                 }),
                 pgp_signature: None
             }
@@ -295,7 +288,7 @@ KLMHist5yj0sw1E4hDTyQa0=
     }
 }
 
-fn tag_fixture(offset: i32) -> TagRef<'static> {
+fn tag_fixture() -> TagRef<'static> {
     TagRef {
         target: b"ffa700b4aca13b80cb6b98a078e7c96804f8e0ec".as_bstr(),
         name: b"1.0.0".as_bstr(),
@@ -324,11 +317,7 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
         tagger: Some(gix_actor::SignatureRef {
             name: b"Sebastian Thiel".as_bstr(),
             email: b"byronimo@gmail.com".as_bstr(),
-            time: gix_date::Time {
-                seconds: 1528473343,
-                offset,
-                sign: Sign::Plus,
-            },
+            time: "1528473343 +0230",
         }),
     }
 }

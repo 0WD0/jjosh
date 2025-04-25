@@ -1,10 +1,12 @@
-use crate::blob::util::ObjectDb;
 use bstr::ByteSlice;
-use gix_filter::eol;
-use gix_filter::eol::AutoCrlf;
-use gix_merge::blob::pipeline::{self, Mode, WorktreeRoots};
-use gix_merge::blob::{Pipeline, ResourceKind};
+use gix_filter::{eol, eol::AutoCrlf};
+use gix_merge::blob::{
+    pipeline::{self, Mode, WorktreeRoots},
+    Pipeline, ResourceKind,
+};
 use gix_object::tree::EntryKind;
+
+use crate::blob::util::ObjectDb;
 
 const ALL_MODES: [pipeline::Mode; 2] = [pipeline::Mode::ToGit, pipeline::Mode::Renormalize];
 

@@ -1,6 +1,7 @@
-use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 use bstr::BStr;
 use winnow::{error::ParserError, prelude::*};
+
+use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 
 impl<'a> TreeRefIter<'a> {
     /// Instantiate an iterator from the given tree data.

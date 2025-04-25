@@ -1,9 +1,8 @@
-use crate::{Kind, WriteTo};
+use std::{io::Read, ops::Deref, rc::Rc, sync::Arc};
+
 use gix_hash::ObjectId;
-use std::io::Read;
-use std::ops::Deref;
-use std::rc::Rc;
-use std::sync::Arc;
+
+use crate::{Kind, WriteTo};
 
 impl<T> crate::Write for &T
 where

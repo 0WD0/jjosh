@@ -1,10 +1,10 @@
-use gix_diff::rewrites::{Copies, CopySource};
-use gix_diff::tree::recorder::Location;
-use gix_diff::tree::visit::Relation;
-use gix_diff::tree_with_rewrites::{Change, Options};
-use gix_diff::Rewrites;
-use gix_object::bstr::BStr;
-use gix_object::TreeRefIter;
+use gix_diff::{
+    rewrites::{Copies, CopySource},
+    tree::{recorder::Location, visit::Relation},
+    tree_with_rewrites::{Change, Options},
+    Rewrites,
+};
+use gix_object::{bstr::BStr, TreeRefIter};
 
 #[test]
 fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
@@ -1788,10 +1788,13 @@ fn realistic_renames_3_without_identity() -> crate::Result {
 }
 
 mod util {
+    use std::{
+        convert::Infallible,
+        path::{Path, PathBuf},
+    };
+
     use gix_diff::rewrites;
     use gix_object::{FindExt, TreeRefIter};
-    use std::convert::Infallible;
-    use std::path::{Path, PathBuf};
 
     pub fn repo_workdir() -> crate::Result<PathBuf> {
         gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_rewrites_repo.sh")

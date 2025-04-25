@@ -1,5 +1,6 @@
-use bstr::BStr;
 use std::borrow::Cow;
+
+use bstr::BStr;
 
 /// The error returned by [`index()`](crate::index()).
 #[derive(Debug, thiserror::Error)]

@@ -1,4 +1,4 @@
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, clippy::unnecessary_debug_formatting)]
 mod util;
 use util::*;
 

@@ -3,6 +3,10 @@ use std::{
     ops::{Deref, Range},
 };
 
+use bstr::{BStr, BString, ByteSlice, ByteVec};
+use gix_sec::Trust;
+use smallvec::SmallVec;
+
 use crate::{
     file::{
         self,
@@ -13,9 +17,6 @@ use crate::{
     parse::{section::ValueName, Event},
     value::{normalize, normalize_bstr, normalize_bstring},
 };
-use bstr::{BStr, BString, ByteSlice, ByteVec};
-use gix_sec::Trust;
-use smallvec::SmallVec;
 
 /// A opaque type that represents a mutable reference to a section.
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]

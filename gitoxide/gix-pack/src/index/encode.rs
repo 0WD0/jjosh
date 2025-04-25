@@ -36,9 +36,10 @@ pub(crate) fn fanout(iter: &mut dyn ExactSizeIterator<Item = u8>) -> [u32; 256] 
 mod function {
     use std::io;
 
+    use gix_features::progress::{self, DynNestedProgress};
+
     use super::{fanout, HIGH_BIT, LARGE_OFFSET_THRESHOLD};
     use crate::index::V2_SIGNATURE;
-    use gix_features::progress::{self, DynNestedProgress};
 
     struct Count<W> {
         bytes: u64,

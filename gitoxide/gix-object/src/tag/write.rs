@@ -1,6 +1,7 @@
 use std::io;
 
 use bstr::BStr;
+use gix_date::parse::TimeBuf;
 
 use crate::{encode, encode::NL, Kind, Tag, TagRef};
 
@@ -26,7 +27,8 @@ impl crate::WriteTo for Tag {
         encode::trusted_header_field(b"type", self.target_kind.as_bytes(), out)?;
         encode::header_field(b"tag", validated_name(self.name.as_ref())?, out)?;
         if let Some(tagger) = &self.tagger {
-            encode::trusted_header_signature(b"tagger", &tagger.to_ref(), out)?;
+            let mut buf = TimeBuf::default();
+            encode::trusted_header_signature(b"tagger", &tagger.to_ref(&mut buf), out)?;
         }
 
         if !self.message.iter().all(|b| *b == b'\n') {

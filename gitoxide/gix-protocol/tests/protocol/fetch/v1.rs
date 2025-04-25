@@ -1,10 +1,9 @@
-use crate::fetch::_impl::FetchConnection;
 use bstr::ByteSlice;
 use gix_features::progress;
 use gix_protocol::handshake;
 use gix_transport::Protocol;
 
-use crate::fetch::{helper_unused, oid, transport, CloneDelegate, LsRemoteDelegate};
+use crate::fetch::{_impl::FetchConnection, helper_unused, oid, transport, CloneDelegate, LsRemoteDelegate};
 
 #[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
 async fn clone() -> crate::Result {

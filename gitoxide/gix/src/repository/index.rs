@@ -1,5 +1,7 @@
 use crate::{
-    config::cache::util::ApplyLeniencyDefault, config::tree::Index, worktree, worktree::IndexPersistedOrInMemory,
+    config::{cache::util::ApplyLeniencyDefault, tree::Index},
+    worktree,
+    worktree::IndexPersistedOrInMemory,
 };
 
 /// Index access
@@ -54,7 +56,10 @@ impl crate::Repository {
             None => Err(worktree::open_index::Error::IndexFile(
                 gix_index::file::init::Error::Io(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Could not find index file at {:?} for opening.", self.index_path()),
+                    format!(
+                        "Could not find index file at '{index_path}' for opening.",
+                        index_path = self.index_path().display()
+                    ),
                 )),
             )),
         })

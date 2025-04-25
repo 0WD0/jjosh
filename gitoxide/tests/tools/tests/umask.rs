@@ -5,8 +5,10 @@
     ignore = "The test itself uses /proc"
 )]
 fn umask() {
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader},
+    };
 
     use bstr::ByteSlice;
     // Check against the umask obtained via a less portable but also completely safe method.

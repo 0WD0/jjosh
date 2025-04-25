@@ -1,11 +1,16 @@
 use std::collections::HashSet;
 
-use crate::fetch;
-use crate::fetch::refmap::{Mapping, Source, SpecIndex};
-use crate::fetch::RefMap;
-use crate::transport::client::Transport;
 use bstr::{BString, ByteVec};
 use gix_features::progress::Progress;
+
+use crate::{
+    fetch,
+    fetch::{
+        refmap::{Mapping, Source, SpecIndex},
+        RefMap,
+    },
+    transport::client::Transport,
+};
 
 /// The error returned by [`RefMap::new()`].
 #[derive(Debug, thiserror::Error)]

@@ -1,6 +1,8 @@
-use gix_diff::index::Change;
-use gix_diff::rewrites::{Copies, CopySource};
-use gix_diff::Rewrites;
+use gix_diff::{
+    index::Change,
+    rewrites::{Copies, CopySource},
+    Rewrites,
+};
 use gix_object::bstr::BStr;
 
 #[test]
@@ -1211,9 +1213,12 @@ fn unmerged_entries_and_intent_to_add() -> crate::Result {
 }
 
 mod util {
+    use std::{
+        convert::Infallible,
+        path::{Path, PathBuf},
+    };
+
     use gix_diff::rewrites;
-    use std::convert::Infallible;
-    use std::path::{Path, PathBuf};
 
     fn repo_workdir() -> crate::Result<PathBuf> {
         gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_rewrites_repo.sh")
@@ -1321,5 +1326,6 @@ mod util {
         }
     }
 }
-use crate::hex_to_id;
 use util::{collect_changes_no_renames, collect_changes_opts, collect_changes_opts_with_pathspec, repo_with_indices};
+
+use crate::hex_to_id;

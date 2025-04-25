@@ -25,9 +25,10 @@ pub enum Error {
 pub(crate) mod function;
 
 mod octopus {
-    use crate::merge_base::{Error, Flags};
     use gix_hash::ObjectId;
     use gix_revwalk::{graph, Graph};
+
+    use crate::merge_base::{Error, Flags};
 
     /// Given a commit at `first` id, traverse the commit `graph` and return *the best common ancestor* between it and `others`,
     /// sorted from best to worst. Returns `None` if there is no common merge-base as `first` and `others` don't *all* share history.

@@ -1,6 +1,6 @@
+use std::{io::Read, path::PathBuf};
+
 use crate::blob::{builtin_driver, PlatformRef, Resolution};
-use std::io::Read;
-use std::path::PathBuf;
 
 /// Options for the use in the [`PlatformRef::merge()`] call.
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
@@ -56,15 +56,22 @@ pub struct Command {
 pub(super) mod inner {
     ///
     pub mod prepare_external_driver {
-        use crate::blob::builtin_driver::text::Conflict;
-        use crate::blob::platform::{merge, DriverChoice};
-        use crate::blob::{builtin_driver, BuiltinDriver, Driver, PlatformRef, ResourceKind};
+        use std::{
+            io::Write,
+            ops::{Deref, DerefMut},
+            path::{Path, PathBuf},
+            process::Stdio,
+        };
+
         use bstr::{BString, ByteVec};
         use gix_tempfile::{AutoRemove, ContainingDirectory};
-        use std::io::Write;
-        use std::ops::{Deref, DerefMut};
-        use std::path::{Path, PathBuf};
-        use std::process::Stdio;
+
+        use crate::blob::{
+            builtin_driver,
+            builtin_driver::text::Conflict,
+            platform::{merge, DriverChoice},
+            BuiltinDriver, Driver, PlatformRef, ResourceKind,
+        };
 
         /// The error returned by [PlatformRef::prepare_external_driver()](PlatformRef::prepare_external_driver()).
         #[derive(Debug, thiserror::Error)]
@@ -267,9 +274,11 @@ pub(super) mod inner {
 
     ///
     pub mod builtin_merge {
-        use crate::blob::platform::resource;
-        use crate::blob::platform::resource::Data;
-        use crate::blob::{builtin_driver, BuiltinDriver, PlatformRef, Resolution};
+        use crate::blob::{
+            builtin_driver,
+            platform::{resource, resource::Data},
+            BuiltinDriver, PlatformRef, Resolution,
+        };
 
         /// An identifier to tell us how a merge conflict was resolved by [builtin_merge](PlatformRef::builtin_merge).
         #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]

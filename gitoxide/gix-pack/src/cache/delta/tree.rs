@@ -228,8 +228,9 @@ mod tests {
     }
 
     mod size {
-        use super::super::Item;
         use gix_testtools::size_ok;
+
+        use super::super::Item;
 
         #[test]
         fn size_of_pack_tree_item() {

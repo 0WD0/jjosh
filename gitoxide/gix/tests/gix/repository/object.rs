@@ -1,5 +1,6 @@
-use crate::util::named_subrepo_opts;
 use gix_testtools::tempfile;
+
+use crate::util::named_subrepo_opts;
 
 mod object_database_impl {
     use gix_object::{Exists, Find, FindHeader};
@@ -29,9 +30,10 @@ mod object_database_impl {
 
 #[cfg(feature = "tree-editor")]
 mod edit_tree {
-    use crate::util::hex_to_id;
     use gix::bstr::{BStr, BString};
     use gix_object::tree::EntryKind;
+
+    use crate::util::hex_to_id;
 
     #[test]
     // Some part of the test validation the implementation for this exists, but it's needless nonetheless.
@@ -203,8 +205,10 @@ mod edit_tree {
     }
 
     mod utils {
-        use gix::bstr::{BStr, ByteSlice};
-        use gix::Repository;
+        use gix::{
+            bstr::{BStr, ByteSlice},
+            Repository,
+        };
         use gix_hash::ObjectId;
 
         fn display_tree_recursive(
@@ -290,8 +294,10 @@ mod write_object {
 mod write_blob {
     use std::io::{Seek, SeekFrom};
 
-    use crate::repository::object::empty_bare_repo;
-    use crate::{repository::object::empty_bare_in_memory_repo, util::hex_to_id};
+    use crate::{
+        repository::object::{empty_bare_in_memory_repo, empty_bare_repo},
+        util::hex_to_id,
+    };
 
     #[test]
     fn from_slice() -> crate::Result {
@@ -534,6 +540,7 @@ mod tag {
 }
 
 mod commit_as {
+    use gix_date::parse::TimeBuf;
     use gix_testtools::tempfile;
 
     #[test]
@@ -550,17 +557,17 @@ mod commit_as {
         let committer = gix::actor::Signature {
             name: "c".into(),
             email: "c@example.com".into(),
-            time: gix::date::Time::new(1, 1800),
+            time: gix_date::parse_header("1 +0030").unwrap(),
         };
         let author = gix::actor::Signature {
             name: "a".into(),
             email: "a@example.com".into(),
-            time: gix::date::Time::new(3, 3600),
+            time: gix_date::parse_header("3 +0100").unwrap(),
         };
 
         let commit_id = repo.commit_as(
-            &committer,
-            &author,
+            committer.to_ref(&mut TimeBuf::default()),
+            author.to_ref(&mut TimeBuf::default()),
             "HEAD",
             "initial",
             empty_tree.id,
@@ -568,8 +575,9 @@ mod commit_as {
         )?;
         let commit = commit_id.object()?.into_commit();
 
-        assert_eq!(commit.committer()?, committer.to_ref());
-        assert_eq!(commit.author()?, author.to_ref());
+        let mut buf = TimeBuf::default();
+        assert_eq!(commit.committer()?, committer.to_ref(&mut buf));
+        assert_eq!(commit.author()?, author.to_ref(&mut buf));
         Ok(())
     }
 }

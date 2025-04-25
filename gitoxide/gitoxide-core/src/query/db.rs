@@ -19,8 +19,12 @@ pub fn create(path: impl AsRef<std::path::Path>) -> anyhow::Result<rusqlite::Con
         }
         Some(version) if version != VERSION => match con.close() {
             Ok(()) => {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("Failed to remove incompatible database file at {path:?}"))?;
+                std::fs::remove_file(path).with_context(|| {
+                    format!(
+                        "Failed to remove incompatible database file at {path}",
+                        path = path.display()
+                    )
+                })?;
                 con = rusqlite::Connection::open(path)?;
                 con.execute_batch(meta_table)?;
                 con.execute("INSERT into meta(version) values(?)", params![VERSION])?;

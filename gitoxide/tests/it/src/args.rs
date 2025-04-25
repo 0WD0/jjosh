@@ -1,7 +1,9 @@
-use clap::builder::{OsStringValueParser, TypedValueParser};
-use clap::{Arg, Command, Error};
-use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::{ffi::OsStr, path::PathBuf};
+
+use clap::{
+    builder::{OsStringValueParser, TypedValueParser},
+    Arg, Command, Error,
+};
 
 #[derive(Debug, clap::Parser)]
 #[clap(name = "it", about = "internal tools to help create test cases")]

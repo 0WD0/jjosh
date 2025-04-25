@@ -21,8 +21,10 @@ pub enum Pick {
 }
 
 pub(super) mod function {
-    use crate::blob::builtin_driver::binary::{Pick, ResolveWith};
-    use crate::blob::Resolution;
+    use crate::blob::{
+        builtin_driver::binary::{Pick, ResolveWith},
+        Resolution,
+    };
 
     /// As this algorithm doesn't look at the actual data, it returns a choice solely based on logic.
     /// This also means that the caller has to assure this only gets called if the input *doesn't* match.

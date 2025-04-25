@@ -295,7 +295,7 @@ mod from_tree {
             .join("debug")
             .join("examples")
             .join(if cfg!(windows) { "arrow.exe" } else { "arrow" });
-        assert!(path.is_file(), "Expecting driver to be located at {path:?}");
+        assert!(path.is_file(), "Expecting driver to be located at {}", path.display());
         path
     });
 

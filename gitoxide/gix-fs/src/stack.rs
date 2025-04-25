@@ -1,7 +1,11 @@
-use crate::Stack;
+use std::{
+    ffi::OsStr,
+    path::{Component, Path, PathBuf},
+};
+
 use bstr::{BStr, BString, ByteSlice};
-use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+
+use crate::Stack;
 
 ///
 pub mod to_normal_path_components {
@@ -156,10 +160,7 @@ impl Stack {
     ) -> std::io::Result<()> {
         let mut components = relative.to_normal_path_components().peekable();
         if self.valid_components != 0 && components.peek().is_none() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "empty inputs are not allowed",
-            ));
+            return Err(std::io::Error::other("empty inputs are not allowed"));
         }
         if self.valid_components == 0 {
             delegate.push_directory(self)?;

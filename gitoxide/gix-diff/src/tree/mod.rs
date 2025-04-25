@@ -1,8 +1,10 @@
-use crate::tree::visit::Relation;
+use std::collections::VecDeque;
+
 use bstr::BStr;
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
-use std::collections::VecDeque;
+
+use crate::tree::visit::Relation;
 
 /// The error returned by [`tree()`](super::tree()).
 #[derive(Debug, thiserror::Error)]

@@ -189,6 +189,7 @@ mod read_only {
 }
 
 mod writable {
+    use gix_date::parse::TimeBuf;
     use gix_lock::acquire::Fail;
     use gix_ref::{
         file::{transaction::PackedRefs, Store},
@@ -259,7 +260,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref())
+                .commit(committer().to_ref(&mut TimeBuf::default()))
                 .expect("successful commit as even similar resolved names live in different base locations");
 
             assert_eq!(
@@ -539,7 +540,7 @@ mod writable {
                     Fail::Immediately,
                     Fail::Immediately,
                 )?
-                .commit(committer().to_ref())
+                .commit(committer().to_ref(&mut TimeBuf::default()))
                 .expect("successful commit as even similar resolved names live in different base locations");
 
             assert_eq!(

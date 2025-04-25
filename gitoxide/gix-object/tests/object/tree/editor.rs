@@ -1,5 +1,7 @@
-use gix_object::tree::{Entry, EntryKind};
-use gix_object::Tree;
+use gix_object::{
+    tree::{Entry, EntryKind},
+    Tree,
+};
 
 #[test]
 fn from_empty_cursor() -> crate::Result {
@@ -771,12 +773,16 @@ fn from_existing_add() -> crate::Result {
 }
 
 mod utils {
-    use crate::hex_to_id;
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
+
     use bstr::{BStr, ByteSlice};
     use gix_hash::ObjectId;
     use gix_object::{Tree, WriteTo};
-    use std::cell::{Cell, RefCell};
-    use std::rc::Rc;
+
+    use crate::hex_to_id;
 
     type TreeStore = Rc<RefCell<gix_hashtable::HashMap<ObjectId, Tree>>>;
     pub(super) struct StorageOdb(TreeStore, Option<gix_odb::Handle>, Cell<usize>);
@@ -937,7 +943,8 @@ mod utils {
         hex_to_id("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     }
 }
-use crate::hex_to_id;
 use utils::{
     any_blob, display_tree, display_tree_with_odb, empty_tree, find_tree, new_inmemory_writes, tree_odb, StorageOdb,
 };
+
+use crate::hex_to_id;

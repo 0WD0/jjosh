@@ -1737,6 +1737,7 @@ dependencies = [
  "once_cell",
  "pretty_assertions",
  "serde",
+ "smallvec",
  "thiserror 2.0.12",
 ]
 

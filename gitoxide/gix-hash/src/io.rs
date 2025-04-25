@@ -11,8 +11,7 @@ pub enum Error {
 }
 
 pub(super) mod _impl {
-    use crate::io::Error;
-    use crate::{hasher, Hasher};
+    use crate::{hasher, io::Error, Hasher};
 
     /// Compute the hash of `kind` for the bytes in the file at `path`, hashing only the first `num_bytes_from_start`
     /// while initializing and calling `progress`.

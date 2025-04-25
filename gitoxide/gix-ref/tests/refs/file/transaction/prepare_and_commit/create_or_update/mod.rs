@@ -1,3 +1,6 @@
+use std::error::Error;
+
+use gix_date::parse::TimeBuf;
 use gix_hash::ObjectId;
 use gix_lock::acquire::Fail;
 use gix_object::bstr::{BString, ByteSlice};
@@ -10,7 +13,6 @@ use gix_ref::{
     transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
     Target,
 };
-use std::error::Error;
 
 use crate::{
     file::{
@@ -65,6 +67,7 @@ fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_ca
             std::fs::write(head_dir.join("file.ext"), "".as_bytes())?;
         }
 
+        let mut buf = TimeBuf::default();
         let edits = store
             .transaction()
             .prepare(
@@ -80,7 +83,7 @@ fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_ca
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref());
+            .commit(committer().to_ref(&mut buf));
         if *is_empty {
             let edits = edits?;
             assert!(
@@ -166,6 +169,7 @@ fn reference_with_explicit_value_must_match_the_value_on_update() -> crate::Resu
 fn the_existing_must_match_constraint_allow_non_existing_references_to_be_created() -> crate::Result {
     let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
     let expected = PreviousValue::ExistingMustMatch(Target::Object(ObjectId::empty_tree(gix_hash::Kind::Sha1)));
+    let mut buf = TimeBuf::default();
     let edits = store
         .transaction()
         .prepare(
@@ -181,7 +185,7 @@ fn the_existing_must_match_constraint_allow_non_existing_references_to_be_create
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
 
     assert_eq!(
         edits,
@@ -260,7 +264,7 @@ fn namespaced_updates_or_deletions_are_transparent_and_not_observable() -> crate
     let edits = store
         .transaction()
         .prepare(actual.clone(), Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits, actual);
     Ok(())
@@ -289,7 +293,7 @@ fn reference_with_must_exist_constraint_must_exist_already_with_any_value() -> c
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits,
@@ -335,7 +339,7 @@ fn reference_with_must_not_exist_constraint_may_exist_already_if_the_new_value_m
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits,
@@ -412,7 +416,7 @@ fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> crate::Result 
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
     assert_eq!(edits.len(), 1, "no split was performed");
     let head = store.find_loose(&edits[0].name)?;
     assert_eq!(head.name.as_bstr(), "refs/heads/symbolic");
@@ -504,6 +508,7 @@ fn symbolic_head_missing_referent_then_update_referent() -> crate::Result {
             message: "ignored".into(),
         };
         let new_head_value = Target::Symbolic(referent.try_into().unwrap());
+        let mut buf = TimeBuf::default();
         let edits = store
             .transaction()
             .prepare(
@@ -519,7 +524,7 @@ fn symbolic_head_missing_referent_then_update_referent() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
         assert_eq!(
             edits,
             vec![RefEdit {
@@ -571,7 +576,7 @@ fn symbolic_head_missing_referent_then_update_referent() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
 
         assert_eq!(
             edits,
@@ -669,7 +674,7 @@ fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_tho
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 1, "HEAD wasn't update");
     assert_eq!(
@@ -735,7 +740,7 @@ fn packed_refs_are_looked_up_when_checking_existing_values() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 1, "only one edit was performed in the loose refs store");
 
@@ -787,7 +792,7 @@ fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs(
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits.len(),
@@ -840,7 +845,7 @@ fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() 
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdates(Box::new(EmptyCommit)))
         .prepare(edits, Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
     assert_eq!(
             edits.len(),
             2,
@@ -896,7 +901,7 @@ fn packed_refs_deletion_in_deletions_and_updates_mode() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 1, "only one edit was performed in the packed refs store");
 

@@ -1,19 +1,23 @@
+use gix_merge::blob::Platform;
 use gix_worktree::stack::state::attributes;
 
-use gix_merge::blob::Platform;
-
 mod merge {
-    use crate::blob::platform::new_platform;
-    use crate::blob::util::ObjectDb;
-    use crate::hex_to_id;
+    use std::{convert::Infallible, process::Stdio};
+
     use bstr::{BStr, ByteSlice};
-    use gix_merge::blob::builtin_driver::text::ConflictStyle;
-    use gix_merge::blob::platform::builtin_merge::Pick;
-    use gix_merge::blob::platform::DriverChoice;
-    use gix_merge::blob::{builtin_driver, pipeline, platform, BuiltinDriver, Resolution, ResourceKind};
+    use gix_merge::blob::{
+        builtin_driver,
+        builtin_driver::text::ConflictStyle,
+        pipeline, platform,
+        platform::{builtin_merge::Pick, DriverChoice},
+        BuiltinDriver, Resolution, ResourceKind,
+    };
     use gix_object::tree::EntryKind;
-    use std::convert::Infallible;
-    use std::process::Stdio;
+
+    use crate::{
+        blob::{platform::new_platform, util::ObjectDb},
+        hex_to_id,
+    };
 
     #[test]
     fn builtin_text_uses_binary_if_needed() -> crate::Result {
@@ -495,10 +499,14 @@ theirs
 }
 
 mod prepare_merge {
-    use crate::blob::platform::new_platform;
-    use gix_merge::blob::platform::{resource, DriverChoice};
-    use gix_merge::blob::{builtin_driver, pipeline, BuiltinDriver, ResourceKind};
+    use gix_merge::blob::{
+        builtin_driver, pipeline,
+        platform::{resource, DriverChoice},
+        BuiltinDriver, ResourceKind,
+    };
     use gix_object::tree::EntryKind;
+
+    use crate::blob::platform::new_platform;
 
     #[test]
     fn ancestor_and_current_and_other_do_not_exist() -> crate::Result {
@@ -705,9 +713,10 @@ mod prepare_merge {
 }
 
 mod set_resource {
-    use crate::blob::platform::new_platform;
     use gix_merge::blob::{pipeline, ResourceKind};
     use gix_object::tree::EntryKind;
+
+    use crate::blob::platform::new_platform;
 
     #[test]
     fn invalid_resource_types() {

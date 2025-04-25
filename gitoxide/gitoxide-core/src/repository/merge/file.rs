@@ -1,14 +1,18 @@
-use crate::OutputFormat;
-use anyhow::{anyhow, bail, Context};
-use gix::bstr::BString;
-use gix::bstr::ByteSlice;
-use gix::merge::blob::builtin_driver::binary;
-use gix::merge::blob::builtin_driver::text::Conflict;
-use gix::merge::blob::pipeline::WorktreeRoots;
-use gix::merge::blob::{Resolution, ResourceKind};
-use gix::object::tree::EntryKind;
-use gix::Id;
 use std::path::Path;
+
+use anyhow::{anyhow, bail, Context};
+use gix::{
+    bstr::{BString, ByteSlice},
+    merge::blob::{
+        builtin_driver::{binary, text::Conflict},
+        pipeline::WorktreeRoots,
+        Resolution, ResourceKind,
+    },
+    object::tree::EntryKind,
+    Id,
+};
+
+use crate::OutputFormat;
 
 pub fn file(
     repo: gix::Repository,

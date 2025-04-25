@@ -6,8 +6,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg, doc_auto_cfg))]
-#![deny(missing_docs, rust_2018_idioms)]
-#![forbid(unsafe_code)]
+#![deny(missing_docs, rust_2018_idioms, unsafe_code)]
 
 /// The re-exported `bstr` crate.
 ///
@@ -18,7 +17,6 @@ use bstr::{BStr, BString};
 ///
 /// For convenience to allow using `gix-date` without adding it to own cargo manifest.
 pub use gix_date as date;
-use gix_date::Time;
 
 mod identity;
 ///
@@ -53,7 +51,7 @@ pub struct IdentityRef<'a> {
     pub email: &'a BStr,
 }
 
-/// A mutable signature is created by an actor at a certain time.
+/// A mutable signature that is created by an actor at a certain time.
 ///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
@@ -68,10 +66,10 @@ pub struct Signature {
     /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: BString,
     /// The time stamp at which the signature is performed.
-    pub time: Time,
+    pub time: date::Time,
 }
 
-/// A immutable signature is created by an actor at a certain time.
+/// An immutable signature that is created by an actor at a certain time.
 ///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -86,6 +84,6 @@ pub struct SignatureRef<'a> {
     ///
     /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: &'a BStr,
-    /// The time stamp at which the signature was performed.
-    pub time: gix_date::Time,
+    /// The timestamp at which the signature was performed.
+    pub time: &'a str,
 }

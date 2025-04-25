@@ -113,8 +113,7 @@ impl crate::Repository {
         commits: impl IntoIterator<Item = impl Into<gix_hash::ObjectId>>,
         graph: &mut gix_revwalk::Graph<'_, '_, gix_revwalk::graph::Commit<gix_revision::merge_base::Flags>>,
     ) -> Result<Id<'_>, crate::repository::merge_base_octopus_with_graph::Error> {
-        use crate::prelude::ObjectIdExt;
-        use crate::repository::merge_base_octopus_with_graph;
+        use crate::{prelude::ObjectIdExt, repository::merge_base_octopus_with_graph};
         let commits: Vec<_> = commits.into_iter().map(Into::into).collect();
         let first = commits
             .first()

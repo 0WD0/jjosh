@@ -1,5 +1,6 @@
-use crate::{DOT_GIT_DIR, MODULES};
 use std::{borrow::Cow, ffi::OsStr, path::Path};
+
+use crate::{DOT_GIT_DIR, MODULES};
 
 /// Returns true if the given `git_dir` seems to be a bare repository.
 ///

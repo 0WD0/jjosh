@@ -1,10 +1,10 @@
-use crate::net;
-use crate::pack::receive::protocol::fetch::negotiate;
-use crate::OutputFormat;
-use gix::config::tree::Key;
-use gix::protocol::maybe_async;
-use gix::remote::fetch::Error;
-use gix::DynNestedProgress;
+use std::{
+    io,
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
+
+use gix::{config::tree::Key, protocol::maybe_async, remote::fetch::Error, DynNestedProgress};
 pub use gix::{
     hash::ObjectId,
     objs::bstr::{BString, ByteSlice},
@@ -18,11 +18,8 @@ pub use gix::{
     },
     NestedProgress, Progress,
 };
-use std::{
-    io,
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
-};
+
+use crate::{net, pack::receive::protocol::fetch::negotiate, OutputFormat};
 
 pub const PROGRESS_RANGE: std::ops::RangeInclusive<u8> = 1..=3;
 pub struct Context<W> {
@@ -294,7 +291,7 @@ fn receive_pack_blocking(
         None::<gix::objs::find::Never>,
         options,
     )
-    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    .map_err(io::Error::other)?;
 
     if let Some(directory) = refs_directory.take() {
         write_raw_refs(refs, directory)?;

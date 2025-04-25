@@ -1,10 +1,16 @@
-use crate::file::transaction::prepare_and_commit::{committer, create_at};
-use crate::file::EmptyCommit;
+use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
-use gix_ref::file::transaction::PackedRefs;
-use gix_ref::store::WriteReflog;
-use gix_ref::transaction::{Change, LogChange, PreviousValue, RefEdit};
-use gix_ref::Target;
+use gix_ref::{
+    file::transaction::PackedRefs,
+    store::WriteReflog,
+    transaction::{Change, LogChange, PreviousValue, RefEdit},
+    Target,
+};
+
+use crate::file::{
+    transaction::prepare_and_commit::{committer, create_at},
+    EmptyCommit,
+};
 
 mod access;
 mod find;
@@ -30,10 +36,11 @@ fn precompose_unicode_journey() -> crate::Result {
     assert!(!store_decomposed.precompose_unicode);
 
     let decomposed_ref = format!("refs/heads/{decomposed_a}");
+    let mut buf = TimeBuf::default();
     store_decomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
 
     let r = store_decomposed.iter()?.all()?.next().expect("created one ref")?;
     assert_eq!(r.name.as_bstr(), decomposed_ref, "no transformation happens by default");
@@ -79,7 +86,7 @@ fn precompose_unicode_journey() -> crate::Result {
     let edits = store_precomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(
         edits[0].name.as_bstr(),
         decomposed_ref,
@@ -118,7 +125,7 @@ fn precompose_unicode_journey() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert!(
         store_precomposed.cached_packed_buffer()?.is_some(),
         "refs were written into the packed-refs file"
@@ -179,7 +186,7 @@ fn precompose_unicode_journey() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref())?;
+        .commit(committer().to_ref(&mut buf))?;
     assert_eq!(
         edits[0].change.new_value().unwrap().try_name().unwrap().as_bstr(),
         decomposed_ref,
@@ -210,7 +217,7 @@ fn precompose_unicode_journey() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
         assert_eq!(
             edits[0].name.shorten(),
             decomposed_a,
@@ -243,7 +250,7 @@ fn precompose_unicode_journey() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref())?;
+            .commit(committer().to_ref(&mut buf))?;
         assert_eq!(
             edits[0].name.shorten(),
             decomposed_u,

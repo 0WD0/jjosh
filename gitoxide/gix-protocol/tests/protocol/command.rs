@@ -8,8 +8,9 @@ mod v1 {
     const GITHUB_CAPABILITIES: &str = "multi_ack thin-pack side-band ofs-delta shallow deepen-since deepen-not deepen-relative no-progress include-tag allow-tip-sha1-in-want allow-reachable-sha1-in-want no-done symref=HEAD:refs/heads/main filter agent=git/github-gdf51a71f0236";
     mod fetch {
         mod default_features {
-            use super::super::{capabilities, GITHUB_CAPABILITIES};
             use gix_protocol::Command;
+
+            use super::super::{capabilities, GITHUB_CAPABILITIES};
 
             #[test]
             fn it_chooses_the_best_multi_ack_and_sideband() {
@@ -58,8 +59,9 @@ mod v2 {
 
     mod fetch {
         mod default_features {
-            use super::super::capabilities;
             use gix_protocol::Command;
+
+            use super::super::capabilities;
 
             #[test]
             fn all_features() {
@@ -78,9 +80,9 @@ mod v2 {
 
         mod initial_arguments {
             use bstr::ByteSlice;
+            use gix_protocol::Command;
 
             use super::super::capabilities;
-            use gix_protocol::Command;
 
             #[test]
             fn for_all_features() {
@@ -101,8 +103,9 @@ mod v2 {
 
     mod ls_refs {
         mod default_features {
-            use super::super::capabilities;
             use gix_protocol::Command;
+
+            use super::super::capabilities;
 
             #[test]
             fn default_as_there_are_no_features() {
@@ -118,9 +121,9 @@ mod v2 {
 
         mod validate {
             use bstr::ByteSlice;
+            use gix_protocol::Command;
 
             use super::super::capabilities;
-            use gix_protocol::Command;
 
             #[test]
             fn ref_prefixes_can_always_be_used() {

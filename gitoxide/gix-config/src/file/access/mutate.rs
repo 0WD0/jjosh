@@ -3,9 +3,8 @@ use std::borrow::Cow;
 use bstr::BStr;
 use gix_features::threading::OwnShared;
 
-use crate::file::Metadata;
 use crate::{
-    file::{self, rename_section, write::ends_with_newline, SectionBodyIdsLut, SectionId, SectionMut},
+    file::{self, rename_section, write::ends_with_newline, Metadata, SectionBodyIdsLut, SectionId, SectionMut},
     lookup,
     parse::{section, Event, FrontMatterEvents},
     File,

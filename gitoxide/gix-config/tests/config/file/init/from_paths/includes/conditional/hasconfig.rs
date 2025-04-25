@@ -1,5 +1,6 @@
-use gix_config::file::{includes, init};
 use std::path::{Path, PathBuf};
+
+use gix_config::file::{includes, init};
 
 #[test]
 fn simple() -> crate::Result {

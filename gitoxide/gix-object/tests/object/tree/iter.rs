@@ -77,9 +77,10 @@ fn everything() -> crate::Result {
 }
 
 mod lookup_entry {
-    use crate::hex_to_id;
     use gix_object::tree::EntryKind;
     use utils::entry;
+
+    use crate::hex_to_id;
 
     #[test]
     fn top_level_directory() -> crate::Result {
@@ -117,9 +118,9 @@ mod lookup_entry {
     }
 
     mod utils {
-        use crate::hex_to_id;
-
         use gix_object::{tree, FindExt};
+
+        use crate::hex_to_id;
 
         pub(super) fn entry(filename: &str, mode: tree::EntryKind, oid: gix_hash::ObjectId) -> Option<tree::Entry> {
             Some(tree::Entry {
