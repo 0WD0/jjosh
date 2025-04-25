@@ -30,8 +30,9 @@
 #![deny(rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
-use anyhow::bail;
 use std::str::FromStr;
+
+use anyhow::bail;
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub enum OutputFormat {

@@ -65,8 +65,9 @@ mod _ref {
 }
 
 mod convert {
-    use crate::{Signature, SignatureRef};
     use gix_date::parse::TimeBuf;
+
+    use crate::{Signature, SignatureRef};
 
     impl Signature {
         /// Borrow this instance as immutable, serializing the `time` field into `buf`.
@@ -91,9 +92,10 @@ mod convert {
 }
 
 pub(crate) mod write {
-    use crate::{Signature, SignatureRef};
     use bstr::{BStr, ByteSlice};
     use gix_date::parse::TimeBuf;
+
+    use crate::{Signature, SignatureRef};
 
     /// The Error produced by [`Signature::write_to()`].
     #[derive(Debug, thiserror::Error)]

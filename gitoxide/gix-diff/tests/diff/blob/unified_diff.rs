@@ -1,5 +1,7 @@
-use gix_diff::blob::unified_diff::{ConsumeHunk, ContextSize, NewlineSeparator};
-use gix_diff::blob::{Algorithm, UnifiedDiff};
+use gix_diff::blob::{
+    unified_diff::{ConsumeHunk, ContextSize, NewlineSeparator},
+    Algorithm, UnifiedDiff,
+};
 
 #[test]
 fn removed_modified_added() -> crate::Result {

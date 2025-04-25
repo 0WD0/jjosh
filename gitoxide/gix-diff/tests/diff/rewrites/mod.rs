@@ -1,5 +1,7 @@
-use gix_diff::rewrites::tracker::ChangeKind;
-use gix_diff::tree::visit::{ChangeId, Relation};
+use gix_diff::{
+    rewrites::tracker::ChangeKind,
+    tree::visit::{ChangeId, Relation},
+};
 use gix_hash::{oid, ObjectId};
 use gix_object::tree::{EntryKind, EntryMode};
 

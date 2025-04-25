@@ -28,10 +28,13 @@ pub enum Error {
 }
 
 pub(super) mod function {
-    use super::Error;
-    use crate::blob::builtin_driver;
-    use crate::tree::{treat_as_unresolved, TreatAsUnresolved};
     use gix_object::FindExt;
+
+    use super::Error;
+    use crate::{
+        blob::builtin_driver,
+        tree::{treat_as_unresolved, TreatAsUnresolved},
+    };
 
     /// Create a single virtual merge-base by merging `first_commit`, `second_commit` and `others` into one.
     /// Note that `first_commit` and `second_commit` are expected to have been popped off `others`, so `first_commit`

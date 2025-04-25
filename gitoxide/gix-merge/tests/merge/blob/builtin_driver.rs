@@ -1,5 +1,8 @@
-use gix_merge::blob::builtin_driver::binary::{Pick, ResolveWith};
-use gix_merge::blob::{builtin_driver, Resolution};
+use gix_merge::blob::{
+    builtin_driver,
+    builtin_driver::binary::{Pick, ResolveWith},
+    Resolution,
+};
 
 #[test]
 fn binary() {
@@ -25,8 +28,11 @@ fn binary() {
 
 mod text {
     use bstr::ByteSlice;
-    use gix_merge::blob::builtin_driver::text::{Conflict, ConflictStyle};
-    use gix_merge::blob::{builtin_driver, Resolution};
+    use gix_merge::blob::{
+        builtin_driver,
+        builtin_driver::text::{Conflict, ConflictStyle},
+        Resolution,
+    };
     use pretty_assertions::assert_str_eq;
 
     const DIVERGING: &[&str] = &[
@@ -292,9 +298,10 @@ mod text {
     }
 
     mod baseline {
+        use std::path::Path;
+
         use bstr::BString;
         use gix_merge::blob::builtin_driver::text::{Conflict, ConflictStyle};
-        use std::path::Path;
 
         #[derive(Debug)]
         pub struct Expectation {

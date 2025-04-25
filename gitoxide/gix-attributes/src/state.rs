@@ -1,5 +1,6 @@
-use crate::{State, StateRef};
 use bstr::{BStr, BString, ByteSlice};
+
+use crate::{State, StateRef};
 
 /// A container to encapsulate a tightly packed and typically unallocated byte value that isn't necessarily UTF8 encoded.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]

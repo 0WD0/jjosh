@@ -1,6 +1,6 @@
+use std::{cmp::Ordering, io::Write, process::Stdio};
+
 use bstr::{BStr, BString, ByteSlice};
-use std::cmp::Ordering;
-use std::{io::Write, process::Stdio};
 
 use super::Algorithm;
 use crate::blob::{pipeline, Pipeline, Platform, ResourceKind};
@@ -213,8 +213,9 @@ pub mod set_resource {
 
 ///
 pub mod prepare_diff {
-    use crate::blob::platform::Resource;
     use bstr::BStr;
+
+    use crate::blob::platform::Resource;
 
     /// The kind of operation that should be performed based on the configuration of the resources involved in the diff.
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]

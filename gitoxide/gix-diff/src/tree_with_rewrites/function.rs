@@ -2,8 +2,7 @@ use bstr::BStr;
 use gix_object::TreeRefIter;
 
 use super::{Action, ChangeRef, Error, Options};
-use crate::rewrites;
-use crate::rewrites::tracker;
+use crate::{rewrites, rewrites::tracker};
 
 /// Call `for_each` repeatedly with all changes that are needed to convert `lhs` to `rhs`.
 /// Provide a `resource_cache` to speed up obtaining blobs for similarity checks.
@@ -215,10 +214,10 @@ where
 }
 
 mod tree_to_changes {
-    use crate::tree::visit::Change;
+    use bstr::BStr;
     use gix_object::tree::EntryRef;
 
-    use bstr::BStr;
+    use crate::tree::visit::Change;
 
     pub struct Delegate<'a> {
         push: &'a mut dyn FnMut(Change, &BStr),

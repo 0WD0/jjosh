@@ -1,8 +1,7 @@
-use crate::repository::revision::resolve::{BlobFormat, TreeMode};
 use anyhow::{anyhow, Context};
-use gix::diff::blob::ResourceKind;
-use gix::filter::plumbing::driver::apply::Delay;
-use gix::revision::Spec;
+use gix::{diff::blob::ResourceKind, filter::plumbing::driver::apply::Delay, revision::Spec};
+
+use crate::repository::revision::resolve::{BlobFormat, TreeMode};
 
 pub fn display_object(
     repo: &gix::Repository,

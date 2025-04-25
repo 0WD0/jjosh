@@ -1,9 +1,10 @@
-use crate::named_repo;
-use crate::util::named_subrepo_opts;
+use std::path::Path;
+
 use gix_sec::Permission;
 use gix_testtools::Env;
 use serial_test::serial;
-use std::path::Path;
+
+use crate::{named_repo, util::named_subrepo_opts};
 
 #[test]
 #[serial]

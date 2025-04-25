@@ -1,12 +1,16 @@
 use anyhow::Context;
-use gix::bstr::{BString, ByteSlice};
-use gix::diff::blob::intern::TokenSource;
-use gix::diff::blob::unified_diff::{ContextSize, NewlineSeparator};
-use gix::diff::blob::UnifiedDiff;
-use gix::objs::tree::EntryMode;
-use gix::odb::store::RefreshMode;
-use gix::prelude::ObjectIdExt;
-use gix::ObjectId;
+use gix::{
+    bstr::{BString, ByteSlice},
+    diff::blob::{
+        intern::TokenSource,
+        unified_diff::{ContextSize, NewlineSeparator},
+        UnifiedDiff,
+    },
+    objs::tree::EntryMode,
+    odb::store::RefreshMode,
+    prelude::ObjectIdExt,
+    ObjectId,
+};
 
 pub fn tree(
     mut repo: gix::Repository,

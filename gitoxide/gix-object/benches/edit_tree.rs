@@ -1,10 +1,9 @@
+use std::{cell::RefCell, rc::Rc};
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use gix_hash::ObjectId;
 use gix_hashtable::hash_map::Entry;
-use gix_object::tree::EntryKind;
-use gix_object::{tree, Tree, WriteTo};
-use std::cell::RefCell;
-use std::rc::Rc;
+use gix_object::{tree, tree::EntryKind, Tree, WriteTo};
 
 fn create_new_tree_add_and_remove(c: &mut Criterion) {
     let (storage, mut write) = new_inmemory_writes();

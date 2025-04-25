@@ -1,4 +1,15 @@
 #![allow(clippy::result_large_err)]
+use std::{
+    borrow::Cow,
+    collections::{btree_map::Entry, BTreeMap},
+    ffi::OsStr,
+    path::PathBuf,
+};
+
+use gix_features::threading::OwnShared;
+use gix_object::bstr::ByteSlice;
+use gix_path::RelativePath;
+
 use super::{Error, Options};
 use crate::{
     bstr::BString,
@@ -10,13 +21,6 @@ use crate::{
     open::Permissions,
     ThreadSafeRepository,
 };
-use gix_features::threading::OwnShared;
-use gix_object::bstr::ByteSlice;
-use gix_path::RelativePath;
-use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
-use std::ffi::OsStr;
-use std::{borrow::Cow, path::PathBuf};
 
 #[derive(Default, Clone)]
 pub(crate) struct EnvironmentOverrides {

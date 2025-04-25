@@ -441,8 +441,9 @@ pub use self::clap::{
 
 #[cfg(test)]
 mod value_parser_tests {
-    use super::{AsRange, AsTime, ParseRenameFraction};
     use clap::Parser;
+
+    use super::{AsRange, AsTime, ParseRenameFraction};
 
     #[test]
     fn rename_fraction() {

@@ -1,8 +1,9 @@
 use std::io;
 
-use crate::{encode, encode::NL, Kind, Tag, TagRef};
 use bstr::BStr;
 use gix_date::parse::TimeBuf;
+
+use crate::{encode, encode::NL, Kind, Tag, TagRef};
 
 /// An Error used in [`Tag::write_to()`][crate::WriteTo::write_to()].
 #[derive(Debug, thiserror::Error)]

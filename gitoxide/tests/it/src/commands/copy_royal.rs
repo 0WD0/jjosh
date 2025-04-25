@@ -1,8 +1,8 @@
 pub(super) mod function {
-    use anyhow::Context;
-    use gix::fs::Stack;
-    use gix::pathspec::Pattern;
     use std::path::{Path, PathBuf};
+
+    use anyhow::Context;
+    use gix::{fs::Stack, pathspec::Pattern};
 
     pub fn copy_royal(
         dry_run: bool,

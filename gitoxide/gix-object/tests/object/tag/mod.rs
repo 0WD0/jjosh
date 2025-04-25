@@ -3,11 +3,12 @@ use gix_object::{bstr::ByteSlice, Kind, TagRef, TagRefIter};
 use crate::fixture_name;
 
 mod method {
-    use crate::{fixture_name, hex_to_id};
     use bstr::ByteSlice;
     use gix_date::parse::TimeBuf;
     use gix_object::TagRef;
     use pretty_assertions::assert_eq;
+
+    use crate::{fixture_name, hex_to_id};
 
     #[test]
     fn target() -> crate::Result {

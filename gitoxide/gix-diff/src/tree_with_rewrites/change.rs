@@ -1,7 +1,9 @@
-use crate::blob::{DiffLineStats, ResourceKind};
-use crate::tree;
-use bstr::BString;
-use bstr::{BStr, ByteSlice};
+use bstr::{BStr, BString, ByteSlice};
+
+use crate::{
+    blob::{DiffLineStats, ResourceKind},
+    tree,
+};
 
 /// Represents any possible change in order to turn one tree into another, which references data owned by its producer.
 #[derive(Debug, Clone, Copy, PartialEq)]

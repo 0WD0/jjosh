@@ -1,7 +1,11 @@
-use crate::blob::builtin_driver;
-use crate::commit::{Error, Options};
-use gix_object::FindExt;
 use std::borrow::Cow;
+
+use gix_object::FindExt;
+
+use crate::{
+    blob::builtin_driver,
+    commit::{Error, Options},
+};
 
 /// Like [`tree()`](crate::tree()), but it takes only two commits, `our_commit` and `their_commit` to automatically
 /// compute the merge-bases among them.

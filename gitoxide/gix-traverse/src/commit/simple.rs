@@ -1,9 +1,9 @@
+use std::{cmp::Reverse, collections::VecDeque};
+
 use gix_date::SecondsSinceUnixEpoch;
 use gix_hash::ObjectId;
 use gix_hashtable::HashSet;
 use smallvec::SmallVec;
-use std::cmp::Reverse;
-use std::collections::VecDeque;
 
 #[derive(Default, Debug, Copy, Clone)]
 /// The order with which to prioritize the search.
@@ -92,10 +92,11 @@ pub(super) struct State {
 
 ///
 mod init {
+    use std::cmp::Reverse;
+
     use gix_date::SecondsSinceUnixEpoch;
     use gix_hash::{oid, ObjectId};
     use gix_object::{CommitRefIter, FindExt};
-    use std::cmp::Reverse;
     use Err as Oldest;
     use Ok as Newest;
 

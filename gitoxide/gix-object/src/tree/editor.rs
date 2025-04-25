@@ -1,10 +1,17 @@
-use crate::tree::{Editor, EntryKind};
-use crate::{tree, Tree};
+use std::{
+    cmp::Ordering,
+    collections::{hash_map, HashMap},
+    fmt::Formatter,
+};
+
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_hash::ObjectId;
-use std::cmp::Ordering;
-use std::collections::{hash_map, HashMap};
-use std::fmt::Formatter;
+
+use crate::{
+    tree,
+    tree::{Editor, EntryKind},
+    Tree,
+};
 
 /// A way to constrain all [tree-edits](Editor) to a given subtree.
 pub struct Cursor<'a, 'find> {
@@ -368,11 +375,17 @@ impl Editor<'_> {
 }
 
 mod cursor {
-    use crate::tree::editor::{Cursor, UpsertMode, WriteMode};
-    use crate::tree::{Editor, EntryKind};
-    use crate::{tree, Tree};
     use bstr::{BStr, BString};
     use gix_hash::ObjectId;
+
+    use crate::{
+        tree,
+        tree::{
+            editor::{Cursor, UpsertMode, WriteMode},
+            Editor, EntryKind,
+        },
+        Tree,
+    };
 
     /// Cursor handling
     impl<'a> Editor<'a> {

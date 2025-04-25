@@ -1,17 +1,18 @@
+use std::{borrow::Cow, io, io::BufWriter};
+
 use anyhow::bail;
 use gix::Tree;
-use std::io::BufWriter;
-use std::{borrow::Cow, io};
 
 use crate::OutputFormat;
 
 mod entries {
+    use std::collections::VecDeque;
+
     use gix::{
         bstr::{BStr, BString, ByteSlice, ByteVec},
         objs::tree::EntryRef,
         traverse::tree::visit::Action,
     };
-    use std::collections::VecDeque;
 
     use crate::repository::tree::format_entry;
 

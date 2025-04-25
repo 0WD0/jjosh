@@ -1,7 +1,6 @@
-use super::{process_changes, Change, UnblamedHunk};
-use crate::{BlameEntry, Error, Options, Outcome, Statistics};
-use gix_diff::blob::intern::TokenSource;
-use gix_diff::tree::Visit;
+use std::{num::NonZeroU32, ops::Range};
+
+use gix_diff::{blob::intern::TokenSource, tree::Visit};
 use gix_hash::ObjectId;
 use gix_object::{
     bstr::{BStr, BString},
@@ -9,8 +8,9 @@ use gix_object::{
 };
 use gix_traverse::commit::find as find_commit;
 use smallvec::SmallVec;
-use std::num::NonZeroU32;
-use std::ops::Range;
+
+use super::{process_changes, Change, UnblamedHunk};
+use crate::{BlameEntry, Error, Options, Outcome, Statistics};
 
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
 /// at `suspect:<file_path>` originated in.
@@ -499,8 +499,7 @@ fn tree_diff_at_file_path(
         }
 
         fn visit(&mut self, change: gix_diff::tree::visit::Change) -> gix_diff::tree::visit::Action {
-            use gix_diff::tree::visit;
-            use gix_diff::tree::visit::Change::*;
+            use gix_diff::tree::{visit, visit::Change::*};
 
             if self.inner.path() == self.interesting_path {
                 self.change = Some(match change {

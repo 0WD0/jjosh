@@ -4,13 +4,13 @@ use std::borrow::Cow;
 pub use gix_filter as plumbing;
 use gix_object::Find;
 
-use crate::prelude::ObjectIdExt;
 use crate::{
     bstr::BStr,
     config::{
         cache::util::{ApplyLeniency, ApplyLeniencyDefaultValue},
         tree::Core,
     },
+    prelude::ObjectIdExt,
     Repository,
 };
 

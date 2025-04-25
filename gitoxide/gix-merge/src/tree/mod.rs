@@ -1,6 +1,5 @@
 use bstr::BString;
-use gix_diff::tree_with_rewrites::Change;
-use gix_diff::Rewrites;
+use gix_diff::{tree_with_rewrites::Change, Rewrites};
 
 /// The error returned by [`tree()`](crate::tree()).
 #[derive(Debug, thiserror::Error)]
@@ -477,10 +476,14 @@ pub mod apply_index_entries {
     }
 
     pub(super) mod function {
-        use crate::tree::apply_index_entries::RemovalMode;
-        use crate::tree::{Conflict, ConflictIndexEntryPathHint, Resolution, ResolutionFailure, TreatAsUnresolved};
-        use bstr::{BStr, ByteSlice};
         use std::collections::{hash_map, HashMap};
+
+        use bstr::{BStr, ByteSlice};
+
+        use crate::tree::{
+            apply_index_entries::RemovalMode, Conflict, ConflictIndexEntryPathHint, Resolution, ResolutionFailure,
+            TreatAsUnresolved,
+        };
 
         /// Returns `true` if `index` changed as we applied conflicting stages to it, using `how` to determine if a
         /// conflict should be considered unresolved.

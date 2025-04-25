@@ -2,10 +2,9 @@ use std::io;
 
 use gix_transport::{client, Protocol};
 
-use crate::fetch::response::shallow_update_from_line;
 use crate::fetch::{
     response,
-    response::{Acknowledgement, ShallowUpdate, WantedRef},
+    response::{shallow_update_from_line, Acknowledgement, ShallowUpdate, WantedRef},
     Response,
 };
 

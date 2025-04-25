@@ -69,13 +69,13 @@ pub trait ConsumeHunk {
 }
 
 pub(super) mod _impl {
-    use super::{ConsumeHunk, ContextSize, NewlineSeparator};
+    use std::{hash::Hash, io::ErrorKind, ops::Range};
+
     use bstr::{ByteSlice, ByteVec};
     use imara_diff::{intern, Sink};
     use intern::{InternedInput, Interner, Token};
-    use std::hash::Hash;
-    use std::io::ErrorKind;
-    use std::ops::Range;
+
+    use super::{ConsumeHunk, ContextSize, NewlineSeparator};
 
     /// A [`Sink`] that creates a textual diff in the format typically output by git or `gnu-diff` if the `-u` option is used,
     /// and passes it in full to a consumer.

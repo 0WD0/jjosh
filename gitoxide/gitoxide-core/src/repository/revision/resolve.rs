@@ -28,9 +28,10 @@ pub(crate) mod function {
     use gix::revision::Spec;
 
     use super::Options;
-    use crate::repository::cat::display_object;
-    use crate::repository::revision::resolve::BlobFormat;
-    use crate::{repository::revision, OutputFormat};
+    use crate::{
+        repository::{cat::display_object, revision, revision::resolve::BlobFormat},
+        OutputFormat,
+    };
 
     pub fn resolve(
         mut repo: gix::Repository,

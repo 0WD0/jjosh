@@ -73,7 +73,6 @@ impl<'a> From<LineRef<'a>> for Line {
 
 ///
 pub mod decode {
-    use crate::{file::log::LineRef, parse::hex_hash};
     use gix_object::bstr::{BStr, ByteSlice};
     use winnow::{
         combinator::{alt, eof, fail, opt, preceded, terminated},
@@ -81,6 +80,8 @@ pub mod decode {
         prelude::*,
         token::{rest, take_while},
     };
+
+    use crate::{file::log::LineRef, parse::hex_hash};
 
     ///
     mod error {

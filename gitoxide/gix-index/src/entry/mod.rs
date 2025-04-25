@@ -107,9 +107,10 @@ mod access {
 mod _impls {
     use std::cmp::Ordering;
 
-    use crate::{entry, Entry, State};
     use bstr::BStr;
     use gix_object::tree::EntryKind;
+
+    use crate::{entry, Entry, State};
 
     impl From<EntryKind> for entry::Mode {
         fn from(value: EntryKind) -> Self {

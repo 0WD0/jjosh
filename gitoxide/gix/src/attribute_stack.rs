@@ -1,6 +1,8 @@
-use crate::{types::AttributeStack, Repository};
-use gix_fs::stack::ToNormalPathComponents;
 use std::ops::{Deref, DerefMut};
+
+use gix_fs::stack::ToNormalPathComponents;
+
+use crate::{types::AttributeStack, Repository};
 
 /// Lifecycle
 impl<'repo> AttributeStack<'repo> {

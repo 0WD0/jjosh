@@ -1,13 +1,5 @@
-use crate::{
-    file::{
-        store_with_packed_refs, store_writable,
-        transaction::prepare_and_commit::{
-            committer, create_at, create_symbolic_at, delete_at, empty_store, log_line, reflog_lines,
-        },
-        EmptyCommit,
-    },
-    hex_to_id,
-};
+use std::error::Error;
+
 use gix_date::parse::TimeBuf;
 use gix_hash::ObjectId;
 use gix_lock::acquire::Fail;
@@ -21,7 +13,17 @@ use gix_ref::{
     transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
     Target,
 };
-use std::error::Error;
+
+use crate::{
+    file::{
+        store_with_packed_refs, store_writable,
+        transaction::prepare_and_commit::{
+            committer, create_at, create_symbolic_at, delete_at, empty_store, log_line, reflog_lines,
+        },
+        EmptyCommit,
+    },
+    hex_to_id,
+};
 
 mod collisions;
 

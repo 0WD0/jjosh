@@ -10,11 +10,10 @@ use std::ops::Range;
 use bstr::{BStr, ByteSlice};
 use gix_object::tree::{EntryKind, EntryMode};
 
-use crate::rewrites::tracker::visit::SourceKind;
-use crate::tree::visit::{Action, ChangeId, Relation};
 use crate::{
     blob::{platform::prepare_diff::Operation, DiffLineStats, ResourceKind},
-    rewrites::{CopySource, Outcome, Tracker},
+    rewrites::{tracker::visit::SourceKind, CopySource, Outcome, Tracker},
+    tree::visit::{Action, ChangeId, Relation},
     Rewrites,
 };
 

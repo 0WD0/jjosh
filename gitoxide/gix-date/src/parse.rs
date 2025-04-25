@@ -1,6 +1,8 @@
-use crate::Time;
-use smallvec::SmallVec;
 use std::str::FromStr;
+
+use smallvec::SmallVec;
+
+use crate::Time;
 
 #[derive(thiserror::Error, Debug, Clone)]
 #[allow(missing_docs)]

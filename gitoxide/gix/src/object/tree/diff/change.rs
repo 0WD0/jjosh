@@ -1,8 +1,10 @@
 use super::ChangeDetached;
-use crate::bstr::{BStr, ByteSlice};
-use crate::ext::ObjectIdExt;
-use crate::object::tree::diff::Change;
-use crate::Repository;
+use crate::{
+    bstr::{BStr, ByteSlice},
+    ext::ObjectIdExt,
+    object::tree::diff::Change,
+    Repository,
+};
 
 impl Change<'_, '_, '_> {
     /// Produce a platform for performing a line-diff no matter whether the underlying [Change] is an addition, modification,

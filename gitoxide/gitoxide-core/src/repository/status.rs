@@ -1,8 +1,11 @@
-use anyhow::bail;
-use gix::bstr::{BStr, BString, ByteSlice};
-use gix::status::{self, index_worktree};
-use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
 use std::path::Path;
+
+use anyhow::bail;
+use gix::{
+    bstr::{BStr, BString, ByteSlice},
+    status::{self, index_worktree},
+};
+use gix_status::index_as_worktree::{Change, Conflict, EntryStatus};
 
 use crate::OutputFormat;
 

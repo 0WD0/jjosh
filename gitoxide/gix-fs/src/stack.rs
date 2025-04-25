@@ -1,7 +1,11 @@
-use crate::Stack;
+use std::{
+    ffi::OsStr,
+    path::{Component, Path, PathBuf},
+};
+
 use bstr::{BStr, BString, ByteSlice};
-use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+
+use crate::Stack;
 
 ///
 pub mod to_normal_path_components {

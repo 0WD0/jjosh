@@ -1,10 +1,10 @@
-use crate::net;
-use crate::pack::receive::protocol::fetch::negotiate;
-use crate::OutputFormat;
-use gix::config::tree::Key;
-use gix::protocol::maybe_async;
-use gix::remote::fetch::Error;
-use gix::DynNestedProgress;
+use std::{
+    io,
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
+
+use gix::{config::tree::Key, protocol::maybe_async, remote::fetch::Error, DynNestedProgress};
 pub use gix::{
     hash::ObjectId,
     objs::bstr::{BString, ByteSlice},
@@ -18,11 +18,8 @@ pub use gix::{
     },
     NestedProgress, Progress,
 };
-use std::{
-    io,
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
-};
+
+use crate::{net, pack::receive::protocol::fetch::negotiate, OutputFormat};
 
 pub const PROGRESS_RANGE: std::ops::RangeInclusive<u8> = 1..=3;
 pub struct Context<W> {

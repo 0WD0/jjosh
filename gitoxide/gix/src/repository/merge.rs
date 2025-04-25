@@ -1,14 +1,17 @@
-use crate::config::cache::util::ApplyLeniencyDefault;
-use crate::config::tree;
-use crate::prelude::ObjectIdExt;
-use crate::repository::{
-    blob_merge_options, merge_commits, merge_resource_cache, merge_trees, tree_merge_options, virtual_merge_base,
-    virtual_merge_base_with_graph,
-};
-use crate::Repository;
+use std::borrow::Cow;
+
 use gix_merge::blob::builtin_driver::text;
 use gix_object::Write;
-use std::borrow::Cow;
+
+use crate::{
+    config::{cache::util::ApplyLeniencyDefault, tree},
+    prelude::ObjectIdExt,
+    repository::{
+        blob_merge_options, merge_commits, merge_resource_cache, merge_trees, tree_merge_options, virtual_merge_base,
+        virtual_merge_base_with_graph,
+    },
+    Repository,
+};
 
 /// Merge-utilities
 impl Repository {

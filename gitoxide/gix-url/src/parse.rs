@@ -1,8 +1,9 @@
 use std::convert::Infallible;
 
-use crate::Scheme;
 use bstr::{BStr, BString, ByteSlice};
 use percent_encoding::percent_decode_str;
+
+use crate::Scheme;
 
 /// The error returned by [parse()](crate::parse()).
 #[derive(Debug, thiserror::Error)]

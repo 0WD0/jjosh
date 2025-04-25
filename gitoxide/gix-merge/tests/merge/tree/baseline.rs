@@ -1,9 +1,9 @@
+use std::path::{Path, PathBuf};
+
 use bstr::{BStr, ByteSlice};
 use gix_hash::ObjectId;
 use gix_merge::blob::builtin_driver::text::ConflictStyle;
-use gix_object::tree::EntryMode;
-use gix_object::FindExt;
-use std::path::{Path, PathBuf};
+use gix_object::{tree::EntryMode, FindExt};
 
 /// An entry in the conflict
 #[derive(Debug, Eq, PartialEq)]

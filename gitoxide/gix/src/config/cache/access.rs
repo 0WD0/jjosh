@@ -1,7 +1,8 @@
 #![allow(clippy::result_large_err)]
+use std::{borrow::Cow, path::PathBuf, time::Duration};
+
 use gix_config::file::Metadata;
 use gix_lock::acquire::Fail;
-use std::{borrow::Cow, path::PathBuf, time::Duration};
 
 use crate::{
     config,

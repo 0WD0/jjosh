@@ -16,8 +16,7 @@ fn is_set() {
 
 mod write_to {
     use bstr::ByteSlice;
-    use gix_date::parse::TimeBuf;
-    use gix_date::{SecondsSinceUnixEpoch, Time};
+    use gix_date::{parse::TimeBuf, SecondsSinceUnixEpoch, Time};
 
     #[test]
     fn invalid() {

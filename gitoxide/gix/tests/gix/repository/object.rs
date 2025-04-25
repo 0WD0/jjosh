@@ -1,5 +1,6 @@
-use crate::util::named_subrepo_opts;
 use gix_testtools::tempfile;
+
+use crate::util::named_subrepo_opts;
 
 mod object_database_impl {
     use gix_object::{Exists, Find, FindHeader};
@@ -29,9 +30,10 @@ mod object_database_impl {
 
 #[cfg(feature = "tree-editor")]
 mod edit_tree {
-    use crate::util::hex_to_id;
     use gix::bstr::{BStr, BString};
     use gix_object::tree::EntryKind;
+
+    use crate::util::hex_to_id;
 
     #[test]
     // Some part of the test validation the implementation for this exists, but it's needless nonetheless.
@@ -203,8 +205,10 @@ mod edit_tree {
     }
 
     mod utils {
-        use gix::bstr::{BStr, ByteSlice};
-        use gix::Repository;
+        use gix::{
+            bstr::{BStr, ByteSlice},
+            Repository,
+        };
         use gix_hash::ObjectId;
 
         fn display_tree_recursive(
@@ -290,8 +294,10 @@ mod write_object {
 mod write_blob {
     use std::io::{Seek, SeekFrom};
 
-    use crate::repository::object::empty_bare_repo;
-    use crate::{repository::object::empty_bare_in_memory_repo, util::hex_to_id};
+    use crate::{
+        repository::object::{empty_bare_in_memory_repo, empty_bare_repo},
+        util::hex_to_id,
+    };
 
     #[test]
     fn from_slice() -> crate::Result {

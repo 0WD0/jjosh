@@ -1,6 +1,6 @@
-use gix::bstr::ByteSlice;
-use gix::config::tree;
 use std::ffi::OsStr;
+
+use gix::{bstr::ByteSlice, config::tree};
 
 pub fn blame_file(
     mut repo: gix::Repository,

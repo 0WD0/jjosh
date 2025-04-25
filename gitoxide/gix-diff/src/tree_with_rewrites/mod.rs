@@ -1,5 +1,4 @@
-use crate::tree::recorder::Location;
-use crate::Rewrites;
+use crate::{tree::recorder::Location, Rewrites};
 
 mod change;
 pub use change::{Change, ChangeRef};

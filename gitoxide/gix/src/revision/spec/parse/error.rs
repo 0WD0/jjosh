@@ -1,5 +1,6 @@
-use gix_hash::ObjectId;
 use std::collections::HashSet;
+
+use gix_hash::ObjectId;
 
 use super::Error;
 use crate::{bstr, bstr::BString, ext::ObjectIdExt, Repository};

@@ -62,9 +62,9 @@ mod index {
 
 #[cfg(feature = "dirwalk")]
 mod dirwalk {
-    use gix_dir::entry::Kind::*;
-    use gix_dir::walk::EmissionMode;
     use std::sync::atomic::AtomicBool;
+
+    use gix_dir::{entry::Kind::*, walk::EmissionMode};
 
     #[test]
     fn basics() -> crate::Result {

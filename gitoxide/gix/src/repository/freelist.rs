@@ -1,5 +1,7 @@
-use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
+use std::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+};
 
 /// A buffer that is returned to the free-list after usage.
 #[derive(Clone)]

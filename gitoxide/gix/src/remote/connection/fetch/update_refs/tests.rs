@@ -56,9 +56,7 @@ mod update {
         remote::{
             fetch,
             fetch::{
-                refmap::Mapping,
-                refmap::Source,
-                refmap::SpecIndex,
+                refmap::{Mapping, Source, SpecIndex},
                 refs::{tests::restricted, update::TypeChange},
                 RefLogMessage,
             },

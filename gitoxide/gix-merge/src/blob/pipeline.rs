@@ -1,10 +1,16 @@
-use super::{Pipeline, ResourceKind};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
+
 use bstr::BStr;
-use gix_filter::driver::apply::{Delay, MaybeDelayed};
-use gix_filter::pipeline::convert::{ToGitOutcome, ToWorktreeOutcome};
+use gix_filter::{
+    driver::apply::{Delay, MaybeDelayed},
+    pipeline::convert::{ToGitOutcome, ToWorktreeOutcome},
+};
 use gix_object::tree::EntryKind;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+
+use super::{Pipeline, ResourceKind};
 
 /// Options for use in a [`Pipeline`].
 #[derive(Default, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]

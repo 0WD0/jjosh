@@ -1,10 +1,11 @@
+use gix_actor::SignatureRef;
+use gix_object::{bstr::ByteSlice, commit::message::body::TrailerRef, CommitRef};
+use smallvec::SmallVec;
+
 use crate::{
     commit::{LONG_MESSAGE, MERGE_TAG, SIGNATURE},
     fixture_name, linus_signature, signature,
 };
-use gix_actor::SignatureRef;
-use gix_object::{bstr::ByteSlice, commit::message::body::TrailerRef, CommitRef};
-use smallvec::SmallVec;
 
 #[test]
 fn invalid_timestsamp() {

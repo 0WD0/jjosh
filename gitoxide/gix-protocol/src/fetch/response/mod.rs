@@ -1,8 +1,7 @@
 use bstr::BString;
 use gix_transport::{client, Protocol};
 
-use crate::command::Feature;
-use crate::fetch::Response;
+use crate::{command::Feature, fetch::Response};
 
 /// The error returned in the [response module][crate::fetch::response].
 #[derive(Debug, thiserror::Error)]

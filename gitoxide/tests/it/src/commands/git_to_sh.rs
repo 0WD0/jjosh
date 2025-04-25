@@ -5,11 +5,10 @@ pub struct Options {
 }
 
 pub(super) mod function {
+    use std::{borrow::Cow, path::Path};
+
     use anyhow::{bail, Context};
-    use gix::object::tree::EntryKind;
-    use gix::objs::FindExt;
-    use std::borrow::Cow;
-    use std::path::Path;
+    use gix::{object::tree::EntryKind, objs::FindExt};
 
     use super::Options;
 

@@ -93,8 +93,9 @@ mod access {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use gix_testtools::size_ok;
+
+    use super::*;
 
     #[test]
     fn size_of_reference() {

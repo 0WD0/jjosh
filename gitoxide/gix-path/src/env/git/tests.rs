@@ -2,15 +2,21 @@ use std::path::Path;
 
 #[cfg(windows)]
 mod locations {
-    use std::ffi::{OsStr, OsString};
-    use std::io::ErrorKind;
-    use std::path::{Path, PathBuf};
+    use std::{
+        ffi::{OsStr, OsString},
+        io::ErrorKind,
+        path::{Path, PathBuf},
+    };
 
     use known_folders::{get_known_folder_path, KnownFolder};
-    use windows::core::{Result as WindowsResult, BOOL};
-    use windows::Win32::System::Threading::{GetCurrentProcess, IsWow64Process};
-    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE};
-    use winreg::RegKey;
+    use windows::{
+        core::{Result as WindowsResult, BOOL},
+        Win32::System::Threading::{GetCurrentProcess, IsWow64Process},
+    };
+    use winreg::{
+        enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE},
+        RegKey,
+    };
 
     macro_rules! var_os_stub {
         { $($name:expr => $value:expr),* $(,)? } => {
@@ -359,9 +365,10 @@ mod locations {
 mod exe_info {
     use std::path::{Path, PathBuf};
 
-    use crate::env::git::{exe_info, NULL_DEVICE};
     use gix_testtools::tempfile;
     use serial_test::serial;
+
+    use crate::env::git::{exe_info, NULL_DEVICE};
 
     /// Wrapper for a valid path to a plausible location, kept from accidentally existing (until drop).
     #[derive(Debug)]

@@ -1,8 +1,11 @@
-use crate::bstr::{BStr, BString};
-use crate::prelude::ObjectIdExt;
-use crate::{Id, Repository};
 use gix_hash::ObjectId;
 use gix_object::tree::EntryKind;
+
+use crate::{
+    bstr::{BStr, BString},
+    prelude::ObjectIdExt,
+    Id, Repository,
+};
 
 ///
 pub mod init {

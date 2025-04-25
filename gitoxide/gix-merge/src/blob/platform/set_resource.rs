@@ -1,7 +1,6 @@
 use bstr::{BStr, BString};
 
-use crate::blob::platform::Resource;
-use crate::blob::{pipeline, Platform, ResourceKind};
+use crate::blob::{pipeline, platform::Resource, Platform, ResourceKind};
 
 /// The error returned by [Platform::set_resource](Platform::set_resource).
 #[derive(Debug, thiserror::Error)]

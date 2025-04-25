@@ -1,11 +1,12 @@
-use crate::OutputFormat;
 use anyhow::{anyhow, bail, Context};
-use gix::bstr::BString;
-use gix::bstr::ByteSlice;
-use gix::merge::tree::TreatAsUnresolved;
-use gix::prelude::Write;
+use gix::{
+    bstr::{BString, ByteSlice},
+    merge::tree::TreatAsUnresolved,
+    prelude::Write,
+};
 
 use super::tree::Options;
+use crate::OutputFormat;
 
 #[allow(clippy::too_many_arguments)]
 pub fn commit(

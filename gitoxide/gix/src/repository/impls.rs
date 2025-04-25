@@ -1,6 +1,7 @@
+use std::ops::DerefMut;
+
 use gix_hash::ObjectId;
 use gix_object::Exists;
-use std::ops::DerefMut;
 
 impl Clone for crate::Repository {
     fn clone(&self) -> Self {

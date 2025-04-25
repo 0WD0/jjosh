@@ -1,10 +1,14 @@
-use crate::index::{Change, ChangeRef};
-use crate::rewrites;
-use crate::rewrites::tracker::ChangeKind;
-use crate::tree::visit::Relation;
+use std::borrow::Cow;
+
 use bstr::BStr;
 use gix_object::tree;
-use std::borrow::Cow;
+
+use crate::{
+    index::{Change, ChangeRef},
+    rewrites,
+    rewrites::tracker::ChangeKind,
+    tree::visit::Relation,
+};
 
 impl ChangeRef<'_, '_> {
     /// Copy everything into an owned version of this instance.

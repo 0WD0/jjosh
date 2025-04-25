@@ -7,8 +7,9 @@ pub enum Error {
 }
 
 pub(super) mod _impl {
-    use crate::hasher::Error;
     use sha1_checked::{CollisionResult, Digest};
+
+    use crate::hasher::Error;
 
     /// An implementation of the Sha1 hash, which can be used once.
     ///

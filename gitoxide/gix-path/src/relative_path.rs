@@ -1,12 +1,9 @@
-use bstr::BStr;
-use bstr::BString;
-use bstr::ByteSlice;
-use gix_validate::path::component::Options;
 use std::path::Path;
 
-use crate::os_str_into_bstr;
-use crate::try_from_bstr;
-use crate::try_from_byte_slice;
+use bstr::{BStr, BString, ByteSlice};
+use gix_validate::path::component::Options;
+
+use crate::{os_str_into_bstr, try_from_bstr, try_from_byte_slice};
 
 pub(super) mod types {
     use bstr::{BStr, ByteSlice};

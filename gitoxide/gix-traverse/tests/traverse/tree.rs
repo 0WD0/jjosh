@@ -9,11 +9,13 @@ fn named_db(name: &str) -> crate::Result<gix_odb::Handle> {
 }
 
 mod depthfirst {
-    use crate::hex_to_id;
-    use crate::tree::{db, named_db};
     use gix_object::FindExt;
-    use gix_traverse::tree;
-    use gix_traverse::tree::recorder::Location;
+    use gix_traverse::{tree, tree::recorder::Location};
+
+    use crate::{
+        hex_to_id,
+        tree::{db, named_db},
+    };
 
     #[test]
     fn full_path_and_filename() -> crate::Result {
@@ -231,12 +233,11 @@ mod depthfirst {
 }
 
 mod breadthfirst {
-    use crate::hex_to_id;
-    use crate::tree::db;
     use gix_object::bstr::BString;
     use gix_odb::pack::FindExt;
-    use gix_traverse::tree;
-    use gix_traverse::tree::recorder::Location;
+    use gix_traverse::{tree, tree::recorder::Location};
+
+    use crate::{hex_to_id, tree::db};
 
     #[test]
     fn full_path() -> crate::Result {

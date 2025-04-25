@@ -110,8 +110,10 @@ mod change_impls {
     use gix_hash::oid;
     use gix_object::tree::EntryMode;
 
-    use crate::tree::visit::Relation;
-    use crate::{rewrites::tracker::ChangeKind, tree::visit::Change};
+    use crate::{
+        rewrites::tracker::ChangeKind,
+        tree::visit::{Change, Relation},
+    };
 
     impl crate::rewrites::tracker::Change for crate::tree::visit::Change {
         fn id(&self) -> &oid {

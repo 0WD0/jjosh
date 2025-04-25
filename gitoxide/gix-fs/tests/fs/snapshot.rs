@@ -1,5 +1,6 @@
-use gix_fs::SharedFileSnapshotMut;
 use std::path::Path;
+
+use gix_fs::SharedFileSnapshotMut;
 
 #[test]
 fn journey() -> Result<(), Box<dyn std::error::Error>> {

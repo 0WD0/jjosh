@@ -1,5 +1,7 @@
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+};
 
 use bstr::{BString, ByteSlice};
 use once_cell::sync::Lazy;

@@ -1,7 +1,11 @@
-use crate::bstr::{BStr, BString};
-use crate::{config, Repository};
-use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
 use std::sync::atomic::AtomicBool;
+
+use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
+
+use crate::{
+    bstr::{BStr, BString},
+    config, Repository,
+};
 
 /// The error returned by [Repository::index_worktree_status()].
 #[derive(Debug, thiserror::Error)]
@@ -200,11 +204,13 @@ pub struct BuiltinSubmoduleStatus {
 
 ///
 mod submodule_status {
-    use crate::bstr;
-    use crate::bstr::BStr;
-    use crate::status::index_worktree::BuiltinSubmoduleStatus;
-    use crate::status::Submodule;
     use std::borrow::Cow;
+
+    use crate::{
+        bstr,
+        bstr::BStr,
+        status::{index_worktree::BuiltinSubmoduleStatus, Submodule},
+    };
 
     impl BuiltinSubmoduleStatus {
         /// Create a new instance from a `repo` and a `mode` to control how the submodule status will be obtained.
@@ -411,12 +417,14 @@ pub enum RewriteSource {
 
 ///
 pub mod iter {
-    use crate::bstr::{BStr, BString};
-    use crate::status::{index_worktree, Platform};
     use gix_status::index_as_worktree::{Change, EntryStatus};
+    pub use gix_status::index_as_worktree_with_renames::Summary;
 
     use super::{Item, RewriteSource};
-    pub use gix_status::index_as_worktree_with_renames::Summary;
+    use crate::{
+        bstr::{BStr, BString},
+        status::{index_worktree, Platform},
+    };
 
     /// Access
     impl RewriteSource {

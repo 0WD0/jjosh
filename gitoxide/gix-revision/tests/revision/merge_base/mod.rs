@@ -105,10 +105,13 @@ mod octopus {
 }
 
 mod baseline {
+    use std::{
+        ffi::OsStr,
+        path::{Path, PathBuf},
+    };
+
     use bstr::ByteSlice;
     use gix_hash::ObjectId;
-    use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
 
     /// The expectation as produced by Git itself
     #[derive(Debug)]

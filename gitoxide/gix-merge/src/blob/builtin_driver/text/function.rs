@@ -1,11 +1,16 @@
-use crate::blob::builtin_driver::text::utils::{
-    assure_ends_with_nl, contains_lines, detect_line_ending, detect_line_ending_or_nl, fill_ancestor,
-    hunks_differ_in_diff3, take_intersecting, tokens, write_ancestor, write_conflict_marker, write_hunks,
-    zealously_contract_hunks, CollectHunks, Hunk, Side,
-};
-use crate::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels, Options};
-use crate::blob::Resolution;
 use std::ops::Range;
+
+use crate::blob::{
+    builtin_driver::text::{
+        utils::{
+            assure_ends_with_nl, contains_lines, detect_line_ending, detect_line_ending_or_nl, fill_ancestor,
+            hunks_differ_in_diff3, take_intersecting, tokens, write_ancestor, write_conflict_marker, write_hunks,
+            zealously_contract_hunks, CollectHunks, Hunk, Side,
+        },
+        Conflict, ConflictStyle, Labels, Options,
+    },
+    Resolution,
+};
 
 /// Merge `current` and `other` with `ancestor` as base according to `opts`.
 ///

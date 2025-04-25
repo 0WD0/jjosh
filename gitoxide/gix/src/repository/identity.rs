@@ -1,9 +1,10 @@
+use std::time::SystemTime;
+
 use crate::{
     bstr::{BString, ByteSlice},
     config,
     config::tree::{gitoxide, keys, Author, Committer, Key, User},
 };
-use std::time::SystemTime;
 
 /// Identity handling.
 ///

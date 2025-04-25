@@ -1,10 +1,13 @@
-use crate::blob::builtin_driver::text::Conflict;
-use crate::blob::platform::{merge, DriverChoice, ResourceRef};
-use crate::blob::{BuiltinDriver, Platform, PlatformRef, ResourceKind};
+use std::{num::NonZeroU8, str::FromStr};
+
 use bstr::{BStr, BString, ByteSlice};
 use gix_filter::attributes;
-use std::num::NonZeroU8;
-use std::str::FromStr;
+
+use crate::blob::{
+    builtin_driver::text::Conflict,
+    platform::{merge, DriverChoice, ResourceRef},
+    BuiltinDriver, Platform, PlatformRef, ResourceKind,
+};
 
 /// The error returned by [Platform::prepare_merge_state()](Platform::prepare_merge()).
 #[derive(Debug, thiserror::Error)]

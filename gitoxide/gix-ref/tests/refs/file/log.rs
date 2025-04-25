@@ -107,9 +107,9 @@ mod iter {
         }
 
         mod with_buffer_big_enough_for_largest_line {
-            use crate::file::log::iter::reflog;
-            use crate::hex_to_id;
             use gix_ref::log::Line;
+
+            use crate::{file::log::iter::reflog, hex_to_id};
 
             #[test]
             fn single_line() -> crate::Result {

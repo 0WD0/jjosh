@@ -1,6 +1,9 @@
-use crate::repository::{diff_resource_cache, diff_tree_to_tree};
-use crate::{Repository, Tree};
 use gix_object::TreeRefIter;
+
+use crate::{
+    repository::{diff_resource_cache, diff_tree_to_tree},
+    Repository, Tree,
+};
 
 /// Diff-utilities
 impl Repository {

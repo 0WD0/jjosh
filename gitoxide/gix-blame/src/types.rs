@@ -1,9 +1,13 @@
-use crate::file::function::tokens_for_diffing;
+use std::{
+    num::NonZeroU32,
+    ops::{AddAssign, Range, SubAssign},
+};
+
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
 use smallvec::SmallVec;
-use std::num::NonZeroU32;
-use std::ops::{AddAssign, Range, SubAssign};
+
+use crate::file::function::tokens_for_diffing;
 
 /// Options to be passed to [`file()`](crate::file()).
 #[derive(Default, Debug, Clone)]

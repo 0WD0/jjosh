@@ -1,8 +1,10 @@
-use super::Error;
-use crate::{merge_base::Flags, Graph, PriorityQueue};
+use std::cmp::Ordering;
+
 use gix_hash::ObjectId;
 use gix_revwalk::graph;
-use std::cmp::Ordering;
+
+use super::Error;
+use crate::{merge_base::Flags, Graph, PriorityQueue};
 
 /// Given a commit at `first` id, traverse the commit `graph` and return all possible merge-base between it and `others`,
 /// sorted from best to worst. Returns `None` if there is no merge-base as `first` and `others` don't share history.

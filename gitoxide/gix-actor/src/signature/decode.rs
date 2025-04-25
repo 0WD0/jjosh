@@ -1,15 +1,14 @@
 pub(crate) mod function {
-    use crate::{IdentityRef, SignatureRef};
     use bstr::ByteSlice;
-    use winnow::error::ErrMode;
-    use winnow::stream::Stream;
     use winnow::{
         combinator::{opt, separated_pair},
-        error::{AddContext, ParserError, StrContext},
+        error::{AddContext, ErrMode, ParserError, StrContext},
         prelude::*,
-        stream::AsChar,
+        stream::{AsChar, Stream},
         token::take_while,
     };
+
+    use crate::{IdentityRef, SignatureRef};
 
     /// Parse a signature from the bytes input `i` using `nom`.
     pub fn decode<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
@@ -85,9 +84,10 @@ pub use function::identity;
 #[cfg(test)]
 mod tests {
     mod parse_signature {
-        use crate::{signature, SignatureRef};
         use gix_testtools::to_bstr_err;
         use winnow::prelude::*;
+
+        use crate::{signature, SignatureRef};
 
         fn decode<'i>(
             i: &mut &'i [u8],

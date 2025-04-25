@@ -229,9 +229,12 @@ mod different_date {
 
 /// Same dates are somewhat special as they show how sorting-details on priority queues affects ordering
 mod same_date {
+    use gix_traverse::commit::{
+        simple::{CommitTimeOrder, Sorting},
+        Parents,
+    };
+
     use crate::{commit::simple::TraversalAssertion, hex_to_id};
-    use gix_traverse::commit::simple::CommitTimeOrder;
-    use gix_traverse::commit::{simple::Sorting, Parents};
 
     #[test]
     fn c4_breadth_first() -> crate::Result {
@@ -395,9 +398,12 @@ mod same_date {
 
 /// Some dates adjusted to be a year apart, but still 'c1' and 'c2' with the same date.
 mod adjusted_dates {
+    use gix_traverse::commit::{
+        simple::{CommitTimeOrder, Sorting},
+        Parents, Simple,
+    };
+
     use crate::{commit::simple::TraversalAssertion, hex_to_id};
-    use gix_traverse::commit::simple::CommitTimeOrder;
-    use gix_traverse::commit::{simple::Sorting, Parents, Simple};
 
     #[test]
     fn head_breadth_first() -> crate::Result {

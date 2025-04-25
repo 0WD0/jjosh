@@ -419,8 +419,9 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use gix_testtools::size_ok;
+
+    use super::*;
 
     #[test]
     fn size_of_decode_entry_outcome() {

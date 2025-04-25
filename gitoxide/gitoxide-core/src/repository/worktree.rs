@@ -1,5 +1,6 @@
-use crate::OutputFormat;
 use anyhow::bail;
+
+use crate::OutputFormat;
 
 pub fn list(repo: gix::Repository, out: &mut dyn std::io::Write, format: OutputFormat) -> anyhow::Result<()> {
     if format != OutputFormat::Human {

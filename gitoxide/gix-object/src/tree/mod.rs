@@ -1,9 +1,9 @@
+use std::{cell::RefCell, cmp::Ordering};
+
 use crate::{
     bstr::{BStr, BString},
     tree, Tree, TreeRef,
 };
-use std::cell::RefCell;
-use std::cmp::Ordering;
 
 ///
 pub mod editor;

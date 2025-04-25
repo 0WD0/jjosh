@@ -25,12 +25,13 @@ impl State {
 }
 
 pub(super) mod function {
-    use super::{Error, State};
-    use crate::tree::visit::Action;
-    use crate::tree::Visit;
+    use std::borrow::BorrowMut;
+
     use gix_hash::ObjectId;
     use gix_object::{FindExt, TreeRefIter};
-    use std::borrow::BorrowMut;
+
+    use super::{Error, State};
+    use crate::tree::{visit::Action, Visit};
 
     /// A depth-first traversal of the `root` tree, that preserves the natural order of a tree while immediately descending
     /// into sub-trees.

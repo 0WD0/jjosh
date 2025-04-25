@@ -1,9 +1,12 @@
-use crate::SymlinkCheck;
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
+
 use bstr::BStr;
-use gix_fs::stack::ToNormalPathComponents;
-use gix_fs::Stack;
-use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use gix_fs::{stack::ToNormalPathComponents, Stack};
+
+use crate::SymlinkCheck;
 
 impl SymlinkCheck {
     /// Create a new stack that starts operating at `root`.

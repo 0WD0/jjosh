@@ -236,8 +236,7 @@ cross-test target options test-options: (cross-image target)
 cross-test-s390x: (cross-test 's390x-unknown-linux-gnu' '' '')
 
 # Test Android with `cross` (max-pure)
-cross-test-android: (cross-test 'armv7-linux-androideabi'
-                     '--no-default-features --features max-pure' '')
+cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features --features max-pure' '')
 
 # Run `cargo diet` on all crates to see that they are still in bounds
 check-size:

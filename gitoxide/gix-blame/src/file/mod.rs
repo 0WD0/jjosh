@@ -1,12 +1,10 @@
 //! A module with low-level types and functions.
 
-use std::num::NonZeroU32;
-use std::ops::Range;
+use std::{num::NonZeroU32, ops::Range};
 
 use gix_hash::ObjectId;
 
-use crate::types::{BlameEntry, Either, LineRange};
-use crate::types::{Change, Offset, UnblamedHunk};
+use crate::types::{BlameEntry, Change, Either, LineRange, Offset, UnblamedHunk};
 
 pub(super) mod function;
 
