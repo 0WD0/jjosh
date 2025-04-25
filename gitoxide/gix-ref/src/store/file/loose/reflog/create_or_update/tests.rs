@@ -1,4 +1,5 @@
 use gix_actor::Signature;
+use gix_date::parse::TimeBuf;
 use gix_object::bstr::ByteSlice;
 use gix_testtools::tempfile::TempDir;
 
@@ -56,14 +57,13 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
         let committer = Signature {
             name: "committer".into(),
             email: "committer@example.com".into(),
-            time: gix_date::parse_raw("1234 +0800").unwrap(),
+            time: gix_date::parse_header("1234 +0800").unwrap(),
         };
-        let mut buf = Vec::with_capacity(64);
         store.reflog_create_or_append(
             full_name,
             None,
             &new,
-            committer.to_ref(&mut buf).into(),
+            committer.to_ref(&mut TimeBuf::default()).into(),
             b"the message".as_bstr(),
             false,
         )?;
@@ -86,7 +86,7 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
                     full_name,
                     Some(previous),
                     &new,
-                    committer.to_ref(&mut buf).into(),
+                    committer.to_ref(&mut TimeBuf::default()).into(),
                     b"next message".as_bstr(),
                     false,
                 )?;
@@ -123,7 +123,7 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
             full_name,
             None,
             &new,
-            committer.to_ref(&mut buf).into(),
+            committer.to_ref(&mut TimeBuf::default()).into(),
             b"more complicated reflog creation".as_bstr(),
             false,
         )?;

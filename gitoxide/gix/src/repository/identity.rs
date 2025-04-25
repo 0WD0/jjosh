@@ -3,6 +3,7 @@ use crate::{
     config,
     config::tree::{gitoxide, keys, Author, Committer, Key, User},
 };
+use std::time::SystemTime;
 
 /// Identity handling.
 ///
@@ -68,7 +69,7 @@ impl crate::Repository {
 pub(crate) struct Entity {
     pub name: Option<BString>,
     pub email: Option<BString>,
-    pub time: Option<BString>,
+    pub time: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +105,7 @@ impl Personas {
                     .map(std::borrow::Cow::into_owned),
             )
         }
-        let parse_date = |key: &str, date: &keys::Any| -> Option<BString> {
+        let parse_date = |key: &str, date: &keys::Any| -> Option<String> {
             debug_assert_eq!(
                 key,
                 date.logical_name(),
@@ -113,9 +114,14 @@ impl Personas {
             config
                 .string(key)
                 .map(std::borrow::Cow::into_owned)
-                .and_then(|config_date| gix_date::Time::from_config(config_date.as_bstr()).ok())
+                .and_then(|config_date| {
+                    config_date
+                        .to_str()
+                        .ok()
+                        .and_then(|date| gix_date::parse(date, Some(SystemTime::now())).ok())
+                })
                 .or_else(|| Some(gix_date::Time::now_local_or_utc()))
-                .map(|time| time.format(gix_date::time::Format::Raw).into())
+                .map(|time| time.format(gix_date::time::Format::Raw))
         };
 
         let fallback = (

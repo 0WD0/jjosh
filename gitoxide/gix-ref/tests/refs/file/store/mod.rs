@@ -1,5 +1,6 @@
 use crate::file::transaction::prepare_and_commit::{committer, create_at};
 use crate::file::EmptyCommit;
+use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::file::transaction::PackedRefs;
 use gix_ref::store::WriteReflog;
@@ -30,7 +31,7 @@ fn precompose_unicode_journey() -> crate::Result {
     assert!(!store_decomposed.precompose_unicode);
 
     let decomposed_ref = format!("refs/heads/{decomposed_a}");
-    let mut buf = Vec::with_capacity(64);
+    let mut buf = TimeBuf::default();
     store_decomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
@@ -77,7 +78,6 @@ fn precompose_unicode_journey() -> crate::Result {
 
     let decomposed_u = "u\u{308}";
     let decomposed_ref = format!("refs/heads/{decomposed_u}");
-    buf.clear();
     let edits = store_precomposed
         .transaction()
         .prepare(Some(create_at(&decomposed_ref)), Fail::Immediately, Fail::Immediately)?
@@ -98,7 +98,6 @@ fn precompose_unicode_journey() -> crate::Result {
         store_precomposed.cached_packed_buffer()?.is_none(),
         "no packed-refs yet"
     );
-    buf.clear();
     let edits = store_precomposed
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -166,7 +165,6 @@ fn precompose_unicode_journey() -> crate::Result {
     );
     assert!(store_precomposed.reflog_exists(decomposed_ref.as_str())?);
 
-    buf.clear();
     let edits = store_precomposed
         .transaction()
         .prepare(
@@ -207,7 +205,6 @@ fn precompose_unicode_journey() -> crate::Result {
         store_precomposed_with_namespace.namespace = Some(gix_ref::namespace::expand(namespace)?.clone());
 
         // these edits are loose refs
-        buf.clear();
         let edits = store_precomposed_with_namespace
             .transaction()
             .prepare(
@@ -238,7 +235,6 @@ fn precompose_unicode_journey() -> crate::Result {
         );
 
         // and these go straight to packed-refs
-        buf.clear();
         let edits = store_precomposed_with_namespace
             .transaction()
             .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(

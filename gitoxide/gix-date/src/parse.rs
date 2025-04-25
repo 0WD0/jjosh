@@ -36,7 +36,7 @@ impl TimeBuf {
     }
 
     /// Clear the previous content.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.buf.clear();
     }
 }

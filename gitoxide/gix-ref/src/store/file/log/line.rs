@@ -249,7 +249,7 @@ pub mod decode {
                         signature: gix_actor::SignatureRef {
                             name: b"name".as_bstr(),
                             email: b"foo@example.com".as_bstr(),
-                            time: b"1234567890 -0000".as_bstr()
+                            time: "1234567890 -0000"
                         },
                         message: b"".as_bstr(),
                     }
@@ -273,7 +273,7 @@ pub mod decode {
                     signature: gix_actor::SignatureRef {
                         name: b"Sebastian Thiel".as_bstr(),
                         email: b"foo@example.com".as_bstr(),
-                        time: b"1618030561 +0800".as_bstr(),
+                        time: "1618030561 +0800",
                     },
                     message: b"pull --ff-only: Fast-forward".as_bstr(),
                 };

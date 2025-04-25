@@ -90,20 +90,20 @@ fn hex_to_id(hex: &str) -> ObjectId {
     ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
 }
 
-fn signature(time: &[u8]) -> gix_actor::SignatureRef<'_> {
+fn signature(time: &str) -> gix_actor::SignatureRef<'_> {
     use gix_object::bstr::ByteSlice;
     gix_actor::SignatureRef {
         name: b"Sebastian Thiel".as_bstr(),
         email: b"sebastian.thiel@icloud.com".as_bstr(),
-        time: time.as_bstr(),
+        time,
     }
 }
 
-fn linus_signature(time: &[u8]) -> gix_actor::SignatureRef<'_> {
+fn linus_signature(time: &str) -> gix_actor::SignatureRef<'_> {
     use gix_object::bstr::ByteSlice;
     gix_actor::SignatureRef {
         name: b"Linus Torvalds".as_bstr(),
         email: b"torvalds@linux-foundation.org".as_bstr(),
-        time: time.as_bstr(),
+        time,
     }
 }

@@ -138,7 +138,11 @@ impl Snapshot {
     ///
     /// Note that this method will always allocate.
     pub fn resolve(&self, signature: gix_actor::SignatureRef<'_>) -> gix_actor::Signature {
-        self.try_resolve(signature).unwrap_or_else(|| signature.to_owned())
+        self.try_resolve(signature).unwrap_or_else(|| gix_actor::Signature {
+            name: signature.name.to_owned(),
+            email: signature.email.to_owned(),
+            time: signature.time().unwrap_or_default(),
+        })
     }
 
     /// Like [`try_resolve()`][Snapshot::try_resolve()], but always returns a special copy-on-write signature, which contains
@@ -157,17 +161,17 @@ fn enriched_signature<'a>(
         (Some(new_email), Some(new_name)) => Signature {
             email: new_email.to_owned().into(),
             name: new_name.to_owned().into(),
-            time: gix_date::Time::from_bytes(time).unwrap_or_default(),
+            time: time.parse().unwrap_or_default(),
         },
         (Some(new_email), None) => Signature {
             email: new_email.to_owned().into(),
             name: name.into(),
-            time: gix_date::Time::from_bytes(time).unwrap_or_default(),
+            time: time.parse().unwrap_or_default(),
         },
         (None, Some(new_name)) => Signature {
             email: email.into(),
             name: new_name.to_owned().into(),
-            time: gix_date::Time::from_bytes(time).unwrap_or_default(),
+            time: time.parse().unwrap_or_default(),
         },
         (None, None) => unreachable!("BUG: ResolvedSignatures don't exist here when nothing is set"),
     }

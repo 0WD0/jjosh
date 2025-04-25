@@ -29,11 +29,11 @@ pub struct Context<W> {
 pub struct SignatureRef<'a> {
     name: &'a BStr,
     email: &'a BStr,
-    time: gix_date::Time,
+    time: gix::date::Time,
 }
 
 impl SignatureRef<'_> {
-    fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
+    fn seconds(&self) -> gix::date::SecondsSinceUnixEpoch {
         self.time.seconds
     }
 }

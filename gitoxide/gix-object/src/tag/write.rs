@@ -1,8 +1,8 @@
 use std::io;
 
-use bstr::BStr;
-
 use crate::{encode, encode::NL, Kind, Tag, TagRef};
+use bstr::BStr;
+use gix_date::parse::TimeBuf;
 
 /// An Error used in [`Tag::write_to()`][crate::WriteTo::write_to()].
 #[derive(Debug, thiserror::Error)]
@@ -26,7 +26,7 @@ impl crate::WriteTo for Tag {
         encode::trusted_header_field(b"type", self.target_kind.as_bytes(), out)?;
         encode::header_field(b"tag", validated_name(self.name.as_ref())?, out)?;
         if let Some(tagger) = &self.tagger {
-            let mut buf = Vec::with_capacity(64);
+            let mut buf = TimeBuf::default();
             encode::trusted_header_signature(b"tagger", &tagger.to_ref(&mut buf), out)?;
         }
 

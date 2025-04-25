@@ -534,6 +534,7 @@ mod tag {
 }
 
 mod commit_as {
+    use gix_date::parse::TimeBuf;
     use gix_testtools::tempfile;
 
     #[test]
@@ -550,19 +551,17 @@ mod commit_as {
         let committer = gix::actor::Signature {
             name: "c".into(),
             email: "c@example.com".into(),
-            time: gix_date::parse_raw("1 +0030").unwrap(),
+            time: gix_date::parse_header("1 +0030").unwrap(),
         };
         let author = gix::actor::Signature {
             name: "a".into(),
             email: "a@example.com".into(),
-            time: gix_date::parse_raw("3 +0100").unwrap(),
+            time: gix_date::parse_header("3 +0100").unwrap(),
         };
 
-        let mut c_buf = Vec::with_capacity(64);
-        let mut a_buf = Vec::with_capacity(64);
         let commit_id = repo.commit_as(
-            committer.to_ref(&mut c_buf),
-            author.to_ref(&mut a_buf),
+            committer.to_ref(&mut TimeBuf::default()),
+            author.to_ref(&mut TimeBuf::default()),
             "HEAD",
             "initial",
             empty_tree.id,
@@ -570,9 +569,8 @@ mod commit_as {
         )?;
         let commit = commit_id.object()?.into_commit();
 
-        let mut buf = Vec::with_capacity(64);
+        let mut buf = TimeBuf::default();
         assert_eq!(commit.committer()?, committer.to_ref(&mut buf));
-        buf.clear();
         assert_eq!(commit.author()?, author.to_ref(&mut buf));
         Ok(())
     }

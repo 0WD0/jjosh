@@ -65,10 +65,7 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for input in DEFAULTS {
-        let signature: Signature = gix_actor::SignatureRef::from_bytes::<()>(input)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let signature: Signature = gix_actor::SignatureRef::from_bytes::<()>(input).unwrap().into();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
@@ -95,7 +92,7 @@ fn parse_timestamp_with_trailing_digits() {
         SignatureRef {
             name: "first last".into(),
             email: "name@example.com".into(),
-            time: "1312735823 +051800".into(),
+            time: "1312735823 +051800",
         }
     );
 
@@ -106,7 +103,7 @@ fn parse_timestamp_with_trailing_digits() {
         SignatureRef {
             name: "first last".into(),
             email: "name@example.com".into(),
-            time: "1312735823 +0518".into(),
+            time: "1312735823 +0518",
         }
     );
 }
@@ -120,7 +117,7 @@ fn parse_missing_timestamp() {
         SignatureRef {
             name: "first last".into(),
             email: "name@example.com".into(),
-            time: "".into(),
+            time: ""
         }
     );
 }

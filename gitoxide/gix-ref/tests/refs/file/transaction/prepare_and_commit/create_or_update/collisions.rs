@@ -1,3 +1,4 @@
+use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::{
     file::transaction::PackedRefs,
@@ -54,9 +55,8 @@ fn non_conflicting_creation_without_packed_refs_work() -> crate::Result {
         Fail::Immediately,
     )?;
 
-    let mut buf = Vec::with_capacity(64);
+    let mut buf = TimeBuf::default();
     t2.commit(committer().to_ref(&mut buf))?;
-    let mut buf = Vec::with_capacity(64);
     ongoing.commit(committer().to_ref(&mut buf))?;
 
     assert!(store.reflog_exists("refs/new")?);
@@ -86,7 +86,7 @@ fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_d
 #[test]
 fn conflicting_creation_into_packed_refs() -> crate::Result {
     let (_dir, store) = empty_store()?;
-    let mut buf = Vec::with_capacity(64);
+    let mut buf = TimeBuf::default();
     store
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -119,7 +119,6 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
 
     // The following works because locks aren't actually obtained if there would be no change.
     // Otherwise there would be a conflict on case-insensitive filesystems
-    buf.clear();
     store
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
@@ -190,7 +189,6 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
 
     // Create a loose ref at a path
     assert_eq!(store.loose_iter()?.count(), 1, "a symref");
-    buf.clear();
     store
         .transaction()
         .prepare(
@@ -213,7 +211,6 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
         "we created a loose ref, overlaying the packed one, and have a symbolic one"
     );
 
-    buf.clear();
     store
         .transaction()
         .prepare(

@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use gix_hash::ObjectId;
+use std::collections::HashSet;
 
 use super::Error;
 use crate::{bstr, bstr::BString, ext::ObjectIdExt, Repository};
@@ -26,7 +25,7 @@ pub enum CandidateInfo {
     /// The candidate is a commit.
     Commit {
         /// The date of the commit.
-        date: BString,
+        date: String,
         /// The subject line.
         title: BString,
     },
@@ -42,8 +41,8 @@ impl std::fmt::Display for CandidateInfo {
                 write!(
                     f,
                     "commit {} {title:?}",
-                    gix_date::Time::from_bytes(date.as_ref())
-                        .map_err(|_e| Default::default())?
+                    gix_date::parse_header(date)
+                        .unwrap_or_default()
                         .format(gix_date::time::format::SHORT)
                 )
             }

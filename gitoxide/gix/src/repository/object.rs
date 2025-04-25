@@ -249,7 +249,7 @@ impl crate::Repository {
             target: target.as_ref().into(),
             target_kind,
             name: name.as_ref().into(),
-            tagger: tagger.map(|t| t.to_owned()),
+            tagger: tagger.map(|t| t.to_owned()).transpose()?,
             message: message.as_ref().into(),
             pgp_signature: None,
         };

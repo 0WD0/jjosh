@@ -1,3 +1,4 @@
+use gix_date::parse::TimeBuf;
 use gix_lock::acquire::Fail;
 use gix_ref::{
     file::ReferenceExt,
@@ -16,7 +17,6 @@ use crate::{
 #[test]
 fn delete_a_ref_which_is_gone_succeeds() -> crate::Result {
     let (_keep, store) = empty_store()?;
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -31,7 +31,7 @@ fn delete_a_ref_which_is_gone_succeeds() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
     assert_eq!(edits.len(), 1);
     Ok(())
 }
@@ -68,7 +68,6 @@ fn delete_ref_and_reflog_on_symbolic_no_deref() -> crate::Result {
     assert!(head.log_exists(&store));
     let _main = store.find_loose("main")?;
 
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -83,7 +82,7 @@ fn delete_ref_and_reflog_on_symbolic_no_deref() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits,
@@ -145,7 +144,6 @@ fn delete_reflog_only_of_symbolic_no_deref() -> crate::Result {
     let head = store.find_loose("HEAD")?;
     assert!(head.log_exists(&store));
 
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -160,7 +158,7 @@ fn delete_reflog_only_of_symbolic_no_deref() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 1);
     let head: Reference = store.find_loose("HEAD")?.into();
@@ -181,7 +179,6 @@ fn delete_reflog_only_of_symbolic_with_deref() -> crate::Result {
     let head = store.find_loose("HEAD")?;
     assert!(head.log_exists(&store));
 
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -196,7 +193,7 @@ fn delete_reflog_only_of_symbolic_with_deref() -> crate::Result {
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 2);
     let head: Reference = store.find_loose("HEAD")?.into();
@@ -247,7 +244,6 @@ fn non_existing_can_be_deleted_with_the_may_exist_match_constraint() -> crate::R
     let (_keep, store) = empty_store()?;
     let previous_value =
         PreviousValue::ExistingMustMatch(Target::Object(hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03")));
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -262,7 +258,7 @@ fn non_existing_can_be_deleted_with_the_may_exist_match_constraint() -> crate::R
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits,
@@ -285,7 +281,6 @@ fn delete_broken_ref_that_may_not_exist_works_even_in_deref_mode() -> crate::Res
     std::fs::write(store.git_dir().join("HEAD"), b"broken")?;
     assert!(store.try_find_loose("HEAD").is_err(), "the ref is truly broken");
 
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -300,7 +295,7 @@ fn delete_broken_ref_that_may_not_exist_works_even_in_deref_mode() -> crate::Res
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert!(store.try_find_loose("HEAD")?.is_none(), "the ref was deleted");
     assert_eq!(
@@ -328,7 +323,6 @@ fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> crate::Res
         assert!(store.find_loose("HEAD")?.log_exists(&store));
         assert!(store.open_packed_buffer()?.is_none(), "there is no pack");
 
-        let mut buf = Vec::with_capacity(64);
         let edits = store
             .transaction()
             .prepare(
@@ -343,7 +337,7 @@ fn store_write_mode_has_no_effect_and_reflogs_are_always_deleted() -> crate::Res
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref(&mut buf))?;
+            .commit(committer().to_ref(&mut TimeBuf::default()))?;
         assert_eq!(edits.len(), 1);
         assert!(!store.find_loose("HEAD")?.log_exists(&store), "log was deleted");
         assert!(store.open_packed_buffer()?.is_none(), "there still is no pack");
@@ -365,7 +359,6 @@ fn packed_refs_are_consulted_when_determining_previous_value_of_ref_to_be_delete
     );
 
     let old_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -380,7 +373,7 @@ fn packed_refs_are_consulted_when_determining_previous_value_of_ref_to_be_delete
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(edits.len(), 1, "an edit was performed in the packed refs store");
     let packed = store.open_packed_buffer()?.expect("packed ref present");
@@ -400,7 +393,6 @@ fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_
         "the packed ref is outdated"
     );
 
-    let mut buf = Vec::with_capacity(64);
     let edits = store
         .transaction()
         .prepare(
@@ -415,7 +407,7 @@ fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_
             Fail::Immediately,
             Fail::Immediately,
         )?
-        .commit(committer().to_ref(&mut buf))?;
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
     assert_eq!(
         edits.len(),
@@ -433,7 +425,6 @@ fn a_loose_ref_with_old_value_check_and_outdated_packed_refs_value_deletes_both_
 fn all_contained_references_deletes_the_packed_ref_file_too() -> crate::Result {
     for mode in ["must-exist", "may-exist"] {
         let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
-        let mut buf = Vec::with_capacity(64);
         let edits = store
             .transaction()
             .prepare(
@@ -455,7 +446,7 @@ fn all_contained_references_deletes_the_packed_ref_file_too() -> crate::Result {
                 Fail::Immediately,
                 Fail::Immediately,
             )?
-            .commit(committer().to_ref(&mut buf))?;
+            .commit(committer().to_ref(&mut TimeBuf::default()))?;
 
         assert!(!store.packed_refs_path().is_file(), "packed-refs was entirely removed");
 

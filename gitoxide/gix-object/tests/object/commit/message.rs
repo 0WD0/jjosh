@@ -235,7 +235,7 @@ mod summary {
         let actor = SignatureRef {
             name: "name".into(),
             email: "email".into(),
-            time: "0 0000".into(),
+            time: "0 0000",
         };
         assert_eq!(
             CommitRef {

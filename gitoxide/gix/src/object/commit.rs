@@ -76,7 +76,7 @@ impl<'repo> Commit<'repo> {
     ///
     /// For the time at which it was authored, refer to `.decode()?.author.time`.
     pub fn time(&self) -> Result<gix_date::Time, Error> {
-        Ok(gix_date::Time::from_bytes(self.committer()?.time)?)
+        Ok(self.committer()?.time()?)
     }
 
     /// Decode the entire commit object and return it for accessing all commit information.

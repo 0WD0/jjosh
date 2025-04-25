@@ -54,7 +54,7 @@ fn author_and_committer_and_fallback() -> crate::Result {
             gix_actor::SignatureRef {
                 name: "author".into(),
                 email: "author@email".into(),
-                time: "1659329106 +0800".into(),
+                time: "1659329106 +0800",
             }
         );
 
@@ -63,7 +63,7 @@ fn author_and_committer_and_fallback() -> crate::Result {
             gix_actor::SignatureRef {
                 name: "committer".into(),
                 email: "committer@email".into(),
-                time: "1659365106 -0200".into(),
+                time: "1659365106 -0200",
             }
         );
         let config = repo.config_snapshot();
@@ -161,7 +161,7 @@ fn author_from_different_config_sections() -> crate::Result {
         Some(gix_actor::SignatureRef {
             name: "global name".into(),
             email: "local@example.com".into(),
-            time: "42 +0030".into()
+            time: "42 +0030",
         }),
         "author name comes from global config, \
          but email comes from repository-local config",
@@ -171,7 +171,7 @@ fn author_from_different_config_sections() -> crate::Result {
         Some(gix_actor::SignatureRef {
             name: "local committer".into(),
             email: "global-committer@example.com".into(),
-            time: "320437800 +0000".into()
+            time: "320437800 +0000",
         }),
         "committer name comes from repository-local config, \
          but committer email comes from global config"
