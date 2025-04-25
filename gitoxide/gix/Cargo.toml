@@ -305,8 +305,8 @@ cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
 
 [dependencies]
 gix-utils = { version = "^0.2.1", path = "../gix-utils" }
-gix-fs = { version = "^0.14.0", path = "../gix-fs" }
-gix-ref = { version = "^0.51.0", path = "../gix-ref" }
+gix-fs = { version = "^0.14.1", path = "../gix-fs" }
+gix-ref = { version = "^0.52.0", path = "../gix-ref" }
 gix-discover = { version = "^0.40.0", path = "../gix-discover" }
 gix-tempfile = { version = "^17.0.0", path = "../gix-tempfile", default-features = false }
 gix-lock = { version = "^17.0.0", path = "../gix-lock" }
@@ -330,7 +330,7 @@ gix-revision = { version = "^0.34.0", path = "../gix-revision", default-features
 gix-revwalk = { version = "^0.20.0", path = "../gix-revwalk" }
 gix-negotiate = { version = "^0.20.0", path = "../gix-negotiate", optional = true }
 
-gix-path = { version = "^0.10.15", path = "../gix-path" }
+gix-path = { version = "^0.10.16", path = "../gix-path" }
 gix-url = { version = "^0.30.1", path = "../gix-url" }
 gix-traverse = { version = "^0.46.0", path = "../gix-traverse" }
 gix-diff = { version = "^0.52.0", path = "../gix-diff", default-features = false }
@@ -345,11 +345,11 @@ gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 gix-glob = { version = "^0.19.1", path = "../gix-glob" }
 gix-credentials = { version = "^0.28.1", path = "../gix-credentials", optional = true }
 gix-prompt = { version = "^0.10.1", path = "../gix-prompt", optional = true }
-gix-index = { version = "^0.39.0", path = "../gix-index", optional = true }
-gix-attributes = { version = "^0.25.0", path = "../gix-attributes", optional = true }
+gix-index = { version = "^0.39.1", path = "../gix-index", optional = true }
+gix-attributes = { version = "^0.25.1", path = "../gix-attributes", optional = true }
 gix-ignore = { version = "^0.14.1", path = "../gix-ignore", optional = true }
-gix-worktree = { version = "^0.40.0", path = "../gix-worktree", optional = true, default-features = false }
-gix-worktree-state = { version = "^0.18.0", path = "../gix-worktree-state", optional = true }
+gix-worktree = { version = "^0.40.1", path = "../gix-worktree", optional = true, default-features = false }
+gix-worktree-state = { version = "^0.18.1", path = "../gix-worktree-state", optional = true }
 gix-hashtable = { version = "^0.8.0", path = "../gix-hashtable" }
 gix-commitgraph = { version = "^0.27.1", path = "../gix-commitgraph" }
 gix-pathspec = { version = "^0.10.1", path = "../gix-pathspec", optional = true }
@@ -365,7 +365,7 @@ gix-blame = { version = "^0.2.0", path = "../gix-blame", optional = true }
 
 # For communication with remotes
 gix-protocol = { version = "^0.50.0", path = "../gix-protocol" }
-gix-transport = { version = "^0.46.0", path = "../gix-transport", optional = true }
+gix-transport = { version = "^0.46.1", path = "../gix-transport", optional = true }
 
 # Just to get the progress-tree feature
 prodash = { version = "29.0.2", optional = true, features = ["progress-tree"] }

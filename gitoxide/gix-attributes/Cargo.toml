@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-attributes"
-version = "0.25.0"
+version = "0.25.1"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing .gitattributes files"
@@ -19,7 +19,7 @@ doctest = false
 serde = ["dep:serde", "bstr/serde", "gix-glob/serde", "kstring/serde"]
 
 [dependencies]
-gix-path = { version = "^0.10.15", path = "../gix-path" }
+gix-path = { version = "^0.10.16", path = "../gix-path" }
 gix-quote = { version = "^0.5.1", path = "../gix-quote" }
 gix-glob = { version = "^0.19.1", path = "../gix-glob" }
 gix-trace = { version = "^0.1.12", path = "../gix-trace" }

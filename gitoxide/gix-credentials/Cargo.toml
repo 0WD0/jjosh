@@ -21,7 +21,7 @@ serde = ["dep:serde", "bstr/serde", "gix-sec/serde"]
 [dependencies]
 gix-sec = { version = "^0.10.13", path = "../gix-sec" }
 gix-url = { version = "^0.30.1", path = "../gix-url" }
-gix-path = { version = "^0.10.15", path = "../gix-path" }
+gix-path = { version = "^0.10.16", path = "../gix-path" }
 gix-command = { version = "^0.5.1", path = "../gix-command" }
 gix-config-value = { version = "^0.14.13", path = "../gix-config-value" }
 gix-prompt = { version = "^0.10.1", path = "../gix-prompt" }
