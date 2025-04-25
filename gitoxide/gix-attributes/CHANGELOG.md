@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.25.1 (2025-04-25)
 
+A maintenance release without user-facing changes.
+
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
