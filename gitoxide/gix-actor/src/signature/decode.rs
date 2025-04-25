@@ -86,7 +86,6 @@ pub use function::identity;
 mod tests {
     mod parse_signature {
         use crate::{signature, SignatureRef};
-        use gix_date::time::Sign;
         use gix_testtools::to_bstr_err;
         use winnow::prelude::*;
 
@@ -120,7 +119,6 @@ mod tests {
                 gix_date::Time {
                     seconds: 1528473343,
                     offset: -9000,
-                    sign: Sign::Minus
                 }
             );
         }
