@@ -7,9 +7,12 @@ updates:
     commit-message:
       # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
       prefix: ''
+    allow:
+      - dependency-type: all
     groups:
       cargo:
         patterns: ['*']
+
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
