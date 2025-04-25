@@ -1,5 +1,5 @@
 use gix_date::{
-    time::{format, Format, Sign},
+    time::{format, Format},
     Time,
 };
 
@@ -23,7 +23,6 @@ fn raw() {
             Time {
                 seconds: 1112911993,
                 offset: 3600,
-                sign: Sign::Plus,
             },
             "1112911993 +0100",
         ),
@@ -86,7 +85,6 @@ fn time() -> Time {
     Time {
         seconds: 123456789,
         offset: 9000,
-        sign: Sign::Plus,
     }
 }
 
@@ -94,6 +92,5 @@ fn time_dec1() -> Time {
     Time {
         seconds: 123543189,
         offset: 9000,
-        sign: Sign::Plus,
     }
 }

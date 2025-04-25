@@ -77,11 +77,8 @@ pub(crate) mod function {
 
     use crate::{
         parse::{relative, Error},
-        time::{
-            format::{DEFAULT, GITOXIDE, ISO8601, ISO8601_STRICT, SHORT},
-            Sign,
-        },
-        SecondsSinceUnixEpoch, Time,
+        time::format::{DEFAULT, GITOXIDE, ISO8601, ISO8601_STRICT, SHORT},
+        OffsetInSeconds, SecondsSinceUnixEpoch, Time,
     };
 
     /// Parse `input` as any time that Git can parse when inputting a date.
@@ -169,11 +166,11 @@ pub(crate) mod function {
         } else if let Ok(val) = SecondsSinceUnixEpoch::from_str(input) {
             // Format::Unix
             Time::new(val, 0)
+        } else if let Some(val) = relative::parse(input, now).transpose()? {
+            Time::new(val.timestamp().as_second(), val.offset().seconds())
         } else if let Some(val) = parse_header(input) {
             // Format::Raw
             val
-        } else if let Some(val) = relative::parse(input, now).transpose()? {
-            Time::new(val.timestamp().as_second(), val.offset().seconds())
         } else {
             return Err(Error::InvalidDateString { input: input.into() });
         })
@@ -181,34 +178,61 @@ pub(crate) mod function {
 
     /// Unlike [`parse()`] which handles all kinds of input, this function only parses the commit-header format
     /// like `1745582210 +0200`.
+    ///
+    /// Note that failure to parse the time zone isn't fatal, instead it will default to `0`. To know if
+    /// the time is wonky, serialize the return value to see if it matches the `input.`
     pub fn parse_header(input: &str) -> Option<Time> {
+        pub enum Sign {
+            Plus,
+            Minus,
+        }
+        fn parse_offset(offset: &str) -> Option<OffsetInSeconds> {
+            if (offset.len() != 5) && (offset.len() != 7) {
+                return None;
+            }
+            let sign = match offset.get(..1)? {
+                "-" => Some(Sign::Minus),
+                "+" => Some(Sign::Plus),
+                _ => None,
+            }?;
+            if offset.as_bytes().get(1).is_some_and(|b| !b.is_ascii_digit()) {
+                return None;
+            }
+            let hours: i32 = offset.get(1..3)?.parse().ok()?;
+            let minutes: i32 = offset.get(3..5)?.parse().ok()?;
+            let offset_seconds: i32 = if offset.len() == 7 {
+                offset.get(5..7)?.parse().ok()?
+            } else {
+                0
+            };
+            let mut offset_in_seconds = hours * 3600 + minutes * 60 + offset_seconds;
+            if matches!(sign, Sign::Minus) {
+                offset_in_seconds *= -1;
+            }
+            Some(offset_in_seconds)
+        }
+
         let mut split = input.split_whitespace();
-        let seconds: SecondsSinceUnixEpoch = split.next()?.parse().ok()?;
-        let offset = split.next()?;
-        if (offset.len() != 5) && (offset.len() != 7) || split.next().is_some() {
-            return None;
-        }
-        let sign = match offset.get(..1)? {
-            "-" => Some(Sign::Minus),
-            "+" => Some(Sign::Plus),
-            _ => None,
-        }?;
-        let hours: i32 = offset.get(1..3)?.parse().ok()?;
-        let minutes: i32 = offset.get(3..5)?.parse().ok()?;
-        let offset_seconds: i32 = if offset.len() == 7 {
-            offset.get(5..7)?.parse().ok()?
-        } else {
-            0
+        let seconds = split.next()?;
+        let seconds = match seconds.parse::<SecondsSinceUnixEpoch>() {
+            Ok(s) => s,
+            Err(_err) => {
+                // Inefficient, but it's not the common case.
+                let first_digits: String = seconds.chars().take_while(|b| b.is_ascii_digit()).collect();
+                first_digits.parse().ok()?
+            }
         };
-        let mut offset_in_seconds = hours * 3600 + minutes * 60 + offset_seconds;
-        if sign == Sign::Minus {
-            offset_in_seconds *= -1;
-        }
-        let time = Time {
-            seconds,
-            offset: offset_in_seconds,
-            sign,
+        let offset = match split.next() {
+            None => 0,
+            Some(offset) => {
+                if split.next().is_some() {
+                    0
+                } else {
+                    parse_offset(offset).unwrap_or_default()
+                }
+            }
         };
+        let time = Time { seconds, offset };
         Some(time)
     }
 

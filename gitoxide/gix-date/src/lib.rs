@@ -24,8 +24,6 @@ pub struct Time {
     pub seconds: SecondsSinceUnixEpoch,
     /// The time's offset in seconds, which may be negative to match the `sign` field.
     pub offset: OffsetInSeconds,
-    /// the sign of `offset`, used to encode `-0000` which would otherwise lose sign information.
-    pub sign: time::Sign,
 }
 
 /// The number of seconds since unix epoch.

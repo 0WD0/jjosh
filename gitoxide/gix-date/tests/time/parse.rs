@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use gix_date::{time::Sign, Time};
+use gix_date::Time;
 
 #[test]
 fn special_time_is_ok_for_now() {
@@ -9,7 +9,6 @@ fn special_time_is_ok_for_now() {
         Time {
             seconds: 42,
             offset: 1800,
-            sign: Sign::Plus,
         }
     );
 }
@@ -21,7 +20,6 @@ fn short() {
         Time {
             seconds: 288835200,
             offset: 0,
-            sign: Sign::Plus,
         },
         "could not parse with SHORT format"
     );
@@ -34,7 +32,6 @@ fn rfc2822() {
         Time {
             seconds: 1660797906,
             offset: 28800,
-            sign: Sign::Plus,
         },
     );
 }
@@ -44,7 +41,6 @@ fn git_rfc2822() {
     let expected = Time {
         seconds: 1659329106,
         offset: 28800,
-        sign: Sign::Plus,
     };
     assert_eq!(
         gix_date::parse("Thu, 1 Aug 2022 12:45:06 +0800", None).unwrap(),
@@ -63,7 +59,6 @@ fn raw() -> gix_testtools::Result {
         Time {
             seconds: 1660874655,
             offset: 28800,
-            sign: Sign::Plus,
         },
     );
 
@@ -72,7 +67,6 @@ fn raw() -> gix_testtools::Result {
         Time {
             seconds: 1112911993,
             offset: 3600,
-            sign: Sign::Plus,
         },
     );
 
@@ -81,7 +75,6 @@ fn raw() -> gix_testtools::Result {
         Time {
             seconds: 1313584730,
             offset: 19080,
-            sign: Sign::Plus,
         },
         "seconds for time-offsets work as well"
     );
@@ -91,14 +84,12 @@ fn raw() -> gix_testtools::Result {
         Time {
             seconds: 1313584730,
             offset: 19122,
-            sign: Sign::Plus,
         },
     );
 
     let expected = Time {
         seconds: 1660874655,
         offset: -28800,
-        sign: Sign::Minus,
     };
     for date_str in [
         "1660874655 -0800",
@@ -109,7 +100,7 @@ fn raw() -> gix_testtools::Result {
         "1660874655\t-0800",
         "1660874655\t-080000",
     ] {
-        assert_eq!(gix_date::parse(date_str, None)?, expected);
+        assert_eq!(gix_date::parse_header(date_str), Some(expected));
     }
     Ok(())
 }
@@ -128,27 +119,33 @@ fn bad_raw() {
         "123456+0600",
         "123456 + 600",
     ] {
-        assert!(gix_date::parse(bad_date_str, None).is_err());
+        assert_eq!(
+            gix_date::parse_header(bad_date_str),
+            Some(Time {
+                seconds: 123456,
+                offset: 0
+            }),
+            "{bad_date_str}: invalid offsets default to zero (like in git2), and Git ignores them mostly"
+        );
     }
 }
 
 #[test]
 fn double_negation_in_offset() {
-    let actual = gix_date::parse("1288373970 --700", None).unwrap();
+    let actual = gix_date::parse_header("1288373970 --700").unwrap();
     assert_eq!(
         actual,
         gix_date::Time {
             seconds: 1288373970,
-            offset: 25200,
-            sign: Sign::Minus,
+            offset: 0,
         },
-        "double-negation stays negative, and is parseable."
+        "double-negation isn't special, it's considered malformed"
     );
 
     assert_eq!(
         actual.to_string(),
-        "1288373970 -0700",
-        "serialization corrects the issue"
+        "1288373970 +0000",
+        "serialization is lossy as offset couldn't be parsed"
     );
 }
 
@@ -159,7 +156,6 @@ fn git_default() {
         Time {
             seconds: 1659933906,
             offset: 28800,
-            sign: Sign::Plus,
         },
     );
 }
@@ -175,7 +171,6 @@ fn invalid_dates_can_be_produced_without_current_time() {
 mod relative {
     use std::time::SystemTime;
 
-    use gix_date::time::Sign;
     use jiff::{ToSpan, Zoned};
     use pretty_assertions::assert_eq;
 
@@ -246,11 +241,6 @@ mod relative {
             let time = gix_date::parse(input, Some(now)).expect("relative time string should parse to a Time");
             (input, time)
         });
-        assert_eq!(
-            cases_with_times.map(|(_, time)| time.sign),
-            cases_with_times.map(|_| Sign::Plus),
-            "Despite being in the past, the dates produced are positive, as they are still post-epoch"
-        );
         assert_eq!(
             cases_with_times.map(|(_, time)| time.offset),
             cases_with_times.map(|_| 0),
@@ -339,7 +329,7 @@ mod fuzz {
     #[test]
     fn invalid_but_does_not_cause_panic() {
         for input in ["-9999-1-1", "7	-𬞋", "5 ڜ-09", "-4 week ago Z", "8960609 day ago"] {
-            let _ = gix_date::parse(input, Some(std::time::UNIX_EPOCH)).unwrap_err();
+            gix_date::parse(input, Some(std::time::UNIX_EPOCH)).ok();
         }
     }
 }

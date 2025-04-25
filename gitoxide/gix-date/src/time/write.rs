@@ -1,6 +1,6 @@
 use bstr::ByteSlice;
 
-use crate::{time::Sign, SecondsSinceUnixEpoch, Time};
+use crate::{SecondsSinceUnixEpoch, Time};
 
 /// Serialize this instance as string, similar to what [`write_to()`](Self::write_to()) would do.
 impl std::fmt::Display for Time {
@@ -33,10 +33,7 @@ impl Time {
         let mut itoa = itoa::Buffer::new();
         out.write_all(itoa.format(self.seconds).as_bytes())?;
         out.write_all(b" ")?;
-        out.write_all(match self.sign {
-            Sign::Plus => b"+",
-            Sign::Minus => b"-",
-        })?;
+        out.write_all(if self.offset < 0 { b"-" } else { b"+" })?;
 
         const ZERO: &[u8; 1] = b"0";
 
@@ -138,6 +135,5 @@ impl Time {
     pub const MAX: Time = Time {
         seconds: SecondsSinceUnixEpoch::MAX,
         offset: 99 * 60 * 60 + 59 * 60 + 59,
-        sign: Sign::Plus,
     };
 }
