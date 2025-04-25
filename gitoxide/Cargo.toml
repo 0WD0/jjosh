@@ -149,13 +149,13 @@ http-client-reqwest = ["gix/blocking-http-transport-reqwest-rust-tls"]
 gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
 
 [dependencies]
-anyhow = "1.0.42"
+anyhow = "1.0.98"
 
 gitoxide-core = { version = "^0.46.0", path = "gitoxide-core" }
 gix-features = { version = "^0.42.0", path = "gix-features" }
 gix = { version = "^0.71.0", path = "gix", default-features = false }
 
-clap = { version = "4.5.36", features = ["derive", "cargo"] }
+clap = { version = "4.5.37", features = ["derive", "cargo"] }
 clap_complete = "4.5.47"
 prodash = { version = "29.0.2", optional = true }
 is-terminal = { version = "0.4.0", optional = true }
