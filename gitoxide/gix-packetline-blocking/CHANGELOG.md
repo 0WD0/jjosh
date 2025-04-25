@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Refactor
+
+ - <csr-id-a86c2019f0f4f55b585d7d3686142d64d29960c1/> replace `futures_lite::ready!` with `std::task::ready!`
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 11 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1950 from paolobarbolini/ready-macro-from-std ([`f1bb269`](https://github.com/GitoxideLabs/gitoxide/commit/f1bb269bc4949a5eb2bc84725e6699eed7b74a35))
+    - Replace `futures_lite::ready!` with `std::task::ready!` ([`a86c201`](https://github.com/GitoxideLabs/gitoxide/commit/a86c2019f0f4f55b585d7d3686142d64d29960c1))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1940 from EliahKagan/run-ci/ghost-feature-next ([`b34bdfa`](https://github.com/GitoxideLabs/gitoxide/commit/b34bdfa795e2811607e9d8b49baa5b655ec74035))
+    - Have `gix-filter` depend on `gix-packetline-blocking` unaliased ([`2d560c7`](https://github.com/GitoxideLabs/gitoxide/commit/2d560c7c92197aa0518e1f36d018d4771e56456b))
+    - Merge pull request #1939 from EliahKagan/run-ci/ghost-feature ([`62ec0e3`](https://github.com/GitoxideLabs/gitoxide/commit/62ec0e354d83e4dcdb5c1ea6e96a1eb95c2997d1))
+    - Add a second "DO NOT USE" feature to `gix-packetline-blocking` ([`d5dd239`](https://github.com/GitoxideLabs/gitoxide/commit/d5dd239f11a4b88ca55ebdb8d8232bcfb8eacf0a))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+    - Merge branch 'main' into release ([`1c4d973`](https://github.com/GitoxideLabs/gitoxide/commit/1c4d973ae46fc841b413c5c31e741030902bbab1))
+    - Merge pull request #1918 from EliahKagan/fix-clippy ([`4d3946f`](https://github.com/GitoxideLabs/gitoxide/commit/4d3946fcbb86c0dffdd881d94ab93598889f77f5))
+</details>
+
 ## 0.18.3 (2025-04-04)
 
 A maintenance release without user-facing changes.
@@ -13,7 +47,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release.
+ - 6 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -30,7 +64,9 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
+    - Fix clippy ([`1370420`](https://github.com/GitoxideLabs/gitoxide/commit/1370420a589800a9a0e0918fb3f147f0175405fa))
     - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
     - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
     - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))

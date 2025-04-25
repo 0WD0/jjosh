@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-9f8a468cfb8730fcb0f88cbf62e559cb369fdb42/> Add `&gix_path::RelativePath`.
+   It's a utility to assure functions get the right input, i.e. a type-safe
+   version of what previously was `&BStr`
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`2eb2d6b`](https://github.com/GitoxideLabs/gitoxide/commit/2eb2d6b1fa83c7187bdef86f7014fbf52ea8dcb2))
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
+    - Refactor ([`294902e`](https://github.com/GitoxideLabs/gitoxide/commit/294902e0dbc350a33a0e54164eed626720c1a1d7))
+    - Add `&gix_path::RelativePath`. ([`9f8a468`](https://github.com/GitoxideLabs/gitoxide/commit/9f8a468cfb8730fcb0f88cbf62e559cb369fdb42))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Adapt `gix-path` tests to changes in `windows` ([`2fc48a1`](https://github.com/GitoxideLabs/gitoxide/commit/2fc48a11df504e135546f6c23c7d696c04c5006a))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+</details>
+
 ## 0.10.15 (2025-04-04)
 
 <csr-id-028635165ddd98322d8b902fe0714fe2d0699a3e/>
@@ -18,20 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    
    1. Check the last two components of the path `git --exec-path`
    gave, to make sure they are `libexec/git-core`.
-   
-   (The check is done in such a way that the separator may be `/`
-   or `\`, though a `\` separator here would be unexpected. We
-   permit it because it may plausibly be present due to an
-   overriden `GIT_EXEC_PATH` that breaks with Git's own behavior of
-   using `/` but that is otherwise fully usable.)
-   
-   If the directory is not named `git-core`, or it is a top-level
-   directory (no parent),  or its parent is not named `libexec`,
-   then it is not reasonable to guess that this is in a directory
-   where it would be safe to use `sh.exe` in the expected relative
-   location. (Even if safe, such a layout does not suggest that a
-   `sh.exe` found in it would be better choice than the fallback of
-   just doing a `PATH` search.)
 2. Check the grandparent component (that `../..` would go to) of
       the path `git --exec-path` gave, to make sure it is recognized
       name of a platform-specific `usr`-like directory that has been
@@ -64,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       that. But it exacerbates #1868 (as described there), so if the
       Git for Windows `sh.exe` shim continues to work as it currently
       does, then further improvements may be called for here.
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 1. Adding components with `/` separators. While in principle a `\`
       should work, the path of the shell itself is used in shell
@@ -116,7 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 25 commits contributed to the release.
+ - 26 commits contributed to the release.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -133,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
     - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
@@ -161,7 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 </details>
 
 <csr-unknown>
-This makes things more robust overall than either preferring thenon-shim or just doing a path search for sh as was done beforethat. But it exacerbates #1868 (as described there), so if theGit for Windows sh.exe shim continues to work as it currentlydoes, then further improvements may be called for here. Use / in gix_path::env::shell() and check existenceThis makes the path returned by gix_path::env::shell() on Windowsmore usable by:Those changes only affect Windows.This also adds tests for (1) and (2) above, as well as for theexpectation that we get an absolute path, to make sure we don’tbuild a path that would be absolute on a Unix-like system but isrelative on Windows (a path that starts with just one / or \).These tests are not Windows-specific, since all these expectationsshould already hold on Unix-like systems, where currently we areusing the hard-coded path /bin/sh, which is an absolute path onthose systems. (Some Unix-like systems may technically not have/bin/sh or it may not be the best path to use for a shell thatshould be POSIX-compatible, but we are already relying on this,and handling that better is outside the scope of the changes here.)<csr-unknown/>
+This makes things more robust overall than either preferring thenon-shim or just doing a path search for sh as was done beforethat. But it exacerbates #1868 (as described there), so if theGit for Windows sh.exe shim continues to work as it currentlydoes, then further improvements may be called for here.<csr-unknown/>
 
 ## 0.10.14 (2025-01-18)
 

@@ -5,6 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features (BREAKING)
+
+ - <csr-id-788290717da8ec396635aec386af99e1917bf3a0/> `gix-features` uses and republishes `bytesize` version 2
+   `gix-features` republishes `bytesize`, which has been bumped from
+   major version 1 to major version 2. Because the interface of
+   `bytesize` is effectively part of that of `gix-features` due to
+   the explicit republication of the `bytesize` module in full (with
+   no documented extra limitations related to interface stability),
+   this is effectively a breaking change in `gix-features` as well,
+   though many callers may not be substantially affected.
+   
+   Major changes that may affect some callers that use `bytesize`
+   through `gix-features` include the removal of the top-level
+   `bytesize::to_string()` function, the change in default behavior
+   from displaying decimal SI units to displaying binary IEC units
+   (though all or most gitoxide-related creates, in adapting to the
+   changes, have thus far opted to continue using decimal SI units),
+   and the small but UI-facing change that decimal SI kilobytes
+   (units of 1000 bytes) are given with the symbol "kB" rather than
+   the more ambiguous (and arguably less accurate) symbol "KB".
+   
+   In addition to republishing `bytesize`, `gix-features` also
+   republishes `prodash`. Futhermore, some uses of `bytesize` are
+   transitively through `prodash`, which itself has recently received
+   an update to use `bytesize` major version 2. (Since `prodash` does
+   not republish `bytesize`, that is not considered to be a breaking
+   change in `prodash` itself.) To get the benefits of the newer
+   version of `bytesize` while avoiding new inconsistencies, and also
+   to avoid depending on multiple versions of `bytesize`, the
+   `prodash` dependency version has also been upgraded.
+   
+   For more information, see:
+   
+   - https://github.com/GitoxideLabs/gitoxide/discussions/1952
+- https://github.com/bytesize-rs/bytesize/releases/tag/bytesize-v2.0.0
+- https://github.com/GitoxideLabs/gitoxide/pull/1949
+- https://github.com/Byron/prodash/pull/33
+- https://github.com/GitoxideLabs/gitoxide/pull/1953
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 19 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`2eb2d6b`](https://github.com/GitoxideLabs/gitoxide/commit/2eb2d6b1fa83c7187bdef86f7014fbf52ea8dcb2))
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Thanks clippy ([`6f009d7`](https://github.com/GitoxideLabs/gitoxide/commit/6f009d781da9e931d44b113a925a80e77e8788af))
+    - Merge pull request #1968 from GitoxideLabs/dependabot/cargo/cargo-bd18780e40 ([`46227e6`](https://github.com/GitoxideLabs/gitoxide/commit/46227e6d1ddc0879662730e5bb21a8597716b1ca))
+    - Bump the cargo group with 40 updates ([`06bf1e1`](https://github.com/GitoxideLabs/gitoxide/commit/06bf1e1552de65ce692911bdc4c501d487bbc3d7))
+    - Merge pull request #1963 from joshtriplett/zlib-rs-default ([`9e075b9`](https://github.com/GitoxideLabs/gitoxide/commit/9e075b99ffc79173d4052d7550fd1d2826c5ec71))
+    - Switch to zlib-rs by default and drop other zlib backends ([`96164c5`](https://github.com/GitoxideLabs/gitoxide/commit/96164c5936032b4edb973828178cc55793dd57cc))
+    - Merge pull request #1960 from joshtriplett/zlib-rs ([`f3684a4`](https://github.com/GitoxideLabs/gitoxide/commit/f3684a4f67f98c0e3884e2d348cb092f48ca443a))
+    - Fix documentation of zlib-rs feature: no longer conflicts with other zlibs ([`8ece02a`](https://github.com/GitoxideLabs/gitoxide/commit/8ece02aeda4b3044dd68dd8a6c20ea4ee4ed1bda))
+    - Merge pull request #1957 from EliahKagan/run-ci/versioning ([`5823b22`](https://github.com/GitoxideLabs/gitoxide/commit/5823b22bfcd30123b6859ec9dc62c62ce0737f72))
+    - `gix-features` uses and republishes `bytesize` version 2 ([`7882907`](https://github.com/GitoxideLabs/gitoxide/commit/788290717da8ec396635aec386af99e1917bf3a0))
+    - Merge pull request #1953 from GitoxideLabs/dependabot/cargo/cargo-4a3cda0de8 ([`3aec7fb`](https://github.com/GitoxideLabs/gitoxide/commit/3aec7fbac52377bdeebc49759d4e0420b18b4e81))
+    - Bump the cargo group with 3 updates ([`9f1fbc7`](https://github.com/GitoxideLabs/gitoxide/commit/9f1fbc741e1b6c718c7787f2858e07f3bd5473e9))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1944 from GitoxideLabs/dependabot/cargo/cargo-ea4584273b ([`79dabb0`](https://github.com/GitoxideLabs/gitoxide/commit/79dabb0a062a795b1dc5c9c840d67474dc6b343b))
+    - Bump crossbeam-channel from 0.5.14 to 0.5.15 in the cargo group ([`1792178`](https://github.com/GitoxideLabs/gitoxide/commit/1792178cbed5abf4782370bc46207a8c5d113615))
+    - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
+</details>
+
 ## 0.41.1 (2025-04-06)
 
 ### Bug Fixes
@@ -22,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release over the course of 2 calendar days.
+ - 5 commits contributed to the release over the course of 2 calendar days.
  - 2 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)
@@ -36,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)**
     - Make `fs::walkdir_sorted_new()` sort entries by paths literally ([`38b63c2`](https://github.com/GitoxideLabs/gitoxide/commit/38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad))
  * **Uncategorized**
+    - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
     - Merge pull request #1931 from yuja/push-klrqpplwxrkx ([`7502b4a`](https://github.com/GitoxideLabs/gitoxide/commit/7502b4abde6196b982cf66344c0df992e99493cb))
     - Refactor ([`7e6e751`](https://github.com/GitoxideLabs/gitoxide/commit/7e6e7518c78ba925382c0d4654b9e11b4cd641e9))
     - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))

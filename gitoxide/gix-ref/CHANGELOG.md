@@ -5,6 +5,84 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Bug Fixes
+
+ - <csr-id-b07f907ba2e01849744c72df35dac57b624f2f85/> Adapt to changes in gix-actor
+   Use the committer date and author date that are now backed by bytes and
+   interpret these bytes into a `gix_date::Time` on demand.
+ - <csr-id-38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad/> make `fs::walkdir_sorted_new()` sort entries by paths literally
+   This follows up 7b1b5bf864e74706aefeb1213e8bdb0545d5464a. Since packed-refs
+   appears to be sorted by full ref name, loose-refs should also be emitted in
+   that order.
+   
+   The comparison function is copied from gix::diff::object::tree::EntryRef.
+   Non-utf8 file names are simply mapped to "" on Windows. We could add some
+   fallback, but callers can't handle such file names anyway.
+
+### New Features (BREAKING)
+
+ - <csr-id-108a8ca9cbc808499cc943208e2bca638362a743/> Use `&RelativePath` in `*::prefixed()` methods.
+   That way there now is a type to capture requirements.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-f5385595987e0be84fb56827682df013bf54e09c/> prefixed ref iteration now properly deals with slashes.
+   Previously, `refs/heads/foo/bar` would be listed when running
+   `repo.references()?.prefixed("refs/heads/b")`. The code identified that
+   the last component was not a directory and started to match it as a
+   filename prefix for all files in all recursive directories, effectively
+   matching `refs/heads/**/b*`.
+   
+   This commit fixes that bug but also allows to use a trailing `/` in the
+   prefix, allowing to filter for `refs/heads/foo/` and not get
+   `refs/heads/foo-bar` as a result.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 26 commits contributed to the release.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)**
+    - Make `fs::walkdir_sorted_new()` sort entries by paths literally ([`38b63c2`](https://github.com/GitoxideLabs/gitoxide/commit/38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad))
+    - Add minimal test for sorting issues of loose refs ([`c151b8d`](https://github.com/GitoxideLabs/gitoxide/commit/c151b8d2c4a36db76e8a63729e5b42584abbbb6d))
+ * **Uncategorized**
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
+    - Apply feedback from discussion ([`70097c0`](https://github.com/GitoxideLabs/gitoxide/commit/70097c0feb481541ed96358842de96d6b1af24a9))
+    - Adapt to changes in gix-actor ([`b07f907`](https://github.com/GitoxideLabs/gitoxide/commit/b07f907ba2e01849744c72df35dac57b624f2f85))
+    - Merge pull request #1968 from GitoxideLabs/dependabot/cargo/cargo-bd18780e40 ([`46227e6`](https://github.com/GitoxideLabs/gitoxide/commit/46227e6d1ddc0879662730e5bb21a8597716b1ca))
+    - Bump the cargo group with 40 updates ([`06bf1e1`](https://github.com/GitoxideLabs/gitoxide/commit/06bf1e1552de65ce692911bdc4c501d487bbc3d7))
+    - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
+    - Refactor ([`294902e`](https://github.com/GitoxideLabs/gitoxide/commit/294902e0dbc350a33a0e54164eed626720c1a1d7))
+    - Use `&RelativePath` in `*::prefixed()` methods. ([`108a8ca`](https://github.com/GitoxideLabs/gitoxide/commit/108a8ca9cbc808499cc943208e2bca638362a743))
+    - Merge pull request #1957 from EliahKagan/run-ci/versioning ([`5823b22`](https://github.com/GitoxideLabs/gitoxide/commit/5823b22bfcd30123b6859ec9dc62c62ce0737f72))
+    - Adapt `Cargo.toml` files in workspace to `gix-features` bump ([`6315536`](https://github.com/GitoxideLabs/gitoxide/commit/63155368cc5074328314f1b3f565e5813df725cf))
+    - Merge pull request #1954 from GitoxideLabs/fix-recursive-list-refs-prefix ([`71275d1`](https://github.com/GitoxideLabs/gitoxide/commit/71275d16b6a3a22b5e6e33f441d50fc6d44ff20e))
+    - Prefixed ref iteration now properly deals with slashes. ([`f538559`](https://github.com/GitoxideLabs/gitoxide/commit/f5385595987e0be84fb56827682df013bf54e09c))
+    - Fix ci failures ([`57c9014`](https://github.com/GitoxideLabs/gitoxide/commit/57c9014d4f17f00ceb7fd2e3ca6b80f081af3356))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Use Into<Cow<>> ([`507d682`](https://github.com/GitoxideLabs/gitoxide/commit/507d682c08dcda29f044068c13ce87678c1b2a5e))
+    - Rename prefix test branches ([`94faf51`](https://github.com/GitoxideLabs/gitoxide/commit/94faf5199a32a99348230c2ea4bc8c2b06319360))
+    - Handle trailing slash in ref list prefix filtering ([`3ca6811`](https://github.com/GitoxideLabs/gitoxide/commit/3ca6811418275c4ebede0993b9741e804e81094b))
+    - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
+    - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
+    - Merge pull request #1931 from yuja/push-klrqpplwxrkx ([`7502b4a`](https://github.com/GitoxideLabs/gitoxide/commit/7502b4abde6196b982cf66344c0df992e99493cb))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+</details>
+
 ## 0.51.0 (2025-04-04)
 
 <csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/>
@@ -21,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 17 commits contributed to the release.
+ - 18 commits contributed to the release.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)
 
@@ -40,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)**
     - Reproduce the overlay-iterator issue causing double-refs. ([`a06c409`](https://github.com/GitoxideLabs/gitoxide/commit/a06c409d58fac109eb3d28436d4394d6e54a59f2))
  * **Uncategorized**
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1851 from GitoxideLabs/fix-1850 ([`cd96b64`](https://github.com/GitoxideLabs/gitoxide/commit/cd96b6439d119c5189a8e7349d2e7e2533db41b5))
     - Adjust expectations according to changed sort-order ([`56ba898`](https://github.com/GitoxideLabs/gitoxide/commit/56ba8986675b6f3c3032fd48a3498a10c63d65aa))

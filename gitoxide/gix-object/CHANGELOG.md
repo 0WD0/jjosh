@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-c97d1d4e350db9d1499fb58db13afe8ffc9ebae6/> Store the raw time in Commit
+ - <csr-id-5bfc2f540aac5be997159e93783d56ed147b0a2f/> Allow round-tripping for Trees
+   Change the internal representation of `EntryMode` to fix a round-trip
+   issue.
+   
+   Prior to this change, both `b"040000"` and `b"40000"` mapped to
+   `0o40000u16`.
+   
+   After this change,
+   * `b"040000"` is represented by `0o140000`
+   * `b"40000"` is represented by `0o40000`
+ - <csr-id-a168807b2d354bdcd51f1c4758d2407dab98362f/> Hide the internal representation of EntryMode
+   Change the gix-object API so that client code can't explicitely rely on
+   the internal representation of `EntryMode`.
+   
+   This is necessary as we need to change it to allow round-trip behaviour
+   for modes like `b"040000"` and `b"40000"` which currently share the
+     `0o40000u16` representation.
+   
+   Use the opportunity to sprinkle a couple of optimizations in the parsing
+   of the EntryMode since we had to go deep in understanding this code
+   anyway, so may as well. Mostly, don't `reverse` the bytes when parsing.
+   
+   ```
+   TreeRefIter()           time:   [46.251 ns 46.390 ns 46.549 ns]
+                           change: [-17.685% -16.512% -15.664%] (p = 0.00 < 0.05)
+                           Performance has improved.
+   Found 1 outliers among 100 measurements (1.00%)
+   ```
+   
+   Also add a test that shows the current incorrect behaviour.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 20 commits contributed to the release.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1917](https://github.com/GitoxideLabs/gitoxide/issues/1917)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1917](https://github.com/GitoxideLabs/gitoxide/issues/1917)**
+    - Refactor ([`103819d`](https://github.com/GitoxideLabs/gitoxide/commit/103819dbe2d86790a6ac4c6be3f21e5d4455dfd2))
+ * **Uncategorized**
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
+    - Apply feedback from discussion ([`70097c0`](https://github.com/GitoxideLabs/gitoxide/commit/70097c0feb481541ed96358842de96d6b1af24a9))
+    - Store the raw time in Commit ([`c97d1d4`](https://github.com/GitoxideLabs/gitoxide/commit/c97d1d4e350db9d1499fb58db13afe8ffc9ebae6))
+    - Merge pull request #1968 from GitoxideLabs/dependabot/cargo/cargo-bd18780e40 ([`46227e6`](https://github.com/GitoxideLabs/gitoxide/commit/46227e6d1ddc0879662730e5bb21a8597716b1ca))
+    - Bump the cargo group with 40 updates ([`06bf1e1`](https://github.com/GitoxideLabs/gitoxide/commit/06bf1e1552de65ce692911bdc4c501d487bbc3d7))
+    - Merge pull request #1957 from EliahKagan/run-ci/versioning ([`5823b22`](https://github.com/GitoxideLabs/gitoxide/commit/5823b22bfcd30123b6859ec9dc62c62ce0737f72))
+    - Adapt `Cargo.toml` files in workspace to `gix-features` bump ([`6315536`](https://github.com/GitoxideLabs/gitoxide/commit/63155368cc5074328314f1b3f565e5813df725cf))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
+    - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
+    - Merge pull request #1922 from pierrechevalier83/make_email_with_spaces_roundtrip ([`c13a403`](https://github.com/GitoxideLabs/gitoxide/commit/c13a403e8f306430220c209b1024d408c3c0a4f8))
+    - Adapt to changes in gix-actor. ([`38e1055`](https://github.com/GitoxideLabs/gitoxide/commit/38e1055ae8b7d9ab630f70d5e1e50928ab7cda83))
+    - Merge pull request #1917 from pierrechevalier83/issue_1887 ([`6307f57`](https://github.com/GitoxideLabs/gitoxide/commit/6307f571f969eb7ff2490e4c68dc7994fb2fecac))
+    - Allow round-tripping for Trees ([`5bfc2f5`](https://github.com/GitoxideLabs/gitoxide/commit/5bfc2f540aac5be997159e93783d56ed147b0a2f))
+    - Hide the internal representation of EntryMode ([`a168807`](https://github.com/GitoxideLabs/gitoxide/commit/a168807b2d354bdcd51f1c4758d2407dab98362f))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+</details>
+
 ## 0.48.0 (2025-04-04)
 
 <csr-id-866affde8ef17f201884b8a4b36cc4c7f449d6fe/>
@@ -79,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 33 commits contributed to the release.
+ - 34 commits contributed to the release.
  - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -96,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1915 from emilazy/push-qvyqmopsoltr ([`4660f7a`](https://github.com/GitoxideLabs/gitoxide/commit/4660f7a6f71873311f68f170b0f1f6659a02829d))
     - Refactor ([`4501086`](https://github.com/GitoxideLabs/gitoxide/commit/4501086adc544e675b3043c4c23b78a6c6711d8b))
