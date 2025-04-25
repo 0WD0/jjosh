@@ -5,6 +5,7 @@ mod _ref {
 
     use crate::{signature::decode, IdentityRef, Signature, SignatureRef};
 
+    /// Lifecycle
     impl<'a> SignatureRef<'a> {
         /// Deserialize a signature from the given `data`.
         pub fn from_bytes<E>(mut data: &'a [u8]) -> Result<SignatureRef<'a>, winnow::error::ErrMode<E>>
@@ -15,15 +16,18 @@ mod _ref {
         }
 
         /// Create an owned instance from this shared one.
-        pub fn to_owned(&self) -> Signature {
-            Signature {
+        pub fn to_owned(&self) -> Result<Signature, gix_date::parse::Error> {
+            Ok(Signature {
                 name: self.name.to_owned(),
                 email: self.email.to_owned(),
-                time: Time::from_bytes(self.time).expect("Time must be valid"),
-            }
+                time: self.time()?,
+            })
         }
+    }
 
-        /// Trim whitespace surrounding the name and email and return a new signature.
+    /// Access
+    impl<'a> SignatureRef<'a> {
+        /// Trim the whitespace surrounding the `name`, `email` and `time` and return a new signature.
         pub fn trim(&self) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.trim().as_bstr(),
@@ -32,22 +36,40 @@ mod _ref {
             }
         }
 
-        /// Return the actor's name and email, effectively excluding the time stamp of this signature.
+        /// Return the actor's name and email, effectively excluding the timestamp of this signature.
         pub fn actor(&self) -> IdentityRef<'a> {
             IdentityRef {
                 name: self.name,
                 email: self.email,
             }
         }
+
+        /// Parse only the seconds since unix epoch from the `time` field, or silently default to 0
+        /// if parsing fails. Note that this ignores the timezone, so it can parse otherwise broken dates.
+        ///
+        /// For a fallible and more complete, but slower version, use [`time()`](Self::time).
+        pub fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
+            use winnow::stream::AsChar;
+            self.time
+                .trim()
+                .split(|b| b.is_space())
+                .next()
+                .and_then(|i| i.to_str().ok()?.parse().ok())
+                .unwrap_or_default()
+        }
+
+        /// Parse the `time` field for access to the passed time since unix epoch, and the time offset.
+        pub fn time(&self) -> Result<gix_date::Time, gix_date::parse::Error> {
+            Time::from_bytes(self.time)
+        }
     }
 }
 
 mod convert {
     use crate::{Signature, SignatureRef};
-    use gix_date::Time;
 
     impl Signature {
-        /// Borrow this instance as immutable
+        /// Borrow this instance as immutable, serializing the `time` field into `buf`.
         pub fn to_ref<'a>(&'a self, buf: &'a mut Vec<u8>) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.as_ref(),
@@ -57,14 +79,11 @@ mod convert {
         }
     }
 
-    impl From<SignatureRef<'_>> for Signature {
-        fn from(other: SignatureRef<'_>) -> Signature {
-            let SignatureRef { name, email, time } = other;
-            Signature {
-                name: name.to_owned(),
-                email: email.to_owned(),
-                time: Time::from_bytes(time).expect("Time must be valid"),
-            }
+    impl TryFrom<SignatureRef<'_>> for Signature {
+        type Error = gix_date::parse::Error;
+
+        fn try_from(other: SignatureRef<'_>) -> Result<Signature, Self::Error> {
+            other.to_owned()
         }
     }
 }

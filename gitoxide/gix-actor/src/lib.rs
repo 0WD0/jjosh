@@ -13,7 +13,7 @@
 ///
 /// For convenience to allow using `bstr` without adding it to own cargo manifest.
 pub use bstr;
-use bstr::{BStr, BString, ByteSlice};
+use bstr::{BStr, BString};
 /// The re-exported `gix-date` crate.
 ///
 /// For convenience to allow using `gix-date` without adding it to own cargo manifest.
@@ -52,7 +52,7 @@ pub struct IdentityRef<'a> {
     pub email: &'a BStr,
 }
 
-/// A mutable signature is created by an actor at a certain time.
+/// A mutable signature that is created by an actor at a certain time.
 ///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
@@ -70,13 +70,7 @@ pub struct Signature {
     pub time: date::Time,
 }
 
-impl Signature {
-    /// Seconds since unix epoch from the time
-    pub fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
-        self.time.seconds
-    }
-}
-/// A immutable signature is created by an actor at a certain time.
+/// An immutable signature that is created by an actor at a certain time.
 ///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -93,17 +87,4 @@ pub struct SignatureRef<'a> {
     pub email: &'a BStr,
     /// The time stamp at which the signature was performed.
     pub time: &'a BStr,
-}
-
-impl SignatureRef<'_> {
-    /// Seconds since unix epoch from the time
-    pub fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
-        use winnow::stream::AsChar;
-        self.time
-            .split(|b| b.is_space())
-            .next()
-            .and_then(|i| i.to_str().ok())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Default::default())
-    }
 }

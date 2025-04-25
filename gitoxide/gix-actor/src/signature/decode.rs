@@ -81,11 +81,11 @@ pub use function::identity;
 #[cfg(test)]
 mod tests {
     mod parse_signature {
+        use crate::{signature, SignatureRef};
         use bstr::ByteSlice;
+        use gix_date::time::Sign;
         use gix_testtools::to_bstr_err;
         use winnow::prelude::*;
-
-        use crate::{signature, SignatureRef};
 
         fn decode<'i>(
             i: &mut &'i [u8],
@@ -103,12 +103,22 @@ mod tests {
 
         #[test]
         fn tz_minus() {
+            let actual = decode
+                .parse_peek(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0230")
+                .expect("parse to work")
+                .1;
             assert_eq!(
-                decode
-                    .parse_peek(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0230")
-                    .expect("parse to work")
-                    .1,
+                actual,
                 signature("Sebastian Thiel", "byronimo@gmail.com", "1528473343 -0230")
+            );
+            assert_eq!(actual.seconds(), 1528473343);
+            assert_eq!(
+                actual.time().expect("valid"),
+                gix_date::Time {
+                    seconds: 1528473343,
+                    offset: -9000,
+                    sign: Sign::Minus
+                }
             );
         }
 

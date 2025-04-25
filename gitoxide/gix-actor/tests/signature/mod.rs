@@ -65,7 +65,10 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for input in DEFAULTS {
-        let signature: Signature = gix_actor::SignatureRef::from_bytes::<()>(input).unwrap().into();
+        let signature: Signature = gix_actor::SignatureRef::from_bytes::<()>(input)
+            .unwrap()
+            .try_into()
+            .unwrap();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
