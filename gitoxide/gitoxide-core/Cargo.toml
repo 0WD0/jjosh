@@ -56,7 +56,7 @@ gix-archive-for-configuration-only = { package = "gix-archive", version = "^0.20
 gix-status = { version = "^0.18.0", path = "../gix-status" }
 gix-fsck = { version = "^0.10.0", path = "../gix-fsck" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
-anyhow = "1.0.42"
+anyhow = "1.0.98"
 thiserror = "2.0.0"
 bytesize = "2.0.1"
 tempfile = "3.19.1"
@@ -79,7 +79,7 @@ crossbeam-channel = { version = "0.5.15", optional = true }
 smallvec = { version = "1.15.0", optional = true }
 
 # for 'query' and 'corpus'
-rusqlite = { version = "0.34.0", optional = true, features = ["bundled"] }
+rusqlite = { version = "0.35.0", optional = true, features = ["bundled"] }
 
 # for 'corpus'
 parking_lot = { version = "0.12.1", optional = true }
@@ -90,7 +90,7 @@ tracing-subscriber = { version = "0.3.17", optional = true }
 tracing = { version = "0.1.37", optional = true }
 
 # for svg graph output
-layout-rs = "0.1.1"
+layout-rs = "0.1.3"
 open = "5.0.0"
 
 document-features = { version = "0.2.0", optional = true }
