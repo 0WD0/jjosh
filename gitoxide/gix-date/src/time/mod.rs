@@ -40,13 +40,3 @@ impl From<CustomFormat> for Format {
 pub mod format;
 mod init;
 mod write;
-
-mod impls {
-    use crate::Time;
-
-    impl Default for Time {
-        fn default() -> Self {
-            Time { seconds: 0, offset: 0 }
-        }
-    }
-}

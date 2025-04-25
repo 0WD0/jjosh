@@ -66,10 +66,7 @@ impl gix_fs::stack::Delegate for Delegate {
             }
 
             if stack.current().symlink_metadata()?.is_symlink() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Cannot step through symlink to perform an lstat",
-                ));
+                return Err(std::io::Error::other("Cannot step through symlink to perform an lstat"));
             }
             Ok(())
         }

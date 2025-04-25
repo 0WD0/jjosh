@@ -57,8 +57,9 @@ impl Engine {
         let repos = self.refresh_repos(&corpus_path, corpus_id)?;
         self.state.progress.set_name("refresh repos".into());
         self.state.progress.info(format!(
-            "Added or updated {} repositories under {corpus_path:?}",
-            repos.len()
+            "Added or updated {} repositories under '{corpus_path}'",
+            repos.len(),
+            corpus_path = corpus_path.display(),
         ));
         Ok(())
     }
@@ -316,7 +317,7 @@ impl Engine {
                                 out.push(repo);
                                 progress.inc();
                             }
-                            Err(err) => progress.fail(format!("{repo_path:?}: {err:#?}")),
+                            Err(err) => progress.fail(format!("{repo_path}: {err:#?}", repo_path = repo_path.display())),
                         }
                     }
                     statement.finalize()?;

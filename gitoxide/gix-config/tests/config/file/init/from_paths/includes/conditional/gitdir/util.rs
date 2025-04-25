@@ -142,8 +142,8 @@ pub fn assert_section_value(
             Some(Value::Override) => Some(cow_str("override-value")),
             None => None,
         },
-        "gix-config disagrees with the expected value, {:?} for debugging",
-        env.tempdir.into_path()
+        "gix-config disagrees with the expected value, {} for debugging",
+        env.tempdir.into_path().display()
     );
     assure_git_agrees(expected, env)
 }
@@ -171,9 +171,9 @@ fn assure_git_agrees(expected: Option<Value>, env: GitEnv) -> crate::Result {
     assert_eq!(
         output.status.success(),
         expected.is_some(),
-        "{:?}, {:?} for debugging",
+        "{:?}, {} for debugging",
         output,
-        env.tempdir.into_path()
+        env.tempdir.into_path().display()
     );
     let git_output: BString = output.stdout.trim_end().into();
     assert_eq!(

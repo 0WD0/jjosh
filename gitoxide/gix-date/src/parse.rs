@@ -218,7 +218,7 @@ pub(crate) mod function {
             Ok(s) => s,
             Err(_err) => {
                 // Inefficient, but it's not the common case.
-                let first_digits: String = seconds.chars().take_while(|b| b.is_ascii_digit()).collect();
+                let first_digits: String = seconds.chars().take_while(char::is_ascii_digit).collect();
                 first_digits.parse().ok()?
             }
         };

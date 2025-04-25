@@ -575,7 +575,7 @@ where
                     },
                     &mut |buf| Ok(self.objects.find_blob(self.id, buf).map(|_| Some(()))?),
                 )
-                .map_err(|err| Error::Io(io::Error::new(io::ErrorKind::Other, err).into()))?;
+                .map_err(|err| Error::Io(io::Error::other(err).into()))?;
             let len = match out {
                 ToGitOutcome::Unchanged(_) => Some(self.file_len),
                 ToGitOutcome::Process(_) | ToGitOutcome::Buffer(_) => None,

@@ -44,8 +44,8 @@ pub(crate) mod function {
         if repo.is_bare() {
             writeln!(
                 err,
-                "Repo {:?} is bare - disabling git-ignore baseline as `git check-ignore` needs a worktree",
-                repo.path()
+                "Repo at '{repo}' is bare - disabling git-ignore baseline as `git check-ignore` needs a worktree",
+                repo = repo.path().display()
             )
             .ok();
             ignore = false;

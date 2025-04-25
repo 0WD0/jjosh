@@ -403,7 +403,7 @@ pub fn copy_recursively_into_existing_dir(src_dir: impl AsRef<Path>, dst_dir: im
             ..Default::default()
         },
     )
-    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+    .map_err(std::io::Error::other)?;
     Ok(())
 }
 
@@ -474,8 +474,9 @@ fn scripted_fixture_read_only_with_args_inner(
                 let mut crc_digest = crc_value.digest();
                 crc_digest.update(&std::fs::read(&script_path).unwrap_or_else(|err| {
                     panic!(
-                        "file {script_path:?} in CWD {:?} could not be read: {err}",
-                        env::current_dir().expect("valid cwd"),
+                        "file {script_path} in CWD '{cwd}' could not be read: {err}",
+                        cwd = env::current_dir().expect("valid cwd").display(),
+                        script_path = script_path.display(),
                     )
                 }));
                 for arg in &args {
@@ -537,7 +538,10 @@ fn scripted_fixture_read_only_with_args_inner(
     let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
     if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
         if failure_marker.is_file() {
-            std::fs::remove_dir_all(&script_result_directory).map_err(|err| format!("Failed to remove '{script_result_directory:?}', please try to do that by hand. Original error: {err}"))?;
+            std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
+                format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                        script_result_directory = script_result_directory.display())
+            })?;
         }
         std::fs::create_dir_all(&script_result_directory)?;
         let script_identity_for_archive = match args_in_hash {
@@ -560,7 +564,11 @@ fn scripted_fixture_read_only_with_args_inner(
             Err(err) => {
                 if err.kind() != std::io::ErrorKind::NotFound {
                     eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
-                    std::fs::remove_dir_all(&script_result_directory).map_err(|err| format!("Failed to remove '{script_result_directory:?}', please try to do that by hand. Original error: {err}"))?;
+                    std::fs::remove_dir_all(&script_result_directory)
+                        .map_err(|err| {
+                            format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                                    script_result_directory = script_result_directory.display())
+                        })?;
                     std::fs::create_dir_all(&script_result_directory)?;
                 } else if !is_excluded(&archive_file_path) {
                     eprintln!(
@@ -574,11 +582,11 @@ fn scripted_fixture_read_only_with_args_inner(
                 let output = match configure_command(&mut cmd, &args, &script_result_directory).output() {
                     Ok(out) => out,
                     Err(err)
-                        if err.kind() == std::io::ErrorKind::PermissionDenied || err.raw_os_error() == Some(193) /* windows */ =>
-                    {
-                        cmd = std::process::Command::new(bash_program());
-                        configure_command(cmd.arg(script_absolute_path), &args, &script_result_directory).output()?
-                    }
+                    if err.kind() == std::io::ErrorKind::PermissionDenied || err.raw_os_error() == Some(193) /* windows */ =>
+                        {
+                            cmd = std::process::Command::new(bash_program());
+                            configure_command(cmd.arg(script_absolute_path), &args, &script_result_directory).output()?
+                        }
                     Err(err) => return Err(err.into()),
                 };
                 if !output.status.success() {
@@ -830,13 +838,10 @@ fn extract_archive(
         #[cfg_attr(feature = "xz", allow(unused_mut))]
         let mut input_archive = std::fs::File::open(archive)?;
         if env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "Ignoring archive at '{}' as GIX_TEST_IGNORE_ARCHIVES is set.",
-                    archive.display()
-                ),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Ignoring archive at '{}' as GIX_TEST_IGNORE_ARCHIVES is set.",
+                archive.display()
+            )));
         }
         #[cfg(feature = "xz")]
         {
@@ -868,17 +873,12 @@ fn extract_archive(
                 None
             }
         })
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "BUG: Could not find meta directory in our own archive",
-            )
-        })
+        .ok_or_else(|| std::io::Error::other("BUG: Could not find meta directory in our own archive"))
         .map_err(|err| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Could not extract archive at '{archive:?}': {err}"),
-            )
+            std::io::Error::other(format!(
+                "Could not extract archive at '{archive}': {err}",
+                archive = archive.display()
+            ))
         })?;
     if archive_identity != required_script_identity {
         eprintln!(

@@ -94,9 +94,11 @@ mod baseline {
 
         let ctx = action.context_mut().expect("get/fill");
         ctx.destructure_url_in_place(cascade.use_http_path).unwrap();
-        let expected_prompt = lowercase_prompt_host
-            .then(|| expected.prompt_url.to_ascii_lowercase())
-            .unwrap_or_else(|| expected.prompt_url.to_owned());
+        let expected_prompt = if lowercase_prompt_host {
+            expected.prompt_url.to_ascii_lowercase()
+        } else {
+            expected.prompt_url.to_owned()
+        };
         if ignore_expected_prompt_port {
             assert_eq!(
                 ctx.to_url().expect("parts complete"),

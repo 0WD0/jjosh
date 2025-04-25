@@ -165,7 +165,7 @@ impl super::Store {
             }
             if previous_state_id == index.state_id() {
                 let potentially_new_index = self.index.load();
-                if Arc::as_ptr(&potentially_new_index) == Arc::as_ptr(&index) {
+                if std::ptr::eq(Arc::as_ptr(&potentially_new_index), Arc::as_ptr(&index)) {
                     // There isn't a new index with which to retry the whole ordeal, so nothing could be done here.
                     return false;
                 } else {
@@ -392,9 +392,11 @@ impl super::Store {
                 next_index_to_load: index_unchanged
                     .then(|| Arc::clone(&index.next_index_to_load))
                     .unwrap_or_default(),
-                loaded_indices: index_unchanged
-                    .then(|| Arc::clone(&index.loaded_indices))
-                    .unwrap_or_else(|| Arc::new(num_loaded_indices.into())),
+                loaded_indices: if index_unchanged {
+                    Arc::clone(&index.loaded_indices)
+                } else {
+                    Arc::new(num_loaded_indices.into())
+                },
                 num_indices_currently_being_loaded: Default::default(),
             });
             self.index.store(new_index);

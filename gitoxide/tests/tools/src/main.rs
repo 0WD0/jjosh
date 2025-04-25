@@ -5,7 +5,7 @@ fn bash_program() -> io::Result<()> {
     if !std::io::stdout().is_terminal() {
         eprintln!("warning: `bash-program` subcommand not meant for scripting, format may change");
     }
-    println!("{:?}", gix_testtools::bash_program());
+    println!("{}", gix_testtools::bash_program().display());
     Ok(())
 }
 

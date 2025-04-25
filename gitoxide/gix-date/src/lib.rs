@@ -17,7 +17,7 @@ pub use parse::function::parse;
 pub use parse::function::parse_header;
 
 /// A timestamp with timezone.
-#[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
+#[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Time {
     /// The seconds that have passed since UNIX epoch. This makes it UTC, or `<seconds>+0000`.

@@ -294,7 +294,7 @@ fn receive_pack_blocking(
         None::<gix::objs::find::Never>,
         options,
     )
-    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    .map_err(io::Error::other)?;
 
     if let Some(directory) = refs_directory.take() {
         write_raw_refs(refs, directory)?;
