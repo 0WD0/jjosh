@@ -33,6 +33,7 @@ fn is_set() {
 
 mod write_to {
     use bstr::ByteSlice;
+    use gix_date::parse::TimeBuf;
     use gix_date::time::Sign;
     use gix_date::{SecondsSinceUnixEpoch, Time};
 
@@ -139,6 +140,19 @@ mod write_to {
             let actual = gix_date::parse(&output.as_bstr().to_string(), None).expect("round-trippable");
             assert_eq!(time, actual);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn max() -> gix_testtools::Result {
+        let mut buf = TimeBuf::default();
+        Time::MAX.write_to(&mut buf)?;
+        assert_eq!(Time::MAX.size(), 25, "The largest possible serialized size");
+
+        let expected = "9223372036854775807 +9959";
+        assert_eq!(buf.as_str(), expected);
+        assert_eq!(buf.as_str().len(), Time::MAX.size());
+        assert_eq!(Time::MAX.to_str(&mut buf), expected);
         Ok(())
     }
 }

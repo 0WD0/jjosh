@@ -57,9 +57,9 @@ fn git_rfc2822() {
 }
 
 #[test]
-fn raw() {
+fn raw() -> gix_testtools::Result {
     assert_eq!(
-        gix_date::parse("1660874655 +0800", None).unwrap(),
+        gix_date::parse("1660874655 +0800", None)?,
         Time {
             seconds: 1660874655,
             offset: 28800,
@@ -68,7 +68,7 @@ fn raw() {
     );
 
     assert_eq!(
-        gix_date::parse("1112911993 +0100", None).unwrap(),
+        gix_date::parse("1112911993 +0100", None)?,
         Time {
             seconds: 1112911993,
             offset: 3600,
@@ -77,16 +77,17 @@ fn raw() {
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051800", None).unwrap(),
+        gix_date::parse("1313584730 +051800", None)?,
         Time {
             seconds: 1313584730,
             offset: 19080,
             sign: Sign::Plus,
         },
+        "seconds for time-offsets work as well"
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051842", None).unwrap(),
+        gix_date::parse("1313584730 +051842", None)?,
         Time {
             seconds: 1313584730,
             offset: 19122,
@@ -108,8 +109,9 @@ fn raw() {
         "1660874655\t-0800",
         "1660874655\t-080000",
     ] {
-        assert_eq!(gix_date::parse(date_str, None).unwrap(), expected);
+        assert_eq!(gix_date::parse(date_str, None)?, expected);
     }
+    Ok(())
 }
 
 #[test]
@@ -144,7 +146,7 @@ fn double_negation_in_offset() {
     );
 
     assert_eq!(
-        actual.to_bstring(),
+        actual.to_string(),
         "1288373970 -0700",
         "serialization corrects the issue"
     );
@@ -199,8 +201,6 @@ mod relative {
     #[test]
     fn various() {
         let now = SystemTime::now();
-
-        // For comparison, a few are the same as in: https://github.com/git/git/blob/master/t/t0006-date.sh
         let cases = [
             ("5 seconds ago", 5.seconds()),
             ("12345 florx ago", 12_345.seconds()), // Anything parses as seconds
@@ -282,6 +282,55 @@ mod relative {
             (input, actual)
         });
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn various_examples() {
+        #[rustfmt::skip]
+        let expected = [
+        // ### 1. SHORT Format
+            "2018-12-24",
+            "1950-01-01",
+            "1970-01-01",
+            "2024-12-31",
+
+        // ### 2. RFC2822 Format
+            "Thu, 18 Aug 2022 12:45:06 +0800",
+            "Mon Oct 27 10:30:00 2023 -0800",
+
+        // ### 3. GIT_RFC2822 Format
+            "Thu, 8 Aug 2022 12:45:06 +0800",
+            "Mon Oct 27 10:30:00 2023 -0800",
+
+        // ### 4. ISO8601 Format
+            "2022-08-17 22:04:58 +0200",
+            "1970-01-01 00:00:00 -0500",
+
+        // ### 5. ISO8601_STRICT Format
+            "2022-08-17T21:43:13+08:00",
+
+        // ### 6. UNIX Timestamp (Seconds Since Epoch)
+            "123456789",
+            "0",
+            "-100",
+            "1700000000",
+
+
+        // ### 7. RAW Format
+            "1745582210 +0200",
+            "1660874655 +0800",
+            "-1660874655 +0800",
+        // ### 8. GITOXIDE Format
+            "Thu Sep 04 2022 10:45:06 -0400",
+            "Mon Oct 27 2023 10:30:00 +0000",
+        // ### 9. DEFAULT Format
+            "Thu Sep 4 10:45:06 2022 -0400",
+            "Mon Oct 27 10:30:00 2023 +0000",
+        ];
+        for date in expected {
+            _ = gix_date::parse(date, None)
+                .unwrap_or_else(|err| unreachable!("{date}: all examples can be parsed: {err}"));
+        }
     }
 }
 

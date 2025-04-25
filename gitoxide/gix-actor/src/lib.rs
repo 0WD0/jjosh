@@ -6,8 +6,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg, doc_auto_cfg))]
-#![deny(missing_docs, rust_2018_idioms)]
-#![forbid(unsafe_code)]
+#![deny(missing_docs, rust_2018_idioms, unsafe_code)]
 
 /// The re-exported `bstr` crate.
 ///
@@ -85,6 +84,6 @@ pub struct SignatureRef<'a> {
     ///
     /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: &'a BStr,
-    /// The time stamp at which the signature was performed.
-    pub time: &'a BStr,
+    /// The timestamp at which the signature was performed.
+    pub time: &'a str,
 }

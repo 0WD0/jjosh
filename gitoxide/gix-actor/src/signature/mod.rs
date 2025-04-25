@@ -1,6 +1,5 @@
 mod _ref {
     use bstr::ByteSlice;
-    use gix_date::Time;
     use winnow::{error::StrContext, prelude::*};
 
     use crate::{signature::decode, IdentityRef, Signature, SignatureRef};
@@ -32,7 +31,7 @@ mod _ref {
             SignatureRef {
                 name: self.name.trim().as_bstr(),
                 email: self.email.trim().as_bstr(),
-                time: self.time.trim().as_bstr(),
+                time: self.time.trim(),
             }
         }
 
@@ -49,49 +48,52 @@ mod _ref {
         ///
         /// For a fallible and more complete, but slower version, use [`time()`](Self::time).
         pub fn seconds(&self) -> gix_date::SecondsSinceUnixEpoch {
-            use winnow::stream::AsChar;
             self.time
                 .trim()
-                .split(|b| b.is_space())
+                .split(' ')
                 .next()
-                .and_then(|i| i.to_str().ok()?.parse().ok())
+                .and_then(|i| i.parse().ok())
                 .unwrap_or_default()
         }
 
         /// Parse the `time` field for access to the passed time since unix epoch, and the time offset.
+        /// The format is expected to be [raw](gix_date::parse_header()).
         pub fn time(&self) -> Result<gix_date::Time, gix_date::parse::Error> {
-            Time::from_bytes(self.time)
+            self.time.parse()
         }
     }
 }
 
 mod convert {
     use crate::{Signature, SignatureRef};
+    use gix_date::parse::TimeBuf;
 
     impl Signature {
         /// Borrow this instance as immutable, serializing the `time` field into `buf`.
-        pub fn to_ref<'a>(&'a self, buf: &'a mut Vec<u8>) -> SignatureRef<'a> {
+        pub fn to_ref<'a>(&'a self, time_buf: &'a mut TimeBuf) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.as_ref(),
                 email: self.email.as_ref(),
-                time: self.time.to_ref(buf),
+                time: self.time.to_str(time_buf),
             }
         }
     }
 
-    impl TryFrom<SignatureRef<'_>> for Signature {
-        type Error = gix_date::parse::Error;
-
-        fn try_from(other: SignatureRef<'_>) -> Result<Signature, Self::Error> {
-            other.to_owned()
+    impl From<SignatureRef<'_>> for Signature {
+        fn from(other: SignatureRef<'_>) -> Signature {
+            Signature {
+                name: other.name.to_owned(),
+                email: other.email.to_owned(),
+                time: other.time().unwrap_or_default(),
+            }
         }
     }
 }
 
 pub(crate) mod write {
-    use bstr::{BStr, ByteSlice};
-
     use crate::{Signature, SignatureRef};
+    use bstr::{BStr, ByteSlice};
+    use gix_date::parse::TimeBuf;
 
     /// The Error produced by [`Signature::write_to()`].
     #[derive(Debug, thiserror::Error)]
@@ -111,7 +113,7 @@ pub(crate) mod write {
     impl Signature {
         /// Serialize this instance to `out` in the git serialization format for actors.
         pub fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
-            let mut buf = Vec::<u8>::new();
+            let mut buf = TimeBuf::default();
             self.to_ref(&mut buf).write_to(out)
         }
         /// Computes the number of bytes necessary to serialize this signature
@@ -128,7 +130,7 @@ pub(crate) mod write {
             out.write_all(b"<")?;
             out.write_all(validated_token(self.email)?)?;
             out.write_all(b"> ")?;
-            out.write_all(validated_token(self.time)?)
+            out.write_all(validated_token(self.time.into())?)
         }
         /// Computes the number of bytes necessary to serialize this signature
         pub fn size(&self) -> usize {

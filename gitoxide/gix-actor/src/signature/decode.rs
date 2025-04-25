@@ -23,9 +23,13 @@ pub(crate) mod function {
             ))
             .map(|maybe_bytes| {
                 if let Some((bytes,)) = maybe_bytes {
-                    bytes.into()
+                    // SAFETY: The parser validated that there are only ASCII characters.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        std::str::from_utf8_unchecked(bytes)
+                    }
                 } else {
-                    b"".into()
+                    ""
                 }
             }),
         )
@@ -82,7 +86,6 @@ pub use function::identity;
 mod tests {
     mod parse_signature {
         use crate::{signature, SignatureRef};
-        use bstr::ByteSlice;
         use gix_date::time::Sign;
         use gix_testtools::to_bstr_err;
         use winnow::prelude::*;
@@ -95,9 +98,9 @@ mod tests {
 
         fn signature(name: &'static str, email: &'static str, time: &'static str) -> SignatureRef<'static> {
             SignatureRef {
-                name: name.as_bytes().as_bstr(),
-                email: email.as_bytes().as_bstr(),
-                time: time.as_bytes().as_bstr(),
+                name: name.into(),
+                email: email.into(),
+                time,
             }
         }
 
