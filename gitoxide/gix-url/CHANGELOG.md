@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.30.1 (2025-04-25)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release.
+ - 12 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1962](https://github.com/GitoxideLabs/gitoxide/issues/1962)
 
@@ -26,6 +26,7 @@ A maintenance release without user-facing changes.
  * **[#1962](https://github.com/GitoxideLabs/gitoxide/issues/1962)**
     - Allow `testing::TestUrlExtension` in release builds for consistency ([`633f0a8`](https://github.com/GitoxideLabs/gitoxide/commit/633f0a86b8941ffddebfe5f36f4604925b822ab3))
  * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Merge pull request #1963 from joshtriplett/zlib-rs-default ([`9e075b9`](https://github.com/GitoxideLabs/gitoxide/commit/9e075b99ffc79173d4052d7550fd1d2826c5ec71))

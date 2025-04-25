@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.35.0 (2025-04-25)
+
+<csr-id-b2bccbc4d2ebb085a7958a0d077d65946369210d/>
 
 ### Bug Fixes
 
@@ -39,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 17 commits contributed to the release.
+ - 18 commits contributed to the release.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1438](https://github.com/GitoxideLabs/gitoxide/issues/1438)
 
@@ -52,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1438](https://github.com/GitoxideLabs/gitoxide/issues/1438)**
     - Bring back test-case to show how trailing slashes are handled ([`39e35a3`](https://github.com/GitoxideLabs/gitoxide/commit/39e35a30453f8860bb115a254c25a83b85cfd820))
  * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Adapt to changes in `gix-date` ([`8c00e6f`](https://github.com/GitoxideLabs/gitoxide/commit/8c00e6f1d199ed2993fbf8e0a925c67fee854ae5))

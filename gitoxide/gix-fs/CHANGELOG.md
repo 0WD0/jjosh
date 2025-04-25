@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.14.0 (2025-04-25)
 
 ### Bug Fixes
 
@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    Previously it was possible for strings or BString/BStr to contain non-normal
    components, now there is much more validation.
  - <csr-id-8624586f4d9df726afe1c6939b952e4241865571/> make `is_executable()` more permissive by taking the group and 'other' permissions into account.
+
+### New Features
+
+ - <csr-id-f93aa6187d3b0d3d1eae193eae3de2e5af10b2d0/> add `FileSnapshot::into_owned_or_cloned()`.
+   That way it's possible to efficiently take ownership if there happens to
+   be only one instance of a snapshot.
+
+### New Features (BREAKING)
+
+ - <csr-id-6c3608c78b3d6f3f4d1c90a5fbbf3096698c9ac5/> add `gix-fs::stack::ToNormalPathComponents`.
 
 ### Commit Statistics
 
@@ -35,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Update changelogs prior to release ([`2eb2d6b`](https://github.com/GitoxideLabs/gitoxide/commit/2eb2d6b1fa83c7187bdef86f7014fbf52ea8dcb2))
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Thanks clippy ([`6f009d7`](https://github.com/GitoxideLabs/gitoxide/commit/6f009d781da9e931d44b113a925a80e77e8788af))
@@ -52,66 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
     - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
     - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
-</details>
-
-## 0.14.0 (2025-04-04)
-
-### New Features
-
- - <csr-id-f93aa6187d3b0d3d1eae193eae3de2e5af10b2d0/> add `FileSnapshot::into_owned_or_cloned()`.
-   That way it's possible to efficiently take ownership if there happens to
-   be only one instance of a snapshot.
-
-### New Features (BREAKING)
-
- - <csr-id-6c3608c78b3d6f3f4d1c90a5fbbf3096698c9ac5/> add `gix-fs::stack::ToNormalPathComponents`.
-
-### Commit Statistics
-
-<csr-read-only-do-not-edit/>
-
- - 24 commits contributed to the release.
- - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 1 unique issue was worked on: [#1896](https://github.com/GitoxideLabs/gitoxide/issues/1896)
-
-### Thanks Clippy
-
-<csr-read-only-do-not-edit/>
-
-[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
-
-### Commit Details
-
-<csr-read-only-do-not-edit/>
-
-<details><summary>view details</summary>
-
- * **[#1896](https://github.com/GitoxideLabs/gitoxide/issues/1896)**
-    - Improve detection of nanosecond support in `gix-fs` ([`2c9b214`](https://github.com/GitoxideLabs/gitoxide/commit/2c9b214a47fefd1e44f989e479b5afe17341200e))
- * **Uncategorized**
-    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
-    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
-    - Merge pull request #1913 from GitoxideLabs/improvements ([`5fa79d9`](https://github.com/GitoxideLabs/gitoxide/commit/5fa79d90ee97009e7368c359278f76f715518423))
-    - Deduplicate `ToNormalPathComponent` logic ([`dda9599`](https://github.com/GitoxideLabs/gitoxide/commit/dda959973460be348b034636ab9a7e99674b10bf))
-    - Merge pull request #1909 from cruessler/take-to-components-in-fs-stack ([`5cb5337`](https://github.com/GitoxideLabs/gitoxide/commit/5cb5337efd7679d8a2ab4bd5e6a5da8c366f7f1a))
-    - Use `gix_fs::stack::ToNormalPathComponents` everywhere. ([`1f98edb`](https://github.com/GitoxideLabs/gitoxide/commit/1f98edbaa51caaf152eda289b769388676259a06))
-    - Update MSRV to 1.75 for access to `impl` returns in traits. ([`569c186`](https://github.com/GitoxideLabs/gitoxide/commit/569c18685e714f9d89946ec69be4116d02f74a2a))
-    - Add `gix-fs::stack::ToNormalPathComponents`. ([`6c3608c`](https://github.com/GitoxideLabs/gitoxide/commit/6c3608c78b3d6f3f4d1c90a5fbbf3096698c9ac5))
-    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
-    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
-    - Merge pull request #1899 from EliahKagan/run-ci/granularity ([`091d994`](https://github.com/GitoxideLabs/gitoxide/commit/091d994f999d136df0067940eb1bcbdeedfc32db))
-    - Revert "Temporarily repeat the fs snapshot journey many times" ([`a5c58dd`](https://github.com/GitoxideLabs/gitoxide/commit/a5c58dd18ac291f3821426fc0f8d1274f8cc6b31))
-    - Apply further review suggestion ([`37aeb2f`](https://github.com/GitoxideLabs/gitoxide/commit/37aeb2f769773417ad9049f39b5de8a58d3c1b53))
-    - Improve `has_granular_times()` as suggested in review ([`b68ba95`](https://github.com/GitoxideLabs/gitoxide/commit/b68ba95d598416b8881bf19942378cea227d9f92))
-    - Assert that macOS on CI is high granularity ([`d1b0d1c`](https://github.com/GitoxideLabs/gitoxide/commit/d1b0d1c231eccc8862dba925f4e5eb3f5f0bf8d3))
-    - Improve filesystem timestamp granularity check ([`d4a8d79`](https://github.com/GitoxideLabs/gitoxide/commit/d4a8d796222316708fc26421b47bbf66946d46be))
-    - Temporarily repeat the fs snapshot journey many times ([`bf45023`](https://github.com/GitoxideLabs/gitoxide/commit/bf45023361819f593f7a9796d9df1affcd812d98))
-    - Merge pull request #1897 from GitoxideLabs/fix-ci ([`77dbd4b`](https://github.com/GitoxideLabs/gitoxide/commit/77dbd4b7aa4bda8da2cd9906a4b4fdc6b574a350))
-    - Merge pull request #1884 from GitoxideLabs/improvements ([`0bf1d5b`](https://github.com/GitoxideLabs/gitoxide/commit/0bf1d5b9f0b0971b9f25a8e44b7818e37c78d68e))
-    - Add `FileSnapshot::into_owned_or_cloned()`. ([`f93aa61`](https://github.com/GitoxideLabs/gitoxide/commit/f93aa6187d3b0d3d1eae193eae3de2e5af10b2d0))
-    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
-    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
-    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
 </details>
 
 ## 0.13.0 (2025-01-18)

@@ -5,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.51.0 (2025-04-25)
+
+<csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/>
+
+### Other
+
+ - <csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/> Clarify `write::Error::IllegalCharacter` description
+   The description contains a literal `\n` sequence, which seems to be
+   for clarification or to facilitate searching for that sequence, but
+   it was originally just concatenated to the end of the message. This
+   parenthesizes it instead.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-f5385595987e0be84fb56827682df013bf54e09c/> prefixed ref iteration now properly deals with slashes.
+   Previously, `refs/heads/foo/bar` would be listed when running
+   `repo.references()?.prefixed("refs/heads/b")`. The code identified that
+   the last component was not a directory and started to match it as a
+   filename prefix for all files in all recursive directories, effectively
+   matching `refs/heads/**/b*`.
+   
+   This commit fixes that bug but also allows to use a trailing `/` in the
+   prefix, allowing to filter for `refs/heads/foo/` and not get
+   `refs/heads/foo-bar` as a result.
+
+### New Features (BREAKING)
+
+ - <csr-id-108a8ca9cbc808499cc943208e2bca638362a743/> Use `&RelativePath` in `*::prefixed()` methods.
+   That way there now is a type to capture requirements.
 
 ### Bug Fixes
 
@@ -21,31 +49,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    Non-utf8 file names are simply mapped to "" on Windows. We could add some
    fallback, but callers can't handle such file names anyway.
 
-### New Features (BREAKING)
-
- - <csr-id-108a8ca9cbc808499cc943208e2bca638362a743/> Use `&RelativePath` in `*::prefixed()` methods.
-   That way there now is a type to capture requirements.
-
-### Bug Fixes (BREAKING)
-
- - <csr-id-f5385595987e0be84fb56827682df013bf54e09c/> prefixed ref iteration now properly deals with slashes.
-   Previously, `refs/heads/foo/bar` would be listed when running
-   `repo.references()?.prefixed("refs/heads/b")`. The code identified that
-   the last component was not a directory and started to match it as a
-   filename prefix for all files in all recursive directories, effectively
-   matching `refs/heads/**/b*`.
-   
-   This commit fixes that bug but also allows to use a trailing `/` in the
-   prefix, allowing to filter for `refs/heads/foo/` and not get
-   `refs/heads/foo-bar` as a result.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 26 commits contributed to the release.
+ - 27 commits contributed to the release.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 2 times to make code idiomatic. 
 
 ### Commit Details
 
@@ -57,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Make `fs::walkdir_sorted_new()` sort entries by paths literally ([`38b63c2`](https://github.com/GitoxideLabs/gitoxide/commit/38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad))
     - Add minimal test for sorting issues of loose refs ([`c151b8d`](https://github.com/GitoxideLabs/gitoxide/commit/c151b8d2c4a36db76e8a63729e5b42584abbbb6d))
  * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
@@ -81,60 +98,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
     - Merge pull request #1931 from yuja/push-klrqpplwxrkx ([`7502b4a`](https://github.com/GitoxideLabs/gitoxide/commit/7502b4abde6196b982cf66344c0df992e99493cb))
     - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
-</details>
-
-## 0.51.0 (2025-04-04)
-
-<csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/>
-
-### Other
-
- - <csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/> Clarify `write::Error::IllegalCharacter` description
-   The description contains a literal `\n` sequence, which seems to be
-   for clarification or to facilitate searching for that sequence, but
-   it was originally just concatenated to the end of the message. This
-   parenthesizes it instead.
-
-### Commit Statistics
-
-<csr-read-only-do-not-edit/>
-
- - 18 commits contributed to the release.
- - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
- - 1 unique issue was worked on: [#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)
-
-### Thanks Clippy
-
-<csr-read-only-do-not-edit/>
-
-[Clippy](https://github.com/rust-lang/rust-clippy) helped 2 times to make code idiomatic. 
-
-### Commit Details
-
-<csr-read-only-do-not-edit/>
-
-<details><summary>view details</summary>
-
- * **[#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)**
-    - Reproduce the overlay-iterator issue causing double-refs. ([`a06c409`](https://github.com/GitoxideLabs/gitoxide/commit/a06c409d58fac109eb3d28436d4394d6e54a59f2))
- * **Uncategorized**
-    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
-    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
-    - Merge pull request #1851 from GitoxideLabs/fix-1850 ([`cd96b64`](https://github.com/GitoxideLabs/gitoxide/commit/cd96b6439d119c5189a8e7349d2e7e2533db41b5))
-    - Adjust expectations according to changed sort-order ([`56ba898`](https://github.com/GitoxideLabs/gitoxide/commit/56ba8986675b6f3c3032fd48a3498a10c63d65aa))
-    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
-    - Drop trailing `,` just before `)` on same line in function calls ([`66a5ae1`](https://github.com/GitoxideLabs/gitoxide/commit/66a5ae1b586d583066402c801213a55141e2aad6))
-    - Clarify `write::Error::IllegalCharacter` description ([`d1b357e`](https://github.com/GitoxideLabs/gitoxide/commit/d1b357ec53b9e2be2483ae130e25401be795f139))
-    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
-    - Merge pull request #1857 from GitoxideLabs/fixes ([`8776a3e`](https://github.com/GitoxideLabs/gitoxide/commit/8776a3e8bf07d1dd779bd9ad93de6ddcd25905c9))
-    - Thanks clippy ([`9dcfd15`](https://github.com/GitoxideLabs/gitoxide/commit/9dcfd15e99a23f07212710196b6afdf7aab9282c))
-    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
-    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
-    - Merge pull request #1822 from epage/w7 ([`11ac79c`](https://github.com/GitoxideLabs/gitoxide/commit/11ac79c068181d4ed9f6a404e4875ad7c206520c))
-    - Upgrade to Winnow 0.7 ([`fdc57e7`](https://github.com/GitoxideLabs/gitoxide/commit/fdc57e79af6f7922d91ad8d7796943821f637124))
-    - Resolve Winnow deprecations ([`3cd3e2a`](https://github.com/GitoxideLabs/gitoxide/commit/3cd3e2a71beb01591afe732ab4ae914ed62a4ecf))
-    - Upgrade to Winnow 0.6.26 ([`783c4e6`](https://github.com/GitoxideLabs/gitoxide/commit/783c4e698234b8afaf8fbd25057aca11c5c66e75))
-    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
 </details>
 
 ## 0.50.0 (2025-01-18)

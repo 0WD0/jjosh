@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.20.0 (2025-04-25)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 9 commits contributed to the release.
+ - 10 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +24,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
     - Adapt to changes in `gix-path` ([`697c27f`](https://github.com/GitoxideLabs/gitoxide/commit/697c27f078d3000f7fa84105bf14a2765fded031))
     - Merge pull request #1954 from GitoxideLabs/fix-recursive-list-refs-prefix ([`71275d1`](https://github.com/GitoxideLabs/gitoxide/commit/71275d16b6a3a22b5e6e33f441d50fc6d44ff20e))

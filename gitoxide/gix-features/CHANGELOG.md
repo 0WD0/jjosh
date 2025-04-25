@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.42.0 (2025-04-25)
 
 ### New Features (BREAKING)
 
@@ -41,10 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    For more information, see:
    
    - https://github.com/GitoxideLabs/gitoxide/discussions/1952
-- https://github.com/bytesize-rs/bytesize/releases/tag/bytesize-v2.0.0
-- https://github.com/GitoxideLabs/gitoxide/pull/1949
-- https://github.com/Byron/prodash/pull/33
-- https://github.com/GitoxideLabs/gitoxide/pull/1953
 
 ### Commit Statistics
 
@@ -67,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Update changelogs prior to release ([`2eb2d6b`](https://github.com/GitoxideLabs/gitoxide/commit/2eb2d6b1fa83c7187bdef86f7014fbf52ea8dcb2))
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Thanks clippy ([`6f009d7`](https://github.com/GitoxideLabs/gitoxide/commit/6f009d781da9e931d44b113a925a80e77e8788af))
@@ -87,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Bump crossbeam-channel from 0.5.14 to 0.5.15 in the cargo group ([`1792178`](https://github.com/GitoxideLabs/gitoxide/commit/1792178cbed5abf4782370bc46207a8c5d113615))
     - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
 </details>
+
+<csr-unknown>
+https://github.com/bytesize-rs/bytesize/releases/tag/bytesize-v2.0.0https://github.com/GitoxideLabs/gitoxide/pull/1949https://github.com/Byron/prodash/pull/33https://github.com/GitoxideLabs/gitoxide/pull/1953<csr-unknown/>
 
 ## 0.41.1 (2025-04-06)
 

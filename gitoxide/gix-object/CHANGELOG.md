@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.49.0 (2025-04-25)
 
 ### Bug Fixes (BREAKING)
+
+<csr-id-a168807b2d354bdcd51f1c4758d2407dab98362f/>
 
  - <csr-id-c97d1d4e350db9d1499fb58db13afe8ffc9ebae6/> Store the raw time in Commit
  - <csr-id-5bfc2f540aac5be997159e93783d56ed147b0a2f/> Allow round-tripping for Trees
@@ -19,33 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    
    After this change,
    * `b"040000"` is represented by `0o140000`
-   * `b"40000"` is represented by `0o40000`
- - <csr-id-a168807b2d354bdcd51f1c4758d2407dab98362f/> Hide the internal representation of EntryMode
-   Change the gix-object API so that client code can't explicitely rely on
-   the internal representation of `EntryMode`.
-   
-   This is necessary as we need to change it to allow round-trip behaviour
-   for modes like `b"040000"` and `b"40000"` which currently share the
-     `0o40000u16` representation.
-   
-   Use the opportunity to sprinkle a couple of optimizations in the parsing
-   of the EntryMode since we had to go deep in understanding this code
-   anyway, so may as well. Mostly, don't `reverse` the bytes when parsing.
-   
-   ```
-   TreeRefIter()           time:   [46.251 ns 46.390 ns 46.549 ns]
-                           change: [-17.685% -16.512% -15.664%] (p = 0.00 < 0.05)
-                           Performance has improved.
-   Found 1 outliers among 100 measurements (1.00%)
-   ```
-   
-   Also add a test that shows the current incorrect behaviour.
+* `b"40000"` is represented by `0o40000`
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 20 commits contributed to the release.
+ - 21 commits contributed to the release.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1917](https://github.com/GitoxideLabs/gitoxide/issues/1917)
 
@@ -58,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1917](https://github.com/GitoxideLabs/gitoxide/issues/1917)**
     - Refactor ([`103819d`](https://github.com/GitoxideLabs/gitoxide/commit/103819dbe2d86790a6ac4c6be3f21e5d4455dfd2))
  * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
     - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
@@ -78,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Hide the internal representation of EntryMode ([`a168807`](https://github.com/GitoxideLabs/gitoxide/commit/a168807b2d354bdcd51f1c4758d2407dab98362f))
     - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
 </details>
+
+<csr-unknown>
+ Hide the internal representation of EntryModeChange the gix-object API so that client code can’t explicitely rely onthe internal representation of EntryMode.This is necessary as we need to change it to allow round-trip behaviourfor modes like b"040000" and b"40000" which currently share the0o40000u16 representation.Use the opportunity to sprinkle a couple of optimizations in the parsingof the EntryMode since we had to go deep in understanding this codeanyway, so may as well. Mostly, don’t reverse the bytes when parsing.TreeRefIter()           time:   [46.251 ns 46.390 ns 46.549 ns]
+                        change: [-17.685% -16.512% -15.664%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 100 measurements (1.00%)
+Also add a test that shows the current incorrect behaviour.<csr-unknown/>
 
 ## 0.48.0 (2025-04-04)
 

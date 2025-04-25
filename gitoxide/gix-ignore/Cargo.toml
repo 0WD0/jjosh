@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-ignore"
-version = "0.14.0"
+version = "0.14.1"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing .gitignore files"
@@ -19,7 +19,7 @@ doctest = false
 serde = ["dep:serde", "bstr/serde", "gix-glob/serde"]
 
 [dependencies]
-gix-glob = { version = "^0.19.0", path = "../gix-glob" }
+gix-glob = { version = "^0.19.1", path = "../gix-glob" }
 gix-path = { version = "^0.10.15", path = "../gix-path" }
 gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 

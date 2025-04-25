@@ -5,42 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
-
-### New Features
-
- - <csr-id-9f8a468cfb8730fcb0f88cbf62e559cb369fdb42/> Add `&gix_path::RelativePath`.
-   It's a utility to assure functions get the right input, i.e. a type-safe
-   version of what previously was `&BStr`
-
-### Commit Statistics
-
-<csr-read-only-do-not-edit/>
-
- - 10 commits contributed to the release.
- - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
-
-### Commit Details
-
-<csr-read-only-do-not-edit/>
-
-<details><summary>view details</summary>
-
- * **Uncategorized**
-    - Update changelogs prior to release ([`2eb2d6b`](https://github.com/GitoxideLabs/gitoxide/commit/2eb2d6b1fa83c7187bdef86f7014fbf52ea8dcb2))
-    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
-    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
-    - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
-    - Refactor ([`294902e`](https://github.com/GitoxideLabs/gitoxide/commit/294902e0dbc350a33a0e54164eed626720c1a1d7))
-    - Add `&gix_path::RelativePath`. ([`9f8a468`](https://github.com/GitoxideLabs/gitoxide/commit/9f8a468cfb8730fcb0f88cbf62e559cb369fdb42))
-    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
-    - Adapt `gix-path` tests to changes in `windows` ([`2fc48a1`](https://github.com/GitoxideLabs/gitoxide/commit/2fc48a11df504e135546f6c23c7d696c04c5006a))
-    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
-    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
-</details>
-
-## 0.10.15 (2025-04-04)
+## 0.10.15 (2025-04-25)
 
 <csr-id-028635165ddd98322d8b902fe0714fe2d0699a3e/>
 
@@ -87,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       does, then further improvements may be called for here.
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 1. Adding components with `/` separators. While in principle a `\`
@@ -136,12 +104,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    clarity and stylistic consistency to documentation comments on
    other functions in the `gix_path::convert` module.
 
+### New Features
+
+ - <csr-id-9f8a468cfb8730fcb0f88cbf62e559cb369fdb42/> Add `&gix_path::RelativePath`.
+   It's a utility to assure functions get the right input, i.e. a type-safe
+   version of what previously was `&BStr`
+
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 26 commits contributed to the release.
- - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 10 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
 ### Thanks Clippy
@@ -157,32 +131,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
-    - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
-    - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
-    - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))
-    - Merge pull request #1862 from EliahKagan/run-ci/consistent-sh ([`0ba3147`](https://github.com/GitoxideLabs/gitoxide/commit/0ba31474968ddbe7f2b2d54a756eeeb8a28fbabf))
-    - Compile the new tests on all platforms ([`b70cdb1`](https://github.com/GitoxideLabs/gitoxide/commit/b70cdb19fbb194a97099afeb2ab208bd1355ee75))
-    - Expand `git_for_windows_root()` comments ([`c824b92`](https://github.com/GitoxideLabs/gitoxide/commit/c824b9297824d52103d6ea40f49356d5d8b489e6))
-    - Add some tests for finding associated executables ([`fb67059`](https://github.com/GitoxideLabs/gitoxide/commit/fb6705913727640a595792403ff35928d4d29d8d))
-    - Revise `find_git_associated_windows_executable` future directions ([`56dc3cc`](https://github.com/GitoxideLabs/gitoxide/commit/56dc3cc008eb9eb9094450b1da327a34bfc9c850))
-    - Generalize the `gix_path::env::auxiliary` helpers ([`17b5c31`](https://github.com/GitoxideLabs/gitoxide/commit/17b5c31978a7868b2e2f36cd1c5f57c7a23eab1a))
-    - Simplify code and comments ([`0a6a056`](https://github.com/GitoxideLabs/gitoxide/commit/0a6a0568ce91534f551e87270ac076b79bf5c204))
-    - Remove a potentially misleading docstring paragraph ([`bd26745`](https://github.com/GitoxideLabs/gitoxide/commit/bd267454e4261ea48e6a35b25ea5febffc0187b3))
-    - Divide helpers more logically, expand doc comments ([`9d9ec58`](https://github.com/GitoxideLabs/gitoxide/commit/9d9ec58d5ee77873399b51faa9d5e8ddd1e82f30))
-    - Move `shell()` helpers to a helper module ([`0b75b23`](https://github.com/GitoxideLabs/gitoxide/commit/0b75b231c48ef2509a3cef0a8a719418b4ff9d45))
-    - Don't match `libexec/git-core` in `usr`; refactor ([`83574e1`](https://github.com/GitoxideLabs/gitoxide/commit/83574e1636e3a25b48c3c6198e8c17e6e81d04e9))
-    - Check prefix and prefer shim in `gix_path::env::shell()` ([`1f269b0`](https://github.com/GitoxideLabs/gitoxide/commit/1f269b0d5aa958f25423db1f83d144781bf22024))
-    - Revise `gix_path::env` docstrings for clarity ([`da7d70e`](https://github.com/GitoxideLabs/gitoxide/commit/da7d70ede6fe9fe10a0500c284d8f27610f613df))
-    - Use `/` in `gix_path::env::shell()` and check existence ([`10af2d0`](https://github.com/GitoxideLabs/gitoxide/commit/10af2d005fbe92a289be01492206c6e8a38ab0bd))
-    - Merge pull request #1854 from GitoxideLabs/montly-report ([`16a248b`](https://github.com/GitoxideLabs/gitoxide/commit/16a248beddbfbd21621f2bb57aaa82dca35acb19))
-    - Thanks clippy ([`8e96ed3`](https://github.com/GitoxideLabs/gitoxide/commit/8e96ed37db680855d194c10673ba2dab28655d95))
-    - Merge pull request #1841 from EliahKagan/no-esc-todo ([`ad7a94e`](https://github.com/GitoxideLabs/gitoxide/commit/ad7a94ed6385e5c35c0fdaef420425d8e170334f))
-    - Merge pull request #1843 from EliahKagan/convert-doc ([`bb64ee1`](https://github.com/GitoxideLabs/gitoxide/commit/bb64ee170fd308d83b7925e19627ed297bcdbb38))
-    - Clarify `to_unix_separators{,_on_windows}` relationship ([`42875c9`](https://github.com/GitoxideLabs/gitoxide/commit/42875c9e4314bc2c92478393bc8dda4400fc397b))
-    - Fix `to_windows_separators` docstring, revise others ([`0286351`](https://github.com/GitoxideLabs/gitoxide/commit/028635165ddd98322d8b902fe0714fe2d0699a3e))
-    - Remove TODOs about using `path-slash` to handle escapes ([`a810d1f`](https://github.com/GitoxideLabs/gitoxide/commit/a810d1faa29803fb9d42a7d645a1ab41fe7a45de))
-    - Merge pull request #1778 from GitoxideLabs/new-release ([`8df0db2`](https://github.com/GitoxideLabs/gitoxide/commit/8df0db2f8fe1832a5efd86d6aba6fb12c4c855de))
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
+    - Refactor ([`294902e`](https://github.com/GitoxideLabs/gitoxide/commit/294902e0dbc350a33a0e54164eed626720c1a1d7))
+    - Add `&gix_path::RelativePath`. ([`9f8a468`](https://github.com/GitoxideLabs/gitoxide/commit/9f8a468cfb8730fcb0f88cbf62e559cb369fdb42))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Adapt `gix-path` tests to changes in `windows` ([`2fc48a1`](https://github.com/GitoxideLabs/gitoxide/commit/2fc48a11df504e135546f6c23c7d696c04c5006a))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
 </details>
 
 <csr-unknown>
