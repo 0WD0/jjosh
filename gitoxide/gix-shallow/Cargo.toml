@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-shallow"
-version = "0.3.0"
+version = "0.3.1"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -20,7 +20,7 @@ test = false
 serde = ["dep:serde", "gix-hash/serde"]
 
 [dependencies]
-gix-hash = { version = "^0.17.0", path = "../gix-hash" }
+gix-hash = { version = "^0.17.1", path = "../gix-hash" }
 gix-lock = { version = "^17.0.0", path = "../gix-lock" }
 
 thiserror = "2.0.0"

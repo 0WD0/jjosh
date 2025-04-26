@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.43.0 (2025-04-25)
+
+<csr-id-f952c101cc8686e685074e8604e0f332c06d6767/>
+
+### Other
+
+ - <csr-id-f952c101cc8686e685074e8604e0f332c06d6767/> Add missing command docs + small style fixups
+   Changes that affect the help/usage text shown at runtime:
+   
+   - Add descriptions for a few `gix` commands that didn't have it:
+     `gix is-clean`, `gix is-changed`, and `gix env`.
+   
+   - Add a description of the debug-only `ein panic` command.
+   
+   - Small spacing and capitalization improvements for consistency.
+   
+   - Add a line break in a `///` block for brevity of the top line.
+   
+   Changes to code style that do not affect what is shown at runtime:
+   
+   - Add `.` at the end of some `///` first lines. (This doesn't
+     affect runtime behavior because `clap` normalizes this away.)
+   
+   - Put `///` above all `#[...]` in a few places where it wasn't.
+   
+   - Adjust comment wrapping in a couple of places for clarity.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Merge pull request #1937 from EliahKagan/document-commands ([`de2f97d`](https://github.com/GitoxideLabs/gitoxide/commit/de2f97d793d8675659020883a04f47fc9ff06471))
+    - Add missing command docs + small style fixups ([`f952c10`](https://github.com/GitoxideLabs/gitoxide/commit/f952c101cc8686e685074e8604e0f332c06d6767))
+</details>
+
 ## 0.42.0 (2025-04-04)
 
 <csr-id-dd366a52d46078729a6e36468211b97c92c2921d/>

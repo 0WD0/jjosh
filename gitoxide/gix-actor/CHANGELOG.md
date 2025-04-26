@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.35.0 (2025-04-25)
+
+<csr-id-b2bccbc4d2ebb085a7958a0d077d65946369210d/>
+
+### Bug Fixes
+
+ - <csr-id-a20b3d053b43d4613127e36994f181868cafb730/> Make email with spaces roundtrip.
+   We see this situation in commits in the wild.
+
+### Other
+
+ - <csr-id-b2bccbc4d2ebb085a7958a0d077d65946369210d/> inform about untrimmed name and email
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-57366d3ebd622af8927bb0e199ab8a3c0eafee99/> turn `SignatureRef::time` field into `&str`.
+   We also add a `gix_date::Time::to_str()` method, along with related utilities,
+   to be able to turn a parsed time back into a raw buffer conveniently.
+   
+   Further, remove `Time::to_bstring()` in favor of a `Display` implementation.
+ - <csr-id-545edf5c167d71586a049dc3a2ef2bede7e9d66c/> Make `SignatureRef::to_owned()` fallible.
+   The contained `time` field is now a string, which has to be parsed into
+   a time for conversion to an owned type.
+   Additionally, replace `From<SignatureRef> for Signature` with `TryFrom`.
+ - <csr-id-9825354f85e8e3d2ccdb23ff88c0976dbf094828/> Make Signature roundtrip
+   By storing the raw bytes from Git instead of parsing them into a
+   `gix_date::Time` from the start, we are able to roundtrip between Git
+   and gix-actor even with creatively formatted Git data.
+   
+   Also add a test case that shows a time offset seen in the wild which
+   would have failed to round-trip without this change.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 18 commits contributed to the release.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#1438](https://github.com/GitoxideLabs/gitoxide/issues/1438)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1438](https://github.com/GitoxideLabs/gitoxide/issues/1438)**
+    - Bring back test-case to show how trailing slashes are handled ([`39e35a3`](https://github.com/GitoxideLabs/gitoxide/commit/39e35a30453f8860bb115a254c25a83b85cfd820))
+ * **Uncategorized**
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Adapt to changes in `gix-date` ([`8c00e6f`](https://github.com/GitoxideLabs/gitoxide/commit/8c00e6f1d199ed2993fbf8e0a925c67fee854ae5))
+    - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
+    - Turn `SignatureRef::time` field into `&str`. ([`57366d3`](https://github.com/GitoxideLabs/gitoxide/commit/57366d3ebd622af8927bb0e199ab8a3c0eafee99))
+    - Make `SignatureRef::to_owned()` fallible. ([`545edf5`](https://github.com/GitoxideLabs/gitoxide/commit/545edf5c167d71586a049dc3a2ef2bede7e9d66c))
+    - Apply feedback from discussion ([`70097c0`](https://github.com/GitoxideLabs/gitoxide/commit/70097c0feb481541ed96358842de96d6b1af24a9))
+    - Make Signature roundtrip ([`9825354`](https://github.com/GitoxideLabs/gitoxide/commit/9825354f85e8e3d2ccdb23ff88c0976dbf094828))
+    - Merge pull request #1968 from GitoxideLabs/dependabot/cargo/cargo-bd18780e40 ([`46227e6`](https://github.com/GitoxideLabs/gitoxide/commit/46227e6d1ddc0879662730e5bb21a8597716b1ca))
+    - Bump the cargo group with 40 updates ([`06bf1e1`](https://github.com/GitoxideLabs/gitoxide/commit/06bf1e1552de65ce692911bdc4c501d487bbc3d7))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Merge pull request #1922 from pierrechevalier83/make_email_with_spaces_roundtrip ([`c13a403`](https://github.com/GitoxideLabs/gitoxide/commit/c13a403e8f306430220c209b1024d408c3c0a4f8))
+    - Inform about untrimmed name and email ([`b2bccbc`](https://github.com/GitoxideLabs/gitoxide/commit/b2bccbc4d2ebb085a7958a0d077d65946369210d))
+    - Make email with spaces roundtrip. ([`a20b3d0`](https://github.com/GitoxideLabs/gitoxide/commit/a20b3d053b43d4613127e36994f181868cafb730))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+</details>
+
 ## 0.34.0 (2025-04-04)
 
 A maintenance release without user-facing changes.
@@ -13,7 +81,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release.
+ - 9 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -24,6 +92,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
     - Merge pull request #1907 from EliahKagan/run-ci/raw ([`7b17da6`](https://github.com/GitoxideLabs/gitoxide/commit/7b17da6ca1dce275de0d32d0b0d6c238621e6ee3))
     - Use raw literals for more strings with backslashes ([`01bd76d`](https://github.com/GitoxideLabs/gitoxide/commit/01bd76dcacb69d9c21f2fc6063e273a01aebf94f))

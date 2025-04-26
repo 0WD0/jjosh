@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.72.0 (2025-04-25)
+
+### Bug Fixes
+
+ - <csr-id-b07f907ba2e01849744c72df35dac57b624f2f85/> Adapt to changes in gix-actor
+   Use the committer date and author date that are now backed by bytes and
+   interpret these bytes into a `gix_date::Time` on demand.
+ - <csr-id-ca165174e3502aa75e74ef90728d192f517f4406/> correctly handle safe.directory for worktrees
+ - <csr-id-24d235d7a6bdb01c5c1cff79b5be14f1d5afa11a/> `safe.directory` now applies to configuration as well
+   This means that repo-local configuration that is considered safe, ideally with
+   `safe.directory=safe/dir/*` notation, will be usable for sensitive operations.
+ - <csr-id-38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad/> make `fs::walkdir_sorted_new()` sort entries by paths literally
+   This follows up 7b1b5bf864e74706aefeb1213e8bdb0545d5464a. Since packed-refs
+   appears to be sorted by full ref name, loose-refs should also be emitted in
+   that order.
+   
+   The comparison function is copied from gix::diff::object::tree::EntryRef.
+   Non-utf8 file names are simply mapped to "" on Windows. We could add some
+   fallback, but callers can't handle such file names anyway.
+
+### New Features (BREAKING)
+
+ - <csr-id-a6d7d701517f7eafe1e2ed15d564114aa5c1d07c/> use `RelativePath` for prefixed ref iteration.
+   Its type captures the requirements better.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 40 commits contributed to the release.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 3 unique issues were worked on: [#1788](https://github.com/GitoxideLabs/gitoxide/issues/1788), [#1912](https://github.com/GitoxideLabs/gitoxide/issues/1912), [#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1788](https://github.com/GitoxideLabs/gitoxide/issues/1788)**
+    - Add test to assure dynamic allocation of slots works ([`5396b2b`](https://github.com/GitoxideLabs/gitoxide/commit/5396b2b6318d2066b07b23a58286d71344d804d3))
+ * **[#1912](https://github.com/GitoxideLabs/gitoxide/issues/1912)**
+    - Correctly handle safe.directory for worktrees ([`ca16517`](https://github.com/GitoxideLabs/gitoxide/commit/ca165174e3502aa75e74ef90728d192f517f4406))
+    - `safe.directory` now applies to configuration as well ([`24d235d`](https://github.com/GitoxideLabs/gitoxide/commit/24d235d7a6bdb01c5c1cff79b5be14f1d5afa11a))
+ * **[#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)**
+    - Make `fs::walkdir_sorted_new()` sort entries by paths literally ([`38b63c2`](https://github.com/GitoxideLabs/gitoxide/commit/38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad))
+ * **Uncategorized**
+    - Adjusting changelogs prior to release of gix-path v0.10.16, gix-features v0.42.0, gix-hash v0.17.1, gix-object v0.49.0, gix-glob v0.19.1, gix-quote v0.5.1, gix-attributes v0.25.1, gix-command v0.5.1, gix-packetline-blocking v0.18.4, gix-filter v0.19.0, gix-fs v0.14.1, gix-commitgraph v0.27.1, gix-revwalk v0.20.0, gix-traverse v0.46.0, gix-worktree-stream v0.21.0, gix-archive v0.21.0, gix-tempfile v17.0.1, gix-lock v17.0.1, gix-index v0.39.1, gix-config-value v0.14.13, gix-pathspec v0.10.1, gix-ignore v0.14.1, gix-worktree v0.40.1, gix-diff v0.52.0, gix-blame v0.2.0, gix-ref v0.52.0, gix-sec v0.10.13, gix-config v0.45.0, gix-prompt v0.10.1, gix-url v0.30.1, gix-credentials v0.28.1, gix-discover v0.40.0, gix-dir v0.14.0, gix-mailmap v0.27.0, gix-revision v0.34.0, gix-merge v0.5.0, gix-negotiate v0.20.0, gix-pack v0.59.0, gix-odb v0.69.0, gix-refspec v0.30.0, gix-shallow v0.3.1, gix-packetline v0.18.5, gix-transport v0.46.1, gix-protocol v0.50.0, gix-status v0.19.0, gix-submodule v0.19.0, gix-worktree-state v0.18.1, gix v0.72.0, gix-fsck v0.11.0, gitoxide-core v0.47.0, gitoxide v0.43.0, safety bump 7 crates ([`49fa9f3`](https://github.com/GitoxideLabs/gitoxide/commit/49fa9f38110ba975d68f5ac3baefeb55f0a0501b))
+    - Release gix-date v0.10.0, gix-utils v0.2.1, gix-actor v0.35.0, gix-validate v0.9.5, gix-path v0.10.15, gix-features v0.42.0, gix-hash v0.17.1, gix-object v0.49.0, gix-glob v0.19.1, gix-quote v0.5.1, gix-attributes v0.25.0, gix-command v0.5.1, gix-packetline-blocking v0.18.4, gix-filter v0.19.0, gix-fs v0.14.0, gix-commitgraph v0.27.1, gix-revwalk v0.20.0, gix-traverse v0.46.0, gix-worktree-stream v0.21.0, gix-archive v0.21.0, gix-tempfile v17.0.1, gix-lock v17.0.1, gix-index v0.39.0, gix-config-value v0.14.13, gix-pathspec v0.10.1, gix-ignore v0.14.1, gix-worktree v0.40.0, gix-diff v0.52.0, gix-blame v0.2.0, gix-ref v0.51.0, gix-sec v0.10.13, gix-config v0.45.0, gix-prompt v0.10.1, gix-url v0.30.1, gix-credentials v0.28.1, gix-discover v0.40.0, gix-dir v0.14.0, gix-mailmap v0.27.0, gix-revision v0.34.0, gix-merge v0.5.0, gix-negotiate v0.20.0, gix-pack v0.59.0, gix-odb v0.69.0, gix-refspec v0.30.0, gix-shallow v0.3.1, gix-packetline v0.18.5, gix-transport v0.46.0, gix-protocol v0.50.0, gix-status v0.19.0, gix-submodule v0.19.0, gix-worktree-state v0.18.0, gix v0.72.0, gix-fsck v0.11.0, gitoxide-core v0.46.0, gitoxide v0.43.0, safety bump 30 crates ([`db0b095`](https://github.com/GitoxideLabs/gitoxide/commit/db0b0957930e3ebb1b3f05ed8d7e7a557eb384a2))
+    - Update changelogs prior to release ([`0bf84db`](https://github.com/GitoxideLabs/gitoxide/commit/0bf84dbc041f59efba06adcf422c60b5d6e350f0))
+    - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
+    - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
+    - Thanks clippy ([`6f009d7`](https://github.com/GitoxideLabs/gitoxide/commit/6f009d781da9e931d44b113a925a80e77e8788af))
+    - Adapt to changes in `gix-date` and `gix-actor` ([`afdf1a5`](https://github.com/GitoxideLabs/gitoxide/commit/afdf1a5d5c9fb2645f481c17f580ad59d14d6095))
+    - Apply feedback from discussion ([`70097c0`](https://github.com/GitoxideLabs/gitoxide/commit/70097c0feb481541ed96358842de96d6b1af24a9))
+    - Adapt to changes in gix-actor ([`b07f907`](https://github.com/GitoxideLabs/gitoxide/commit/b07f907ba2e01849744c72df35dac57b624f2f85))
+    - Merge pull request #1965 from GitoxideLabs/report ([`737bb49`](https://github.com/GitoxideLabs/gitoxide/commit/737bb49639db74c154a4380c97271f4b8d17661c))
+    - Merge pull request #1964 from GitoxideLabs/fix-1912 ([`359914c`](https://github.com/GitoxideLabs/gitoxide/commit/359914ce567d90d2db52b605bc126ad23db7f039))
+    - Merge pull request #1963 from joshtriplett/zlib-rs-default ([`9e075b9`](https://github.com/GitoxideLabs/gitoxide/commit/9e075b99ffc79173d4052d7550fd1d2826c5ec71))
+    - Switch to zlib-rs by default and drop other zlib backends ([`96164c5`](https://github.com/GitoxideLabs/gitoxide/commit/96164c5936032b4edb973828178cc55793dd57cc))
+    - Merge pull request #1921 from cruessler/introduce-repository-path ([`fdc06b1`](https://github.com/GitoxideLabs/gitoxide/commit/fdc06b139a331bd2b345d34f09482317388fcba8))
+    - Refactor ([`294902e`](https://github.com/GitoxideLabs/gitoxide/commit/294902e0dbc350a33a0e54164eed626720c1a1d7))
+    - Use `RelativePath` for prefixed ref iteration. ([`a6d7d70`](https://github.com/GitoxideLabs/gitoxide/commit/a6d7d701517f7eafe1e2ed15d564114aa5c1d07c))
+    - Merge pull request #1853 from GitoxideLabs/odb-issue ([`cd1a777`](https://github.com/GitoxideLabs/gitoxide/commit/cd1a77777f8a5b162b14ec4d0d3f476a0387d7f1))
+    - Merge pull request #1825 from DianaNites/diananites-reftable ([`edb449c`](https://github.com/GitoxideLabs/gitoxide/commit/edb449c9dd60f74562dc78a33e41cfcb5d7be81e))
+    - Show that ref-tables aren't currently supported. ([`3c16e53`](https://github.com/GitoxideLabs/gitoxide/commit/3c16e534a5db85a73f9dfbc6b4846ff6f89d57b2))
+    - Merge pull request #1957 from EliahKagan/run-ci/versioning ([`5823b22`](https://github.com/GitoxideLabs/gitoxide/commit/5823b22bfcd30123b6859ec9dc62c62ce0737f72))
+    - Adapt `Cargo.toml` files in workspace to `gix-features` bump ([`6315536`](https://github.com/GitoxideLabs/gitoxide/commit/63155368cc5074328314f1b3f565e5813df725cf))
+    - Merge pull request #1954 from GitoxideLabs/fix-recursive-list-refs-prefix ([`71275d1`](https://github.com/GitoxideLabs/gitoxide/commit/71275d16b6a3a22b5e6e33f441d50fc6d44ff20e))
+    - Adapt to changes in `gix-ref`. ([`52142b4`](https://github.com/GitoxideLabs/gitoxide/commit/52142b472918844f5d4f752aa343ee9e4f9f7c30))
+    - Fix ci failures ([`57c9014`](https://github.com/GitoxideLabs/gitoxide/commit/57c9014d4f17f00ceb7fd2e3ca6b80f081af3356))
+    - Merge pull request #1953 from GitoxideLabs/dependabot/cargo/cargo-4a3cda0de8 ([`3aec7fb`](https://github.com/GitoxideLabs/gitoxide/commit/3aec7fbac52377bdeebc49759d4e0420b18b4e81))
+    - Bump the cargo group with 3 updates ([`9f1fbc7`](https://github.com/GitoxideLabs/gitoxide/commit/9f1fbc741e1b6c718c7787f2858e07f3bd5473e9))
+    - Merge pull request #1949 from GitoxideLabs/dependabot/cargo/cargo-6893e2988a ([`b5e9059`](https://github.com/GitoxideLabs/gitoxide/commit/b5e905991155ace32ef21464e69a8369a773f02b))
+    - Bump the cargo group with 21 updates ([`68e6b2e`](https://github.com/GitoxideLabs/gitoxide/commit/68e6b2e54613fe788d645ea8c942c71a39c6ede1))
+    - Use Into<Cow<>> ([`507d682`](https://github.com/GitoxideLabs/gitoxide/commit/507d682c08dcda29f044068c13ce87678c1b2a5e))
+    - Handle trailing slash in ref list prefix filtering ([`3ca6811`](https://github.com/GitoxideLabs/gitoxide/commit/3ca6811418275c4ebede0993b9741e804e81094b))
+    - Merge pull request #1933 from GitoxideLabs/release-gix-features ([`1612c73`](https://github.com/GitoxideLabs/gitoxide/commit/1612c73a16c8d900e1b6ef35b25bd6b3e3f6652a))
+    - Release gix-features v0.41.1 ([`fc5faf2`](https://github.com/GitoxideLabs/gitoxide/commit/fc5faf24dfc6d6e1580308ec5e7c12e96e0ccb41))
+    - Merge pull request #1931 from yuja/push-klrqpplwxrkx ([`7502b4a`](https://github.com/GitoxideLabs/gitoxide/commit/7502b4abde6196b982cf66344c0df992e99493cb))
+    - Merge pull request #1917 from pierrechevalier83/issue_1887 ([`6307f57`](https://github.com/GitoxideLabs/gitoxide/commit/6307f571f969eb7ff2490e4c68dc7994fb2fecac))
+    - Adapt to changes in gix-object ([`8969245`](https://github.com/GitoxideLabs/gitoxide/commit/8969245a6b5874d8524f508569ae1266e48d100e))
+    - Merge pull request #1919 from GitoxideLabs/release ([`420e730`](https://github.com/GitoxideLabs/gitoxide/commit/420e730f765b91e1d17daca6bb1f99bdb2e54fda))
+</details>
+
 ## 0.71.0 (2025-04-04)
 
 <csr-id-866affde8ef17f201884b8a4b36cc4c7f449d6fe/>
@@ -74,7 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 57 commits contributed to the release.
+ - 58 commits contributed to the release.
  - 17 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1829](https://github.com/GitoxideLabs/gitoxide/issues/1829), [#1914](https://github.com/GitoxideLabs/gitoxide/issues/1914)
 
@@ -95,6 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1914](https://github.com/GitoxideLabs/gitoxide/issues/1914)**
     - Don't panic when rev-parsing `^^^` and similar ([`aa8daf8`](https://github.com/GitoxideLabs/gitoxide/commit/aa8daf89bcc3c26baeb7d850c19bb9a5d403f555))
  * **Uncategorized**
+    - Release gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0 ([`d248e3d`](https://github.com/GitoxideLabs/gitoxide/commit/d248e3d87d45ca3983cb9fd7c6143dacbd8301cc))
     - Release gix-sec v0.10.12, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0 ([`ada5a94`](https://github.com/GitoxideLabs/gitoxide/commit/ada5a9447dc3c210afbd8866fe939c3f3a024226))
     - Release gix-date v0.9.4, gix-utils v0.2.0, gix-actor v0.34.0, gix-features v0.41.0, gix-hash v0.17.0, gix-hashtable v0.8.0, gix-path v0.10.15, gix-validate v0.9.4, gix-object v0.48.0, gix-glob v0.19.0, gix-quote v0.5.0, gix-attributes v0.25.0, gix-command v0.5.0, gix-packetline-blocking v0.18.3, gix-filter v0.18.0, gix-fs v0.14.0, gix-commitgraph v0.27.0, gix-revwalk v0.19.0, gix-traverse v0.45.0, gix-worktree-stream v0.20.0, gix-archive v0.20.0, gix-tempfile v17.0.0, gix-lock v17.0.0, gix-index v0.39.0, gix-config-value v0.14.12, gix-pathspec v0.10.0, gix-ignore v0.14.0, gix-worktree v0.40.0, gix-diff v0.51.0, gix-blame v0.1.0, gix-ref v0.51.0, gix-config v0.44.0, gix-prompt v0.10.0, gix-url v0.30.0, gix-credentials v0.28.0, gix-discover v0.39.0, gix-dir v0.13.0, gix-mailmap v0.26.0, gix-revision v0.33.0, gix-merge v0.4.0, gix-negotiate v0.19.0, gix-pack v0.58.0, gix-odb v0.68.0, gix-refspec v0.29.0, gix-shallow v0.3.0, gix-packetline v0.18.4, gix-transport v0.46.0, gix-protocol v0.49.0, gix-status v0.18.0, gix-submodule v0.18.0, gix-worktree-state v0.18.0, gix v0.71.0, gix-fsck v0.10.0, gitoxide-core v0.46.0, gitoxide v0.42.0, safety bump 48 crates ([`b41312b`](https://github.com/GitoxideLabs/gitoxide/commit/b41312b478b0d19efb330970cf36dba45d0fbfbd))
     - Update changelogs prior to release ([`38dff41`](https://github.com/GitoxideLabs/gitoxide/commit/38dff41d09b6841ff52435464e77cd012dce7645))
