@@ -20,4 +20,4 @@ hashbrown = { version = "0.14.0", default-features = false, features = [
     "inline-more",
     "raw"
 ] }
-gix-hash = { version = "^0.17.0", path = "../gix-hash" }
+gix-hash = { version = "^0.18.0", path = "../gix-hash" }

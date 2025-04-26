@@ -19,8 +19,8 @@ doctest = false
 serde = ["dep:serde", "bstr/serde", "gix-date/serde"]
 
 [dependencies]
-gix-date = { version = "^0.10.0", path = "../gix-date" }
-gix-utils = { version = "^0.2.1", path = "../gix-utils" }
+gix-date = { version = "^0.10.1", path = "../gix-date" }
+gix-utils = { version = "^0.3.0", path = "../gix-utils" }
 
 thiserror = "2.0.0"
 bstr = { version = "1.12.0", default-features = false, features = [

@@ -102,7 +102,7 @@ gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 
 # for walkdir
 gix-path = { version = "^0.10.16", path = "../gix-path", optional = true }
-gix-utils = { version = "^0.2.1", path = "../gix-utils", optional = true }
+gix-utils = { version = "^0.3.0", path = "../gix-utils", optional = true }
 
 # 'parallel' feature
 crossbeam-channel = { version = "0.5.15", optional = true }

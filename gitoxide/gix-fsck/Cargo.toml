@@ -15,7 +15,7 @@ rust-version = "1.70"
 doctest = false
 
 [dependencies]
-gix-hash = { version = "^0.17.1", path = "../gix-hash" }
+gix-hash = { version = "^0.18.0", path = "../gix-hash" }
 gix-hashtable = { version = "^0.8.0", path = "../gix-hashtable" }
 gix-object = { version = "^0.49.0", path = "../gix-object" }
 
