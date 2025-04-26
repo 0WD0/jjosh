@@ -4,7 +4,7 @@ lints.workspace = true
 name = "gix-features"
 description = "A crate to integrate various capabilities using compile-time feature flags"
 repository = "https://github.com/GitoxideLabs/gitoxide"
-version = "0.42.0"
+version = "0.42.1"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
@@ -101,8 +101,8 @@ required-features = ["io-pipe"]
 gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 
 # for walkdir
-gix-path = { version = "^0.10.16", path = "../gix-path", optional = true }
-gix-utils = { version = "^0.2.1", path = "../gix-utils", optional = true }
+gix-path = { version = "^0.10.17", path = "../gix-path", optional = true }
+gix-utils = { version = "^0.3.0", path = "../gix-utils", optional = true }
 
 # 'parallel' feature
 crossbeam-channel = { version = "0.5.15", optional = true }
