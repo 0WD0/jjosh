@@ -25,11 +25,11 @@ default = []
 xz = ["dep:xz2"]
 
 [dependencies]
-gix-lock = "16.0.0"
-gix-discover = "0.39.0"
-gix-worktree = "0.40.0"
-gix-fs = "0.14.0"
-gix-tempfile = { version = "16.0.0", default-features = false, features = ["signals"] }
+gix-lock = "17.1.0"
+gix-discover = "0.40.1"
+gix-worktree = "0.41.0"
+gix-fs = "0.15.0"
+gix-tempfile = { version = "17.1.0", default-features = false, features = ["signals"] }
 
 winnow = { version = "0.7.7", features = ["simd"] }
 fastrand = "2.0.0"
