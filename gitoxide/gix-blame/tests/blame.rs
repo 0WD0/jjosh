@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use gix_blame::BlameRanges;
 use gix_hash::ObjectId;
 use gix_object::bstr;
 
@@ -193,7 +194,7 @@ macro_rules! mktest {
                 format!("{}.txt", $case).as_str().into(),
                 gix_blame::Options {
                     diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                    range: None,
+                    range: BlameRanges::default(),
                     since: None,
                 },
             )?
@@ -264,7 +265,7 @@ fn diff_disparity() {
             format!("{case}.txt").as_str().into(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: None,
+                range: BlameRanges::default(),
                 since: None,
             },
         )
@@ -296,7 +297,7 @@ fn line_range() {
         "simple.txt".into(),
         gix_blame::Options {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-            range: Some(1..2),
+            range: BlameRanges::from_range(1..2),
             since: None,
         },
     )
@@ -327,7 +328,7 @@ fn since() {
         "simple.txt".into(),
         gix_blame::Options {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-            range: None,
+            range: BlameRanges::default(),
             since: Some(gix_date::parse("2025-01-31", None).unwrap()),
         },
     )
@@ -338,6 +339,75 @@ fn since() {
 
     let git_dir = fixture_path().join(".git");
     let baseline = Baseline::collect(git_dir.join("simple-since.baseline")).unwrap();
+
+    assert_eq!(lines_blamed, baseline);
+}
+
+#[test]
+fn multiple_ranges_using_add_range() {
+    let Fixture {
+        odb,
+        mut resource_cache,
+        suspect,
+    } = Fixture::new().unwrap();
+
+    let mut ranges = BlameRanges::new();
+    ranges.add_range(1..2); // Lines 1-2
+    ranges.add_range(1..1); // Duplicate range, should be ignored
+    ranges.add_range(4..4); // Line 4
+
+    let lines_blamed = gix_blame::file(
+        &odb,
+        suspect,
+        None,
+        &mut resource_cache,
+        "simple.txt".into(),
+        gix_blame::Options {
+            diff_algorithm: gix_diff::blob::Algorithm::Histogram,
+            range: ranges,
+            since: None,
+        },
+    )
+    .unwrap()
+    .entries;
+
+    assert_eq!(lines_blamed.len(), 3); // Should have 3 lines total (2 from first range + 1 from second range)
+
+    let git_dir = fixture_path().join(".git");
+    let baseline = Baseline::collect(git_dir.join("simple-lines-multiple-1-2-and-4.baseline")).unwrap();
+
+    assert_eq!(lines_blamed, baseline);
+}
+
+#[test]
+fn multiple_ranges_usingfrom_ranges() {
+    let Fixture {
+        odb,
+        mut resource_cache,
+        suspect,
+    } = Fixture::new().unwrap();
+
+    let ranges = BlameRanges::from_ranges(vec![1..2, 1..1, 4..4]);
+
+    let lines_blamed = gix_blame::file(
+        &odb,
+        suspect,
+        None,
+        &mut resource_cache,
+        "simple.txt".into(),
+        gix_blame::Options {
+            diff_algorithm: gix_diff::blob::Algorithm::Histogram,
+            range: ranges,
+            since: None,
+        },
+    )
+    .unwrap()
+    .entries;
+
+    assert_eq!(lines_blamed.len(), 3); // Should have 3 lines total (2 from first range + 1 from second range)
+
+    let git_dir = fixture_path().join(".git");
+    let baseline = Baseline::collect(git_dir.join("simple-lines-multiple-1-2-and-4.baseline")).unwrap();
 
     assert_eq!(lines_blamed, baseline);
 }
