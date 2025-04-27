@@ -219,8 +219,7 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
             .spawn()?;
 
     let server_addr = addr_at(free_port);
-    // TODO(deps): Upgrading dependencies will require changing `Exponential` to `Quadratic`.
-    for time in gix_lock::backoff::Exponential::default_with_random() {
+    for time in gix_lock::backoff::Quadratic::default_with_random() {
         std::thread::sleep(time);
         if std::net::TcpStream::connect(server_addr).is_ok() {
             break;
