@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{CommandFactory, Parser};
 use gitoxide_core as core;
 use gitoxide_core::{pack::verify, repository::PathsOrPatterns};
-use gix::{bstr::{io::BufReadExt, BString}};
+use gix::bstr::{io::BufReadExt, BString};
 
 use crate::{
     plumbing::{

@@ -1,18 +1,18 @@
+use gix_hash::ObjectId;
+use gix_object::bstr::BString;
+use smallvec::SmallVec;
+use std::ops::RangeInclusive;
 use std::{
     num::NonZeroU32,
     ops::{AddAssign, Range, SubAssign},
 };
-
-use gix_hash::ObjectId;
-use gix_object::bstr::BString;
-use smallvec::SmallVec;
 
 use crate::file::function::tokens_for_diffing;
 use crate::Error;
 
 /// A type to represent one or more line ranges to blame in a file.
 ///
-/// This type handles the conversion between git's 1-based inclusive ranges and the internal
+/// It handles the conversion between git's 1-based inclusive ranges and the internal
 /// 0-based exclusive ranges used by the blame algorithm.
 ///
 /// # Examples
@@ -21,18 +21,18 @@ use crate::Error;
 /// use gix_blame::BlameRanges;
 ///
 /// // Blame lines 20 through 40 (inclusive)
-/// let range = BlameRanges::from_range(20..41);
+/// let range = BlameRanges::from_range(20..=40);
 ///
 /// // Blame multiple ranges
 /// let mut ranges = BlameRanges::new();
-/// ranges.add_range(1..5);   // Lines 1-4
-/// ranges.add_range(10..15); // Lines 10-14
+/// ranges.add_range(1..=4);   // Lines 1-4
+/// ranges.add_range(10..=14); // Lines 10-14
 /// ```
 ///
 /// # Line Number Representation
 ///
 /// This type uses 1-based inclusive ranges to mirror `git`'s behaviour:
-/// - A range of `20..41` represents 21 lines, spanning from line 20 up to and including line 40
+/// - A range of `20..=40` represents 21 lines, spanning from line 20 up to and including line 40
 /// - This will be converted to `19..40` internally as the algorithm uses 0-based ranges that are exclusive at the end
 ///
 /// # Empty Ranges
@@ -43,59 +43,60 @@ use crate::Error;
 pub struct BlameRanges {
     /// The ranges to blame, stored as 1-based inclusive ranges
     /// An empty Vec means blame the entire file
-    ranges: Vec<Range<u32>>,
+    ranges: Vec<RangeInclusive<u32>>,
 }
 
+/// Lifecycle
 impl BlameRanges {
     /// Create a new empty BlameRanges instance.
     ///
     /// An empty instance means to blame the entire file.
     pub fn new() -> Self {
-        Self { ranges: Vec::new() }
-    }
-
-    /// Add a single range to blame.
-    ///
-    /// The range should be 1-based inclusive.
-    /// If the new range overlaps with or is adjacent to an existing range,
-    /// they will be merged into a single range.
-    pub fn add_range(&mut self, new_range: Range<u32>) {
-        self.merge_range(new_range);
+        Self::default()
     }
 
     /// Create from a single range.
     ///
-    /// The range should be 1-based inclusive, similar to git's line number format.
-    pub fn from_range(range: Range<u32>) -> Self {
+    /// The range is 1-based, similar to git's line number format.
+    pub fn from_range(range: RangeInclusive<u32>) -> Self {
         Self { ranges: vec![range] }
     }
 
     /// Create from multiple ranges.
     ///
-    /// All ranges should be 1-based inclusive.
+    /// All ranges are 1-based.
     /// Overlapping or adjacent ranges will be merged.
-    pub fn from_ranges(ranges: Vec<Range<u32>>) -> Self {
+    pub fn from_ranges(ranges: Vec<RangeInclusive<u32>>) -> Self {
         let mut result = Self::new();
         for range in ranges {
             result.merge_range(range);
         }
         result
     }
+}
+
+impl BlameRanges {
+    /// Add a single range to blame.
+    ///
+    /// The range should be 1-based inclusive.
+    /// If the new range overlaps with or is adjacent to an existing range,
+    /// they will be merged into a single range.
+    pub fn add_range(&mut self, new_range: RangeInclusive<u32>) {
+        self.merge_range(new_range);
+    }
 
     /// Attempts to merge the new range with any existing ranges.
-    /// If no merge is possible, adds it as a new range.
-    fn merge_range(&mut self, new_range: Range<u32>) {
-        // First check if this range can be merged with any existing range
+    /// If no merge is possible, add it as a new range.
+    fn merge_range(&mut self, new_range: RangeInclusive<u32>) {
+        // Check if this range can be merged with any existing range
         for range in &mut self.ranges {
             // Check if ranges overlap or are adjacent
-            if new_range.start <= range.end && range.start <= new_range.end {
-                // Merge the ranges by taking the minimum start and maximum end
-                range.start = range.start.min(new_range.start);
-                range.end = range.end.max(new_range.end);
+            if new_range.start() <= range.end() && range.start() <= new_range.end() {
+                *range = *range.start().min(new_range.start())..=*range.end().max(new_range.end());
                 return;
             }
         }
-        // If no overlap found, add as new range
+        // If no overlap found, add it as a new range
         self.ranges.push(new_range);
     }
 
@@ -118,11 +119,11 @@ impl BlameRanges {
 
         let mut result = Vec::with_capacity(self.ranges.len());
         for range in &self.ranges {
-            if range.start == 0 {
+            if *range.start() == 0 {
                 return Err(Error::InvalidLineRange);
             }
-            let start = range.start - 1;
-            let end = range.end;
+            let start = range.start() - 1;
+            let end = *range.end();
             if start >= max_lines || end > max_lines || start == end {
                 return Err(Error::InvalidLineRange);
             }

@@ -169,7 +169,7 @@ pub enum Subcommands {
         file: std::ffi::OsString,
         /// Only blame lines in the given 1-based inclusive range '<start>,<end>', e.g. '20,40'.
         #[clap(short='L', value_parser=AsRange, action=clap::ArgAction::Append)]
-        ranges: Vec<std::ops::Range<u32>>,
+        ranges: Vec<std::ops::RangeInclusive<u32>>,
         /// Don't consider commits before the given date.
         #[clap(long,  value_parser=AsTime, value_name = "DATE")]
         since: Option<gix::date::Time>,

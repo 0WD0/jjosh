@@ -10,9 +10,6 @@ authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>", "Sebastian Thi
 edition = "2021"
 rust-version = "1.70"
 
-[lib]
-doctest = false
-
 [dependencies]
 gix-commitgraph = { version = "^0.28.0", path = "../gix-commitgraph" }
 gix-revwalk = { version = "^0.20.1", path = "../gix-revwalk" }

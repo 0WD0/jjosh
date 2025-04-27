@@ -413,7 +413,7 @@ mod clap {
     pub struct AsRange;
 
     impl TypedValueParser for AsRange {
-        type Value = std::ops::Range<u32>;
+        type Value = std::ops::RangeInclusive<u32>;
 
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             StringValueParser::new()
@@ -424,7 +424,7 @@ mod clap {
                         let end = u32::from_str(end)?;
 
                         if start <= end {
-                            return Ok(start..end);
+                            return Ok(start..=end);
                         }
                     }
 
@@ -474,11 +474,11 @@ mod value_parser_tests {
         #[derive(Debug, clap::Parser)]
         pub struct Cmd {
             #[clap(long, short='l', value_parser = AsRange)]
-            pub arg: Option<std::ops::Range<u32>>,
+            pub arg: Option<std::ops::RangeInclusive<u32>>,
         }
 
         let c = Cmd::parse_from(["cmd", "-l=1,10"]);
-        assert_eq!(c.arg, Some(1..10));
+        assert_eq!(c.arg, Some(1..=10));
     }
 
     #[test]
