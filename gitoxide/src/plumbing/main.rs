@@ -1560,7 +1560,7 @@ pub fn main() -> Result<()> {
         Subcommands::Blame {
             statistics,
             file,
-            range,
+            ranges,
             since,
         } => prepare_and_run(
             "blame",
@@ -1578,7 +1578,7 @@ pub fn main() -> Result<()> {
                     &file,
                     gix::blame::Options {
                         diff_algorithm,
-                        range,
+                        range: gix::blame::BlameRanges::from_ranges(ranges),
                         since,
                     },
                     out,
