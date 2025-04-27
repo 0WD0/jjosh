@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.16.1 (2025-04-27)
+
+### Bug Fixes
+
+ - <csr-id-9b12d5007ca3ec98d061b6d2b94c7cdda4fcd3e4/> unify the dependency graph by choosing the right versions, upgrading to `gix-features 0.42`
+   This is what should silence audit failures.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 1 commit contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Unify the dependency graph by choosing the right versions, upgrading to `gix-features 0.42` ([`9b12d50`](https://github.com/GitoxideLabs/gitoxide/commit/9b12d5007ca3ec98d061b6d2b94c7cdda4fcd3e4))
+</details>
+
 ## 0.16.0 (2025-04-27)
+
+<csr-id-3b173054c76f5113f36beca3ba5a3a44642e1915/>
 
 ### Changed
 
@@ -169,28 +196,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    sense to enable this:
    
    - If automatically testing archive creation, or
-   
-   - As a way to check that all intended generated arhives are committed
+- As a way to check that all intended generated arhives are committed
      (which is the motivating use case for this feature), or
-   
-   - If actually using CI to generate archives that will be uploaded
+- If actually using CI to generate archives that will be uploaded
      as artifacts, or
-   
-   - In unusual non-CI environments that are mis-detected as CI
+- In unusual non-CI environments that are mis-detected as CI
      (though that should usually be investigated and fixed, since some
      software performs destructive operations more readily without
      interactive checks when CI is detected).
-   
-   The usual reason for not generating archives on CI is that they
-   would not typically be preserved. Thus refraining from generating
-   them on CI remains the default behavior.
-   
-   Like the `GIX_TEST_IGNORE_ARCHIVES` environment variable, the new
-   variable `GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI` is currently
-   interpreted as "true" based solely on its presence. This is to say
-   that is actual value is currently not examined.
 
 ### Bug Fixes
+
+<csr-id-39323c34ec232ea686f8cfb227f87e23336467cb/>
+<csr-id-9d4dd121498907e820f82051d840deefa719ab26/>
+<csr-id-8dc5d7aa736059aa45a17dfdc76d9d4c9993f996/>
+<csr-id-a879d2214ae40be7692fa00360c8151bb8e2e88e/>
+<csr-id-3cf9fc12cb8ebb9bf04e4f5bd2aee884c18d672f/>
+<csr-id-581957ea3d810da7529b818604067d16fc025631/>
+<csr-id-8a0fedb22bad576ea11017777f476947f366e5f5/>
 
  - <csr-id-93cb5ba03d364efcbb4110c2bd207f3d8de9b292/> fix check to detect `git-lfs` managed files that weren't checked out.
    Previously it would detect them incorrectly due to a find-and-replace
@@ -208,38 +231,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    falls back in an operating system specific manner:
    
    - Except on Windows, always fall back to `bash`, as before.
-   
-   - On Windows, run `git --exec-path` to find the `git-core`
+- On Windows, run `git --exec-path` to find the `git-core`
      directory. Then check if a `bash.exe` exists at the expected
      location relative to that. In Git for Windows installations,
      this will usually work. If so, use that path (with `..`
      components resolved away).
-   
-   - On Windows, if a specific `bash.exe` is not found in that way,
+- On Windows, if a specific `bash.exe` is not found in that way,
      then fall back to using the relative path `bash.exe`. This is to
      preserve the ability to run `bash` on Windows systems where it
      may have worked before even without `bash.exe` in an expected
      location provided by a Git for Windows installation.
-   
-   (The distinction between `bash` and `bash.exe` is only slightly
-   significant: we check for the existence of the interpreter without
-   initially running it, and that check requires the full filename.
-   It is called `bash.exe` elsewhere for consistency both with the
-   checked-for executable and for consistencey with how we run most
-   other programs on Windows, e.g., the `git` vs. `git.exe`.)
-   
-   This fixes #1359. That bug is not currently observed on CI, but
-   this change is verified to fix it on a local test system where it
-   previously always occurred when running the test suite from
-   PowerShell in an unmodified environment. The fix applies both with
-   `GIX_TEST_IGNORE_ARCHIVES` unset, in which case there are now no
-   failures, and with `GIX_TEST_IGNORE_ARCHIVES=1`, in which case the
-   failures are now limited to the 15 cases tracked in #1358.
-   
-   Previously, fixture scripts had been run on Windows with whatever
-   `bash` was found in a `PATH` search, which had two problems:
-   
-   - On most Windows systems, even if no WSL distribution is installed
+- On most Windows systems, even if no WSL distribution is installed
      and even if WSL itself is not set up, the `System32` directory
      contains a `bash.exe` program associated with WSL. This program
      attempts to use WSL to run `bash` in an installed distribution.
@@ -261,8 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      `PATH` is modified -- either explicitly or by testing in an MSYS2
      environment, such as the Git Bash environment -- whether or not
      `GIX_TEST_IGNORE_ARCHIVES` is set. This was the cause of #1359.
-   
-   - Although using a Git Bash environment or otherwise adjusting the
+- Although using a Git Bash environment or otherwise adjusting the
      path *currently* works, the reasons it works are subtle and rely
      on non-guaranteed behavior of `std::process::Command` path search
      that may change without warning.
@@ -314,19 +315,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      no longer prevent `std::proces::Command` from finding the
      `bash.exe` in `System32` as `CreateProcessW` would and using it.
      Then it would be nontrivial to run the test suite on Windows.
-   
-   For references and other details, see #1359 and comments including:
-   https://github.com/GitoxideLabs/gitoxide/issues/1359#issuecomment-2316614616
-   
-   On the approach of finding the Git for Windows `bash.exe` relative
-   to the `git-core` directory, see the GitPython pull request
-   https://github.com/gitpython-developers/GitPython/pull/1791, its
-   comments, and the implementation of the approach by @emanspeaks:
-   https://github.com/gitpython-developers/GitPython/blob/f065d1fba422a528a133719350e027f1241273df/git/cmd.py#L398-L403
-   
-   Two possible future enhancements are *not* included in this commit:
-   
-   1. This only modifies how test fixture scripts are run. It only
+1. This only modifies how test fixture scripts are run. It only
       affects the behavior of `gix-testtools`, and not of any other
       gitoxide crates such as `gix-command`. This is because:
    
@@ -347,22 +336,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
         there may be scenarios where running an executable found this
         way is not safe. Limiting it to `gix-testtools` pending
         further research may help mitigate this risk.
-   
-   2. As in other runs of `git` by `gix-testools`, this calls
-      `git.exe`, letting `std::process::Command` do an executable
-      search, but not trying any additional locations where Git is
-      known sometimes to be installed. This does not find `git.exe` in
-      as many situations as `gix_path::env::exe_invocation` does.
-   
-      The reasons for not (or not quite yet) including that change are:
-   
-      - It would add `gix-path` as a dependency of `gix-testtools`.
-   
-      - Finding `git` in a `std::process::Command` path search is an
+- We know our test fixture scripts are all (at least currently)
+        `bash` scripts, and this seems likely for other software that
+        currently uses this functionality of `gix-testtools`. But
+        scripts that are run as hooks, or as custom commands, or
+        filters, etc., are often written in other languages, such as
+        Perl. (The fallback here does not examine leading `#!` lines.)
+- Although a `bash.exe` located at the usual place relative to
+        (but outside of) the `git-core` directory is usually suitable,
+        there may be scenarios where running an executable found this
+        way is not safe. Limiting it to `gix-testtools` pending
+        further research may help mitigate this risk.
+- It would add `gix-path` as a dependency of `gix-testtools`.
+- Finding `git` in a `std::process::Command` path search is an
         established (though not promised) approach in `gix-testtools`,
         including to run `git --exec-path` (to find `git-daemon`).
-   
-      - It is not immediately obvious that `exe_invocation` behavior
+- It is not immediately obvious that `exe_invocation` behavior
         is semantically correct for `gix-testtools`, though it most
         likely is reasonable.
    
@@ -378,156 +367,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
         use `git` but not to be used *by* `git` are usually written
         without the expectation of such an environment, prepending
         this will not necessarily be an improvement.
- - <csr-id-39323c34ec232ea686f8cfb227f87e23336467cb/> Double the fixture lock timeout
-   This increases the lock timeout used in `gix-testtools` from 3 min
-   6 min. This seems to fix #1605.
- - <csr-id-9d4dd121498907e820f82051d840deefa719ab26/> Unset other env vars related to `GIT_DIR` for fixtures
-   This removes other environment variables that have an effect
-   conceptually related to `GIT_DIR` even when `GIT_DIR` is not set.
-   Most of them change where `git` will look for files that are
-   ordinarily in a repository's `.git` directory. In contrast,
-   `GIT_WORK_TREE` changes where the working tree is found.
-   
-   These would rarely be set in the environment in which the tests are
-   run, but it makes sense to unset them for the same reason as
-   unsetting `GIT_DIR`, which is already done.
-   
-   The new `remove_env` calls are roughly in the order in which the
-   variables they unset are listed in git(1).
-   
-   This deliberately does not attempt to unset every possible
-   environment variable that git(1) documents as affecting its
-   behavior. This is for four reasons:
-   
-   - Some variables may be set on the test machine without envisioning
+- Some variables may be set on the test machine without envisioning
      this usage, but should still be kept, such as those that cause
      more or less traversal than usual to be done. For example, if
      `GIT_CEILING_DIRECTORIES` or even `GIT_DISCOVERY_ACROSS_FILESYSTEM`
      are set, it may be for a good reason.
-   
-   - Some variables will have no default unless other variables that
+- Some variables will have no default unless other variables that
      are being modified here are changed again after the changes here.
      In particular, `GIT_CONFIG_SYSTEM` only has an effect if
      `GIT_CONFIG_NOSYSTEM` is not set. We set `GIT_CONFIG_NOSYSTEM` to
      `1`, so if it is unset then a fixture script has unset it, in
      which case it is presumably intended that `GIT_CONFIG_SYSTEM`
      have some effect (if the fixture script doesn't change/unset it).
-   
-   - Some variables are useful for extra debugging and make sense to
+- Some variables are useful for extra debugging and make sense to
      set when running the test fixtures under foreseeable conditions.
      For example, the effects of all `GIT_TRACE*` variables are
      intentionally preserved.
-   
-   - For a few variables, such as `GIT_DEFAULT_HASH`, it is unlikely
+- For a few variables, such as `GIT_DEFAULT_HASH`, it is unlikely
      that they would be wanted in the test environment, but even more
      unlikely that they would be set in that environment without the
      intention of experimenting with their effect on fixtures.
-   
-   However, this is not to say that all environment variables that
-   would make sense to remove have necessarily been removed.
-   
-   The removed variables here differ from those removed for the `git`
-   invocation in `gix-path/src/env/git/mod.rs` for two reasons:
-   
-   - That is a single `git` invocation for a specific command, so the
+- That is a single `git` invocation for a specific command, so the
      environment variables that ought to affect it must be kept, and
      others can be removed. But here, arbitrary fixtures need to work,
      and they provide almost all of their own environment as needed.
-   
-   - Setting an unusual value of `GIT_DIR` there that `git` cannot
+- Setting an unusual value of `GIT_DIR` there that `git` cannot
      take to be a usable repository also prevents the variables
      that override `GIT_DIR` for specific files from being used. (But
      maybe those should be unset there anyway, for clarity?)
- - <csr-id-8dc5d7aa736059aa45a17dfdc76d9d4c9993f996/> Append to preexisting `MSYS` env var even if ill-formed
-   The value of an environment variable as obtained by the facilities
-   in `std::env` is not always well-formed Unicode. Specifically, on
-   Windows the values of environment variables, like paths, are
-   natively UTF-16LE strings except that unpaired surrogate code
-   points can also occur. An `&OsStr` on Windows may accordingly not
-   quite be UTF-8.
-   
-   When the `MSYS` variable is absent, we treat this the same as when
-   it is present but empty. However, as described in #1574, an `MSYS`
-   variable that is present but whose value contains an unpaired
-   surrogate would also be replaced entirely, rather than appending to
-   its old value.
-   
-   This changes that, to instead append, retaining whatever was there
-   even if it was ill-formed Unicode.
-   
-   An alternative change could be to panic when the old value is
-   ill-formed Unicode. This commit allows and appends to the old
-   value, rather than panicking or keeping and documenting the
-   previous behavior of discarding the old value, because the appended
-   sequence ` winsymlinks:nativestrict` is effective at causing
-   fixture scripts to attempt to create actual symlinks even if
-   the preceding code point is an unpaired Unicode high surrogate.
- - <csr-id-a879d2214ae40be7692fa00360c8151bb8e2e88e/> Omit other high-scoped config in fixtures
-   In addition to keeping fixture scripts from receiving global and
-   system scope Git configuration variables, as was already done, this
-   also omits configuration variables from high scopes similar to or
-   above the system scope, associated with the Git installation but
-   separate from the system scope.
-   
-   The main and possibly only case where this happens is the "unknown"
-   scope associated with an Apple Git installation on macOS. This is a
-   file usually located under `/Library` or `/Applications`.
-   
-   This is done by using `GIT_CONFIG_NOSYSTEM`, which suppresses both
-   the system scope and this separate "unknown" scope, instead of by
-   settng `GIT_CONFIG_SYSTEM` to a path like `/dev/null`. The latter
-   approach continues to be used to omit global scope config via
-   `GIT_CONFIG_GLOBAL` (as `git` recognized no `GIT_CONFIG_NOGLOBAL`).
- - <csr-id-3cf9fc12cb8ebb9bf04e4f5bd2aee884c18d672f/> Omit system/global config in fixtures regardless of contents
-   This uses the null device, `/dev/null` on Unix-like systems and
-   `NUL` on Windows, as the value of `GIT_CONFIG_SYSTEM` and
-   `GIT_CONFIG_GLOBAL` when `gix-testtols` runs test fixture shell
-   scripts.
-   
-   `/dev/null` is explicitly recommended for this purpose, when
-   setting those environment variables for the purpose of preventing
-   configuration files from being read, in the Git documentation:
-   
-   - https://git-scm.com/docs/git#Documentation/git.txt-codeGITCONFIGGLOBALcode
-   
-   On Windows, `NUL` is an analogue of `/dev/null`. Even in the
-   unusual scenario that a `\\?\` prefixed UNC path is used to create
-   an actual file named `NUL` in the directory the fixture script
-   operates in, the relative path `NUL` still resolves to the null
-   device and not to that file.
-   
-   The previous behavior was to use a value of `:` on Unix-like
-   systems or `-` on Windows. But these were really just unusual but
-   valid paths, such that files of those names could exist in any
-   location. `git` furthermore treats them as paths: a `:` is not
-   special in these environment variables because they hold a single
-   path rather than a list of paths, and a `-` is not special (for
-   example, it does not specify stdin) because it appears in an
-   environment variable rather than a command-line argument.
-   
-   While `:` and `-` are unusual filenames, this code is used in
-   testing, including of edge cases where unusual files may be used.
-   So this change may make the test tools slightly more robust.
- - <csr-id-581957ea3d810da7529b818604067d16fc025631/> Let `gix_testtools::Env` undo multiple changes to the same var
-   Previously, an `Env` instance would restore the original state on
-   drop if no more than one modification was made to any one variable
-   through it, but would restore an intermediate state if the same
-   variable was ever set multiple times, unset multiple times, or both
-   set and unset in any order.
-   
-   The state it would restore for each variable was its state
-   immediately before the most recent modification (through the `Env`
-   instance) that affected it, rather than its original state before
-   the first time it was modified through that `Env` instance.
-   
-   This fixes that by undoing the changes in the opposite of the order
-   they were made.
- - <csr-id-8a0fedb22bad576ea11017777f476947f366e5f5/> assure archives are unique if their generator-scripts are called with arguments.
-   Previously there was a race condition that would cause archives to be created either with
-   or without arguments, depending on which test was run first.
-   
-   After its creation, they wouldn't be looked at again as on disk they would already be available
-   in their usable form.
+- https://git-scm.com/docs/git#Documentation/git.txt-codeGITCONFIGGLOBALcode
 
 ### Other
 
@@ -554,7 +422,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 104 commits contributed to the release over the course of 296 calendar days.
+ - 105 commits contributed to the release over the course of 296 calendar days.
  - 307 days passed between releases.
  - 22 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1440](https://github.com/GitoxideLabs/gitoxide/issues/1440), [#1443](https://github.com/GitoxideLabs/gitoxide/issues/1443)
@@ -576,6 +444,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#1443](https://github.com/GitoxideLabs/gitoxide/issues/1443)**
     - On Windows, also instruct msys to create real symlinks ([`0899c2e`](https://github.com/GitoxideLabs/gitoxide/commit/0899c2ee36a714573b223ae85114fb7284fc661e))
  * **Uncategorized**
+    - Release gix-testtools v0.16.0 ([`c5c726e`](https://github.com/GitoxideLabs/gitoxide/commit/c5c726e64f01b3a927ec5dc0e9917a4470d9cc5c))
     - Prepare new testtools release ([`070f5f6`](https://github.com/GitoxideLabs/gitoxide/commit/070f5f68976217c4fec84cae8516c3f5b716e513))
     - Merge pull request #1935 from pierrechevalier83/fix_1923 ([`3b1bef7`](https://github.com/GitoxideLabs/gitoxide/commit/3b1bef7cc40e16b61bcc117ca90ebae21df7c7b1))
     - J fmt ([`c3c6504`](https://github.com/GitoxideLabs/gitoxide/commit/c3c650448f92bcb27194ce0a51f7d604ce87920d))
@@ -679,6 +548,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Fix gix-archive tests for when symlinks are allowed ([`93e088a`](https://github.com/GitoxideLabs/gitoxide/commit/93e088a619db0d4b81e444922f375de65c94a317))
     - Merge branch 'fix-1440' ([`f87322e`](https://github.com/GitoxideLabs/gitoxide/commit/f87322e185704d9d4368ae88e95892635a976e4a))
 </details>
+
+<csr-unknown>
+The usual reason for not generating archives on CI is that theywould not typically be preserved. Thus refraining from generatingthem on CI remains the default behavior.Like the GIX_TEST_IGNORE_ARCHIVES environment variable, the newvariable GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI is currentlyinterpreted as “true” based solely on its presence. This is to saythat is actual value is currently not examined.(The distinction between bash and bash.exe is only slightlysignificant: we check for the existence of the interpreter withoutinitially running it, and that check requires the full filename.It is called bash.exe elsewhere for consistency both with thechecked-for executable and for consistencey with how we run mostother programs on Windows, e.g., the git vs. git.exe.)This fixes #1359. That bug is not currently observed on CI, butthis change is verified to fix it on a local test system where itpreviously always occurred when running the test suite fromPowerShell in an unmodified environment. The fix applies both withGIX_TEST_IGNORE_ARCHIVES unset, in which case there are now nofailures, and with GIX_TEST_IGNORE_ARCHIVES=1, in which case thefailures are now limited to the 15 cases tracked in #1358.Previously, fixture scripts had been run on Windows with whateverbash was found in a PATH search, which had two problems:For references and other details, see #1359 and comments including:https://github.com/GitoxideLabs/gitoxide/issues/1359#issuecomment-2316614616On the approach of finding the Git for Windows bash.exe relativeto the git-core directory, see the GitPython pull requesthttps://github.com/gitpython-developers/GitPython/pull/1791, itscomments, and the implementation of the approach by @emanspeaks:https://github.com/gitpython-developers/GitPython/blob/f065d1fba422a528a133719350e027f1241273df/git/cmd.py#L398-L403Two possible future enhancements are not included in this commit:As in other runs of git by gix-testools, this callsgit.exe, letting std::process::Command do an executablesearch, but not trying any additional locations where Git isknown sometimes to be installed. This does not find git.exe inas many situations as gix_path::env::exe_invocation does.The reasons for not (or not quite yet) including that change are: Double the fixture lock timeoutThis increases the lock timeout used in gix-testtools from 3 min6 min. This seems to fix #1605. Unset other env vars related to GIT_DIR for fixturesThis removes other environment variables that have an effectconceptually related to GIT_DIR even when GIT_DIR is not set.Most of them change where git will look for files that areordinarily in a repository’s .git directory. In contrast,GIT_WORK_TREE changes where the working tree is found.These would rarely be set in the environment in which the tests arerun, but it makes sense to unset them for the same reason asunsetting GIT_DIR, which is already done.The new remove_env calls are roughly in the order in which thevariables they unset are listed in git(1).This deliberately does not attempt to unset every possibleenvironment variable that git(1) documents as affecting itsbehavior. This is for four reasons:However, this is not to say that all environment variables thatwould make sense to remove have necessarily been removed.The removed variables here differ from those removed for the gitinvocation in gix-path/src/env/git/mod.rs for two reasons: Append to preexisting MSYS env var even if ill-formedThe value of an environment variable as obtained by the facilitiesin std::env is not always well-formed Unicode. Specifically, onWindows the values of environment variables, like paths, arenatively UTF-16LE strings except that unpaired surrogate codepoints can also occur. An &OsStr on Windows may accordingly notquite be UTF-8.When the MSYS variable is absent, we treat this the same as whenit is present but empty. However, as described in #1574, an MSYSvariable that is present but whose value contains an unpairedsurrogate would also be replaced entirely, rather than appending toits old value.This changes that, to instead append, retaining whatever was thereeven if it was ill-formed Unicode.An alternative change could be to panic when the old value isill-formed Unicode. This commit allows and appends to the oldvalue, rather than panicking or keeping and documenting theprevious behavior of discarding the old value, because the appendedsequence  winsymlinks:nativestrict is effective at causingfixture scripts to attempt to create actual symlinks even ifthe preceding code point is an unpaired Unicode high surrogate. Omit other high-scoped config in fixturesIn addition to keeping fixture scripts from receiving global andsystem scope Git configuration variables, as was already done, thisalso omits configuration variables from high scopes similar to orabove the system scope, associated with the Git installation butseparate from the system scope.The main and possibly only case where this happens is the “unknown”scope associated with an Apple Git installation on macOS. This is afile usually located under /Library or /Applications.This is done by using GIT_CONFIG_NOSYSTEM, which suppresses boththe system scope and this separate “unknown” scope, instead of bysettng GIT_CONFIG_SYSTEM to a path like /dev/null. The latterapproach continues to be used to omit global scope config viaGIT_CONFIG_GLOBAL (as git recognized no GIT_CONFIG_NOGLOBAL). Omit system/global config in fixtures regardless of contentsThis uses the null device, /dev/null on Unix-like systems andNUL on Windows, as the value of GIT_CONFIG_SYSTEM andGIT_CONFIG_GLOBAL when gix-testtols runs test fixture shellscripts./dev/null is explicitly recommended for this purpose, whensetting those environment variables for the purpose of preventingconfiguration files from being read, in the Git documentation:On Windows, NUL is an analogue of /dev/null. Even in theunusual scenario that a \\?\ prefixed UNC path is used to createan actual file named NUL in the directory the fixture scriptoperates in, the relative path NUL still resolves to the nulldevice and not to that file.The previous behavior was to use a value of : on Unix-likesystems or - on Windows. But these were really just unusual butvalid paths, such that files of those names could exist in anylocation. git furthermore treats them as paths: a : is notspecial in these environment variables because they hold a singlepath rather than a list of paths, and a - is not special (forexample, it does not specify stdin) because it appears in anenvironment variable rather than a command-line argument.While : and - are unusual filenames, this code is used intesting, including of edge cases where unusual files may be used.So this change may make the test tools slightly more robust. Let gix_testtools::Env undo multiple changes to the same varPreviously, an Env instance would restore the original state ondrop if no more than one modification was made to any one variablethrough it, but would restore an intermediate state if the samevariable was ever set multiple times, unset multiple times, or bothset and unset in any order.The state it would restore for each variable was its stateimmediately before the most recent modification (through the Envinstance) that affected it, rather than its original state beforethe first time it was modified through that Env instance.This fixes that by undoing the changes in the opposite of the orderthey were made. assure archives are unique if their generator-scripts are called with arguments.Previously there was a race condition that would cause archives to be created either withor without arguments, depending on which test was run first.After its creation, they wouldn’t be looked at again as on disk they would already be availablein their usable form.<csr-unknown/>
 
 ## 0.15.0 (2024-06-23)
 
