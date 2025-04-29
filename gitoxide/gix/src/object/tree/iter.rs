@@ -15,6 +15,11 @@ impl<'repo, 'a> EntryRef<'repo, 'a> {
         self.inner.mode
     }
 
+    /// The kind of object to which [`id()`][Self::id()] is pointing, as shortcut to [self.mode().kind()](Self::mode()).
+    pub fn kind(&self) -> gix_object::tree::EntryKind {
+        self.inner.mode.kind()
+    }
+
     /// The name of the file in the parent tree.
     pub fn filename(&self) -> &gix_object::bstr::BStr {
         self.inner.filename
