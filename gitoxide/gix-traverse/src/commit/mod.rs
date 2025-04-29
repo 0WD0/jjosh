@@ -86,7 +86,7 @@ impl Either<'_, '_> {
         }
     }
 
-    /// Get a commit’s `commit_time` by either getting it from a [`gix_commitgraph::Graph`], if
+    /// Get a committer timestamp by either getting it from a [`gix_commitgraph::Graph`], if
     /// present, or a [`gix_object::CommitRefIter`] otherwise.
     pub fn commit_time(self) -> Result<gix_date::SecondsSinceUnixEpoch, gix_object::decode::Error> {
         match self {
