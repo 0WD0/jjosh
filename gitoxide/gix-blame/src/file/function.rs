@@ -106,8 +106,9 @@ pub fn file(
 
     let (mut buf, mut buf2) = (Vec::new(), Vec::new());
     let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
-    let mut queue: gix_revwalk::PriorityQueue<CommitTime, ObjectId> = gix_revwalk::PriorityQueue::new();
-    queue.insert(commit_time(commit)?, suspect);
+    let mut queue: gix_revwalk::PriorityQueue<gix_date::SecondsSinceUnixEpoch, ObjectId> =
+        gix_revwalk::PriorityQueue::new();
+    queue.insert(commit.commit_time()?, suspect);
 
     let mut out = Vec::new();
     let mut diff_state = gix_diff::tree::State::default();
@@ -126,7 +127,7 @@ pub fn file(
         }
 
         let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
-        let commit_time = commit_time(commit)?;
+        let commit_time = commit.commit_time()?;
 
         if let Some(since) = options.since {
             if commit_time < since.seconds {
@@ -649,17 +650,6 @@ fn find_path_entry_in_commit(
     )?;
     stats.trees_decoded -= 1;
     Ok(res.map(|e| e.oid))
-}
-
-type CommitTime = i64;
-
-fn commit_time(commit: gix_traverse::commit::Either<'_, '_>) -> Result<CommitTime, gix_object::decode::Error> {
-    match commit {
-        gix_traverse::commit::Either::CommitRefIter(commit_ref_iter) => {
-            commit_ref_iter.committer().map(|c| c.seconds())
-        }
-        gix_traverse::commit::Either::CachedCommit(commit) => Ok(commit.committer_timestamp() as i64),
-    }
 }
 
 type ParentIds = SmallVec<[(gix_hash::ObjectId, i64); 2]>;
