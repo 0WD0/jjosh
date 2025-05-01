@@ -357,10 +357,8 @@ fn process_changes(
 
 impl UnblamedHunk {
     fn shift_by(mut self, suspect: ObjectId, offset: Offset) -> Self {
-        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == suspect) {
-            if let Some((_, ref mut range_in_suspect)) = self.suspects.get_mut(position) {
-                *range_in_suspect = range_in_suspect.shift_by(offset);
-            }
+        if let Some(entry) = self.suspects.iter_mut().find(|entry| entry.0 == suspect) {
+            entry.1 = entry.1.shift_by(offset);
         }
         self
     }
@@ -407,20 +405,16 @@ impl UnblamedHunk {
     /// This is like [`Self::pass_blame()`], but easier to use in places where the 'passing' is
     /// done 'inline'.
     fn passed_blame(mut self, from: ObjectId, to: ObjectId) -> Self {
-        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == from) {
-            if let Some((ref mut commit_id, _)) = self.suspects.get_mut(position) {
-                *commit_id = to;
-            }
+        if let Some(entry) = self.suspects.iter_mut().find(|entry| entry.0 == from) {
+            entry.0 = to;
         }
         self
     }
 
     /// Transfer all ranges from the commit at `from` to the commit at `to`.
     fn pass_blame(&mut self, from: ObjectId, to: ObjectId) {
-        if let Some(position) = self.suspects.iter().position(|entry| entry.0 == from) {
-            if let Some((ref mut commit_id, _)) = self.suspects.get_mut(position) {
-                *commit_id = to;
-            }
+        if let Some(entry) = self.suspects.iter_mut().find(|entry| entry.0 == from) {
+            entry.0 = to;
         }
     }
 
