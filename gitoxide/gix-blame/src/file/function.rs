@@ -401,7 +401,6 @@ fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
                     // As of 2024-09-19, the check below only is in `git`, but not in `libgit2`.
                     && previous_source_range.end == current_source_range.start
                 {
-                    // let combined_range =
                     let coalesced_entry = BlameEntry {
                         start_in_blamed_file: previous_blamed_range.start as u32,
                         start_in_source_file: previous_source_range.start as u32,
