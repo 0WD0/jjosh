@@ -115,17 +115,18 @@ pub fn checkout_exclusive(
     progress.done(format!(
         "Created {} {} files{} ({})",
         files_updated,
-        no_repo.then_some("empty").unwrap_or_default(),
-        should_interrupt
-            .load(Ordering::Relaxed)
-            .then(|| {
+        if no_repo { "empty" } else { Default::default() },
+        if should_interrupt.load(Ordering::Relaxed) {
+            {
                 format!(
                     " of {}",
                     entries_for_checkout
                         .saturating_sub(errors.len() + collisions.len() + delayed_paths_unprocessed.len())
                 )
-            })
-            .unwrap_or_default(),
+            }
+        } else {
+            Default::default()
+        },
         gix::progress::bytes()
             .unwrap()
             .display(bytes_written as usize, None, None)

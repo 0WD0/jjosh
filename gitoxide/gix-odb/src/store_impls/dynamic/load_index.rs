@@ -251,9 +251,11 @@ impl super::Store {
             .collect();
 
         let mut new_slot_map_indices = Vec::new(); // these indices into the slot map still exist there/didn't change
-        let mut index_paths_to_add = was_uninitialized
-            .then(|| VecDeque::with_capacity(indices_by_modification_time.len()))
-            .unwrap_or_default();
+        let mut index_paths_to_add = if was_uninitialized {
+            VecDeque::with_capacity(indices_by_modification_time.len())
+        } else {
+            Default::default()
+        };
 
         // Figure out this number based on what we see while handling the existing indices
         let mut num_loaded_indices = 0;
@@ -389,9 +391,11 @@ impl super::Store {
                 generation,
                 // if there was a prior generation, some indices might already be loaded. But we deal with it by trying to load the next index then,
                 // until we find one.
-                next_index_to_load: index_unchanged
-                    .then(|| Arc::clone(&index.next_index_to_load))
-                    .unwrap_or_default(),
+                next_index_to_load: if index_unchanged {
+                    Arc::clone(&index.next_index_to_load)
+                } else {
+                    Default::default()
+                },
                 loaded_indices: if index_unchanged {
                     Arc::clone(&index.loaded_indices)
                 } else {

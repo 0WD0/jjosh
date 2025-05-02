@@ -94,11 +94,15 @@ fn write_meta(meta: &gix::config::file::Metadata, out: &mut impl std::io::Write)
             .as_deref()
             .map_or_else(|| "memory".into(), |p| p.display().to_string()),
         meta.source,
-        (meta.level != 0)
-            .then(|| format!(", include level {}", meta.level))
-            .unwrap_or_default(),
-        (meta.trust != gix::sec::Trust::Full)
-            .then_some(", untrusted")
-            .unwrap_or_default()
+        if meta.level != 0 {
+            format!(", include level {}", meta.level)
+        } else {
+            Default::default()
+        },
+        if meta.trust != gix::sec::Trust::Full {
+            ", untrusted"
+        } else {
+            Default::default()
+        }
     )
 }
