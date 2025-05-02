@@ -1,12 +1,45 @@
-use super::Tree;
-use crate::Repository;
+use crate::object::tree::EntryRef;
+use crate::{bstr::BStr, ext::ObjectIdExt, object::tree::Entry};
 
-/// An entry within a tree
-pub struct EntryRef<'repo, 'a> {
-    /// The actual entry ref we are wrapping.
-    pub inner: gix_object::tree::EntryRef<'a>,
-    /// The owning repository.
-    pub repo: &'repo Repository,
+/// Access
+impl<'repo> Entry<'repo> {
+    /// The kind of object to which `oid` is pointing to.
+    pub fn mode(&self) -> gix_object::tree::EntryMode {
+        self.inner.mode
+    }
+
+    /// The name of the file in the parent tree.
+    pub fn filename(&self) -> &BStr {
+        self.inner.filename.as_ref()
+    }
+
+    /// Return the object id of the entry.
+    pub fn id(&self) -> crate::Id<'repo> {
+        self.inner.oid.attach(self.repo)
+    }
+
+    /// Return the object this entry points to.
+    pub fn object(&self) -> Result<crate::Object<'repo>, crate::object::find::existing::Error> {
+        self.id().object()
+    }
+
+    /// Return the plain object id of this entry, without access to the repository.
+    pub fn oid(&self) -> &gix_hash::oid {
+        &self.inner.oid
+    }
+
+    /// Return the plain object id of this entry, without access to the repository.
+    pub fn object_id(&self) -> gix_hash::ObjectId {
+        self.inner.oid
+    }
+}
+
+/// Consuming
+impl Entry<'_> {
+    /// Return the contained object.
+    pub fn detach(self) -> gix_object::tree::Entry {
+        self.inner
+    }
 }
 
 impl<'repo, 'a> EntryRef<'repo, 'a> {
@@ -49,6 +82,14 @@ impl<'repo, 'a> EntryRef<'repo, 'a> {
     pub fn detach(&self) -> gix_object::tree::EntryRef<'a> {
         self.inner
     }
+
+    /// Create an instance that doesn't bind to a buffer anymore (but that still contains a repository reference).
+    pub fn to_owned(&self) -> Entry<'repo> {
+        Entry {
+            inner: self.inner.into(),
+            repo: self.repo,
+        }
+    }
 }
 
 impl std::fmt::Display for EntryRef<'_, '_> {
@@ -61,13 +102,5 @@ impl std::fmt::Display for EntryRef<'_, '_> {
             self.id().shorten_or_id(),
             self.filename()
         )
-    }
-}
-
-impl<'repo> Tree<'repo> {
-    /// Return an iterator over tree entries to obtain information about files and directories this tree contains.
-    pub fn iter(&self) -> impl Iterator<Item = Result<EntryRef<'repo, '_>, gix_object::decode::Error>> {
-        let repo = self.repo;
-        gix_object::TreeRefIter::from_bytes(&self.data).map(move |e| e.map(|entry| EntryRef { inner: entry, repo }))
     }
 }
