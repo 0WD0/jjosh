@@ -237,7 +237,7 @@ pub(crate) mod function {
                 out,
                 "{maybe}{suffix} {}{} {status}",
                 display_path.display(),
-                disk_kind.is_dir().then_some("/").unwrap_or_default(),
+                if disk_kind.is_dir() { "/" } else { Default::default() },
                 status = match entry.status {
                     Status::Ignored(kind) => {
                         Cow::Owned(format!(

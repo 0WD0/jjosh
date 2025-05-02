@@ -44,8 +44,8 @@ pub fn estimate_hours(
     };
 
     let author = &commits[0].1;
-    let (files, lines) = (!stats.is_empty())
-        .then(|| {
+    let (files, lines) = if !stats.is_empty() {
+        {
             commits
                 .iter()
                 .map(|t| &t.0)
@@ -60,8 +60,10 @@ pub fn estimate_hours(
                     }
                     Err(_) => acc,
                 })
-        })
-        .unwrap_or_default();
+        }
+    } else {
+        Default::default()
+    };
     WorkByEmail {
         name: author.name,
         email: author.email,

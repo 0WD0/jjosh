@@ -113,8 +113,8 @@ where
                 Ok(out)
             });
 
-            let (stats_progresses, stats_counters) = needs_stats
-                .then(|| {
+            let (stats_progresses, stats_counters) = if needs_stats {
+                {
                     let mut sp = progress.add_child("extract stats");
                     sp.init(None, progress::count("commits"));
                     let sc = sp.counter();
@@ -128,14 +128,16 @@ where
                     let lc = lp.counter();
 
                     (Some((sp, cp, lp)), Some((sc, cc, lc)))
-                })
-                .unwrap_or_default();
+                }
+            } else {
+                Default::default()
+            };
 
             let mut progress = progress.add_child("traverse commit graph");
             progress.init(None, progress::count("commits"));
 
-            let (tx_tree_id, stat_threads) = needs_stats
-                .then(|| {
+            let (tx_tree_id, stat_threads) = if needs_stats {
+                {
                     let (tx, threads) = spawn_tree_delta_threads(
                         scope,
                         threads,
@@ -144,8 +146,10 @@ where
                         stats_counters.clone().expect("counters are set"),
                     );
                     (Some(tx), threads)
-                })
-                .unwrap_or_default();
+                }
+            } else {
+                Default::default()
+            };
 
             let mut commit_idx = 0_u32;
             let mut skipped_merge_commits = 0;
@@ -296,7 +300,7 @@ where
         total_hours,
         total_hours / HOURS_PER_WORKDAY,
         total_commits,
-        is_shallow.then_some(" (shallow)").unwrap_or_default(),
+        if is_shallow { " (shallow)" } else { Default::default() },
         num_authors
     )?;
     if file_stats {

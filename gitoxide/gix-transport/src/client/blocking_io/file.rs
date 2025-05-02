@@ -78,9 +78,11 @@ impl SpawnProcessOnDemand {
                 .expect("valid url"),
             path,
             ssh_cmd: None,
-            envs: (version != Protocol::V1)
-                .then(|| vec![("GIT_PROTOCOL", format!("version={}", version as usize))])
-                .unwrap_or_default(),
+            envs: if version != Protocol::V1 {
+                vec![("GIT_PROTOCOL", format!("version={}", version as usize))]
+            } else {
+                Default::default()
+            },
             ssh_disallow_shell: false,
             child: None,
             connection: None,

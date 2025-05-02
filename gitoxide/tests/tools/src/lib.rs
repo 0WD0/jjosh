@@ -67,10 +67,11 @@ static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
         let work_tree = work_tree?.canonicalize().ok()?;
 
         let mut buf = Vec::with_capacity(512);
-        let case = gix_fs::Capabilities::probe(&work_tree)
-            .ignore_case
-            .then_some(gix_worktree::ignore::glob::pattern::Case::Fold)
-            .unwrap_or_default();
+        let case = if gix_fs::Capabilities::probe(&work_tree).ignore_case {
+            gix_worktree::ignore::glob::pattern::Case::Fold
+        } else {
+            Default::default()
+        };
         let state = gix_worktree::stack::State::IgnoreStack(gix_worktree::stack::state::Ignore::new(
             Default::default(),
             gix_worktree::ignore::Search::from_git_dir(&gix_dir, None, &mut buf).ok()?,

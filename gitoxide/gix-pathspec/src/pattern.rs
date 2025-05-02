@@ -54,7 +54,11 @@ impl Pattern {
                     _ => 0,
                 })
                 .sum::<isize>();
-            (count > 0).then_some(count as usize).unwrap_or_default()
+            if count > 0 {
+                count as usize
+            } else {
+                Default::default()
+            }
         }
 
         let mut path = gix_path::from_bstr(self.path.as_bstr());

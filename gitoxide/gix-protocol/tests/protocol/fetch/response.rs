@@ -220,7 +220,11 @@ mod v2 {
             for keepalive in [false, true] {
                 let fixture = format!(
                     "v2/clone-only{}.response",
-                    keepalive.then_some("-with-keepalive").unwrap_or_default()
+                    if keepalive {
+                        "-with-keepalive"
+                    } else {
+                        Default::default()
+                    }
                 );
                 let mut provider = mock_reader(&fixture);
                 let mut reader = provider.as_read_without_sidebands();

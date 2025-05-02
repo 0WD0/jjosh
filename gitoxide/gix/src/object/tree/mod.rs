@@ -2,7 +2,7 @@ use gix_hash::ObjectId;
 pub use gix_object::tree::{EntryKind, EntryMode};
 use gix_object::{bstr::BStr, FindExt, TreeRefIter};
 
-use crate::{object::find, Id, ObjectDetached, Tree};
+use crate::{object::find, Id, ObjectDetached, Repository, Tree};
 
 /// All state needed to conveniently edit a tree, using only [update-or-insert](Editor::upsert()) and [removals](Editor::remove()).
 #[cfg(feature = "tree-editor")]
@@ -185,13 +185,30 @@ pub mod diff;
 pub mod traverse;
 
 ///
-mod iter;
-pub use iter::EntryRef;
+mod iter {
+    use super::{EntryRef, Tree};
+
+    impl<'repo> Tree<'repo> {
+        /// Return an iterator over tree entries to obtain information about files and directories this tree contains.
+        pub fn iter(&self) -> impl Iterator<Item = Result<EntryRef<'repo, '_>, gix_object::decode::Error>> {
+            let repo = self.repo;
+            gix_object::TreeRefIter::from_bytes(&self.data).map(move |e| e.map(|entry| EntryRef { inner: entry, repo }))
+        }
+    }
+}
 
 impl std::fmt::Debug for Tree<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Tree({})", self.id)
     }
+}
+
+/// An entry within a tree
+pub struct EntryRef<'repo, 'a> {
+    /// The actual entry ref we are wrapping.
+    pub inner: gix_object::tree::EntryRef<'a>,
+    /// The owning repository.
+    pub repo: &'repo Repository,
 }
 
 /// An entry in a [`Tree`], similar to an entry in a directory.
@@ -202,50 +219,7 @@ pub struct Entry<'repo> {
     pub repo: &'repo crate::Repository,
 }
 
-mod entry {
-    use crate::{bstr::BStr, ext::ObjectIdExt, object::tree::Entry};
-
-    /// Access
-    impl<'repo> Entry<'repo> {
-        /// The kind of object to which `oid` is pointing to.
-        pub fn mode(&self) -> gix_object::tree::EntryMode {
-            self.inner.mode
-        }
-
-        /// The name of the file in the parent tree.
-        pub fn filename(&self) -> &BStr {
-            self.inner.filename.as_ref()
-        }
-
-        /// Return the object id of the entry.
-        pub fn id(&self) -> crate::Id<'repo> {
-            self.inner.oid.attach(self.repo)
-        }
-
-        /// Return the object this entry points to.
-        pub fn object(&self) -> Result<crate::Object<'repo>, crate::object::find::existing::Error> {
-            self.id().object()
-        }
-
-        /// Return the plain object id of this entry, without access to the repository.
-        pub fn oid(&self) -> &gix_hash::oid {
-            &self.inner.oid
-        }
-
-        /// Return the plain object id of this entry, without access to the repository.
-        pub fn object_id(&self) -> gix_hash::ObjectId {
-            self.inner.oid
-        }
-    }
-
-    /// Consuming
-    impl Entry<'_> {
-        /// Return the contained object.
-        pub fn detach(self) -> gix_object::tree::Entry {
-            self.inner
-        }
-    }
-}
+mod entry;
 
 mod _impls {
     use crate::Tree;
