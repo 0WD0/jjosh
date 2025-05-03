@@ -341,7 +341,7 @@ fn process_changes(
         let mut offset_in_destination = Offset::Added(0);
 
         let mut changes_iter = changes.iter();
-        let mut change: Option<Change> = changes_iter.next().map(|change| change.clone());
+        let mut change: Option<Change> = changes_iter.next().cloned();
 
         loop {
             (hunk, change) = process_change(
@@ -353,7 +353,7 @@ fn process_changes(
                 change,
             );
 
-            change = change.or_else(|| changes_iter.next().map(|change| change.clone()));
+            change = change.or_else(|| changes_iter.next().cloned());
 
             if hunk.is_none() {
                 break;
