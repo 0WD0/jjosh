@@ -197,15 +197,16 @@ pub fn file(
                 if let Some(range_in_suspect) = hunk.get_range(&suspect) {
                     let range_in_blamed_file = hunk.range_in_blamed_file.clone();
 
-                    for (blamed_line_number, source_line_number) in range_in_blamed_file.zip(range_in_suspect.clone()) {
-                        let source_token = source_lines_as_tokens[source_line_number as usize];
-                        let blame_token = blamed_lines_as_tokens[blamed_line_number as usize];
+                    let source_lines = range_in_suspect
+                        .clone()
+                        .map(|i| BString::new(source_interner[source_lines_as_tokens[i as usize]].into()))
+                        .collect::<Vec<_>>();
+                    let blamed_lines = range_in_blamed_file
+                        .clone()
+                        .map(|i| BString::new(blamed_interner[blamed_lines_as_tokens[i as usize]].into()))
+                        .collect::<Vec<_>>();
 
-                        let source_line = BString::new(source_interner[source_token].into());
-                        let blamed_line = BString::new(blamed_interner[blame_token].into());
-
-                        assert_eq!(source_line, blamed_line);
-                    }
+                    assert_eq!(source_lines, blamed_lines);
                 }
             }
         }
