@@ -37,7 +37,8 @@ use crate::{BlameEntry, Error, Options, Outcome, Statistics};
 ///
 /// *For brevity, `HEAD` denotes the starting point of the blame operation. It could be any commit, or even commits that
 /// represent the worktree state.
-/// We begin with a single *Unblamed Hunk* and a single suspect, usually the `HEAD` commit as the commit containing the
+///
+/// We begin with one or more *Unblamed Hunks* and a single suspect, usually the `HEAD` commit as the commit containing the
 /// *Blamed File*, so that it contains the entire file, with the first commit being a candidate for the entire *Blamed File*.
 /// We traverse the commit graph starting at the first suspect, and see if there have been changes to `file_path`.
 /// If so, we have found a *Source File* and a *Suspect* commit, and have hunks that represent these changes.

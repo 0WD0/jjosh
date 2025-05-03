@@ -2,10 +2,10 @@
 //!
 //! ### Terminology
 //!
-//! * **Source File**
-//!    - The file as it exists in `HEAD`.
-//!    - the initial state with all lines that we need to associate with a *Source File*.
 //! * **Blamed File**
+//!    - The file as it exists in `HEAD`.
+//!    - the initial state with all lines that we need to associate with a *Blamed File*.
+//! * **Source File**
 //!    - A file at a version (i.e. commit) that introduces hunks into the final 'image'.
 //! * **Suspects**
 //!    - The versions of the files that can contain hunks that we could use in the final 'image'

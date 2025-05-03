@@ -8,11 +8,12 @@ use crate::types::{BlameEntry, Change, Either, LineRange, Offset, UnblamedHunk};
 
 pub(super) mod function;
 
-/// Compare a section from the *Blamed File* (`hunk`) with a change from a diff and see if there
-/// is an intersection with `change`. Based on that intersection, we may generate a [`BlameEntry`] for `out`
-/// and/or split the `hunk` into multiple.
+/// Compare a section from a potential *Source File* (`hunk`) with a change from a diff and see if
+/// there is an intersection with `change`. Based on that intersection, we may generate a
+/// [`BlameEntry`] for `out` and/or split the `hunk` into multiple.
 ///
-/// This is the core of the blame implementation as it matches regions in *Source File* to the *Blamed File*.
+/// This is the core of the blame implementation as it matches regions in *Blamed File* to
+/// corresponding regions in one or more than one *Source File*.
 fn process_change(
     new_hunks_to_blame: &mut Vec<UnblamedHunk>,
     offset: &mut Offset,
