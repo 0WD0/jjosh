@@ -353,7 +353,10 @@ pub(crate) enum Either<T, U> {
 }
 
 /// A single change between two blobs, or an unchanged region.
-#[derive(Debug, PartialEq)]
+///
+/// Line numbers refer to the file that is referred to as `after` or `NewOrDestination`, depending
+/// on the context.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Change {
     /// A range of tokens that wasn't changed.
     Unchanged(Range<u32>),

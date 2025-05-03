@@ -303,33 +303,6 @@ pub fn file(
             unblamed_hunk.remove_blame(suspect);
             true
         });
-
-        // This block asserts that line ranges for each suspect never overlap. If they did overlap
-        // this would mean that the same line in a *Source File* would map to more than one line in
-        // the *Blamed File* and this is not possible.
-        #[cfg(debug_assertions)]
-        {
-            let ranges = hunks_to_blame.iter().fold(
-                std::collections::BTreeMap::<ObjectId, Vec<Range<u32>>>::new(),
-                |mut acc, hunk| {
-                    for (suspect, range) in hunk.suspects.clone() {
-                        acc.entry(suspect).or_default().push(range);
-                    }
-
-                    acc
-                },
-            );
-
-            for (_, mut ranges) in ranges {
-                ranges.sort_by(|a, b| a.start.cmp(&b.start));
-
-                for window in ranges.windows(2) {
-                    if let [a, b] = window {
-                        assert!(a.end <= b.start, "#{hunks_to_blame:#?}");
-                    }
-                }
-            }
-        }
     }
 
     debug_assert_eq!(

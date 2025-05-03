@@ -1567,6 +1567,7 @@ dependencies = [
  "gix-trace 0.1.12",
  "gix-traverse 0.46.1",
  "gix-worktree 0.41.0",
+ "pretty_assertions",
  "smallvec",
  "thiserror 2.0.12",
 ]

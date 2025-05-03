@@ -959,6 +959,8 @@ mod process_change {
 }
 
 mod process_changes {
+    use pretty_assertions::assert_eq;
+
     use crate::file::{
         process_changes,
         tests::{new_unblamed_hunk, one_sha, zero_sha},
@@ -1334,6 +1336,40 @@ mod process_changes {
                     range_in_blamed_file: 4..7,
                     suspects: [(parent, 3..6)].into()
                 }
+            ]
+        );
+    }
+
+    #[test]
+    fn subsequent_hunks_overlapping_end_of_addition() {
+        let suspect = zero_sha();
+        let parent = one_sha();
+        let hunks_to_blame = vec![
+            new_unblamed_hunk(13..16, suspect, Offset::Added(0)),
+            new_unblamed_hunk(10..17, suspect, Offset::Added(0)),
+        ];
+        let changes = vec![Change::AddedOrReplaced(10..14, 0)];
+        let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
+
+        assert_eq!(
+            new_hunks_to_blame,
+            [
+                UnblamedHunk {
+                    range_in_blamed_file: 13..14,
+                    suspects: [(suspect, 13..14)].into()
+                },
+                UnblamedHunk {
+                    range_in_blamed_file: 14..16,
+                    suspects: [(parent, 10..12)].into(),
+                },
+                UnblamedHunk {
+                    range_in_blamed_file: 10..14,
+                    suspects: [(suspect, 10..14)].into(),
+                },
+                UnblamedHunk {
+                    range_in_blamed_file: 14..17,
+                    suspects: [(parent, 10..13)].into(),
+                },
             ]
         );
     }
