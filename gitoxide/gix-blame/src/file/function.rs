@@ -37,7 +37,8 @@ use crate::{BlameEntry, Error, Options, Outcome, Statistics};
 ///
 /// *For brevity, `HEAD` denotes the starting point of the blame operation. It could be any commit, or even commits that
 /// represent the worktree state.
-/// We begin with a single *Unblamed Hunk* and a single suspect, usually the `HEAD` commit as the commit containing the
+///
+/// We begin with one or more *Unblamed Hunks* and a single suspect, usually the `HEAD` commit as the commit containing the
 /// *Blamed File*, so that it contains the entire file, with the first commit being a candidate for the entire *Blamed File*.
 /// We traverse the commit graph starting at the first suspect, and see if there have been changes to `file_path`.
 /// If so, we have found a *Source File* and a *Suspect* commit, and have hunks that represent these changes.
@@ -197,15 +198,16 @@ pub fn file(
                 if let Some(range_in_suspect) = hunk.get_range(&suspect) {
                     let range_in_blamed_file = hunk.range_in_blamed_file.clone();
 
-                    for (blamed_line_number, source_line_number) in range_in_blamed_file.zip(range_in_suspect.clone()) {
-                        let source_token = source_lines_as_tokens[source_line_number as usize];
-                        let blame_token = blamed_lines_as_tokens[blamed_line_number as usize];
+                    let source_lines = range_in_suspect
+                        .clone()
+                        .map(|i| BString::new(source_interner[source_lines_as_tokens[i as usize]].into()))
+                        .collect::<Vec<_>>();
+                    let blamed_lines = range_in_blamed_file
+                        .clone()
+                        .map(|i| BString::new(blamed_interner[blamed_lines_as_tokens[i as usize]].into()))
+                        .collect::<Vec<_>>();
 
-                        let source_line = BString::new(source_interner[source_token].into());
-                        let blamed_line = BString::new(blamed_interner[blame_token].into());
-
-                        assert_eq!(source_line, blamed_line);
-                    }
+                    assert_eq!(source_lines, blamed_lines);
                 }
             }
         }
@@ -302,33 +304,6 @@ pub fn file(
             unblamed_hunk.remove_blame(suspect);
             true
         });
-
-        // This block asserts that line ranges for each suspect never overlap. If they did overlap
-        // this would mean that the same line in a *Source File* would map to more than one line in
-        // the *Blamed File* and this is not possible.
-        #[cfg(debug_assertions)]
-        {
-            let ranges = hunks_to_blame.iter().fold(
-                std::collections::BTreeMap::<ObjectId, Vec<Range<u32>>>::new(),
-                |mut acc, hunk| {
-                    for (suspect, range) in hunk.suspects.clone() {
-                        acc.entry(suspect).or_default().push(range);
-                    }
-
-                    acc
-                },
-            );
-
-            for (_, mut ranges) in ranges {
-                ranges.sort_by(|a, b| a.start.cmp(&b.start));
-
-                for window in ranges.windows(2) {
-                    if let [a, b] = window {
-                        assert!(a.end <= b.start, "#{hunks_to_blame:#?}");
-                    }
-                }
-            }
-        }
     }
 
     debug_assert_eq!(

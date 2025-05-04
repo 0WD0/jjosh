@@ -31,3 +31,4 @@ gix-fs = { path = "../gix-fs" }
 gix-index = { path = "../gix-index" }
 gix-odb = { path = "../gix-odb" }
 gix-testtools = { path = "../tests/tools" }
+pretty_assertions = "1.4.0"
