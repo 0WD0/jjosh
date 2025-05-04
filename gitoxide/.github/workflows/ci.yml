@@ -171,9 +171,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Setup dependencies (macos)
-        if: startsWith(matrix.os, 'macos')
-        run: brew install openssl gnu-sed
       - name: cargo check default features
         if: startsWith(matrix.os, 'windows')
         run: cargo check --workspace --bins --examples
