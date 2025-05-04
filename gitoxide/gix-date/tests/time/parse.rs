@@ -330,6 +330,7 @@ mod fuzz {
     fn reproduce_1979() {
         gix_date::parse("fRi ", None).ok();
     }
+
     #[test]
     fn invalid_but_does_not_cause_panic() {
         for input in ["-9999-1-1", "7	-𬞋", "5 ڜ-09", "-4 week ago Z", "8960609 day ago"] {
