@@ -1,14 +1,15 @@
 #![allow(clippy::result_large_err)]
+use gix_config::file::Metadata;
+use gix_features::threading::OwnShared;
+use gix_object::bstr::ByteSlice;
+use gix_path::RelativePath;
+use std::path::Path;
 use std::{
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
     ffi::OsStr,
     path::PathBuf,
 };
-
-use gix_features::threading::OwnShared;
-use gix_object::bstr::ByteSlice;
-use gix_path::RelativePath;
 
 use super::{Error, Options};
 use crate::{
@@ -257,26 +258,32 @@ impl ThreadSafeRepository {
         // core.worktree might be used to overwrite the worktree directory
         if !config.is_bare {
             let mut key_source = None;
+            fn assure_config_is_from_current_repo(
+                section: &gix_config::file::Metadata,
+                git_dir: &Path,
+                current_dir: &Path,
+                filter_config_section: &mut fn(&Metadata) -> bool,
+            ) -> bool {
+                if !filter_config_section(section) {
+                    return false;
+                }
+                // ignore worktree settings that aren't from our repository. This can happen
+                // with worktrees of submodules for instance.
+                section
+                    .path
+                    .as_deref()
+                    .and_then(|p| gix_path::normalize(p.into(), current_dir))
+                    .is_some_and(|config_path| config_path.starts_with(git_dir))
+            }
             let worktree_path = config
                 .resolved
-                .path_filter(Core::WORKTREE, {
-                    |section| {
-                        if !filter_config_section(section) {
-                            return false;
-                        }
-                        // ignore worktree settings that aren't from our repository. This can happen
-                        // with worktrees of submodules for instance.
-                        let is_config_in_our_repo = section
-                            .path
-                            .as_deref()
-                            .and_then(|p| gix_path::normalize(p.into(), current_dir))
-                            .is_some_and(|config_path| config_path.starts_with(&git_dir));
-                        if !is_config_in_our_repo {
-                            return false;
-                        }
+                .path_filter(Core::WORKTREE, |section| {
+                    let res =
+                        assure_config_is_from_current_repo(section, &git_dir, current_dir, &mut filter_config_section);
+                    if res {
                         key_source = Some(section.source);
-                        true
                     }
+                    res
                 })
                 .zip(key_source);
             if let Some((wt, key_source)) = worktree_path {
@@ -302,7 +309,9 @@ impl ThreadSafeRepository {
             } else if !config.lenient_config
                 && config
                     .resolved
-                    .boolean_filter(Core::WORKTREE, &mut filter_config_section)
+                    .boolean_filter(Core::WORKTREE, |section| {
+                        assure_config_is_from_current_repo(section, &git_dir, current_dir, &mut filter_config_section)
+                    })
                     .is_some()
             {
                 return Err(Error::from(config::Error::ConfigTypedString(
