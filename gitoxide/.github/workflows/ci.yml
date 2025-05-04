@@ -387,14 +387,39 @@ jobs:
         if: endsWith(matrix.target, '-wasi')
         run: |
           set +x
-          for name in gix-sec; do
-            (cd -- "$name" && cargo build --target "$TARGET")
+          for crate in gix-sec; do
+            (cd -- "$crate" && cargo build --target "$TARGET")
           done
       - name: crates without feature toggles
         run: |
+          crates=(
+            gix-actor
+            gix-attributes
+            gix-bitmap
+            gix-chunk
+            gix-command
+            gix-commitgraph
+            gix-config-value
+            gix-date
+            gix-glob
+            gix-hash
+            gix-hashtable
+            gix-mailmap
+            gix-object
+            gix-packetline
+            gix-path
+            gix-pathspec
+            gix-prompt
+            gix-quote
+            gix-refspec
+            gix-revision
+            gix-traverse
+            gix-url
+            gix-validate
+          )
           set +x
-          for name in gix-actor gix-attributes gix-bitmap gix-chunk gix-command gix-commitgraph gix-config-value gix-date gix-glob gix-hash gix-hashtable gix-mailmap gix-object gix-packetline gix-path gix-pathspec gix-prompt gix-quote gix-refspec gix-revision gix-traverse gix-url gix-validate; do
-            (cd -- "$name" && cargo build --target "$TARGET")
+          for crate in "${crates[@]}"; do
+            (cd -- "$crate" && cargo build --target "$TARGET")
           done
       - name: features of gix-features
         run: |
@@ -405,8 +430,8 @@ jobs:
       - name: crates with 'wasm' feature
         run: |
           set +x
-          for name in gix-pack; do
-            (cd -- "$name" && cargo build --features wasm --target "$TARGET")
+          for crate in gix-pack; do
+            (cd -- "$crate" && cargo build --features wasm --target "$TARGET")
           done
       - name: gix-pack with all features (including wasm)
         run: cd gix-pack && cargo build --all-features --target "$TARGET"
