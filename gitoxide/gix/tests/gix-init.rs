@@ -1,21 +1,27 @@
 #![allow(clippy::result_large_err)]
+
+use gix::open::Permissions;
+use gix::{Repository, ThreadSafeRepository};
+use gix_sec::Permission;
+use serial_test::serial;
+
+pub fn named_subrepo_opts(
+    fixture: &str,
+    name: &str,
+    opts: gix::open::Options,
+) -> std::result::Result<Repository, gix::open::Error> {
+    let repo_path = gix_testtools::scripted_fixture_read_only(fixture).unwrap().join(name);
+    Ok(ThreadSafeRepository::open_opts(repo_path, opts)?.to_thread_local())
+}
+
 mod with_overrides {
     use std::borrow::Cow;
 
-    use gix::{Repository, ThreadSafeRepository};
+    use crate::named_subrepo_opts;
     use gix_object::bstr::BStr;
     use gix_sec::Permission;
     use gix_testtools::Env;
     use serial_test::serial;
-
-    pub fn named_subrepo_opts(
-        fixture: &str,
-        name: &str,
-        opts: gix::open::Options,
-    ) -> std::result::Result<Repository, gix::open::Error> {
-        let repo_path = gix_testtools::scripted_fixture_read_only(fixture).unwrap().join(name);
-        Ok(ThreadSafeRepository::open_opts(repo_path, opts)?.to_thread_local())
-    }
 
     #[test]
     #[serial]
@@ -263,4 +269,22 @@ mod with_overrides {
     fn cow_bstr(s: &str) -> Cow<BStr> {
         Cow::Borrowed(s.into())
     }
+}
+
+#[test]
+#[serial]
+fn git_worktree_and_strict_config() -> gix_testtools::Result {
+    let _restore_env_on_drop = gix_testtools::Env::new().set("GIT_WORK_TREE", ".");
+    let _repo = named_subrepo_opts(
+        "make_empty_repo.sh",
+        "",
+        gix::open::Options::isolated()
+            .permissions({
+                let mut perm = Permissions::isolated();
+                perm.env.git_prefix = Permission::Allow;
+                perm
+            })
+            .strict_config(true),
+    )?;
+    Ok(())
 }
