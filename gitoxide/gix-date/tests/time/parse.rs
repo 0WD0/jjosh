@@ -327,6 +327,11 @@ mod relative {
 /// Various cases the fuzzer found
 mod fuzz {
     #[test]
+    fn reproduce_1979() {
+        gix_date::parse("fRi ", None).ok();
+    }
+
+    #[test]
     fn invalid_but_does_not_cause_panic() {
         for input in ["-9999-1-1", "7	-𬞋", "5 ڜ-09", "-4 week ago Z", "8960609 day ago"] {
             gix_date::parse(input, Some(std::time::UNIX_EPOCH)).ok();
