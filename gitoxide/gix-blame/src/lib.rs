@@ -4,13 +4,13 @@
 //!
 //! * **Blamed File**
 //!    - The file as it exists in `HEAD`.
-//!    - the initial state with all lines that we need to associate with a *Blamed File*.
+//!    - the initial state with all lines that we need to associate with a *Source File*.
 //! * **Source File**
-//!    - A file at a version (i.e. commit) that introduces hunks into the final 'image'.
+//!    - A file at a version (i.e., commit) that introduces hunks into the final 'image' of the *Blamed File*.
 //! * **Suspects**
 //!    - The versions of the files that can contain hunks that we could use in the final 'image'
 //!    - multiple at the same time as the commit-graph may split up.
-//!    - turns into *Source File* once we have found an association into the *Blamed File*.
+//!    - They turn into a *Source File* once we have found an association into the *Blamed File*.
 #![deny(rust_2018_idioms, missing_docs)]
 #![forbid(unsafe_code)]
 

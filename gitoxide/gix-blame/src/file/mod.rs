@@ -325,8 +325,8 @@ fn process_change(
 /// `process_changes` assumes that ranges coming from the same *Source File* can and do
 /// occasionally overlap. If it were a desirable property of the blame algorithm as a whole to
 /// never have two different lines from a *Blamed File* mapped to the same line in a *Source File*,
-/// this property would need to be enforced at a higher level than `process_changes` if which case
-/// the nested loops could potentially be flattened into one.
+/// this property would need to be enforced at a higher level than `process_changes`.
+/// Then the nested loops could potentially be flattened into one.
 fn process_changes(
     hunks_to_blame: Vec<UnblamedHunk>,
     changes: Vec<Change>,
@@ -335,13 +335,11 @@ fn process_changes(
 ) -> Vec<UnblamedHunk> {
     let mut new_hunks_to_blame = Vec::new();
 
-    for hunk in hunks_to_blame {
-        let mut hunk = Some(hunk);
-
+    for mut hunk in hunks_to_blame.into_iter().map(Some) {
         let mut offset_in_destination = Offset::Added(0);
 
-        let mut changes_iter = changes.iter();
-        let mut change: Option<Change> = changes_iter.next().cloned();
+        let mut changes_iter = changes.iter().cloned();
+        let mut change = changes_iter.next();
 
         loop {
             (hunk, change) = process_change(
@@ -353,7 +351,7 @@ fn process_changes(
                 change,
             );
 
-            change = change.or_else(|| changes_iter.next().cloned());
+            change = change.or_else(|| changes_iter.next());
 
             if hunk.is_none() {
                 break;
