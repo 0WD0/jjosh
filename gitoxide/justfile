@@ -51,13 +51,13 @@ check:
     ! cargo check -p gix-transport --all-features 2>/dev/null
     ! cargo check -p gix-protocol --all-features 2>/dev/null
     # warning happens if nothing found, no exit code :/
-    cargo tree -p gix --no-default-features -e normal -i imara-diff \
+    cargo --color=never tree -p gix --no-default-features -e normal -i imara-diff \
         2>&1 >/dev/null | grep '^warning: nothing to print\>'
-    cargo tree -p gix --no-default-features -e normal -i gix-submodule \
+    cargo --color=never tree -p gix --no-default-features -e normal -i gix-submodule \
         2>&1 >/dev/null | grep '^warning: nothing to print\>'
-    cargo tree -p gix --no-default-features -e normal -i gix-pathspec \
+    cargo --color=never tree -p gix --no-default-features -e normal -i gix-pathspec \
         2>&1 >/dev/null | grep '^warning: nothing to print\>'
-    cargo tree -p gix --no-default-features -e normal -i gix-filter \
+    cargo --color=never tree -p gix --no-default-features -e normal -i gix-filter \
         2>&1 >/dev/null | grep '^warning: nothing to print\>'
     ! cargo tree -p gix --no-default-features -i gix-credentials 2>/dev/null
     cargo check --no-default-features --features lean
