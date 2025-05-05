@@ -63,22 +63,16 @@ check:
     cargo check -p gix-pack --no-default-features
     cargo check -p gix-pack --no-default-features --features generate
     cargo check -p gix-pack --no-default-features --features streaming-input
-    cd gix-hash; \
-        set -ex; \
-        cargo check --all-features; \
-        cargo check
-    cd gix-object; \
-        set -ex; \
-        cargo check --all-features; \
-        cargo check --features verbose-object-parsing-errors
-    cd gix-attributes && cargo check --features serde
-    cd gix-glob && cargo check --features serde
-    cd gix-worktree; \
-        set -ex; \
-        cargo check --features serde; \
-        cargo check --no-default-features;
-    cd gix-actor && cargo check --features serde
-    cd gix-date && cargo check --features serde
+    cargo check -p gix-hash --all-features
+    cargo check -p gix-hash
+    cargo check -p gix-object --all-features
+    cargo check -p gix-object --features verbose-object-parsing-errors
+    cargo check -p gix-attributes --features serde
+    cargo check -p gix-glob --features serde
+    cargo check -p gix-worktree --features serde
+    cargo check -p gix-worktree --no-default-features
+    cargo check -p gix-actor --features serde
+    cargo check -p gix-date --features serde
     cargo check -p gix-tempfile --features signals
     cargo check -p gix-tempfile --features hp-hashmap
     cargo check -p gix-pack --features serde
@@ -87,7 +81,7 @@ check:
     cargo check -p gix-pack --features object-cache-dynamic
     cargo check -p gix-packetline --features blocking-io
     cargo check -p gix-packetline --features async-io
-    cd gix-index && cargo check --features serde
+    cargo check -p gix-index --features serde
     cargo check -p gix-credentials --features serde
     cargo check -p gix-sec --features serde
     cargo check -p gix-revision --features serde
@@ -104,9 +98,7 @@ check:
     cargo check -p gix-features --features crc32
     cargo check -p gix-features --features zlib
     cargo check -p gix-features --features cache-efficiency-debug
-    cd gix-commitgraph; \
-      set -ex; \
-      cargo check --all-features
+    cargo check -p gix-commitgraph --all-features
     cargo check -p gix-config-value --all-features
     cargo check -p gix-config --all-features
     cargo check -p gix-diff --no-default-features
@@ -158,10 +150,8 @@ unit-tests:
     cargo nextest run -p gix-status-tests --features gix-features-parallel
     cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel
     cargo nextest run -p gix-worktree-tests --features gix-features-parallel
-    cd gix-object; \
-        set -ex; \
-        cargo nextest run; \
-        cargo nextest run --features verbose-object-parsing-errors
+    cargo nextest run -p gix-object
+    cargo nextest run -p gix-object --features verbose-object-parsing-errors
     cargo nextest run -p gix-tempfile --features signals
     cargo nextest run -p gix-features --all-features
     cargo nextest run -p gix-ref-tests --all-features

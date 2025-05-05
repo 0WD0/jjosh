@@ -25,11 +25,11 @@ default = []
 xz = ["dep:xz2"]
 
 [dependencies]
-gix-lock = "17.1.0"
-gix-discover = "0.40.1"
-gix-worktree = "0.41.0"
-gix-fs = "0.15.0"
-gix-tempfile = { version = "17.1.0", default-features = false, features = ["signals"] }
+gix-lock = { version = "17.1.0", path = "../../gix-lock" }
+gix-discover = { version = "0.40.1", path = "../../gix-discover" }
+gix-worktree = { version = "0.41.0", path = "../../gix-worktree" }
+gix-fs = { version = "0.15.0", path = "../../gix-fs" }
+gix-tempfile = { version = "17.1.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
 winnow = { version = "0.7.7", features = ["simd"] }
 fastrand = "2.0.0"
