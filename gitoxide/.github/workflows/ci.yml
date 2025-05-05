@@ -370,7 +370,7 @@ jobs:
         run: |
           set +x
           for crate in gix-sec; do
-            (cd -- "$crate" && cargo build --target "$TARGET")
+            cargo build -p "$crate" --target "$TARGET"
           done
       - name: crates without feature toggles
         run: |
@@ -401,22 +401,22 @@ jobs:
           )
           set +x
           for crate in "${crates[@]}"; do
-            (cd -- "$crate" && cargo build --target "$TARGET")
+            cargo build -p "$crate" --target "$TARGET"
           done
       - name: features of gix-features
         run: |
           set +x
           for feature in progress parallel io-pipe crc32 zlib cache-efficiency-debug; do
-            (cd gix-features && cargo build --features "$feature" --target "$TARGET")
+            cargo build -p gix-features --features "$feature" --target "$TARGET"
           done
       - name: crates with 'wasm' feature
         run: |
           set +x
           for crate in gix-pack; do
-            (cd -- "$crate" && cargo build --features wasm --target "$TARGET")
+            cargo build -p "$crate" --features wasm --target "$TARGET"
           done
       - name: gix-pack with all features (including wasm)
-        run: cd gix-pack && cargo build --all-features --target "$TARGET"
+        run: cargo build -p gix-pack --all-features --target "$TARGET"
 
   check-packetline:
     strategy:
