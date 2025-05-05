@@ -174,6 +174,7 @@ unit-tests:
     cargo nextest run -p gix-protocol --features blocking-client
     cargo nextest run -p gix-protocol --features async-client
     cargo nextest run -p gix --no-default-features
+    cargo nextest run -p gix --no-default-features --features basic,comfort,max-performance-safe
     cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv
     cargo nextest run -p gix --features async-network-client
     cargo nextest run -p gix --features blocking-network-client
