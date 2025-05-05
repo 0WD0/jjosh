@@ -95,47 +95,20 @@ mod find_youngest_matching_commit {
     fn regex_matches() {
         let repo = repo("complex_graph").unwrap();
 
-        // The full Linux CI `test` job regenerates baselines instead of taking them from archives.
-        // Traversal order with `:/` is broken in Git 2.47.*, so some `parse_spec` assertions fail.
-        // The fix is in Git 2.48.* but is not backported. For now, we use `parse_spec_no_baseline`
-        // in affected test cases when they are run on CI with Git 2.47.*. For details, see:
-        //
-        //  - https://lore.kernel.org/git/Z1LJSADiStlFicTL@pks.im/T/
-        //  - https://lore.kernel.org/git/Z1LtS-8f8WZyobz3@pks.im/T/
-        //  - https://github.com/git/git/blob/v2.48.0/Documentation/RelNotes/2.48.0.txt#L294-L296
-        //  - https://github.com/GitoxideLabs/gitoxide/issues/1622
-        let skip_some_baselines = is_ci::cached()
-            && std::env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some()
-            && ((2, 47, 0)..(2, 48, 0)).contains(&gix_testtools::GIT_VERSION);
-
-        if skip_some_baselines {
-            assert_eq!(
-                parse_spec_no_baseline(":/mes.age", &repo).unwrap(),
-                Spec::from_id(hex_to_id("ef80b4b77b167f326351c93284dc0eb00dd54ff4").attach(&repo))
-            );
-        } else {
-            assert_eq!(
-                parse_spec(":/mes.age", &repo).unwrap(),
-                Spec::from_id(hex_to_id("ef80b4b77b167f326351c93284dc0eb00dd54ff4").attach(&repo))
-            );
-        }
+        assert_eq!(
+            parse_spec(":/mes.age", &repo).unwrap(),
+            Spec::from_id(hex_to_id("ef80b4b77b167f326351c93284dc0eb00dd54ff4").attach(&repo))
+        );
 
         assert_eq!(
             parse_spec(":/not there", &repo).unwrap_err().to_string(),
             "None of 10 commits reached from all references matched regex \"not there\""
         );
 
-        if skip_some_baselines {
-            assert_eq!(
-                parse_spec_no_baseline(":/!-message", &repo).unwrap(),
-                Spec::from_id(hex_to_id("55e825ebe8fd2ff78cad3826afb696b96b576a7e").attach(&repo))
-            );
-        } else {
-            assert_eq!(
-                parse_spec(":/!-message", &repo).unwrap(),
-                Spec::from_id(hex_to_id("55e825ebe8fd2ff78cad3826afb696b96b576a7e").attach(&repo))
-            );
-        }
+        assert_eq!(
+            parse_spec(":/!-message", &repo).unwrap(),
+            Spec::from_id(hex_to_id("55e825ebe8fd2ff78cad3826afb696b96b576a7e").attach(&repo))
+        );
 
         assert_eq!(
             parse_spec("@^{/!-B}", &repo).unwrap(),
