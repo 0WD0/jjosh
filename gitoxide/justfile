@@ -144,41 +144,41 @@ doc $RUSTDOCFLAGS='-D warnings':
 
 # Run all unit tests
 unit-tests:
-    cargo nextest run
-    cargo test --doc
-    cargo nextest run -p gix-testtools
-    cargo nextest run -p gix-testtools --features xz
-    cargo nextest run -p gix-archive --no-default-features
-    cargo nextest run -p gix-archive --features tar
-    cargo nextest run -p gix-archive --features tar_gz
-    cargo nextest run -p gix-archive --features zip
-    cargo nextest run -p gix-status-tests --features gix-features-parallel
-    cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel
-    cargo nextest run -p gix-worktree-tests --features gix-features-parallel
-    cargo nextest run -p gix-object
-    cargo nextest run -p gix-object --features verbose-object-parsing-errors
-    cargo nextest run -p gix-tempfile --features signals
-    cargo nextest run -p gix-features --all-features
-    cargo nextest run -p gix-ref-tests --all-features
-    cargo nextest run -p gix-odb --all-features
-    cargo nextest run -p gix-odb-tests --features gix-features-parallel
-    cargo nextest run -p gix-pack --all-features
-    cargo nextest run -p gix-pack-tests --features all-features
-    cargo nextest run -p gix-pack-tests --features gix-features-parallel
-    cargo nextest run -p gix-index-tests --features gix-features-parallel
-    cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline
-    cargo nextest run -p gix-packetline --features async-io --test async-packetline
-    cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync
-    cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync
-    cargo nextest run -p gix-transport --features async-client
-    cargo nextest run -p gix-protocol --features blocking-client
-    cargo nextest run -p gix-protocol --features async-client
-    cargo nextest run -p gix --no-default-features
-    cargo nextest run -p gix --no-default-features --features basic,comfort,max-performance-safe
-    cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv
-    cargo nextest run -p gix --features async-network-client
-    cargo nextest run -p gix --features blocking-network-client
-    cargo nextest run -p gitoxide-core --lib --no-tests=warn
+    cargo nextest run --no-fail-fast
+    cargo nextest run -p gix-testtools --no-fail-fast
+    cargo nextest run -p gix-testtools --features xz --no-fail-fast
+    cargo nextest run -p gix-archive --no-default-features --no-fail-fast
+    cargo nextest run -p gix-archive --features tar --no-fail-fast
+    cargo nextest run -p gix-archive --features tar_gz --no-fail-fast
+    cargo nextest run -p gix-archive --features zip --no-fail-fast
+    cargo nextest run -p gix-status-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-worktree-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-object --no-fail-fast
+    cargo nextest run -p gix-object --features verbose-object-parsing-errors --no-fail-fast
+    cargo nextest run -p gix-tempfile --features signals --no-fail-fast
+    cargo nextest run -p gix-features --all-features --no-fail-fast
+    cargo nextest run -p gix-ref-tests --all-features --no-fail-fast
+    cargo nextest run -p gix-odb --all-features --no-fail-fast
+    cargo nextest run -p gix-odb-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-pack --all-features --no-fail-fast
+    cargo nextest run -p gix-pack-tests --features all-features --no-fail-fast
+    cargo nextest run -p gix-pack-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-index-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline --no-fail-fast
+    cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync --no-fail-fast
+    cargo nextest run -p gix-transport --features async-client --no-fail-fast
+    cargo nextest run -p gix-protocol --features blocking-client --no-fail-fast
+    cargo nextest run -p gix-protocol --features async-client --no-fail-fast
+    cargo nextest run -p gix --no-default-features --no-fail-fast
+    cargo nextest run -p gix --no-default-features --features basic,comfort,max-performance-safe --no-fail-fast
+    cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv --no-fail-fast
+    cargo nextest run -p gix --features async-network-client --no-fail-fast
+    cargo nextest run -p gix --features blocking-network-client --no-fail-fast
+    cargo nextest run -p gitoxide-core --lib --no-tests=warn --no-fail-fast
+    cargo test --workspace --doc --no-fail-fast
 
 # These tests aren't run by default as they are flaky (even locally)
 unit-tests-flaky:
