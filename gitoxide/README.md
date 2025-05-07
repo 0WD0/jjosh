@@ -177,17 +177,19 @@ on your needs, for _Linux_, _MacOS_ and _Windows_.
 
 [releases]: https://github.com/GitoxideLabs/gitoxide/releases
 
-### Download from Arch-Repository
+### Download from Arch Linux repository
 
 For Arch Linux you can download `gitoxide` from `community` repository:
-```
+
+```sh
 pacman -S gitoxide
 ```
 
 ### Download from Exherbo Linux Rust repository
 
 For Exherbo Linux you can download `gitoxide` from the [Rust](https://gitlab.exherbo.org/exherbo/rust/-/tree/master/packages/dev-scm/gitoxide) repository:
-```
+
+```sh
 cave resolve -x repository/rust
 cave resolve -x gitoxide
 ```
@@ -203,7 +205,7 @@ the latest stable one will work as well.
 There are various build configurations, all of them are [documented here](https://docs.rs/crate/gitoxide/latest). The documentation should also be useful
 for packagers who need to tune external dependencies.
 
-```
+```sh
 # A way to install `gitoxide` with just Rust and a C compiler installed.
 # If there are problems with SSL certificates during clones, try to omit `--locked`.
 cargo install gitoxide --locked --no-default-features --features max-pure
@@ -220,19 +222,25 @@ cargo install gitoxide --locked --no-default-features --features lean
 The following installs the latest unpublished `max` release directly from git:
 
 ```sh
-cargo install --git https://github.com/GitoxideLabs/gitoxide  gitoxide
+cargo install --git https://github.com/GitoxideLabs/gitoxide gitoxide
 ```
 
 #### How to deal with build failures
 
-On some platforms, installation may fail due to lack of tools required by `C` toolchains. This can generally be avoided by installation
-with `cargo install gitoxide --no-default-features --features max-pure`.
+On some platforms, installation may fail due to lack of tools required by *C* toolchains. This can generally be avoided by installation with:
+
+```sh
+cargo install gitoxide --no-default-features --features max-pure
+```
 
 What follows is a list of known failures.
 
-- On Fedora, `perl` needs to be installed for `OpenSSL` to build properly. This can be done with the following command:
-  `dnf install perl` (see [this issue](https://github.com/GitoxideLabs/gitoxide/issues/592)).
--
+- On Fedora, `perl` needs to be installed for `OpenSSL` to build properly. This can be done with the following command (see [issue #592](https://github.com/GitoxideLabs/gitoxide/issues/592)):
+
+  ```sh
+  dnf install perl
+  ```
+
 ### Using Docker
 
 Some CI/CD pipelines leverage repository cloning. Below is a copy-paste-able example to build docker images for such workflows.
