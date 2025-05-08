@@ -220,6 +220,20 @@ pub mod merge_base_octopus {
 }
 
 ///
+#[cfg(feature = "revision")]
+pub mod merge_bases_many {
+    /// The error returned by [Repository::merge_bases_many()](crate::Repository::merge_bases_many()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
+        #[error(transparent)]
+        MergeBase(#[from] gix_revision::merge_base::Error),
+    }
+}
+
+///
 #[cfg(feature = "merge")]
 pub mod tree_merge_options {
     /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
