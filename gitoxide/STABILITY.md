@@ -14,7 +14,7 @@ Please note that this guide isn't stable itself and may be adjusted to fit chang
 - _workspace crate_
   - A crate which is a member of this workspace and hence is stored in this repository
 - _breaking change_
-  - A change in code that requires a `dependent crate` to adjust their code to fix compile errors.
+  - A change in code that requires a _dependent crate_ to adjust their code to fix compile errors.
 - _release_
   - A new version of a crate is published to crates.io
 - _development version_
@@ -22,13 +22,14 @@ Please note that this guide isn't stable itself and may be adjusted to fit chang
 - _release version_
   - A crate version whose _major_ version is 1 or higher.
 - _initial development phase_ (IDP)
-  - The phase of development leading up to producing a crate with a major version of 1 or greater, as per `semver`.
+  - The phase of development leading up to producing a crate with a major version of 1 or greater, as per [semver].
   - Not to be confused with the term _pre-release_, which is used to indicate any release version prior to an actual release, like `1.1.0-beta.1`.
 
 ## Tiers
 
 The project uses three stability tiers for all of its crates, and all crates use [semver] for their version numbers.
-Tiers differ primarily in the time between breaking changes, which always have to be announced with `PRs` as per
+
+Tiers differ primarily in the time between breaking changes, which always have to be announced with *PRs* as per
 our [collaboration guide].
 
 The following schematic helps to visualize what follows.
@@ -108,10 +109,10 @@ If there are additional breaking changes without a release, these push back the 
 ### Tier 1: released apps and application crates
 
 Released apps and application crates are marked with major version number 1 or above, like `2.3.0+21.06` and live in tier 1 _(->ST1)_,
-with the build identifiers for year (`21`) and month `06` appended, based on the actual release year and month.
+with the build identifiers for year (`21`) and month (`06`) appended, based on the actual release year and month.
 
 Breaking changes are collected and may be released no more often than every 6 months by incrementing the major version number. If there are additional breaking changes,
-these push bac the release date so that they can be tested at least for 3 months. For example, a breaking change happens in January 01, and another breaking change in February 15.
+these push back the release date so that they can be tested at least for 3 months. For example, a breaking change happens in January 01, and another breaking change in February 15.
 The earliest release date is July 1st. Had the second breaking change happened in April 01, the release date would have to be pushed to August 1st.
 
 Intermediate pre-releases may be created at most every 4 weeks by appending `-alpha.X` where `X` is the sequential release number. These should help testing
