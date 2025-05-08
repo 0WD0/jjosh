@@ -238,7 +238,11 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 check-size:
     etc/check-package-size.sh
 
-# Check the minimal support Rust version, with the currently installed Rust version
+# Assume the current default toolchain is the Minimal Supported Rust Version and check against it
+#
+# This is run on CI in `msrv.yml`, after the MSRV toolchain is installed and set as default, and
+# after dependencies in `Cargo.lock` are downgraded to the latest MSRV-compatible versions.
+# Only if those or similar steps are done first does this recipe really validate the MSRV.
 ci-check-msrv:
     rustc --version
     cargo check -p gix
