@@ -59,14 +59,10 @@ pub struct Context {
 /// Convert the outcome of a helper invocation to a helper result, assuring that the identity is complete in the process.
 #[allow(clippy::result_large_err)]
 pub fn helper_outcome_to_result(outcome: Option<helper::Outcome>, action: helper::Action) -> Result {
-    fn redact(mut ctx: Context) -> Context {
-        if let Some(pw) = ctx.password.as_mut() {
-            *pw = "<redacted>".into();
-        }
-        ctx
-    }
     match (action, outcome) {
-        (helper::Action::Get(ctx), None) => Err(Error::IdentityMissing { context: redact(ctx) }),
+        (helper::Action::Get(ctx), None) => Err(Error::IdentityMissing {
+            context: ctx.redacted(),
+        }),
         (helper::Action::Get(ctx), Some(mut outcome)) => match outcome.consume_identity() {
             Some(identity) => Ok(Some(Outcome {
                 identity,
@@ -75,7 +71,9 @@ pub fn helper_outcome_to_result(outcome: Option<helper::Outcome>, action: helper
             None => Err(if outcome.quit {
                 Error::Quit
             } else {
-                Error::IdentityMissing { context: redact(ctx) }
+                Error::IdentityMissing {
+                    context: ctx.redacted(),
+                }
             }),
         },
         (helper::Action::Store(_) | helper::Action::Erase(_), _ignore) => Ok(None),

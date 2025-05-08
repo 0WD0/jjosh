@@ -14,6 +14,23 @@ mod access {
     use crate::protocol::Context;
 
     impl Context {
+        /// Replace existing secrets with the word `<redacted>`.
+        pub fn redacted(mut self) -> Self {
+            let Context {
+                protocol: _,
+                host: _,
+                path: _,
+                username: _,
+                password,
+                url: _,
+                quit: _,
+            } = &mut self;
+            if let Some(pw) = password {
+                *pw = "<redacted>".into();
+            }
+            self
+        }
+
         /// Convert all relevant fields into a URL for consumption.
         pub fn to_url(&self) -> Option<BString> {
             use bstr::{ByteSlice, ByteVec};
