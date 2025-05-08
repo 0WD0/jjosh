@@ -120,6 +120,25 @@ mod invoke {
     }
 
     #[test]
+    fn expired_credentials_are_not_returned() {
+        let actual = invoke_cascade(
+            ["expired", "oauth-token", "custom-helper"],
+            Action::get_for_url("http://github.com"),
+        )
+        .unwrap()
+        .expect("credentials");
+
+        assert_eq!(
+            actual.identity,
+            Account {
+                oauth_refresh_token: Some("oauth-token".into()),
+                ..identity("user-script", "pass-script")
+            },
+            "it ignored the expired password, which otherwise would have come first"
+        );
+    }
+
+    #[test]
     fn bogus_password_overrides_any_helper_and_helper_overrides_username_in_url() {
         let actual = Cascade::default()
             .query_user_only(true)
@@ -144,6 +163,7 @@ mod invoke {
         Account {
             username: user.into(),
             password: pass.into(),
+            oauth_refresh_token: None,
         }
     }
 

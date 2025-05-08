@@ -14,7 +14,8 @@ fn get() {
         outcome.consume_identity().expect("complete"),
         gix_sec::identity::Account {
             username: "user".into(),
-            password: "pass".into()
+            password: "pass".into(),
+            oauth_refresh_token: None
         }
     );
     assert_eq!(
@@ -78,7 +79,8 @@ mod program {
             .expect("complete"),
             gix_sec::identity::Account {
                 username: "user".into(),
-                password: "pass".into()
+                password: "pass".into(),
+                oauth_refresh_token: None
             }
         );
     }
@@ -99,7 +101,8 @@ mod program {
             .expect("complete"),
             gix_sec::identity::Account {
                 username: "user-script".into(),
-                password: "pass-script".into()
+                password: "pass-script".into(),
+                oauth_refresh_token: None
             }
         );
         Ok(())
@@ -117,7 +120,8 @@ mod program {
             .expect("complete"),
             gix_sec::identity::Account {
                 username: "user-script".into(),
-                password: "pass-script".into()
+                password: "pass-script".into(),
+                oauth_refresh_token: None
             }
         );
         Ok(())
