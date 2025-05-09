@@ -33,20 +33,16 @@ jobs:
       # IMPORTANT: adjust etc/msrv-badge.svg as well
       RUST_VERSION: 1.75.0
 
-    defaults:
-      run:
-        # Use `bash` even in the Windows job, so any failing command fails its step (due to `-e`).
-        shell: bash
-
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
       - name: Set up ${{ env.RUST_VERSION }} (MSRV) and nightly toolchains
-        run: |
-          rustup toolchain install ${{ env.RUST_VERSION }} nightly --profile minimal --no-self-update
-          rustup default ${{ env.RUST_VERSION }}
+        run: rustup toolchain install ${{ env.RUST_VERSION }} nightly --profile minimal --no-self-update
+      - name: Set ${{ env.RUST_VERSION }} (MSRV) as default
+        run: rustup default ${{ env.RUST_VERSION }}
       - name: Downgrade locked dependencies to lowest allowed versions
         run: |
-          cargo +nightly update -Zminimal-versions  # TODO(msrv): Use non-`-Z` way when available.
+          # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is available.
+          cargo +nightly update -Zminimal-versions
       - name: Run some `cargo check` commands on `gix`
         run: just ci-check-msrv
