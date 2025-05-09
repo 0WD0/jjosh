@@ -31,7 +31,7 @@ jobs:
     env:
       # dictated by `firefox` to support the `helix` editor, but now probably effectively be controlled by `jiff`, which also aligns with `regex`.
       # IMPORTANT: adjust etc/msrv-badge.svg as well
-      rust_version: 1.75.0
+      RUST_VERSION: 1.75.0
 
     defaults:
       run:
@@ -41,8 +41,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
-      - run: |
-          rustup toolchain install ${{ env.rust_version }} nightly --profile minimal --no-self-update
-          rustup default ${{ env.rust_version }}
-          cargo +nightly update -Zminimal-versions
-      - run: just ci-check-msrv
+      - name: Set up ${{ env.RUST_VERSION }} (MSRV) and nightly toolchains
+        run: |
+          rustup toolchain install ${{ env.RUST_VERSION }} nightly --profile minimal --no-self-update
+          rustup default ${{ env.RUST_VERSION }}
+      - name: Downgrade locked dependencies to lowest allowed versions
+        run: |
+          cargo +nightly update -Zminimal-versions  # TODO(msrv): Use non-`-Z` way when available.
+          git add Cargo.lock  # Stage for a later `git diff` check.
+      - name: Run some `cargo check` commands on `gix`
+        run: just ci-check-msrv
+      - name: Check `cargo` didn't have to change the versions
+        run: git diff --exit-code -- Cargo.lock
