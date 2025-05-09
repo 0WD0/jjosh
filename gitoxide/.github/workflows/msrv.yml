@@ -45,5 +45,5 @@ jobs:
         run: |
           # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is available.
           cargo +nightly update -Zminimal-versions
-      - name: Run some `cargo check` commands on `gix`
+      - name: Run some `cargo build` commands on `gix`
         run: just ci-check-msrv

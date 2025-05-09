@@ -126,8 +126,8 @@ bench-gix-config:
 
 check-msrv-on-ci: ## Check the minimal support rust version for currently installed Rust version
 	rustc --version
-	cargo check --locked --package gix
-	cargo check --locked --package gix --no-default-features --features async-network-client,max-performance
+	cargo build --locked --package gix
+	cargo build --locked --package gix --no-default-features --features async-network-client,max-performance
 
 ##@ Maintenance
 

@@ -246,8 +246,8 @@ check-size:
 # Check the MSRV, *if* the toolchain is set and `Cargo.lock` is downgraded (used on CI)
 ci-check-msrv:
     rustc --version
-    cargo check --locked -p gix
-    cargo check --locked -p gix --no-default-features --features async-network-client,max-performance
+    cargo build --locked -p gix
+    cargo build --locked -p gix --no-default-features --features async-network-client,max-performance
 
 # Enter a nix-shell able to build on macOS
 nix-shell-macos:
