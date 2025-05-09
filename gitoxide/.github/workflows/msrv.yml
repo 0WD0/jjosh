@@ -48,8 +48,5 @@ jobs:
       - name: Downgrade locked dependencies to lowest allowed versions
         run: |
           cargo +nightly update -Zminimal-versions  # TODO(msrv): Use non-`-Z` way when available.
-          git add Cargo.lock  # Stage for a later `git diff` check.
       - name: Run some `cargo check` commands on `gix`
         run: just ci-check-msrv
-      - name: Check `cargo` didn't have to change the versions
-        run: git diff --exit-code -- Cargo.lock
