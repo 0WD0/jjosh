@@ -29,8 +29,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     env:
-      # dictated by `firefox` to support the `helix` editor, but now probably effectively be controlled by `jiff`, which also aligns with `regex`.
-      # IMPORTANT: adjust etc/msrv-badge.svg as well
+      # This is dictated by `firefox` to support the `helix` editor, but now probably effectively
+      # be controlled by `jiff`, which also aligns with `regex`.
+      # IMPORTANT: When adjusting, change all occurrences in `etc/msrv-badge.svg` as well.
       RUST_VERSION: 1.75.0
 
     steps:
