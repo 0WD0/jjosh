@@ -238,11 +238,16 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 check-size:
     etc/check-package-size.sh
 
-# Check the minimal support Rust version, with the currently installed Rust version
+# This assumes the current default toolchain is the Minimal Supported Rust Version and checks
+# against it. This is run on CI in `msrv.yml`, after the MSRV toolchain is installed and set as
+# default, and after dependencies in `Cargo.lock` are downgraded to the latest MSRV-compatible
+# versions. Only if those or similar steps are done first does this work to validate the MSRV.
+#
+# Check the MSRV, *if* the toolchain is set and `Cargo.lock` is downgraded (used on CI)
 ci-check-msrv:
     rustc --version
-    cargo check -p gix
-    cargo check -p gix --no-default-features --features async-network-client,max-performance
+    cargo build --locked -p gix
+    cargo build --locked -p gix --no-default-features --features async-network-client,max-performance
 
 # Enter a nix-shell able to build on macOS
 nix-shell-macos:
