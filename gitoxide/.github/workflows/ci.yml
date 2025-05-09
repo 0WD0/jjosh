@@ -433,7 +433,8 @@ jobs:
 
     defaults:
       run:
-        shell: bash  # Use bash even on Windows, if we ever reenable windows-latest for testing.
+        # Use `bash` even on Windows, if we ever reenable `windows-latest` for testing.
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4

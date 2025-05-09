@@ -33,6 +33,11 @@ jobs:
       # IMPORTANT: adjust etc/msrv-badge.svg as well
       rust_version: 1.75.0
 
+    defaults:
+      run:
+        # Use `bash` even in the Windows job, so any failing command fails its step (due to `-e`).
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
