@@ -82,11 +82,11 @@ impl crate::Repository {
         Ok(bases[0].attach(self))
     }
 
-    /// Obtain all merge-bases between commit `one` and `others`, or an empty list if there is none, providing a
-    /// commit-graph `graph` to potentially greatly accelerate the operation.
+    /// Get all merge-bases between commit `one` and `others`, or an empty list if there is none, providing a
+    /// commit-graph `graph` to potentially greatly speed up the operation.
     ///
     /// # Performance
-    /// Be sure to [set an object cache](crate::Repository::object_cache_size_if_unset) to accelerate repeated commit lookups.
+    /// Be sure to [set an object cache](crate::Repository::object_cache_size_if_unset) to speed up repeated commit lookups.
     #[doc(alias = "merge_bases_many", alias = "git2")]
     #[cfg(feature = "revision")]
     pub fn merge_bases_many_with_graph(
@@ -102,6 +102,24 @@ impl crate::Repository {
             .into_iter()
             .map(|id| id.attach(self))
             .collect())
+    }
+
+    /// Like [`merge_bases_many_with_graph()`](Self::merge_bases_many_with_graph), but without the ability to speed up consecutive calls with a [graph](gix_revwalk::Graph).
+    ///
+    /// # Performance
+    ///
+    /// Be sure to [set an object cache](crate::Repository::object_cache_size_if_unset) to speed up repeated commit lookups, and consider
+    /// using [`merge_bases_many_with_graph()`](Self::merge_bases_many_with_graph) for consecutive calls.
+    #[doc(alias = "git2")]
+    #[cfg(feature = "revision")]
+    pub fn merge_bases_many(
+        &self,
+        one: impl Into<gix_hash::ObjectId>,
+        others: &[gix_hash::ObjectId],
+    ) -> Result<Vec<Id<'_>>, crate::repository::merge_bases_many::Error> {
+        let cache = self.commit_graph_if_enabled()?;
+        let mut graph = self.revision_graph(cache.as_ref());
+        Ok(self.merge_bases_many_with_graph(one, others, &mut graph)?)
     }
 
     /// Return the best merge-base among all `commits`, or fail if `commits` yields no commit or no merge-base was found.
