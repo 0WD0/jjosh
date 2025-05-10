@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.10.2 (2025-05-10)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release over the course of 14 calendar days.
+ - 5 commits contributed to the release over the course of 14 calendar days.
  - 14 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1979](https://github.com/GitoxideLabs/gitoxide/issues/1979), [#1984](https://github.com/GitoxideLabs/gitoxide/issues/1984)
@@ -29,6 +29,7 @@ A maintenance release without user-facing changes.
  * **[#1984](https://github.com/GitoxideLabs/gitoxide/issues/1984)**
     - Further upgrade `jiff` to fix fuzz failures ([`0be4dd4`](https://github.com/GitoxideLabs/gitoxide/commit/0be4dd4e037e8a3080ef335913e06bc2584fd96d))
  * **Uncategorized**
+    - Prepare changelogs prior to release of `gix-index` ([`bfc4880`](https://github.com/GitoxideLabs/gitoxide/commit/bfc48801bf3ed39cdf7ec02e01aa3cfb6181705f))
     - Merge pull request #1984 from GitoxideLabs/fuzz ([`f965540`](https://github.com/GitoxideLabs/gitoxide/commit/f965540c162ed3e23bd0d7ad9083093033647e51))
     - Merge pull request #1971 from GitoxideLabs/new-release ([`8d4c4d1`](https://github.com/GitoxideLabs/gitoxide/commit/8d4c4d1e09f84c962c29d98a686c64228196ac13))
 </details>

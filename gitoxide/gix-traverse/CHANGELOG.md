@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.46.2 (2025-05-10)
 
 ### New Features
 
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 14 calendar days.
+ - 7 commits contributed to the release over the course of 14 calendar days.
  - 14 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release of `gix-index` ([`bfc4880`](https://github.com/GitoxideLabs/gitoxide/commit/bfc48801bf3ed39cdf7ec02e01aa3cfb6181705f))
     - Merge pull request #1977 from GitoxideLabs/dependabot/cargo/cargo-811d7b929d ([`800738a`](https://github.com/GitoxideLabs/gitoxide/commit/800738a37f3d33926a427edfa294423bbe3f2b66))
     - Bump the cargo group with 12 updates ([`4408166`](https://github.com/GitoxideLabs/gitoxide/commit/4408166bf56197a67419277a4ef8feeba9060fee))
     - Merge pull request #1974 from cruessler/move-commit-time-to-either ([`8be3193`](https://github.com/GitoxideLabs/gitoxide/commit/8be3193eb34ac5deadb0ade60ba01cb3c97f6135))

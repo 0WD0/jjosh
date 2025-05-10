@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.10.18 (2025-05-10)
 
 A maintenance release without user-facing changes.
 
@@ -13,7 +13,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 14 calendar days.
+ - 4 commits contributed to the release over the course of 14 calendar days.
  - 14 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -31,6 +31,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release of `gix-index` ([`bfc4880`](https://github.com/GitoxideLabs/gitoxide/commit/bfc48801bf3ed39cdf7ec02e01aa3cfb6181705f))
     - Merge pull request #1975 from GitoxideLabs/improvements ([`28935a5`](https://github.com/GitoxideLabs/gitoxide/commit/28935a56ff91f1fc2c17a7d23b057cf7119144e9))
     - Thanks clippy ([`dbf65c9`](https://github.com/GitoxideLabs/gitoxide/commit/dbf65c95644e6a134e7f9b75e7871479720b4deb))
     - Merge pull request #1971 from GitoxideLabs/new-release ([`8d4c4d1`](https://github.com/GitoxideLabs/gitoxide/commit/8d4c4d1e09f84c962c29d98a686c64228196ac13))
@@ -147,6 +148,13 @@ A maintenance release without user-facing changes.
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
