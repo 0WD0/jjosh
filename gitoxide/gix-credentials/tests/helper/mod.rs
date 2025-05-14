@@ -12,6 +12,7 @@ mod invoke_outcome_to_helper_result {
             Some(helper::Outcome {
                 username: None,
                 password: None,
+                oauth_refresh_token: None,
                 quit: false,
                 next: protocol::Context::default().into(),
             }),
@@ -28,6 +29,7 @@ mod invoke_outcome_to_helper_result {
             Some(helper::Outcome {
                 username: None,
                 password: None,
+                oauth_refresh_token: None,
                 quit: true,
                 next: protocol::Context::default().into(),
             }),

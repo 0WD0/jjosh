@@ -243,6 +243,7 @@ impl<H: Http> Transport<H> {
             .map(|(user, pass)| gix_sec::identity::Account {
                 username: user.to_string(),
                 password: pass.to_string(),
+                oauth_refresh_token: None,
             });
         Transport {
             url: url.to_bstring().to_string(),
@@ -296,7 +297,12 @@ impl<H: Http> Transport<H> {
 
     #[allow(clippy::unnecessary_wraps, unknown_lints)]
     fn add_basic_auth_if_present(&self, headers: &mut Vec<Cow<'_, str>>) -> Result<(), client::Error> {
-        if let Some(gix_sec::identity::Account { username, password }) = &self.identity {
+        if let Some(gix_sec::identity::Account {
+            username,
+            password,
+            oauth_refresh_token: _,
+        }) = &self.identity
+        {
             #[cfg(not(feature = "http-client-insecure-credentials"))]
             if self.url.starts_with("http://") {
                 return Err(client::Error::AuthenticationRefused(
