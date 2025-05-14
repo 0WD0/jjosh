@@ -8,6 +8,8 @@ pub struct Account {
     pub username: String,
     /// The user's password
     pub password: String,
+    /// An OAuth refresh token that may accompany the password. It is to be treated confidentially, just like the password.
+    pub oauth_refresh_token: Option<String>,
 }
 
 /// Returns true if the given `path` is owned by the user who is executing the current process.
