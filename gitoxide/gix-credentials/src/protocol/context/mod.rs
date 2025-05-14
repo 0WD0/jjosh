@@ -44,10 +44,8 @@ mod access {
                 url: _,
                 quit: _,
             } = &mut self;
-            for secret_field in [password, oauth_refresh_token] {
-                if let Some(secret) = secret_field {
-                    *secret = "<redacted>".into();
-                }
+            for secret in [password, oauth_refresh_token].into_iter().flatten() {
+                *secret = "<redacted>".into();
             }
             self
         }
