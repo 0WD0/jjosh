@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-glob"
-version = "0.20.0"
+version = "0.20.1"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing with pattern matching"

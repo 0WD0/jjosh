@@ -314,7 +314,7 @@ gix-validate = { version = "^0.10.0", path = "../gix-validate" }
 gix-sec = { version = "^0.11.0", path = "../gix-sec" }
 gix-date = { version = "^0.10.2", path = "../gix-date" }
 gix-refspec = { version = "^0.30.1", path = "../gix-refspec" }
-gix-filter = { version = "^0.19.1", path = "../gix-filter", optional = true }
+gix-filter = { version = "^0.19.2", path = "../gix-filter", optional = true }
 gix-dir = { version = "^0.14.1", path = "../gix-dir", optional = true }
 
 gix-config = { version = "^0.45.1", path = "../gix-config" }
@@ -342,11 +342,11 @@ gix-features = { version = "^0.42.1", path = "../gix-features", features = [
 ] }
 gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 
-gix-glob = { version = "^0.20.0", path = "../gix-glob" }
+gix-glob = { version = "^0.20.1", path = "../gix-glob" }
 gix-credentials = { version = "^0.29.0", path = "../gix-credentials", optional = true }
 gix-prompt = { version = "^0.11.0", path = "../gix-prompt", optional = true }
 gix-index = { version = "^0.40.1", path = "../gix-index", optional = true }
-gix-attributes = { version = "^0.26.0", path = "../gix-attributes", optional = true }
+gix-attributes = { version = "^0.26.1", path = "../gix-attributes", optional = true }
 gix-ignore = { version = "^0.15.0", path = "../gix-ignore", optional = true }
 gix-worktree = { version = "^0.41.0", path = "../gix-worktree", optional = true, default-features = false }
 gix-worktree-state = { version = "^0.19.0", path = "../gix-worktree-state", optional = true }
@@ -357,10 +357,10 @@ gix-submodule = { version = "^0.19.1", path = "../gix-submodule", optional = tru
 gix-status = { version = "^0.19.1", path = "../gix-status", optional = true, features = [
     "worktree-rewrites",
 ] }
-gix-command = { version = "^0.6.0", path = "../gix-command", optional = true }
+gix-command = { version = "^0.6.1", path = "../gix-command", optional = true }
 
-gix-worktree-stream = { version = "^0.21.1", path = "../gix-worktree-stream", optional = true }
-gix-archive = { version = "^0.21.1", path = "../gix-archive", default-features = false, optional = true }
+gix-worktree-stream = { version = "^0.21.2", path = "../gix-worktree-stream", optional = true }
+gix-archive = { version = "^0.21.2", path = "../gix-archive", default-features = false, optional = true }
 gix-blame = { version = "^0.2.1", path = "../gix-blame", optional = true }
 
 # For communication with remotes

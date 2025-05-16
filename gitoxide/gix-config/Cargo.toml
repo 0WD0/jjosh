@@ -24,7 +24,7 @@ gix-config-value = { version = "^0.15.0", path = "../gix-config-value" }
 gix-path = { version = "^0.10.18", path = "../gix-path" }
 gix-sec = { version = "^0.11.0", path = "../gix-sec" }
 gix-ref = { version = "^0.52.1", path = "../gix-ref" }
-gix-glob = { version = "^0.20.0", path = "../gix-glob" }
+gix-glob = { version = "^0.20.1", path = "../gix-glob" }
 
 winnow = { version = "0.7.7", features = ["simd"] }
 memchr = "2"
