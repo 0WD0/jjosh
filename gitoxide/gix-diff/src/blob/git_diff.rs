@@ -1,9 +1,9 @@
 //! Facilities to produce git-formatted diffs.
 
 use std::cmp::Ordering;
-use std::fmt::Display;
 use std::ops::Range;
 
+use crate::blob::GitDiff;
 use imara_diff::intern::{InternedInput, Interner, Token};
 use imara_diff::Sink;
 
@@ -24,6 +24,20 @@ const RELATIVE_OUTDENT_PENALTY: i16 = 24;
 const RELATIVE_OUTDENT_WITH_BLANK_PENALTY: i16 = 17;
 const RELATIVE_DEDENT_PENALTY: i16 = 23;
 const RELATIVE_DEDENT_WITH_BLANK_PENALTY: i16 = 17;
+
+pub(super) mod types {
+    use crate::blob::git_diff::ChangeGroup;
+
+    /// A [`Sink`](imara_diff::Sink) that creates a diff like git would.
+    pub struct GitDiff<'a, T>
+    where
+        T: std::fmt::Display,
+    {
+        pub(crate) after: &'a [imara_diff::intern::Token],
+        pub(crate) interner: &'a imara_diff::intern::Interner<T>,
+        pub(crate) changes: Vec<ChangeGroup>,
+    }
+}
 
 /// An enum indicating the kind of change that occurred.
 #[derive(PartialEq, Debug)]
@@ -63,22 +77,13 @@ pub struct ChangeGroup {
     /// Range indicating the lines of the previous block.
     /// To actually see how the previous block looked like, you need to combine this range with
     /// the [`InternedInput`].
-    before: Range<usize>,
+    pub before: Range<usize>,
     /// Range indicating the lines of the new block
     /// To actually see how the current block looks like, you need to combine this range with
     /// the [`InternedInput`].
-    after: Range<usize>,
-    change_kind: ChangeKind,
-}
-
-/// A [`Sink`] that creates a diff like git would.
-pub struct GitDiff<'a, T>
-where
-    T: Display,
-{
-    after: &'a [Token],
-    interner: &'a Interner<T>,
-    changes: Vec<ChangeGroup>,
+    pub after: Range<usize>,
+    /// Further specify what kind of change is denoted by the ranges above.
+    pub change_kind: ChangeKind,
 }
 
 // Calculate the indentation of a single line
@@ -102,7 +107,12 @@ fn get_indent(s: String) -> Option<u8> {
     None
 }
 
-fn measure_and_score_change<T: Display>(lines: &[Token], split: usize, interner: &Interner<T>, score: &mut Score) {
+fn measure_and_score_change<T: std::fmt::Display>(
+    lines: &[Token],
+    split: usize,
+    interner: &Interner<T>,
+    score: &mut Score,
+) {
     // Gather information about the surroundings of the change
     let end_of_file = split >= lines.len();
     let mut indent: Option<u8> = if split >= lines.len() {
@@ -181,7 +191,7 @@ fn measure_and_score_change<T: Display>(lines: &[Token], split: usize, interner:
 
 impl<'a, T> GitDiff<'a, T>
 where
-    T: Display,
+    T: std::fmt::Display,
 {
     /// Create a new instance of [`GitDiff`] that can then be passed to [`imara_diff::diff`]
     /// and generate a more human-readable diff.
@@ -196,48 +206,37 @@ where
 
 impl<T> Sink for GitDiff<'_, T>
 where
-    T: Display,
+    T: std::fmt::Display,
 {
     type Out = Vec<ChangeGroup>;
 
     fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
-        if before.is_empty() && !after.is_empty() {
-            self.changes.push(ChangeGroup {
-                before: before.start as usize..before.end as usize,
-                after: after.start as usize..after.end as usize,
-                change_kind: ChangeKind::Added,
-            });
-        } else if after.is_empty() && !before.is_empty() {
-            if after.start == 0 {
-                self.changes.push(ChangeGroup {
-                    before: before.start as usize..before.end as usize,
-                    after: after.start as usize..after.end as usize,
-                    change_kind: ChangeKind::RemovedAbove,
-                });
-            } else {
-                self.changes.push(ChangeGroup {
-                    before: before.start as usize..before.end as usize,
-                    after: after.start as usize..after.end as usize,
-                    change_kind: ChangeKind::RemovedBelow,
-                });
+        let change_kind = match (before.is_empty(), after.is_empty()) {
+            (true, false) => ChangeKind::Added,
+            (false, true) => {
+                if after.start == 0 {
+                    ChangeKind::RemovedAbove
+                } else {
+                    ChangeKind::RemovedBelow
+                }
             }
-        } else {
-            self.changes.push(ChangeGroup {
-                before: before.start as usize..before.end as usize,
-                after: after.start as usize..after.end as usize,
-                change_kind: ChangeKind::Modified,
-            });
-        }
+            _ => ChangeKind::Modified,
+        };
+        self.changes.push(ChangeGroup {
+            before: before.start as usize..before.end as usize,
+            after: after.start as usize..after.end as usize,
+            change_kind,
+        });
     }
 
     fn finish(mut self) -> Self::Out {
         if self.changes.is_empty() {
             return self.changes;
         }
-        let mut shift: usize;
 
-        for change in self.changes.iter_mut() {
-            // Skip one liner changes
+        let mut shift: usize;
+        for change in &mut self.changes {
+            // Skip one-liner changes
             if change.after.is_empty() {
                 continue;
             }
@@ -315,86 +314,4 @@ where
 
         self.changes
     }
-}
-
-#[test]
-fn git_diff_test() {
-    let before = r#"struct SomeStruct {
-    field1: f64,
-    field2: f64,
-}
-
-fn main() {
-    // Some comment
-    let c = SomeStruct { field1: 10.0, field2: 10.0 };
-
-    println!(
-        "Print field1 from SomeStruct {}",
-        get_field1(&c)
-    );
-}
-
-fn get_field1(c: &SomeStruct) -> f64 {
-    c.field1
-}
-"#;
-
-    let after = r#"/// This is a struct
-struct SomeStruct {
-    field1: f64,
-    field2: f64,
-}
-
-fn main() {
-    let c = SomeStruct { field1: 10.0, field2: 10.0 };
-
-    println!(
-        "Print field1 and field2 from SomeStruct {} {}",
-        get_field1(&c), get_field2(&c)
-    );
-    println!("Print another line");
-}
-
-fn get_field1(c: &SomeStruct) -> f64 {
-    c.field1
-}
-
-fn get_field2(c: &SomeStruct) -> f64 {
-    c.field2
-}
-"#;
-    use crate::blob::git_diff::ChangeKind;
-
-    let input = InternedInput::new(before, after);
-    let diff = imara_diff::diff(imara_diff::Algorithm::Histogram, &input, GitDiff::new(&input));
-    assert_eq!(
-        diff,
-        vec![
-            ChangeGroup {
-                before: 0..0,
-                after: 0..1,
-                change_kind: ChangeKind::Added
-            },
-            ChangeGroup {
-                before: 6..7,
-                after: 7..7,
-                change_kind: ChangeKind::RemovedBelow
-            },
-            ChangeGroup {
-                before: 10..12,
-                after: 10..12,
-                change_kind: ChangeKind::Modified
-            },
-            ChangeGroup {
-                before: 13..13,
-                after: 13..14,
-                change_kind: ChangeKind::Added
-            },
-            ChangeGroup {
-                before: 17..17,
-                after: 19..23,
-                change_kind: ChangeKind::Added
-            }
-        ]
-    );
 }

@@ -15,7 +15,7 @@ pub mod unified_diff;
 pub use unified_diff::_impl::UnifiedDiff;
 
 pub mod git_diff;
-pub use git_diff::*;
+pub use git_diff::types::GitDiff;
 
 /// Information about the diff performed to detect similarity.
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
