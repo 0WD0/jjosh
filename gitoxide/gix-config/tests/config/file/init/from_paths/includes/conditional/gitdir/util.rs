@@ -143,7 +143,7 @@ pub fn assert_section_value(
             None => None,
         },
         "gix-config disagrees with the expected value, {} for debugging",
-        env.tempdir.into_path().display()
+        env.tempdir.keep().display()
     );
     assure_git_agrees(expected, env)
 }
@@ -173,7 +173,7 @@ fn assure_git_agrees(expected: Option<Value>, env: GitEnv) -> crate::Result {
         expected.is_some(),
         "{:?}, {} for debugging",
         output,
-        env.tempdir.into_path().display()
+        env.tempdir.keep().display()
     );
     let git_output: BString = output.stdout.trim_end().into();
     assert_eq!(
@@ -184,7 +184,7 @@ fn assure_git_agrees(expected: Option<Value>, env: GitEnv) -> crate::Result {
             None => "",
         },
         "git disagrees with gix-config, {:?} for debugging",
-        env.tempdir.into_path()
+        env.tempdir.keep()
     );
     Ok(())
 }

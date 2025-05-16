@@ -265,7 +265,7 @@ value = branch-override-by-include
                 dir,
                 gix_testtools::tempfile::TempDir::new().expect("substitute can be created"),
             );
-            dir.into_path()
+            dir.keep()
         }
     );
 
@@ -290,7 +290,7 @@ fn assure_git_agrees(expected: Value, dir: &mut gix_testtools::tempfile::TempDir
             dir,
             gix_testtools::tempfile::TempDir::new().expect("substitute can be created"),
         );
-        dir.into_path()
+        dir.keep()
     };
     assert!(
         output.status.success(),
