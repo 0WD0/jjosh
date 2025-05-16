@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.21.2 (2025-05-16)
 
 Update the `zip` dependency to the unyanked version 3.0.
 
@@ -13,7 +13,7 @@ Update the `zip` dependency to the unyanked version 3.0.
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 20 calendar days.
+ - 7 commits contributed to the release over the course of 20 calendar days.
  - 20 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1984](https://github.com/GitoxideLabs/gitoxide/issues/1984), [#2013](https://github.com/GitoxideLabs/gitoxide/issues/2013)
@@ -29,6 +29,7 @@ Update the `zip` dependency to the unyanked version 3.0.
  * **[#2013](https://github.com/GitoxideLabs/gitoxide/issues/2013)**
     - Avoid yanked `zip` dependency ([`8692657`](https://github.com/GitoxideLabs/gitoxide/commit/8692657ec7c7ab765fcf1aeb9f0e1c55384e39d3))
  * **Uncategorized**
+    - Update changelogs prior to release ([`31b86ee`](https://github.com/GitoxideLabs/gitoxide/commit/31b86ee6774ad6762f941aa0e8377e709bd41f5e))
     - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))
     - Release gix-path v0.10.18, gix-date v0.10.2, gix-traverse v0.46.2, gix-index v0.40.1 ([`d2b4c44`](https://github.com/GitoxideLabs/gitoxide/commit/d2b4c44fcb2bf43e80d67532262631a5086f08de))
     - Merge pull request #1984 from GitoxideLabs/fuzz ([`f965540`](https://github.com/GitoxideLabs/gitoxide/commit/f965540c162ed3e23bd0d7ad9083093033647e51))
