@@ -1,11 +1,11 @@
 //! Facilities to produce git-formatted diffs.
 
-use std::cmp::Ordering;
-use std::ops::Range;
-
 use crate::blob::GitDiff;
+use bstr::ByteSlice;
 use imara_diff::intern::{InternedInput, Interner, Token};
 use imara_diff::Sink;
+use std::cmp::Ordering;
+use std::ops::Range;
 
 // Explanation for the following numbers can be found here:
 // https://github.com/git/git/blob/324fbaab88126196bd42e7fa383ee94e165d61b5/xdiff/xdiffi.c#L535
@@ -29,9 +29,11 @@ pub(super) mod types {
     use crate::blob::git_diff::ChangeGroup;
 
     /// A [`Sink`](imara_diff::Sink) that creates a diff like git would.
+    ///
+    /// See the [diff slider repository](https://github.com/mhagger/diff-slider-tools) for more information.
     pub struct GitDiff<'a, T>
     where
-        T: std::fmt::Display,
+        T: AsRef<[u8]>,
     {
         pub(crate) after: &'a [imara_diff::intern::Token],
         pub(crate) interner: &'a imara_diff::intern::Interner<T>,
@@ -75,7 +77,7 @@ impl PartialOrd for Score {
 #[derive(PartialEq, Debug)]
 pub struct ChangeGroup {
     /// Range indicating the lines of the previous block.
-    /// To actually see how the previous block looked like, you need to combine this range with
+    /// To actually see what the previous block looked like, you need to combine this range with
     /// the [`InternedInput`].
     pub before: Range<usize>,
     /// Range indicating the lines of the new block
@@ -86,16 +88,28 @@ pub struct ChangeGroup {
     pub change_kind: ChangeKind,
 }
 
-// Calculate the indentation of a single line
-fn get_indent(s: String) -> Option<u8> {
+impl ChangeGroup {
+    /// Return [before](Self::before) and [after](Self::after) as `u32` ranges for use in [Sink::process_change()].
+    ///
+    /// This is useful for creating [unified diffs](crate::blob::UnifiedDiff), for example.
+    pub fn as_u32_ranges(&self) -> (Range<u32>, Range<u32>) {
+        (
+            self.before.start as u32..self.before.end as u32,
+            self.after.start as u32..self.after.end as u32,
+        )
+    }
+}
+
+// Calculate the indentation of a single line as number of tabs.
+fn get_indent(s: &[u8]) -> Option<u8> {
     let mut indent = 0;
 
-    for char in s.chars() {
-        if !char.is_whitespace() {
+    for char in s.bytes() {
+        if !char.is_ascii_whitespace() {
             return Some(indent);
-        } else if char == ' ' {
+        } else if char == b' ' {
             indent += 1;
-        } else if char == '\t' {
+        } else if char == b'\t' {
             indent += 8 - indent % 8;
         }
 
@@ -107,18 +121,13 @@ fn get_indent(s: String) -> Option<u8> {
     None
 }
 
-fn measure_and_score_change<T: std::fmt::Display>(
-    lines: &[Token],
-    split: usize,
-    interner: &Interner<T>,
-    score: &mut Score,
-) {
+fn measure_and_score_change<T: AsRef<[u8]>>(lines: &[Token], split: usize, interner: &Interner<T>, score: &mut Score) {
     // Gather information about the surroundings of the change
     let end_of_file = split >= lines.len();
     let mut indent: Option<u8> = if split >= lines.len() {
         None
     } else {
-        get_indent(interner[lines[split]].to_string())
+        get_indent(interner[lines[split]].as_ref())
     };
     let mut pre_blank = 0;
     let mut pre_indent: Option<u8> = None;
@@ -126,7 +135,7 @@ fn measure_and_score_change<T: std::fmt::Display>(
     let mut post_indent: Option<u8> = None;
 
     for line in (0..=split.saturating_sub(1)).rev() {
-        pre_indent = get_indent(interner[lines[line]].to_string());
+        pre_indent = get_indent(interner[lines[line]].as_ref());
         if pre_indent.is_none() {
             pre_blank += 1;
             if pre_blank == MAX_BLANKS {
@@ -136,7 +145,7 @@ fn measure_and_score_change<T: std::fmt::Display>(
         }
     }
     for line in split + 1..lines.len() {
-        post_indent = get_indent(interner[lines[line]].to_string());
+        post_indent = get_indent(interner[lines[line]].as_ref());
         if post_indent.is_none() {
             post_blank += 1;
             if post_blank == MAX_BLANKS {
@@ -191,7 +200,7 @@ fn measure_and_score_change<T: std::fmt::Display>(
 
 impl<'a, T> GitDiff<'a, T>
 where
-    T: std::fmt::Display,
+    T: AsRef<[u8]>,
 {
     /// Create a new instance of [`GitDiff`] that can then be passed to [`imara_diff::diff`]
     /// and generate a more human-readable diff.
@@ -206,7 +215,7 @@ where
 
 impl<T> Sink for GitDiff<'_, T>
 where
-    T: std::fmt::Display,
+    T: AsRef<[u8]>,
 {
     type Out = Vec<ChangeGroup>;
 
