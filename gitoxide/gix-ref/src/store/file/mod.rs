@@ -53,7 +53,7 @@ mod access {
         }
     }
 
-    use crate::file;
+    use crate::{file, Target};
 
     /// Access
     impl file::Store {
@@ -77,6 +77,35 @@ mod access {
         /// This is also the directory in which the packed references file would be placed.
         pub fn common_dir_resolved(&self) -> &Path {
             self.common_dir.as_deref().unwrap_or(&self.git_dir)
+        }
+
+        /// Return `Some(true)` if this is a freshly initialized ref store without any observable changes.
+        /// Return `None` if `HEAD` couldn't be read.
+        ///
+        /// This is the case if:
+        ///
+        /// * the ref-store is valid
+        /// * `HEAD` exists
+        /// * `HEAD` still points to `default_ref`
+        /// * there are no packed refs
+        /// * There are no observable references in `refs/`
+        pub fn is_pristine(&self, default_ref: &crate::FullNameRef) -> Option<bool> {
+            let head = self.find_loose("HEAD").ok()?;
+            match head.target {
+                Target::Object(_) => return Some(false),
+                Target::Symbolic(name) => {
+                    if name.as_ref() != default_ref {
+                        return Some(false);
+                    }
+                }
+            }
+            if self.loose_iter().ok()?.filter_map(Result::ok).next().is_some() {
+                return Some(false);
+            }
+            if self.packed_refs_path().is_file() {
+                return Some(false);
+            }
+            Some(true)
         }
     }
 }

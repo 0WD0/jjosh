@@ -14,8 +14,12 @@ pub fn store_with_packed_refs() -> crate::Result<Store> {
 }
 
 pub fn store_at(name: &str) -> crate::Result<Store> {
-    let path = gix_testtools::scripted_fixture_read_only_standalone(name)?;
-    Ok(Store::at(path.join(".git"), Default::default()))
+    named_store_at(name, "")
+}
+
+pub fn named_store_at(script_name: &str, name: &str) -> crate::Result<Store> {
+    let path = gix_testtools::scripted_fixture_read_only_standalone(script_name)?;
+    Ok(Store::at(path.join(name).join(".git"), Default::default()))
 }
 
 pub fn store_at_with_args(name: &str, args: impl IntoIterator<Item = impl Into<String>>) -> crate::Result<Store> {

@@ -576,6 +576,7 @@ fn overlay_partial_prefix_iter_when_prefix_is_dir() -> crate::Result {
     use gix_ref::Target::*;
 
     let store = store_at("make_packed_ref_repository_for_overlay.sh")?;
+    assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
     let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
 
     let ref_names = store

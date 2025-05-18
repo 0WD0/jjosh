@@ -1,4 +1,4 @@
-use crate::file::store;
+use crate::file::{named_store_at, store};
 
 #[test]
 fn set_packed_buffer_mmap_threshold() -> crate::Result {
@@ -18,5 +18,24 @@ fn set_packed_buffer_mmap_threshold() -> crate::Result {
         0,
         "it actually sets the value"
     );
+    Ok(())
+}
+
+#[test]
+fn is_pristine() -> crate::Result {
+    let store = named_store_at("make_pristine.sh", "untouched")?;
+    assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(true));
+    assert_eq!(store.is_pristine("refs/heads/other".try_into()?), Some(false));
+
+    let store = named_store_at("make_pristine.sh", "changed-headref")?;
+    assert_eq!(store.is_pristine("refs/heads/other".try_into()?), Some(true));
+    assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
+
+    let store = named_store_at("make_pristine.sh", "detached")?;
+    assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
+
+    let store = named_store_at("make_pristine.sh", "invalid-loose-ref")?;
+    assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(true));
+
     Ok(())
 }
