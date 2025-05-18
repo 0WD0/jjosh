@@ -49,6 +49,7 @@ impl Mode {
     ) -> Option<Change> {
         match self {
             Mode::FILE if !stat.is_file() => (),
+            Mode::SYMLINK if stat.is_symlink() => return None,
             Mode::SYMLINK if has_symlinks && !stat.is_symlink() => (),
             Mode::SYMLINK if !has_symlinks && !stat.is_file() => (),
             Mode::COMMIT | Mode::DIR if !stat.is_dir() => (),

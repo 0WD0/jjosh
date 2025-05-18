@@ -226,13 +226,6 @@ mod submodule_status {
                     v
                 }
                 Ok(None) => Vec::new(),
-                Err(crate::submodule::modules::Error::FindHeadCommit(
-                    crate::reference::head_commit::Error::PeelToCommit(
-                        crate::head::peel::to_commit::Error::PeelToObject(
-                            crate::head::peel::to_object::Error::Unborn { .. },
-                        ),
-                    ),
-                )) => Vec::new(),
                 Err(err) => return Err(err),
             };
             Ok(Self {

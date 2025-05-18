@@ -341,6 +341,17 @@ mod open {
     }
 
     #[test]
+    fn in_unborn() -> crate::Result {
+        let repo = repo("unborn")?;
+        assert_eq!(
+            repo.submodules()?.into_iter().flatten().count(),
+            0,
+            "there is nothing, and that is fine"
+        );
+        Ok(())
+    }
+
+    #[test]
     #[cfg(feature = "revision")]
     fn submodule_worktrees() -> crate::Result {
         let sm_repo = crate::util::named_subrepo_opts(

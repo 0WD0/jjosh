@@ -84,6 +84,7 @@ mod read_only {
     fn linked() -> crate::Result {
         for packed in [false, true] {
             let (store, odb, _tmp) = worktree_store(packed, "w1", Mode::Read)?;
+            assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
             let peel = into_peel(&store, odb);
 
             let w1_head_id = peel(store.find("HEAD").unwrap());
@@ -132,6 +133,7 @@ mod read_only {
     fn main() -> crate::Result {
         for packed in [false, true] {
             let (store, odb, _tmp) = main_store(packed, Mode::Read)?;
+            assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
             let peel = into_peel(&store, odb);
 
             let head_id = peel(store.find("HEAD").unwrap());

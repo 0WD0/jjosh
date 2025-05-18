@@ -9,6 +9,7 @@ mod existing {
             "make_packed_ref_repository_for_overlay.sh",
         ] {
             let store = store_at(fixture)?;
+            assert_eq!(store.is_pristine("refs/heads/main".try_into()?), Some(false));
             let c1 = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
             let r = store.find("main")?;
             assert_eq!(r.target.into_id(), c1);

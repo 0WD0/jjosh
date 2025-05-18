@@ -48,6 +48,7 @@ fn nonfile_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
         false,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -65,6 +66,7 @@ fn fixture_with_index(
         false,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -78,6 +80,7 @@ fn submodule_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome
         false,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -91,6 +94,7 @@ fn conflict_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome 
         false,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -104,6 +108,7 @@ fn submodule_fixture_status(name: &str, expected_status: &[Expectation<'_>], sub
         submodule_dirty,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -117,6 +122,7 @@ fn fixture_filtered(name: &str, pathspecs: &[&str], expected_status: &[Expectati
         false,
         Default::default(),
         false,
+        None,
     )
 }
 
@@ -130,6 +136,7 @@ fn fixture_filtered_detailed(
     submodule_dirty: bool,
     auto_crlf: gix_filter::eol::AutoCrlf,
     use_odb: bool,
+    fs_capabilities: Option<&dyn Fn(&std::path::Path) -> gix_fs::Capabilities>,
 ) -> Outcome {
     // This can easily happen in some fixtures, which can cause flakiness. It's time-dependent after all.
     fn ignore_racyclean(mut out: Outcome) -> Outcome {
@@ -179,7 +186,7 @@ fn fixture_filtered_detailed(
         should_interrupt: &AtomicBool::default(),
     };
     let options = Options {
-        fs: gix_fs::Capabilities::probe(&git_dir),
+        fs: fs_capabilities.map_or_else(|| gix_fs::Capabilities::probe(&git_dir), |new| new(&git_dir)),
         stat: TEST_OPTIONS,
         ..Options::default()
     };
@@ -353,6 +360,7 @@ fn replace_dir_with_file() {
         false,
         Default::default(),
         false,
+        None,
     );
     assert_eq!(
         out,
@@ -561,6 +569,24 @@ fn unchanged() {
 }
 
 #[test]
+fn unchanged_symlinks_present_but_deactivated() {
+    fixture_filtered_detailed(
+        "status_unchanged",
+        "",
+        &[],
+        &[],
+        |_| {},
+        false,
+        Default::default(),
+        false,
+        Some(&|dir| gix_fs::Capabilities {
+            symlink: false,
+            ..gix_fs::Capabilities::probe(dir)
+        }),
+    );
+}
+
+#[test]
 fn unchanged_despite_filter() {
     let actual_outcome = fixture_filtered_detailed(
         "status_unchanged_filter",
@@ -571,6 +597,7 @@ fn unchanged_despite_filter() {
         false,
         AutoCrlf::Enabled,
         true, /* make ODB available */
+        None,
     );
 
     let expected_outcome = Outcome {
