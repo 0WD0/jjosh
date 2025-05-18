@@ -144,3 +144,5 @@ git clone with-submodules not-a-submodule
   mv modules.bak .gitmodules
   git add m1 && git commit -m "no submodule in index and commit, but in configuration"
 )
+
+git init unborn
