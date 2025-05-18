@@ -56,6 +56,16 @@ mod index {
             repo.index_or_load_from_head_or_empty()?.entries().is_empty(),
             "an empty index is created on the fly"
         );
+        assert_eq!(
+            repo.is_pristine(),
+            Some(false),
+            "not pristine as it things the initial ref was changed to 'main'"
+        );
+        assert_eq!(
+            repo.refs.is_pristine("refs/heads/main".try_into()?),
+            Some(true),
+            "This is a quirk of default values in gix and the way we override the initial branch for test fixtures"
+        );
         Ok(())
     }
 }

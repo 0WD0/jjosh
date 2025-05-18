@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use gix_path::realpath::MAX_SYMLINKS;
@@ -107,5 +108,21 @@ impl crate::Repository {
             }
             None => crate::repository::Kind::Bare,
         }
+    }
+
+    /// Returns `Some(true)` if the reference database [is untouched](gix_ref::file::Store::is_pristine()).
+    /// This typically indicates that the repository is new and empty.
+    /// Return `None` if a defect in the database makes the answer uncertain.
+    #[doc(alias = "is_empty", alias = "git2")]
+    pub fn is_pristine(&self) -> Option<bool> {
+        let name = self
+            .config
+            .resolved
+            .string(crate::config::tree::Init::DEFAULT_BRANCH)
+            .unwrap_or(Cow::Borrowed("master".into()));
+        let default_branch_ref_name: gix_ref::FullName = format!("refs/heads/{name}")
+            .try_into()
+            .unwrap_or_else(|_| gix_ref::FullName::try_from("refs/heads/master").expect("known to be valid"));
+        self.refs.is_pristine(default_branch_ref_name.as_ref())
     }
 }
