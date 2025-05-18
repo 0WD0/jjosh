@@ -408,12 +408,12 @@ impl<'index> State<'_, 'index> {
                 None => false,
             };
 
-        // Here we implement racy-git. See racy-git.txt in the git documentation for a detailed documentation.
+        // We implement racy-git. See racy-git.txt in the git documentation for detailed documentation.
         //
         // A file is racy if:
-        // 1. its `mtime` is at or after the last index timestamp and its entry stat information
-        //   matches the on-disk file but the file contents are actually modified
-        // 2. it's size is 0 (set after detecting a file was racy previously)
+        // 1. Its `mtime` is at or after the last index timestamp and its entry stat information
+        //   matches the on-disk file, but the file contents are actually modified
+        // 2. Its size is 0 (set after detecting a file was racy previously)
         //
         // The first case is detected below by checking the timestamp if the file is marked unmodified.
         // The second case is usually detected either because the on-disk file is not empty, hence
@@ -449,7 +449,16 @@ impl<'index> State<'_, 'index> {
             file_len: file_size_bytes,
             filter: &mut self.filter,
             attr_stack: &mut self.attr_stack,
-            options: self.options,
+            core_symlinks:
+            // If this is legitimately a symlink, then pretend symlinks are enabled as the option seems stale.
+            // Otherwise, respect the option.
+            if metadata.is_symlink()
+                && entry.mode.to_tree_entry_mode().map(|m| m.kind()) == Some(gix_object::tree::EntryKind::Link)
+            {
+                true
+            } else {
+                self.options.fs.symlink
+            },
             id: &entry.id,
             objects,
             worktree_reads: self.worktree_reads,
@@ -517,7 +526,7 @@ where
     entry: &'a gix_index::Entry,
     filter: &'a mut gix_filter::Pipeline,
     attr_stack: &'a mut gix_worktree::Stack,
-    options: &'a Options,
+    core_symlinks: bool,
     id: &'a gix_hash::oid,
     objects: Find,
     worktree_bytes: &'a AtomicU64,
@@ -545,7 +554,7 @@ where
         //
         let is_symlink = self.entry.mode == gix_index::entry::Mode::SYMLINK;
         // TODO: what to do about precompose unicode and ignore_case for symlinks
-        let out = if is_symlink && self.options.fs.symlink {
+        let out = if is_symlink && self.core_symlinks {
             // conversion to bstr can never fail because symlinks are only used
             // on unix (by git) so no reason to use the try version here
             let symlink_path =
