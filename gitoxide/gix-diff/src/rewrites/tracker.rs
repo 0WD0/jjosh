@@ -239,69 +239,96 @@ impl<T: Change> Tracker<T> {
                 .then_with(|| a.path.start.cmp(&b.path.start).then(a.path.end.cmp(&b.path.end)))
         }
 
+        // Early abort: if there is no pair, don't do anything.
+        let has_work = {
+            let (mut num_deletions, mut num_additions, mut num_modifications) = (0, 0, 0);
+            let mut has_work = false;
+            for change in &self.items {
+                match change.change.kind() {
+                    ChangeKind::Deletion => {
+                        num_deletions += 1;
+                    }
+                    ChangeKind::Modification => {
+                        // This means we have copy-tracking enabled
+                        num_modifications += 1;
+                    }
+                    ChangeKind::Addition => num_additions += 1,
+                }
+                if (num_deletions != 0 && num_additions != 0)
+                    || (self.rewrites.copies.is_some() && num_modifications + num_additions > 1)
+                {
+                    has_work = true;
+                    break;
+                }
+            }
+            has_work
+        };
+
         let mut out = Outcome {
             options: self.rewrites,
             ..Default::default()
         };
-        self.items.sort_by(by_id_and_location);
+        if has_work {
+            self.items.sort_by(by_id_and_location);
 
-        // Rewrites by directory (without local changes) can be pruned out quickly,
-        // by finding only parents, their counterpart, and then all children can be matched by
-        // relationship ID.
-        self.match_pairs_of_kind(
-            visit::SourceKind::Rename,
-            &mut cb,
-            None, /* by identity for parents */
-            &mut out,
-            diff_cache,
-            objects,
-            Some(is_parent),
-        )?;
-
-        self.match_pairs_of_kind(
-            visit::SourceKind::Rename,
-            &mut cb,
-            self.rewrites.percentage,
-            &mut out,
-            diff_cache,
-            objects,
-            None,
-        )?;
-
-        self.match_renamed_directories(&mut cb)?;
-
-        if let Some(copies) = self.rewrites.copies {
+            // Rewrites by directory (without local changes) can be pruned out quickly,
+            // by finding only parents, their counterpart, and then all children can be matched by
+            // relationship ID.
             self.match_pairs_of_kind(
-                visit::SourceKind::Copy,
+                visit::SourceKind::Rename,
                 &mut cb,
-                copies.percentage,
+                None, /* by identity for parents */
+                &mut out,
+                diff_cache,
+                objects,
+                Some(is_parent),
+            )?;
+
+            self.match_pairs_of_kind(
+                visit::SourceKind::Rename,
+                &mut cb,
+                self.rewrites.percentage,
                 &mut out,
                 diff_cache,
                 objects,
                 None,
             )?;
 
-            match copies.source {
-                CopySource::FromSetOfModifiedFiles => {}
-                CopySource::FromSetOfModifiedFilesAndAllSources => {
-                    push_source_tree(&mut |change, location| {
-                        if self.try_push_change(change, location).is_none() {
-                            // make sure these aren't viable to be emitted anymore.
-                            self.items.last_mut().expect("just pushed").emitted = true;
-                        }
-                    })
-                    .map_err(|err| emit::Error::GetItemsForExhaustiveCopyDetection(Box::new(err)))?;
-                    self.items.sort_by(by_id_and_location);
+            self.match_renamed_directories(&mut cb)?;
 
-                    self.match_pairs_of_kind(
-                        visit::SourceKind::Copy,
-                        &mut cb,
-                        copies.percentage,
-                        &mut out,
-                        diff_cache,
-                        objects,
-                        None,
-                    )?;
+            if let Some(copies) = self.rewrites.copies {
+                self.match_pairs_of_kind(
+                    visit::SourceKind::Copy,
+                    &mut cb,
+                    copies.percentage,
+                    &mut out,
+                    diff_cache,
+                    objects,
+                    None,
+                )?;
+
+                match copies.source {
+                    CopySource::FromSetOfModifiedFiles => {}
+                    CopySource::FromSetOfModifiedFilesAndAllSources => {
+                        push_source_tree(&mut |change, location| {
+                            if self.try_push_change(change, location).is_none() {
+                                // make sure these aren't viable to be emitted anymore.
+                                self.items.last_mut().expect("just pushed").emitted = true;
+                            }
+                        })
+                        .map_err(|err| emit::Error::GetItemsForExhaustiveCopyDetection(Box::new(err)))?;
+                        self.items.sort_by(by_id_and_location);
+
+                        self.match_pairs_of_kind(
+                            visit::SourceKind::Copy,
+                            &mut cb,
+                            copies.percentage,
+                            &mut out,
+                            diff_cache,
+                            objects,
+                            None,
+                        )?;
+                    }
                 }
             }
         }
