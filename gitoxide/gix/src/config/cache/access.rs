@@ -396,11 +396,20 @@ impl Cache {
             Some(user_path) => Some(user_path),
             None => self.xdg_config_path("ignore")?,
         };
+        let parse_ignore = gix_ignore::search::Ignore {
+            support_precious: boolean(
+                self,
+                "gitoxide.parsePrecious",
+                &config::tree::Gitoxide::PARSE_PRECIOUS,
+                false,
+            )?,
+        };
         Ok(gix_worktree::stack::state::Ignore::new(
             overrides.unwrap_or_default(),
-            gix_ignore::Search::from_git_dir(git_dir, excludes_file, buf)?,
+            gix_ignore::Search::from_git_dir(git_dir, excludes_file, buf, parse_ignore)?,
             None,
             source,
+            parse_ignore,
         ))
     }
     // TODO: at least one test, maybe related to core.attributesFile configuration.

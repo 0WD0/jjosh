@@ -357,10 +357,16 @@ fn apply_environment_overrides(
             "gitoxide",
             None,
             git_prefix,
-            &[{
-                let key = &Gitoxide::TRACE_PACKET;
-                (env(key), key.name)
-            }],
+            &[
+                {
+                    let key = &Gitoxide::TRACE_PACKET;
+                    (env(key), key.name)
+                },
+                {
+                    let key = &Gitoxide::PARSE_PRECIOUS;
+                    (env(key), key.name)
+                },
+            ],
         ),
         (
             "gitoxide",
