@@ -74,9 +74,18 @@ static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
         };
         let state = gix_worktree::stack::State::IgnoreStack(gix_worktree::stack::state::Ignore::new(
             Default::default(),
-            gix_worktree::ignore::Search::from_git_dir(&gix_dir, None, &mut buf).ok()?,
+            gix_worktree::ignore::Search::from_git_dir(
+                &gix_dir,
+                None,
+                &mut buf,
+                gix_worktree::stack::state::ignore::ParseIgnore {
+                    support_precious: false,
+                },
+            )
+            .ok()?,
             None,
             gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+            Default::default(),
         ));
         Some(gix_worktree::Stack::new(
             work_tree,

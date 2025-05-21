@@ -38,6 +38,7 @@ fn attribute_cache(name: &str) -> gix_testtools::Result<gix_worktree::Stack> {
                 Default::default(),
                 None,
                 gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+                Default::default(),
             ),
         ),
         Case::Sensitive,

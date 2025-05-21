@@ -239,6 +239,7 @@ pub mod command_context {
 
 ///
 pub mod exclude_stack {
+    use crate::config;
     use std::path::PathBuf;
 
     /// The error produced when setting up a stack to query `gitignore` information.
@@ -251,6 +252,8 @@ pub mod exclude_stack {
         EnvironmentPermission(#[from] gix_sec::permission::Error<PathBuf>),
         #[error("The value for `core.excludesFile` could not be read from configuration")]
         ExcludesFilePathInterpolation(#[from] gix_config::path::interpolate::Error),
+        #[error(transparent)]
+        ParsePreciousEnabled(#[from] config::boolean::Error),
     }
 }
 

@@ -48,6 +48,15 @@ impl crate::Repository {
         self.config.big_file_threshold()
     }
 
+    /// Create a low-level parser for ignore patterns, for instance for use in [`excludes()`](crate::Repository::excludes()).
+    ///
+    /// Depending on the configuration, precious-file parsing in `.gitignore-files` is supported.
+    /// This means that `$` prefixed files will be interpreted as precious, which is a backwards-incompatible change.
+    #[cfg(feature = "excludes")]
+    pub fn ignore_pattern_parser(&self) -> Result<gix_ignore::search::Ignore, config::boolean::Error> {
+        self.config.ignore_pattern_parser()
+    }
+
     /// Obtain options for use when connecting via `ssh`.
     #[cfg(feature = "blocking-network-client")]
     pub fn ssh_connect_options(

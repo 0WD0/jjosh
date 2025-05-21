@@ -46,11 +46,22 @@ fn baseline_from_git_dir() -> crate::Result {
         let baseline = std::fs::read(git_dir.parent().unwrap().join("git-check-ignore.baseline"))?;
         let mut buf = Vec::new();
         let user_exclude = dir.join("user.exclude");
-        let mut group =
-            gix_ignore::Search::from_git_dir(&git_dir, user_exclude.is_file().then_some(user_exclude), &mut buf)?;
+        let mut group = gix_ignore::Search::from_git_dir(
+            &git_dir,
+            user_exclude.is_file().then_some(user_exclude),
+            &mut buf,
+            Default::default(),
+        )?;
 
         assert!(
-            !gix_glob::search::add_patterns_file(&mut group.patterns, "not-a-file".into(), false, None, &mut buf)?,
+            !gix_glob::search::add_patterns_file(
+                &mut group.patterns,
+                "not-a-file".into(),
+                false,
+                None,
+                &mut buf,
+                Default::default()
+            )?,
             "missing files are no problem and cause a negative response"
         );
         let mut ignore_file = repo_dir.join(".gitignore");
@@ -64,7 +75,8 @@ fn baseline_from_git_dir() -> crate::Result {
                 ignore_file,
                 true,
                 repo_dir.as_path().into(),
-                &mut buf
+                &mut buf,
+                Default::default()
             )?,
             "existing files return true"
         );
@@ -72,7 +84,7 @@ fn baseline_from_git_dir() -> crate::Result {
         let ignore_file = repo_dir.join("dir-with-ignore").join(".gitignore");
         if ignore_file.is_file() {
             let buf = std::fs::read(&ignore_file)?;
-            group.add_patterns_buffer(&buf, ignore_file, repo_dir.as_path().into());
+            group.add_patterns_buffer(&buf, ignore_file, repo_dir.as_path().into(), Default::default());
         }
 
         for (path, source_and_line) in (Expectations {
@@ -116,7 +128,7 @@ fn baseline_from_git_dir() -> crate::Result {
 #[test]
 fn from_overrides_with_precious() {
     let input = ["$s?mple", "pattern/"];
-    let group = gix_ignore::Search::from_overrides(input.iter());
+    let group = gix_ignore::Search::from_overrides(input.iter(), gix_ignore::search::Ignore { support_precious: true });
 
     assert_eq!(
         group.pattern_matching_relative_path("Simple".into(), None, gix_glob::pattern::Case::Fold),
@@ -131,7 +143,7 @@ fn from_overrides_with_precious() {
 
 #[test]
 fn from_overrides_with_excludes() {
-    let group = gix_ignore::Search::from_overrides(["$simple", "!simple", "pattern/"]);
+    let group = gix_ignore::Search::from_overrides(["$simple", "!simple", "pattern/"], Default::default());
     assert_eq!(
         group.pattern_matching_relative_path("Simple".into(), None, gix_glob::pattern::Case::Fold),
         Some(pattern_to_match(
@@ -145,7 +157,7 @@ fn from_overrides_with_excludes() {
 
 #[test]
 fn from_overrides() {
-    let group = gix_ignore::Search::from_overrides(["simple", "pattern/"]);
+    let group = gix_ignore::Search::from_overrides(["simple", "pattern/"], Default::default());
     assert_eq!(
         group.pattern_matching_relative_path("Simple".into(), None, gix_glob::pattern::Case::Fold),
         Some(pattern_to_match(
@@ -164,7 +176,7 @@ fn from_overrides() {
     );
     assert_eq!(group.patterns.len(), 1);
     assert_eq!(
-        gix_ignore::Search::from_overrides(["simple", "pattern/"]).patterns[0],
+        gix_ignore::Search::from_overrides(["simple", "pattern/"], Default::default()).patterns[0],
         group.patterns.into_iter().next().unwrap()
     );
 }

@@ -36,6 +36,9 @@ impl Gitoxide {
     /// The `gitoxide.tracePacket` Key.
     pub const TRACE_PACKET: keys::Boolean = keys::Boolean::new_boolean("tracePacket", &config::Tree::GITOXIDE)
         .with_environment_override("GIT_TRACE_PACKET");
+    /// The `gitoxide.parsePrecious` Key.
+    pub const PARSE_PRECIOUS: keys::Boolean = keys::Boolean::new_boolean("parsePrecious", &config::Tree::GITOXIDE)
+        .with_environment_override("GIX_PARSE_PRECIOUS");
 }
 
 impl Section for Gitoxide {
@@ -44,7 +47,7 @@ impl Section for Gitoxide {
     }
 
     fn keys(&self) -> &[&dyn Key] {
-        &[&Self::USER_AGENT, &Self::TRACE_PACKET]
+        &[&Self::USER_AGENT, &Self::TRACE_PACKET, &Self::PARSE_PRECIOUS]
     }
 
     fn sub_sections(&self) -> &[&dyn Section] {

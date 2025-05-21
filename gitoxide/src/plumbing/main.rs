@@ -118,6 +118,16 @@ pub fn main() -> Result<()> {
                     .append_config(config.iter(), gix::config::Source::Cli)
                     .context("Unable to parse command-line configuration")?;
             }
+            {
+                let mut config_mut = repo.config_snapshot_mut();
+                // Enable precious file parsing unless the user made a choice.
+                if config_mut
+                    .boolean(gix::config::tree::Gitoxide::PARSE_PRECIOUS)
+                    .is_none()
+                {
+                    config_mut.set_raw_value(&gix::config::tree::Gitoxide::PARSE_PRECIOUS, "true")?;
+                }
+            }
             Ok(repo)
         }
     };

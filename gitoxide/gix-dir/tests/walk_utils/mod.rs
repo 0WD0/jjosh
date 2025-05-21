@@ -330,6 +330,7 @@ pub fn try_collect_filtered_opts(
             Default::default(),
             None,
             gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+            gix_ignore::search::Ignore { support_precious: true },
         )),
         &index,
         index.path_backing(),

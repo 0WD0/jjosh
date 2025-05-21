@@ -47,6 +47,8 @@ pub struct Ignore {
     pub(crate) exclude_file_name_for_directories: BString,
     /// Where to read ignore files from
     source: ignore::Source,
+    /// Control how to parse ignore files.
+    parse: gix_ignore::search::Ignore,
 }
 
 ///

@@ -43,9 +43,10 @@ fn exclude_by_dir_is_handled_just_like_git() {
         Default::default(),
         gix_worktree::stack::state::Ignore::new(
             Default::default(),
-            gix_ignore::Search::from_git_dir(&git_dir, None, &mut buf).unwrap(),
+            gix_ignore::Search::from_git_dir(&git_dir, None, &mut buf, Default::default()).unwrap(),
             None,
             Source::WorktreeThenIdMappingIfNotSkipped,
+            Default::default(),
         ),
     );
     let mut cache = Stack::new(&dir, state, case, buf, Default::default());
@@ -113,13 +114,15 @@ fn check_against_baseline() -> crate::Result {
     let case = probe_case()?;
     let mut index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default())?;
     let odb = gix_odb::at(git_dir.join("objects"))?;
+    let parse_ignore = gix_ignore::search::Ignore::default();
     let state = gix_worktree::stack::State::for_add(
         Default::default(),
         gix_worktree::stack::state::Ignore::new(
-            gix_ignore::Search::from_overrides(["!force-include"]),
-            gix_ignore::Search::from_git_dir(&git_dir, Some(user_exclude_path), &mut buf)?,
+            gix_ignore::Search::from_overrides(["!force-include"], parse_ignore),
+            gix_ignore::Search::from_git_dir(&git_dir, Some(user_exclude_path), &mut buf, parse_ignore)?,
             None,
             Source::WorktreeThenIdMappingIfNotSkipped,
+            parse_ignore,
         ),
     );
     let paths_storage = index.take_path_backing();

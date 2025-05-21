@@ -52,6 +52,7 @@ mod with_overrides {
             .set("GIT_AUTHOR_DATE", default_date)
             .set("EMAIL", "user email")
             .set("GIX_PACK_CACHE_MEMORY", "0")
+            .set("GIX_PARSE_PRECIOUS", "1")
             .set("GIX_OBJECT_CACHE_MEMORY", "5m")
             .set("GIX_CREDENTIALS_HELPER_STDERR", "creds-stderr")
             .set("GIX_EXTERNAL_COMMAND_STDERR", "filter-stderr")
@@ -244,6 +245,7 @@ mod with_overrides {
             ("gitoxide.commit.authorDate", default_date),
             ("gitoxide.commit.committerDate", default_date),
             ("gitoxide.user.emailFallback", "user email"),
+            ("gitoxide.parsePrecious", "1"),
             ("core.deltaBaseCacheLimit", "0"),
             ("gitoxide.objects.cacheLimit", "5m"),
             ("gitoxide.pathspec.icase", "pathspecs-icase"),
