@@ -48,6 +48,10 @@ pub enum Kind {
 pub mod parse;
 
 /// Parse git ignore patterns, line by line, from `bytes`.
-pub fn parse(bytes: &[u8]) -> parse::Lines<'_> {
-    parse::Lines::new(bytes)
+///
+/// If `support_precious` is `true`, we will parse `$` prefixed entries as precious.
+/// This is backward-incompatible as files that actually start with `$` like `$houdini`
+/// will then not be ignored anymore, instead it ignores `houdini`.
+pub fn parse(bytes: &[u8], support_precious: bool) -> parse::Lines<'_> {
+    parse::Lines::new(bytes, support_precious)
 }

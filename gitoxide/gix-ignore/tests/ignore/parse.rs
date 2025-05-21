@@ -5,7 +5,7 @@ use gix_testtools::fixture_bytes;
 #[test]
 fn precious() {
     let input = fixture_bytes("ignore/precious.txt");
-    let actual: Vec<_> = gix_ignore::parse(&input).map(flat_map).collect();
+    let actual: Vec<_> = gix_ignore::parse(&input, true).map(flat_map).collect();
     assert_eq!(
         actual,
         vec![
@@ -16,12 +16,24 @@ fn precious() {
             pat_precious("!/*", Mode::empty(), 12),
         ]
     );
+
+    let actual: Vec<_> = gix_ignore::parse(&input, false).map(flat_map).collect();
+    assert_eq!(
+        actual,
+        vec![
+            pat("$.config", Mode::NO_SUB_DIR, 1),
+            pat("$starts-with-dollar", Mode::NO_SUB_DIR, 2),
+            pat("$*.html", Mode::NO_SUB_DIR, 4),
+            pat("foo.html", Mode::NO_SUB_DIR | Mode::NEGATIVE, 6),
+            pat("$!/*", Mode::empty(), 12),
+        ]
+    );
 }
 
 #[test]
 fn byte_order_marks_are_no_patterns() {
     assert_eq!(
-        flatten(gix_ignore::parse("\u{feff}hello".as_bytes()).next()),
+        flatten(gix_ignore::parse("\u{feff}hello".as_bytes(), false).next()),
         Some(pat(r"hello", Mode::NO_SUB_DIR, 1))
     );
 }
@@ -29,7 +41,7 @@ fn byte_order_marks_are_no_patterns() {
 #[test]
 fn line_numbers_are_counted_correctly() {
     let input = fixture_bytes("ignore/various.txt");
-    let actual: Vec<_> = gix_ignore::parse(&input).map(flat_map).collect();
+    let actual: Vec<_> = gix_ignore::parse(&input, false).map(flat_map).collect();
     assert_eq!(
         actual,
         vec![
@@ -47,7 +59,7 @@ fn line_numbers_are_counted_correctly() {
 #[test]
 fn line_endings_can_be_windows_or_unix() {
     assert_eq!(
-        gix_ignore::parse(b"unix\nwindows\r\nlast")
+        gix_ignore::parse(b"unix\nwindows\r\nlast", false)
             .map(flat_map)
             .collect::<Vec<_>>(),
         vec![
@@ -60,14 +72,14 @@ fn line_endings_can_be_windows_or_unix() {
 
 #[test]
 fn comments_are_ignored_as_well_as_empty_ones() {
-    assert!(gix_ignore::parse(b"# hello world").next().is_none());
-    assert!(gix_ignore::parse(b"\n\r\n\t\t   \n").next().is_none());
+    assert!(gix_ignore::parse(b"# hello world", false).next().is_none());
+    assert!(gix_ignore::parse(b"\n\r\n\t\t   \n", false).next().is_none());
 }
 
 #[test]
 fn backslashes_before_hashes_are_no_comments() {
     assert_eq!(
-        flatten(gix_ignore::parse(br"\#hello").next()),
+        flatten(gix_ignore::parse(br"\#hello", false).next()),
         Some(pat(r"#hello", Mode::NO_SUB_DIR, 1))
     );
 }
@@ -75,7 +87,7 @@ fn backslashes_before_hashes_are_no_comments() {
 #[test]
 fn trailing_spaces_can_be_escaped_to_be_literal() {
     fn parse_one(input: &str) -> (BString, Mode, usize, gix_ignore::Kind) {
-        let actual: Vec<_> = gix_ignore::parse(input.as_bytes()).map(flat_map).collect();
+        let actual: Vec<_> = gix_ignore::parse(input.as_bytes(), false).map(flat_map).collect();
         assert_eq!(actual.len(), 1, "{input:?} should match");
         actual.into_iter().next().expect("present")
     }

@@ -15,7 +15,7 @@ mod list {
     impl Pattern for Dummy {
         type Value = ();
 
-        fn bytes_to_patterns(_bytes: &[u8], _source: &Path) -> Vec<Mapping<Self::Value>> {
+        fn bytes_to_patterns(&self, _bytes: &[u8], _source: &Path) -> Vec<Mapping<Self::Value>> {
             vec![]
         }
     }
@@ -23,7 +23,7 @@ mod list {
     #[test]
     fn from_bytes_base() {
         {
-            let list = List::<Dummy>::from_bytes(&[], "a/b/source".into(), None);
+            let list = List::from_bytes(&[], "a/b/source".into(), None, Dummy);
             assert_eq!(list.base, None, "no root always means no-base, i.e. globals lists");
             assert_eq!(
                 list.source.as_deref(),
@@ -34,7 +34,7 @@ mod list {
 
         {
             let cwd = std::env::current_dir().expect("cwd available");
-            let list = List::<Dummy>::from_bytes(&[], cwd.join("a/b/source"), Some(cwd.as_path()));
+            let list = List::from_bytes(&[], cwd.join("a/b/source"), Some(cwd.as_path()), Dummy);
             assert_eq!(
                 list.base.as_ref().expect("set"),
                 "a/b/",
@@ -48,7 +48,7 @@ mod list {
         }
 
         {
-            let list = List::<Dummy>::from_bytes(&[], "a/b/source".into(), Some(Path::new("c/")));
+            let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("c/")), Dummy);
             assert_eq!(
                 list.base, None,
                 "if root doesn't contain source, it silently skips it as base"
@@ -63,7 +63,7 @@ mod list {
 
     #[test]
     fn strip_base_handle_recompute_basename_pos() {
-        let list = List::<Dummy>::from_bytes(&[], "a/b/source".into(), Some(Path::new("")));
+        let list = List::from_bytes(&[], "a/b/source".into(), Some(Path::new("")), Dummy);
         assert_eq!(
             list.base.as_ref().expect("set"),
             "a/b/",
@@ -91,7 +91,7 @@ mod list {
             Path::new(".").join("non-existing-dir").join("pattern-file"),
             Path::new("file").to_owned(),
         ] {
-            let list = List::<Dummy>::from_file(path, None, false, &mut buf).expect("no io error");
+            let list = List::from_file(path, None, false, &mut buf, Dummy).expect("no io error");
             assert!(list.is_none(), "the file does not exist");
         }
     }
@@ -102,7 +102,7 @@ mod list {
         let dir_path = tmp.path().join(".gitignore");
         std::fs::create_dir(&dir_path)?;
         let mut buf = Vec::new();
-        let list = List::<Dummy>::from_file(dir_path, None, false, &mut buf).expect("no io error");
+        let list = List::from_file(dir_path, None, false, &mut buf, Dummy).expect("no io error");
         assert!(list.is_none(), "directories are ignored just like Git does it");
 
         Ok(())
