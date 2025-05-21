@@ -385,6 +385,18 @@ impl Cache {
     }
 
     #[cfg(feature = "excludes")]
+    pub(crate) fn ignore_pattern_parser(&self) -> Result<gix_ignore::search::Ignore, config::boolean::Error> {
+        Ok(gix_ignore::search::Ignore {
+            support_precious: boolean(
+                self,
+                "gitoxide.parsePrecious",
+                &config::tree::Gitoxide::PARSE_PRECIOUS,
+                false,
+            )?,
+        })
+    }
+
+    #[cfg(feature = "excludes")]
     pub(crate) fn assemble_exclude_globals(
         &self,
         git_dir: &std::path::Path,
@@ -396,14 +408,7 @@ impl Cache {
             Some(user_path) => Some(user_path),
             None => self.xdg_config_path("ignore")?,
         };
-        let parse_ignore = gix_ignore::search::Ignore {
-            support_precious: boolean(
-                self,
-                "gitoxide.parsePrecious",
-                &config::tree::Gitoxide::PARSE_PRECIOUS,
-                false,
-            )?,
-        };
+        let parse_ignore = self.ignore_pattern_parser()?;
         Ok(gix_worktree::stack::state::Ignore::new(
             overrides.unwrap_or_default(),
             gix_ignore::Search::from_git_dir(git_dir, excludes_file, buf, parse_ignore)?,
