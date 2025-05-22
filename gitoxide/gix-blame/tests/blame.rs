@@ -206,7 +206,7 @@ macro_rules! mktest {
             let baseline = Baseline::collect(git_dir.join(format!("{}.baseline", $case)))?;
 
             assert_eq!(baseline.len(), $number_of_lines);
-            assert_eq!(lines_blamed, baseline);
+            pretty_assertions::assert_eq!(lines_blamed, baseline);
             Ok(())
         }
     };
@@ -279,7 +279,7 @@ fn diff_disparity() {
         let git_dir = fixture_path().join(".git");
         let baseline = Baseline::collect(git_dir.join(format!("{case}.baseline"))).unwrap();
 
-        assert_eq!(lines_blamed, baseline, "{case}");
+        pretty_assertions::assert_eq!(lines_blamed, baseline, "{case}");
     }
 }
 
@@ -311,7 +311,7 @@ fn since() {
     let git_dir = fixture_path().join(".git");
     let baseline = Baseline::collect(git_dir.join("simple-since.baseline")).unwrap();
 
-    assert_eq!(lines_blamed, baseline);
+    pretty_assertions::assert_eq!(lines_blamed, baseline);
 }
 
 mod blame_ranges {
@@ -346,7 +346,7 @@ mod blame_ranges {
         let git_dir = fixture_path().join(".git");
         let baseline = Baseline::collect(git_dir.join("simple-lines-1-2.baseline")).unwrap();
 
-        assert_eq!(lines_blamed, baseline);
+        pretty_assertions::assert_eq!(lines_blamed, baseline);
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod blame_ranges {
         let git_dir = fixture_path().join(".git");
         let baseline = Baseline::collect(git_dir.join("simple-lines-multiple-1-2-and-4.baseline")).unwrap();
 
-        assert_eq!(lines_blamed, baseline);
+        pretty_assertions::assert_eq!(lines_blamed, baseline);
     }
 
     #[test]
@@ -415,7 +415,7 @@ mod blame_ranges {
         let git_dir = fixture_path().join(".git");
         let baseline = Baseline::collect(git_dir.join("simple-lines-multiple-1-2-and-4.baseline")).unwrap();
 
-        assert_eq!(lines_blamed, baseline);
+        pretty_assertions::assert_eq!(lines_blamed, baseline);
     }
 }
 
