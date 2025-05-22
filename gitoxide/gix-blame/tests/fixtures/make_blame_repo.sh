@@ -30,6 +30,16 @@ git add added-lines-around.txt
 git add coalesce-adjacent-hunks.txt
 git commit -q -m c1.3
 
+echo "line 1 in renamed file" >> before-rename.txt
+echo "line 1 in file renamed twice" >> before-first-rename.txt
+echo -e "line 1 in renamed and rewritten file\nline 2\nline 3\nline 4\nline 5\nline 6" >> before-rewrite.txt
+echo -e "line 1 in file moved to sub-directory" > before-move-to-sub-directory.txt
+git add before-rename.txt
+git add before-first-rename.txt
+git add before-rewrite.txt
+git add before-move-to-sub-directory.txt
+git commit -q -m c1.4
+
 echo "line 2" >> simple.txt
 git add simple.txt
 git commit -q -m c2
@@ -56,7 +66,9 @@ git commit -q -m c2.4
 
 mkdir sub-directory
 echo -e "line 1\nline 2" > sub-directory/sub-directory.txt
+mv before-move-to-sub-directory.txt sub-directory/after-move-to-sub-directory.txt
 git add sub-directory/sub-directory.txt
+git add before-move-to-sub-directory.txt sub-directory/after-move-to-sub-directory.txt
 git commit -q -m c2.5
 
 echo "line 3" >> simple.txt
@@ -84,6 +96,15 @@ git commit -q -m c3.3
 echo -e "line 1\nline 2 changed" > same-line-changed-twice.txt
 git add same-line-changed-twice.txt
 git commit -q -m c3.4
+
+mv before-rename.txt after-rename.txt
+mv before-first-rename.txt before-second-rename.txt
+rm before-rewrite.txt
+echo -e "line 1 in renamed and rewritten file\nline 2 changed\nline 3 changed\nline 4\nline 5\nline 6" >> after-rewrite.txt
+git add before-rename.txt after-rename.txt
+git add before-first-rename.txt before-second-rename.txt
+git add before-rewrite.txt after-rewrite.txt
+git commit -q -m c3.5
 
 echo "line 4" >> simple.txt
 git add simple.txt
@@ -136,6 +157,10 @@ echo -e "  line 1\n\n  line in between\n\n  line 2\n\n  line in between\n\n  lin
 cp empty-lines-histogram.txt empty-lines-myers.txt
 git add empty-lines-histogram.txt empty-lines-myers.txt
 git commit -q -m c5.4
+
+mv before-second-rename.txt after-second-rename.txt
+git add before-second-rename.txt after-second-rename.txt
+git commit -q -m c5.5
 
 # The commit history created by the commits above this line is linear, it only
 # contains commits that have exactly one parent.
@@ -252,6 +277,11 @@ git blame --porcelain coalesce-adjacent-hunks.txt > .git/coalesce-adjacent-hunks
 
 mkdir .git/sub-directory
 git blame --porcelain sub-directory/sub-directory.txt > .git/sub-directory/sub-directory.baseline
+
+git blame --porcelain after-rename.txt > .git/after-rename.baseline
+git blame --porcelain after-second-rename.txt > .git/after-second-rename.baseline
+git blame --porcelain after-rewrite.txt > .git/after-rewrite.baseline
+git blame --porcelain sub-directory/after-move-to-sub-directory.txt > .git/sub-directory/after-move-to-sub-directory.baseline
 
 git blame --porcelain resolved-conflict.txt > .git/resolved-conflict.baseline
 git blame --porcelain file-in-one-chain-of-ancestors.txt > .git/file-in-one-chain-of-ancestors.baseline
