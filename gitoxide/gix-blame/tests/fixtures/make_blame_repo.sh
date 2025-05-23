@@ -54,6 +54,11 @@ git add same-line-changed-twice.txt
 git add coalesce-adjacent-hunks.txt
 git commit -q -m c2.4
 
+mkdir sub-directory
+echo -e "line 1\nline 2" > sub-directory/sub-directory.txt
+git add sub-directory/sub-directory.txt
+git commit -q -m c2.5
+
 echo "line 3" >> simple.txt
 git add simple.txt
 git commit -q -m c3
@@ -104,6 +109,10 @@ echo -e "  line 1\n\n  line 2\n\n  line 3" > empty-lines-histogram.txt
 cp empty-lines-histogram.txt empty-lines-myers.txt
 git add empty-lines-histogram.txt empty-lines-myers.txt
 git commit -q -m c4.5
+
+echo -e "line 0\nline 2\nline 3" > sub-directory/sub-directory.txt
+git add sub-directory/sub-directory.txt
+git commit -q -m c4.6
 
 echo -e "line 0\nline 1\nline 2" > added-lines.txt
 echo -e "line 0\nline 1\nline 2\nline 3" > added-lines-around.txt
@@ -240,6 +249,9 @@ git blame --porcelain switched-lines.txt > .git/switched-lines.baseline
 git blame --porcelain added-line-before-changed-line.txt > .git/added-line-before-changed-line.baseline
 git blame --porcelain same-line-changed-twice.txt > .git/same-line-changed-twice.baseline
 git blame --porcelain coalesce-adjacent-hunks.txt > .git/coalesce-adjacent-hunks.baseline
+
+mkdir .git/sub-directory
+git blame --porcelain sub-directory/sub-directory.txt > .git/sub-directory/sub-directory.baseline
 
 git blame --porcelain resolved-conflict.txt > .git/resolved-conflict.baseline
 git blame --porcelain file-in-one-chain-of-ancestors.txt > .git/file-in-one-chain-of-ancestors.baseline

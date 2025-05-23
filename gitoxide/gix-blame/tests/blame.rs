@@ -229,6 +229,8 @@ mktest!(added_line_before_changed_line, "added-line-before-changed-line", 3);
 mktest!(same_line_changed_twice, "same-line-changed-twice", 2);
 mktest!(coalesce_adjacent_hunks, "coalesce-adjacent-hunks", 1);
 
+mktest!(sub_directory, "sub-directory/sub-directory", 3);
+
 mktest!(resolved_conflict, "resolved-conflict", 2);
 mktest!(file_in_one_chain_of_ancestors, "file-in-one-chain-of-ancestors", 1);
 mktest!(
