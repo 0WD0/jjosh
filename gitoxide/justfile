@@ -184,34 +184,36 @@ unit-tests:
 unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
-# Depend on this to pre-generate metadata, and/or use it inside a recipe as `"$({{ j }} dbg)"`
+# Extract cargo metadata, excluding dependencies, and query it
+[private]
+get-metadata jq-query:
+    cargo metadata --format-version 1 | jq --exit-status --raw-output -- {{ quote(jq-query) }}
+
+# Get the path to the directory where debug binaries are created during builds
 [private]
 dbg:
-    set -eu; \
-        target_dir="$(cargo metadata --format-version 1 | jq -r .target_directory)"; \
-        test -n "$target_dir"; \
-        echo "$target_dir/debug"
+    target_dir="$({{ j }} get-metadata .target_directory)" && echo "$target_dir/debug"
 
 # Run journey tests (`max`)
-journey-tests: dbg
+journey-tests:
     cargo build --features http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 
 # Run journey tests (`max-pure`)
-journey-tests-pure: dbg
+journey-tests-pure:
     cargo build --no-default-features --features max-pure
     cargo build -p gix-testtools --bin jtt
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max-pure
 
 # Run journey tests (`small`)
-journey-tests-small: dbg
+journey-tests-small:
     cargo build --no-default-features --features small
     cargo build -p gix-testtools
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" small
 
 # Run journey tests (`lean-async`)
-journey-tests-async: dbg
+journey-tests-async:
     cargo build --no-default-features --features lean-async
     cargo build -p gix-testtools
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" async
