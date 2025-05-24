@@ -124,11 +124,6 @@ stress-commitgraph: release-lean $(commit_graphs)
 bench-gix-config:
 	cd gix-config && cargo bench
 
-check-msrv-on-ci: ## Check the minimal support rust version for currently installed Rust version
-	rustc --version
-	cargo build --locked --package gix
-	cargo build --locked --package gix --no-default-features --features async-network-client,max-performance
-
 ##@ Maintenance
 
 baseline_asset_dir = gix/src/assets/baseline-init
