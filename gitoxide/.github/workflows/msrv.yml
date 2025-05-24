@@ -25,7 +25,6 @@ jobs:
         os:
           - windows-2022
           - ubuntu-latest
-          - macos-15  # FIXME(portability): Remove after testing new justfile changes.
 
     runs-on: ${{ matrix.os }}
 
@@ -39,7 +38,7 @@ jobs:
       - name: Read the MSRV
         run: |
           msrv="$(just msrv)"
-          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+          tee -a "$GITHUB_ENV" <<<"MSRV=$msrv"
       - name: Set up MSRV and nightly toolchains
         run: |
           rustup toolchain install "$MSRV" nightly --profile minimal --no-self-update
@@ -58,12 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
+      - name: Ensure we start out clean
+        run: git diff --exit-code
       - name: Regenerate the MSRV badge
         run: just msrv-badge
       - name: Check for changes
         run: git diff --exit-code
 
-  # Dummy job to have a stable name for the requirement that all MSRV tests pass.
+  # Dummy job to have a stable name for the requirement that all MSRV checks pass.
   msrv-pass:
     name: MSRV checks pass
 
