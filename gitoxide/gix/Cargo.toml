@@ -9,6 +9,8 @@ version = "0.72.1"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 include = ["src/**/*", "LICENSE-*"]
+# This MSRV is dictated by `firefox` to support the `helix` editor, but is now probably
+# effectively controlled by `jiff`, which also aligns with `regex`.
 rust-version = "1.75"
 
 [lib]

@@ -187,7 +187,8 @@ unit-tests-flaky:
 # Extract cargo metadata, excluding dependencies, and query it
 [private]
 get-metadata jq-query:
-    cargo metadata --format-version 1 | jq --exit-status --raw-output -- {{ quote(jq-query) }}
+    cargo metadata --format-version 1 --no-deps | \
+        jq --exit-status --raw-output -- {{ quote(jq-query) }}
 
 # Get the path to the directory where debug binaries are created during builds
 [private]
@@ -240,16 +241,32 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 check-size:
     etc/check-package-size.sh
 
-# This assumes the current default toolchain is the Minimal Supported Rust Version and checks
-# against it. This is run on CI in `msrv.yml`, after the MSRV toolchain is installed and set as
-# default, and after dependencies in `Cargo.lock` are downgraded to the latest MSRV-compatible
-# versions. Only if those or similar steps are done first does this work to validate the MSRV.
-#
-# Check the MSRV, *if* the toolchain is set and `Cargo.lock` is downgraded (used on CI)
-ci-check-msrv:
-    rustc --version
-    cargo build --locked -p gix
-    cargo build --locked -p gix --no-default-features --features async-network-client,max-performance
+# Report the Minimum Supported Rust Version (the `rust-version` of `gix`) in X.Y.Z form
+msrv:
+    set -eu; \
+        query='.packages[] | select(.name == "gix") | .rust_version'; \
+        value="$({{ j }} get-metadata "$query")"; \
+        case "$value" in \
+        *.*.*) \
+            echo "$value" ;; \
+        *.*) \
+            echo "$value.0" ;; \
+        *) \
+            echo "No '.' in gix rust-version '$value'" >&2; \
+            exit 1 ;; \
+        esac
+
+# Regenerate the MSRV badge SVG
+msrv-badge:
+    msrv="$({{ j }} msrv)" && \
+        sed "s/{MSRV}/$msrv/g" etc/msrv-badge.template.svg >etc/msrv-badge.svg
+
+# Check if `gix` and its dependencies, as currently locked, build with `rust-version`
+check-rust-version rust-version:
+    rustc +{{ rust-version }} --version
+    cargo +{{ rust-version }} build --locked -p gix
+    cargo +{{ rust-version }} build --locked -p gix \
+        --no-default-features --features async-network-client,max-performance
 
 # Enter a nix-shell able to build on macOS
 nix-shell-macos:
