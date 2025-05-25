@@ -21,6 +21,53 @@ env:
   CLICOLOR: '1'
 
 jobs:
+  msrv:
+    name: cargo check MSRV
+
+    strategy:
+      matrix:
+        os:
+          - windows-2022
+          - ubuntu-latest
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash  # Use `bash` even in the Windows job.
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - name: Read the MSRV
+        run: |
+          msrv="$(just msrv)"
+          tee -a "$GITHUB_ENV" <<<"MSRV=$msrv"
+      - name: Set up MSRV and nightly toolchains
+        run: |
+          rustup toolchain install "$MSRV" nightly --profile minimal --no-self-update
+      - name: Downgrade locked dependencies to lowest allowed versions
+        run: |
+          # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is available.
+          cargo +nightly update -Zminimal-versions
+      - name: Run some `cargo build` commands on `gix`
+        run: just check-rust-version "$MSRV"
+
+  msrv-badge:
+    name: Check MSRV badge
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - name: Ensure we start out clean
+        run: git diff --exit-code
+      - name: Regenerate the MSRV badge
+        run: just msrv-badge
+      - name: Check for changes
+        run: git diff --exit-code
+
   pure-rust-build:
     runs-on: ubuntu-latest
 
@@ -492,6 +539,8 @@ jobs:
     name: Tests pass
 
     needs:
+      - msrv
+      - msrv-badge
       - pure-rust-build
       - test
       - test-journey
