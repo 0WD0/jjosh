@@ -184,34 +184,36 @@ unit-tests:
 unit-tests-flaky:
     cargo test -p gix --features async-network-client-async-std
 
-# Depend on this to pre-generate metadata, and/or use it inside a recipe as `"$({{ j }} dbg)"`
+# Extract cargo metadata, excluding dependencies, and query it
 [private]
-dbg:
-    set -eu; \
-        target_dir="$(cargo metadata --format-version 1 | jq -r .target_directory)"; \
-        test -n "$target_dir"; \
-        echo "$target_dir/debug"
+query-meta jq-query:
+    meta="$(cargo metadata --format-version 1 --no-deps)" && \
+        printf '%s\n' "$meta" | jq --exit-status --raw-output -- {{ quote(jq-query) }}
+
+# Get the path to the directory where debug binaries are created during builds
+[private]
+dbg: (query-meta '.target_directory + "/debug"')
 
 # Run journey tests (`max`)
-journey-tests: dbg
+journey-tests:
     cargo build --features http-client-curl-rustls
     cargo build -p gix-testtools --bin jtt
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 
 # Run journey tests (`max-pure`)
-journey-tests-pure: dbg
+journey-tests-pure:
     cargo build --no-default-features --features max-pure
     cargo build -p gix-testtools --bin jtt
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max-pure
 
 # Run journey tests (`small`)
-journey-tests-small: dbg
+journey-tests-small:
     cargo build --no-default-features --features small
     cargo build -p gix-testtools
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" small
 
 # Run journey tests (`lean-async`)
-journey-tests-async: dbg
+journey-tests-async:
     cargo build --no-default-features --features lean-async
     cargo build -p gix-testtools
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" async
@@ -238,16 +240,25 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 check-size:
     etc/check-package-size.sh
 
-# This assumes the current default toolchain is the Minimal Supported Rust Version and checks
-# against it. This is run on CI in `msrv.yml`, after the MSRV toolchain is installed and set as
-# default, and after dependencies in `Cargo.lock` are downgraded to the latest MSRV-compatible
-# versions. Only if those or similar steps are done first does this work to validate the MSRV.
-#
-# Check the MSRV, *if* the toolchain is set and `Cargo.lock` is downgraded (used on CI)
-ci-check-msrv:
-    rustc --version
-    cargo build --locked -p gix
-    cargo build --locked -p gix --no-default-features --features async-network-client,max-performance
+# Report the Minimum Supported Rust Version (the `rust-version` of `gix`) in X.Y.Z form
+msrv: (query-meta '''
+    .packages[]
+    | select(.name == "gix")
+    | .rust_version
+    | sub("(?<xy>^[0-9]+[.][0-9]+$)"; "\(.xy).0")
+''')
+
+# Regenerate the MSRV badge SVG
+msrv-badge:
+    msrv="$({{ j }} msrv)" && \
+        sed "s/{MSRV}/$msrv/g" etc/msrv-badge.template.svg >etc/msrv-badge.svg
+
+# Check if `gix` and its dependencies, as currently locked, build with `rust-version`
+check-rust-version rust-version:
+    rustc +{{ rust-version }} --version
+    cargo +{{ rust-version }} build --locked -p gix
+    cargo +{{ rust-version }} build --locked -p gix \
+        --no-default-features --features async-network-client,max-performance
 
 # Enter a nix-shell able to build on macOS
 nix-shell-macos:

@@ -28,22 +28,55 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    env:
-      # This is dictated by `firefox` to support the `helix` editor, but now probably effectively
-      # be controlled by `jiff`, which also aligns with `regex`.
-      # IMPORTANT: When adjusting, change all occurrences in `etc/msrv-badge.svg` as well.
-      RUST_VERSION: 1.75.0
+    defaults:
+      run:
+        shell: bash  # Use `bash` even in the Windows job.
 
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
-      - name: Set up ${{ env.RUST_VERSION }} (MSRV) and nightly toolchains
-        run: rustup toolchain install ${{ env.RUST_VERSION }} nightly --profile minimal --no-self-update
-      - name: Set ${{ env.RUST_VERSION }} (MSRV) as default
-        run: rustup default ${{ env.RUST_VERSION }}
+      - name: Read the MSRV
+        run: |
+          msrv="$(just msrv)"
+          tee -a "$GITHUB_ENV" <<<"MSRV=$msrv"
+      - name: Set up MSRV and nightly toolchains
+        run: |
+          rustup toolchain install "$MSRV" nightly --profile minimal --no-self-update
       - name: Downgrade locked dependencies to lowest allowed versions
         run: |
           # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is available.
           cargo +nightly update -Zminimal-versions
       - name: Run some `cargo build` commands on `gix`
-        run: just ci-check-msrv
+        run: just check-rust-version "$MSRV"
+
+  check-msrv-badge:
+    name: Check MSRV badge
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v3
+      - name: Ensure we start out clean
+        run: git diff --exit-code
+      - name: Regenerate the MSRV badge
+        run: just msrv-badge
+      - name: Check for changes
+        run: git diff --exit-code
+
+  # Dummy job to have a stable name for the requirement that all MSRV checks pass.
+  msrv-pass:
+    name: MSRV checks pass
+
+    needs: [ check-msrv, check-msrv-badge ]
+
+    if: always()  # Always run even if dependencies fail.
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail if ANY dependency has failed or cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - name: OK
+        run: exit 0

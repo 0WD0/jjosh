@@ -487,7 +487,7 @@ jobs:
           sort -m blocking-jobs.txt expected-nonblocking-jobs.txt |
             diff --color=always -U1000 - all-jobs.txt
 
-  # Dummy job to have a stable name for the "all tests pass" requirement
+  # Dummy job to have a stable name for the "all tests pass" requirement.
   tests-pass:
     name: Tests pass
 
@@ -504,7 +504,7 @@ jobs:
       - check-packetline
       - check-blocking
 
-    if: always() # always run even if dependencies fail
+    if: always()  # Always run even if dependencies fail.
 
     runs-on: ubuntu-latest
 
