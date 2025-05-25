@@ -242,19 +242,16 @@ check-size:
     etc/check-package-size.sh
 
 # Report the Minimum Supported Rust Version (the `rust-version` of `gix`) in X.Y.Z form
-msrv:
-    set -eu; \
-        query='.packages[] | select(.name == "gix") | .rust_version'; \
-        value="$({{ j }} get-metadata "$query")"; \
-        case "$value" in \
-        *.*.*) \
-            echo "$value" ;; \
-        *.*) \
-            echo "$value.0" ;; \
-        *) \
-            echo "No '.' in gix rust-version '$value'" >&2; \
-            exit 1 ;; \
-        esac
+msrv: (get-metadata '''
+    (.packages[] | select(.name == "gix") | .rust_version | tostring) as $v |
+        if ($v | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) then
+            $v
+        elif ($v | test("^[0-9]+\\.[0-9]+$")) then
+            $v + ".0"
+        else
+            error("Unrecognized rust-version format: " + $v)
+        end
+''')
 
 # Regenerate the MSRV badge SVG
 msrv-badge:
