@@ -186,14 +186,13 @@ unit-tests-flaky:
 
 # Extract cargo metadata, excluding dependencies, and query it
 [private]
-get-metadata jq-query:
-    cargo metadata --format-version 1 --no-deps | \
-        jq --exit-status --raw-output -- {{ quote(jq-query) }}
+query-meta jq-query:
+    meta="$(cargo metadata --format-version 1 --no-deps)" && \
+        printf '%s\n' "$meta" | jq --exit-status --raw-output -- {{ quote(jq-query) }}
 
 # Get the path to the directory where debug binaries are created during builds
 [private]
-dbg:
-    target_dir="$({{ j }} get-metadata .target_directory)" && echo "$target_dir/debug"
+dbg: (query-meta '.target_directory + "/debug"')
 
 # Run journey tests (`max`)
 journey-tests:
@@ -242,7 +241,7 @@ check-size:
     etc/check-package-size.sh
 
 # Report the Minimum Supported Rust Version (the `rust-version` of `gix`) in X.Y.Z form
-msrv: (get-metadata '''
+msrv: (query-meta '''
     .packages[]
     | select(.name == "gix")
     | .rust_version
