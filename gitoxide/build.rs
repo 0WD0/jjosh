@@ -6,22 +6,17 @@ fn main() {
         .output()
         .ok()
         .and_then(|out| {
-            if out.status.success() {
-                parse_describe(&out.stdout)
-            } else {
-                None
+            if !out.status.success() {
+                return None;
             }
+            try_parse_describe(&out.stdout)
         })
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
     println!("cargo:rustc-env=GIX_VERSION={version}");
 }
 
-fn parse_describe(input: &[u8]) -> Option<String> {
+fn try_parse_describe(input: &[u8]) -> Option<String> {
     let input = std::str::from_utf8(input).ok()?;
     let trimmed = input.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_owned())
-    }
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
