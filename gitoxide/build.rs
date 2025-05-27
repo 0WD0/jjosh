@@ -5,13 +5,23 @@ fn main() {
         .args(["describe", r"--match=v*\.*\.*"])
         .output()
         .ok()
-        .and_then(|out| parse_describe(&out.stdout))
+        .and_then(|out| {
+            if out.status.success() {
+                parse_describe(&out.stdout)
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
-
     println!("cargo:rustc-env=GIX_VERSION={version}");
 }
 
 fn parse_describe(input: &[u8]) -> Option<String> {
     let input = std::str::from_utf8(input).ok()?;
-    input.trim().to_owned().into()
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
