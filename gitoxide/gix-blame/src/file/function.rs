@@ -72,21 +72,19 @@ pub fn file(
 ) -> Result<Outcome, Error> {
     let _span = gix_trace::coarse!("gix_blame::file()", ?file_path, ?suspect);
 
-    let mut current_file_path: BString = file_path.into();
-
     let mut stats = Statistics::default();
     let (mut buf, mut buf2, mut buf3) = (Vec::new(), Vec::new(), Vec::new());
     let blamed_file_entry_id = find_path_entry_in_commit(
         &odb,
         &suspect,
-        current_file_path.as_ref(),
+        file_path,
         cache.as_ref(),
         &mut buf,
         &mut buf2,
         &mut stats,
     )?
     .ok_or_else(|| Error::FileMissing {
-        file_path: current_file_path.to_owned(),
+        file_path: file_path.to_owned(),
         commit_id: suspect,
     })?;
     let blamed_file_blob = odb.find_blob(&blamed_file_entry_id, &mut buf)?.data.to_vec();
@@ -123,12 +121,21 @@ pub fn file(
             break;
         }
 
-        let is_still_suspect = hunks_to_blame.iter().any(|hunk| hunk.has_suspect(&suspect));
+        let first_hunk_for_suspect = hunks_to_blame.iter().find(|hunk| hunk.has_suspect(&suspect));
+        let is_still_suspect = first_hunk_for_suspect.is_some();
         if !is_still_suspect {
             // There are no `UnblamedHunk`s associated with this `suspect`, so we can continue with
             // the next one.
             continue 'outer;
         }
+
+        // We know `first_hunk_for_suspect` can’t be `None` here because we check `is_some()`
+        // above.
+        let current_file_path: BString = first_hunk_for_suspect
+            .unwrap()
+            .source_file_name
+            .clone()
+            .unwrap_or_else(|| file_path.to_owned());
 
         let commit = find_commit(cache.as_ref(), &odb, &suspect, &mut buf)?;
         let commit_time = commit.commit_time()?;
@@ -285,7 +292,7 @@ pub fn file(
                         resource_cache,
                         id,
                         previous_id,
-                        current_file_path.as_ref(),
+                        file_path,
                         options.diff_algorithm,
                         &mut stats,
                     )?;
@@ -301,7 +308,7 @@ pub fn file(
                         resource_cache,
                         id,
                         source_id,
-                        current_file_path.as_ref(),
+                        file_path,
                         options.diff_algorithm,
                         &mut stats,
                     )?;
@@ -312,8 +319,6 @@ pub fn file(
                             hunk.source_file_name = Some(source_location.clone());
                         }
                     }
-
-                    current_file_path = source_location;
                 }
             }
         }
