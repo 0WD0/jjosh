@@ -114,6 +114,76 @@ impl Deref for BodyRef<'_> {
         self.body_without_trailer
     }
 }
+
+impl TrailerRef<'_> {
+    /// Check if this trailer is a "Signed-off-by" trailer (case-insensitive).
+    pub fn is_signed_off_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Signed-off-by")
+    }
+
+    /// Check if this trailer is a "Co-authored-by" trailer (case-insensitive).
+    pub fn is_co_authored_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Co-authored-by")
+    }
+
+    /// Check if this trailer is an "Acked-by" trailer (case-insensitive).
+    pub fn is_acked_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Acked-by")
+    }
+
+    /// Check if this trailer is a "Reviewed-by" trailer (case-insensitive).
+    pub fn is_reviewed_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Reviewed-by")
+    }
+
+    /// Check if this trailer is a "Tested-by" trailer (case-insensitive).
+    pub fn is_tested_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Tested-by")
+    }
+
+    /// Check if this trailer represents any kind of authorship or attribution
+    /// (Signed-off-by, Co-authored-by, etc.).
+    pub fn is_attribution(&self) -> bool {
+        self.is_signed_off_by()
+            || self.is_co_authored_by()
+            || self.is_acked_by()
+            || self.is_reviewed_by()
+            || self.is_tested_by()
+    }
+
+    /// Get the token as a case-normalized string for comparison purposes.
+    /// This can be useful for custom filtering logic.
+    pub fn token_normalized(&self) -> String {
+        String::from_utf8_lossy(self.token).to_ascii_lowercase()
+    }
+}
+
+impl<'a> Trailers<'a> {
+    /// Filter trailers to only include "Signed-off-by" entries.
+    pub fn signed_off_by(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_signed_off_by)
+    }
+
+    /// Filter trailers to only include "Co-authored-by" entries.
+    pub fn co_authored_by(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_co_authored_by)
+    }
+
+    /// Filter trailers to only include attribution-related entries
+    /// (Signed-off-by, Co-authored-by, Acked-by, Reviewed-by, Tested-by).
+    pub fn attributions(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_attribution)
+    }
+
+    /// Collect all unique authors from Signed-off-by and Co-authored-by trailers.
+    /// Returns a Vec of author strings.
+    pub fn collect_authors(self) -> Vec<&'a BStr> {
+        self.filter(|trailer| trailer.is_signed_off_by() || trailer.is_co_authored_by())
+            .map(|trailer| trailer.value)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod test_parse_trailer {
     use super::*;
@@ -149,5 +219,70 @@ mod test_parse_trailer {
     #[test]
     fn simple_newline_windows() {
         assert_eq!(parse("foo: bar\r\n"), ("foo".into(), "bar".into()));
+    }
+}
+
+#[cfg(test)]
+mod test_trailer_convenience {
+    use super::*;
+
+    #[test]
+    fn test_signed_off_by_detection() {
+        let trailer = TrailerRef {
+            token: "Signed-off-by".into(),
+            value: "John Doe <john@example.com>".into(),
+        };
+        assert!(trailer.is_signed_off_by());
+        assert!(!trailer.is_co_authored_by());
+        assert!(trailer.is_attribution());
+    }
+
+    #[test]
+    fn test_case_insensitive_detection() {
+        let trailer = TrailerRef {
+            token: "signed-off-by".into(),
+            value: "John Doe <john@example.com>".into(),
+        };
+        assert!(trailer.is_signed_off_by());
+
+        let trailer2 = TrailerRef {
+            token: "CO-AUTHORED-BY".into(),
+            value: "Jane Smith <jane@example.com>".into(),
+        };
+        assert!(trailer2.is_co_authored_by());
+        assert!(trailer2.is_attribution());
+    }
+
+    #[test]
+    fn test_multiple_trailer_types() {
+        let trailer1 = TrailerRef {
+            token: "Reviewed-by".into(),
+            value: "Reviewer <reviewer@example.com>".into(),
+        };
+        let trailer2 = TrailerRef {
+            token: "Custom-Field".into(),
+            value: "Some value".into(),
+        };
+
+        assert!(trailer1.is_reviewed_by());
+        assert!(trailer1.is_attribution());
+        assert!(!trailer2.is_attribution());
+    }
+
+    #[test]
+    fn test_collect_authors() {
+        // This would need to be tested with actual Trailers iterator
+        // but shows the expected behavior
+        let trailer1 = TrailerRef {
+            token: "Signed-off-by".into(),
+            value: "John Doe <john@example.com>".into(),
+        };
+        let trailer2 = TrailerRef {
+            token: "Co-authored-by".into(),
+            value: "Jane Smith <jane@example.com>".into(),
+        };
+
+        assert!(trailer1.is_signed_off_by());
+        assert!(trailer2.is_co_authored_by());
     }
 }

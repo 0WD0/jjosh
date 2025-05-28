@@ -21,6 +21,32 @@ impl<'a> CommitRef<'a> {
     pub fn message_trailers(&self) -> body::Trailers<'a> {
         BodyRef::from_bytes(self.message).trailers()
     }
+
+    /// Get an iterator over all Signed-off-by trailers in the commit message.
+    /// This is useful for finding who signed off on the commit.
+    pub fn signed_off_by_trailers(&self) -> impl Iterator<Item = body::TrailerRef<'a>> {
+        self.message_trailers().signed_off_by()
+    }
+
+    /// Get an iterator over all Co-authored-by trailers in the commit message.
+    /// This is useful for squashed commits that contain multiple authors.
+    pub fn co_authored_by_trailers(&self) -> impl Iterator<Item = body::TrailerRef<'a>> {
+        self.message_trailers().co_authored_by()
+    }
+
+    /// Get all authors mentioned in Signed-off-by and Co-authored-by trailers.
+    /// This is useful for squashed commits that contain multiple authors.
+    /// Returns a Vec of author strings that can include both signers and co-authors.
+    pub fn all_authors(&self) -> Vec<&'a BStr> {
+        self.message_trailers().collect_authors()
+    }
+
+    /// Get an iterator over all attribution-related trailers
+    /// (Signed-off-by, Co-authored-by, Acked-by, Reviewed-by, Tested-by).
+    /// This provides a comprehensive view of everyone who contributed to or reviewed the commit.
+    pub fn attribution_trailers(&self) -> impl Iterator<Item = body::TrailerRef<'a>> {
+        self.message_trailers().attributions()
+    }
 }
 
 impl<'a> MessageRef<'a> {
