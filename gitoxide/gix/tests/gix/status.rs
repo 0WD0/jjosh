@@ -17,7 +17,7 @@ pub fn repo(name: &str) -> crate::Result<gix::Repository> {
 }
 
 mod into_iter {
-    use gix::status::{tree_index::TrackRenames, Item};
+    use gix::status::{tree_index::TrackRenames, Item, Submodule};
     use gix_diff::Rewrites;
     use gix_testtools::size_ok;
 
@@ -53,24 +53,149 @@ mod into_iter {
         let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
         items.sort_by(|a, b| a.location().cmp(b.location()));
         assert_eq!(items.len(), 3, "1 untracked, 1 move, 1 submodule modification");
-        insta::assert_debug_snapshot!(&items[1], @r#"
-        TreeIndex(
-            Rewrite {
-                source_location: "this",
-                source_index: 2,
-                source_entry_mode: Mode(
-                    FILE,
-                ),
-                source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
-                location: "that",
-                index: 2,
-                entry_mode: Mode(
-                    FILE,
-                ),
-                id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
-                copy: false,
-            },
-        )
+        insta::assert_debug_snapshot!(&items[1..], @r#"
+        [
+            TreeIndex(
+                Rewrite {
+                    source_location: "this",
+                    source_index: 2,
+                    source_entry_mode: Mode(
+                        FILE,
+                    ),
+                    source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    location: "that",
+                    index: 2,
+                    entry_mode: Mode(
+                        FILE,
+                    ),
+                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    copy: false,
+                },
+            ),
+            IndexWorktree(
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "untracked",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            File,
+                        ),
+                        index_kind: None,
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+            ),
+        ]
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn submodule_fully_ignored_by_override() -> crate::Result {
+        let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified")?;
+        let mut status = repo
+            .status(gix::progress::Discard)?
+            .index_worktree_options_mut(|opts| {
+                opts.sorting =
+                    Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
+            })
+            .tree_index_track_renames(TrackRenames::Given(Rewrites {
+                track_empty: true,
+                ..Default::default()
+            }))
+            .index_worktree_submodules(Some(Submodule::Given {
+                ignore: gix::submodule::config::Ignore::All,
+                check_dirty: false,
+            }))
+            .into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        assert_eq!(
+            items.len(),
+            2,
+            "1 untracked, 1 move, 0 submodule modification (ignored)"
+        );
+        insta::assert_debug_snapshot!(&items, @r#"
+        [
+            TreeIndex(
+                Rewrite {
+                    source_location: "this",
+                    source_index: 2,
+                    source_entry_mode: Mode(
+                        FILE,
+                    ),
+                    source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    location: "that",
+                    index: 2,
+                    entry_mode: Mode(
+                        FILE,
+                    ),
+                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    copy: false,
+                },
+            ),
+            IndexWorktree(
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "untracked",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            File,
+                        ),
+                        index_kind: None,
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+            ),
+        ]
+        "#);
+        Ok(())
+    }
+    #[test]
+    fn submodule_fully_ignored_by_configuration() -> crate::Result {
+        let repo = submodule_repo("git-mv-and-untracked-and-submodule-head-changed-and-modified-ignore-all")?;
+        let mut status = repo
+            .status(gix::progress::Discard)?
+            .index_worktree_options_mut(|opts| {
+                opts.sorting =
+                    Some(gix::status::plumbing::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
+            })
+            .tree_index_track_renames(TrackRenames::Given(Rewrites {
+                track_empty: true,
+                ..Default::default()
+            }))
+            .into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        assert_eq!(items.len(), 1, "1 untracked, 0 submodule modification (ignored)");
+        insta::assert_debug_snapshot!(&items, @r#"
+        [
+            IndexWorktree(
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "untracked",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            File,
+                        ),
+                        index_kind: None,
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+            ),
+        ]
         "#);
         Ok(())
     }

@@ -85,6 +85,12 @@ cp -Rv modified-untracked-and-submodule-head-changed-and-modified git-mv-and-unt
   git mv this that
 )
 
+cp -Rv git-mv-and-untracked-and-submodule-head-changed-and-modified git-mv-and-untracked-and-submodule-head-changed-and-modified-ignore-all
+(cd git-mv-and-untracked-and-submodule-head-changed-and-modified-ignore-all
+  echo $'\tignore = all' >>.gitmodules
+  git add .gitmodules && git commit -m "ignore all submodule changes"
+)
+
 git init with-submodules
 (cd with-submodules
   mkdir dir
