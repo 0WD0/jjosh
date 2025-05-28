@@ -23,10 +23,10 @@ pub struct Trailers<'a> {
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrailerRef<'a> {
-    /// The name of the trailer, like "Signed-off-by", up to the separator ": "
+    /// The name of the trailer, like "Signed-off-by", up to the separator `: `.
     #[cfg_attr(feature = "serde", serde(borrow))]
     pub token: &'a BStr,
-    /// The value right after the separator ": ", with leading and trailing whitespace trimmed.
+    /// The value right after the separator `: `, with leading and trailing whitespace trimmed.
     /// Note that multi-line values aren't currently supported.
     pub value: &'a BStr,
 }
@@ -93,7 +93,7 @@ impl<'a> BodyRef<'a> {
         self.body_without_trailer
     }
 
-    /// Return an iterator over the trailers parsed from the last paragraph of the body. May be empty.
+    /// Return an iterator over the trailers parsed from the last paragraph of the body. Maybe empty.
     pub fn trailers(&self) -> Trailers<'a> {
         Trailers {
             cursor: self.start_of_trailer,
@@ -114,6 +114,69 @@ impl Deref for BodyRef<'_> {
         self.body_without_trailer
     }
 }
+
+/// Convenience methods
+impl TrailerRef<'_> {
+    /// Check if this trailer is a `Signed-off-by` trailer (case-insensitive).
+    pub fn is_signed_off_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Signed-off-by")
+    }
+
+    /// Check if this trailer is a `Co-authored-by` trailer (case-insensitive).
+    pub fn is_co_authored_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Co-authored-by")
+    }
+
+    /// Check if this trailer is an `Acked-by` trailer (case-insensitive).
+    pub fn is_acked_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Acked-by")
+    }
+
+    /// Check if this trailer is a `Reviewed-by` trailer (case-insensitive).
+    pub fn is_reviewed_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Reviewed-by")
+    }
+
+    /// Check if this trailer is a `Tested-by` trailer (case-insensitive).
+    pub fn is_tested_by(&self) -> bool {
+        self.token.eq_ignore_ascii_case(b"Tested-by")
+    }
+
+    /// Check if this trailer represents any kind of authorship or attribution
+    /// (`Signed-off-by`, `Co-authored-by`, etc.).
+    pub fn is_attribution(&self) -> bool {
+        self.is_signed_off_by()
+            || self.is_co_authored_by()
+            || self.is_acked_by()
+            || self.is_reviewed_by()
+            || self.is_tested_by()
+    }
+}
+
+/// Convenience methods
+impl<'a> Trailers<'a> {
+    /// Filter trailers to only include `Signed-off-by` entries.
+    pub fn signed_off_by(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_signed_off_by)
+    }
+
+    /// Filter trailers to only include `Co-authored-by` entries.
+    pub fn co_authored_by(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_co_authored_by)
+    }
+
+    /// Filter trailers to only include attribution-related entries.
+    /// (`Signed-off-by`, `Co-authored-by`, `Acked-by`, `Reviewed-by`, `Tested-by`).
+    pub fn attributions(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(TrailerRef::is_attribution)
+    }
+
+    /// Filter trailers to only include authors from `Signed-off-by` and `Co-authored-by` entries.
+    pub fn authors(self) -> impl Iterator<Item = TrailerRef<'a>> {
+        self.filter(|trailer| trailer.is_signed_off_by() || trailer.is_co_authored_by())
+    }
+}
+
 #[cfg(test)]
 mod test_parse_trailer {
     use super::*;
