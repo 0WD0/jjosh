@@ -29,7 +29,7 @@ async-io = ["dep:futures-io", "futures-lite", "dep:pin-project-lite"]
 
 #! ### Other
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
-serde = ["dep:serde", "bstr/serde"]
+serde = ["dep:serde", "bstr/serde", "faster-hex/serde"]
 
 [[test]]
 name = "async-packetline"
@@ -46,7 +46,7 @@ gix-trace = { version = "^0.1.12", path = "../gix-trace" }
 
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["std", "derive"] }
 thiserror = "2.0.0"
-faster-hex = { version = "0.10.0" }
+faster-hex = { version = "0.10.0", default-features = false, features = ["std"] }
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 # async support
 futures-io = { version = "0.3.16", optional = true }

@@ -17,13 +17,13 @@ test = false
 
 [features]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
-serde = ["dep:serde"]
+serde = ["dep:serde", "faster-hex/serde"]
 
 [dependencies]
 gix-features = { version = "^0.42.1", path = "../gix-features", features = ["progress"] }
 
 thiserror = "2.0.0"
-faster-hex = { version = "0.10.0" }
+faster-hex = { version = "0.10.0", default-features = false, features = ["std"] }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 sha1-checked = { version = "0.10.0", default-features = false }
 
