@@ -32,12 +32,12 @@ test = true
 
 [dependencies]
 gix-fs = { version = "^0.15.0", path = "../gix-fs" }
-parking_lot = "0.12.1"
+parking_lot = "0.12.4"
 dashmap = { version = "6.0.1", optional = true }
 once_cell = { version = "1.21.3", default-features = false, features = ["race", "std"] }
-tempfile = "3.19.1"
+tempfile = "3.20.0"
 
-signal-hook = { version = "0.3.9", default-features = false, optional = true }
+signal-hook = { version = "0.3.18", default-features = false, optional = true }
 signal-hook-registry = { version = "1.4.5", optional = true }
 
 document-features = { version = "0.2.0", optional = true }

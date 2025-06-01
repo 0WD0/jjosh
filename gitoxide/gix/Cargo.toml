@@ -372,7 +372,7 @@ gix-transport = { version = "^0.47.0", path = "../gix-transport", optional = tru
 # Just to get the progress-tree feature
 prodash = { version = "29.0.2", optional = true, features = ["progress-tree"] }
 once_cell = "1.21.3"
-signal-hook = { version = "0.3.9", default-features = false, optional = true }
+signal-hook = { version = "0.3.18", default-features = false, optional = true }
 thiserror = "2.0.0"
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
     "derive",
@@ -389,7 +389,7 @@ regex = { version = "1.6.0", optional = true, default-features = false, features
 ] }
 
 # for `interrupt` feature
-parking_lot = { version = "0.12.1", optional = true }
+parking_lot = { version = "0.12.4", optional = true }
 
 document-features = { version = "0.2.0", optional = true }
 

@@ -25,7 +25,7 @@ gix-fs = { version = "^0.15.0", path = "../gix-fs" }
 gix-path = { version = "^0.10.18", path = "../gix-path" }
 
 thiserror = "2.0.0"
-parking_lot = "0.12.1"
+parking_lot = "0.12.4"
 
 [dev-dependencies]
 gix-testtools = { path = "../tests/tools" }

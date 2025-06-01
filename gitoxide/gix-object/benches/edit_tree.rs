@@ -1,6 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, hint::black_box, rc::Rc};
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use gix_hash::ObjectId;
 use gix_hashtable::hash_map::Entry;
 use gix_object::{tree, tree::EntryKind, Tree, WriteTo};
