@@ -81,10 +81,23 @@ fn shorten_and_category() {
         assert_eq!(name.as_ref().shorten(), expected);
         assert_eq!(name.shorten(), expected);
         assert_eq!(name.category(), category);
-        assert_eq!(
-            name.category_and_short_name(),
-            category.map(|cat| (cat, expected.into()))
-        );
+
+        let cat_and_short_name = name.category_and_short_name();
+        match category {
+            None => {
+                assert_eq!(cat_and_short_name, None);
+            }
+            Some(expected_category) => {
+                assert_eq!(cat_and_short_name, Some((expected_category, expected.into())));
+                let (cat, short_name) = cat_and_short_name.expect("we know it's set");
+                let actual = cat.to_full_name(short_name).expect("valid input = valid output");
+                assert_eq!(
+                    actual.as_ref().as_bstr(),
+                    input,
+                    "{input}: {cat:?}:{short_name}: categories and short-names can round-trip"
+                );
+            }
+        }
         assert_eq!(name.as_ref().category(), category);
     }
 
@@ -97,6 +110,11 @@ fn shorten_and_category() {
         );
         assert_eq!(name.category(), None);
     }
+
+    assert!(
+        Category::LocalBranch.to_full_name("invalid/").is_err(),
+        "validation is performed as one would expect"
+    );
 }
 
 #[test]
