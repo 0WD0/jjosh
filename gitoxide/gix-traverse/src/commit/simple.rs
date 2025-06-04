@@ -78,13 +78,13 @@ pub enum Error {
 use Result as Either;
 
 type QueueKey<T> = Either<T, Reverse<T>>;
-type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, ObjectId>;
+type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, (ObjectId, CommitState)>;
 type Candidates = VecDeque<crate::commit::Info>;
 
 /// The state used and potentially shared by multiple graph traversals.
 #[derive(Clone)]
 pub(super) struct State {
-    next: VecDeque<ObjectId>,
+    next: VecDeque<(ObjectId, CommitState)>,
     queue: CommitDateQueue,
     buf: Vec<u8>,
     seen: gix_revwalk::graph::IdMap<CommitState>,
@@ -184,9 +184,10 @@ mod init {
                 }
                 Sorting::ByCommitTime(order) | Sorting::ByCommitTimeCutoff { order, .. } => {
                     let state = &mut self.state;
-                    for commit_id in state.next.drain(..) {
+                    for (commit_id, commit_state) in state.next.drain(..) {
                         add_to_queue(
                             commit_id,
+                            commit_state,
                             order,
                             sorting.cutoff_time(),
                             &mut state.queue,
@@ -226,11 +227,12 @@ mod init {
                     // Assure we *start* traversing hidden variants of a commit first, give them a head-start.
                     match self.sorting {
                         Sorting::BreadthFirst => {
-                            state.next.push_front(id_to_ignore);
+                            state.next.push_front((id_to_ignore, CommitState::Hidden));
                         }
                         Sorting::ByCommitTime(order) | Sorting::ByCommitTimeCutoff { order, .. } => {
                             add_to_queue(
                                 id_to_ignore,
+                                CommitState::Hidden,
                                 order,
                                 self.sorting.cutoff_time(),
                                 &mut state.queue,
@@ -273,6 +275,7 @@ mod init {
 
     fn add_to_queue(
         commit_id: ObjectId,
+        commit_state: CommitState,
         order: CommitTimeOrder,
         cutoff_time: Option<SecondsSinceUnixEpoch>,
         queue: &mut CommitDateQueue,
@@ -284,11 +287,11 @@ mod init {
         let key = to_queue_key(time, order);
         match (cutoff_time, order) {
             (Some(cutoff_time), _) if time >= cutoff_time => {
-                queue.insert(key, commit_id);
+                queue.insert(key, (commit_id, commit_state));
             }
             (Some(_), _) => {}
             (None, _) => {
-                queue.insert(key, commit_id);
+                queue.insert(key, (commit_id, commit_state));
             }
         }
         Ok(())
@@ -339,10 +342,11 @@ mod init {
                 state.clear();
                 state.next.reserve(tips.size_hint().0);
                 for tip in tips.map(Into::into) {
-                    let seen = state.seen.insert(tip, CommitState::Interesting);
+                    let commit_state = CommitState::Interesting;
+                    let seen = state.seen.insert(tip, commit_state);
                     // We know there can only be duplicate interesting ones.
                     if seen.is_none() && predicate(&tip) {
-                        state.next.push_back(tip);
+                        state.next.push_back((tip, commit_state));
                     }
                 }
             }
@@ -418,16 +422,23 @@ mod init {
             cutoff: Option<SecondsSinceUnixEpoch>,
         ) -> Option<Result<Info, Error>> {
             let state = &mut self.state;
+            let next = &mut state.queue;
 
             'skip_hidden: loop {
-                let (commit_time, oid) = match state.queue.pop()? {
+                let (commit_time, (oid, _queued_commit_state)) = match next.pop()? {
                     (Newest(t) | Oldest(Reverse(t)), o) => (t, o),
                 };
                 let mut parents: ParentIds = Default::default();
-                // TODO(perf): can avoid this lookup by storing state on `queue` respectively.
-                //             ALSO: need to look ahead for early aborts, i.e. if there is only hidden left to traverse.
-                //             Maybe this can be counted?
+
+                // Always use the state that is actually stored, as we may change the type as we go.
                 let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
+                if can_deplete_candidates_early(
+                    next.iter_unordered().map(|t| t.1),
+                    commit_state,
+                    state.candidates.as_ref(),
+                ) {
+                    return None;
+                }
                 match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
                     Ok(Either::CachedCommit(commit)) => {
                         if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
@@ -443,7 +454,7 @@ mod init {
                                 &mut state.candidates,
                                 commit_state,
                                 &mut self.predicate,
-                                &mut state.queue,
+                                next,
                                 order,
                                 cutoff,
                                 || parent_commit_time,
@@ -462,7 +473,7 @@ mod init {
                                         &mut state.candidates,
                                         commit_state,
                                         &mut self.predicate,
-                                        &mut state.queue,
+                                        next,
                                         order,
                                         cutoff,
                                         || {
@@ -505,6 +516,28 @@ mod init {
         }
     }
 
+    /// Returns `true` if we have only hidden cursors queued for traversal, assuming that we don't see interesting ones ever again.
+    ///
+    /// `unqueued_commit_state` is the state of the commit that is currently being processed.
+    fn can_deplete_candidates_early(
+        mut queued_states: impl Iterator<Item = CommitState>,
+        unqueued_commit_state: CommitState,
+        candidates: Option<&Candidates>,
+    ) -> bool {
+        if candidates.is_none() {
+            return false;
+        }
+        if unqueued_commit_state.is_interesting() {
+            return false;
+        }
+
+        let mut is_empty = true;
+        queued_states.all(|state| {
+            is_empty = false;
+            state.is_hidden()
+        }) && !is_empty
+    }
+
     /// Utilities
     impl<Find, Predicate> Simple<Find, Predicate>
     where
@@ -513,14 +546,16 @@ mod init {
     {
         fn next_by_topology(&mut self) -> Option<Result<Info, Error>> {
             let state = &mut self.state;
+            let next = &mut state.next;
             'skip_hidden: loop {
-                let oid = state.next.pop_front()?;
+                let (oid, _queued_commit_state) = next.pop_front()?;
                 let mut parents: ParentIds = Default::default();
-                // TODO(perf): can avoid this lookup by storing state on `next` respectively.
-                //             ALSO: need to look ahead for early aborts, i.e. if there is only hidden left to traverse.
-                //             Maybe this can be counted?
-                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
 
+                // Always use the state that is actually stored, as we may change the type as we go.
+                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
+                if can_deplete_candidates_early(next.iter().map(|t| t.1), commit_state, state.candidates.as_ref()) {
+                    return None;
+                }
                 match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
                     Ok(Either::CachedCommit(commit)) => {
                         if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
@@ -537,7 +572,7 @@ mod init {
                                 &mut state.candidates,
                                 commit_state,
                                 &mut self.predicate,
-                                &mut state.next,
+                                next,
                             );
                             if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
                                 break;
@@ -556,7 +591,7 @@ mod init {
                                         &mut state.candidates,
                                         commit_state,
                                         &mut self.predicate,
-                                        &mut state.next,
+                                        next,
                                     );
                                     if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
                                         break;
@@ -608,7 +643,7 @@ mod init {
         candidates: &mut Option<Candidates>,
         commit_state: CommitState,
         predicate: &mut impl FnMut(&oid) -> bool,
-        next: &mut VecDeque<ObjectId>,
+        next: &mut VecDeque<(ObjectId, CommitState)>,
     ) {
         let enqueue = match seen.entry(parent_id) {
             Entry::Occupied(mut e) => {
@@ -627,7 +662,7 @@ mod init {
             }
         };
         if enqueue {
-            next.push_back(parent_id);
+            next.push_back((parent_id, commit_state));
         }
     }
 
@@ -665,7 +700,7 @@ mod init {
             let key = to_queue_key(parent_commit_time, order);
             match cutoff {
                 Some(cutoff_older_than) if parent_commit_time < cutoff_older_than => {}
-                Some(_) | None => queue.insert(key, parent_id),
+                Some(_) | None => queue.insert(key, (parent_id, commit_state)),
             }
         }
     }

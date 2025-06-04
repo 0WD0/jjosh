@@ -133,9 +133,9 @@ mod hide {
 
     fn all_sortings() -> impl Iterator<Item = Sorting> {
         [
+            Sorting::BreadthFirst,
             Sorting::ByCommitTime(CommitTimeOrder::NewestFirst),
             Sorting::ByCommitTime(CommitTimeOrder::OldestFirst),
-            Sorting::BreadthFirst,
         ]
         .into_iter()
     }
