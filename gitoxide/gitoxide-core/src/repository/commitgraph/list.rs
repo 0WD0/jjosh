@@ -1,55 +1,92 @@
 pub(crate) mod function {
-    use std::{borrow::Cow, ffi::OsString};
-
-    use anyhow::{bail, Context};
-    use gix::{prelude::ObjectIdExt, revision::walk::Sorting};
-
     use crate::OutputFormat;
+    use anyhow::{bail, Context};
+    use gix::odb::store::RefreshMode;
+    use gix::revision::plumbing::Spec;
+    use gix::{prelude::ObjectIdExt, revision::walk::Sorting};
+    use std::fmt::Formatter;
+    use std::{borrow::Cow, ffi::OsString};
 
     pub fn list(
         mut repo: gix::Repository,
         spec: OsString,
         mut out: impl std::io::Write,
+        long_hashes: bool,
         format: OutputFormat,
     ) -> anyhow::Result<()> {
         if format != OutputFormat::Human {
             bail!("Only human output is currently supported");
         }
         let graph = repo
-            .commit_graph()
+            .commit_graph_if_enabled()
             .context("a commitgraph is required, but none was found")?;
         repo.object_cache_size_if_unset(4 * 1024 * 1024);
+        repo.objects.refresh = RefreshMode::Never;
 
         let spec = gix::path::os_str_into_bstr(&spec)?;
-        let id = repo
-            .rev_parse_single(spec)
-            .context("Only single revisions are currently supported")?;
-        let commits = id
-            .object()?
-            .peel_to_kind(gix::object::Kind::Commit)
-            .context("Need committish as starting point")?
-            .id()
-            .ancestors()
-            .sorting(Sorting::ByCommitTime(Default::default()))
-            .all()?;
+        let spec = repo.rev_parse(spec)?.detach();
+        let commits = match spec {
+            Spec::Include(id) => connected_commit_id(&repo, id)?
+                .ancestors()
+                .sorting(Sorting::ByCommitTime(Default::default()))
+                .all()?,
+            Spec::Range { from, to } => connected_commit_id(&repo, to)?
+                .ancestors()
+                .sorting(Sorting::ByCommitTime(Default::default()))
+                .with_hidden(Some(connected_commit_id(&repo, from)?))
+                .all()?,
+            Spec::Exclude(_) | Spec::Merge { .. } | Spec::IncludeOnlyParents(_) | Spec::ExcludeParents(_) => {
+                bail!("The spec isn't currently supported: {spec:?}")
+            }
+        };
         for commit in commits {
             let commit = commit?;
             writeln!(
                 out,
                 "{} {} {} {}",
-                commit.id().shorten_or_id(),
+                HexId::new(commit.id(), long_hashes),
                 commit.commit_time.expect("traversal with date"),
                 commit.parent_ids.len(),
-                graph.commit_by_id(commit.id).map_or_else(
-                    || Cow::Borrowed("<NOT IN GRAPH-CACHE>"),
-                    |c| Cow::Owned(format!(
-                        "{} {}",
-                        c.root_tree_id().to_owned().attach(&repo).shorten_or_id(),
-                        c.generation()
+                graph
+                    .as_ref()
+                    .map_or(Cow::Borrowed(""), |graph| graph.commit_by_id(commit.id).map_or_else(
+                        || Cow::Borrowed("<NOT IN GRAPH-CACHE>"),
+                        |c| Cow::Owned(format!(
+                            "{} {}",
+                            HexId::new(c.root_tree_id().to_owned().attach(&repo), long_hashes),
+                            c.generation()
+                        ))
                     ))
-                )
             )?;
         }
         Ok(())
+    }
+
+    fn connected_commit_id(repo: &gix::Repository, id: gix::ObjectId) -> anyhow::Result<gix::Id<'_>> {
+        Ok(id
+            .attach(repo)
+            .object()?
+            .peel_to_kind(gix::object::Kind::Commit)
+            .context("Need committish as starting point")?
+            .id())
+    }
+
+    struct HexId<'a>(gix::Id<'a>, bool);
+
+    impl<'a> HexId<'a> {
+        pub fn new(id: gix::Id<'a>, long_hex: bool) -> Self {
+            HexId(id, long_hex)
+        }
+    }
+
+    impl std::fmt::Display for HexId<'_> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            let HexId(id, long_hex) = self;
+            if *long_hex {
+                id.fmt(f)
+            } else {
+                id.shorten_or_id().fmt(f)
+            }
+        }
     }
 }

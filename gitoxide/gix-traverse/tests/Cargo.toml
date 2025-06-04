@@ -22,3 +22,4 @@ gix-odb = { path = "../../gix-odb" }
 gix-hash = { path = "../../gix-hash" }
 gix-object = { path = "../../gix-object" }
 gix-commitgraph = { path = "../../gix-commitgraph" }
+gix-path = { version = "^0.10.18", path = "../../gix-path" }

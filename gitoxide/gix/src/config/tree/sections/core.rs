@@ -442,17 +442,6 @@ mod abbrev {
 mod validate {
     use crate::{bstr::BStr, config::tree::keys};
 
-    pub struct LockTimeout;
-    impl keys::Validate for LockTimeout {
-        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            let value = gix_config::Integer::try_from(value)?
-                .to_decimal()
-                .ok_or_else(|| format!("integer {value} cannot be represented as integer"));
-            super::Core::FILES_REF_LOCK_TIMEOUT.try_into_lock_timeout(Ok(value?))?;
-            Ok(())
-        }
-    }
-
     pub struct Disambiguate;
     impl keys::Validate for Disambiguate {
         #[cfg_attr(not(feature = "revision"), allow(unused_variables))]
