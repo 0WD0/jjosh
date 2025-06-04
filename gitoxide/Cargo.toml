@@ -206,6 +206,10 @@ lto = "fat"
 codegen-units = 1
 strip = "symbols"
 
+[profile.bench]
+debug = 1
+strip = "none"
+
 [workspace]
 members = [
     "gix-actor",
