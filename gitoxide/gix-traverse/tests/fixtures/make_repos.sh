@@ -76,3 +76,17 @@ function optimize() {
 
   optimize
 )
+
+(git init disjoint_branches && cd disjoint_branches
+  git checkout -b main
+  commit a1
+  commit a2
+  commit a3
+
+  git checkout --orphan disjoint
+  commit b1
+  commit b2
+  commit b3
+
+  optimize
+)

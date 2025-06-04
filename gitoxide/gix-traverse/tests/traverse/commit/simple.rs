@@ -1,7 +1,8 @@
-use gix_hash::{oid, ObjectId};
-use gix_traverse::commit;
-
 use crate::hex_to_id;
+use gix_hash::{oid, ObjectId};
+use gix_object::bstr::{ByteSlice, ByteVec};
+use gix_traverse::commit;
+use std::path::PathBuf;
 
 struct TraversalAssertion<'a> {
     init_script: &'a str,
@@ -10,6 +11,9 @@ struct TraversalAssertion<'a> {
     expected: &'a [&'a str],
     mode: commit::Parents,
     sorting: commit::simple::Sorting,
+    expected_without_tips: bool,
+    // commit-ids that should be hidden (along with all their history.
+    hidden: &'a [&'a str],
 }
 
 impl<'a> TraversalAssertion<'a> {
@@ -25,6 +29,8 @@ impl<'a> TraversalAssertion<'a> {
             expected,
             mode: Default::default(),
             sorting: Default::default(),
+            hidden: Default::default(),
+            expected_without_tips: false,
         }
     }
 
@@ -37,19 +43,42 @@ impl<'a> TraversalAssertion<'a> {
         self.sorting = sorting;
         self
     }
+
+    /// Set the commits that should be hidden.
+    fn with_hidden(&mut self, hidden: &'a [&'a str]) -> &mut Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Do not automatically add tips to the set of expected items.
+    fn expected_without_tips(&mut self) -> &mut Self {
+        self.expected_without_tips = true;
+        self
+    }
+
+    /// Execute the fixture and get the repository worktree path.
+    pub fn worktree_dir(&self) -> crate::Result<PathBuf> {
+        let dir = gix_testtools::scripted_fixture_read_only_standalone(self.init_script)?;
+        Ok(dir.join(self.repo_name))
+    }
 }
 
 impl TraversalAssertion<'_> {
-    fn setup(&self) -> crate::Result<(gix_odb::Handle, Vec<ObjectId>, Vec<ObjectId>)> {
-        let dir = gix_testtools::scripted_fixture_read_only_standalone(self.init_script)?;
-        let store = gix_odb::at(dir.join(self.repo_name).join(".git").join("objects"))?;
+    #[allow(clippy::type_complexity)]
+    fn setup(&self) -> crate::Result<(gix_odb::Handle, Vec<ObjectId>, Vec<ObjectId>, Vec<ObjectId>)> {
+        let repo_path = self.worktree_dir()?;
+        let store = gix_odb::at(repo_path.join(".git").join("objects"))?;
         let tips: Vec<_> = self.tips.iter().copied().map(hex_to_id).collect();
-        let expected: Vec<ObjectId> = tips
-            .clone()
-            .into_iter()
-            .chain(self.expected.iter().map(|hex_id| hex_to_id(hex_id)))
-            .collect();
-        Ok((store, tips, expected))
+        let expected: Vec<ObjectId> = if self.expected_without_tips {
+            self.expected.iter().map(|hex_id| hex_to_id(hex_id)).collect()
+        } else {
+            tips.clone()
+                .into_iter()
+                .chain(self.expected.iter().map(|hex_id| hex_to_id(hex_id)))
+                .collect()
+        };
+        let hidden: Vec<_> = self.hidden.iter().copied().map(hex_to_id).collect();
+        Ok((store, tips, expected, hidden))
     }
 
     fn setup_commitgraph(&self, store: &gix_odb::Store, use_graph: bool) -> Option<gix_commitgraph::Graph> {
@@ -60,12 +89,13 @@ impl TraversalAssertion<'_> {
     }
 
     fn check_with_predicate(&mut self, predicate: impl FnMut(&oid) -> bool + Clone) -> crate::Result<()> {
-        let (store, tips, expected) = self.setup()?;
+        let (store, tips, expected, hidden) = self.setup()?;
 
         for use_commitgraph in [false, true] {
             let oids = commit::Simple::filtered(tips.clone(), &store, predicate.clone())
                 .sorting(self.sorting)?
                 .parents(self.mode)
+                .hide(hidden.clone())?
                 .commit_graph(self.setup_commitgraph(store.store_ref(), use_commitgraph))
                 .map(|res| res.map(|info| info.id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -76,17 +106,167 @@ impl TraversalAssertion<'_> {
     }
 
     fn check(&self) -> crate::Result {
-        let (store, tips, expected) = self.setup()?;
+        let (store, tips, expected, hidden) = self.setup()?;
 
         for use_commitgraph in [false, true] {
             let oids = commit::Simple::new(tips.clone(), &store)
                 .sorting(self.sorting)?
                 .parents(self.mode)
+                .hide(hidden.clone())?
                 .commit_graph(self.setup_commitgraph(store.store_ref(), use_commitgraph))
                 .map(|res| res.map(|info| info.id))
                 .collect::<Result<Vec<_>, _>>()?;
-            assert_eq!(oids, expected);
+            assert_eq!(
+                oids, expected,
+                "use_commitgraph = {use_commitgraph}, sorting = {:?}",
+                self.sorting
+            );
         }
+        Ok(())
+    }
+}
+
+mod hide {
+    use crate::commit::simple::{git_graph, TraversalAssertion};
+    use gix_traverse::commit::simple::{CommitTimeOrder, Sorting};
+    use gix_traverse::commit::Parents;
+
+    fn all_sortings() -> impl Iterator<Item = Sorting> {
+        [
+            Sorting::ByCommitTime(CommitTimeOrder::NewestFirst),
+            Sorting::ByCommitTime(CommitTimeOrder::OldestFirst),
+            Sorting::BreadthFirst,
+        ]
+        .into_iter()
+    }
+
+    #[test]
+    fn disjoint_hidden_and_interesting() -> crate::Result {
+        let mut assertion = TraversalAssertion::new_at(
+            "make_repos.sh",
+            "disjoint_branches",
+            &["e07cf1277ff7c43090f1acfc85a46039e7de1272"], /* b3 */
+            &[
+                "94cf3f3a4c782b672173423e7a4157a02957dd48", /* b2 */
+                "34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861", /* b1 */
+            ],
+        );
+        insta::assert_snapshot!(git_graph(assertion.worktree_dir()?)?, @r"
+        * e07cf1277ff7c43090f1acfc85a46039e7de1272  (HEAD -> disjoint) b3
+        * 94cf3f3a4c782b672173423e7a4157a02957dd48  b2
+        * 34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861  b1
+        * b5665181bf4c338ab16b10da0524d81b96aff209  (main) a3
+        * f0230ce37b83d8e9f51ea6322ed7e8bd148d8e28  a2
+        * 674aca0765b935ac5e7f7e9ab83af7f79272b5b0  a1
+        ");
+
+        for sorting in all_sortings() {
+            assertion
+                .with_hidden(&["b5665181bf4c338ab16b10da0524d81b96aff209" /* a3 */])
+                .with_sorting(sorting)
+                .check()?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn all_hidden() -> crate::Result {
+        let mut assertion = TraversalAssertion::new_at(
+            "make_repos.sh",
+            "disjoint_branches",
+            &[
+                "e07cf1277ff7c43090f1acfc85a46039e7de1272", /* b3 */
+                "b5665181bf4c338ab16b10da0524d81b96aff209", /* a3 */
+            ],
+            // The start positions are also declared hidden, so nothing should be visible.
+            &[],
+        );
+        insta::assert_snapshot!(git_graph(assertion.worktree_dir()?)?, @r"
+        * e07cf1277ff7c43090f1acfc85a46039e7de1272  (HEAD -> disjoint) b3
+        * 94cf3f3a4c782b672173423e7a4157a02957dd48  b2
+        * 34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861  b1
+        * b5665181bf4c338ab16b10da0524d81b96aff209  (main) a3
+        * f0230ce37b83d8e9f51ea6322ed7e8bd148d8e28  a2
+        * 674aca0765b935ac5e7f7e9ab83af7f79272b5b0  a1
+        ");
+
+        for sorting in all_sortings() {
+            assertion
+                .with_hidden(&[
+                    "e07cf1277ff7c43090f1acfc85a46039e7de1272", /* b3 */
+                    "b5665181bf4c338ab16b10da0524d81b96aff209", /* a3 */
+                ])
+                .with_sorting(sorting)
+                .expected_without_tips()
+                .check()?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn some_hidden_and_all_hidden() -> crate::Result {
+        // Hidden has to catch up with non-hidden.
+        let mut assertion = TraversalAssertion::new_at(
+            "make_repos.sh",
+            "simple",
+            &["ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83"], /* c2 */
+            &[],
+        );
+
+        insta::assert_snapshot!(git_graph(assertion.worktree_dir()?)?, @r"
+        *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4  (HEAD -> main) merge
+        |\ \  
+        | | * 48e8dac19508f4238f06c8de2b10301ce64a641c  (branch2) b2c2
+        | | * cb6a6befc0a852ac74d74e0354e0f004af29cb79  b2c1
+        | * | 66a309480201c4157b0eae86da69f2d606aadbe7  (branch1) b1c2
+        | * | 80947acb398362d8236fcb8bf0f8a9dac640583f  b1c1
+        | |/  
+        * / 0edb95c0c0d9933d88f532ec08fcd405d0eee882  c5
+        |/  
+        * 8cb5f13b66ce52a49399a2c49f537ee2b812369c  c4
+        * 33aa07785dd667c0196064e3be3c51dd9b4744ef  c3
+        * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83  c2
+        * 65d6af66f60b8e39fd1ba6a1423178831e764ec5  c1
+        ");
+
+        for sorting in all_sortings() {
+            assertion
+                .with_hidden(&["0edb95c0c0d9933d88f532ec08fcd405d0eee882" /* c5 */])
+                .expected_without_tips()
+                .with_sorting(sorting)
+                .check()?;
+        }
+        let mut assertion = TraversalAssertion::new_at(
+            "make_repos.sh",
+            "simple",
+            &["f49838d84281c3988eeadd988d97dd358c9f9dc4"], /* merge */
+            &["0edb95c0c0d9933d88f532ec08fcd405d0eee882" /* c5 */],
+        );
+
+        for sorting in all_sortings() {
+            assertion
+                .with_hidden(&[
+                    "48e8dac19508f4238f06c8de2b10301ce64a641c", /* b2c2 */
+                    "66a309480201c4157b0eae86da69f2d606aadbe7", /* b1c2 */
+                ])
+                .with_sorting(sorting)
+                .check()?;
+        }
+
+        let mut assertion = TraversalAssertion::new_at(
+            "make_repos.sh",
+            "simple",
+            &["80947acb398362d8236fcb8bf0f8a9dac640583f"], /* b1c1 */
+            // Single-parent is only for commits that we are/ought to be interested in.
+            // Hence, hidden commits still catch up.
+            &[],
+        );
+
+        assertion
+            .with_hidden(&["f49838d84281c3988eeadd988d97dd358c9f9dc4" /* merge */])
+            .with_parents(Parents::First)
+            .expected_without_tips()
+            .check()?;
         Ok(())
     }
 }
@@ -403,6 +583,7 @@ mod adjusted_dates {
         Parents, Simple,
     };
 
+    use crate::commit::simple::git_graph;
     use crate::{commit::simple::TraversalAssertion, hex_to_id};
 
     #[test]
@@ -424,7 +605,7 @@ mod adjusted_dates {
 
     #[test]
     fn head_date_order() -> crate::Result {
-        TraversalAssertion::new(
+        let mut assertion = TraversalAssertion::new(
             "make_traversal_repo_for_commits_with_dates.sh",
             &["288e509293165cb5630d08f4185bdf2445bf6170"], /* m1b1 */
             &[
@@ -432,9 +613,18 @@ mod adjusted_dates {
                 "9902e3c3e8f0c569b4ab295ddf473e6de763e1e7", /* c2 */
                 "134385f6d781b7e97062102c6a483440bfda2a03", /* c1 */
             ],
-        )
-        .with_sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
-        .check()?;
+        );
+        insta::assert_snapshot!(git_graph(assertion.worktree_dir()?)?, @r"
+        *   288e509293165cb5630d08f4185bdf2445bf6170  (HEAD -> main) m1b1
+        |\  
+        | * bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac  (branch1) b1c1
+        * | 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7  c2
+        |/  
+        * 134385f6d781b7e97062102c6a483440bfda2a03  c1
+        ");
+        assertion
+            .with_sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
+            .check()?;
         TraversalAssertion::new(
             "make_traversal_repo_for_commits_with_dates.sh",
             &["288e509293165cb5630d08f4185bdf2445bf6170"], /* m1b1 */
@@ -544,4 +734,23 @@ mod adjusted_dates {
     fn all_commit_time_orderings() -> [CommitTimeOrder; 2] {
         [CommitTimeOrder::NewestFirst, CommitTimeOrder::OldestFirst]
     }
+}
+
+/// Execute a git status in the given repository path.
+fn git_graph(repo_dir: impl AsRef<std::path::Path>) -> crate::Result<String> {
+    let out = std::process::Command::new(gix_path::env::exe_invocation())
+        .current_dir(repo_dir)
+        .args([
+            "log",
+            "--oneline",
+            "--graph",
+            "--decorate",
+            "--all",
+            "--pretty=format:%H %d %s",
+        ])
+        .output()?;
+    if !out.status.success() {
+        return Err(format!("git status failed: {err}", err = out.stderr.to_str_lossy()).into());
+    }
+    Ok(out.stdout.into_string_lossy())
 }

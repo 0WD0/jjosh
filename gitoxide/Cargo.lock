@@ -2501,6 +2501,7 @@ dependencies = [
  "gix-hash",
  "gix-object",
  "gix-odb",
+ "gix-path",
  "gix-testtools",
  "gix-traverse",
  "insta",

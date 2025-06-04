@@ -2,7 +2,6 @@ use std::{cmp::Reverse, collections::VecDeque};
 
 use gix_date::SecondsSinceUnixEpoch;
 use gix_hash::ObjectId;
-use gix_hashtable::HashSet;
 use smallvec::SmallVec;
 
 #[derive(Default, Debug, Copy, Clone)]
@@ -61,7 +60,7 @@ pub enum Sorting {
     ByCommitTimeCutoff {
         /// The order in which to prioritize lookups.
         order: CommitTimeOrder,
-        /// The amount of seconds since unix epoch, the same value obtained by any `gix_date::Time` structure and the way git counts time.
+        /// The number of seconds since unix epoch, the same value obtained by any `gix_date::Time` structure and the way git counts time.
         seconds: gix_date::SecondsSinceUnixEpoch,
     },
 }
@@ -77,33 +76,59 @@ pub enum Error {
 }
 
 use Result as Either;
+
 type QueueKey<T> = Either<T, Reverse<T>>;
+type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, ObjectId>;
+type Candidates = VecDeque<crate::commit::Info>;
 
 /// The state used and potentially shared by multiple graph traversals.
 #[derive(Clone)]
 pub(super) struct State {
     next: VecDeque<ObjectId>,
-    queue: gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, ObjectId>,
+    queue: CommitDateQueue,
     buf: Vec<u8>,
-    seen: HashSet<ObjectId>,
+    seen: gix_revwalk::graph::IdMap<CommitState>,
     parents_buf: Vec<u8>,
     parent_ids: SmallVec<[(ObjectId, SecondsSinceUnixEpoch); 2]>,
+    /// The list (FIFO) of thus far interesting commits.
+    ///
+    /// As they may turn hidden later, we have to keep them until the conditions are met to return them.
+    /// If `None`, there is nothing to do with hidden commits.
+    candidates: Option<Candidates>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CommitState {
+    /// The commit may be returned, it hasn't been hidden yet.
+    Interesting,
+    /// The commit should not be returned.
+    Hidden,
+}
+
+impl CommitState {
+    pub fn is_hidden(&self) -> bool {
+        matches!(self, CommitState::Hidden)
+    }
+    pub fn is_interesting(&self) -> bool {
+        matches!(self, CommitState::Interesting)
+    }
 }
 
 ///
 mod init {
     use std::cmp::Reverse;
 
-    use gix_date::SecondsSinceUnixEpoch;
-    use gix_hash::{oid, ObjectId};
-    use gix_object::{CommitRefIter, FindExt};
-    use Err as Oldest;
-    use Ok as Newest;
-
     use super::{
         super::{simple::Sorting, Either, Info, ParentIds, Parents, Simple},
-        collect_parents, CommitTimeOrder, Error, State,
+        collect_parents, Candidates, CommitDateQueue, CommitState, CommitTimeOrder, Error, State,
     };
+    use gix_date::SecondsSinceUnixEpoch;
+    use gix_hash::{oid, ObjectId};
+    use gix_hashtable::hash_map::Entry;
+    use gix_object::{CommitRefIter, FindExt};
+    use std::collections::VecDeque;
+    use Err as Oldest;
+    use Ok as Newest;
 
     impl Default for State {
         fn default() -> Self {
@@ -114,16 +139,27 @@ mod init {
                 seen: Default::default(),
                 parents_buf: vec![],
                 parent_ids: Default::default(),
+                candidates: None,
             }
         }
     }
 
     impl State {
         fn clear(&mut self) {
-            self.next.clear();
-            self.queue.clear();
-            self.buf.clear();
-            self.seen.clear();
+            let Self {
+                next,
+                queue,
+                buf,
+                seen,
+                parents_buf: _,
+                parent_ids: _,
+                candidates,
+            } = self;
+            next.clear();
+            queue.clear();
+            buf.clear();
+            seen.clear();
+            *candidates = None;
         }
     }
 
@@ -147,21 +183,16 @@ mod init {
                     self.queue_to_vecdeque();
                 }
                 Sorting::ByCommitTime(order) | Sorting::ByCommitTimeCutoff { order, .. } => {
-                    let cutoff_time = self.sorting.cutoff_time();
                     let state = &mut self.state;
                     for commit_id in state.next.drain(..) {
-                        let commit_iter = self.objects.find_commit_iter(&commit_id, &mut state.buf)?;
-                        let time = commit_iter.committer()?.seconds();
-                        let key = to_queue_key(time, order);
-                        match (cutoff_time, order) {
-                            (Some(cutoff_time), _) if time >= cutoff_time => {
-                                state.queue.insert(key, commit_id);
-                            }
-                            (Some(_), _) => {}
-                            (None, _) => {
-                                state.queue.insert(key, commit_id);
-                            }
-                        }
+                        add_to_queue(
+                            commit_id,
+                            order,
+                            sorting.cutoff_time(),
+                            &mut state.queue,
+                            &self.objects,
+                            &mut state.buf,
+                        )?;
                     }
                 }
             }
@@ -177,9 +208,53 @@ mod init {
             self
         }
 
+        /// Hide the given `tips`, along with all commits reachable by them so that they will not be returned
+        /// by the traversal.
+        ///
+        /// Note that this will force the traversal into a non-intermediate mode and queue return candidates,
+        /// to be released when it's clear that they truly are not hidden.
+        ///
+        /// Note that hidden objects are expected to exist.
+        pub fn hide(mut self, tips: impl IntoIterator<Item = ObjectId>) -> Result<Self, Error> {
+            self.state.candidates = Some(VecDeque::new());
+            let state = &mut self.state;
+            for id_to_ignore in tips {
+                let previous = state.seen.insert(id_to_ignore, CommitState::Hidden);
+                // If there was something, it will pick up whatever commit-state we have set last
+                // upon iteration. Also, hidden states always override everything else.
+                if previous.is_none() {
+                    // Assure we *start* traversing hidden variants of a commit first, give them a head-start.
+                    match self.sorting {
+                        Sorting::BreadthFirst => {
+                            state.next.push_front(id_to_ignore);
+                        }
+                        Sorting::ByCommitTime(order) | Sorting::ByCommitTimeCutoff { order, .. } => {
+                            add_to_queue(
+                                id_to_ignore,
+                                order,
+                                self.sorting.cutoff_time(),
+                                &mut state.queue,
+                                &self.objects,
+                                &mut state.buf,
+                            )?;
+                        }
+                    }
+                }
+            }
+            if !self
+                .state
+                .seen
+                .values()
+                .any(|state| matches!(state, CommitState::Hidden))
+            {
+                self.state.candidates = None;
+            }
+            Ok(self)
+        }
+
         /// Set the commitgraph as `cache` to greatly accelerate any traversal.
         ///
-        /// The cache will be used if possible, but we will fall-back without error to using the object
+        /// The cache will be used if possible, but we will fall back without error to using the object
         /// database for commit lookup. If the cache is corrupt, we will fall back to the object database as well.
         pub fn commit_graph(mut self, cache: Option<gix_commitgraph::Graph>) -> Self {
             self.cache = cache;
@@ -194,6 +269,29 @@ mod init {
                     .map(|(_time, id)| id),
             );
         }
+    }
+
+    fn add_to_queue(
+        commit_id: ObjectId,
+        order: CommitTimeOrder,
+        cutoff_time: Option<SecondsSinceUnixEpoch>,
+        queue: &mut CommitDateQueue,
+        objects: &impl gix_object::Find,
+        buf: &mut Vec<u8>,
+    ) -> Result<(), Error> {
+        let commit_iter = objects.find_commit_iter(&commit_id, buf)?;
+        let time = commit_iter.committer()?.seconds();
+        let key = to_queue_key(time, order);
+        match (cutoff_time, order) {
+            (Some(cutoff_time), _) if time >= cutoff_time => {
+                queue.insert(key, commit_id);
+            }
+            (Some(_), _) => {}
+            (None, _) => {
+                queue.insert(key, commit_id);
+            }
+        }
+        Ok(())
     }
 
     /// Lifecycle
@@ -241,8 +339,9 @@ mod init {
                 state.clear();
                 state.next.reserve(tips.size_hint().0);
                 for tip in tips.map(Into::into) {
-                    let was_inserted = state.seen.insert(tip);
-                    if was_inserted && predicate(&tip) {
+                    let seen = state.seen.insert(tip, CommitState::Interesting);
+                    // We know there can only be duplicate interesting ones.
+                    if seen.is_none() && predicate(&tip) {
                         state.next.push_back(tip);
                     }
                 }
@@ -262,7 +361,7 @@ mod init {
     impl<Find, Predicate> Simple<Find, Predicate> {
         /// Return an iterator for accessing data of the current commit, parsed lazily.
         pub fn commit_iter(&self) -> CommitRefIter<'_> {
-            CommitRefIter::from_bytes(&self.state.buf)
+            CommitRefIter::from_bytes(self.commit_data())
         }
 
         /// Return the current commits' raw data, which can be parsed using [`gix_object::CommitRef::from_bytes()`].
@@ -288,6 +387,12 @@ mod init {
                     Sorting::ByCommitTimeCutoff { seconds, order } => self.next_by_commit_date(order, seconds.into()),
                 }
             }
+            .or_else(|| {
+                self.state
+                    .candidates
+                    .as_mut()
+                    .and_then(|candidates| candidates.pop_front().map(Ok))
+            })
         }
     }
 
@@ -314,65 +419,89 @@ mod init {
         ) -> Option<Result<Info, Error>> {
             let state = &mut self.state;
 
-            let (commit_time, oid) = match state.queue.pop()? {
-                (Newest(t) | Oldest(Reverse(t)), o) => (t, o),
-            };
-            let mut parents: ParentIds = Default::default();
-            match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
-                Ok(Either::CachedCommit(commit)) => {
-                    if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
-                        // drop corrupt caches and try again with ODB
-                        self.cache = None;
-                        return self.next_by_commit_date(order, cutoff);
-                    }
-                    for (id, parent_commit_time) in state.parent_ids.drain(..) {
-                        parents.push(id);
-                        let was_inserted = state.seen.insert(id);
-                        if !(was_inserted && (self.predicate)(&id)) {
-                            continue;
+            'skip_hidden: loop {
+                let (commit_time, oid) = match state.queue.pop()? {
+                    (Newest(t) | Oldest(Reverse(t)), o) => (t, o),
+                };
+                let mut parents: ParentIds = Default::default();
+                // TODO(perf): can avoid this lookup by storing state on `queue` respectively.
+                //             ALSO: need to look ahead for early aborts, i.e. if there is only hidden left to traverse.
+                //             Maybe this can be counted?
+                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
+                match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
+                    Ok(Either::CachedCommit(commit)) => {
+                        if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
+                            // drop corrupt caches and try again with ODB
+                            self.cache = None;
+                            return self.next_by_commit_date(order, cutoff);
                         }
-
-                        let key = to_queue_key(parent_commit_time, order);
-                        match cutoff {
-                            Some(cutoff_older_than) if parent_commit_time < cutoff_older_than => continue,
-                            Some(_) | None => state.queue.insert(key, id),
+                        for (id, parent_commit_time) in state.parent_ids.drain(..) {
+                            parents.push(id);
+                            insert_into_seen_and_queue(
+                                &mut state.seen,
+                                id,
+                                &mut state.candidates,
+                                commit_state,
+                                &mut self.predicate,
+                                &mut state.queue,
+                                order,
+                                cutoff,
+                                || parent_commit_time,
+                            );
                         }
                     }
-                }
-                Ok(Either::CommitRefIter(commit_iter)) => {
-                    for token in commit_iter {
-                        match token {
-                            Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
-                            Ok(gix_object::commit::ref_iter::Token::Parent { id }) => {
-                                parents.push(id);
-                                let was_inserted = state.seen.insert(id);
-                                if !(was_inserted && (self.predicate)(&id)) {
-                                    continue;
+                    Ok(Either::CommitRefIter(commit_iter)) => {
+                        for token in commit_iter {
+                            match token {
+                                Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
+                                Ok(gix_object::commit::ref_iter::Token::Parent { id }) => {
+                                    parents.push(id);
+                                    insert_into_seen_and_queue(
+                                        &mut state.seen,
+                                        id,
+                                        &mut state.candidates,
+                                        commit_state,
+                                        &mut self.predicate,
+                                        &mut state.queue,
+                                        order,
+                                        cutoff,
+                                        || {
+                                            let parent =
+                                                self.objects.find_commit_iter(id.as_ref(), &mut state.parents_buf).ok();
+                                            parent
+                                                .and_then(|parent| {
+                                                    parent.committer().ok().map(|committer| committer.seconds())
+                                                })
+                                                .unwrap_or_default()
+                                        },
+                                    );
                                 }
-
-                                let parent = self.objects.find_commit_iter(id.as_ref(), &mut state.parents_buf).ok();
-                                let parent_commit_time = parent
-                                    .and_then(|parent| parent.committer().ok().map(|committer| committer.seconds()))
-                                    .unwrap_or_default();
-
-                                let time = to_queue_key(parent_commit_time, order);
-                                match cutoff {
-                                    Some(cutoff_older_than) if parent_commit_time < cutoff_older_than => continue,
-                                    Some(_) | None => state.queue.insert(time, id),
-                                }
+                                Ok(_unused_token) => break,
+                                Err(err) => return Some(Err(err.into())),
                             }
-                            Ok(_unused_token) => break,
-                            Err(err) => return Some(Err(err.into())),
                         }
                     }
+                    Err(err) => return Some(Err(err.into())),
                 }
-                Err(err) => return Some(Err(err.into())),
+                match commit_state {
+                    CommitState::Interesting => {
+                        let info = Info {
+                            id: oid,
+                            parent_ids: parents,
+                            commit_time: Some(commit_time),
+                        };
+                        match state.candidates.as_mut() {
+                            None => return Some(Ok(info)),
+                            Some(candidates) => {
+                                // assure candidates aren't prematurely returned - hidden commits may catch up with
+                                // them later.
+                                candidates.push_back(info);
+                            }
+                        }
+                    }
+                    CommitState::Hidden => continue 'skip_hidden,
+                }
             }
-            Some(Ok(Info {
-                id: oid,
-                parent_ids: parents,
-                commit_time: Some(commit_time),
-            }))
         }
     }
 
@@ -384,53 +513,182 @@ mod init {
     {
         fn next_by_topology(&mut self) -> Option<Result<Info, Error>> {
             let state = &mut self.state;
-            let oid = state.next.pop_front()?;
-            let mut parents: ParentIds = Default::default();
-            match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
-                Ok(Either::CachedCommit(commit)) => {
-                    if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
-                        // drop corrupt caches and try again with ODB
-                        self.cache = None;
-                        return self.next_by_topology();
-                    }
+            'skip_hidden: loop {
+                let oid = state.next.pop_front()?;
+                let mut parents: ParentIds = Default::default();
+                // TODO(perf): can avoid this lookup by storing state on `next` respectively.
+                //             ALSO: need to look ahead for early aborts, i.e. if there is only hidden left to traverse.
+                //             Maybe this can be counted?
+                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
 
-                    for (id, _commit_time) in state.parent_ids.drain(..) {
-                        parents.push(id);
-                        let was_inserted = state.seen.insert(id);
-                        if was_inserted && (self.predicate)(&id) {
-                            state.next.push_back(id);
+                match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
+                    Ok(Either::CachedCommit(commit)) => {
+                        if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
+                            // drop corrupt caches and try again with ODB
+                            self.cache = None;
+                            return self.next_by_topology();
                         }
-                        if matches!(self.parents, Parents::First) {
-                            break;
-                        }
-                    }
-                }
-                Ok(Either::CommitRefIter(commit_iter)) => {
-                    for token in commit_iter {
-                        match token {
-                            Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
-                            Ok(gix_object::commit::ref_iter::Token::Parent { id }) => {
-                                parents.push(id);
-                                let was_inserted = state.seen.insert(id);
-                                if was_inserted && (self.predicate)(&id) {
-                                    state.next.push_back(id);
-                                }
-                                if matches!(self.parents, Parents::First) {
-                                    break;
-                                }
+
+                        for (pid, _commit_time) in state.parent_ids.drain(..) {
+                            parents.push(pid);
+                            insert_into_seen_and_next(
+                                &mut state.seen,
+                                pid,
+                                &mut state.candidates,
+                                commit_state,
+                                &mut self.predicate,
+                                &mut state.next,
+                            );
+                            if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
+                                break;
                             }
-                            Ok(_a_token_past_the_parents) => break,
-                            Err(err) => return Some(Err(err.into())),
                         }
                     }
+                    Ok(Either::CommitRefIter(commit_iter)) => {
+                        for token in commit_iter {
+                            match token {
+                                Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
+                                Ok(gix_object::commit::ref_iter::Token::Parent { id: pid }) => {
+                                    parents.push(pid);
+                                    insert_into_seen_and_next(
+                                        &mut state.seen,
+                                        pid,
+                                        &mut state.candidates,
+                                        commit_state,
+                                        &mut self.predicate,
+                                        &mut state.next,
+                                    );
+                                    if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
+                                        break;
+                                    }
+                                }
+                                Ok(_a_token_past_the_parents) => break,
+                                Err(err) => return Some(Err(err.into())),
+                            }
+                        }
+                    }
+                    Err(err) => return Some(Err(err.into())),
                 }
-                Err(err) => return Some(Err(err.into())),
+                match commit_state {
+                    CommitState::Interesting => {
+                        let info = Info {
+                            id: oid,
+                            parent_ids: parents,
+                            commit_time: None,
+                        };
+                        match state.candidates.as_mut() {
+                            None => return Some(Ok(info)),
+                            Some(candidates) => {
+                                // assure candidates aren't prematurely returned - hidden commits may catch up with
+                                // them later.
+                                candidates.push_back(info);
+                            }
+                        }
+                    }
+                    CommitState::Hidden => continue 'skip_hidden,
+                }
             }
-            Some(Ok(Info {
-                id: oid,
-                parent_ids: parents,
-                commit_time: None,
-            }))
+        }
+    }
+
+    #[inline]
+    fn remove_candidate(candidates: Option<&mut Candidates>, remove: ObjectId) -> Option<()> {
+        let candidates = candidates?;
+        let pos = candidates
+            .iter_mut()
+            .enumerate()
+            .find_map(|(idx, info)| (info.id == remove).then_some(idx))?;
+        candidates.remove(pos);
+        None
+    }
+
+    fn insert_into_seen_and_next(
+        seen: &mut gix_revwalk::graph::IdMap<CommitState>,
+        parent_id: ObjectId,
+        candidates: &mut Option<Candidates>,
+        commit_state: CommitState,
+        predicate: &mut impl FnMut(&oid) -> bool,
+        next: &mut VecDeque<ObjectId>,
+    ) {
+        let enqueue = match seen.entry(parent_id) {
+            Entry::Occupied(mut e) => {
+                let enqueue = handle_seen(commit_state, *e.get(), parent_id, candidates);
+                if commit_state.is_hidden() {
+                    e.insert(commit_state);
+                }
+                enqueue
+            }
+            Entry::Vacant(e) => {
+                e.insert(commit_state);
+                match commit_state {
+                    CommitState::Interesting => predicate(&parent_id),
+                    CommitState::Hidden => true,
+                }
+            }
+        };
+        if enqueue {
+            next.push_back(parent_id);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_into_seen_and_queue(
+        seen: &mut gix_revwalk::graph::IdMap<CommitState>,
+        parent_id: ObjectId,
+        candidates: &mut Option<Candidates>,
+        commit_state: CommitState,
+        predicate: &mut impl FnMut(&oid) -> bool,
+        queue: &mut CommitDateQueue,
+        order: CommitTimeOrder,
+        cutoff: Option<SecondsSinceUnixEpoch>,
+        get_parent_commit_time: impl FnOnce() -> gix_date::SecondsSinceUnixEpoch,
+    ) {
+        let enqueue = match seen.entry(parent_id) {
+            Entry::Occupied(mut e) => {
+                let enqueue = handle_seen(commit_state, *e.get(), parent_id, candidates);
+                if commit_state.is_hidden() {
+                    e.insert(commit_state);
+                }
+                enqueue
+            }
+            Entry::Vacant(e) => {
+                e.insert(commit_state);
+                match commit_state {
+                    CommitState::Interesting => (predicate)(&parent_id),
+                    CommitState::Hidden => true,
+                }
+            }
+        };
+
+        if enqueue {
+            let parent_commit_time = get_parent_commit_time();
+            let key = to_queue_key(parent_commit_time, order);
+            match cutoff {
+                Some(cutoff_older_than) if parent_commit_time < cutoff_older_than => {}
+                Some(_) | None => queue.insert(key, parent_id),
+            }
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn handle_seen(
+        next_state: CommitState,
+        current_state: CommitState,
+        id: ObjectId,
+        candidates: &mut Option<Candidates>,
+    ) -> bool {
+        match (current_state, next_state) {
+            (CommitState::Hidden, CommitState::Hidden) => false,
+            (CommitState::Interesting, CommitState::Interesting) => false,
+            (CommitState::Hidden, CommitState::Interesting) => {
+                // keep traversing to paint more hidden. After all, the commit_state overrides the current parent state
+                true
+            }
+            (CommitState::Interesting, CommitState::Hidden) => {
+                remove_candidate(candidates.as_mut(), id);
+                true
+            }
         }
     }
 }
