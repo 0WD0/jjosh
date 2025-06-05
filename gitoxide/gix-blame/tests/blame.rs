@@ -231,6 +231,7 @@ macro_rules! mktest {
                     diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                     range: BlameRanges::default(),
                     since: None,
+                    rewrites: Some(gix_diff::Rewrites::default()),
                 },
             )?
             .entries;
@@ -315,6 +316,7 @@ fn diff_disparity() {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: BlameRanges::default(),
                 since: None,
+                rewrites: Some(gix_diff::Rewrites::default()),
             },
         )
         .unwrap()
@@ -349,6 +351,7 @@ fn since() {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
             range: BlameRanges::default(),
             since: Some(gix_date::parse("2025-01-31", None).unwrap()),
+            rewrites: Some(gix_diff::Rewrites::default()),
         },
     )
     .unwrap()
@@ -386,6 +389,7 @@ mod blame_ranges {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: BlameRanges::from_range(1..=2),
                 since: None,
+                rewrites: Some(gix_diff::Rewrites::default()),
             },
         )
         .unwrap()
@@ -424,6 +428,7 @@ mod blame_ranges {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: ranges,
                 since: None,
+                rewrites: None,
             },
         )
         .unwrap()
@@ -463,6 +468,7 @@ mod blame_ranges {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: ranges,
                 since: None,
+                rewrites: None,
             },
         )
         .unwrap()

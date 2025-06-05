@@ -47,7 +47,7 @@ pub fn blame_file(
         options,
     )?;
     let statistics = outcome.statistics;
-    write_blame_entries(out, outcome, file)?;
+    show_blame_entries(out, outcome, file)?;
 
     if let Some(err) = err {
         writeln!(err, "{statistics:#?}")?;
@@ -55,15 +55,11 @@ pub fn blame_file(
     Ok(())
 }
 
-fn write_blame_entries(
+fn show_blame_entries(
     mut out: impl std::io::Write,
     outcome: gix::blame::Outcome,
     source_file_name: gix::bstr::BString,
 ) -> Result<(), std::io::Error> {
-    let show_file_names = outcome
-        .entries_with_lines()
-        .any(|(entry, _)| entry.source_file_name.is_some());
-
     for (entry, lines_in_hunk) in outcome.entries_with_lines() {
         for ((actual_lno, source_lno), line) in entry
             .range_in_blamed_file()
@@ -77,13 +73,8 @@ fn write_blame_entries(
                 line_no = actual_lno + 1,
             )?;
 
-            if show_file_names {
-                if let Some(ref source_file_name) = entry.source_file_name {
-                    write!(out, "{source_file_name} ")?;
-                } else {
-                    write!(out, "{source_file_name} ")?;
-                }
-            }
+            let source_file_name = entry.source_file_name.as_ref().unwrap_or(&source_file_name);
+            write!(out, "{source_file_name} ")?;
 
             write!(out, "{src_line_no} {line}", src_line_no = source_lno + 1)?;
         }

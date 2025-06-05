@@ -147,6 +147,8 @@ pub struct Options {
     pub range: BlameRanges,
     /// Don't consider commits before the given date.
     pub since: Option<gix_date::Time>,
+    /// Determine if rename tracking should be performed, and how.
+    pub rewrites: Option<gix_diff::Rewrites>,
 }
 
 /// The outcome of [`file()`](crate::file()).
@@ -280,6 +282,7 @@ pub struct BlameEntry {
     /// The commit that introduced the section into the *Source File*.
     pub commit_id: ObjectId,
     /// The *Source File*'s name, in case it differs from *Blamed File*'s name.
+    /// This happens when the file was renamed.
     pub source_file_name: Option<BString>,
 }
 

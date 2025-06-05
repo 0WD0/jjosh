@@ -122,17 +122,15 @@ pub fn file(
         }
 
         let first_hunk_for_suspect = hunks_to_blame.iter().find(|hunk| hunk.has_suspect(&suspect));
-        let is_still_suspect = first_hunk_for_suspect.is_some();
-        if !is_still_suspect {
+        let Some(first_hunk_for_suspect) = first_hunk_for_suspect else {
             // There are no `UnblamedHunk`s associated with this `suspect`, so we can continue with
             // the next one.
             continue 'outer;
-        }
+        };
 
         // We know `first_hunk_for_suspect` can’t be `None` here because we check `is_some()`
         // above.
-        let current_file_path: BString = first_hunk_for_suspect
-            .unwrap()
+        let current_file_path = first_hunk_for_suspect
             .source_file_name
             .clone()
             .unwrap_or_else(|| file_path.to_owned());
@@ -259,6 +257,7 @@ pub fn file(
                 &mut buf,
                 &mut buf2,
                 &mut buf3,
+                options.rewrites,
             )?;
             let Some(modification) = changes_for_file_path else {
                 if more_than_one_parent {
@@ -293,6 +292,7 @@ pub fn file(
                         id,
                         previous_id,
                         file_path,
+                        file_path,
                         options.diff_algorithm,
                         &mut stats,
                     )?;
@@ -309,6 +309,7 @@ pub fn file(
                         id,
                         source_id,
                         file_path,
+                        source_location.as_ref(),
                         options.diff_algorithm,
                         &mut stats,
                     )?;
@@ -433,6 +434,8 @@ fn coalesce_blame_entries(lines_blamed: Vec<BlameEntry>) -> Vec<BlameEntry> {
         })
 }
 
+/// The union of [`gix_diff::tree::recorder::Change`] and [`gix_diff::tree_with_rewrites::Change`],
+/// keeping only the blame-relevant information.
 enum TreeDiffChange {
     Addition,
     Deletion,
@@ -497,6 +500,7 @@ fn tree_diff_at_file_path(
     commit_buf: &mut Vec<u8>,
     lhs_tree_buf: &mut Vec<u8>,
     rhs_tree_buf: &mut Vec<u8>,
+    rewrites: Option<gix_diff::Rewrites>,
 ) -> Result<Option<TreeDiffChange>, Error> {
     let parent_tree_id = find_commit(cache, &odb, &parent_id, commit_buf)?.tree_id()?;
 
@@ -513,9 +517,15 @@ fn tree_diff_at_file_path(
     // Here, we follow git’s behaviour. We return when we’ve found a `Modification`. We try a
     // second time with rename tracking when the change is either an `Addition` or a `Deletion`
     // because those can turn out to have been a `Rewrite`.
+    // TODO(perf): renames are usually rare enough to not care about the work duplication done here.
+    //             But in theory, a rename tracker could be used by us, on demand, and we could stuff the
+    //             changes in there and have it find renames, without repeating the diff.
     if matches!(result, Some(TreeDiffChange::Modification { .. })) {
         return Ok(result);
     }
+    let Some(rewrites) = rewrites else {
+        return Ok(result);
+    };
 
     let result = tree_diff_with_rewrites_at_file_path(
         &odb,
@@ -525,6 +535,7 @@ fn tree_diff_at_file_path(
         resource_cache,
         parent_tree_iter,
         tree_iter,
+        rewrites,
     )?;
 
     Ok(result)
@@ -626,7 +637,7 @@ fn tree_diff_without_rewrites_at_file_path(
     stats.trees_diffed += 1;
 
     match result {
-        Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(recorder.change.map(std::convert::Into::into)),
+        Ok(_) | Err(gix_diff::tree::Error::Cancelled) => Ok(recorder.change.map(Into::into)),
         Err(error) => Err(Error::DiffTree(error)),
     }
 }
@@ -640,12 +651,13 @@ fn tree_diff_with_rewrites_at_file_path(
     resource_cache: &mut gix_diff::blob::Platform,
     parent_tree_iter: gix_object::TreeRefIter<'_>,
     tree_iter: gix_object::TreeRefIter<'_>,
+    rewrites: gix_diff::Rewrites,
 ) -> Result<Option<TreeDiffChange>, Error> {
     let mut change: Option<gix_diff::tree_with_rewrites::Change> = None;
 
     let options: gix_diff::tree_with_rewrites::Options = gix_diff::tree_with_rewrites::Options {
         location: Some(gix_diff::tree::recorder::Location::Path),
-        rewrites: Some(gix_diff::Rewrites::default()),
+        rewrites: Some(rewrites),
     };
     let result = gix_diff::tree_with_rewrites(
         parent_tree_iter,
@@ -667,18 +679,20 @@ fn tree_diff_with_rewrites_at_file_path(
 
     match result {
         Ok(_) | Err(gix_diff::tree_with_rewrites::Error::Diff(gix_diff::tree::Error::Cancelled)) => {
-            Ok(change.map(std::convert::Into::into))
+            Ok(change.map(Into::into))
         }
         Err(error) => Err(Error::DiffTreeWithRewrites(error)),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn blob_changes(
     odb: impl gix_object::Find + gix_object::FindHeader,
     resource_cache: &mut gix_diff::blob::Platform,
     oid: ObjectId,
     previous_oid: ObjectId,
     file_path: &BStr,
+    previous_file_path: &BStr,
     diff_algorithm: gix_diff::blob::Algorithm,
     stats: &mut Statistics,
 ) -> Result<Vec<Change>, Error> {
@@ -738,7 +752,7 @@ fn blob_changes(
     resource_cache.set_resource(
         previous_oid,
         gix_object::tree::EntryKind::Blob,
-        file_path,
+        previous_file_path,
         gix_diff::blob::ResourceKind::OldOrSource,
         &odb,
     )?;
