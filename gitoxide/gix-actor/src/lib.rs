@@ -71,6 +71,8 @@ pub struct Signature {
 
 /// An immutable signature that is created by an actor at a certain time.
 ///
+/// Not fully parsed.
+///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -84,6 +86,6 @@ pub struct SignatureRef<'a> {
     ///
     /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
     pub email: &'a BStr,
-    /// The timestamp at which the signature was performed.
+    /// The timestamp at which the signature was performed, potentially malformed.
     pub time: &'a str,
 }

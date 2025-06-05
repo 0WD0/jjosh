@@ -14,7 +14,7 @@ mod _ref {
             decode.parse_next(&mut data)
         }
 
-        /// Create an owned instance from this shared one.
+        /// Try to parse the timestamp and create an owned instance from this shared one.
         pub fn to_owned(&self) -> Result<Signature, gix_date::parse::Error> {
             Ok(Signature {
                 name: self.name.to_owned(),
@@ -71,6 +71,8 @@ mod convert {
 
     impl Signature {
         /// Borrow this instance as immutable, serializing the `time` field into `buf`.
+        ///
+        /// Commonly used as `signature.to_ref(&mut TimeBuf::default())`.
         pub fn to_ref<'a>(&'a self, time_buf: &'a mut TimeBuf) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.as_ref(),
