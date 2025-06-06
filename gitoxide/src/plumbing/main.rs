@@ -1590,6 +1590,7 @@ pub fn main() -> Result<()> {
                         diff_algorithm,
                         range: gix::blame::BlameRanges::from_ranges(ranges),
                         since,
+                        rewrites: Some(gix::diff::Rewrites::default()),
                     },
                     out,
                     statistics.then_some(err),

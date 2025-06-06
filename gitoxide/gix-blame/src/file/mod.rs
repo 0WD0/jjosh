@@ -393,11 +393,13 @@ impl UnblamedHunk {
                         range_in_blamed_file: self.range_in_blamed_file.start
                             ..(self.range_in_blamed_file.start + split_at_from_start),
                         suspects: new_suspects_before.collect(),
+                        source_file_name: self.source_file_name.clone(),
                     };
                     let new_hunk_after = Self {
                         range_in_blamed_file: (self.range_in_blamed_file.start + split_at_from_start)
                             ..(self.range_in_blamed_file.end),
                         suspects: new_suspects_after.collect(),
+                        source_file_name: self.source_file_name,
                     };
 
                     Either::Right((new_hunk_before, new_hunk_after))
@@ -445,6 +447,7 @@ impl BlameEntry {
             start_in_source_file: range_in_source_file.start,
             len: force_non_zero(range_in_source_file.len() as u32),
             commit_id,
+            source_file_name: unblamed_hunk.source_file_name.clone(),
         })
     }
 }

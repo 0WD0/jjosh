@@ -147,6 +147,8 @@ pub struct Options {
     pub range: BlameRanges,
     /// Don't consider commits before the given date.
     pub since: Option<gix_date::Time>,
+    /// Determine if rename tracking should be performed, and how.
+    pub rewrites: Option<gix_diff::Rewrites>,
 }
 
 /// The outcome of [`file()`](crate::file()).
@@ -172,6 +174,10 @@ pub struct Statistics {
     /// are likely partial as they are cancelled as soon as a change to the blamed file is
     /// detected.
     pub trees_diffed: usize,
+    /// The amount of tree-diffs to see if the file was moved (or rewritten, in git terminology).
+    /// These diffs are likely partial as they are cancelled as soon as a change to the blamed file
+    /// is detected.
+    pub trees_diffed_with_rewrites: usize,
     /// The amount of blobs there were compared to each other to learn what changed between commits.
     /// Note that in order to diff a blob, one needs to load both versions from the database.
     pub blobs_diffed: usize,
@@ -275,11 +281,19 @@ pub struct BlameEntry {
     pub len: NonZeroU32,
     /// The commit that introduced the section into the *Source File*.
     pub commit_id: ObjectId,
+    /// The *Source File*'s name, in case it differs from *Blamed File*'s name.
+    /// This happens when the file was renamed.
+    pub source_file_name: Option<BString>,
 }
 
 impl BlameEntry {
     /// Create a new instance.
-    pub fn new(range_in_blamed_file: Range<u32>, range_in_source_file: Range<u32>, commit_id: ObjectId) -> Self {
+    pub fn new(
+        range_in_blamed_file: Range<u32>,
+        range_in_source_file: Range<u32>,
+        commit_id: ObjectId,
+        source_file_name: Option<BString>,
+    ) -> Self {
         debug_assert!(
             range_in_blamed_file.end > range_in_blamed_file.start,
             "{range_in_blamed_file:?}"
@@ -295,6 +309,7 @@ impl BlameEntry {
             start_in_source_file: range_in_source_file.start,
             len: NonZeroU32::new(range_in_blamed_file.len() as u32).expect("BUG: hunks are never empty"),
             commit_id,
+            source_file_name,
         }
     }
 }
@@ -331,6 +346,8 @@ pub struct UnblamedHunk {
     /// equal to `range_in_blamed_file`. Since `suspects` rarely contains more than 1 item, it can
     /// efficiently be stored as a `SmallVec`.
     pub suspects: SmallVec<[(ObjectId, Range<u32>); 1]>,
+    /// The *Source File*'s name, in case it differs from *Blamed File*'s name.
+    pub source_file_name: Option<BString>,
 }
 
 impl UnblamedHunk {
