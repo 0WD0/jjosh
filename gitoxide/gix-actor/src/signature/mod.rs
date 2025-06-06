@@ -72,7 +72,7 @@ mod convert {
     impl Signature {
         /// Borrow this instance as immutable, serializing the `time` field into `buf`.
         ///
-        /// Commonly used as `signature.to_ref(&mut TimeBuf::default())`.
+        /// Commonly used as [`signature.to_ref(&mut TimeBuf::default())`](TimeBuf::default).
         pub fn to_ref<'a>(&'a self, time_buf: &'a mut TimeBuf) -> SignatureRef<'a> {
             SignatureRef {
                 name: self.name.as_ref(),
@@ -82,6 +82,7 @@ mod convert {
         }
     }
 
+    /// Note that this conversion is lossy due to the lenient parsing of the [`time`](SignatureRef::time) field.
     impl From<SignatureRef<'_>> for Signature {
         fn from(other: SignatureRef<'_>) -> Signature {
             Signature {

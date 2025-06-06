@@ -71,7 +71,8 @@ pub struct Signature {
 
 /// An immutable signature that is created by an actor at a certain time.
 ///
-/// Not fully parsed.
+/// All of its fields are references to the backing buffer to allow lossless
+/// round-tripping, as decoding the `time` field could be a lossy transformation.
 ///
 /// Note that this is not a cryptographical signature.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -79,13 +80,16 @@ pub struct Signature {
 pub struct SignatureRef<'a> {
     /// The actors name, potentially with whitespace as parsed.
     ///
-    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
+    /// Use [SignatureRef::trim()] or trim manually for cleanup.
     #[cfg_attr(feature = "serde", serde(borrow))]
     pub name: &'a BStr,
     /// The actor's email, potentially with whitespace and garbage as parsed.
     ///
-    /// Use [SignatureRef::trim()] or trim manually to be able to clean it up.
+    /// Use [SignatureRef::trim()] or trim manually for cleanup.
     pub email: &'a BStr,
-    /// The timestamp at which the signature was performed, potentially malformed.
+    /// The timestamp at which the signature was performed,
+    /// potentially malformed due to lenient parsing.
+    ///
+    /// Use [`SignatureRef::time()`] to decode.
     pub time: &'a str,
 }
