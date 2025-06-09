@@ -502,14 +502,13 @@ mod rename_tracking {
             suspect,
         } = Fixture::for_worktree_path(worktree_path.to_path_buf()).unwrap();
 
-        let source_file_name: gix_object::bstr::BString = "after-rename.txt".into();
-
+        let source_file_name = "after-rename.txt";
         let lines_blamed = gix_blame::file(
             &odb,
             suspect,
             None,
             &mut resource_cache,
-            source_file_name.as_ref(),
+            source_file_name.into(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
                 range: BlameRanges::default(),
@@ -523,7 +522,7 @@ mod rename_tracking {
         assert_eq!(lines_blamed.len(), 3);
 
         let git_dir = worktree_path.join(".git");
-        let baseline = Baseline::collect(git_dir.join("after-rename.baseline"), source_file_name).unwrap();
+        let baseline = Baseline::collect(git_dir.join("after-rename.baseline"), source_file_name.into()).unwrap();
 
         pretty_assertions::assert_eq!(lines_blamed, baseline);
     }
