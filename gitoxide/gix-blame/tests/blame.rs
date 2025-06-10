@@ -149,7 +149,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> gix_testtools::Result<Fixture> {
-        Self::for_worktree_path(fixture_path())
+        Self::for_worktree_path(fixture_path()?)
     }
 
     fn for_worktree_path(worktree_path: PathBuf) -> gix_testtools::Result<Fixture> {
@@ -212,7 +212,7 @@ impl Fixture {
 macro_rules! mktest {
     ($name:ident, $case:expr, $number_of_lines:literal) => {
         #[test]
-        fn $name() -> gix_testtools::Result<()> {
+        fn $name() -> gix_testtools::Result {
             let Fixture {
                 odb,
                 mut resource_cache,
@@ -238,7 +238,7 @@ macro_rules! mktest {
 
             assert_eq!(lines_blamed.len(), $number_of_lines);
 
-            let git_dir = fixture_path().join(".git");
+            let git_dir = fixture_path()?.join(".git");
             let baseline = Baseline::collect(git_dir.join(format!("{}.baseline", $case)), source_file_name)?;
 
             assert_eq!(baseline.len(), $number_of_lines);
@@ -324,7 +324,7 @@ fn diff_disparity() {
 
         assert_eq!(lines_blamed.len(), 5);
 
-        let git_dir = fixture_path().join(".git");
+        let git_dir = fixture_path().unwrap().join(".git");
         let baseline = Baseline::collect(git_dir.join(format!("{case}.baseline")), source_file_name).unwrap();
 
         pretty_assertions::assert_eq!(lines_blamed, baseline, "{case}");
@@ -332,12 +332,12 @@ fn diff_disparity() {
 }
 
 #[test]
-fn since() {
+fn since() -> gix_testtools::Result {
     let Fixture {
         odb,
         mut resource_cache,
         suspect,
-    } = Fixture::new().unwrap();
+    } = Fixture::new()?;
 
     let source_file_name: gix_object::bstr::BString = "simple.txt".into();
 
@@ -350,19 +350,20 @@ fn since() {
         gix_blame::Options {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
             range: BlameRanges::default(),
-            since: Some(gix_date::parse("2025-01-31", None).unwrap()),
+            since: Some(gix_date::parse("2025-01-31", None)?),
             rewrites: Some(gix_diff::Rewrites::default()),
         },
-    )
-    .unwrap()
+    )?
     .entries;
 
     assert_eq!(lines_blamed.len(), 1);
 
-    let git_dir = fixture_path().join(".git");
-    let baseline = Baseline::collect(git_dir.join("simple-since.baseline"), source_file_name).unwrap();
+    let git_dir = fixture_path()?.join(".git");
+    let baseline = Baseline::collect(git_dir.join("simple-since.baseline"), source_file_name)?;
 
     pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+    Ok(())
 }
 
 mod blame_ranges {
@@ -370,12 +371,12 @@ mod blame_ranges {
     use gix_blame::BlameRanges;
 
     #[test]
-    fn line_range() {
+    fn line_range() -> gix_testtools::Result {
         let Fixture {
             odb,
             mut resource_cache,
             suspect,
-        } = Fixture::new().unwrap();
+        } = Fixture::new()?;
 
         let source_file_name: gix_object::bstr::BString = "simple.txt".into();
 
@@ -391,25 +392,26 @@ mod blame_ranges {
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
             },
-        )
-        .unwrap()
+        )?
         .entries;
 
         assert_eq!(lines_blamed.len(), 2);
 
-        let git_dir = fixture_path().join(".git");
-        let baseline = Baseline::collect(git_dir.join("simple-lines-1-2.baseline"), source_file_name).unwrap();
+        let git_dir = fixture_path()?.join(".git");
+        let baseline = Baseline::collect(git_dir.join("simple-lines-1-2.baseline"), source_file_name)?;
 
         pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+        Ok(())
     }
 
     #[test]
-    fn multiple_ranges_using_add_range() {
+    fn multiple_ranges_using_add_range() -> gix_testtools::Result {
         let Fixture {
             odb,
             mut resource_cache,
             suspect,
-        } = Fixture::new().unwrap();
+        } = Fixture::new()?;
 
         let mut ranges = BlameRanges::new();
         ranges.add_range(1..=2); // Lines 1-2
@@ -430,29 +432,29 @@ mod blame_ranges {
                 since: None,
                 rewrites: None,
             },
-        )
-        .unwrap()
+        )?
         .entries;
 
         assert_eq!(lines_blamed.len(), 3); // Should have 3 lines total (2 from first range + 1 from second range)
 
-        let git_dir = fixture_path().join(".git");
+        let git_dir = fixture_path()?.join(".git");
         let baseline = Baseline::collect(
             git_dir.join("simple-lines-multiple-1-2-and-4.baseline"),
             source_file_name,
-        )
-        .unwrap();
+        )?;
 
         pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+        Ok(())
     }
 
     #[test]
-    fn multiple_ranges_usingfrom_ranges() {
+    fn multiple_ranges_using_from_ranges() -> gix_testtools::Result {
         let Fixture {
             odb,
             mut resource_cache,
             suspect,
-        } = Fixture::new().unwrap();
+        } = Fixture::new()?;
 
         let ranges = BlameRanges::from_ranges(vec![1..=2, 1..=1, 4..=4]);
 
@@ -470,20 +472,20 @@ mod blame_ranges {
                 since: None,
                 rewrites: None,
             },
-        )
-        .unwrap()
+        )?
         .entries;
 
         assert_eq!(lines_blamed.len(), 3); // Should have 3 lines total (2 from first range + 1 from second range)
 
-        let git_dir = fixture_path().join(".git");
+        let git_dir = fixture_path()?.join(".git");
         let baseline = Baseline::collect(
             git_dir.join("simple-lines-multiple-1-2-and-4.baseline"),
             source_file_name,
-        )
-        .unwrap();
+        )?;
 
         pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+        Ok(())
     }
 }
 
@@ -493,14 +495,14 @@ mod rename_tracking {
     use crate::{Baseline, Fixture};
 
     #[test]
-    fn source_file_name_is_tracked_per_hunk() {
-        let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_rename_tracking_repo.sh").unwrap();
+    fn source_file_name_is_tracked_per_hunk() -> gix_testtools::Result {
+        let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_rename_tracking_repo.sh")?;
 
         let Fixture {
             odb,
             mut resource_cache,
             suspect,
-        } = Fixture::for_worktree_path(worktree_path.to_path_buf()).unwrap();
+        } = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
 
         let source_file_name = "after-rename.txt";
         let lines_blamed = gix_blame::file(
@@ -515,19 +517,20 @@ mod rename_tracking {
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
             },
-        )
-        .unwrap()
+        )?
         .entries;
 
         assert_eq!(lines_blamed.len(), 3);
 
         let git_dir = worktree_path.join(".git");
-        let baseline = Baseline::collect(git_dir.join("after-rename.baseline"), source_file_name.into()).unwrap();
+        let baseline = Baseline::collect(git_dir.join("after-rename.baseline"), source_file_name.into())?;
 
         pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+        Ok(())
     }
 }
 
-fn fixture_path() -> PathBuf {
-    gix_testtools::scripted_fixture_read_only("make_blame_repo.sh").unwrap()
+fn fixture_path() -> gix_testtools::Result<PathBuf> {
+    gix_testtools::scripted_fixture_read_only("make_blame_repo.sh")
 }
