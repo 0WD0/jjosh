@@ -218,9 +218,7 @@ pub(super) mod _impl {
             if self.err.is_some() {
                 return;
             }
-            if ((self.pos == 0) && (before.start - self.pos > self.ctx_size))
-                || (before.start - self.pos > 2 * self.ctx_size)
-            {
+            if before.start - self.pos > 2 * self.ctx_size {
                 if let Err(err) = self.flush() {
                     self.err = Some(err);
                     return;
