@@ -109,6 +109,68 @@ fn removed_modified_added() -> crate::Result {
 }
 
 #[test]
+fn context_overlap_by_one_line_move_up() -> crate::Result {
+    let a = "2\n3\n4\n5\n6\n7\n";
+    let b = "7\n2\n3\n4\n5\n6\n";
+
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+
+    // merged by context.
+    insta::assert_snapshot!(actual, @r"
+    @@ -1,6 +1,6 @@
+    +7
+     2
+     3
+     4
+     5
+     6
+    -7
+    ");
+    Ok(())
+}
+
+#[test]
+fn context_overlap_by_one_line_move_down() -> crate::Result {
+    let a = "2\n3\n4\n5\n6\n7\n";
+    let b = "7\n2\n3\n4\n5\n6\n";
+
+    let interner = gix_diff::blob::intern::InternedInput::new(b, a);
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+
+    // merged by context.
+    insta::assert_snapshot!(actual, @r"
+    @@ -1,6 +1,6 @@
+    -7
+     2
+     3
+     4
+     5
+     6
+    +7
+    ");
+    Ok(())
+}
+
+#[test]
 fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
