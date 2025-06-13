@@ -67,7 +67,7 @@ impl Options {
 impl Options {
     /// Do not keep track of filepaths at all, which will leave all `location` fields empty.
     pub fn no_locations(&mut self) -> &mut Self {
-        self.location = Some(Location::FileName);
+        self.location = None;
         self
     }
 
