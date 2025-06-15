@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 
 use gix_hash::ObjectId;
-pub use hashbrown::{hash_map, hash_set, raw, Equivalent};
+pub use hashbrown::{hash_map, hash_set, hash_table, Equivalent};
 
 /// thread-safe types
 pub mod sync {
