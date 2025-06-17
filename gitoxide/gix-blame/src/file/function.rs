@@ -174,6 +174,7 @@ pub fn file(
                             commit_id: suspect,
                             blob_id: entry.unwrap_or(ObjectId::null(gix_hash::Kind::Sha1)),
                             previous_blob_id: ObjectId::null(gix_hash::Kind::Sha1),
+                            index: 0,
                         };
                         blame_path.push(blame_path_entry);
                     }
@@ -263,13 +264,13 @@ pub fn file(
         }
 
         let more_than_one_parent = parent_ids.len() > 1;
-        for (parent_id, parent_commit_time) in parent_ids {
-            queue.insert(parent_commit_time, parent_id);
+        for (index, (parent_id, parent_commit_time)) in parent_ids.iter().enumerate() {
+            queue.insert(*parent_commit_time, *parent_id);
             let changes_for_file_path = tree_diff_at_file_path(
                 &odb,
                 current_file_path.as_ref(),
                 suspect,
-                parent_id,
+                *parent_id,
                 cache.as_ref(),
                 &mut stats,
                 &mut diff_state,
@@ -284,10 +285,10 @@ pub fn file(
                     // None of the changes affected the file we’re currently blaming.
                     // Copy blame to parent.
                     for unblamed_hunk in &mut hunks_to_blame {
-                        unblamed_hunk.clone_blame(suspect, parent_id);
+                        unblamed_hunk.clone_blame(suspect, *parent_id);
                     }
                 } else {
-                    pass_blame_from_to(suspect, parent_id, &mut hunks_to_blame);
+                    pass_blame_from_to(suspect, *parent_id, &mut hunks_to_blame);
                 }
                 continue;
             };
@@ -306,6 +307,7 @@ pub fn file(
                                 commit_id: suspect,
                                 blob_id: id,
                                 previous_blob_id: ObjectId::null(gix_hash::Kind::Sha1),
+                                index,
                             };
                             blame_path.push(blame_path_entry);
                         }
@@ -327,7 +329,7 @@ pub fn file(
                         options.diff_algorithm,
                         &mut stats,
                     )?;
-                    hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent_id);
+                    hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, *parent_id);
                     if let Some(ref mut blame_path) = blame_path {
                         let blame_path_entry = BlamePathEntry {
                             source_file_path: current_file_path.clone(),
@@ -335,6 +337,7 @@ pub fn file(
                             commit_id: suspect,
                             blob_id: id,
                             previous_blob_id: previous_id,
+                            index,
                         };
                         blame_path.push(blame_path_entry);
                     }
@@ -354,7 +357,7 @@ pub fn file(
                         options.diff_algorithm,
                         &mut stats,
                     )?;
-                    hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent_id);
+                    hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, *parent_id);
 
                     let mut has_blame_been_passed = false;
 
@@ -374,6 +377,7 @@ pub fn file(
                                 commit_id: suspect,
                                 blob_id: id,
                                 previous_blob_id: source_id,
+                                index,
                             };
                             blame_path.push(blame_path_entry);
                         }
