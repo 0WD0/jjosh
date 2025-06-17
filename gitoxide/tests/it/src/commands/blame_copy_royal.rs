@@ -274,20 +274,24 @@ git commit -m {commit_id}
             // In almost all cases, `children` will only have one element. The exception are merge
             // commits where there’s changes against each parent. Each of these changes would
             // produce a diff that’s represented in `self.blame_path`.
-            let children = self
+            let mut children: Vec<_> = self
                 .blame_path
                 .iter()
                 .enumerate()
-                .filter(|(_, x)| x.commit_id == child.commit_id);
+                .filter(|(_, x)| x.commit_id == child.commit_id)
+                .collect();
+
+            children.sort_by_key(|(_, x)| x.index);
 
             let parents = children
+                .iter()
                 .filter_map(|(index, child)| {
                     let parent_blob_id = child.previous_blob_id;
                     let parent_source_file_path = &child.previous_source_file_path;
 
                     // When we search for a parent we only have to consider entries up to and
                     // excluding `index` as anything after `index` can only be a child.
-                    self.blame_path[..index]
+                    self.blame_path[..(*index)]
                         .iter()
                         .rfind(|&x| {
                             x.blob_id == parent_blob_id && Some(&x.source_file_path) == parent_source_file_path.as_ref()
