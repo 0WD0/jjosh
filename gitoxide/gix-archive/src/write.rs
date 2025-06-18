@@ -176,7 +176,7 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
     compression_level: Option<i64>,
     tree_prefix: Option<&bstr::BString>,
 ) -> Result<(), Error> {
-    let file_opts = zip::write::FileOptions::<'_, ()>::default()
+    let file_opts = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .compression_level(compression_level)
         .large_file(entry.bytes_remaining().map_or(true, |len| len > u32::MAX as usize))
