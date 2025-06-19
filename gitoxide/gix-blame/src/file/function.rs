@@ -329,17 +329,21 @@ pub fn file(
                         options.diff_algorithm,
                         &mut stats,
                     )?;
-                    hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, *parent_id);
+                    hunks_to_blame = process_changes(hunks_to_blame, changes.clone(), suspect, *parent_id);
                     if let Some(ref mut blame_path) = blame_path {
-                        let blame_path_entry = BlamePathEntry {
-                            source_file_path: current_file_path.clone(),
-                            previous_source_file_path: Some(current_file_path.clone()),
-                            commit_id: suspect,
-                            blob_id: id,
-                            previous_blob_id: previous_id,
-                            index,
-                        };
-                        blame_path.push(blame_path_entry);
+                        let has_blame_been_passed = hunks_to_blame.iter().any(|hunk| hunk.has_suspect(parent_id));
+
+                        if has_blame_been_passed {
+                            let blame_path_entry = BlamePathEntry {
+                                source_file_path: current_file_path.clone(),
+                                previous_source_file_path: Some(current_file_path.clone()),
+                                commit_id: suspect,
+                                blob_id: id,
+                                previous_blob_id: previous_id,
+                                index,
+                            };
+                            blame_path.push(blame_path_entry);
+                        }
                     }
                 }
                 TreeDiffChange::Rewrite {
