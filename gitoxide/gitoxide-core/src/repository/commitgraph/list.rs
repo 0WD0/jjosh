@@ -1,10 +1,10 @@
 pub(crate) mod function {
+    use crate::repository::HexId;
     use crate::OutputFormat;
     use anyhow::{bail, Context};
     use gix::odb::store::RefreshMode;
     use gix::revision::plumbing::Spec;
     use gix::{prelude::ObjectIdExt, revision::walk::Sorting};
-    use std::fmt::Formatter;
     use std::{borrow::Cow, ffi::OsString};
 
     pub fn list(
@@ -69,24 +69,5 @@ pub(crate) mod function {
             .peel_to_kind(gix::object::Kind::Commit)
             .context("Need committish as starting point")?
             .id())
-    }
-
-    struct HexId<'a>(gix::Id<'a>, bool);
-
-    impl<'a> HexId<'a> {
-        pub fn new(id: gix::Id<'a>, long_hex: bool) -> Self {
-            HexId(id, long_hex)
-        }
-    }
-
-    impl std::fmt::Display for HexId<'_> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            let HexId(id, long_hex) = self;
-            if *long_hex {
-                id.fmt(f)
-            } else {
-                id.shorten_or_id().fmt(f)
-            }
-        }
     }
 }

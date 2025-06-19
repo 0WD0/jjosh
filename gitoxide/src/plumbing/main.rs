@@ -1148,7 +1148,12 @@ pub fn main() -> Result<()> {
             },
         ),
         Subcommands::Revision(cmd) => match cmd {
-            revision::Subcommands::List { spec, svg, limit } => prepare_and_run(
+            revision::Subcommands::List {
+                spec,
+                svg,
+                limit,
+                long_hashes,
+            } => prepare_and_run(
                 "revision-list",
                 trace,
                 auto_verbose,
@@ -1164,6 +1169,7 @@ pub fn main() -> Result<()> {
                             limit,
                             spec,
                             format,
+                            long_hashes,
                             text: svg.map_or(core::repository::revision::list::Format::Text, |path| {
                                 core::repository::revision::list::Format::Svg { path }
                             }),

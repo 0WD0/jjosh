@@ -996,8 +996,11 @@ pub mod revision {
         /// List all commits reachable from the given rev-spec.
         #[clap(visible_alias = "l")]
         List {
-            /// How many commits to list at most.
+            /// Display long hashes, instead of expensively shortened versions for best performance.
             #[clap(long, short = 'l')]
+            long_hashes: bool,
+            /// How many commits to list at most.
+            #[clap(long)]
             limit: Option<usize>,
             /// Write the graph as SVG file to the given path.
             #[clap(long, short = 's')]
