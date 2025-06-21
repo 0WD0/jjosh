@@ -7,6 +7,7 @@ pub struct Context {
     pub spec: OsString,
     pub format: OutputFormat,
     pub text: Format,
+    pub long_hashes: bool,
 }
 
 pub enum Format {
@@ -16,15 +17,16 @@ pub enum Format {
 pub const PROGRESS_RANGE: std::ops::RangeInclusive<u8> = 0..=2;
 
 pub(crate) mod function {
+    use crate::repository::HexId;
+    use crate::{repository::revision::list::Format, OutputFormat};
     use anyhow::{bail, Context};
+    use gix::odb::store::RefreshMode;
     use gix::{hashtable::HashMap, revision::walk::Sorting, Progress};
     use layout::{
         backends::svg::SVGWriter,
         core::{base::Orientation, geometry::Point, style::StyleAttr},
         std_shapes::shapes::{Arrow, Element, ShapeKind},
     };
-
-    use crate::{repository::revision::list::Format, OutputFormat};
 
     pub fn list(
         mut repo: gix::Repository,
@@ -35,12 +37,14 @@ pub(crate) mod function {
             format,
             text,
             limit,
+            long_hashes,
         }: super::Context,
     ) -> anyhow::Result<()> {
         if format != OutputFormat::Human {
             bail!("Only human output is currently supported");
         }
         repo.object_cache_size_if_unset(4 * 1024 * 1024);
+        repo.objects.refresh = RefreshMode::Never;
 
         let spec = gix::path::os_str_into_bstr(&spec)?;
         let id = repo
@@ -101,7 +105,7 @@ pub(crate) mod function {
                     writeln!(
                         out,
                         "{} {} {}",
-                        commit.id().shorten_or_id(),
+                        HexId::new(commit.id(), long_hashes),
                         commit.commit_time.expect("traversal with date"),
                         commit.parent_ids.len()
                     )?;
