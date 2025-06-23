@@ -334,7 +334,7 @@ mod blocking_io {
             .expect("one line")?
             .signature
             .to_owned()?;
-        assert_eq!(sig.name, "no name configured during clone");
+        assert_eq!(sig.name, "no name configured");
         assert_eq!(sig.email, "noEmailAvailable@example.com");
 
         match out.status {

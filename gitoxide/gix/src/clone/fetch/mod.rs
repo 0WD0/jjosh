@@ -1,7 +1,6 @@
 use crate::{
     bstr::{BString, ByteSlice},
     clone::PrepareFetch,
-    config::tree::gitoxide,
 };
 
 /// The error returned by [`PrepareFetch::fetch_only()`].
@@ -46,6 +45,8 @@ pub enum Error {
         wanted: gix_ref::PartialName,
         candidates: Vec<BString>,
     },
+    #[error(transparent)]
+    CommitterOrFallback(#[from] crate::config::time::Error),
 }
 
 /// Modification
@@ -81,23 +82,11 @@ impl PrepareFetch {
             .as_mut()
             .expect("user error: multiple calls are allowed only until it succeeds");
 
-        if repo.committer().is_none() {
-            let mut config = gix_config::File::new(gix_config::file::Metadata::api());
-            config
-                .set_raw_value(&gitoxide::Committer::NAME_FALLBACK, "no name configured during fetch")
-                .expect("works - statically known");
-            config
-                .set_raw_value(&gitoxide::Committer::EMAIL_FALLBACK, "noEmailAvailable@example.com")
-                .expect("works - statically known");
-            let mut repo_config = repo.config_snapshot_mut();
-            repo_config.append(config);
-            repo_config.commit().expect("configuration is still valid");
-        }
+        repo.committer_or_set_generic_fallback()?;
 
         if !self.config_overrides.is_empty() {
             let mut snapshot = repo.config_snapshot_mut();
             snapshot.append_config(&self.config_overrides, gix_config::Source::Api)?;
-            snapshot.commit()?;
         }
 
         let remote_name = match self.remote_name.as_ref() {

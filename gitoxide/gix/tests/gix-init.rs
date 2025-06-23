@@ -268,7 +268,7 @@ mod with_overrides {
         Ok(())
     }
 
-    fn cow_bstr(s: &str) -> Cow<BStr> {
+    fn cow_bstr(s: &str) -> Cow<'_, BStr> {
         Cow::Borrowed(s.into())
     }
 }
