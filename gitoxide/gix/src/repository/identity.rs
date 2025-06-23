@@ -43,6 +43,24 @@ impl crate::Repository {
         .into()
     }
 
+    /// Return the committer or its fallback just like [`committer()`](Self::committer()), but if *not* set generate a
+    /// possibly arbitrary fallback and configure it in memory on this instance. That fallback is then returned and future
+    /// calls to [`committer()`](Self::committer()) will return it as well.
+    pub fn committer_or_set_generic_fallback(&mut self) -> Result<gix_actor::SignatureRef<'_>, config::time::Error> {
+        if self.committer().is_none() {
+            let mut config = gix_config::File::new(gix_config::file::Metadata::api());
+            config
+                .set_raw_value(&gitoxide::Committer::NAME_FALLBACK, "no name configured")
+                .expect("works - statically known");
+            config
+                .set_raw_value(&gitoxide::Committer::EMAIL_FALLBACK, "noEmailAvailable@example.com")
+                .expect("works - statically known");
+            let mut repo_config = self.config_snapshot_mut();
+            repo_config.append(config);
+        }
+        self.committer().expect("committer was just set")
+    }
+
     /// Return the author as configured by this repository, which is determined by…
     ///
     /// * …the git configuration `author.name|email`…

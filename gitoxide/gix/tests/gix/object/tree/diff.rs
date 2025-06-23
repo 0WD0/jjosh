@@ -879,7 +879,7 @@ mod track_rewrites {
     }
 }
 
-fn tree_named(repo: &gix::Repository, rev_spec: impl AsRef<str>) -> gix::Tree {
+fn tree_named(repo: &gix::Repository, rev_spec: impl AsRef<str>) -> gix::Tree<'_> {
     repo.rev_parse_single(rev_spec.as_ref())
         .unwrap()
         .object()

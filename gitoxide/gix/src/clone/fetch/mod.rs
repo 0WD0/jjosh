@@ -45,6 +45,8 @@ pub enum Error {
         wanted: gix_ref::PartialName,
         candidates: Vec<BString>,
     },
+    #[error(transparent)]
+    CommitterOrFallback(#[from] crate::config::time::Error),
 }
 
 /// Modification
@@ -80,10 +82,11 @@ impl PrepareFetch {
             .as_mut()
             .expect("user error: multiple calls are allowed only until it succeeds");
 
+        repo.committer_or_set_generic_fallback()?;
+
         if !self.config_overrides.is_empty() {
             let mut snapshot = repo.config_snapshot_mut();
             snapshot.append_config(&self.config_overrides, gix_config::Source::Api)?;
-            snapshot.commit()?;
         }
 
         let remote_name = match self.remote_name.as_ref() {
