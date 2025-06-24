@@ -161,14 +161,10 @@ git rm {src}
 "
                 ),
                 BlameScriptOperation::CommitFile(src, commit_id) => {
-                    write!(
-                        f,
-                        r"# make file {src} contain content at commit {commit_id}
-"
-                    )?;
+                    writeln!(f, r"# make file {src} contain content at commit {commit_id}")?;
                     if let Some(pos) = src.rfind_byte(b'/') {
                         let dirname = src[..pos].as_bstr();
-                        write!(f, "mkdir -p \"{dirname}\"\n")?;
+                        writeln!(f, "mkdir -p \"{dirname}\"")?;
                     }
                     write!(
                         f,

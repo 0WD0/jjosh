@@ -322,15 +322,15 @@ fn trailing_whitespace_in_attributes_is_ignored() {
 
 type ExpandedAttribute<'a> = (parse::Kind, Vec<(BString, gix_attributes::StateRef<'a>)>, usize);
 
-fn set(attr: &str) -> (BString, StateRef) {
+fn set(attr: &str) -> (BString, StateRef<'_>) {
     (attr.into(), StateRef::Set)
 }
 
-fn unset(attr: &str) -> (BString, StateRef) {
+fn unset(attr: &str) -> (BString, StateRef<'_>) {
     (attr.into(), StateRef::Unset)
 }
 
-fn unspecified(attr: &str) -> (BString, StateRef) {
+fn unspecified(attr: &str) -> (BString, StateRef<'_>) {
     (attr.into(), StateRef::Unspecified)
 }
 
@@ -350,36 +350,36 @@ fn pattern(name: &str, flags: gix_glob::pattern::Mode, first_wildcard_pos: Optio
     })
 }
 
-fn try_line(input: &str) -> Result<ExpandedAttribute, parse::Error> {
+fn try_line(input: &str) -> Result<ExpandedAttribute<'_>, parse::Error> {
     let mut lines = gix_attributes::parse(input.as_bytes());
     let res = expand(lines.next().unwrap())?;
     assert!(lines.next().is_none(), "expected only one line");
     Ok(res)
 }
 
-fn line(input: &str) -> ExpandedAttribute {
+fn line(input: &str) -> ExpandedAttribute<'_> {
     try_line(input).unwrap()
 }
 
-fn byte_line(input: &[u8]) -> ExpandedAttribute {
+fn byte_line(input: &[u8]) -> ExpandedAttribute<'_> {
     try_byte_line(input).unwrap()
 }
 
-fn try_byte_line(input: &[u8]) -> Result<ExpandedAttribute, parse::Error> {
+fn try_byte_line(input: &[u8]) -> Result<ExpandedAttribute<'_>, parse::Error> {
     let mut lines = gix_attributes::parse(input);
     let res = expand(lines.next().unwrap())?;
     assert!(lines.next().is_none(), "expected only one line");
     Ok(res)
 }
 
-fn lenient_lines(input: &str) -> Vec<ExpandedAttribute> {
+fn lenient_lines(input: &str) -> Vec<ExpandedAttribute<'_>> {
     gix_attributes::parse(input.as_bytes())
         .map(expand)
         .filter_map(Result::ok)
         .collect()
 }
 
-fn try_lines(input: &str) -> Result<Vec<ExpandedAttribute>, parse::Error> {
+fn try_lines(input: &str) -> Result<Vec<ExpandedAttribute<'_>>, parse::Error> {
     gix_attributes::parse(input.as_bytes()).map(expand).collect()
 }
 
