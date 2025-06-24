@@ -175,7 +175,7 @@ pub struct BlamePathEntry {
     pub previous_blob_id: ObjectId,
     /// When there is more than one `BlamePathEntry` for a commit, this indicates to which parent
     /// commit the change is related.
-    pub index: usize,
+    pub parent_index: usize,
 }
 
 /// The outcome of [`file()`](crate::file()).

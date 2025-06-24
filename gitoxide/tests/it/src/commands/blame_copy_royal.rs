@@ -6,7 +6,7 @@ pub(super) mod function {
     use anyhow::Context;
     use gix::{
         blame::BlamePathEntry,
-        bstr::{BStr, BString, ByteSlice},
+        bstr::{BString, ByteSlice},
         objs::FindExt,
         ObjectId,
     };
@@ -72,14 +72,11 @@ pub(super) mod function {
             options,
         )?;
 
-        let blame_path = outcome
+        let blame_infos = outcome
             .blame_path
             .expect("blame path to be present as `debug_track_path == true`");
 
-        // TODO
-        // Potentially make `"assets"` configurable (it is in `git_to_sh`).
         let assets = destination_dir.join("assets");
-
         eprintln!("{prefix} create directory '{assets}'", assets = assets.display());
 
         if !dry_run {
@@ -88,17 +85,9 @@ pub(super) mod function {
 
         let mut buf = Vec::new();
 
-        for blame_path_entry in &blame_path {
-            let src: &BStr = blame_path_entry.source_file_path.as_bstr();
+        eprintln!("{prefix} perform {} asset copy operations", blame_infos.len(),);
+        for blame_path_entry in &blame_infos {
             let dst = assets.join(format!("{}.commit", blame_path_entry.commit_id));
-
-            eprintln!(
-                "{prefix} copy file '{}' at commit {} to '{dst}'",
-                src,
-                blame_path_entry.commit_id,
-                dst = dst.display()
-            );
-
             if !dry_run {
                 let blob = repo.objects.find_blob(&blame_path_entry.blob_id, &mut buf)?.data;
 
@@ -113,18 +102,15 @@ pub(super) mod function {
                     })?;
 
                     let blob = crate::commands::copy_royal::remapped(blob);
-
                     std::fs::write(dst, blob)?;
                 }
             }
         }
 
-        let mut blame_script = BlameScript::new(blame_path, Options { verbatim });
-
+        let mut blame_script = BlameScript::new(blame_infos, Options { verbatim });
         blame_script.generate()?;
 
         let script_file = destination_dir.join("create-history.sh");
-
         eprintln!(
             "{prefix} write script file at '{script_file}'",
             script_file = script_file.display()
@@ -174,16 +160,25 @@ echo create-history.sh >> .gitignore
 git rm {src}
 "
                 ),
-                BlameScriptOperation::CommitFile(src, commit_id) => write!(
-                    f,
-                    r"# make file {src} contain content at commit {commit_id}
-mkdir -p $(dirname {src})
+                BlameScriptOperation::CommitFile(src, commit_id) => {
+                    write!(
+                        f,
+                        r"# make file {src} contain content at commit {commit_id}
+"
+                    )?;
+                    if let Some(pos) = src.rfind_byte(b'/') {
+                        let dirname = src[..pos].as_bstr();
+                        write!(f, "mkdir -p \"{dirname}\"\n")?;
+                    }
+                    write!(
+                        f,
+                        r"#
 cp ./assets/{commit_id}.commit ./{src}
-# create commit
 git add {src}
 git commit -m {commit_id}
 "
-                ),
+                    )
+                }
                 BlameScriptOperation::CheckoutTag(commit_id) => writeln!(f, "git checkout tag-{commit_id}"),
                 BlameScriptOperation::PrepareMerge(commit_ids) => writeln!(
                     f,
@@ -200,18 +195,18 @@ git commit -m {commit_id}
     }
 
     struct BlameScript {
-        blame_path: Vec<BlamePathEntry>,
+        blame_infos: Vec<BlamePathEntry>,
         seen: BTreeSet<ObjectId>,
         script: Vec<BlameScriptOperation>,
         options: Options,
     }
 
     impl BlameScript {
-        fn new(blame_path: Vec<BlamePathEntry>, options: Options) -> Self {
+        fn new(blame_infos: Vec<BlamePathEntry>, options: Options) -> Self {
             let script = vec![BlameScriptOperation::InitRepository];
 
             Self {
-                blame_path,
+                blame_infos,
                 seen: BTreeSet::default(),
                 script,
                 options,
@@ -224,9 +219,9 @@ git commit -m {commit_id}
             // methods can rely on the assumption that the root comes first, followed by its
             // descendants. That way, we can use a simple `for` loop to iterate through
             // `self.blame_path` below.
-            self.blame_path.reverse();
+            self.blame_infos.reverse();
 
-            for blame_path_entry in self.blame_path.clone() {
+            for blame_path_entry in self.blame_infos.clone() {
                 if !self.seen.contains(&blame_path_entry.commit_id) {
                     self.process_entry(&blame_path_entry)?;
                 }
@@ -309,13 +304,13 @@ git commit -m {commit_id}
             // commits where there’s changes against each parent. Each of these changes would
             // produce a diff that’s represented in `self.blame_path`.
             let mut children: Vec<_> = self
-                .blame_path
+                .blame_infos
                 .iter()
                 .enumerate()
                 .filter(|(_, x)| x.commit_id == child.commit_id)
                 .collect();
 
-            children.sort_by_key(|(_, x)| x.index);
+            children.sort_by_key(|(_, x)| x.parent_index);
 
             let parents = children
                 .iter()
@@ -325,7 +320,7 @@ git commit -m {commit_id}
 
                     // When we search for a parent we only have to consider entries up to and
                     // excluding `index` as anything after `index` can only be a child.
-                    self.blame_path[..(*index)]
+                    self.blame_infos[..(*index)]
                         .iter()
                         .rfind(|&x| {
                             x.blob_id == parent_blob_id && Some(&x.source_file_path) == parent_source_file_path.as_ref()

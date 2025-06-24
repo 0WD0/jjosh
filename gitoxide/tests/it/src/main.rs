@@ -51,3 +51,14 @@ fn main() -> anyhow::Result<()> {
 
 mod args;
 use args::{Args, Subcommands};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clap() {
+        use clap::CommandFactory;
+        Args::command().debug_assert();
+    }
+}
