@@ -1,3 +1,15 @@
+/// Returned by [`Tree::traverse()`]
+#[derive(thiserror::Error, Debug)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Encountered unsupported command code: 0")]
+    UnsupportedCommandCode,
+    #[error("Delta copy from base: byte slices must match")]
+    DeltaCopyBaseSliceMismatch,
+    #[error("Delta copy data: byte slices must match")]
+    DeltaCopyDataSliceMismatch,
+}
+
 /// Given the decompressed pack delta `d`, decode a size in bytes (either the base object size or the result object size)
 /// Equivalent to [this canonical git function](https://github.com/git/git/blob/311531c9de557d25ac087c1637818bd2aad6eb3a/delta.h#L89)
 pub fn decode_header_size(d: &[u8]) -> (u64, usize) {
@@ -15,7 +27,7 @@ pub fn decode_header_size(d: &[u8]) -> (u64, usize) {
     (size, consumed)
 }
 
-pub fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) {
+pub fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result<(), Error> {
     let mut i = 0;
     while let Some(cmd) = data.get(i) {
         i += 1;
@@ -55,16 +67,18 @@ pub fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) {
                 }
                 let ofs = ofs as usize;
                 std::io::Write::write(&mut target, &base[ofs..ofs + size as usize])
-                    .expect("delta copy from base: byte slices must match");
+                    .map_err(|_e| Error::DeltaCopyBaseSliceMismatch)?;
             }
-            0 => panic!("encountered unsupported command code: 0"),
+            0 => return Err(Error::UnsupportedCommandCode),
             size => {
                 std::io::Write::write(&mut target, &data[i..i + *size as usize])
-                    .expect("delta copy data: slice sizes to match up");
+                    .map_err(|_e| Error::DeltaCopyDataSliceMismatch)?;
                 i += *size as usize;
             }
         }
     }
     assert_eq!(i, data.len());
     assert_eq!(target.len(), 0);
+
+    Ok(())
 }

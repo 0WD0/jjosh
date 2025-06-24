@@ -19,6 +19,8 @@ pub enum Error {
     EntryType(#[from] crate::data::entry::decode::Error),
     #[error("Entry too large to fit in memory")]
     OutOfMemory,
+    #[error(transparent)]
+    Delta(#[from] crate::data::delta::Error),
 }
 
 impl From<TryReserveError> for Error {
