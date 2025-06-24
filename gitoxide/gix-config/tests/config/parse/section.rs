@@ -11,7 +11,7 @@ mod header {
 
     use bstr::BStr;
 
-    fn cow_section(name: &str) -> Option<Cow<BStr>> {
+    fn cow_section(name: &str) -> Option<Cow<'_, BStr>> {
         Some(Cow::Borrowed(name.into()))
     }
     mod write_to {
