@@ -1,6 +1,6 @@
 use gix_url::Scheme;
 
-use crate::parse::{assert_url, assert_url_roundtrip, url, url_alternate};
+use crate::parse::{assert_url, assert_url_roundtrip, url, url_alternate, url_with_pass};
 
 #[test]
 fn without_user_and_without_port() -> crate::Result {
@@ -184,6 +184,30 @@ fn scp_like_with_windows_path_and_port_thinks_port_is_part_of_path() -> crate::R
     Ok(())
 }
 
+#[test]
+fn scp_like_with_non_alphanumeric_username() -> crate::Result {
+    let url = assert_url(
+        "_user.name@host.xz:C:/path",
+        url_alternate(Scheme::Ssh, "_user.name", "host.xz", None, b"C:/path"),
+    )?
+    .to_bstring();
+    assert_eq!(url, "_user.name@host.xz:C:/path");
+    Ok(())
+}
+
+// Git passes the non-path part "user@name@host.xz" to OpenSSH, and the ssh
+// command interprets it as user = "user@name", host = "host.xz".
+#[test]
+fn scp_like_with_username_including_at() -> crate::Result {
+    let url = assert_url(
+        "user@name@host.xz:path",
+        url_alternate(Scheme::Ssh, "user@name", "host.xz", None, b"path"),
+    )?
+    .to_bstring();
+    assert_eq!(url, "user@name@host.xz:path");
+    Ok(())
+}
+
 // Git does not care that the host is named `file`, it still treats it as an SCP url.
 // I btw tested this, yes you can really clone a repository from there, just `git init`
 // in the directory above your home directory on the remote machine.
@@ -191,5 +215,21 @@ fn scp_like_with_windows_path_and_port_thinks_port_is_part_of_path() -> crate::R
 fn strange_scp_like_with_host_named_file() -> crate::Result {
     let url = assert_url("file:..", url_alternate(Scheme::Ssh, None, "file", None, b".."))?;
     assert_eq!(url.to_bstring(), "file:..");
+    Ok(())
+}
+
+#[test]
+fn bad_alternative_form_with_password() -> crate::Result {
+    let url = url_with_pass(Scheme::Ssh, "user", "password", "host.xz", None, b"/")
+        .serialize_alternate_form(true)
+        .to_bstring();
+    assert_eq!(url, "ssh://user:password@host.xz/");
+    Ok(())
+}
+
+#[test]
+fn bad_alternative_form_with_port() -> crate::Result {
+    let url = url_alternate(Scheme::Ssh, None, "host.xz", 21, b"/").to_bstring();
+    assert_eq!(url, "ssh://host.xz:21/");
     Ok(())
 }
