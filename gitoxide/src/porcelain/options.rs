@@ -13,7 +13,7 @@ pub struct Args {
     /// Bring up a terminal user interface displaying progress visually.
     #[clap(long, conflicts_with("quiet"))]
     pub progress: bool,
-    /// The amount of threads to use. If unset, use all cores, if 0 use al physical cores.
+    /// The number of threads to use. If unset, use all cores, if 0 use all physical cores.
     #[clap(short = 't', long)]
     pub threads: Option<usize>,
 

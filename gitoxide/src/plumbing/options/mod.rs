@@ -605,7 +605,7 @@ pub mod fetch {
         #[clap(long, help_heading = Some("SHALLOW"), conflicts_with_all = ["shallow_since", "shallow_exclude", "deepen", "unshallow"])]
         pub depth: Option<NonZeroU32>,
 
-        /// Extend the current shallow boundary by the given amount of commits, with 0 meaning no change.
+        /// Extend the current shallow boundary by the given number of commits, with 0 meaning no change.
         #[clap(long, help_heading = Some("SHALLOW"), value_name = "DEPTH", conflicts_with_all = ["depth", "shallow_since", "shallow_exclude", "unshallow"])]
         pub deepen: Option<u32>,
 

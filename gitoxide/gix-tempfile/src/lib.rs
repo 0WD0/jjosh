@@ -138,7 +138,7 @@ static REGISTRY: Lazy<HashMap<usize, Option<ForksafeTempfile>>> = Lazy::new(|| {
 pub enum ContainingDirectory {
     /// Assume the directory for the tempfile exists and cause failure if it doesn't
     Exists,
-    /// Create the directory recursively with the given amount of retries in a way that is somewhat race resistant
+    /// Create the directory recursively with the given number of retries in a way that is somewhat race resistant
     /// depending on the amount of retries.
     CreateAllRaceProof(create_dir::Retries),
 }

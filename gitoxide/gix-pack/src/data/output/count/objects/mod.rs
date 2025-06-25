@@ -14,14 +14,14 @@ pub use types::{Error, ObjectExpansion, Options, Outcome};
 mod tree;
 
 /// Generate [`Count`][output::Count]s from input `objects` with object expansion based on [`options`][Options]
-/// to learn which objects would would constitute a pack. This step is required to know exactly how many objects would
-/// be in a pack while keeping data around to avoid minimize object database access.
+/// to learn which objects would constitute a pack. This step is required to know exactly how many objects would
+/// be in a pack while keeping data around to minimize database object access.
 ///
 /// A [`Count`][output::Count] object maintains enough state to greatly accelerate future access of packed objects.
 ///
 /// * `db` - the object store to use for accessing objects.
 /// * `objects_ids`
-///   * A list of objects ids to add to the pack. Duplication checks are performed so no object is ever added to a pack twice.
+///   * A list of objects IDs to add to the pack. Duplication checks are performed so no object is ever added to a pack twice.
 ///   * Objects may be expanded based on the provided [`options`][Options]
 /// * `objects`
 ///   * count the amount of objects we encounter

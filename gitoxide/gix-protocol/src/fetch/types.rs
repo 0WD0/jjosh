@@ -33,7 +33,7 @@ pub struct Context<'a, T> {
     ///
     /// This could be read from the `gitoxide.userAgent` configuration variable.
     pub user_agent: (&'static str, Option<std::borrow::Cow<'static, str>>),
-    /// If `true`, output all packetlines using the the `gix-trace` machinery.
+    /// If `true`, output all packetlines using the `gix-trace` machinery.
     pub trace_packetlines: bool,
 }
 

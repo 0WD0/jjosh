@@ -34,7 +34,7 @@ impl hash::Hash for oid {
     }
 }
 
-/// A utility able to format itself with the given amount of characters in hex.
+/// A utility able to format itself with the given number of characters in hex.
 #[derive(PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct HexDisplay<'a> {
     inner: &'a oid,

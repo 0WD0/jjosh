@@ -96,7 +96,7 @@ pub mod io_err {
 }
 
 #[cfg(not(unix))]
-/// Returns whether a a file has the executable permission set.
+/// Returns whether a file has the executable permission set.
 pub fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     false
 }

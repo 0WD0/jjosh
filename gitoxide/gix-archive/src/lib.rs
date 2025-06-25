@@ -80,7 +80,7 @@ pub struct Options {
     pub format: Format,
     /// Given a `path`, originating in the git tree, to place into the archive, put `<prefix>/path` in front of it.
     ///
-    /// Note that that `/` should be used as separator, and that a prefix directory has to end with `/`.
+    /// Note that `/` should be used as separator, and that a prefix directory has to end with `/`.
     pub tree_prefix: Option<BString>,
     /// The modification time for all entries in the archive as seen since UNIX epoch.
     ///
