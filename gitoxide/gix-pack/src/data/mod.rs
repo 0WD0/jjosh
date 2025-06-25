@@ -128,4 +128,5 @@ impl File {
     }
 }
 
-pub(crate) mod delta;
+///
+pub mod delta;

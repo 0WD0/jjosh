@@ -1,18 +1,21 @@
-/// Returned by [`Tree::traverse()`]
-#[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("Encountered unsupported command code: 0")]
-    UnsupportedCommandCode,
-    #[error("Delta copy from base: byte slices must match")]
-    DeltaCopyBaseSliceMismatch,
-    #[error("Delta copy data: byte slices must match")]
-    DeltaCopyDataSliceMismatch,
+///
+pub mod apply {
+    /// Returned when failing to apply deltas.
+    #[derive(thiserror::Error, Debug)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error("Encountered unsupported command code: 0")]
+        UnsupportedCommandCode,
+        #[error("Delta copy from base: byte slices must match")]
+        DeltaCopyBaseSliceMismatch,
+        #[error("Delta copy data: byte slices must match")]
+        DeltaCopyDataSliceMismatch,
+    }
 }
 
 /// Given the decompressed pack delta `d`, decode a size in bytes (either the base object size or the result object size)
 /// Equivalent to [this canonical git function](https://github.com/git/git/blob/311531c9de557d25ac087c1637818bd2aad6eb3a/delta.h#L89)
-pub fn decode_header_size(d: &[u8]) -> (u64, usize) {
+pub(crate) fn decode_header_size(d: &[u8]) -> (u64, usize) {
     let mut i = 0;
     let mut size = 0u64;
     let mut consumed = 0;
@@ -27,7 +30,7 @@ pub fn decode_header_size(d: &[u8]) -> (u64, usize) {
     (size, consumed)
 }
 
-pub fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result<(), Error> {
+pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result<(), apply::Error> {
     let mut i = 0;
     while let Some(cmd) = data.get(i) {
         i += 1;
@@ -67,12 +70,12 @@ pub fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result<(), Erro
                 }
                 let ofs = ofs as usize;
                 std::io::Write::write(&mut target, &base[ofs..ofs + size as usize])
-                    .map_err(|_e| Error::DeltaCopyBaseSliceMismatch)?;
+                    .map_err(|_e| apply::Error::DeltaCopyBaseSliceMismatch)?;
             }
-            0 => return Err(Error::UnsupportedCommandCode),
+            0 => return Err(apply::Error::UnsupportedCommandCode),
             size => {
                 std::io::Write::write(&mut target, &data[i..i + *size as usize])
-                    .map_err(|_e| Error::DeltaCopyDataSliceMismatch)?;
+                    .map_err(|_e| apply::Error::DeltaCopyDataSliceMismatch)?;
                 i += *size as usize;
             }
         }
