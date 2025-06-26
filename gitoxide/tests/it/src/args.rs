@@ -4,6 +4,7 @@ use clap::{
     builder::{OsStringValueParser, TypedValueParser},
     Arg, Command, Error,
 };
+use gix::bstr::BString;
 
 #[derive(Debug, clap::Parser)]
 #[clap(name = "it", about = "internal tools to help create test cases")]
@@ -51,6 +52,9 @@ pub enum Subcommands {
         worktree_dir: PathBuf,
         /// The directory into which to copy the files.
         destination_dir: PathBuf,
+        /// The directory to place assets in.
+        #[clap(long)]
+        asset_dir: Option<BString>,
         /// The file to extract the history for.
         file: std::ffi::OsString,
         /// Do not use `copy-royal` to obfuscate the content of blobs, but copy it verbatim.
