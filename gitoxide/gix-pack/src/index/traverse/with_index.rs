@@ -11,8 +11,8 @@ use crate::{
 /// Traversal options for [`traverse_with_index()`][index::File::traverse_with_index()]
 #[derive(Default)]
 pub struct Options {
-    /// If `Some`, only use the given amount of threads. Otherwise, the amount of threads to use will be selected based on
-    /// the amount of available logical cores.
+    /// If `Some`, only use the given number of threads. Otherwise, the number of threads to use will be selected based on
+    /// the number of available logical cores.
     pub thread_limit: Option<usize>,
     /// The kinds of safety checks to perform.
     pub check: crate::index::traverse::SafetyCheck,

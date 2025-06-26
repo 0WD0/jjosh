@@ -159,7 +159,7 @@ mod prepare {
         /// Set the name or path to the shell `program` to use if a shell is to be used, to avoid
         /// using the default shell which is `sh`.
         ///
-        /// Note that that shells that are not Bourne-style cannot be expected to work correctly,
+        /// Note that shells that are not Bourne-style cannot be expected to work correctly,
         /// because POSIX shell syntax is assumed when searching for and conditionally adding
         /// `"$@"` to receive arguments, where applicable (and in the behaviour of
         /// [`with_quoted_command()`](Self::with_quoted_command()), if called).

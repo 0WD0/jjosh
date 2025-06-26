@@ -75,7 +75,7 @@ impl<'a> MessageRef<'a> {
         summary(self.title)
     }
 
-    /// Further parse the body into into non-trailer and trailers, which can be iterated from the returned [`BodyRef`].
+    /// Further parse the body into non-trailer and trailers, which can be iterated from the returned [`BodyRef`].
     pub fn body(&self) -> Option<BodyRef<'a>> {
         self.body.map(|b| BodyRef::from_bytes(b))
     }

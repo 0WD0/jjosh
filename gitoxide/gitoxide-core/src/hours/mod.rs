@@ -17,7 +17,7 @@ pub struct Context<W> {
     pub file_stats: bool,
     /// Collect how many lines in files have been added, removed and modified (without rename tracking).
     pub line_stats: bool,
-    /// The amount of threads to use. If unset, use all cores, if 0 use al physical cores.
+    /// The number of threads to use. If unset, use all cores, if 0 use all physical cores.
     pub threads: Option<usize>,
     /// Omit unifying identities by name and email which can lead to the same author appear multiple times
     /// due to using different names or email addresses.

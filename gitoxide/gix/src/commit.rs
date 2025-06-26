@@ -202,7 +202,7 @@ pub mod describe {
             self
         }
 
-        /// Only consider the given amount of candidates, instead of the default of 10.
+        /// Only consider the given number of candidates, instead of the default of 10.
         pub fn max_candidates(mut self, candidates: usize) -> Self {
             self.max_candidates = candidates;
             self

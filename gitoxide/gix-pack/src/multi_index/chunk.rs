@@ -148,7 +148,7 @@ pub mod lookup {
     /// The id uniquely identifying the oid lookup table.
     pub const ID: gix_chunk::Id = *b"OIDL";
 
-    /// Return the amount of bytes needed to store the data on disk for the given amount of `entries`
+    /// Return the number of bytes needed to store the data on disk for the given amount of `entries`
     pub fn storage_size(entries: usize, object_hash: gix_hash::Kind) -> u64 {
         (entries * object_hash.len_in_bytes()) as u64
     }
@@ -267,7 +267,7 @@ pub mod large_offsets {
         Ok(())
     }
 
-    /// Return the amount of bytes needed to store the given amount of `large_offsets`
+    /// Return the number of bytes needed to store the given amount of `large_offsets`
     pub(crate) fn storage_size(large_offsets: usize) -> u64 {
         8 * large_offsets as u64
     }
