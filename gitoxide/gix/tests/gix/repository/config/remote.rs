@@ -131,15 +131,21 @@ mod branch_remote {
                     .as_ref(),
                 "remote_repo"
             );
+            assert_eq!(
+                repo.branch_remote_name("broken", direction)
+                    .expect("Remote name exists")
+                    .as_ref(),
+                "remote_repo"
+            );
         }
 
-        let merge_branch_invalid_msg = "The configured name of the remote ref to merge wasn't valid";
         assert_eq!(
             repo.branch_remote_ref_name("refs/heads/broken".try_into()?, remote::Direction::Fetch)
                 .expect("Remote Merge ref exists")
-                .unwrap_err()
-                .to_string(),
-            merge_branch_invalid_msg
+                .expect("merge ref is turned into a full-name")
+                .as_bstr(),
+            "refs/heads/not_a_valid_merge_ref",
+            "short names are simply turned into branch names - this doesn't always work, but sometimes."
         );
         assert!(repo
             .branch_remote_ref_name("refs/heads/missing".try_into()?, remote::Direction::Fetch)
@@ -152,11 +158,11 @@ mod branch_remote {
         }
         assert_eq!(
             repo.branch_remote_tracking_ref_name("refs/heads/broken".try_into()?, remote::Direction::Fetch)
-                .expect("err")
-                .unwrap_err()
-                .to_string(),
-            "Could not get the remote reference to translate into the local tracking branch",
-            "the merge ref is broken, hence there can't be a tracking ref",
+                .expect("no error")
+                .expect("valid result")
+                .as_bstr(),
+            "refs/remotes/remote_repo/not_a_valid_merge_ref",
+            "the merge ref is broken, but we turned it into a full ref name from which everything else was derived",
         );
 
         Ok(())
@@ -219,10 +225,9 @@ mod branch_remote {
             );
         }
 
-        assert_eq!(
-            repo.branch_remote_tracking_ref_name("refs/heads/broken".try_into()?, remote::Direction::Push).expect("has err").unwrap_err().to_string(),
-            "Could not get the remote reference to translate into the local tracking branch",
-            "push.default = simple, hence we need to verify the merge-branch is the same as us, but retrieving it fails",
+        assert!(
+            repo.branch_remote_tracking_ref_name("refs/heads/broken".try_into()?, remote::Direction::Push).is_none(),
+            "push.default = simple, hence we need to verify the merge-branch is the same as us, and retrieving it succeeds due to auto-fullnamification but then it doesn't match",
         );
 
         Ok(())

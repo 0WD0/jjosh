@@ -90,9 +90,11 @@ where
         progress: impl Progress,
         options: Options,
     ) -> Result<(fetch::RefMap, gix_protocol::handshake::Outcome), Error> {
-        let refmap = self.ref_map_by_ref(progress, options).await;
-        let handshake = self.handshake.expect("refmap always performs handshake");
-        refmap.map(|map| (map, handshake))
+        let refmap = self.ref_map_by_ref(progress, options).await?;
+        let handshake = self
+            .handshake
+            .expect("refmap always performs handshake and stores it if it succeeds");
+        Ok((refmap, handshake))
     }
 
     #[allow(clippy::result_large_err)]

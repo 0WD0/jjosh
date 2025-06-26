@@ -52,7 +52,16 @@ impl crate::Repository {
                 self.config
                     .resolved
                     .string_by("branch", Some(short_name), Branch::MERGE.name)
-                    .map(|name| crate::config::tree::branch::Merge::try_into_fullrefname(name).map_err(Into::into))
+                    .map(|name| {
+                        if name.starts_with(b"refs/") {
+                            crate::config::tree::branch::Merge::try_into_fullrefname(name)
+                        } else {
+                            gix_ref::Category::LocalBranch
+                                .to_full_name(name.as_ref())
+                                .map(Cow::Owned)
+                        }
+                        .map_err(Into::into)
+                    })
             }
             remote::Direction::Push => {
                 let remote = match self.branch_remote(name.shorten(), direction)? {
