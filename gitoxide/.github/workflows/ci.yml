@@ -298,6 +298,7 @@ jobs:
             libssl-dev
             libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
             pkgconf
+            python3-minimal
           )
           dpkg --add-architecture ${{ matrix.runner-arch }}
           apt-get update
