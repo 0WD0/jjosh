@@ -10,6 +10,35 @@ function baseline() {
   }>> baseline.git
 }
 
+function loose-obj() {
+  # Read content from stdin, compute header and hash, write compressed object
+  script=$(cat <<'EOF'
+import sys
+import hashlib
+import zlib
+import os
+
+type = sys.argv[1]
+objects_dir = sys.argv[2]
+content = sys.stdin.buffer.read()
+header = f"{type} {len(content)}\0".encode()
+full = header + content
+sha1 = hashlib.sha1(full).hexdigest()
+compressed = zlib.compress(full)
+
+bucket = f"{objects_dir}/" + sha1[:2]
+filename = sha1[2:]
+
+os.makedirs(bucket, exist_ok=True)
+with open(f"{bucket}/{filename}", "wb") as f:
+    f.write(compressed)
+
+print(sha1)
+EOF
+)
+  python3 -c "$script" "$@"
+}
+
 # The contents of this file is based on https://github.com/git/git/blob/8168d5e9c23ed44ae3d604f392320d66556453c9/t/t1512-rev-parse-disambiguation.sh#L38
 git init --bare blob.prefix
 (
@@ -31,11 +60,11 @@ git init --bare blob.bad
   cd blob.bad
   # Both have the prefix "bad0"
   # Maybe one day we have a test to see how disambiguation reporting deals with this.
-  echo xyzfaowcoh | git hash-object -t bad -w --stdin --literally
-  echo xyzhjpyvwl | git hash-object -t bad -w --stdin --literally
+  echo xyzfaowcoh | loose-obj bad objects
+  echo xyzhjpyvwl | loose-obj bad objects
   baseline "bad0"
 
-  echo 1bbfctrkc | git hash-object -t bad -w --stdin --literally
+  echo 1bbfctrkc | loose-obj bad objects
   baseline "e328"
   baseline "e328^{object}"
 )

@@ -23,6 +23,7 @@ pub(super) mod function {
         dry_run: bool,
         worktree_dir: &Path,
         destination_dir: PathBuf,
+        asset_dir: Option<BString>,
         file: &OsStr,
         Options { verbatim }: Options,
     ) -> anyhow::Result<()> {
@@ -76,7 +77,8 @@ pub(super) mod function {
             .blame_path
             .expect("blame path to be present as `debug_track_path == true`");
 
-        let assets = destination_dir.join("assets");
+        let asset_dir = asset_dir.unwrap_or("assets".into());
+        let assets = destination_dir.join(asset_dir.to_os_str()?);
         eprintln!("{prefix} create directory '{assets}'", assets = assets.display());
 
         if !dry_run {
@@ -107,7 +109,7 @@ pub(super) mod function {
             }
         }
 
-        let mut blame_script = BlameScript::new(blame_infos, Options { verbatim });
+        let mut blame_script = BlameScript::new(blame_infos, asset_dir, Options { verbatim });
         blame_script.generate()?;
 
         let script_file = destination_dir.join("create-history.sh");
@@ -130,9 +132,9 @@ pub(super) mod function {
     }
 
     enum BlameScriptOperation {
-        InitRepository,
+        InitRepository(BString),
         RemoveFile(String),
-        CommitFile(BString, ObjectId),
+        CommitFile(BString, BString, ObjectId),
         CheckoutTag(ObjectId),
         PrepareMerge(Vec<ObjectId>),
         CreateTag(ObjectId),
@@ -141,7 +143,7 @@ pub(super) mod function {
     impl Display for BlameScriptOperation {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                BlameScriptOperation::InitRepository => write!(
+                BlameScriptOperation::InitRepository(asset_dir) => write!(
                     f,
                     r"#!/bin/sh
 
@@ -149,7 +151,7 @@ set -e
 
 git init
 echo .gitignore >> .gitignore
-echo assets/ >> .gitignore
+echo {asset_dir}/ >> .gitignore
 echo create-history.sh >> .gitignore
 
 "
@@ -160,7 +162,7 @@ echo create-history.sh >> .gitignore
 git rm {src}
 "
                 ),
-                BlameScriptOperation::CommitFile(src, commit_id) => {
+                BlameScriptOperation::CommitFile(asset_dir, src, commit_id) => {
                     writeln!(f, r"# make file {src} contain content at commit {commit_id}")?;
                     if let Some(pos) = src.rfind_byte(b'/') {
                         let dirname = src[..pos].as_bstr();
@@ -168,8 +170,7 @@ git rm {src}
                     }
                     write!(
                         f,
-                        r"#
-cp ./assets/{commit_id}.commit ./{src}
+                        r"cp ./{asset_dir}/{commit_id}.commit ./{src}
 git add {src}
 git commit -m {commit_id}
 "
@@ -194,17 +195,19 @@ git commit -m {commit_id}
         blame_infos: Vec<BlamePathEntry>,
         seen: BTreeSet<ObjectId>,
         script: Vec<BlameScriptOperation>,
+        asset_dir: BString,
         options: Options,
     }
 
     impl BlameScript {
-        fn new(blame_infos: Vec<BlamePathEntry>, options: Options) -> Self {
-            let script = vec![BlameScriptOperation::InitRepository];
+        fn new(blame_infos: Vec<BlamePathEntry>, asset_dir: BString, options: Options) -> Self {
+            let script = vec![BlameScriptOperation::InitRepository(asset_dir.clone())];
 
             Self {
                 blame_infos,
                 seen: BTreeSet::default(),
                 script,
+                asset_dir,
                 options,
             }
         }
@@ -265,7 +268,8 @@ git commit -m {commit_id}
                 if let Some(delete_previous_file_operation) = delete_previous_file_operation {
                     self.script.push(delete_previous_file_operation);
                 }
-                self.script.push(BlameScriptOperation::CommitFile(src, commit_id));
+                self.script
+                    .push(BlameScriptOperation::CommitFile(self.asset_dir.clone(), src, commit_id));
             } else {
                 let ([first], rest) = parents.split_at(1) else {
                     unreachable!();
@@ -277,7 +281,8 @@ git commit -m {commit_id}
                     if let Some(delete_previous_file_operation) = delete_previous_file_operation {
                         self.script.push(delete_previous_file_operation);
                     }
-                    self.script.push(BlameScriptOperation::CommitFile(src, commit_id));
+                    self.script
+                        .push(BlameScriptOperation::CommitFile(self.asset_dir.clone(), src, commit_id));
                 } else {
                     self.script.push(BlameScriptOperation::PrepareMerge(
                         rest.iter().map(|blame_path_entry| blame_path_entry.commit_id).collect(),
@@ -286,7 +291,8 @@ git commit -m {commit_id}
                     if let Some(delete_previous_file_operation) = delete_previous_file_operation {
                         self.script.push(delete_previous_file_operation);
                     }
-                    self.script.push(BlameScriptOperation::CommitFile(src, commit_id));
+                    self.script
+                        .push(BlameScriptOperation::CommitFile(self.asset_dir.clone(), src, commit_id));
                 }
             }
 
