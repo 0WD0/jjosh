@@ -334,6 +334,37 @@ fn diff_disparity() {
 }
 
 #[test]
+fn file_that_was_added_in_two_branches() -> gix_testtools::Result {
+    let worktree_path = gix_testtools::scripted_fixture_read_only("make_blame_two_roots_repo.sh")?;
+
+    let Fixture {
+        odb,
+        mut resource_cache,
+        suspect,
+    } = Fixture::for_worktree_path(worktree_path.to_path_buf())?;
+
+    let source_file_name = "file-with-two-roots.txt";
+    let lines_blamed = gix_blame::file(
+        &odb,
+        suspect,
+        None,
+        &mut resource_cache,
+        source_file_name.into(),
+        gix_blame::Options::default(),
+    )?
+    .entries;
+
+    assert_eq!(lines_blamed.len(), 4);
+
+    let git_dir = worktree_path.join(".git");
+    let baseline = Baseline::collect(git_dir.join("file-with-two-roots.baseline"), source_file_name.into())?;
+
+    pretty_assertions::assert_eq!(lines_blamed, baseline);
+
+    Ok(())
+}
+
+#[test]
 fn since() -> gix_testtools::Result {
     let Fixture {
         odb,
