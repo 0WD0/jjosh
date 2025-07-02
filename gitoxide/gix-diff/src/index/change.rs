@@ -82,6 +82,12 @@ impl ChangeRef<'_, '_> {
     /// Return all shared fields among all variants: `(location, index, entry_mode, id)`
     ///
     /// In case of rewrites, the fields return to the current change.
+    ///
+    /// Note that there are also more specific accessors in case you only need to access to one of
+    /// these fields individually.
+    ///
+    /// See [`ChangeRef::location()`], [`ChangeRef::index()`], [`ChangeRef::entry_mode()`] and
+    /// [`ChangeRef::id()`].
     pub fn fields(&self) -> (&BStr, usize, gix_index::entry::Mode, &gix_hash::oid) {
         match self {
             ChangeRef::Addition {
