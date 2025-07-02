@@ -77,6 +77,10 @@ pub(super) mod _impl {
 
     use super::{ConsumeHunk, ContextSize, NewlineSeparator};
 
+    const CONTEXT: char = ' ';
+    const ADDITION: char = '+';
+    const REMOVAL: char = '-';
+
     /// A [`Sink`] that creates a textual diff in the format typically output by git or `gnu-diff` if the `-u` option is used,
     /// and passes it in full to a consumer.
     pub struct UnifiedDiff<'a, T, D>
@@ -88,18 +92,25 @@ pub(super) mod _impl {
         after: &'a [Token],
         interner: &'a Interner<T>,
 
-        pos: u32,
+        /// The 0-based start position in the 'before' tokens for the accumulated hunk for display in the header.
         before_hunk_start: u32,
-        after_hunk_start: u32,
+        /// The size of the accumulated 'before' hunk in lines for display in the header.
         before_hunk_len: u32,
+        /// The 0-based start position in the 'after' tokens for the accumulated hunk for display in the header.
+        after_hunk_start: u32,
+        /// The size of the accumulated 'after' hunk in lines.
         after_hunk_len: u32,
+        // An index into `before` and the context line to print next,
+        // or `None` if this value was never computed to be the correct starting point for an accumulated hunk.
+        ctx_pos: Option<u32>,
+
         /// Symmetrical context before and after the changed hunk.
         ctx_size: u32,
+        newline: NewlineSeparator<'a>,
 
         buffer: Vec<u8>,
         header_buf: String,
         delegate: D,
-        newline: NewlineSeparator<'a>,
 
         err: Option<std::io::Error>,
     }
@@ -122,19 +133,22 @@ pub(super) mod _impl {
             context_size: ContextSize,
         ) -> Self {
             Self {
-                before_hunk_start: 0,
-                after_hunk_start: 0,
-                before_hunk_len: 0,
-                after_hunk_len: 0,
-                buffer: Vec::with_capacity(8),
-                header_buf: String::new(),
-                delegate: consume_hunk,
                 interner: &input.interner,
                 before: &input.before,
                 after: &input.after,
-                pos: 0,
+
+                before_hunk_start: 0,
+                before_hunk_len: 0,
+                after_hunk_len: 0,
+                after_hunk_start: 0,
+                ctx_pos: None,
+
                 ctx_size: context_size.symmetrical,
                 newline: newline_separator,
+
+                buffer: Vec::with_capacity(8),
+                header_buf: String::new(),
+                delegate: consume_hunk,
 
                 err: None,
             }
@@ -158,23 +172,25 @@ pub(super) mod _impl {
             }
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            if self.before_hunk_len == 0 && self.after_hunk_len == 0 {
+        fn flush_accumulated_hunk(&mut self) -> std::io::Result<()> {
+            if self.nothing_to_flush() {
                 return Ok(());
             }
 
-            let end = (self.pos + self.ctx_size).min(self.before.len() as u32);
-            self.update_pos(end, end);
+            let ctx_pos = self.ctx_pos.expect("has been set if we started a hunk");
+            let end = (ctx_pos + self.ctx_size).min(self.before.len() as u32);
+            self.print_context_and_update_pos(ctx_pos..end, end);
 
+            let hunk_start = self.before_hunk_start + 1;
+            let hunk_end = self.after_hunk_start + 1;
             self.header_buf.clear();
-
             std::fmt::Write::write_fmt(
                 &mut self.header_buf,
                 format_args!(
                     "@@ -{},{} +{},{} @@{nl}",
-                    self.before_hunk_start + 1,
+                    hunk_start,
                     self.before_hunk_len,
-                    self.after_hunk_start + 1,
+                    hunk_end,
                     self.after_hunk_len,
                     nl = match self.newline {
                         NewlineSeparator::AfterHeaderAndLine(nl) | NewlineSeparator::AfterHeaderAndWhenNeeded(nl) => {
@@ -185,25 +201,34 @@ pub(super) mod _impl {
             )
             .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
             self.delegate.consume_hunk(
-                self.before_hunk_start + 1,
+                hunk_start,
                 self.before_hunk_len,
-                self.after_hunk_start + 1,
+                hunk_end,
                 self.after_hunk_len,
                 &self.header_buf,
                 &self.buffer,
             )?;
-            self.buffer.clear();
-            self.before_hunk_len = 0;
-            self.after_hunk_len = 0;
+
+            self.reset_hunks();
             Ok(())
         }
 
-        fn update_pos(&mut self, print_to: u32, move_to: u32) {
-            self.print_tokens(&self.before[self.pos as usize..print_to as usize], ' ');
-            let len = print_to - self.pos;
-            self.pos = move_to;
+        fn print_context_and_update_pos(&mut self, print: Range<u32>, move_to: u32) {
+            self.print_tokens(&self.before[print.start as usize..print.end as usize], CONTEXT);
+            let len = print.end - print.start;
+            self.ctx_pos = Some(move_to);
             self.before_hunk_len += len;
             self.after_hunk_len += len;
+        }
+
+        fn reset_hunks(&mut self) {
+            self.buffer.clear();
+            self.before_hunk_len = 0;
+            self.after_hunk_len = 0;
+        }
+
+        fn nothing_to_flush(&self) -> bool {
+            self.before_hunk_len == 0 && self.after_hunk_len == 0
         }
     }
 
@@ -218,24 +243,39 @@ pub(super) mod _impl {
             if self.err.is_some() {
                 return;
             }
-            if before.start - self.pos > 2 * self.ctx_size {
-                if let Err(err) = self.flush() {
+            let start_next_hunk = self
+                .ctx_pos
+                .is_some_and(|ctx_pos| before.start - ctx_pos > 2 * self.ctx_size);
+            if start_next_hunk {
+                if let Err(err) = self.flush_accumulated_hunk() {
                     self.err = Some(err);
                     return;
                 }
-                self.pos = before.start - self.ctx_size;
-                self.before_hunk_start = self.pos;
+                let ctx_pos = before.start - self.ctx_size;
+                self.ctx_pos = Some(ctx_pos);
+                self.before_hunk_start = ctx_pos;
                 self.after_hunk_start = after.start - self.ctx_size;
             }
-            self.update_pos(before.start, before.end);
+            let ctx_pos = match self.ctx_pos {
+                None => {
+                    // TODO: can this be made so the code above does the job?
+                    let ctx_pos = before.start.saturating_sub(self.ctx_size);
+                    self.before_hunk_start = ctx_pos;
+                    self.after_hunk_start = after.start.saturating_sub(self.ctx_size);
+                    ctx_pos
+                }
+                Some(pos) => pos,
+            };
+            self.print_context_and_update_pos(ctx_pos..before.start, before.end);
             self.before_hunk_len += before.end - before.start;
             self.after_hunk_len += after.end - after.start;
-            self.print_tokens(&self.before[before.start as usize..before.end as usize], '-');
-            self.print_tokens(&self.after[after.start as usize..after.end as usize], '+');
+
+            self.print_tokens(&self.before[before.start as usize..before.end as usize], REMOVAL);
+            self.print_tokens(&self.after[after.start as usize..after.end as usize], ADDITION);
         }
 
         fn finish(mut self) -> Self::Out {
-            if let Err(err) = self.flush() {
+            if let Err(err) = self.flush_accumulated_hunk() {
                 self.err = Some(err);
             }
             if let Some(err) = self.err {
