@@ -171,6 +171,125 @@ fn context_overlap_by_one_line_move_down() -> crate::Result {
 }
 
 #[test]
+fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
+    let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let b = "1\n2\n3\n4\n4.5\n5\n6\n7\n8\n9\n10";
+
+    let a = gix_diff::blob::sources::lines_with_terminator(a);
+    let b = gix_diff::blob::sources::lines_with_terminator(b);
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+    // TODO: fix this
+    insta::assert_snapshot!(actual, @r"
+    @@ -2,6 +2,7 @@
+     2
+     3
+     4
+    +4.5
+     5
+     6
+     7
+    ");
+
+    let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let b = "1\n2\n3\n4\n5\n6\n6.5\n7\n8\n9\n10";
+
+    let a = gix_diff::blob::sources::lines_with_terminator(a);
+    let b = gix_diff::blob::sources::lines_with_terminator(b);
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+
+    insta::assert_snapshot!(actual, @r"
+    @@ -4,6 +4,7 @@
+     4
+     5
+     6
+    +6.5
+     7
+     8
+     9
+    ");
+    let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let b = "1\n2\n3\n3.5\n4\n5\n6\n7\n8\n9\n10";
+
+    let a = gix_diff::blob::sources::lines_with_terminator(a);
+    let b = gix_diff::blob::sources::lines_with_terminator(b);
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+
+    insta::assert_snapshot!(actual, @r"
+    @@ -1,6 +1,7 @@
+     1
+     2
+     3
+    +3.5
+     4
+     5
+     6
+    ");
+
+    // From the end, for good measure
+    let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let b = "1\n2\n3\n4\n5\n6\n7\n7.5\n8\n9\n10";
+
+    let a = gix_diff::blob::sources::lines_with_terminator(a);
+    let b = gix_diff::blob::sources::lines_with_terminator(b);
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            String::new(),
+            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+    insta::assert_snapshot!(actual, @r"
+    @@ -5,6 +5,7 @@
+     5
+     6
+     7
+    +7.5
+     8
+     9
+     10
+    ");
+    Ok(())
+}
+
+#[test]
 fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
