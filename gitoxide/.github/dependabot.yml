@@ -9,6 +9,12 @@ updates:
       prefix: ''
     allow:
       - dependency-type: all
+    ignore:
+      # Keep imara-diff at 0.1.* for now (see comments in #2068).
+      - dependency-name: imara-diff
+        update-types:
+          - 'version-update:semver-major'
+          - 'version-update:semver-minor'
     groups:
       cargo:
         patterns: ['*']
