@@ -114,6 +114,46 @@ impl ChangeRef<'_, '_> {
             } => (location.as_ref(), *index, *entry_mode, id),
         }
     }
+
+    /// Return the `location`, in the case of rewrites referring to the current change.
+    pub fn location(&self) -> &BStr {
+        match self {
+            ChangeRef::Addition { location, .. }
+            | ChangeRef::Deletion { location, .. }
+            | ChangeRef::Modification { location, .. }
+            | ChangeRef::Rewrite { location, .. } => location.as_ref(),
+        }
+    }
+
+    /// Return the `index`, in the case of rewrites referring to the current change.
+    pub fn index(&self) -> usize {
+        match self {
+            ChangeRef::Addition { index, .. }
+            | ChangeRef::Deletion { index, .. }
+            | ChangeRef::Modification { index, .. }
+            | ChangeRef::Rewrite { index, .. } => *index,
+        }
+    }
+
+    /// Return the `entry_mode`, in the case of rewrites referring to the current change.
+    pub fn entry_mode(&self) -> gix_index::entry::Mode {
+        match self {
+            ChangeRef::Addition { entry_mode, .. }
+            | ChangeRef::Deletion { entry_mode, .. }
+            | ChangeRef::Modification { entry_mode, .. }
+            | ChangeRef::Rewrite { entry_mode, .. } => *entry_mode,
+        }
+    }
+
+    /// Return the `id`, in the case of rewrites referring to the current change.
+    pub fn id(&self) -> &gix_hash::oid {
+        match self {
+            ChangeRef::Addition { id, .. }
+            | ChangeRef::Deletion { id, .. }
+            | ChangeRef::Modification { id, .. }
+            | ChangeRef::Rewrite { id, .. } => id,
+        }
+    }
 }
 
 impl rewrites::tracker::Change for ChangeRef<'_, '_> {

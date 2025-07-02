@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use gix_diff::{
     index::Change,
     rewrites::{Copies, CopySource},
@@ -313,8 +315,27 @@ fn renames_by_similarity_with_limit() -> crate::Result {
         0,
         "fuzzy tracking is effectively disabled due to limit"
     );
-    let actual: Vec<_> = changes.iter().map(|c| c.fields().0).collect();
-    assert_eq!(actual, ["f1", "f1-renamed", "f2", "f2-renamed"]);
+    let actual_locations: Vec<_> = changes.iter().map(|c| c.location()).collect();
+    assert_eq!(actual_locations, ["f1", "f1-renamed", "f2", "f2-renamed"]);
+
+    let actual_indices: Vec<_> = changes.iter().map(|c| c.index()).collect();
+    assert_eq!(actual_indices, [6, 6, 7, 7]);
+
+    use gix_index::entry::Mode;
+
+    let actual_entry_modes: Vec<_> = changes.iter().map(|c| c.entry_mode()).collect();
+    assert_eq!(actual_entry_modes, [Mode::FILE, Mode::FILE, Mode::FILE, Mode::FILE]);
+
+    let actual_ids: Vec<_> = changes.iter().map(|c| c.id()).collect();
+    assert_eq!(
+        actual_ids,
+        [
+            gix_hash::ObjectId::from_str("f00c965d8307308469e537302baa73048488f162")?,
+            gix_hash::ObjectId::from_str("683cfcc0f47566c332aa45d81c5cc98acb4aab49")?,
+            gix_hash::ObjectId::from_str("3bb459b831ea471b9cd1cbb7c6d54a74251a711b")?,
+            gix_hash::ObjectId::from_str("0a805f8e02d72bd354c1f00607906de2e49e00d6")?,
+        ]
+    );
 
     let out = out.expect("tracking enabled");
     assert_eq!(out.num_similarity_checks, 0);
@@ -481,7 +502,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         0,
         "needs --find-copies-harder to detect rewrites here"
     );
-    let actual: Vec<_> = changes.iter().map(|c| c.fields().0).collect();
+    let actual: Vec<_> = changes.iter().map(|c| c.location()).collect();
     assert_eq!(actual, ["b", "c6", "c7", "newly-added"]);
 
     let out = out.expect("tracking enabled");
