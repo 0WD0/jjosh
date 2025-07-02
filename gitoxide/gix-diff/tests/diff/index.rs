@@ -315,18 +315,21 @@ fn renames_by_similarity_with_limit() -> crate::Result {
         0,
         "fuzzy tracking is effectively disabled due to limit"
     );
-    let actual_locations: Vec<_> = changes.iter().map(|c| c.location()).collect();
+
+    use gix_diff::index::ChangeRef;
+
+    let actual_locations: Vec<_> = changes.iter().map(ChangeRef::location).collect();
     assert_eq!(actual_locations, ["f1", "f1-renamed", "f2", "f2-renamed"]);
 
-    let actual_indices: Vec<_> = changes.iter().map(|c| c.index()).collect();
+    let actual_indices: Vec<_> = changes.iter().map(ChangeRef::index).collect();
     assert_eq!(actual_indices, [6, 6, 7, 7]);
 
     use gix_index::entry::Mode;
 
-    let actual_entry_modes: Vec<_> = changes.iter().map(|c| c.entry_mode()).collect();
+    let actual_entry_modes: Vec<_> = changes.iter().map(ChangeRef::entry_mode).collect();
     assert_eq!(actual_entry_modes, [Mode::FILE, Mode::FILE, Mode::FILE, Mode::FILE]);
 
-    let actual_ids: Vec<_> = changes.iter().map(|c| c.id()).collect();
+    let actual_ids: Vec<_> = changes.iter().map(ChangeRef::id).collect();
     assert_eq!(
         actual_ids,
         [
@@ -502,7 +505,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         0,
         "needs --find-copies-harder to detect rewrites here"
     );
-    let actual: Vec<_> = changes.iter().map(|c| c.location()).collect();
+    let actual: Vec<_> = changes.iter().map(gix_diff::index::ChangeRef::location).collect();
     assert_eq!(actual, ["b", "c6", "c7", "newly-added"]);
 
     let out = out.expect("tracking enabled");
