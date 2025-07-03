@@ -135,7 +135,7 @@ impl Item {
     pub fn location(&self) -> &BStr {
         match self {
             Item::IndexWorktree(change) => change.rela_path(),
-            Item::TreeIndex(change) => change.fields().0,
+            Item::TreeIndex(change) => change.location(),
         }
     }
 }

@@ -82,6 +82,12 @@ impl ChangeRef<'_, '_> {
     /// Return all shared fields among all variants: `(location, index, entry_mode, id)`
     ///
     /// In case of rewrites, the fields return to the current change.
+    ///
+    /// Note that there are also more specific accessors in case you only need to access to one of
+    /// these fields individually.
+    ///
+    /// See [`ChangeRef::location()`], [`ChangeRef::index()`], [`ChangeRef::entry_mode()`] and
+    /// [`ChangeRef::id()`].
     pub fn fields(&self) -> (&BStr, usize, gix_index::entry::Mode, &gix_hash::oid) {
         match self {
             ChangeRef::Addition {
@@ -112,6 +118,46 @@ impl ChangeRef<'_, '_> {
                 id,
                 ..
             } => (location.as_ref(), *index, *entry_mode, id),
+        }
+    }
+
+    /// Return the `location`, in the case of rewrites referring to the current change.
+    pub fn location(&self) -> &BStr {
+        match self {
+            ChangeRef::Addition { location, .. }
+            | ChangeRef::Deletion { location, .. }
+            | ChangeRef::Modification { location, .. }
+            | ChangeRef::Rewrite { location, .. } => location.as_ref(),
+        }
+    }
+
+    /// Return the `index`, in the case of rewrites referring to the current change.
+    pub fn index(&self) -> usize {
+        match self {
+            ChangeRef::Addition { index, .. }
+            | ChangeRef::Deletion { index, .. }
+            | ChangeRef::Modification { index, .. }
+            | ChangeRef::Rewrite { index, .. } => *index,
+        }
+    }
+
+    /// Return the `entry_mode`, in the case of rewrites referring to the current change.
+    pub fn entry_mode(&self) -> gix_index::entry::Mode {
+        match self {
+            ChangeRef::Addition { entry_mode, .. }
+            | ChangeRef::Deletion { entry_mode, .. }
+            | ChangeRef::Modification { entry_mode, .. }
+            | ChangeRef::Rewrite { entry_mode, .. } => *entry_mode,
+        }
+    }
+
+    /// Return the `id`, in the case of rewrites referring to the current change.
+    pub fn id(&self) -> &gix_hash::oid {
+        match self {
+            ChangeRef::Addition { id, .. }
+            | ChangeRef::Deletion { id, .. }
+            | ChangeRef::Modification { id, .. }
+            | ChangeRef::Rewrite { id, .. } => id,
         }
     }
 }
