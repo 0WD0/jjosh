@@ -100,6 +100,9 @@ pub enum Subcommands {
     /// Interact with commit objects.
     #[clap(subcommand)]
     Commit(commit::Subcommands),
+    /// Interact with tag objects.
+    #[clap(visible_alias = "tags")]
+    Tag(tag::Platform),
     /// Verify the integrity of the entire repository
     Verify {
         #[clap(flatten)]
@@ -925,6 +928,20 @@ pub mod commit {
             /// A specification of the revision to use, or the current `HEAD` if unset.
             rev_spec: Option<String>,
         },
+    }
+}
+
+pub mod tag {
+    #[derive(Debug, clap::Parser)]
+    pub struct Platform {
+        #[clap(subcommand)]
+        pub cmds: Option<Subcommands>,
+    }
+
+    #[derive(Debug, clap::Subcommand)]
+    pub enum Subcommands {
+        /// List all tags.
+        List,
     }
 }
 
