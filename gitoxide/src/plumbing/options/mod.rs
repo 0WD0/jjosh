@@ -101,8 +101,8 @@ pub enum Subcommands {
     #[clap(subcommand)]
     Commit(commit::Subcommands),
     /// Interact with tag objects.
-    #[clap(subcommand)]
-    Tag(tag::Subcommands),
+    #[clap(visible_alias = "tags")]
+    Tag(tag::Platform),
     /// Verify the integrity of the entire repository
     Verify {
         #[clap(flatten)]
@@ -932,6 +932,12 @@ pub mod commit {
 }
 
 pub mod tag {
+    #[derive(Debug, clap::Parser)]
+    pub struct Platform {
+        #[clap(subcommand)]
+        pub cmds: Option<Subcommands>,
+    }
+
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
         /// List all tags.

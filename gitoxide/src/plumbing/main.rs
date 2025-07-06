@@ -1304,8 +1304,8 @@ pub fn main() -> Result<()> {
                 },
             ),
         },
-        Subcommands::Tag(cmd) => match cmd {
-            tag::Subcommands::List => prepare_and_run(
+        Subcommands::Tag(platform) => match platform.cmds {
+            Some(tag::Subcommands::List) | None => prepare_and_run(
                 "tag-list",
                 trace,
                 auto_verbose,
