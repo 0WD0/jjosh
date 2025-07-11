@@ -166,7 +166,7 @@ pub enum Category<'a> {
     RemoteBranch,
     /// A tag in `refs/notes`
     Note,
-    /// Something outside of `ref/` in the current worktree, typically `HEAD`.
+    /// Something outside `ref/` in the current worktree, typically `HEAD`.
     PseudoRef,
     /// A `PseudoRef`, but referenced so that it will always refer to the main worktree by
     /// prefixing it with `main-worktree/`.

@@ -22,10 +22,9 @@ impl SortedLoosePaths {
         base: PathBuf,
         prefix: Option<BString>,
         suffix: Option<BString>,
-        root_only: bool,
         precompose_unicode: bool,
     ) -> Self {
-        let depth = if root_only { 1 } else { usize::MAX };
+        let depth = if suffix.is_some() { 1 } else { usize::MAX };
         SortedLoosePaths {
             base,
             prefix,

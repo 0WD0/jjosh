@@ -72,8 +72,8 @@ impl Platform<'_> {
 
     // TODO: tests
     /// Return an iterator over all local pseudo references.
-    pub fn pseudo_refs(&self) -> Result<Iter<'_>, init::Error> {
-        Ok(Iter::new(self.repo, self.platform.psuedo_refs()?))
+    pub fn pseudo(&self) -> Result<Iter<'_>, init::Error> {
+        Ok(Iter::new(self.repo, self.platform.pseudo()?))
     }
 
     // TODO: tests

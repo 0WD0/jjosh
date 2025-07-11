@@ -208,9 +208,12 @@ pub mod walkdir {
     ///
     /// Use `precompose_unicode` to represent the `core.precomposeUnicode` configuration option.
     /// Use `max_depth` to limit the depth of the recursive walk.
-    ///   * 0 -> Returns only the root path with no children
-    ///   * 1 -> Root directory and children.
-    ///   * 2..n -> Root directory, children and {n}-grandchildren
+    ///   * `0`
+    ///       - Returns only the root path with no children
+    ///   * `1`
+    ///       - Root directory and children.
+    ///   * `1..n`
+    ///       - Root directory, children and {n}-grandchildren
     pub fn walkdir_sorted_new(root: &Path, _: Parallelism, max_depth: usize, precompose_unicode: bool) -> WalkDir {
         WalkDir {
             inner: WalkDirImpl::new(root)
