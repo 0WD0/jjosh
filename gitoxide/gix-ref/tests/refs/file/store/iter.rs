@@ -1,9 +1,8 @@
-use gix_object::bstr::ByteSlice;
-
 use crate::{
     file::{store, store_at, store_with_packed_refs},
     hex_to_id,
 };
+use gix_object::bstr::ByteSlice;
 
 mod with_namespace {
     use gix_object::bstr::{BString, ByteSlice};
@@ -254,6 +253,20 @@ fn no_packed_available_thus_no_iteration_possible() -> crate::Result {
 fn packed_file_iter() -> crate::Result {
     let store = store_with_packed_refs()?;
     assert_eq!(store.open_packed_buffer()?.expect("pack available").iter()?.count(), 11);
+    Ok(())
+}
+
+#[test]
+fn pseudo_refs_iter() -> crate::Result {
+    let store = store_at("make_pseudo_ref_repository.sh")?;
+
+    let actual = store
+        .iter_pseudo()?
+        .map(Result::unwrap)
+        .map(|r: gix_ref::Reference| r.name.as_bstr().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, ["FETCH_HEAD", "HEAD", "JIRI_HEAD"]);
     Ok(())
 }
 

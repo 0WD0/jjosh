@@ -1,3 +1,5 @@
+use gix_object::bstr::ByteSlice;
+use gix_path::RelativePath;
 use std::{
     borrow::Cow,
     cmp::Ordering,
@@ -6,11 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gix_object::bstr::ByteSlice;
-use gix_path::RelativePath;
-
 use crate::{
-    file::{loose, loose::iter::SortedLoosePaths},
+    file::loose::{self, iter::SortedLoosePaths},
     store_impl::{file, packed},
     BStr, FullName, Namespace, Reference,
 };
@@ -85,25 +84,25 @@ impl<'p> LooseThenPacked<'p, '_> {
     }
 
     fn convert_loose(&mut self, res: std::io::Result<(PathBuf, FullName)>) -> Result<Reference, Error> {
+        let buf = &mut self.buf;
+        let git_dir = self.git_dir;
+        let common_dir = self.common_dir;
         let (refpath, name) = res.map_err(Error::Traversal)?;
         std::fs::File::open(&refpath)
             .and_then(|mut f| {
-                self.buf.clear();
-                f.read_to_end(&mut self.buf)
+                buf.clear();
+                f.read_to_end(buf)
             })
             .map_err(|err| Error::ReadFileContents {
                 source: err,
                 path: refpath.to_owned(),
             })?;
-        loose::Reference::try_from_path(name, &self.buf)
+        loose::Reference::try_from_path(name, buf)
             .map_err(|err| {
                 let relative_path = refpath
-                    .strip_prefix(self.git_dir)
+                    .strip_prefix(git_dir)
                     .ok()
-                    .or_else(|| {
-                        self.common_dir
-                            .and_then(|common_dir| refpath.strip_prefix(common_dir).ok())
-                    })
+                    .or_else(|| common_dir.and_then(|common_dir| refpath.strip_prefix(common_dir).ok()))
                     .expect("one of our bases contains the path");
                 Error::ReferenceCreation {
                     source: err,
@@ -191,9 +190,9 @@ impl Iterator for LooseThenPacked<'_, '_> {
 }
 
 impl Platform<'_> {
-    /// Return an iterator over all references, loose or `packed`, sorted by their name.
+    /// Return an iterator over all references, loose or packed, sorted by their name.
     ///
-    /// Errors are returned similarly to what would happen when loose and packed refs where iterated by themselves.
+    /// Errors are returned similarly to what would happen when loose and packed refs were iterated by themselves.
     pub fn all(&self) -> std::io::Result<LooseThenPacked<'_, '_>> {
         self.store.iter_packed(self.packed.as_ref().map(|b| &***b))
     }
@@ -210,12 +209,18 @@ impl Platform<'_> {
         self.store
             .iter_prefixed_packed(prefix, self.packed.as_ref().map(|b| &***b))
     }
+
+    /// Return an iterator over the pseudo references, like `HEAD` or `FETCH_HEAD`, or anything else suffixed with `HEAD`
+    /// in the root of the `.git` directory, sorted by name.
+    pub fn pseudo(&self) -> std::io::Result<LooseThenPacked<'_, '_>> {
+        self.store.iter_pseudo()
+    }
 }
 
 impl file::Store {
     /// Return a platform to obtain iterator over all references, or prefixed ones, loose or packed, sorted by their name.
     ///
-    /// Errors are returned similarly to what would happen when loose and packed refs where iterated by themselves.
+    /// Errors are returned similarly to what would happen when loose and packed refs were iterated by themselves.
     ///
     /// Note that since packed-refs are storing refs as precomposed unicode if [`Self::precompose_unicode`] is true, for consistency
     /// we also return loose references as precomposed unicode.
@@ -254,6 +259,10 @@ pub(crate) enum IterInfo<'a> {
         /// If `true`, we will convert decomposed into precomposed unicode.
         precompose_unicode: bool,
     },
+    Pseudo {
+        base: &'a Path,
+        precompose_unicode: bool,
+    },
 }
 
 impl<'a> IterInfo<'a> {
@@ -263,6 +272,7 @@ impl<'a> IterInfo<'a> {
             IterInfo::PrefixAndBase { prefix, .. } => Some(gix_path::into_bstr(*prefix)),
             IterInfo::BaseAndIterRoot { prefix, .. } => Some(gix_path::into_bstr(prefix.clone())),
             IterInfo::ComputedIterationRoot { prefix, .. } => Some(prefix.clone()),
+            IterInfo::Pseudo { .. } => None,
         }
     }
 
@@ -271,24 +281,34 @@ impl<'a> IterInfo<'a> {
             IterInfo::Base {
                 base,
                 precompose_unicode,
-            } => SortedLoosePaths::at(&base.join("refs"), base.into(), None, precompose_unicode),
+            } => SortedLoosePaths::at(&base.join("refs"), base.into(), None, None, precompose_unicode),
             IterInfo::BaseAndIterRoot {
                 base,
                 iter_root,
                 prefix: _,
                 precompose_unicode,
-            } => SortedLoosePaths::at(&iter_root, base.into(), None, precompose_unicode),
+            } => SortedLoosePaths::at(&iter_root, base.into(), None, None, precompose_unicode),
             IterInfo::PrefixAndBase {
                 base,
                 prefix,
                 precompose_unicode,
-            } => SortedLoosePaths::at(&base.join(prefix), base.into(), None, precompose_unicode),
+            } => SortedLoosePaths::at(&base.join(prefix), base.into(), None, None, precompose_unicode),
             IterInfo::ComputedIterationRoot {
                 iter_root,
                 base,
                 prefix,
                 precompose_unicode,
-            } => SortedLoosePaths::at(&iter_root, base.into(), Some(prefix.into_owned()), precompose_unicode),
+            } => SortedLoosePaths::at(
+                &iter_root,
+                base.into(),
+                Some(prefix.into_owned()),
+                None,
+                precompose_unicode,
+            ),
+            IterInfo::Pseudo {
+                base,
+                precompose_unicode,
+            } => SortedLoosePaths::at(base, base.into(), None, Some("HEAD".into()), precompose_unicode),
         }
         .peekable()
     }
@@ -321,7 +341,7 @@ impl<'a> IterInfo<'a> {
 impl file::Store {
     /// Return an iterator over all references, loose or `packed`, sorted by their name.
     ///
-    /// Errors are returned similarly to what would happen when loose and packed refs where iterated by themselves.
+    /// Errors are returned similarly to what would happen when loose and packed refs were iterated by themselves.
     pub fn iter_packed<'s, 'p>(
         &'s self,
         packed: Option<&'p packed::Buffer>,
@@ -352,6 +372,21 @@ impl file::Store {
                 packed,
             ),
         }
+    }
+
+    /// Return an iterator over the pseudo references, like `HEAD` or `FETCH_HEAD`, or anything else suffixed with `HEAD`
+    /// in the root of the `.git` directory, sorted by name.
+    ///
+    /// Errors are returned similarly to what would happen when loose refs were iterated by themselves.
+    pub fn iter_pseudo<'p>(&'_ self) -> std::io::Result<LooseThenPacked<'p, '_>> {
+        self.iter_from_info(
+            IterInfo::Pseudo {
+                base: self.git_dir(),
+                precompose_unicode: self.precompose_unicode,
+            },
+            None,
+            None,
+        )
     }
 
     /// As [`iter(…)`](file::Store::iter()), but filters by `prefix`, i.e. `refs/heads/` or
