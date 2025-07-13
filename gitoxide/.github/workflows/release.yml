@@ -7,9 +7,16 @@ on:
   push:
     # Enable when testing release infrastructure on a branch.
     # branches:
-     #  - fix-releases
+    #   - fix-releases
     tags:
-      - 'v*'
+    # For now, real releases always use `workflow_dispatch`, and running the workflow on tag pushes
+    # is only done in testing. This is because we usually push too many tags at once for the `push`
+    # event to be triggered, since there are usually more than 3 crates tagged together. So the
+    # `push` trigger doesn't usually work. If we allow it, we risk running the workflow twice if
+    # it is also manually triggered based on the assumption that it would not run. See #1970 for
+    # details. See also the `run-release-workflow` and `roll-release` recipes in the `justfile`.
+    # - 'v*'
+      - 'v*-DO-NOT-USE'  # Pattern for tags used to test the workflow (usually done in a fork).
   workflow_dispatch:
 
 permissions:
