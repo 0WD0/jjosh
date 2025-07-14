@@ -295,3 +295,20 @@ check-mode:
 # Delete `gix-packetline-blocking/src` and regenerate from `gix-packetline/src`
 copy-packetline:
     etc/copy-packetline.sh
+
+# Get the unique `v*` tag at `HEAD`, or fail with an error
+unique-v-tag:
+    etc/unique-v-tag.sh
+
+# Trigger the `release.yml` workflow on the current `v*` tag
+run-release-workflow repo='':
+    optional_repo_arg={{ quote(repo) }} && \
+        export GH_REPO="${optional_repo_arg:-"${GH_REPO:-GitoxideLabs/gitoxide}"}" && \
+        tag_name="$({{ j }} unique-v-tag)" && \
+        printf 'Running release.yml in %s repo for %s tag.\n' "$GH_REPO" "$tag_name" && \
+        gh workflow run release.yml --ref "refs/tags/$tag_name"
+
+# Run `cargo smart-release` and then trigger `release.yml` for the `v*` tag
+roll-release *csr-args:
+    cargo smart-release {{ csr-args }}
+    {{ j }} run-release-workflow
