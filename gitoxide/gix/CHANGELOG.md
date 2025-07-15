@@ -5,13 +5,128 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.73.0 (2025-07-15)
+
+<csr-id-b7c1f2c25c7485095022fec290492aa4b7c5c5a2/>
+
+### New Features
+
+ - <csr-id-2affbab7491d6b4667572d4d17db864c5b703c7a/> add `repo.references().pseudo()` for traversing refs like `HEAD` and `FETCH_HEAD`.
+ - <csr-id-d7db360d5b42ec9d2b4d9977f7b7bee0f6cc4d58/> add `Repository::committer_or_set_generic_fallback()`.
+   That way one can always obtain a committer, even though it might
+   not represent the entity actually committing.
+ - <csr-id-a9befb284dc17d3656cf83859836bc221a42d67e/> add `revision::walk::Platform::hide()`.
+   This finally makes safe traversals possible and is what most people would want to use
+   instead of `boundary()`.
+ - <csr-id-85a24b3a07f08bc83a3ef34c3f07ed00cdbd9fe2/> add `gitoxide.parsePrecious` configuration key to opt-in to precious file parsing.
+ - <csr-id-b985766c9c9c5eb09ea4c4b17be9e380bfdad9b4/> add `Repository::is_empty()` to emulate the similar `git2` API
+ - <csr-id-f687cb16676dcae37db517c5d6905be08cd9395a/> add `Repository::merge_bases_many()` for simplified retrieval of multiple mergebases.
+ - <csr-id-3a5068eb3f9e112cf21c4c6a8bd17aa3081c5edf/> add `tree::EntryRef::to_owned()`.
+   That way it's in a more reasonable spot as sibling to `Entry` and it's clearer how to convert noe into the other.
+ - <csr-id-3ef6b5595f6d71d27a00b178fbe356257fe4b8a5/> add `EntryRef::kind()` as shortcut for `EntryRef::mode().kind()`.
+
+### Bug Fixes
+
+ - <csr-id-427274bdf64d30e3bcd330e849ea067e359588fe/> don't panic if `remote::Connection::ref_map()` doesn't finish the handshake
+ - <csr-id-a75b4a2bc0cc602da336421ebcfda11dd36545b7/> `Repository::branch_remote_ref_name()` won't fail on short names anymore.
+   Instead, these partial names are turned into branch names, which seems more
+   in line with what Git can do.
+ - <csr-id-3f85bf5e97cee359264051bb64357361c7a0f33e/> `strict_config` in conjunction with `GIT_WORK_TREE` no longer triggers an error.
+
+### Other
+
+ - <csr-id-b7c1f2c25c7485095022fec290492aa4b7c5c5a2/> Fixed no_locations options for diffing
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-26ae766b182218151ae4c3f30306b6d41bab358a/> allow querying `Repository::submodules()` in an unborn repository.
+   It's a breaking change merely because the error type changed.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 52 commits contributed to the release over the course of 79 calendar days.
+ - 79 days passed between releases.
+ - 13 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 2 unique issues were worked on: [#1985](https://github.com/GitoxideLabs/gitoxide/issues/1985), [#2055](https://github.com/GitoxideLabs/gitoxide/issues/2055)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#1985](https://github.com/GitoxideLabs/gitoxide/issues/1985)**
+    - `strict_config` in conjunction with `GIT_WORK_TREE` no longer triggers an error. ([`3f85bf5`](https://github.com/GitoxideLabs/gitoxide/commit/3f85bf5e97cee359264051bb64357361c7a0f33e))
+ * **[#2055](https://github.com/GitoxideLabs/gitoxide/issues/2055)**
+    - Don't panic if `remote::Connection::ref_map()` doesn't finish the handshake ([`427274b`](https://github.com/GitoxideLabs/gitoxide/commit/427274bdf64d30e3bcd330e849ea067e359588fe))
+ * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
+    - Merge pull request #2061 from orthros/pseudo-refs ([`60c29a5`](https://github.com/GitoxideLabs/gitoxide/commit/60c29a59302bfc9d0be7aab5dd3ef05e4ee8e3fa))
+    - Refactor ([`43f92b5`](https://github.com/GitoxideLabs/gitoxide/commit/43f92b5285af6696cd21f0e94f3bec568aef8468))
+    - Add `repo.references().pseudo()` for traversing refs like `HEAD` and `FETCH_HEAD`. ([`2affbab`](https://github.com/GitoxideLabs/gitoxide/commit/2affbab7491d6b4667572d4d17db864c5b703c7a))
+    - Merge pull request #2071 from cruessler/add-accessors-to-change-ref ([`5335c84`](https://github.com/GitoxideLabs/gitoxide/commit/5335c84a68739adc5a7db31220037c83b7be2429))
+    - Adapt to changes in `gix-diff` ([`a0cef8b`](https://github.com/GitoxideLabs/gitoxide/commit/a0cef8bd5351acd334459b115c139a9c75e41f55))
+    - Merge pull request #2070 from GitoxideLabs/dependabot/cargo/cargo-827bceb7eb ([`dab97f7`](https://github.com/GitoxideLabs/gitoxide/commit/dab97f7618f160421b6e31de8f3e2f3d11dc2ef2))
+    - Bump the cargo group across 1 directory with 68 updates ([`a9a8ea1`](https://github.com/GitoxideLabs/gitoxide/commit/a9a8ea1472532dde03bce4e0afdfa82924af1f96))
+    - Merge pull request #2065 from cruessler/add-asset-dir-to-blame-copy-royal ([`3f2be40`](https://github.com/GitoxideLabs/gitoxide/commit/3f2be402e20f7642f89721a6a7b9ce7e833dfce7))
+    - Fix CI by not using `-t bad` ([`73a30f8`](https://github.com/GitoxideLabs/gitoxide/commit/73a30f8a91fcf5db1244a9a5388e05f4349b0c2e))
+    - Merge pull request #2062 from rickprice/minor_documentation_fixups ([`c2eb0c1`](https://github.com/GitoxideLabs/gitoxide/commit/c2eb0c144dd21cac87fd08829f4a5ca02f85008d))
+    - Merge pull request #2057 from GitoxideLabs/improvements ([`e8b7a4e`](https://github.com/GitoxideLabs/gitoxide/commit/e8b7a4e9a0d94236af58e693aab2d1b981166704))
+    - Small documentation fixes ([`bfb1c34`](https://github.com/GitoxideLabs/gitoxide/commit/bfb1c34f75997a603b8f85fca75bf9e1ca310be0))
+    - Thanks clippy ([`554ce13`](https://github.com/GitoxideLabs/gitoxide/commit/554ce134bc4b514b52a935f17f57f76ebf23ab97))
+    - `Repository::branch_remote_ref_name()` won't fail on short names anymore. ([`a75b4a2`](https://github.com/GitoxideLabs/gitoxide/commit/a75b4a2bc0cc602da336421ebcfda11dd36545b7))
+    - Merge pull request #2048 from ralphmodales/fetch-without-commiter-config ([`5cf6d05`](https://github.com/GitoxideLabs/gitoxide/commit/5cf6d05e41bf0bf9077be80e158fabc2126d7c7b))
+    - Add `Repository::committer_or_set_generic_fallback()`. ([`d7db360`](https://github.com/GitoxideLabs/gitoxide/commit/d7db360d5b42ec9d2b4d9977f7b7bee0f6cc4d58))
+    - Add committer fallback for fetch ([`62e4bab`](https://github.com/GitoxideLabs/gitoxide/commit/62e4bab024ee1cdefe4026e35098da8fff18fb0d))
+    - Merge pull request #2045 from uberroot4/main ([`298f22e`](https://github.com/GitoxideLabs/gitoxide/commit/298f22ee0086df86e1cae45bcb76cc8b9cad9102))
+    - Fixed no_locations options for diffing ([`b7c1f2c`](https://github.com/GitoxideLabs/gitoxide/commit/b7c1f2c25c7485095022fec290492aa4b7c5c5a2))
+    - Merge pull request #2037 from GitoxideLabs/hide ([`92febae`](https://github.com/GitoxideLabs/gitoxide/commit/92febae025165c55e596d58511b1634fb6580b9c))
+    - Add `revision::walk::Platform::hide()`. ([`a9befb2`](https://github.com/GitoxideLabs/gitoxide/commit/a9befb284dc17d3656cf83859836bc221a42d67e))
+    - Merge pull request #2033 from GitoxideLabs/dependabot/cargo/cargo-b72232998d ([`f8d7c0a`](https://github.com/GitoxideLabs/gitoxide/commit/f8d7c0ad8fa7745c973c6b87e7eee70831300207))
+    - Bump the cargo group with 56 updates ([`151e3a5`](https://github.com/GitoxideLabs/gitoxide/commit/151e3a5cca06444eea4c6a362649e66c831673d6))
+    - Merge pull request #2029 from GitoxideLabs/submodule-all ([`b199c6e`](https://github.com/GitoxideLabs/gitoxide/commit/b199c6eacedad0a0617cfae83541b2e7dfd1cefd))
+    - Add a test to assure `subomdule.<name>.ignore = all` is handled correctly. ([`657dec4`](https://github.com/GitoxideLabs/gitoxide/commit/657dec4f10bc6babbfa71a4506b1ff1439c06eaf))
+    - Merge pull request #2026 from EliahKagan/run-ci/check-msrv-next ([`40f5a56`](https://github.com/GitoxideLabs/gitoxide/commit/40f5a56937ecdd9ecebd5e2d1f28c31d9f6b1b70))
+    - Use `gix` manifest `rust-version` in all MSRV checks ([`654a8fa`](https://github.com/GitoxideLabs/gitoxide/commit/654a8fa1a84ac0b9b872aa09b4cbd3cf94157d6f))
+    - Merge pull request #2019 from GitoxideLabs/precious-opt-in ([`5f9de52`](https://github.com/GitoxideLabs/gitoxide/commit/5f9de52cf286163b503047b1ab3b51dfa093b4d4))
+    - Adapt to changes in `gix-ignore` and `gix-glob`, and more. ([`4ef7806`](https://github.com/GitoxideLabs/gitoxide/commit/4ef7806e62954d069861bddb06cb8c0baf47bb69))
+    - Add `gitoxide.parsePrecious` configuration key to opt-in to precious file parsing. ([`85a24b3`](https://github.com/GitoxideLabs/gitoxide/commit/85a24b3a07f08bc83a3ef34c3f07ed00cdbd9fe2))
+    - Merge pull request #2016 from GitoxideLabs/improvements ([`7ae3797`](https://github.com/GitoxideLabs/gitoxide/commit/7ae3797f19cf2dd3bc3e02a6437643e5f50ed338))
+    - Add `Repository::is_empty()` to emulate the similar `git2` API ([`b985766`](https://github.com/GitoxideLabs/gitoxide/commit/b985766c9c9c5eb09ea4c4b17be9e380bfdad9b4))
+    - Allow querying `Repository::submodules()` in an unborn repository. ([`26ae766`](https://github.com/GitoxideLabs/gitoxide/commit/26ae766b182218151ae4c3f30306b6d41bab358a))
+    - Merge pull request #2014 from GitoxideLabs/zip ([`648022b`](https://github.com/GitoxideLabs/gitoxide/commit/648022b44e12f597cae55cc45830d0a19b87eb4c))
+    - Release gix-glob v0.20.1, gix-attributes v0.26.1, gix-command v0.6.1, gix-filter v0.19.2, gix-worktree-stream v0.21.2, gix-archive v0.21.2 ([`f0ed2cc`](https://github.com/GitoxideLabs/gitoxide/commit/f0ed2cc0046f866e67944bff9aef0579c12d5852))
+    - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))
+    - Release gix-path v0.10.18, gix-date v0.10.2, gix-traverse v0.46.2, gix-index v0.40.1 ([`d2b4c44`](https://github.com/GitoxideLabs/gitoxide/commit/d2b4c44fcb2bf43e80d67532262631a5086f08de))
+    - Merge pull request #2000 from GitoxideLabs/improvements ([`fdfb239`](https://github.com/GitoxideLabs/gitoxide/commit/fdfb2398d09fa496b1daa8e7318acfc40a3bd3f7))
+    - Add `Repository::merge_bases_many()` for simplified retrieval of multiple mergebases. ([`f687cb1`](https://github.com/GitoxideLabs/gitoxide/commit/f687cb16676dcae37db517c5d6905be08cd9395a))
+    - Merge pull request #1993 from EliahKagan/run-ci/baseline ([`7a33e2a`](https://github.com/GitoxideLabs/gitoxide/commit/7a33e2a0496e3456fcda09428f37c20907a015bb))
+    - Completely remove `:/` baseline skip ([`b623bf1`](https://github.com/GitoxideLabs/gitoxide/commit/b623bf1802474d92dbd0b63856c0b3b1f664e8d7))
+    - Flip `:/` baseline skip from CI to local and extend ([`2400158`](https://github.com/GitoxideLabs/gitoxide/commit/2400158d6ce2ff28d428402f2d4030c04cd5f470))
+    - Merge pull request #1987 from GitoxideLabs/fix-1985 ([`189d1a0`](https://github.com/GitoxideLabs/gitoxide/commit/189d1a0a8674e52e9ad2393fc296f3231e85e689))
+    - Merge pull request #1975 from GitoxideLabs/improvements ([`28935a5`](https://github.com/GitoxideLabs/gitoxide/commit/28935a56ff91f1fc2c17a7d23b057cf7119144e9))
+    - Add `tree::EntryRef::to_owned()`. ([`3a5068e`](https://github.com/GitoxideLabs/gitoxide/commit/3a5068eb3f9e112cf21c4c6a8bd17aa3081c5edf))
+    - Merge pull request #1977 from GitoxideLabs/dependabot/cargo/cargo-811d7b929d ([`800738a`](https://github.com/GitoxideLabs/gitoxide/commit/800738a37f3d33926a427edfa294423bbe3f2b66))
+    - Bump the cargo group with 12 updates ([`4408166`](https://github.com/GitoxideLabs/gitoxide/commit/4408166bf56197a67419277a4ef8feeba9060fee))
+    - Add `EntryRef::kind()` as shortcut for `EntryRef::mode().kind()`. ([`3ef6b55`](https://github.com/GitoxideLabs/gitoxide/commit/3ef6b5595f6d71d27a00b178fbe356257fe4b8a5))
+    - Merge pull request #1971 from GitoxideLabs/new-release ([`8d4c4d1`](https://github.com/GitoxideLabs/gitoxide/commit/8d4c4d1e09f84c962c29d98a686c64228196ac13))
+</details>
+
 ## 0.72.1 (2025-04-26)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 3 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -22,7 +137,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.10.1, gix-utils v0.3.0, gix-actor v0.35.1, gix-validate v0.10.0, gix-path v0.10.17, gix-features v0.42.1, gix-hash v0.18.0, gix-hashtable v0.8.1, gix-object v0.49.1, gix-glob v0.20.0, gix-quote v0.6.0, gix-attributes v0.26.0, gix-command v0.6.0, gix-packetline-blocking v0.19.0, gix-filter v0.19.1, gix-fs v0.15.0, gix-commitgraph v0.28.0, gix-revwalk v0.20.1, gix-traverse v0.46.1, gix-worktree-stream v0.21.1, gix-archive v0.21.1, gix-tempfile v17.1.0, gix-lock v17.1.0, gix-index v0.40.0, gix-config-value v0.15.0, gix-pathspec v0.11.0, gix-ignore v0.15.0, gix-worktree v0.41.0, gix-diff v0.52.1, gix-blame v0.2.1, gix-ref v0.52.1, gix-sec v0.11.0, gix-config v0.45.1, gix-prompt v0.11.0, gix-url v0.31.0, gix-credentials v0.29.0, gix-discover v0.40.1, gix-dir v0.14.1, gix-mailmap v0.27.1, gix-revision v0.34.1, gix-merge v0.5.1, gix-negotiate v0.20.1, gix-pack v0.59.1, gix-odb v0.69.1, gix-refspec v0.30.1, gix-shallow v0.4.0, gix-packetline v0.19.0, gix-transport v0.47.0, gix-protocol v0.50.1, gix-status v0.19.1, gix-submodule v0.19.1, gix-worktree-state v0.19.0, gix v0.72.1, gix-fsck v0.11.1, gitoxide-core v0.47.1, gitoxide v0.44.0 ([`e104545`](https://github.com/GitoxideLabs/gitoxide/commit/e104545b78951ca882481d4a58f4425a8bc81c87))
     - Bump all prior pratch levels to majors ([`5f7f805`](https://github.com/GitoxideLabs/gitoxide/commit/5f7f80570e1a5522e76ea58cccbb957249a0dffe))
+    - Merge pull request #1969 from GitoxideLabs/new-release ([`631f07a`](https://github.com/GitoxideLabs/gitoxide/commit/631f07ad0c1cb93d9da42cf2c8499584fe91880a))
 </details>
 
 ## 0.72.0 (2025-04-25)

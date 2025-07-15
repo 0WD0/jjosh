@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.22.0 (2025-07-15)
+
+A maintenance release without user-facing changes.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 59 calendar days.
+ - 59 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
+    - Merge pull request #2070 from GitoxideLabs/dependabot/cargo/cargo-827bceb7eb ([`dab97f7`](https://github.com/GitoxideLabs/gitoxide/commit/dab97f7618f160421b6e31de8f3e2f3d11dc2ef2))
+    - Bump the cargo group across 1 directory with 68 updates ([`a9a8ea1`](https://github.com/GitoxideLabs/gitoxide/commit/a9a8ea1472532dde03bce4e0afdfa82924af1f96))
+    - Merge pull request #2062 from rickprice/minor_documentation_fixups ([`c2eb0c1`](https://github.com/GitoxideLabs/gitoxide/commit/c2eb0c144dd21cac87fd08829f4a5ca02f85008d))
+    - Small documentation fixes ([`bfb1c34`](https://github.com/GitoxideLabs/gitoxide/commit/bfb1c34f75997a603b8f85fca75bf9e1ca310be0))
+    - Merge pull request #2049 from joshtriplett/zip4 ([`b8f2ab6`](https://github.com/GitoxideLabs/gitoxide/commit/b8f2ab6e01f34b6f2a45c7df0ae2df7633c9038f))
+    - Upgrade to zip 4, which uses zlib-rs by default ([`e768c94`](https://github.com/GitoxideLabs/gitoxide/commit/e768c94b9035fc7a026efcafee8023faa0886d4e))
+    - Merge pull request #2033 from GitoxideLabs/dependabot/cargo/cargo-b72232998d ([`f8d7c0a`](https://github.com/GitoxideLabs/gitoxide/commit/f8d7c0ad8fa7745c973c6b87e7eee70831300207))
+    - Bump the cargo group with 56 updates ([`151e3a5`](https://github.com/GitoxideLabs/gitoxide/commit/151e3a5cca06444eea4c6a362649e66c831673d6))
+    - Merge pull request #2014 from GitoxideLabs/zip ([`648022b`](https://github.com/GitoxideLabs/gitoxide/commit/648022b44e12f597cae55cc45830d0a19b87eb4c))
+</details>
+
 ## 0.21.2 (2025-05-16)
 
 Update the `zip` dependency to the unyanked version 3.0.
@@ -13,7 +45,7 @@ Update the `zip` dependency to the unyanked version 3.0.
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release over the course of 20 calendar days.
+ - 8 commits contributed to the release over the course of 20 calendar days.
  - 20 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1984](https://github.com/GitoxideLabs/gitoxide/issues/1984), [#2013](https://github.com/GitoxideLabs/gitoxide/issues/2013)
@@ -29,6 +61,7 @@ Update the `zip` dependency to the unyanked version 3.0.
  * **[#2013](https://github.com/GitoxideLabs/gitoxide/issues/2013)**
     - Avoid yanked `zip` dependency ([`8692657`](https://github.com/GitoxideLabs/gitoxide/commit/8692657ec7c7ab765fcf1aeb9f0e1c55384e39d3))
  * **Uncategorized**
+    - Release gix-glob v0.20.1, gix-attributes v0.26.1, gix-command v0.6.1, gix-filter v0.19.2, gix-worktree-stream v0.21.2, gix-archive v0.21.2 ([`f0ed2cc`](https://github.com/GitoxideLabs/gitoxide/commit/f0ed2cc0046f866e67944bff9aef0579c12d5852))
     - Update changelogs prior to release ([`31b86ee`](https://github.com/GitoxideLabs/gitoxide/commit/31b86ee6774ad6762f941aa0e8377e709bd41f5e))
     - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))
     - Release gix-path v0.10.18, gix-date v0.10.2, gix-traverse v0.46.2, gix-index v0.40.1 ([`d2b4c44`](https://github.com/GitoxideLabs/gitoxide/commit/d2b4c44fcb2bf43e80d67532262631a5086f08de))

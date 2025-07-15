@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.41.0 (2025-07-15)
+
+### Bug Fixes
+
+ - <csr-id-c85b92d991a91bb1044fe5f784524f568e72c45b/> Prefer the actual state over following `core.symlinks` in `entry::Mode`
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 8 commits contributed to the release over the course of 65 calendar days.
+ - 65 days passed between releases.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
+    - Merge pull request #2070 from GitoxideLabs/dependabot/cargo/cargo-827bceb7eb ([`dab97f7`](https://github.com/GitoxideLabs/gitoxide/commit/dab97f7618f160421b6e31de8f3e2f3d11dc2ef2))
+    - Bump the cargo group across 1 directory with 68 updates ([`a9a8ea1`](https://github.com/GitoxideLabs/gitoxide/commit/a9a8ea1472532dde03bce4e0afdfa82924af1f96))
+    - Merge pull request #2047 from blinxen/update-hashbrown ([`00bd1fa`](https://github.com/GitoxideLabs/gitoxide/commit/00bd1fac8753a98fd0d4cdd8cf239b34e62b7d80))
+    - Update `hashbrown` to 0.15. ([`6f569ce`](https://github.com/GitoxideLabs/gitoxide/commit/6f569cea08297501f332f4d7114065df38fa98f7))
+    - Merge pull request #2016 from GitoxideLabs/improvements ([`7ae3797`](https://github.com/GitoxideLabs/gitoxide/commit/7ae3797f19cf2dd3bc3e02a6437643e5f50ed338))
+    - Prefer the actual state over following `core.symlinks` in `entry::Mode` ([`c85b92d`](https://github.com/GitoxideLabs/gitoxide/commit/c85b92d991a91bb1044fe5f784524f568e72c45b))
+    - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))
+</details>
+
 ## 0.40.1 (2025-05-10)
 
 ### Bug Fixes
@@ -15,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 14 calendar days.
+ - 7 commits contributed to the release over the course of 14 calendar days.
  - 14 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -27,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-path v0.10.18, gix-date v0.10.2, gix-traverse v0.46.2, gix-index v0.40.1 ([`d2b4c44`](https://github.com/GitoxideLabs/gitoxide/commit/d2b4c44fcb2bf43e80d67532262631a5086f08de))
     - Prepare changelogs prior to release of `gix-index` ([`bfc4880`](https://github.com/GitoxideLabs/gitoxide/commit/bfc48801bf3ed39cdf7ec02e01aa3cfb6181705f))
     - Merge pull request #2005 from 0-wiz-0/main ([`33c4d6b`](https://github.com/GitoxideLabs/gitoxide/commit/33c4d6b6656c994ed090f2fddd70e014401baf30))
     - Fix build on NetBSD ([`00e8934`](https://github.com/GitoxideLabs/gitoxide/commit/00e89341cd89f58d031eee8a4e60f6ebdcd53185))

@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.45.0 (2025-07-15)
+
+### New Features
+
+ - <csr-id-37d3bf24ac1a79302f3e97b97372e4ad381c45e2/> add first debug version of `gix tag list`
+ - <csr-id-ab52a49a555ab25e6cf632cb0b080eab72958a7d/> `gix revision list --long-hashes` for faster iteration.
+   The performance of the short-hash generation was improved as well.
+ - <csr-id-c5bc49f2a02e9b28c2466ea4c7ae711d091ffc96/> support for `commitgraph list from..to` to exercise the new 'hide' capability.
+ - <csr-id-1df1ebb34dd3e2101d8a112dda66f6bac5261ea7/> Enable precious file parsing in `gix` CLI by default, allow overrides.
+   That's pretty neat as one can now set `GIX_PARSE_PRECIOUS=0` in the environment
+   to disable precious file parsing, good to see what difference it makes.
+   
+   It's also possible to do this wiht `gix -c gitoxide.parsePrecious=0`.
+ - <csr-id-36a6ffeea7bbde7fb3689ddf2a107e09a50e602c/> add support for multiple blame ranges like `gix blame -L <range> -L <other-range> ...`
+   Update the blame subcommand to handle multiple line ranges. This allows specifying multiple `-L` options similar to the usage of git.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 19 commits contributed to the release over the course of 78 calendar days.
+ - 79 days passed between releases.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2073 from cruessler/add-tag-list ([`c7af04d`](https://github.com/GitoxideLabs/gitoxide/commit/c7af04db9b6bb1204e0f4c436d1db8f48a491e86))
+    - Refactor ([`750ae9b`](https://github.com/GitoxideLabs/gitoxide/commit/750ae9bc3cf72c1d9a358307e423523324eb25fb))
+    - Add first debug version of `gix tag list` ([`37d3bf2`](https://github.com/GitoxideLabs/gitoxide/commit/37d3bf24ac1a79302f3e97b97372e4ad381c45e2))
+    - Merge pull request #2062 from rickprice/minor_documentation_fixups ([`c2eb0c1`](https://github.com/GitoxideLabs/gitoxide/commit/c2eb0c144dd21cac87fd08829f4a5ca02f85008d))
+    - Small documentation fixes ([`bfb1c34`](https://github.com/GitoxideLabs/gitoxide/commit/bfb1c34f75997a603b8f85fca75bf9e1ca310be0))
+    - Merge pull request #2041 from cruessler/add-blame-extraction ([`dd5f0a4`](https://github.com/GitoxideLabs/gitoxide/commit/dd5f0a4811bc738051f7af164b8d2815aaa23220))
+    - Merge pull request #2051 from GitoxideLabs/improvements ([`f933f80`](https://github.com/GitoxideLabs/gitoxide/commit/f933f8065c218ee1e9ae7158b15c8a0917140803))
+    - `gix revision list --long-hashes` for faster iteration. ([`ab52a49`](https://github.com/GitoxideLabs/gitoxide/commit/ab52a49a555ab25e6cf632cb0b080eab72958a7d))
+    - Adapt to changes in `gix-blame` ([`4afc51d`](https://github.com/GitoxideLabs/gitoxide/commit/4afc51d4ba669ad3c4b26f1c4222442d1dab1695))
+    - Merge pull request #2022 from cruessler/add-rename-tracking-to-blame ([`76eddf8`](https://github.com/GitoxideLabs/gitoxide/commit/76eddf86b91afc3535f7eb0d9004652823ccda36))
+    - Refactor ([`3e5365c`](https://github.com/GitoxideLabs/gitoxide/commit/3e5365cb066895c787a22422964a2b9459f37ec3))
+    - Merge pull request #2037 from GitoxideLabs/hide ([`92febae`](https://github.com/GitoxideLabs/gitoxide/commit/92febae025165c55e596d58511b1634fb6580b9c))
+    - Support for `commitgraph list from..to` to exercise the new 'hide' capability. ([`c5bc49f`](https://github.com/GitoxideLabs/gitoxide/commit/c5bc49f2a02e9b28c2466ea4c7ae711d091ffc96))
+    - Merge pull request #2019 from GitoxideLabs/precious-opt-in ([`5f9de52`](https://github.com/GitoxideLabs/gitoxide/commit/5f9de52cf286163b503047b1ab3b51dfa093b4d4))
+    - Enable precious file parsing in `gix` CLI by default, allow overrides. ([`1df1ebb`](https://github.com/GitoxideLabs/gitoxide/commit/1df1ebb34dd3e2101d8a112dda66f6bac5261ea7))
+    - Merge pull request #1973 from holodorum/feature/blame-range-support ([`de13b16`](https://github.com/GitoxideLabs/gitoxide/commit/de13b16728f6d29452cb97b50281aa91d498eb49))
+    - Refactor ([`d4461e7`](https://github.com/GitoxideLabs/gitoxide/commit/d4461e700657d049a8cbc1552f328e35b27c92c3))
+    - Add support for multiple blame ranges like `gix blame -L <range> -L <other-range> ...` ([`36a6ffe`](https://github.com/GitoxideLabs/gitoxide/commit/36a6ffeea7bbde7fb3689ddf2a107e09a50e602c))
+    - Adapt to changes in `gix-blame` ([`8143d69`](https://github.com/GitoxideLabs/gitoxide/commit/8143d692e51c8d1b3d8c2323e83676e1be122f13))
+</details>
+
 ## 0.44.0 (2025-04-26)
 
 ## 0.43.0 (2025-04-25)

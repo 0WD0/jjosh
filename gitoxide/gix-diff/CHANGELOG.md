@@ -5,13 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.53.0 (2025-07-15)
+
+### New Features
+
+ - <csr-id-bd0189360152325b3d0eb8a19a1c96af938071b1/> add explicit accessors for common fields
+ - <csr-id-c84296b98876539e1b21072f32c0339932215f42/> Add `Sink` that implements git's diffing improvement heuristics
+
+### Bug Fixes
+
+ - <csr-id-0d102f4bdf1450f9c5f8d4176707c73b499bd665/> `blob::UnifiedDiff` now produces non-overlapping hunks.
+   Previously it was possible to see two hunks with overlapping context lines
+   due to an off-by-one error.
+ - <csr-id-4f271796041655d80ab0435a76281446e21ad8cd/> remove `blob::GitDiff` Sink as it doesn't work concistently.
+   Against better judgement I was compelled to merge this implementation in,
+   assuming one test must be enough given that it is a transcription.
+   
+   This, however, wasn't the case and there is strong evidence that it produces
+   diffs that aren't correct.
+ - <csr-id-0eaced934a4d52d80d680222fc0c9f7aae74f056/> improve rename tracking performance characteristics to make exponential runtime less likely.
+   This optimizes specifically for the case where there are a lot of added files, but no deletion to
+   pair it up with.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 26 commits contributed to the release over the course of 79 calendar days.
+ - 79 days passed between releases.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2011](https://github.com/GitoxideLabs/gitoxide/issues/2011)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 2 times to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2011](https://github.com/GitoxideLabs/gitoxide/issues/2011)**
+    - Remove `blob::GitDiff` Sink as it doesn't work concistently. ([`4f27179`](https://github.com/GitoxideLabs/gitoxide/commit/4f271796041655d80ab0435a76281446e21ad8cd))
+ * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
+    - Merge pull request #2071 from cruessler/add-accessors-to-change-ref ([`5335c84`](https://github.com/GitoxideLabs/gitoxide/commit/5335c84a68739adc5a7db31220037c83b7be2429))
+    - Merge pull request #2072 from GitoxideLabs/fix-unidiff ([`f87967d`](https://github.com/GitoxideLabs/gitoxide/commit/f87967d4983f96133d184eff9d689a333c819958))
+    - Reproduce unified diff issue ([`5e64298`](https://github.com/GitoxideLabs/gitoxide/commit/5e64298ba4864636779ae72e301475e9cfe01ac8))
+    - Thanks clippy ([`79b8f06`](https://github.com/GitoxideLabs/gitoxide/commit/79b8f0656e34e5099cf09ecd9a9bf569f24c7c0b))
+    - Reference new methods in docs for `ChangeRef::field()` ([`fad0118`](https://github.com/GitoxideLabs/gitoxide/commit/fad0118b53dbd9a18ee80e76b16f2b732496ac73))
+    - Add explicit accessors for common fields ([`bd01893`](https://github.com/GitoxideLabs/gitoxide/commit/bd0189360152325b3d0eb8a19a1c96af938071b1))
+    - Merge pull request #2043 from GitoxideLabs/fix-unidiff ([`08e7777`](https://github.com/GitoxideLabs/gitoxide/commit/08e7777454bdce466363321fce7b168d425bb833))
+    - `blob::UnifiedDiff` now produces non-overlapping hunks. ([`0d102f4`](https://github.com/GitoxideLabs/gitoxide/commit/0d102f4bdf1450f9c5f8d4176707c73b499bd665))
+    - Merge pull request #2017 from GitoxideLabs/improvements ([`3094214`](https://github.com/GitoxideLabs/gitoxide/commit/309421424fa02037f7609fc4ca0c03a99909cdb6))
+    - Improve rename tracking performance characteristics to make exponential runtime less likely. ([`0eaced9`](https://github.com/GitoxideLabs/gitoxide/commit/0eaced934a4d52d80d680222fc0c9f7aae74f056))
+    - Merge pull request #2011 from blinxen/main ([`fd49eee`](https://github.com/GitoxideLabs/gitoxide/commit/fd49eeeb850ea3c3956ca15be2bf4e04a3d319ad))
+    - Make `GitDiff` compatible to strings and bytes. ([`5505646`](https://github.com/GitoxideLabs/gitoxide/commit/55056467e8b1d2ee327e4f29df058224fb64db5e))
+    - Refactor ([`5e699d2`](https://github.com/GitoxideLabs/gitoxide/commit/5e699d26846740ee098e780bb2b861fcae2d31ca))
+    - Add `Sink` that implements git's diffing improvement heuristics ([`c84296b`](https://github.com/GitoxideLabs/gitoxide/commit/c84296b98876539e1b21072f32c0339932215f42))
+    - Update `imara-diff` to the latest version. ([`732adb8`](https://github.com/GitoxideLabs/gitoxide/commit/732adb87c90283bd8f8fce6d633eacc25e10b353))
+    - Merge pull request #2014 from GitoxideLabs/zip ([`648022b`](https://github.com/GitoxideLabs/gitoxide/commit/648022b44e12f597cae55cc45830d0a19b87eb4c))
+    - Release gix-glob v0.20.1, gix-attributes v0.26.1, gix-command v0.6.1, gix-filter v0.19.2, gix-worktree-stream v0.21.2, gix-archive v0.21.2 ([`f0ed2cc`](https://github.com/GitoxideLabs/gitoxide/commit/f0ed2cc0046f866e67944bff9aef0579c12d5852))
+    - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))
+    - Release gix-path v0.10.18, gix-date v0.10.2, gix-traverse v0.46.2, gix-index v0.40.1 ([`d2b4c44`](https://github.com/GitoxideLabs/gitoxide/commit/d2b4c44fcb2bf43e80d67532262631a5086f08de))
+    - Merge pull request #1975 from GitoxideLabs/improvements ([`28935a5`](https://github.com/GitoxideLabs/gitoxide/commit/28935a56ff91f1fc2c17a7d23b057cf7119144e9))
+    - Thanks clippy ([`dbf65c9`](https://github.com/GitoxideLabs/gitoxide/commit/dbf65c95644e6a134e7f9b75e7871479720b4deb))
+    - Merge pull request #1977 from GitoxideLabs/dependabot/cargo/cargo-811d7b929d ([`800738a`](https://github.com/GitoxideLabs/gitoxide/commit/800738a37f3d33926a427edfa294423bbe3f2b66))
+    - Bump the cargo group with 12 updates ([`4408166`](https://github.com/GitoxideLabs/gitoxide/commit/4408166bf56197a67419277a4ef8feeba9060fee))
+    - Merge pull request #1971 from GitoxideLabs/new-release ([`8d4c4d1`](https://github.com/GitoxideLabs/gitoxide/commit/8d4c4d1e09f84c962c29d98a686c64228196ac13))
+</details>
+
 ## 0.52.1 (2025-04-26)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release.
+ - 3 commits contributed to the release.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -22,7 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.10.1, gix-utils v0.3.0, gix-actor v0.35.1, gix-validate v0.10.0, gix-path v0.10.17, gix-features v0.42.1, gix-hash v0.18.0, gix-hashtable v0.8.1, gix-object v0.49.1, gix-glob v0.20.0, gix-quote v0.6.0, gix-attributes v0.26.0, gix-command v0.6.0, gix-packetline-blocking v0.19.0, gix-filter v0.19.1, gix-fs v0.15.0, gix-commitgraph v0.28.0, gix-revwalk v0.20.1, gix-traverse v0.46.1, gix-worktree-stream v0.21.1, gix-archive v0.21.1, gix-tempfile v17.1.0, gix-lock v17.1.0, gix-index v0.40.0, gix-config-value v0.15.0, gix-pathspec v0.11.0, gix-ignore v0.15.0, gix-worktree v0.41.0, gix-diff v0.52.1, gix-blame v0.2.1, gix-ref v0.52.1, gix-sec v0.11.0, gix-config v0.45.1, gix-prompt v0.11.0, gix-url v0.31.0, gix-credentials v0.29.0, gix-discover v0.40.1, gix-dir v0.14.1, gix-mailmap v0.27.1, gix-revision v0.34.1, gix-merge v0.5.1, gix-negotiate v0.20.1, gix-pack v0.59.1, gix-odb v0.69.1, gix-refspec v0.30.1, gix-shallow v0.4.0, gix-packetline v0.19.0, gix-transport v0.47.0, gix-protocol v0.50.1, gix-status v0.19.1, gix-submodule v0.19.1, gix-worktree-state v0.19.0, gix v0.72.1, gix-fsck v0.11.1, gitoxide-core v0.47.1, gitoxide v0.44.0 ([`e104545`](https://github.com/GitoxideLabs/gitoxide/commit/e104545b78951ca882481d4a58f4425a8bc81c87))
     - Bump all prior pratch levels to majors ([`5f7f805`](https://github.com/GitoxideLabs/gitoxide/commit/5f7f80570e1a5522e76ea58cccbb957249a0dffe))
+    - Merge pull request #1969 from GitoxideLabs/new-release ([`631f07a`](https://github.com/GitoxideLabs/gitoxide/commit/631f07ad0c1cb93d9da42cf2c8499584fe91880a))
 </details>
 
 ## 0.52.0 (2025-04-25)
