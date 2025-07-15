@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.35.2 (2025-07-15)
 
 ### New Features
 
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 8 commits contributed to the release over the course of 79 calendar days.
+ - 9 commits contributed to the release over the course of 79 calendar days.
  - 79 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
     - Merge pull request #2038 from ilyagr/signature-doc ([`8f6ecfe`](https://github.com/GitoxideLabs/gitoxide/commit/8f6ecfe4b017fc6ed33d8932a1cb911ed0879713))
     - Refactor ([`aff23d6`](https://github.com/GitoxideLabs/gitoxide/commit/aff23d65a1a44e5356fb362a857d736280d3a580))
     - Gix-actor docs: document conversions between `Signature` and `SignatureRef` ([`8bebd2e`](https://github.com/GitoxideLabs/gitoxide/commit/8bebd2e84b4e9d9a31a6ff8dcd17da83534f3c95))

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.32.0 (2025-07-15)
 
 ### Bug Fixes
 
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 79 calendar days.
+ - 7 commits contributed to the release over the course of 79 calendar days.
  - 79 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2056](https://github.com/GitoxideLabs/gitoxide/issues/2056)
@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#2056](https://github.com/GitoxideLabs/gitoxide/issues/2056)**
     - Username in scp-like url is no longer percent-encoded ([`04bc4a8`](https://github.com/GitoxideLabs/gitoxide/commit/04bc4a81614146f56f341e15b459dfc1a880bd45))
  * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
     - Merge pull request #2060 from yuja/push-urolxnurwtsn ([`68d761c`](https://github.com/GitoxideLabs/gitoxide/commit/68d761cdc87a46b72028153e096f1a22012239bc))
     - Add baseline tests for `_` and `@` in username ([`212b618`](https://github.com/GitoxideLabs/gitoxide/commit/212b618c5f99cc75ed612431669dcc2ec4c49a5e))
     - Merge pull request #2009 from GitoxideLabs/release-gix-index ([`c3f06ae`](https://github.com/GitoxideLabs/gitoxide/commit/c3f06ae424ab4e1918a364cabe8276297465a73a))

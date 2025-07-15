@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.53.0 (2025-07-15)
 
 ### New Features
 
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 25 commits contributed to the release over the course of 79 calendar days.
+ - 26 commits contributed to the release over the course of 79 calendar days.
  - 79 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2011](https://github.com/GitoxideLabs/gitoxide/issues/2011)
@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#2011](https://github.com/GitoxideLabs/gitoxide/issues/2011)**
     - Remove `blob::GitDiff` Sink as it doesn't work concistently. ([`4f27179`](https://github.com/GitoxideLabs/gitoxide/commit/4f271796041655d80ab0435a76281446e21ad8cd))
  * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
     - Merge pull request #2071 from cruessler/add-accessors-to-change-ref ([`5335c84`](https://github.com/GitoxideLabs/gitoxide/commit/5335c84a68739adc5a7db31220037c83b7be2429))
     - Merge pull request #2072 from GitoxideLabs/fix-unidiff ([`f87967d`](https://github.com/GitoxideLabs/gitoxide/commit/f87967d4983f96133d184eff9d689a333c819958))
     - Reproduce unified diff issue ([`5e64298`](https://github.com/GitoxideLabs/gitoxide/commit/5e64298ba4864636779ae72e301475e9cfe01ac8))

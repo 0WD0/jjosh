@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.73.0 (2025-07-15)
+
+<csr-id-b7c1f2c25c7485095022fec290492aa4b7c5c5a2/>
 
 ### New Features
 
@@ -44,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 51 commits contributed to the release over the course of 79 calendar days.
+ - 52 commits contributed to the release over the course of 79 calendar days.
  - 79 days passed between releases.
  - 13 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#1985](https://github.com/GitoxideLabs/gitoxide/issues/1985), [#2055](https://github.com/GitoxideLabs/gitoxide/issues/2055)
@@ -66,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  * **[#2055](https://github.com/GitoxideLabs/gitoxide/issues/2055)**
     - Don't panic if `remote::Connection::ref_map()` doesn't finish the handshake ([`427274b`](https://github.com/GitoxideLabs/gitoxide/commit/427274bdf64d30e3bcd330e849ea067e359588fe))
  * **Uncategorized**
+    - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
     - Merge pull request #2061 from orthros/pseudo-refs ([`60c29a5`](https://github.com/GitoxideLabs/gitoxide/commit/60c29a59302bfc9d0be7aab5dd3ef05e4ee8e3fa))
     - Refactor ([`43f92b5`](https://github.com/GitoxideLabs/gitoxide/commit/43f92b5285af6696cd21f0e94f3bec568aef8468))
     - Add `repo.references().pseudo()` for traversing refs like `HEAD` and `FETCH_HEAD`. ([`2affbab`](https://github.com/GitoxideLabs/gitoxide/commit/2affbab7491d6b4667572d4d17db864c5b703c7a))
