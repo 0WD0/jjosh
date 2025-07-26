@@ -319,7 +319,7 @@ mod prepare {
                 let sh = *SH;
                 format!(r#""{sh}" "-c" "ls --foo \"a b\" \"$@\"" "--" "additional""#)
             },
-            "with shell, this works as it performs word splitting"
+            "with shell, this works as it performs word splitting, on windows we can avoid the shell"
         );
     }
 
@@ -345,12 +345,7 @@ mod prepare {
 
     #[test]
     fn single_and_simple_arguments_without_auto_split_with_shell() {
-        let cmd = std::process::Command::from(
-            gix_command::prepare("ls")
-                .arg("--foo=a b")
-                .command_may_be_shell_script_disallow_manual_argument_splitting()
-                .with_shell(),
-        );
+        let cmd = std::process::Command::from(gix_command::prepare("ls").arg("--foo=a b").with_shell());
         assert_eq!(
             format!("{cmd:?}"),
             quoted(&[*SH, "-c", r#"ls \"$@\""#, "--", "--foo=a b"])
@@ -362,7 +357,6 @@ mod prepare {
         let cmd = std::process::Command::from(
             gix_command::prepare("ls")
                 .arg("--foo=a b")
-                .command_may_be_shell_script_disallow_manual_argument_splitting()
                 .with_shell()
                 .with_quoted_command(),
         );
@@ -378,7 +372,6 @@ mod prepare {
         let cmd = std::process::Command::from(
             gix_command::prepare(r"C:\Users\O'Shaughnessy\with space.exe")
                 .arg("--foo='a b'")
-                .command_may_be_shell_script_disallow_manual_argument_splitting()
                 .with_shell()
                 .with_quoted_command(),
         );
