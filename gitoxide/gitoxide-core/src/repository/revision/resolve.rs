@@ -25,8 +25,6 @@ pub enum BlobFormat {
 pub(crate) mod function {
     use std::ffi::OsString;
 
-    use gix::revision::Spec;
-
     use super::Options;
     use crate::{
         repository::{cat::display_object, revision, revision::resolve::BlobFormat},
@@ -97,7 +95,7 @@ pub(crate) mod function {
                             gix::path::os_str_into_bstr(&spec)
                                 .map_err(anyhow::Error::from)
                                 .and_then(|spec| repo.rev_parse(spec).map_err(Into::into))
-                                .map(Spec::detach)
+                                .map(gix::revision::Spec::detach)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
                 )?;

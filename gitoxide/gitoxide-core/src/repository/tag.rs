@@ -1,28 +1,9 @@
-use std::cmp::Ordering;
+use gix::bstr::{BStr, BString, ByteSlice};
 
-use gix::bstr::{BStr, ByteSlice};
-
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, PartialOrd, Ord)]
 enum VersionPart {
-    String(String),
+    String(BString),
     Number(usize),
-}
-
-impl Ord for VersionPart {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (VersionPart::String(a), VersionPart::String(b)) => a.cmp(b),
-            (VersionPart::String(_), VersionPart::Number(_)) => Ordering::Less,
-            (VersionPart::Number(_), VersionPart::String(_)) => Ordering::Greater,
-            (VersionPart::Number(a), VersionPart::Number(b)) => a.cmp(b),
-        }
-    }
-}
-
-impl PartialOrd for VersionPart {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(Ord::cmp(self, other))
-    }
 }
 
 /// `Version` is used to store multi-part version numbers. It does so in a rather naive way,
@@ -37,9 +18,7 @@ impl PartialOrd for VersionPart {
 ///
 /// When comparing versions of different lengths, shorter versions sort before longer ones (e.g.,
 /// `v1.0` < `v1.0.1`). String parts always sort before numeric parts when compared directly.
-///
-/// The sorting does not respect `versionsort.suffix` yet.
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 struct Version {
     parts: Vec<VersionPart>,
 }
@@ -50,42 +29,15 @@ impl Version {
             .chunk_by(|a, b| a.is_ascii_digit() == b.is_ascii_digit())
             .map(|part| {
                 if let Ok(part) = part.to_str() {
-                    match part.parse::<usize>() {
-                        Ok(number) => VersionPart::Number(number),
-                        Err(_) => VersionPart::String(part.to_string()),
-                    }
+                    part.parse::<usize>()
+                        .map_or_else(|_| VersionPart::String(part.into()), VersionPart::Number)
                 } else {
-                    VersionPart::String(String::from_utf8_lossy(part).to_string())
+                    VersionPart::String(part.into())
                 }
             })
             .collect();
 
         Self { parts }
-    }
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let mut a_iter = self.parts.iter();
-        let mut b_iter = other.parts.iter();
-
-        loop {
-            match (a_iter.next(), b_iter.next()) {
-                (Some(a), Some(b)) => match a.cmp(b) {
-                    Ordering::Equal => continue,
-                    other => return other,
-                },
-                (Some(_), None) => return Ordering::Greater,
-                (None, Some(_)) => return Ordering::Less,
-                (None, None) => return Ordering::Equal,
-            }
-        }
-    }
-}
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(Ord::cmp(self, other))
     }
 }
 
@@ -135,7 +87,7 @@ pub fn list(repo: gix::Repository, out: &mut dyn std::io::Write) -> anyhow::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gix::bstr::BStr;
+    use std::cmp::Ordering;
 
     #[test]
     fn sorts_versions_correctly() {
@@ -156,13 +108,8 @@ mod tests {
             "v1.0.0",
         ];
 
-        actual.sort_by(|a, b| {
-            let version_a = Version::parse(BStr::new(a.as_bytes()));
-            let version_b = Version::parse(BStr::new(b.as_bytes()));
-            version_a.cmp(&version_b)
-        });
-
-        let expected = vec![
+        actual.sort_by(|&a, &b| Version::parse(a.into()).cmp(&Version::parse(b.into())));
+        let expected = [
             "v0.1.0",
             "v0.1.a",
             "v0.9.0",
@@ -184,8 +131,8 @@ mod tests {
 
     #[test]
     fn sorts_versions_with_different_lengths_correctly() {
-        let v1 = Version::parse(BStr::new(b"v1.0"));
-        let v2 = Version::parse(BStr::new(b"v1.0.1"));
+        let v1 = Version::parse("v1.0".into());
+        let v2 = Version::parse("v1.0.1".into());
 
         assert_eq!(v1.cmp(&v2), Ordering::Less);
         assert_eq!(v2.cmp(&v1), Ordering::Greater);
