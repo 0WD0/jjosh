@@ -181,7 +181,7 @@ impl File {
                 .sections_by_name("submodule")
                 .into_iter()
                 .flatten()
-                .any(|s| (s.header().subsection_name() == Some(name) && !std::ptr::eq(s.meta(), ours)));
+                .any(|s| s.header().subsection_name() == Some(name) && !std::ptr::eq(s.meta(), ours));
             if !has_value_from_foreign_section {
                 return Err(config::update::Error::CommandForbiddenInModulesConfiguration {
                     submodule: name.to_owned(),
