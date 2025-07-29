@@ -129,8 +129,7 @@ where
 {
     let pos = log.seek(std::io::SeekFrom::End(0))?;
     if buf.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(std::io::Error::other(
             "Zero sized buffers are not allowed, use 256 bytes or more for typical logs",
         ));
     }
@@ -217,10 +216,10 @@ where
                     } else {
                         let npos = last_read_pos.saturating_sub((self.buf.len() - end) as u64);
                         if npos == last_read_pos {
-                            return Some(Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("buffer too small for line size, got until {:?}", self.buf.as_bstr()),
-                            )
+                            return Some(Err(std::io::Error::other(format!(
+                                "buffer too small for line size, got until {:?}",
+                                self.buf.as_bstr()
+                            ))
                             .into()));
                         }
                         let n = (last_read_pos - npos) as usize;

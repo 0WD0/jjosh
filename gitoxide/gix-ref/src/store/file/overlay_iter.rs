@@ -438,7 +438,7 @@ impl file::Store {
                         Some(prefix) => packed.iter_prefixed(prefix.into_owned()),
                         None => packed.iter(),
                     }
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?
+                    .map_err(std::io::Error::other)?
                     .peekable(),
                 ),
                 None => None,

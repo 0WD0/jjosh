@@ -97,7 +97,7 @@ baseline fetch 'HEAD'
 baseline push '@'
 baseline fetch '@'
 
-baseline push '^@' fail
+baseline push '^@'
 baseline fetch '^@'
 baseline fetch '^refs/heads/main'
 baseline fetch '^refs/heads/*'

@@ -1,19 +1,50 @@
+use crate::parse::{assert_parse, b, try_parse};
 use gix_refspec::{
     instruction::Push,
     parse::{Error, Operation},
     Instruction,
 };
 
-use crate::parse::{assert_parse, b, try_parse};
+#[test]
+fn negative_must_not_be_empty() {
+    assert!(matches!(
+        try_parse("^", Operation::Push).unwrap_err(),
+        Error::NegativeEmpty
+    ));
+}
 
 #[test]
-fn negative_unsupported() {
-    for spec in ["^a:b", "^a:", "^:", "^:b", "^"] {
+fn negative_must_not_be_object_hash() {
+    assert!(matches!(
+        try_parse("^e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", Operation::Push).unwrap_err(),
+        Error::NegativeObjectHash
+    ));
+}
+
+#[test]
+fn negative_with_destination() {
+    for spec in ["^a:b", "^a:", "^:", "^:b"] {
         assert!(matches!(
             try_parse(spec, Operation::Push).unwrap_err(),
-            Error::NegativeUnsupported
+            Error::NegativeWithDestination
         ));
     }
+}
+
+#[test]
+fn exclude() {
+    assert!(matches!(
+        try_parse("^a", Operation::Push).unwrap_err(),
+        Error::NegativePartialName
+    ));
+    assert!(matches!(
+        try_parse("^a*", Operation::Push).unwrap_err(),
+        Error::NegativeGlobPattern
+    ));
+    assert_parse(
+        "^refs/heads/a",
+        Instruction::Push(Push::Exclude { src: b("refs/heads/a") }),
+    );
 }
 
 #[test]
