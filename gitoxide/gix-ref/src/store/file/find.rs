@@ -280,10 +280,10 @@ impl file::Store {
                 .filter_map(|c| gix_path::try_os_str_into_bstr(c.as_os_str().into()).ok())
                 .any(|c| gix_validate::path::component_is_windows_device(c.as_ref()))
         {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Illegal use of reserved Windows device name in \"{}\"", name.as_bstr()),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Illegal use of reserved Windows device name in \"{}\"",
+                name.as_bstr()
+            )));
         }
 
         let ref_path = base.join(relative_path);

@@ -97,7 +97,7 @@ impl Transaction<'_, '_> {
                             // TODO: when Kind::IsADirectory becomes stable, use that.
                             let err = if err.instance.resource_path().is_dir() {
                                 gix_tempfile::remove_dir::empty_depth_first(err.instance.resource_path())
-                                    .map_err(|io_err| std::io::Error::new(std::io::ErrorKind::Other, io_err))
+                                    .map_err(std::io::Error::other)
                                     .and_then(|_| err.instance.commit().map_err(|err| err.error))
                                     .err()
                             } else {
