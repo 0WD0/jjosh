@@ -128,7 +128,7 @@ gix-pack = { path = "../gix-pack", default-features = false, features = [
 gix-hash = { path = "../gix-hash" }
 async-std = { version = "1.9.0", features = ["attributes"] }
 maybe-async = "0.2.6"
-blocking = "1.0.2"
+blocking = "1.6.2"
 
 [package.metadata.docs.rs]
 features = ["http-client-curl", "document-features", "serde"]

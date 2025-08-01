@@ -33,11 +33,11 @@ gix-lock = { version = "^18.0.0", path = "../gix-lock" }
 gix-tempfile = { version = "^18.0.0", default-features = false, path = "../gix-tempfile" }
 
 thiserror = "2.0.0"
-winnow = { version = "0.7.10", features = ["simd"] }
+winnow = { version = "0.7.12", features = ["simd"] }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 
 # packed refs
-memmap2 = "0.9.0"
+memmap2 = "0.9.7"
 
 document-features = { version = "0.2.1", optional = true }
 
