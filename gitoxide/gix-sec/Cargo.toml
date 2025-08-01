@@ -32,7 +32,7 @@ libc = "0.2.174"
 
 [target.'cfg(windows)'.dependencies]
 gix-path = { version = "^0.10.19", path = "../gix-path" }
-windows-sys = { version = "0.59.0", features = [
+windows-sys = { version = "0.60.2", features = [
     "Win32_Foundation",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",

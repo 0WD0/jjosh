@@ -31,7 +31,7 @@ gix-worktree = { version = "^0.42.0", path = "../../gix-worktree" }
 gix-fs = { version = "^0.16.0", path = "../../gix-fs" }
 gix-tempfile = { version = "^18.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
-winnow = { version = "0.7.10", features = ["simd"] }
+winnow = { version = "0.7.12", features = ["simd"] }
 fastrand = "2.0.0"
 bstr = { version = "1.12.0", default-features = false }
 crc = "3.3.0"
