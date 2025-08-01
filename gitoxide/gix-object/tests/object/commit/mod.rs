@@ -149,6 +149,8 @@ iyBBl69jASy41Ug/BlFJbw4+ItkShpXwkJKuBBV/JExChmvbxYWaS7QnyYC9UO0=
 
 ";
 
+const BEGIN_PGP_SIGNATURE: &[u8] = b"-----BEGIN PGP SIGNATURE-----";
+
 mod method {
     use gix_object::CommitRef;
     use pretty_assertions::assert_eq;

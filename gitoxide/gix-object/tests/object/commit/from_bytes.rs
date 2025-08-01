@@ -342,3 +342,20 @@ fn newline_right_after_signature_multiline_header() -> crate::Result {
     assert!(commit.message.starts_with(b"Rollup"));
     Ok(())
 }
+
+#[test]
+fn bogus_multi_gpgsig_header() -> crate::Result {
+    let fixture = fixture_name("commit", "bogus-gpgsig-lines-in-git.git.txt");
+    let commit = CommitRef::from_bytes(&fixture)?;
+    let pgp_sig = crate::commit::BEGIN_PGP_SIGNATURE.as_bstr();
+    assert_eq!(commit.extra_headers[0].1.as_ref(), pgp_sig);
+    assert_eq!(commit.extra_headers().pgp_signature(), Some(pgp_sig));
+    assert_eq!(
+        commit.extra_headers().find(gix_object::commit::SIGNATURE_FIELD_NAME),
+        Some(pgp_sig)
+    );
+    assert_eq!(commit.extra_headers().find_pos("gpgsig"), Some(0));
+    assert_eq!(commit.extra_headers().find_pos("something else"), None);
+    assert!(commit.message.starts_with(b"pretty: %G[?GS] placeholders"));
+    Ok(())
+}

@@ -51,7 +51,7 @@ pub fn commit<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
             alt((
                 parse::any_header_field_multi_line.map(|(k, o)| (k.as_bstr(), Cow::Owned(o))),
                 |i: &mut _| {
-                    parse::any_header_field(i, take_till(1.., NL))
+                    parse::any_header_field(i, take_till(0.., NL))
                         .map(|(k, o)| (k.as_bstr(), Cow::Borrowed(o.as_bstr())))
                 },
             )),
