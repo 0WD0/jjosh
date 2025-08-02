@@ -416,7 +416,7 @@ jobs:
       - name: 'WASI only: crates without feature toggle'
         if: endsWith(matrix.target, '-wasi')
         run: |
-          set +x
+          set -x
           for crate in gix-sec; do
             cargo build -p "$crate" --target "$TARGET"
           done
@@ -447,19 +447,19 @@ jobs:
             gix-url
             gix-validate
           )
-          set +x
+          set -x
           for crate in "${crates[@]}"; do
             cargo build -p "$crate" --target "$TARGET"
           done
       - name: features of gix-features
         run: |
-          set +x
+          set -x
           for feature in progress parallel io-pipe crc32 zlib cache-efficiency-debug; do
             cargo build -p gix-features --features "$feature" --target "$TARGET"
           done
       - name: crates with 'wasm' feature
         run: |
-          set +x
+          set -x
           for crate in gix-pack; do
             cargo build -p "$crate" --features wasm --target "$TARGET"
           done
