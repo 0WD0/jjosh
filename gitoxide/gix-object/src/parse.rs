@@ -18,7 +18,7 @@ pub(crate) fn any_header_field_multi_line<'a, E: ParserError<&'a [u8]> + AddCont
     (
         terminated(take_till(1.., SPACE_OR_NL), SPACE),
         (
-            take_till(1.., NL),
+            take_till(0.., NL),
             NL,
             repeat(1.., terminated((SPACE, take_until(0.., NL)), NL)).map(|()| ()),
         )
