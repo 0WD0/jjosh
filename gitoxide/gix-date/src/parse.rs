@@ -214,6 +214,9 @@ pub(crate) mod function {
             Some(offset_in_seconds)
         }
 
+        if input.contains(':') {
+            return None;
+        }
         let mut split = input.split_whitespace();
         let seconds = split.next()?;
         let seconds = match seconds.parse::<SecondsSinceUnixEpoch>() {

@@ -14,6 +14,21 @@ fn special_time_is_ok_for_now() {
 }
 
 #[test]
+fn parse_header_is_not_too_lenient() {
+    let now = SystemTime::now();
+    for not_a_header_str in ["2005-04-07T22:13:09", "2005-04-07 22:13:09"] {
+        assert!(
+            gix_date::parse_header(not_a_header_str).is_none(),
+            "It's not timestamp-like, despite some leniency"
+        );
+        assert!(
+            gix_date::parse(not_a_header_str, Some(now)).is_err(),
+            "it misses the timezone offset, so can't be parsed"
+        );
+    }
+}
+
+#[test]
 fn short() {
     assert_eq!(
         gix_date::parse("1979-02-26", Some(SystemTime::now())).unwrap(),
