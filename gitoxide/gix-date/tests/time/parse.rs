@@ -3,13 +3,10 @@ use std::time::SystemTime;
 use gix_date::Time;
 
 #[test]
-fn special_time_is_ok_for_now() {
-    assert_eq!(
-        gix_date::parse("1979-02-26 18:30:00", Some(SystemTime::now())).unwrap(),
-        Time {
-            seconds: 42,
-            offset: 1800,
-        }
+fn time_without_offset_is_not_parsed_yet() {
+    assert!(
+        gix_date::parse("1979-02-26 18:30:00", Some(SystemTime::now())).is_err(),
+        "This was a special time with special handling, but it is not  anymore"
     );
 }
 

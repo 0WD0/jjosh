@@ -9,7 +9,7 @@ pub fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
 }
 
 pub fn freeze_time() -> gix_testtools::Env<'static> {
-    let frozen_time = "1979-02-26 18:30:00";
+    let frozen_time = "42 +0030";
     gix_testtools::Env::new()
         .unset("GIT_AUTHOR_NAME")
         .unset("GIT_AUTHOR_EMAIL")
