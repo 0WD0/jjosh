@@ -1,10 +1,10 @@
 use gix_actor::SignatureRef;
-use gix_object::{bstr::ByteSlice, commit::message::body::TrailerRef, CommitRef};
+use gix_object::{bstr::ByteSlice, commit::message::body::TrailerRef, CommitRef, WriteTo};
 use smallvec::SmallVec;
 
 use crate::{
     commit::{LONG_MESSAGE, MERGE_TAG, SIGNATURE},
-    fixture_name, linus_signature, signature,
+    fixture_name, hex_to_id, linus_signature, signature,
 };
 
 #[test]
@@ -340,5 +340,29 @@ fn newline_right_after_signature_multiline_header() -> crate::Result {
     assert_eq!(commit.extra_headers().find_pos("gpgsig"), Some(0));
     assert_eq!(commit.extra_headers().find_pos("something else"), None);
     assert!(commit.message.starts_with(b"Rollup"));
+    Ok(())
+}
+
+#[test]
+fn bogus_multi_gpgsig_header() -> crate::Result {
+    let fixture = fixture_name("commit", "bogus-gpgsig-lines-in-git.git.txt");
+    let commit = CommitRef::from_bytes(&fixture)?;
+    let pgp_sig = b"-----BEGIN PGP SIGNATURE-----".as_bstr();
+    assert_eq!(commit.extra_headers().pgp_signature(), Some(pgp_sig));
+    assert_eq!(
+        commit.extra_headers().find_all("gpgsig").count(),
+        17,
+        "Each signature header line is prefixed with `gpgsig` here, so we parse it as extra header"
+    );
+    assert!(commit.message.starts_with(b"pretty: %G[?GS] placeholders"));
+
+    let mut buf = Vec::<u8>::new();
+    commit.write_to(&mut buf)?;
+    let actual = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Commit, &buf)?;
+    assert_eq!(
+        actual,
+        hex_to_id("5f549aa2f78314ac37bbd436c8f80aea4c752e07"),
+        "round-tripping works despite the strangeness"
+    );
     Ok(())
 }
