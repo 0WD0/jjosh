@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.50.1 (2025-08-03)
 
 Make Commit parsing more lenient so it can read older commits with botched gpg signatures,
 see [this commit](https://github.com/GitoxideLabs/gitoxide/commit/ef73c6b6631a3308b7bf5d15b69f4f14767a23d5)
@@ -15,7 +15,7 @@ for details.
 
 <csr-read-only-do-not-edit/>
 
- - 9 commits contributed to the release over the course of 19 calendar days.
+ - 10 commits contributed to the release over the course of 19 calendar days.
  - 19 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -27,6 +27,7 @@ for details.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Prepare changelogs prior to release. ([`5e0122d`](https://github.com/GitoxideLabs/gitoxide/commit/5e0122df48392fb0ea6e16eb7b70d320b03244ca))
     - Merge pull request #2098 from dscho/fix-parsing-of-legacy-git.git-commit ([`ef73c6b`](https://github.com/GitoxideLabs/gitoxide/commit/ef73c6b6631a3308b7bf5d15b69f4f14767a23d5))
     - Refactor ([`8ad43f1`](https://github.com/GitoxideLabs/gitoxide/commit/8ad43f13012c7c8b05887d9f3d32f011d0c46274))
     - Allow empty-valued commit headers in more places ([`a0660fe`](https://github.com/GitoxideLabs/gitoxide/commit/a0660fe3b4227b206dc6df099f55ec5bb41edce0))

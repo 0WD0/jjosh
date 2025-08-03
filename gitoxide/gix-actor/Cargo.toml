@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-actor"
-version = "0.35.2"
+version = "0.35.3"
 description = "A way to identify git actors"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 repository = "https://github.com/GitoxideLabs/gitoxide"

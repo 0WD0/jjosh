@@ -68,7 +68,7 @@ path = "tests/async-protocol.rs"
 required-features = ["async-client"]
 
 [dependencies]
-gix-features = { version = "^0.43.0", path = "../gix-features", features = [
+gix-features = { version = "^0.43.1", path = "../gix-features", features = [
     "progress",
 ] }
 gix-transport = { version = "^0.48.0", path = "../gix-transport" }
@@ -80,7 +80,7 @@ gix-ref = { version = "^0.53.0", path = "../gix-ref" }
 
 gix-trace = { version = "^0.1.13", path = "../gix-trace", optional = true }
 gix-negotiate = { version = "^0.21.0", path = "../gix-negotiate", optional = true }
-gix-object = { version = "^0.50.0", path = "../gix-object", optional = true }
+gix-object = { version = "^0.50.1", path = "../gix-object", optional = true }
 gix-revwalk = { version = "^0.21.0", path = "../gix-revwalk", optional = true }
 gix-credentials = { version = "^0.30.0", path = "../gix-credentials", optional = true }
 gix-refspec = { version = "^0.31.0", path = "../gix-refspec", optional = true }

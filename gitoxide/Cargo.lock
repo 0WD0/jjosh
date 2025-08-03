@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "gix-actor"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "bstr",
  "document-features",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "gix-features"
-version = "0.43.0"
+version = "0.43.1"
 dependencies = [
  "bstr",
  "bytes",
@@ -1990,7 +1990,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-object"
-version = "0.50.0"
+version = "0.50.1"
 dependencies = [
  "bstr",
  "criterion",
@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "gix-path"
-version = "0.10.19"
+version = "0.10.20"
 dependencies = [
  "bstr",
  "gix-testtools",
