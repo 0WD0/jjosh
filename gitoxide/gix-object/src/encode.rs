@@ -38,7 +38,9 @@ pub(crate) fn header_field_multi_line(name: &[u8], value: &[u8], out: &mut dyn i
     let mut lines = value.as_bstr().lines_with_terminator();
     out.write_all(name)?;
     out.write_all(SPACE)?;
-    out.write_all(lines.next().ok_or(Error::EmptyValue)?)?;
+    if let Some(line) = lines.next() {
+        out.write_all(line)?;
+    }
     for line in lines {
         out.write_all(SPACE)?;
         out.write_all(line)?;
