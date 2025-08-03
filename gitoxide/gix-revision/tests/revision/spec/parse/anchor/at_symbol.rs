@@ -35,7 +35,7 @@ fn reflog_by_entry_for_current_branch() {
 
 #[test]
 fn reflog_by_date_for_current_branch() {
-    let rec = parse("@{1979-02-26 18:30:00}");
+    let rec = parse("@{42 +0030}");
 
     assert!(rec.kind.is_none());
     assert_eq!(rec.find_ref[0], None);
@@ -81,9 +81,9 @@ fn reflog_by_date_with_date_parse_failure() {
 #[test]
 fn reflog_by_date_for_hash_is_invalid() {
     for (spec, full_name) in [
-        ("1234@{1979-02-26 18:30:00}", "1234"),
-        ("abcd-dirty@{1979-02-26 18:30:00}", "abcd-dirty"),
-        ("v1.2.3-0-g1234@{1979-02-26 18:30:00}", "v1.2.3-0-g1234"),
+        ("1234@{42 +0030}", "1234"),
+        ("abcd-dirty@{42 +0030}", "abcd-dirty"),
+        ("v1.2.3-0-g1234@{42 +0030}", "v1.2.3-0-g1234"),
     ] {
         let err = try_parse(spec).unwrap_err();
         assert!(matches!(err, spec::parse::Error::ReflogLookupNeedsRefName {name} if name == full_name));
@@ -93,12 +93,9 @@ fn reflog_by_date_for_hash_is_invalid() {
 #[test]
 fn reflog_by_date_for_given_ref_name() {
     for (spec, expected_ref) in [
-        ("main@{1979-02-26 18:30:00}", "main"),
-        ("refs/heads/other@{1979-02-26 18:30:00}", "refs/heads/other"),
-        (
-            "refs/worktree/feature/a@{1979-02-26 18:30:00}",
-            "refs/worktree/feature/a",
-        ),
+        ("main@{42 +0030}", "main"),
+        ("refs/heads/other@{42 +0030}", "refs/heads/other"),
+        ("refs/worktree/feature/a@{42 +0030}", "refs/worktree/feature/a"),
     ] {
         let rec = parse(spec);
 

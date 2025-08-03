@@ -26,7 +26,7 @@ mod with_overrides {
     #[test]
     #[serial]
     fn order_from_api_and_cli_and_environment() -> gix_testtools::Result {
-        let default_date = "1979-02-26 18:30:00";
+        let default_date = "42 +0030";
         let _env = Env::new()
             .set("GIT_HTTP_USER_AGENT", "agent-from-env")
             .set("GIT_HTTP_LOW_SPEED_LIMIT", "1")

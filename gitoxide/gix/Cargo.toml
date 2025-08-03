@@ -314,7 +314,7 @@ gix-tempfile = { version = "^18.0.0", path = "../gix-tempfile", default-features
 gix-lock = { version = "^18.0.0", path = "../gix-lock" }
 gix-validate = { version = "^0.10.0", path = "../gix-validate" }
 gix-sec = { version = "^0.12.0", path = "../gix-sec" }
-gix-date = { version = "^0.10.3", path = "../gix-date" }
+gix-date = { version = "^0.10.4", path = "../gix-date" }
 gix-refspec = { version = "^0.31.0", path = "../gix-refspec" }
 gix-filter = { version = "^0.20.0", path = "../gix-filter", optional = true }
 gix-dir = { version = "^0.15.0", path = "../gix-dir", optional = true }

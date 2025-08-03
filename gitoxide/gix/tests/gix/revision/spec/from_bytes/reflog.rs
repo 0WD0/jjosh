@@ -78,7 +78,7 @@ fn by_index() {
 fn by_date() {
     let repo = repo("complex_graph").unwrap();
 
-    let spec = parse_spec_no_baseline("main@{1979-02-26 18:30:00}", &repo).unwrap();
+    let spec = parse_spec_no_baseline("main@{42 +0030}", &repo).unwrap();
 
     assert_eq!(
         spec,

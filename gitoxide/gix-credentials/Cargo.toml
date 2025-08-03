@@ -25,7 +25,7 @@ gix-path = { version = "^0.10.19", path = "../gix-path" }
 gix-command = { version = "^0.6.2", path = "../gix-command" }
 gix-config-value = { version = "^0.15.1", path = "../gix-config-value" }
 gix-prompt = { version = "^0.11.1", path = "../gix-prompt" }
-gix-date = { version = "^0.10.3", path = "../gix-date" }
+gix-date = { version = "^0.10.4", path = "../gix-date" }
 gix-trace = { version = "^0.1.13", path = "../gix-trace" }
 
 thiserror = "2.0.0"

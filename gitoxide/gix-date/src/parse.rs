@@ -145,11 +145,6 @@ pub(crate) mod function {
     ///     *   `2 minutes ago` (October 27, 2023 at 09:58:00 UTC)
     ///     *   `3 hours ago` (October 27, 2023 at 07:00:00 UTC)
     pub fn parse(input: &str, now: Option<SystemTime>) -> Result<Time, Error> {
-        // TODO: actual implementation, this is just to not constantly fail
-        if input == "1979-02-26 18:30:00" {
-            return Ok(Time::new(42, 1800));
-        }
-
         Ok(if let Ok(val) = Date::strptime(SHORT.0, input) {
             let val = val
                 .to_zoned(TimeZone::UTC)
@@ -214,6 +209,9 @@ pub(crate) mod function {
             Some(offset_in_seconds)
         }
 
+        if input.contains(':') {
+            return None;
+        }
         let mut split = input.split_whitespace();
         let seconds = split.next()?;
         let seconds = match seconds.parse::<SecondsSinceUnixEpoch>() {
