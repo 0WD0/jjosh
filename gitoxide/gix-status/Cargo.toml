@@ -23,9 +23,9 @@ worktree-rewrites = ["dep:gix-dir", "dep:gix-diff"]
 gix-index = { version = "^0.41.0", path = "../gix-index" }
 gix-fs = { version = "^0.16.0", path = "../gix-fs" }
 gix-hash = { version = "^0.19.0", path = "../gix-hash" }
-gix-object = { version = "^0.50.0", path = "../gix-object" }
-gix-path = { version = "^0.10.19", path = "../gix-path" }
-gix-features = { version = "^0.43.0", path = "../gix-features", features = ["progress"] }
+gix-object = { version = "^0.50.1", path = "../gix-object" }
+gix-path = { version = "^0.10.20", path = "../gix-path" }
+gix-features = { version = "^0.43.1", path = "../gix-features", features = ["progress"] }
 gix-filter = { version = "^0.20.0", path = "../gix-filter" }
 gix-worktree = { version = "^0.42.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
 gix-pathspec = { version = "^0.12.0", path = "../gix-pathspec" }

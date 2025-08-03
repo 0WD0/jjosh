@@ -17,11 +17,11 @@ doctest = false
 [dependencies]
 gix-hash = { version = "^0.19.0", path = "../gix-hash" }
 gix-trace = { version = "^0.1.13", path = "../gix-trace" }
-gix-object = { version = "^0.50.0", path = "../gix-object" }
+gix-object = { version = "^0.50.1", path = "../gix-object" }
 gix-command = { version = "^0.6.2", path = "../gix-command" }
 gix-quote = { version = "^0.6.0", path = "../gix-quote" }
 gix-utils = { version = "^0.3.0", path = "../gix-utils" }
-gix-path = { version = "^0.10.19", path = "../gix-path" }
+gix-path = { version = "^0.10.20", path = "../gix-path" }
 gix-packetline-blocking = { version = "^0.19.1", path = "../gix-packetline-blocking" }
 gix-attributes = { version = "^0.27.0", path = "../gix-attributes" }
 

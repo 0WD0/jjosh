@@ -28,8 +28,8 @@ zip = ["dep:zip"]
 
 [dependencies]
 gix-worktree-stream = { version = "^0.22.0", path = "../gix-worktree-stream" }
-gix-object = { version = "^0.50.0", path = "../gix-object" }
-gix-path = { version = "^0.10.19", path = "../gix-path", optional = true }
+gix-object = { version = "^0.50.1", path = "../gix-object" }
+gix-path = { version = "^0.10.20", path = "../gix-path", optional = true }
 gix-date = { version = "^0.10.4", path = "../gix-date" }
 
 flate2 = { version = "1.1.1", optional = true, default-features = false, features = ["zlib-rs"] }
