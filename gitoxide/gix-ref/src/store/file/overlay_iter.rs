@@ -189,11 +189,11 @@ impl Iterator for LooseThenPacked<'_, '_> {
     }
 }
 
-impl Platform<'_> {
+impl<'repo> Platform<'repo> {
     /// Return an iterator over all references, loose or packed, sorted by their name.
     ///
     /// Errors are returned similarly to what would happen when loose and packed refs were iterated by themselves.
-    pub fn all(&self) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    pub fn all<'p>(&'p self) -> std::io::Result<LooseThenPacked<'p, 'repo>> {
         self.store.iter_packed(self.packed.as_ref().map(|b| &***b))
     }
 
@@ -205,14 +205,14 @@ impl Platform<'_> {
     /// starts with `foo`, like `refs/heads/foo` and `refs/heads/foobar`.
     ///
     /// Prefixes are relative paths with slash-separated components.
-    pub fn prefixed(&self, prefix: &RelativePath) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    pub fn prefixed<'p>(&'p self, prefix: &RelativePath) -> std::io::Result<LooseThenPacked<'p, 'repo>> {
         self.store
             .iter_prefixed_packed(prefix, self.packed.as_ref().map(|b| &***b))
     }
 
     /// Return an iterator over the pseudo references, like `HEAD` or `FETCH_HEAD`, or anything else suffixed with `HEAD`
     /// in the root of the `.git` directory, sorted by name.
-    pub fn pseudo(&self) -> std::io::Result<LooseThenPacked<'_, '_>> {
+    pub fn pseudo<'p>(&'p self) -> std::io::Result<LooseThenPacked<'p, 'repo>> {
         self.store.iter_pseudo()
     }
 }
