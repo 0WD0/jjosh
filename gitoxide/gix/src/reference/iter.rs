@@ -13,15 +13,15 @@ pub struct Platform<'r> {
 }
 
 /// An iterator over references, with or without filter.
-pub struct Iter<'p, 'r> {
-    inner: gix_ref::file::iter::LooseThenPacked<'p, 'r>,
+pub struct Iter<'packed, 'repo> {
+    inner: gix_ref::file::iter::LooseThenPacked<'packed, 'repo>,
     peel_with_packed: Option<gix_ref::file::packed::SharedBufferSnapshot>,
     peel: bool,
-    repo: &'r crate::Repository,
+    repo: &'repo crate::Repository,
 }
 
-impl<'p, 'r> Iter<'p, 'r> {
-    fn new(repo: &'r crate::Repository, platform: gix_ref::file::iter::LooseThenPacked<'p, 'r>) -> Self {
+impl<'packed, 'repo> Iter<'packed, 'repo> {
+    fn new(repo: &'repo crate::Repository, platform: gix_ref::file::iter::LooseThenPacked<'packed, 'repo>) -> Self {
         Iter {
             inner: platform,
             peel_with_packed: None,
@@ -37,41 +37,24 @@ impl<'repo> Platform<'repo> {
     ///
     /// Even broken or otherwise unparsable or inaccessible references are returned and have to be handled by the caller on a
     /// case by case basis.
-    pub fn all<'p>(&'p self) -> Result<Iter<'p, 'repo>, init::Error> {
+    pub fn all(&self) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(self.repo, self.platform.all()?))
     }
 
     /// Return an iterator over all references that match the given `prefix`.
     ///
     /// These are of the form `refs/heads/` or `refs/remotes/origin`, and must not contain relative paths components like `.` or `..`.
-    pub fn prefixed<'p, 'a>(
-        &'p self,
+    pub fn prefixed<'a>(
+        &self,
         prefix: impl TryInto<&'a RelativePath, Error = gix_path::relative_path::Error>,
-    ) -> Result<Iter<'p, 'repo>, init::Error> {
+    ) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(self.repo, self.platform.prefixed(prefix.try_into()?)?))
     }
 
-    // TODO: tests
     /// Return an iterator over all references that are tags.
     ///
     /// They are all prefixed with `refs/tags`.
-    ///
-    /// ```rust
-    /// # // Regression test for https://github.com/GitoxideLabs/gitoxide/issues/2103
-    /// # // This only ensures we can return a reference, not that the code below is correct
-    /// /// Get the latest tag that isn't a pre-release version
-    /// fn latest_stable_tag(repo: &gix::Repository) -> Result<gix::Reference<'_>, Box<dyn std::error::Error>> {
-    ///     repo.references()?
-    ///         .tags()?
-    ///         .filter_map(|tag| tag.ok())
-    ///         // Warning: lexically sorting version numbers is incorrect, use the semver crate if
-    ///         // you want correct results
-    ///         .max_by_key(|tag| tag.name().shorten().to_owned())
-    ///         .ok_or(std::io::Error::other("latest tag not found"))
-    ///         .map_err(Into::into)
-    /// }
-    /// ```
-    pub fn tags<'p>(&'p self) -> Result<Iter<'p, 'repo>, init::Error> {
+    pub fn tags(&self) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(self.repo, self.platform.prefixed(b"refs/tags/".try_into()?)?))
     }
 
@@ -79,7 +62,7 @@ impl<'repo> Platform<'repo> {
     /// Return an iterator over all local branches.
     ///
     /// They are all prefixed with `refs/heads`.
-    pub fn local_branches<'p>(&'p self) -> Result<Iter<'p, 'repo>, init::Error> {
+    pub fn local_branches(&self) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(
             self.repo,
             self.platform.prefixed(b"refs/heads/".try_into()?)?,
@@ -88,7 +71,7 @@ impl<'repo> Platform<'repo> {
 
     // TODO: tests
     /// Return an iterator over all local pseudo references.
-    pub fn pseudo<'p>(&'p self) -> Result<Iter<'p, 'repo>, init::Error> {
+    pub fn pseudo(&self) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(self.repo, self.platform.pseudo()?))
     }
 
@@ -96,7 +79,7 @@ impl<'repo> Platform<'repo> {
     /// Return an iterator over all remote branches.
     ///
     /// They are all prefixed with `refs/remotes`.
-    pub fn remote_branches<'p>(&'p self) -> Result<Iter<'p, 'repo>, init::Error> {
+    pub fn remote_branches(&self) -> Result<Iter<'_, 'repo>, init::Error> {
         Ok(Iter::new(
             self.repo,
             self.platform.prefixed(b"refs/remotes/".try_into()?)?,

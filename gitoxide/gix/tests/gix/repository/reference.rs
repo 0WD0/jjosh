@@ -183,6 +183,21 @@ mod iter_references {
         );
         Ok(())
     }
+
+    /// Regression test for https://github.com/GitoxideLabs/gitoxide/issues/2103
+    /// This only ensures we can return a reference, not that the code below is correct
+    #[test]
+    fn tags() -> crate::Result {
+        let repo = repo()?;
+        let actual = repo
+            .references()?
+            .tags()?
+            .filter_map(Result::ok)
+            .max_by_key(|tag| tag.name().shorten().to_owned())
+            .ok_or(std::io::Error::other("latest tag not found"))?;
+        assert_eq!(actual.name().as_bstr(), "refs/tags/t1");
+        Ok(())
+    }
 }
 
 mod head {
