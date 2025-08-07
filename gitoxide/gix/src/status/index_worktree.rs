@@ -208,7 +208,7 @@ mod submodule_status {
 
     use crate::{
         bstr,
-        bstr::BStr,
+        bstr::{BStr, BString},
         status::{index_worktree::BuiltinSubmoduleStatus, Submodule},
     };
 
@@ -247,6 +247,8 @@ mod submodule_status {
         SubmoduleStatus(#[from] crate::submodule::status::Error),
         #[error(transparent)]
         IgnoreConfig(#[from] crate::submodule::config::Error),
+        #[error("The value of 'diff.submoduleIgnore' was invalid: '{actual}'")]
+        DiffSubmoduleIgnoreConfig { actual: BString },
     }
 
     impl gix_status::index_as_worktree::traits::SubmoduleStatus for BuiltinSubmoduleStatus {
@@ -275,7 +277,23 @@ mod submodule_status {
                 return Ok(None);
             };
             let (ignore, check_dirty) = match self.mode {
-                Submodule::AsConfigured { check_dirty } => (sm.ignore()?.unwrap_or_default(), check_dirty),
+                Submodule::AsConfigured { check_dirty } => {
+                    // diff.ignoreSubmodules is the global setting, and if it exists, it overrides the submodule's own ignore setting.
+                    let global_ignore = repo.config_snapshot().string("diff.ignoreSubmodules");
+                    if let Some(ignore_str) = global_ignore {
+                        let ignore = ignore_str
+                            .as_ref()
+                            .try_into()
+                            .map_err(|_| Error::DiffSubmoduleIgnoreConfig {
+                                actual: ignore_str.into_owned(),
+                            })?;
+                        (ignore, check_dirty)
+                    } else {
+                        // If no global ignore is set, use the submodule's ignore setting.
+                        let ignore = sm.ignore()?.unwrap_or_default();
+                        (ignore, check_dirty)
+                    }
+                }
                 Submodule::Given { ignore, check_dirty } => (ignore, check_dirty),
             };
             let status = sm.status(ignore, check_dirty)?;
