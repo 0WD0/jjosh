@@ -206,9 +206,11 @@ pub struct BuiltinSubmoduleStatus {
 mod submodule_status {
     use std::borrow::Cow;
 
+    use crate::config::cache::util::ApplyLeniency;
     use crate::{
         bstr,
-        bstr::{BStr, BString},
+        bstr::BStr,
+        config,
         status::{index_worktree::BuiltinSubmoduleStatus, Submodule},
     };
 
@@ -247,8 +249,8 @@ mod submodule_status {
         SubmoduleStatus(#[from] crate::submodule::status::Error),
         #[error(transparent)]
         IgnoreConfig(#[from] crate::submodule::config::Error),
-        #[error("The value of 'diff.submoduleIgnore' was invalid: '{actual}'")]
-        DiffSubmoduleIgnoreConfig { actual: BString },
+        #[error(transparent)]
+        DiffSubmoduleIgnoreConfig(#[from] config::key::GenericErrorWithValue),
     }
 
     impl gix_status::index_as_worktree::traits::SubmoduleStatus for BuiltinSubmoduleStatus {
@@ -279,14 +281,13 @@ mod submodule_status {
             let (ignore, check_dirty) = match self.mode {
                 Submodule::AsConfigured { check_dirty } => {
                     // diff.ignoreSubmodules is the global setting, and if it exists, it overrides the submodule's own ignore setting.
-                    let global_ignore = repo.config_snapshot().string("diff.ignoreSubmodules");
-                    if let Some(ignore_str) = global_ignore {
-                        let ignore = ignore_str
-                            .as_ref()
-                            .try_into()
-                            .map_err(|_| Error::DiffSubmoduleIgnoreConfig {
-                                actual: ignore_str.into_owned(),
-                            })?;
+                    let global_ignore = repo
+                        .config_snapshot()
+                        .string(&config::tree::Diff::IGNORE_SUBMODULES)
+                        .map(|value| config::tree::Diff::IGNORE_SUBMODULES.try_into_ignore(value))
+                        .transpose()
+                        .with_leniency(repo.config.lenient_config)?;
+                    if let Some(ignore) = global_ignore {
                         (ignore, check_dirty)
                     } else {
                         // If no global ignore is set, use the submodule's ignore setting.

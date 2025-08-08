@@ -187,7 +187,7 @@ mod open {
 
         #[test]
         fn modified_in_index_only() -> crate::Result {
-            let repo = repo("submodule-index-changed")?;
+            let mut repo: gix::Repository = repo("submodule-index-changed")?;
             let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
 
             for mode in [
@@ -212,6 +212,29 @@ mod open {
             assert!(
                 repo.is_dirty()?,
                 "superproject should see submodule changes in the index as well"
+            );
+
+            repo.config_snapshot_mut()
+                .set_value(&gix::config::tree::Diff::IGNORE_SUBMODULES, "all")?;
+
+            if cfg!(feature = "parallel") {
+                assert!(!repo.is_dirty()?, "There is a global flag to deactivate this");
+            } else {
+                assert!(
+                    repo.is_dirty()?,
+                    "We still spawn a thread in non-parallel mode, \
+                    but then ThreadSafe repository isn't actually threadsafe.\
+                    This is why we open a new repo, and can't see in-memory overrides.\
+                    Maybe ThreadSafeRepository should be changed to always use thred-safe primitives."
+                );
+            }
+
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+            let status = sm.status_opts(gix::submodule::config::Ignore::None, true, &mut |platform| platform)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(true),
+                "The global override has no bearing on this specific call"
             );
             Ok(())
         }
