@@ -174,6 +174,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub struct ReadDataLineFuture<'a, 'b, T: AsyncRead, F> {
     parent: &'b mut WithSidebands<'a, T, F>,
     buf: &'b mut Vec<u8>,
