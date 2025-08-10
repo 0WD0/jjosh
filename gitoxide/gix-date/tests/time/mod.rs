@@ -101,7 +101,7 @@ mod write_to {
             assert_eq!(output.as_bstr(), expected);
             assert_eq!(time.size(), output.len());
 
-            let actual = gix_date::parse(&output.as_bstr().to_string(), None).expect("round-trippable");
+            let actual = output.as_bstr().to_string().parse::<Time>().expect("round-trippable");
             assert_eq!(time, actual);
         }
         Ok(())

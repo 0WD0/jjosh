@@ -165,7 +165,7 @@ pub(crate) mod function {
             Time::new(val, 0)
         } else if let Some(val) = relative::parse(input, now).transpose()? {
             Time::new(val.timestamp().as_second(), val.offset().seconds())
-        } else if let Some(val) = parse_header(input) {
+        } else if let Some(val) = parse_raw(input) {
             // Format::Raw
             val
         } else {
@@ -234,6 +234,52 @@ pub(crate) mod function {
         };
         let time = Time { seconds, offset };
         Some(time)
+    }
+
+    /// Strictly parse the raw commit header format like `1745582210 +0200`.
+    ///
+    /// Some strict rules include:
+    ///
+    /// - The timezone offset must be present.
+    /// - The timezone offset must have a sign; either `+` or `-`.
+    /// - The timezone offset hours must be less than or equal to 14.
+    /// - The timezone offset minutes must be exactly 0, 15, 30, or 45.
+    /// - The timezone offset seconds may be present, but 0 is the only valid value.
+    /// - Only whitespace may suffix the timezone offset.
+    ///
+    /// But this function isn't perfectly strict insofar as it allows arbitrary
+    /// whitespace before and after the seconds and offset components.
+    ///
+    /// The goal is to only accept inputs that _unambiguously_ look like
+    /// git's raw date format.
+    pub fn parse_raw(input: &str) -> Option<Time> {
+        let mut split = input.split_whitespace();
+        let seconds = split.next()?.parse::<SecondsSinceUnixEpoch>().ok()?;
+        let offset_str = split.next()?;
+        if split.next().is_some() {
+            return None;
+        }
+        let offset_len = offset_str.len();
+        if offset_len != 5 && offset_len != 7 {
+            return None;
+        }
+        let sign: i32 = match offset_str.get(..1)? {
+            "-" => Some(-1),
+            "+" => Some(1),
+            _ => None,
+        }?;
+        let hours: u8 = offset_str.get(1..3)?.parse().ok()?;
+        let minutes: u8 = offset_str.get(3..5)?.parse().ok()?;
+        let offset_seconds: u8 = if offset_len == 7 {
+            offset_str.get(5..7)?.parse().ok()?
+        } else {
+            0
+        };
+        if hours > 14 || (minutes != 0 && minutes != 15 && minutes != 30 && minutes != 45) || offset_seconds != 0 {
+            return None;
+        }
+        let offset: i32 = sign * ((hours as i32) * 3600 + (minutes as i32) * 60);
+        Some(Time { seconds, offset })
     }
 
     /// This is just like `Zoned::strptime`, but it allows parsing datetimes

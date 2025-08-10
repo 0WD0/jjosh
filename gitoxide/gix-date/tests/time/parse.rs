@@ -83,21 +83,26 @@ fn raw() -> gix_testtools::Result {
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051800", None)?,
+        gix_date::parse("1313584730 +051500", None)?,
         Time {
             seconds: 1313584730,
-            offset: 19080,
+            offset: 18900,
         },
         "seconds for time-offsets work as well"
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051842", None)?,
+        gix_date::parse("1313584730 -0230", None)?,
         Time {
             seconds: 1313584730,
-            offset: 19122,
+            offset: -150 * 60,
         },
     );
+
+    assert!(gix_date::parse("1313584730 +1500", None).is_err());
+    assert!(gix_date::parse("1313584730 +000001", None).is_err());
+    assert!(gix_date::parse("1313584730 +0001", None).is_err());
+    assert!(gix_date::parse("1313584730 +000100", None).is_err());
 
     let expected = Time {
         seconds: 1660874655,
@@ -115,6 +120,39 @@ fn raw() -> gix_testtools::Result {
         assert_eq!(gix_date::parse_header(date_str), Some(expected));
     }
     Ok(())
+}
+
+#[test]
+fn bad_raw_strict() {
+    for bad_date_str in [
+        "123456 !0600",
+        "123456 0600",
+        "123456 +060",
+        "123456 -060",
+        "123456 +06000",
+        "123456 --060",
+        "123456 -+060",
+        "123456 --0600",
+        "123456 +-06000",
+        "123456 +-0600",
+        "123456 +-060",
+        "123456 +10030",
+        "123456 06000",
+        "123456  0600",
+        "123456 +0600 extra",
+        "123456 +0600 2005",
+        "123456+0600",
+        "123456 + 600",
+        "123456 -1500",
+        "123456 +1500",
+        "123456 +6600",
+        "123456 +0660",
+        "123456 +060010",
+        "123456 -060010",
+        "123456 +0075",
+    ] {
+        assert!(gix_date::parse_raw(bad_date_str).is_none());
+    }
 }
 
 #[test]
