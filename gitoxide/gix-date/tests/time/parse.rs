@@ -83,21 +83,26 @@ fn raw() -> gix_testtools::Result {
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051800", None)?,
+        gix_date::parse("1313584730 +051500", None)?,
         Time {
             seconds: 1313584730,
-            offset: 19080,
+            offset: 18900,
         },
         "seconds for time-offsets work as well"
     );
 
     assert_eq!(
-        gix_date::parse("1313584730 +051842", None)?,
+        gix_date::parse("1313584730 -0230", None)?,
         Time {
             seconds: 1313584730,
-            offset: 19122,
+            offset: -150 * 60,
         },
     );
+
+    assert!(gix_date::parse("1313584730 +1500", None).is_err());
+    assert!(gix_date::parse("1313584730 +000001", None).is_err());
+    assert!(gix_date::parse("1313584730 +0001", None).is_err());
+    assert!(gix_date::parse("1313584730 +000100", None).is_err());
 
     let expected = Time {
         seconds: 1660874655,
