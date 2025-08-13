@@ -182,7 +182,7 @@ impl Transaction<'_, '_> {
                     let mut lock = lock.take().map_or_else(obtain_lock, Ok)?;
 
                     lock.with_mut(|file| match new {
-                        Target::Object(oid) => write!(file, "{oid}"),
+                        Target::Object(oid) => writeln!(file, "{oid}"),
                         Target::Symbolic(name) => writeln!(file, "ref: {}", name.0),
                     })?;
                     Some(lock.close()?)
