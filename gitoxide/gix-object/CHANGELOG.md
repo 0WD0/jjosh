@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.50.2 (2025-08-13)
 
 A maintenance release without user-facing changes.
 
@@ -25,7 +25,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Update changelogs prior to `gix-ref` release ([`dc5bfa3`](https://github.com/GitoxideLabs/gitoxide/commit/dc5bfa3157dd3deb6edf1e6253fa5ac8ca6cde55))
+    - Update changelogs prior to `gix-ref` release ([`5315180`](https://github.com/GitoxideLabs/gitoxide/commit/53151807ec82ce3fbe1838c0885a4f9b71b82f23))
     - Merge pull request #2110 from jpgrayson/fix/gix-date-parse-raw ([`651f9fa`](https://github.com/GitoxideLabs/gitoxide/commit/651f9fa560d5df7260a45068b8440f72820a6ffd))
     - Release gix-date v0.10.5 ([`4289ae6`](https://github.com/GitoxideLabs/gitoxide/commit/4289ae635d94d713d247eaf6f87d0ba91a1a3826))
     - Merge pull request #2100 from GitoxideLabs/release ([`202bc6d`](https://github.com/GitoxideLabs/gitoxide/commit/202bc6da79854d1fb6bb32b9c6bb2a6f882c77f5))

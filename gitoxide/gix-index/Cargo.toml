@@ -27,11 +27,11 @@ gix-features = { version = "^0.43.1", path = "../gix-features", features = [
 ] }
 gix-hash = { version = "^0.19.0", path = "../gix-hash" }
 gix-bitmap = { version = "^0.2.14", path = "../gix-bitmap" }
-gix-object = { version = "^0.50.1", path = "../gix-object" }
+gix-object = { version = "^0.50.2", path = "../gix-object" }
 gix-validate = { version = "^0.10.0", path = "../gix-validate" }
 gix-traverse = { version = "^0.47.0", path = "../gix-traverse" }
 gix-lock = { version = "^18.0.0", path = "../gix-lock" }
-gix-fs = { version = "^0.16.0", path = "../gix-fs" }
+gix-fs = { version = "^0.16.1", path = "../gix-fs" }
 gix-utils = { version = "^0.3.0", path = "../gix-utils" }
 
 hashbrown = "0.15.4"

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.53.1 (2025-08-13)
 
 This release adjusts writes to lose ref files so they will contain newlines after the hash for compliance with Git.
 
@@ -38,7 +38,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <details><summary>view details</summary>
 
  * **Uncategorized**
-    - Update changelogs prior to `gix-ref` release ([`b3dfeca`](https://github.com/GitoxideLabs/gitoxide/commit/b3dfeca41eaee931f2d1ca43419fcc3fd437cc86))
+    - Update changelogs prior to `gix-ref` release ([`5315180`](https://github.com/GitoxideLabs/gitoxide/commit/53151807ec82ce3fbe1838c0885a4f9b71b82f23))
     - Merge pull request #2111 from handlerug/patch-ref-storage-newline ([`edcfdc2`](https://github.com/GitoxideLabs/gitoxide/commit/edcfdc2fe629a1b691c8f39c5b9e36d8254dea6f))
     - Persist object refs on disk with a trailing newline ([`6c0cc71`](https://github.com/GitoxideLabs/gitoxide/commit/6c0cc7165609b056850f15ee464863dae1b99a97))
     - Merge pull request #2105 from jalil-salame/fix-2103 ([`04a18f3`](https://github.com/GitoxideLabs/gitoxide/commit/04a18f3a4520dd6f49b5f87fe3782dd1cd1547f2))

@@ -31,12 +31,12 @@ gix-index = { version = "^0.41.0", path = "../gix-index", optional = true }
 gix-pathspec = { version = "^0.12.0", path = "../gix-pathspec", optional = true }
 gix-attributes = { version = "^0.27.0", path = "../gix-attributes", optional = true }
 gix-hash = { version = "^0.19.0", path = "../gix-hash" }
-gix-object = { version = "^0.50.1", path = "../gix-object" }
+gix-object = { version = "^0.50.2", path = "../gix-object" }
 gix-filter = { version = "^0.20.0", path = "../gix-filter", optional = true }
 gix-worktree = { version = "^0.42.0", path = "../gix-worktree", default-features = false, features = ["attributes"], optional = true }
 gix-command = { version = "^0.6.2", path = "../gix-command", optional = true }
 gix-path = { version = "^0.10.20", path = "../gix-path", optional = true }
-gix-fs = { version = "^0.16.0", path = "../gix-fs", optional = true }
+gix-fs = { version = "^0.16.1", path = "../gix-fs", optional = true }
 gix-tempfile = { version = "^18.0.0", path = "../gix-tempfile", optional = true }
 gix-trace = { version = "^0.1.13", path = "../gix-trace", optional = true }
 gix-traverse = { version = "^0.47.0", path = "../gix-traverse", optional = true }
