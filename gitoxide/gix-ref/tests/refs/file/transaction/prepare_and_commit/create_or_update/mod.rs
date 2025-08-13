@@ -755,6 +755,11 @@ fn packed_refs_are_looked_up_when_checking_existing_values() -> crate::Result {
         Some(new_id.as_ref()),
         "the new id was written to the loose ref"
     );
+    assert_eq!(
+        std::fs::read_to_string(store.common_dir_resolved().join("refs/heads/main"))?,
+        format!("{}\n", new_id.to_hex()),
+        "the loose ref is stored on disk as the full OID followed by a newline"
+    );
     Ok(())
 }
 
