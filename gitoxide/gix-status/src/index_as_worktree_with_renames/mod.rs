@@ -460,7 +460,7 @@ pub(super) mod function {
             fn kind(&self) -> ChangeKind {
                 match self {
                     ModificationOrDirwalkEntry::Modification(m) => match &m.status {
-                        EntryStatus::Conflict(_) | EntryStatus::IntentToAdd | EntryStatus::NeedsUpdate(_) => {
+                        EntryStatus::Conflict { .. } | EntryStatus::IntentToAdd | EntryStatus::NeedsUpdate(_) => {
                             ChangeKind::Modification
                         }
                         EntryStatus::Change(c) => match c {

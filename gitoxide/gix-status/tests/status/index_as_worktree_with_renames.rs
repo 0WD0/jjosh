@@ -393,7 +393,7 @@ impl Expectation<'_> {
     pub fn summary(&self) -> Option<Summary> {
         Some(match self {
             Expectation::Modification { status, .. } => match status {
-                EntryStatus::Conflict(_) => Summary::Conflict,
+                EntryStatus::Conflict { .. } => Summary::Conflict,
                 EntryStatus::Change(change) => match change {
                     Change::Removed => Summary::Removed,
                     Change::Type { .. } => Summary::TypeChange,

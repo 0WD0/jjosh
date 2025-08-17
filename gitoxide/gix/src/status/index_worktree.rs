@@ -489,7 +489,7 @@ pub mod iter {
             use gix_status::index_as_worktree_with_renames::Summary::*;
             Some(match self {
                 Item::Modification { status, .. } => match status {
-                    EntryStatus::Conflict(_) => Conflict,
+                    EntryStatus::Conflict { .. } => Conflict,
                     EntryStatus::Change(change) => match change {
                         Change::Removed => Removed,
                         Change::Type { .. } => TypeChange,

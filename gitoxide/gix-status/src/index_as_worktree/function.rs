@@ -11,6 +11,7 @@ use gix_features::parallel::{in_parallel_if, Reduce};
 use gix_filter::pipeline::convert::ToGitOutcome;
 use gix_object::FindExt;
 
+use crate::index_as_worktree::types::ConflictIndexEntry;
 use crate::{
     index_as_worktree::{
         traits,
@@ -165,7 +166,7 @@ where
                             return None;
                         }
                         Conflict::try_from_entry(all_entries, state.path_backing, absolute_entry_index, entry_path)
-                            .map(|(_conflict, offset)| offset)
+                            .map(|(_conflict, offset, _entries)| offset)
                     });
                     if let Some(entries_to_skip_as_conflict_originates_in_previous_chunk) = offset {
                         // skip current entry as it's done, along with following conflict entries
@@ -287,10 +288,22 @@ impl<'index> State<'_, 'index> {
         }
         let status = if entry.stage_raw() != 0 {
             Ok(
-                Conflict::try_from_entry(entries, self.path_backing, entry_index, path).map(|(conflict, offset)| {
-                    *outer_entry_index += offset; // let out loop skip over entries related to the conflict
-                    EntryStatus::Conflict(conflict)
-                }),
+                Conflict::try_from_entry(entries, self.path_backing, entry_index, path).map(
+                    |(conflict, offset, entries)| {
+                        *outer_entry_index += offset; // let out loop skip over entries related to the conflict
+                        EntryStatus::Conflict {
+                            summary: conflict,
+                            entries: Box::new({
+                                let mut a: [Option<ConflictIndexEntry>; 3] = Default::default();
+                                let src = entries.into_iter().map(|e| e.map(ConflictIndexEntry::from));
+                                for (a, b) in a.iter_mut().zip(src) {
+                                    *a = b;
+                                }
+                                a
+                            }),
+                        }
+                    },
+                ),
             )
         } else {
             self.compute_status(entry, path, diff, submodule, objects)
@@ -622,20 +635,23 @@ impl Conflict {
     /// Also return the amount of extra-entries that were part of the conflict declaration (not counting the entry at `start_index`)
     ///
     /// If for some reason entry at `start_index` isn't in conflicting state, `None` is returned.
-    pub fn try_from_entry(
-        entries: &[gix_index::Entry],
+    ///
+    /// Return `(Self, num_consumed_entries, three_possibly_entries)`.
+    pub fn try_from_entry<'entry>(
+        entries: &'entry [gix_index::Entry],
         path_backing: &gix_index::PathStorageRef,
         start_index: usize,
         entry_path: &BStr,
-    ) -> Option<(Self, usize)> {
+    ) -> Option<(Self, usize, [Option<&'entry gix_index::Entry>; 3])> {
         use Conflict::*;
         let mut mask = None::<u8>;
+        let mut seen: [Option<&gix_index::Entry>; 3] = Default::default();
 
-        let mut count = 0_usize;
-        for stage in (start_index..(start_index + 3).min(entries.len())).filter_map(|idx| {
+        let mut num_consumed_entries = 0_usize;
+        for (stage, entry) in (start_index..(start_index + 3).min(entries.len())).filter_map(|idx| {
             let entry = &entries[idx];
             let stage = entry.stage_raw();
-            (stage > 0 && entry.path_in(path_backing) == entry_path).then_some(stage)
+            (stage > 0 && entry.path_in(path_backing) == entry_path).then_some((stage, entry))
         }) {
             // This could be `1 << (stage - 1)` but let's be specific.
             *mask.get_or_insert(0) |= match stage {
@@ -644,7 +660,8 @@ impl Conflict {
                 3 => 0b100,
                 _ => 0,
             };
-            count += 1;
+            num_consumed_entries = stage as usize - 1;
+            seen[num_consumed_entries] = Some(entry);
         }
 
         mask.map(|mask| {
@@ -659,7 +676,8 @@ impl Conflict {
                     0b111 => BothModified,
                     _ => unreachable!("BUG: bitshifts and typical entry layout doesn't allow for more"),
                 },
-                count - 1,
+                num_consumed_entries,
+                seen,
             )
         })
     }

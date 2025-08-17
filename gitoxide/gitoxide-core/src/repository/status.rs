@@ -220,7 +220,7 @@ fn print_index_entry_status(
 ) -> std::io::Result<()> {
     let char_storage;
     let status = match status {
-        EntryStatus::Conflict(conflict) => as_str(conflict),
+        EntryStatus::Conflict { summary, entries: _ } => as_str(summary),
         EntryStatus::Change(change) => {
             char_storage = change_to_char(&change);
             std::str::from_utf8(std::slice::from_ref(&char_storage)).expect("valid ASCII")
