@@ -37,7 +37,7 @@ pub enum Sorting {
 }
 
 /// Provide additional information collected during the runtime of [`index_as_worktree_with_renames()`](crate::index_as_worktree_with_renames()).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Outcome {
     /// The outcome of the modification check of tracked files.
     pub tracked_file_modification: crate::index_as_worktree::Outcome,
@@ -49,7 +49,7 @@ pub struct Outcome {
 }
 
 /// Either an index entry for renames or another directory entry in case of copies.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum RewriteSource<'index, ContentChange, SubmoduleStatus> {
     /// The source originates in the index and is detected as missing in the working tree.
     /// This can also happen for copies.
@@ -86,7 +86,7 @@ pub enum RewriteSource<'index, ContentChange, SubmoduleStatus> {
 }
 
 /// An 'entry' in the sense of a merge of modified tracked files and results from a directory walk.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum Entry<'index, ContentChange, SubmoduleStatus> {
     /// A tracked file was modified, and index-specific information is passed.
     Modification {
@@ -218,7 +218,7 @@ impl<ContentChange, SubmoduleStatus> Entry<'_, ContentChange, SubmoduleStatus> {
     pub fn summary(&self) -> Option<Summary> {
         Some(match self {
             Entry::Modification {
-                status: EntryStatus::Conflict(_),
+                status: EntryStatus::Conflict { .. },
                 ..
             } => Summary::Conflict,
             Entry::Modification {

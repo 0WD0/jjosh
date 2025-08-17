@@ -17,7 +17,10 @@ use gix_status::{
     },
 };
 
-use crate::fixture_path;
+use crate::{fixture_path, hex_to_id};
+use gix_index::entry::{Flags, Mode};
+use gix_status::index_as_worktree::ConflictIndexEntry;
+use pretty_assertions::assert_eq;
 
 // since tests are fixtures a bunch of stat information (like inode number)
 // changes when extracting the data so we need to disable all advanced stat
@@ -235,7 +238,7 @@ pub(super) fn records_to_tuple<'index>(
 
 fn deracify_status(status: EntryStatus) -> Option<EntryStatus> {
     Some(match status {
-        EntryStatus::Conflict(c) => EntryStatus::Conflict(c),
+        EntryStatus::Conflict { summary, entries } => EntryStatus::Conflict { summary, entries },
         EntryStatus::Change(c) => match c {
             Change::Removed => Change::Removed,
             Change::Type { worktree_mode } => Change::Type { worktree_mode },
@@ -473,7 +476,30 @@ fn conflict() {
     assert_eq!(
         fixture(
             "status_conflict",
-            &[(BStr::new(b"content"), 0, EntryStatus::Conflict(Conflict::BothModified))],
+            &[(
+                BStr::new(b"content"),
+                0,
+                EntryStatus::Conflict {
+                    summary: Conflict::BothModified,
+                    entries: Box::new([
+                        Some(ConflictIndexEntry {
+                            id: hex_to_id("df967b96a579e45a18b8251732d16804b2e56a55"),
+                            flags: Flags::from_bits_retain(0x1000),
+                            mode: Mode::FILE,
+                        },),
+                        Some(ConflictIndexEntry {
+                            id: hex_to_id("d244dd0bf67758236f793fd7749a1c814fbfeac4"),
+                            flags: Flags::from_bits_retain(0x2000),
+                            mode: Mode::FILE,
+                        },),
+                        Some(ConflictIndexEntry {
+                            id: hex_to_id("c7747099cf9e073babc68f52cdfb4d280ba5689f"),
+                            flags: Flags::STAGE_MASK,
+                            mode: Mode::FILE,
+                        }),
+                    ])
+                }
+            )],
         ),
         Outcome {
             entries_to_process: 3,
@@ -491,9 +517,54 @@ fn conflict_both_deleted_and_added_by_them_and_added_by_us() {
         conflict_fixture(
             "both-deleted",
             &[
-                (BStr::new(b"added-by-them"), 0, EntryStatus::Conflict(AddedByThem)),
-                (BStr::new(b"added-by-us"), 1, EntryStatus::Conflict(AddedByUs)),
-                (BStr::new(b"file"), 2, EntryStatus::Conflict(BothDeleted)),
+                (
+                    BStr::new(b"added-by-them"),
+                    0,
+                    EntryStatus::Conflict {
+                        summary: AddedByThem,
+                        entries: Box::new([
+                            None,
+                            None,
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("9daeafb9864cf43055ae93beb0afd6c7d144bfa4"),
+                                flags: Flags::STAGE_MASK,
+                                mode: Mode::FILE,
+                            }),
+                        ])
+                    }
+                ),
+                (
+                    BStr::new(b"added-by-us"),
+                    1,
+                    EntryStatus::Conflict {
+                        summary: AddedByUs,
+                        entries: Box::new([
+                            None,
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("9daeafb9864cf43055ae93beb0afd6c7d144bfa4"),
+                                flags: Flags::from_bits_retain(0x2000),
+                                mode: Mode::FILE,
+                            },),
+                            None,
+                        ])
+                    }
+                ),
+                (
+                    BStr::new(b"file"),
+                    2,
+                    EntryStatus::Conflict {
+                        summary: BothDeleted,
+                        entries: Box::new([
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("9daeafb9864cf43055ae93beb0afd6c7d144bfa4"),
+                                flags: Flags::from_bits_retain(0x1000),
+                                mode: Mode::FILE,
+                            }),
+                            None,
+                            None,
+                        ])
+                    }
+                ),
             ],
         ),
         Outcome {
@@ -511,8 +582,46 @@ fn conflict_both_added_and_deleted_by_them() {
         conflict_fixture(
             "both-added",
             &[
-                (BStr::new(b"both-added"), 0, EntryStatus::Conflict(BothAdded)),
-                (BStr::new(b"deleted-by-them"), 2, EntryStatus::Conflict(DeletedByThem)),
+                (
+                    BStr::new(b"both-added"),
+                    0,
+                    EntryStatus::Conflict {
+                        summary: BothAdded,
+                        entries: Box::new([
+                            None,
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("ba2906d0666cf726c7eaadd2cd3db615dedfdf3a"),
+                                flags: Flags::from_bits_retain(0x2000),
+                                mode: Mode::FILE,
+                            },),
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("e019be006cf33489e2d0177a3837a2384eddebc5"),
+                                flags: Flags::STAGE_MASK,
+                                mode: Mode::FILE,
+                            },),
+                        ])
+                    }
+                ),
+                (
+                    BStr::new(b"deleted-by-them"),
+                    2,
+                    EntryStatus::Conflict {
+                        summary: DeletedByThem,
+                        entries: Box::new([
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("b1b716105590454bfc4c0247f193a04088f39c7f"),
+                                flags: Flags::from_bits_retain(0x1000),
+                                mode: Mode::FILE,
+                            },),
+                            Some(ConflictIndexEntry {
+                                id: hex_to_id("7d5ae6def200acda76d2ccf7c93170a9d88d6cb1"),
+                                flags: Flags::from_bits_retain(0x2000),
+                                mode: Mode::FILE,
+                            },),
+                            None,
+                        ])
+                    }
+                ),
             ],
         ),
         Outcome {
@@ -526,15 +635,83 @@ fn conflict_both_added_and_deleted_by_them() {
 #[test]
 fn conflict_detailed_single() {
     use Conflict::*;
-    for (name, expected, entry_index, entries_to_process, entries_processed) in [
-        ("deleted-by-them", DeletedByThem, 0, 2, 1),
-        ("deleted-by-us", DeletedByUs, 0, 2, 1),
-        ("both-modified", BothModified, 0, 3, 1),
+    for (name, expected, expected_entries, entry_index, entries_to_process, entries_processed) in [
+        (
+            "deleted-by-them",
+            DeletedByThem,
+            [
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("dde77be9fbfb155ff0473e7fe31781d56d50e5d3"),
+                    flags: Flags::from_bits_retain(0x1000),
+                    mode: Mode::FILE,
+                }),
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("e14959721a622239cc8de786a4b8cfcefea8304c"),
+                    flags: Flags::from_bits_retain(0x2000),
+                    mode: Mode::FILE,
+                }),
+                None,
+            ],
+            0,
+            2,
+            1,
+        ),
+        (
+            "deleted-by-us",
+            DeletedByUs,
+            [
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                    flags: Flags::from_bits_retain(0x1000),
+                    mode: Mode::FILE,
+                }),
+                None,
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("0835e4f9714005ed591f68d306eea0d6d2ae8fd7"),
+                    flags: Flags::STAGE_MASK,
+                    mode: Mode::FILE,
+                }),
+            ],
+            0,
+            2,
+            1,
+        ),
+        (
+            "both-modified",
+            BothModified,
+            [
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                    flags: Flags::from_bits_retain(0x1000),
+                    mode: Mode::FILE,
+                }),
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("e45c9c2666d44e0327c1f9c239a74c508336053e"),
+                    flags: Flags::from_bits_retain(0x2000),
+                    mode: Mode::FILE,
+                }),
+                Some(ConflictIndexEntry {
+                    id: hex_to_id("aac4af54d6427ef10af2b51a524e7272c4f37c02"),
+                    flags: Flags::STAGE_MASK,
+                    mode: Mode::FILE,
+                }),
+            ],
+            0,
+            3,
+            1,
+        ),
     ] {
         assert_eq!(
             conflict_fixture(
                 name,
-                &[(BStr::new(b"file"), entry_index, EntryStatus::Conflict(expected))],
+                &[(
+                    BStr::new(b"file"),
+                    entry_index,
+                    EntryStatus::Conflict {
+                        summary: expected,
+                        entries: Box::new(expected_entries)
+                    }
+                )],
             ),
             Outcome {
                 entries_to_process,
@@ -551,7 +728,26 @@ fn submodule_conflict() {
     assert_eq!(
         submodule_fixture(
             "conflict",
-            &[(BStr::new(b"m1"), 1, EntryStatus::Conflict(Conflict::DeletedByUs))]
+            &[(
+                BStr::new(b"m1"),
+                1,
+                EntryStatus::Conflict {
+                    summary: Conflict::DeletedByUs,
+                    entries: Box::new([
+                        Some(ConflictIndexEntry {
+                            id: hex_to_id("3189cd3cb0af8586c39a838aa3e54fd72a872a41"),
+                            flags: Flags::from_bits_retain(0x1000),
+                            mode: Mode::DIR | Mode::SYMLINK
+                        }),
+                        None,
+                        Some(ConflictIndexEntry {
+                            id: hex_to_id("e376f96e6a7f1c9335ca16c3f62e172166146bda"),
+                            flags: Flags::STAGE_MASK,
+                            mode: Mode::DIR | Mode::SYMLINK,
+                        }),
+                    ])
+                }
+            )]
         ),
         Outcome {
             entries_to_process: 3,

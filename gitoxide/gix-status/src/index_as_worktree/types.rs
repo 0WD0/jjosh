@@ -1,6 +1,7 @@
 use std::sync::atomic::AtomicBool;
 
 use bstr::{BStr, BString};
+use gix_index::entry;
 
 /// The error returned by [index_as_worktree()`](crate::index_as_worktree()).
 #[derive(Debug, thiserror::Error)]
@@ -144,11 +145,48 @@ pub enum Change<T = (), U = ()> {
     SubmoduleModification(U),
 }
 
+/// Like [`gix_index::Entry`], but without disk-metadata.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConflictIndexEntry {
+    /// The object id for this entry's ODB representation (assuming it's up-to-date with it).
+    pub id: gix_hash::ObjectId,
+    /// Additional flags for use in algorithms and for efficiently storing stage information, primarily
+    /// to obtain the [stage](entry::Flags::stage()).
+    pub flags: entry::Flags,
+    /// The kind of item this entry represents - it's not all blobs in the index anymore.
+    pub mode: entry::Mode,
+}
+
+impl From<&gix_index::Entry> for ConflictIndexEntry {
+    fn from(
+        gix_index::Entry {
+            stat: _,
+            id,
+            flags,
+            mode,
+            ..
+        }: &gix_index::Entry,
+    ) -> Self {
+        ConflictIndexEntry {
+            id: *id,
+            flags: *flags,
+            mode: *mode,
+        }
+    }
+}
+
 /// Information about an entry.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EntryStatus<T = (), U = ()> {
-    /// The entry is in a conflicting state, and we didn't collect any more information about it.
-    Conflict(Conflict),
+    /// The entry is in a conflicting state, and we provide all related entries along with a summary.
+    Conflict {
+        /// An analysis on the conflict itself based on the observed index entries.
+        summary: Conflict,
+        /// The entries from stage 1 to stage 3, where stage 1 is at index 0 and stage 3 at index 2.
+        /// Note that when there are conflicts, there is no stage 0.
+        /// Further, all entries are looking at the same path.
+        entries: Box<[Option<ConflictIndexEntry>; 3]>,
+    },
     /// There is no conflict and a change was discovered.
     Change(Change<T, U>),
     /// The entry didn't change, but its state caused extra work that can be avoided next time if its stats would be updated to the

@@ -10,3 +10,7 @@ pub fn fixture_path(name: &str) -> std::path::PathBuf {
         .expect("script works");
     dir
 }
+
+fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
+    gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
+}
