@@ -6,7 +6,7 @@ bitflags! {
     /// In-memory flags.
     ///
     /// Notably, not all of these will be persisted but can be used to aid all kinds of operations.
-    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+    #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
     pub struct Flags: u32 {
         // TODO: could we use the pathlen ourselves to save 8 bytes? And how to handle longer paths than that? 0 as sentinel maybe?
         /// The mask to obtain the length of the path associated with this entry, up to 4095 characters without extension.
