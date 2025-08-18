@@ -57,7 +57,7 @@ mod system_prefix {
 
     #[test]
     fn exepath_no_relevant_subdir() {
-        for names in [[].as_slice(), ["ucrt64"].as_slice()] {
+        for names in [&[][..], &["ucrt64"][..]] {
             let exepath = ExePath::new();
             exepath.create_separate_subdirs(names);
             let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
@@ -93,10 +93,10 @@ mod system_prefix {
     #[test]
     fn exepath_ambiguous_subdir() {
         for names in [
-            ["mingw32", "mingw64"].as_slice(),
-            ["mingw32", "clangarm64"].as_slice(),
-            ["mingw64", "clangarm64"].as_slice(),
-            ["mingw32", "mingw64", "clangarm64"].as_slice(),
+            &["mingw32", "mingw64"][..],
+            &["mingw32", "clangarm64"][..],
+            &["mingw64", "clangarm64"][..],
+            &["mingw32", "mingw64", "clangarm64"][..],
         ] {
             let exepath = ExePath::new();
             exepath.create_separate_subdirs(names);
