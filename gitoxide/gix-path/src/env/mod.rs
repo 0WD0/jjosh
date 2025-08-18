@@ -154,7 +154,8 @@ fn system_prefix_from_exepath_var<F>(var_os_func: F) -> Option<PathBuf>
 where
     F: Fn(&str) -> Option<OsString>,
 {
-    let root = PathBuf::from(var_os_func("EXEPATH")?);
+    // Only attempt this optimization if the `EXEPATH` variable is set to an absolute path.
+    let root = var_os_func("EXEPATH").map(PathBuf::from).filter(|r| r.is_absolute())?;
 
     let mut candidates = ["clangarm64", "mingw64", "mingw32"]
         .iter()
