@@ -246,6 +246,9 @@ jobs:
         run: |
           $git = Get-Command git -ErrorAction SilentlyContinue
           if ($null -eq $git) { exit 0 } else { exit 1 }
+      - name: Check that `EXEPATH` is unset
+        if: startsWith(matrix.os, 'windows')
+        run: if ($null -eq $Env:EXEPATH) { exit 0 } else { exit 1 }
       - name: Retest gix-path without `git` in `PATH` (nextest)
         if: startsWith(matrix.os, 'windows')
         run: cargo nextest run -p gix-path --no-fail-fast -- ${{ matrix.test-args }}
