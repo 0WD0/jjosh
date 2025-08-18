@@ -1,5 +1,7 @@
 use gix::bstr::{BStr, BString, ByteSlice};
 
+use crate::OutputFormat;
+
 #[derive(Eq, PartialEq, PartialOrd, Ord)]
 enum VersionPart {
     String(BString),
@@ -41,7 +43,11 @@ impl Version {
     }
 }
 
-pub fn list(repo: gix::Repository, out: &mut dyn std::io::Write) -> anyhow::Result<()> {
+pub fn list(repo: gix::Repository, out: &mut dyn std::io::Write, format: OutputFormat) -> anyhow::Result<()> {
+    if format != OutputFormat::Human {
+        anyhow::bail!("JSON output isn't supported");
+    }
+
     let platform = repo.references()?;
 
     let mut tags: Vec<_> = platform

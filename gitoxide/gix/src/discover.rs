@@ -3,7 +3,7 @@ use std::path::Path;
 
 pub use gix_discover::*;
 
-use crate::{bstr::BString, Repository, ThreadSafeRepository};
+use crate::{bstr::BString, ThreadSafeRepository};
 
 /// The error returned by [`crate::discover()`].
 #[derive(Debug, thiserror::Error)]
