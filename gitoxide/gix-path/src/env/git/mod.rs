@@ -38,28 +38,30 @@ where
     // known. So the situation where a process only passes down `ProgramFiles` sometimes happens.
     let varname_current = "ProgramFiles";
 
-    // 64-bit relative bin dir. So far, this is always `mingw64`, not `ucrt64`, `clang64`, or `clangarm64`.
-    let suffix_64 = Path::new(r"Git\mingw64\bin");
+    // 64-bit relative bin dirs. So far, this is always `mingw64` or `clangarm64`, not `urct64` or
+    // `clang64`. We check `clangarm64` before `mingw64`, because in the strage case that both are
+    // available, we don't want to skip over a native ARM64 executable for an emulated x86_64 one.
+    let suffixes_64 = [r"Git\clangarm64\bin", r"Git\mingw64\bin"].as_slice();
 
-    // 32-bit relative bin dir. So far, this is always `mingw32`, not `clang32`.
-    let suffix_32 = Path::new(r"Git\mingw32\bin");
+    // 32-bit relative bin dirs. So far, this is only ever `mingw32`, not `clang32`.
+    let suffixes_32 = [r"Git\mingw32\bin"].as_slice();
 
     // Whichever of the 64-bit or 32-bit relative bin better matches this process's architecture.
     // Unlike the system architecture, the process architecture is always known at compile time.
     #[cfg(target_pointer_width = "64")]
-    let suffix_current = suffix_64;
+    let suffixes_current = suffixes_64;
     #[cfg(target_pointer_width = "32")]
-    let suffix_current = suffix_32;
+    let suffixes_current = suffixes_32;
 
     let rules = [
-        (varname_64bit, suffix_64),
-        (varname_x86, suffix_32),
-        (varname_current, suffix_current),
+        (varname_64bit, suffixes_64),
+        (varname_x86, suffixes_32),
+        (varname_current, suffixes_current),
     ];
 
     let mut locations = vec![];
 
-    for (name, suffix) in rules {
+    for (name, suffixes) in rules {
         let Some(pf) = var_os_func(name) else { continue };
         let pf = Path::new(&pf);
         if pf.is_relative() {
@@ -67,9 +69,11 @@ where
             // case we are accidentally invoked with the environment variable set but empty.
             continue;
         }
-        let location = pf.join(suffix);
-        if !locations.contains(&location) {
-            locations.push(location);
+        for suffix in suffixes {
+            let location = pf.join(suffix);
+            if !locations.contains(&location) {
+                locations.push(location);
+            }
         }
     }
 
