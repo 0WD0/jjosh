@@ -121,4 +121,21 @@ mod system_prefix {
             assert_eq!(outcome, None);
         }
     }
+
+    #[test]
+    #[serial]
+    fn exepath_nonempty_relative() {
+        for name in ["mingw32", "mingw64", "clangarm64"] {
+            let grandparent = tempfile::tempdir().expect("can create new temporary directory");
+            let parent = grandparent
+                .path()
+                .canonicalize()
+                .expect("path to the new directory works")
+                .join("dir");
+            std::fs::create_dir_all(parent.join(name)).expect("can create directories");
+            let _cwd = gix_testtools::set_current_dir(grandparent.path()).expect("can change to test dir");
+            let outcome = system_prefix_from_exepath_var(|key| if_exepath(key, "dir"));
+            assert_eq!(outcome, None);
+        }
+    }
 }
