@@ -1,6 +1,7 @@
 mod system_prefix {
     use super::super::system_prefix_from_exepath_var;
     use gix_testtools::tempfile;
+    use serial_test::serial;
     use std::{ffi::OsString, path::PathBuf};
 
     struct ExePath {
@@ -101,6 +102,21 @@ mod system_prefix {
             let exepath = ExePath::new();
             exepath.create_separate_subdirs(names);
             let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, None);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn exepath_empty_string() {
+        for name in ["mingw32", "mingw64", "clangarm64"] {
+            let exepath = ExePath::new();
+            exepath.create_subdir(name);
+            let _cwd = gix_testtools::set_current_dir(&exepath.path).expect("can change to test dir");
+            let outcome = system_prefix_from_exepath_var(|key| match key {
+                "EXEPATH" => Some("".into()),
+                _ => None,
+            });
             assert_eq!(outcome, None);
         }
     }
