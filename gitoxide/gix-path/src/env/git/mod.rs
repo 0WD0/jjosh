@@ -62,12 +62,10 @@ where
     let mut locations = vec![];
 
     for (varname, suffixes) in rules {
-        let Some(program_files_dir) = var_os_func(varname).map(PathBuf::from) else { continue };
-        if program_files_dir.is_relative() {
-            // This shouldn't happen, but if it does then don't use the path. This is mainly in
-            // case we are accidentally invoked with the environment variable set but empty.
+        let Some(program_files_dir) = var_os_func(varname).map(PathBuf::from).filter(|p| p.is_absolute()) else {
+            // The environment variable is unset or somehow not an absolute path (e.g. an empty string).
             continue;
-        }
+        };
         for suffix in suffixes {
             let location = program_files_dir.join(suffix);
             if !locations.contains(&location) {
