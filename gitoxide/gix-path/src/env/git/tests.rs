@@ -56,7 +56,10 @@ mod locations {
                 "ProgramFiles" => r"C:\Program Files",
             ),
             if cfg!(target_pointer_width = "64") {
-                pathbuf_vec![r"C:\Program Files\Git\mingw64\bin"]
+                pathbuf_vec![
+                    r"C:\Program Files\Git\clangarm64\bin",
+                    r"C:\Program Files\Git\mingw64\bin",
+                ]
             } else {
                 pathbuf_vec![r"C:\Program Files\Git\mingw32\bin"]
             },
@@ -74,6 +77,7 @@ mod locations {
                 "ProgramW6432" => r"C:\Program Files",
             ),
             pathbuf_vec![
+                r"C:\Program Files\Git\clangarm64\bin",
                 r"C:\Program Files\Git\mingw64\bin",
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
@@ -89,21 +93,31 @@ mod locations {
                 "ProgramFiles(x86)" => r"Y:\nar\row",
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![
-                r"Z:\wi\de\Git\mingw64\bin",
-                r"Y:\nar\row\Git\mingw32\bin",
-                if cfg!(target_pointer_width = "64") {
-                    r"X:\cur\rent\Git\mingw64\bin"
-                } else {
-                    r"X:\cur\rent\Git\mingw32\bin"
-                },
-            ],
+            if cfg!(target_pointer_width = "64") {
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\clangarm64\bin",
+                    r"X:\cur\rent\Git\mingw64\bin",
+                ]
+            } else {
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\mingw32\bin",
+                ]
+            },
         );
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![r"Z:\wi\de\Git\mingw64\bin"],
+            pathbuf_vec![
+                r"Z:\wi\de\Git\clangarm64\bin",
+                r"Z:\wi\de\Git\mingw64\bin",
+            ],
         );
         assert_eq!(
             locations_from!(
@@ -112,9 +126,14 @@ mod locations {
                 "ProgramW6432" => r"Z:\wi\.\de",
             ),
             if cfg!(target_pointer_width = "64") {
-                pathbuf_vec![r"Z:\wi\de\Git\mingw64\bin", r"Y:\nar\row\Git\mingw32\bin"]
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                ]
             } else {
                 pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"Z:\wi\de\Git\mingw32\bin",
