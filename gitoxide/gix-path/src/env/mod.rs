@@ -155,13 +155,17 @@ where
     F: Fn(&str) -> Option<OsString>,
 {
     let root = PathBuf::from(var_os_func("EXEPATH")?);
-    for candidate in ["clangarm64", "mingw64", "mingw32"] {
-        let candidate = root.join(candidate);
-        if candidate.is_dir() {
-            return Some(candidate);
-        }
+
+    let mut candidates = ["clangarm64", "mingw64", "mingw32"]
+        .iter()
+        .map(|component| root.join(component))
+        .filter(|candidate| candidate.is_dir());
+
+    let path = candidates.next()?;
+    match candidates.next() {
+        Some(_) => None, // Multiple plausible candidates, so don't use the `EXEPATH` optimization.
+        None => Some(path),
     }
-    None
 }
 
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on Windows).
