@@ -4,6 +4,13 @@ mod system_prefix {
     use serial_test::serial;
     use std::{ffi::OsString, path::PathBuf};
 
+    fn if_exepath(key: &str, value: impl Into<OsString>) -> Option<OsString> {
+        match key {
+            "EXEPATH" => Some(value.into()),
+            _ => None,
+        }
+    }
+
     struct ExePath {
         _tempdir: tempfile::TempDir,
         path: PathBuf,
@@ -43,10 +50,7 @@ mod system_prefix {
         }
 
         fn var_os_func(&self, key: &str) -> Option<OsString> {
-            match key {
-                "EXEPATH" => Some(self.path.clone().into_os_string()),
-                _ => None,
-            }
+            if_exepath(key, self.path.as_os_str())
         }
     }
 
@@ -113,10 +117,7 @@ mod system_prefix {
             let exepath = ExePath::new();
             exepath.create_subdir(name);
             let _cwd = gix_testtools::set_current_dir(&exepath.path).expect("can change to test dir");
-            let outcome = system_prefix_from_exepath_var(|key| match key {
-                "EXEPATH" => Some("".into()),
-                _ => None,
-            });
+            let outcome = system_prefix_from_exepath_var(|key| if_exepath(key, ""));
             assert_eq!(outcome, None);
         }
     }
