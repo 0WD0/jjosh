@@ -320,7 +320,7 @@ mod locations {
                     let prefix_64bit = pf
                         .maybe_64bit
                         .as_ref()
-                        .expect("It gives two paths only if one can be 64-bit");
+                        .expect("It gives three paths only if some can be 64-bit");
                     let suffix_arm64 = primary
                         .strip_prefix(prefix_64bit)
                         .expect("It gives the 64-bit ARM64 path and lists it first");
