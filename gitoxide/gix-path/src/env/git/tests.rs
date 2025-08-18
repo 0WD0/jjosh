@@ -148,13 +148,13 @@ mod locations {
     }
 
     #[derive(Clone, Copy, Debug)]
-    enum PlatformArchitecture {
+    enum PlatformBitness {
         Is32on32,
         Is32on64,
         Is64on64,
     }
 
-    impl PlatformArchitecture {
+    impl PlatformBitness {
         fn current() -> WindowsResult<Self> {
             // Ordinarily, we would check the target pointer width first to avoid doing extra work,
             // because if this is a 64-bit executable then the operating system is 64-bit. But this
@@ -163,7 +163,7 @@ mod locations {
             let mut wow64process = BOOL::default();
             unsafe { IsWow64Process(GetCurrentProcess(), &mut wow64process)? };
 
-            let platform_architecture = if wow64process.as_bool() {
+            let platform_bitness = if wow64process.as_bool() {
                 Self::Is32on64
             } else if cfg!(target_pointer_width = "32") {
                 Self::Is32on32
@@ -171,7 +171,7 @@ mod locations {
                 assert!(cfg!(target_pointer_width = "64"));
                 Self::Is64on64
             };
-            Ok(platform_architecture)
+            Ok(platform_bitness)
         }
     }
 
@@ -248,8 +248,8 @@ mod locations {
         /// This checks that `obtain_envlessly()` returned paths that are likely to be correct and
         /// that satisfy the most important properties based on the current system and process.
         fn validated(self) -> Self {
-            match PlatformArchitecture::current().expect("Process and system 'bitness' should be available") {
-                PlatformArchitecture::Is32on32 => {
+            match PlatformBitness::current().expect("Process and system 'bitness' should be available") {
+                PlatformBitness::Is32on32 => {
                     assert_eq!(
                         self.current.as_os_str(),
                         self.x86.as_os_str(),
@@ -268,7 +268,7 @@ mod locations {
                         "A 32-bit system has no 64-bit program files directory.",
                     );
                 }
-                PlatformArchitecture::Is32on64 => {
+                PlatformBitness::Is32on64 => {
                     assert_eq!(
                         self.current.as_os_str(),
                         self.x86.as_os_str(),
@@ -283,7 +283,7 @@ mod locations {
                         "The 32-bit and 64-bit program files directories have different locations.",
                     );
                 }
-                PlatformArchitecture::Is64on64 => {
+                PlatformBitness::Is64on64 => {
                     let pf_64bit = self
                         .maybe_64bit
                         .as_ref()
