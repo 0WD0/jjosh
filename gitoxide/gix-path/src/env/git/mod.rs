@@ -61,16 +61,15 @@ where
 
     let mut locations = vec![];
 
-    for (name, suffixes) in rules {
-        let Some(pf) = var_os_func(name) else { continue };
-        let pf = Path::new(&pf);
-        if pf.is_relative() {
+    for (varname, suffixes) in rules {
+        let Some(program_files_dir) = var_os_func(varname).map(PathBuf::from) else { continue };
+        if program_files_dir.is_relative() {
             // This shouldn't happen, but if it does then don't use the path. This is mainly in
             // case we are accidentally invoked with the environment variable set but empty.
             continue;
         }
         for suffix in suffixes {
-            let location = pf.join(suffix);
+            let location = program_files_dir.join(suffix);
             if !locations.contains(&location) {
                 locations.push(location);
             }
