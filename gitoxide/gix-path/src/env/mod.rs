@@ -214,3 +214,6 @@ pub fn var(name: &str) -> Option<OsString> {
         std::env::var_os(name)
     }
 }
+
+#[cfg(test)]
+mod tests;

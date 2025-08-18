@@ -1,0 +1,107 @@
+mod system_prefix {
+    use super::super::system_prefix_from_exepath_var;
+    use gix_testtools::tempfile;
+    use std::{ffi::OsString, path::PathBuf};
+
+    struct ExePath {
+        _tempdir: tempfile::TempDir,
+        path: PathBuf,
+    }
+
+    impl ExePath {
+        fn new() -> Self {
+            let tempdir = tempfile::tempdir().expect("can create new temporary directory");
+
+            // This is just `tempdir.path()` unless it is relative, in which case it is resolved.
+            let path = std::env::current_dir()
+                .expect("can get current directory")
+                .join(tempdir.path());
+
+            Self {
+                _tempdir: tempdir,
+                path,
+            }
+        }
+
+        fn create_subdir(&self, name: &str) -> PathBuf {
+            let child = self.path.join(name);
+            std::fs::create_dir(&child).expect("can create subdirectory");
+            child
+        }
+
+        fn create_separate_subdirs(&self, names: &[&str]) {
+            for name in names {
+                self.create_subdir(name);
+            }
+        }
+
+        fn create_separate_regular_files(&self, names: &[&str]) {
+            for name in names {
+                std::fs::File::create_new(self.path.join(name)).expect("can create new file");
+            }
+        }
+
+        fn var_os_func(&self, key: &str) -> Option<OsString> {
+            match key {
+                "EXEPATH" => Some(self.path.clone().into_os_string()),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn exepath_unset() {
+        let outcome = system_prefix_from_exepath_var(|_| None);
+        assert_eq!(outcome, None);
+    }
+
+    #[test]
+    fn exepath_no_relevant_subdir() {
+        for names in [[].as_slice(), ["ucrt64"].as_slice()] {
+            let exepath = ExePath::new();
+            exepath.create_separate_subdirs(names);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, None);
+        }
+    }
+
+    #[test]
+    fn exepath_unambiguous_subdir() {
+        for name in ["mingw32", "mingw64", "clangarm64"] {
+            let exepath = ExePath::new();
+            let subdir = exepath.create_subdir(name);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, Some(subdir));
+        }
+    }
+
+    #[test]
+    fn exepath_unambiguous_subdir_beside_strange_files() {
+        for (dirname, filename1, filename2) in [
+            ("mingw32", "mingw64", "clangarm64"),
+            ("mingw64", "mingw32", "clangarm64"),
+            ("clangarm64", "mingw32", "mingw64"),
+        ] {
+            let exepath = ExePath::new();
+            let subdir = exepath.create_subdir(dirname);
+            exepath.create_separate_regular_files(&[filename1, filename2]);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, Some(subdir));
+        }
+    }
+
+    #[test]
+    fn exepath_ambiguous_subdir() {
+        for names in [
+            ["mingw32", "mingw64"].as_slice(),
+            ["mingw32", "clangarm64"].as_slice(),
+            ["mingw64", "clangarm64"].as_slice(),
+            ["mingw32", "mingw64", "clangarm64"].as_slice(),
+        ] {
+            let exepath = ExePath::new();
+            exepath.create_separate_subdirs(names);
+            let outcome = system_prefix_from_exepath_var(|key| exepath.var_os_func(key));
+            assert_eq!(outcome, None);
+        }
+    }
+}
