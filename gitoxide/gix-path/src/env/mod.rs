@@ -155,7 +155,7 @@ where
     F: Fn(&str) -> Option<OsString>,
 {
     let root = PathBuf::from(var_os_func("EXEPATH")?);
-    for candidate in ["mingw64", "mingw32"] {
+    for candidate in ["clangarm64", "mingw64", "mingw32"] {
         let candidate = root.join(candidate);
         if candidate.is_dir() {
             return Some(candidate);
