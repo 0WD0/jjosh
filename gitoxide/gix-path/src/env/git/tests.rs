@@ -114,10 +114,7 @@ mod locations {
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![
-                r"Z:\wi\de\Git\clangarm64\bin",
-                r"Z:\wi\de\Git\mingw64\bin",
-            ],
+            pathbuf_vec![r"Z:\wi\de\Git\clangarm64\bin", r"Z:\wi\de\Git\mingw64\bin"],
         );
         assert_eq!(
             locations_from!(
