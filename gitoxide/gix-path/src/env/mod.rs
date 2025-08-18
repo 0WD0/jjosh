@@ -139,6 +139,31 @@ pub fn core_dir() -> Option<&'static Path> {
     GIT_CORE_DIR.as_deref()
 }
 
+fn system_prefix_from_core_dir<F>(core_dir_func: F) -> Option<PathBuf>
+where
+    F: Fn() -> Option<&'static Path>,
+{
+    let path = core_dir_func()?;
+    let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
+        matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
+    })?;
+    Some(path.components().take(one_past_prefix.checked_sub(1)?).collect())
+}
+
+fn system_prefix_from_exepath_var<F>(var_os_func: F) -> Option<PathBuf>
+where
+    F: Fn(&str) -> Option<OsString>,
+{
+    let root = PathBuf::from(var_os_func("EXEPATH")?);
+    for candidate in ["mingw64", "mingw32"] {
+        let candidate = root.join(candidate);
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on Windows).
 ///
 /// ### Performance
@@ -153,20 +178,8 @@ pub fn core_dir() -> Option<&'static Path> {
 pub fn system_prefix() -> Option<&'static Path> {
     if cfg!(windows) {
         static PREFIX: Lazy<Option<PathBuf>> = Lazy::new(|| {
-            if let Some(root) = std::env::var_os("EXEPATH").map(PathBuf::from) {
-                for candidate in ["mingw64", "mingw32"] {
-                    let candidate = root.join(candidate);
-                    if candidate.is_dir() {
-                        return Some(candidate);
-                    }
-                }
-            }
-
-            let path = GIT_CORE_DIR.as_deref()?;
-            let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
-                matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
-            })?;
-            Some(path.components().take(one_past_prefix.checked_sub(1)?).collect())
+            system_prefix_from_exepath_var(|key| std::env::var_os(key))
+                .or_else(|| system_prefix_from_core_dir(core_dir))
         });
         PREFIX.as_deref()
     } else {
