@@ -139,6 +139,36 @@ pub fn core_dir() -> Option<&'static Path> {
     GIT_CORE_DIR.as_deref()
 }
 
+fn system_prefix_from_core_dir<F>(core_dir_func: F) -> Option<PathBuf>
+where
+    F: Fn() -> Option<&'static Path>,
+{
+    let path = core_dir_func()?;
+    let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
+        matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
+    })?;
+    Some(path.components().take(one_past_prefix.checked_sub(1)?).collect())
+}
+
+fn system_prefix_from_exepath_var<F>(var_os_func: F) -> Option<PathBuf>
+where
+    F: Fn(&str) -> Option<OsString>,
+{
+    // Only attempt this optimization if the `EXEPATH` variable is set to an absolute path.
+    let root = var_os_func("EXEPATH").map(PathBuf::from).filter(|r| r.is_absolute())?;
+
+    let mut candidates = ["clangarm64", "mingw64", "mingw32"]
+        .iter()
+        .map(|component| root.join(component))
+        .filter(|candidate| candidate.is_dir());
+
+    let path = candidates.next()?;
+    match candidates.next() {
+        Some(_) => None, // Multiple plausible candidates, so don't use the `EXEPATH` optimization.
+        None => Some(path),
+    }
+}
+
 /// Returns the platform dependent system prefix or `None` if it cannot be found (right now only on Windows).
 ///
 /// ### Performance
@@ -153,20 +183,8 @@ pub fn core_dir() -> Option<&'static Path> {
 pub fn system_prefix() -> Option<&'static Path> {
     if cfg!(windows) {
         static PREFIX: Lazy<Option<PathBuf>> = Lazy::new(|| {
-            if let Some(root) = std::env::var_os("EXEPATH").map(PathBuf::from) {
-                for candidate in ["mingw64", "mingw32"] {
-                    let candidate = root.join(candidate);
-                    if candidate.is_dir() {
-                        return Some(candidate);
-                    }
-                }
-            }
-
-            let path = GIT_CORE_DIR.as_deref()?;
-            let one_past_prefix = path.components().enumerate().find_map(|(idx, c)| {
-                matches!(c,std::path::Component::Normal(name) if name.to_str() == Some("libexec")).then_some(idx)
-            })?;
-            Some(path.components().take(one_past_prefix.checked_sub(1)?).collect())
+            system_prefix_from_exepath_var(|key| std::env::var_os(key))
+                .or_else(|| system_prefix_from_core_dir(core_dir))
         });
         PREFIX.as_deref()
     } else {
@@ -201,3 +219,6 @@ pub fn var(name: &str) -> Option<OsString> {
         std::env::var_os(name)
     }
 }
+
+#[cfg(test)]
+mod tests;

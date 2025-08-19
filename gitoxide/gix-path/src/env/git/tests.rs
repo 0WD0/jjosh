@@ -56,7 +56,10 @@ mod locations {
                 "ProgramFiles" => r"C:\Program Files",
             ),
             if cfg!(target_pointer_width = "64") {
-                pathbuf_vec![r"C:\Program Files\Git\mingw64\bin"]
+                pathbuf_vec![
+                    r"C:\Program Files\Git\clangarm64\bin",
+                    r"C:\Program Files\Git\mingw64\bin",
+                ]
             } else {
                 pathbuf_vec![r"C:\Program Files\Git\mingw32\bin"]
             },
@@ -74,6 +77,7 @@ mod locations {
                 "ProgramW6432" => r"C:\Program Files",
             ),
             pathbuf_vec![
+                r"C:\Program Files\Git\clangarm64\bin",
                 r"C:\Program Files\Git\mingw64\bin",
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
@@ -89,21 +93,28 @@ mod locations {
                 "ProgramFiles(x86)" => r"Y:\nar\row",
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![
-                r"Z:\wi\de\Git\mingw64\bin",
-                r"Y:\nar\row\Git\mingw32\bin",
-                if cfg!(target_pointer_width = "64") {
-                    r"X:\cur\rent\Git\mingw64\bin"
-                } else {
-                    r"X:\cur\rent\Git\mingw32\bin"
-                },
-            ],
+            if cfg!(target_pointer_width = "64") {
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\clangarm64\bin",
+                    r"X:\cur\rent\Git\mingw64\bin",
+                ]
+            } else {
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\mingw32\bin",
+                ]
+            },
         );
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
-            pathbuf_vec![r"Z:\wi\de\Git\mingw64\bin"],
+            pathbuf_vec![r"Z:\wi\de\Git\clangarm64\bin", r"Z:\wi\de\Git\mingw64\bin"],
         );
         assert_eq!(
             locations_from!(
@@ -112,9 +123,14 @@ mod locations {
                 "ProgramW6432" => r"Z:\wi\.\de",
             ),
             if cfg!(target_pointer_width = "64") {
-                pathbuf_vec![r"Z:\wi\de\Git\mingw64\bin", r"Y:\nar\row\Git\mingw32\bin"]
+                pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                ]
             } else {
                 pathbuf_vec![
+                    r"Z:\wi\de\Git\clangarm64\bin",
                     r"Z:\wi\de\Git\mingw64\bin",
                     r"Y:\nar\row\Git\mingw32\bin",
                     r"Z:\wi\de\Git\mingw32\bin",
@@ -132,13 +148,13 @@ mod locations {
     }
 
     #[derive(Clone, Copy, Debug)]
-    enum PlatformArchitecture {
+    enum PlatformBitness {
         Is32on32,
         Is32on64,
         Is64on64,
     }
 
-    impl PlatformArchitecture {
+    impl PlatformBitness {
         fn current() -> WindowsResult<Self> {
             // Ordinarily, we would check the target pointer width first to avoid doing extra work,
             // because if this is a 64-bit executable then the operating system is 64-bit. But this
@@ -147,7 +163,7 @@ mod locations {
             let mut wow64process = BOOL::default();
             unsafe { IsWow64Process(GetCurrentProcess(), &mut wow64process)? };
 
-            let platform_architecture = if wow64process.as_bool() {
+            let platform_bitness = if wow64process.as_bool() {
                 Self::Is32on64
             } else if cfg!(target_pointer_width = "32") {
                 Self::Is32on32
@@ -155,7 +171,7 @@ mod locations {
                 assert!(cfg!(target_pointer_width = "64"));
                 Self::Is64on64
             };
-            Ok(platform_architecture)
+            Ok(platform_bitness)
         }
     }
 
@@ -180,12 +196,12 @@ mod locations {
         ///
         /// This is present on x64 and also ARM64 systems. On an ARM64 system, ARM64 and AMD64
         /// programs use the same program files directory while 32-bit x86 and ARM programs use
-        /// two others. Only a 32-bit has no 64-bit program files directory.
+        /// two others. Only a 32-bit system has no 64-bit program files directory.
         maybe_64bit: Option<PathBuf>,
     }
 
     impl ProgramFilesPaths {
-        /// Gets the three common kinds of global program files paths without environment variables.
+        /// Get the three common kinds of global program files paths without environment variables.
         ///
         /// The idea here is to obtain this information, which the `alternative_locations()` unit
         /// test uses to learn the expected alternative locations, without duplicating *any* of the
@@ -227,13 +243,13 @@ mod locations {
             }
         }
 
-        /// Checks that the paths we got for testing are reasonable.
+        /// Check that the paths we got for testing are reasonable.
         ///
         /// This checks that `obtain_envlessly()` returned paths that are likely to be correct and
         /// that satisfy the most important properties based on the current system and process.
         fn validated(self) -> Self {
-            match PlatformArchitecture::current().expect("Process and system 'bitness' should be available") {
-                PlatformArchitecture::Is32on32 => {
+            match PlatformBitness::current().expect("Process and system 'bitness' should be available") {
+                PlatformBitness::Is32on32 => {
                     assert_eq!(
                         self.current.as_os_str(),
                         self.x86.as_os_str(),
@@ -252,7 +268,7 @@ mod locations {
                         "A 32-bit system has no 64-bit program files directory.",
                     );
                 }
-                PlatformArchitecture::Is32on64 => {
+                PlatformBitness::Is32on64 => {
                     assert_eq!(
                         self.current.as_os_str(),
                         self.x86.as_os_str(),
@@ -267,7 +283,7 @@ mod locations {
                         "The 32-bit and 64-bit program files directories have different locations.",
                     );
                 }
-                PlatformArchitecture::Is64on64 => {
+                PlatformBitness::Is64on64 => {
                     let pf_64bit = self
                         .maybe_64bit
                         .as_ref()
@@ -292,27 +308,32 @@ mod locations {
     #[derive(Clone, Debug)]
     struct RelativeGitBinPaths<'a> {
         x86: &'a Path,
-        maybe_64bit: Option<&'a Path>,
+        maybe_x64: Option<&'a Path>,
+        maybe_arm64: Option<&'a Path>,
     }
 
     impl<'a> RelativeGitBinPaths<'a> {
         /// Assert that `locations` has the given path prefixes, and extract the suffixes.
         fn assert_from(pf: &'a ProgramFilesPaths, locations: &'static [PathBuf]) -> Self {
             match locations {
-                [primary, secondary] => {
+                [primary, secondary, tertiary] => {
                     let prefix_64bit = pf
                         .maybe_64bit
                         .as_ref()
-                        .expect("It gives two paths only if one can be 64-bit");
-                    let suffix_64bit = primary
+                        .expect("It gives three paths only if some can be 64-bit");
+                    let suffix_arm64 = primary
                         .strip_prefix(prefix_64bit)
-                        .expect("It gives the 64-bit path and lists it first");
-                    let suffix_x86 = secondary
+                        .expect("It gives the 64-bit ARM64 path and lists it first");
+                    let suffix_x64 = secondary
+                        .strip_prefix(prefix_64bit)
+                        .expect("It gives the 64-bit x86 path and lists it second");
+                    let suffix_x86 = tertiary
                         .strip_prefix(pf.x86.as_path())
-                        .expect("It gives the 32-bit path and lists it second");
+                        .expect("It gives the 32-bit path and lists it third");
                     Self {
                         x86: suffix_x86,
-                        maybe_64bit: Some(suffix_64bit),
+                        maybe_x64: Some(suffix_x64),
+                        maybe_arm64: Some(suffix_arm64),
                     }
                 }
                 [only] => {
@@ -322,10 +343,11 @@ mod locations {
                         .expect("The one path it gives is the 32-bit path");
                     Self {
                         x86: suffix_x86,
-                        maybe_64bit: None,
+                        maybe_x64: None,
+                        maybe_arm64: None,
                     }
                 }
-                other => panic!("{:?} has length {}, expected 1 or 2.", other, other.len()),
+                other => panic!("{:?} has length {}, expected 1 or 3.", other, other.len()),
             }
         }
 
@@ -333,12 +355,11 @@ mod locations {
         fn assert_architectures(&self) {
             assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
 
-            if let Some(suffix_64bit) = self.maybe_64bit {
-                // When Git for Windows releases ARM64 builds, there will be another 64-bit suffix,
-                // likely clangarm64. In that case, this and other assertions will need updating,
-                // as there will be two separate paths to check under the same 64-bit program files
-                // directory. (See the definition of ProgramFilesPaths::maybe_64bit for details.)
-                assert_eq!(suffix_64bit, Path::new("Git/mingw64/bin"));
+            if let Some(suffix_x64) = self.maybe_x64 {
+                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
+            }
+            if let Some(suffix_arm64) = self.maybe_arm64 {
+                assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
             }
         }
     }
