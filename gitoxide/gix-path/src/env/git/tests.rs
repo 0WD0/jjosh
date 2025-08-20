@@ -181,27 +181,29 @@ mod locations {
         Some(folded_text.ends_with(&folded_pattern))
     }
 
-    /// The common global program files paths on this system, by process and system architecture.
+    /// The most common global program files paths on this system, by process and system architecture.
+    ///
+    /// This omits the 32-bit ARM program files directory, as Git for Windows is never installed there.
     #[derive(Clone, Debug)]
     struct ProgramFilesPaths {
         /// The program files directory used for whatever architecture this program was built for.
         current: PathBuf,
 
-        /// The x86 program files directory regardless of the architecture of the program.
+        /// The 32-bit x86 program files directory regardless of the architecture of the program.
         ///
         /// If Rust gains Windows targets like ARMv7 where this is unavailable, this could fail.
         x86: PathBuf,
 
         /// The 64-bit program files directory if there is one.
         ///
-        /// This is present on x64 and also ARM64 systems. On an ARM64 system, ARM64 and AMD64
-        /// programs use the same program files directory while 32-bit x86 and ARM programs use
-        /// two others. Only a 32-bit system has no 64-bit program files directory.
+        /// This is present on x64 (AMD64) and also ARM64 systems. On an ARM64 system, ARM64 and
+        /// AMD64 programs use the same program files directory while 32-bit x86 and 32-bit ARM
+        /// programs use two others. Only a 32-bit system has no 64-bit program files directory.
         maybe_64bit: Option<PathBuf>,
     }
 
     impl ProgramFilesPaths {
-        /// Get the three common kinds of global program files paths without environment variables.
+        /// Get the three most common kinds of global program files paths without environment variables.
         ///
         /// The idea here is to obtain this information, which the `alternative_locations()` unit
         /// test uses to learn the expected alternative locations, without duplicating *any* of the
