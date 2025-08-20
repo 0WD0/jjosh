@@ -354,100 +354,132 @@ mod locations {
         }
     }
 
+    /// Architecture-specific Git for Windows paths relative to the user program files directory.
+    #[derive(Clone, Debug)]
+    struct RelativeUserGitBinPaths<'a> {
+        x86: &'a Path,
+        x64: &'a Path,
+        arm64: &'a Path,
+    }
+
+    impl<'a> RelativeUserGitBinPaths<'a> {
+        /// Assert that `locations` leads with the given user path prefix, and extract the suffixes.
+        fn assert_from(pf_user: &'a Path, locations: &'static [PathBuf]) -> Self {
+            match locations {
+                [path1, path2, path3, ..] => {
+                    let suffix_user_arm64 = path1
+                        .strip_prefix(pf_user)
+                        .expect("It gives a per-user 64-bit ARM64 path and lists it first");
+                    let suffix_user_x64 = path2
+                        .strip_prefix(pf_user)
+                        .expect("It gives a per-user 64-bit x86 path and lists it second");
+                    let suffix_user_x86 = path3
+                        .strip_prefix(pf_user)
+                        .expect("It gives a per-user 32-bit x86 path and lists it third");
+                    Self {
+                        x86: suffix_user_x86,
+                        x64: suffix_user_x64,
+                        arm64: suffix_user_arm64,
+                    }
+                }
+                other => panic!(
+                    "{:?} has length {}, so some expected leading user program files paths are absent",
+                    other,
+                    other.len()
+                ),
+            }
+        }
+
+        /// Assert that suffixes are common Git install locations relative to a program files directory.
+        fn assert_architectures(&self) {
+            assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
+            assert_eq!(self.x64, Path::new("Git/mingw64/bin"));
+            assert_eq!(self.arm64, Path::new("Git/clangarm64/bin"));
+        }
+    }
+
+    /// Architecture-specific Git for Windows paths relative to global program files directories.
+    #[derive(Clone, Debug)]
+    struct RelativeGlobalGitBinPaths<'a> {
+        x86: &'a Path,
+        maybe_x64: Option<&'a Path>,
+        maybe_arm64: Option<&'a Path>,
+    }
+
+    impl<'a> RelativeGlobalGitBinPaths<'a> {
+        /// Assert that `locations` trails with the given global path prefixes, and extract the suffixes.
+        fn assert_from(pf: &'a ProgramFilesPaths, locations: &'static [PathBuf]) -> Self {
+            match locations {
+                [_, _, _, path4, path5, path6] => {
+                    let prefix_64bit = pf
+                        .maybe_64bit
+                        .as_ref()
+                        .expect("It gives 6 paths only if some global paths can be 64-bit");
+                    let suffix_global_arm64 = path4
+                        .strip_prefix(prefix_64bit)
+                        .expect("It gives a global 64-bit ARM64 path and lists it fourth");
+                    let suffix_global_x64 = path5
+                        .strip_prefix(prefix_64bit)
+                        .expect("It gives a global 64-bit x86 path and lists it fifth");
+                    let suffix_global_x86 = path6
+                        .strip_prefix(&pf.x86)
+                        .expect("It gives a global 32-bit path and lists it sixth");
+                    Self {
+                        x86: suffix_global_x86,
+                        maybe_x64: Some(suffix_global_x64),
+                        maybe_arm64: Some(suffix_global_arm64),
+                    }
+                }
+                [_, _, _, path4] => {
+                    assert_eq!(
+                        pf.maybe_64bit, None,
+                        "It gives 4 paths only if no global paths can be 64-bit.",
+                    );
+                    let suffix_global_x86 = path4
+                        .strip_prefix(&pf.x86)
+                        .expect("It gives a global 32-bit path and lists it fourth");
+                    Self {
+                        x86: suffix_global_x86,
+                        maybe_x64: None,
+                        maybe_arm64: None,
+                    }
+                }
+                other => panic!("{:?} has length {}, expected 4 or 6.", other, other.len()),
+            }
+        }
+
+        /// Assert that suffixes are common Git install locations relative to a program files directory.
+        fn assert_architectures(&self) {
+            assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
+
+            if let Some(suffix_x64) = self.maybe_x64 {
+                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
+            }
+            if let Some(suffix_arm64) = self.maybe_arm64 {
+                assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
+            }
+        }
+    }
+
     /// Architecture-specific Git for Windows paths relative to particular program files directories.
     #[derive(Clone, Debug)]
     struct RelativeGitBinPaths<'a> {
-        global_x86: &'a Path,
-        maybe_global_x64: Option<&'a Path>,
-        maybe_global_arm64: Option<&'a Path>,
-        user_x86: &'a Path,
-        maybe_user_x64: Option<&'a Path>,
-        maybe_user_arm64: Option<&'a Path>,
+        global: RelativeGlobalGitBinPaths<'a>,
+        user: RelativeUserGitBinPaths<'a>,
     }
 
     impl<'a> RelativeGitBinPaths<'a> {
         /// Assert that `locations` has the given path prefixes, and extract the suffixes.
         fn assert_from(pf: &'a ProgramFilesPaths, locations: &'static [PathBuf]) -> Self {
-            match locations {
-                [path1, path2, path3, path4, path5, path6] => {
-                    let prefix_64bit = pf
-                        .maybe_64bit
-                        .as_ref()
-                        .expect("It gives six paths only if some can be 64-bit");
-                    let suffix_user_arm64 = path1
-                        .strip_prefix(pf.user.as_path())
-                        .expect("It gives the per-user 64-bit ARM64 path and lists it first");
-                    let suffix_user_x64 = path2
-                        .strip_prefix(pf.user.as_path())
-                        .expect("It gives the per-user 64-bit x86 path and lists it second");
-                    let suffix_user_x86 = path3
-                        .strip_prefix(pf.user.as_path())
-                        .expect("It gives the per-user 32-bit x86 path and lists it third");
-                    let suffix_global_arm64 = path4
-                        .strip_prefix(prefix_64bit)
-                        .expect("It gives the global 64-bit ARM64 path and lists it fourth");
-                    let suffix_global_x64 = path5
-                        .strip_prefix(prefix_64bit)
-                        .expect("It gives the global 64-bit x86 path and lists it fifth");
-                    let suffix_global_x86 = path6
-                        .strip_prefix(pf.x86.as_path())
-                        .expect("It gives the global 32-bit path and lists it sixth");
-                    Self {
-                        global_x86: suffix_global_x86,
-                        maybe_global_x64: Some(suffix_global_x64),
-                        maybe_global_arm64: Some(suffix_global_arm64),
-                        user_x86: suffix_user_x86,
-                        maybe_user_x64: Some(suffix_user_x64),
-                        maybe_user_arm64: Some(suffix_user_arm64),
-                    }
-                }
-                [path1, path2] => {
-                    assert_eq!(pf.maybe_64bit, None, "It gives two paths only if none can be 64-bit.");
-                    let suffix_user_x86 = path1
-                        .strip_prefix(pf.user.as_path())
-                        .expect("It gives the per-user 32-bit path and lists it first");
-                    let suffix_global_x86 = path2
-                        .strip_prefix(pf.x86.as_path())
-                        .expect("It gives the global 32-bit path and lists it second");
-                    Self {
-                        global_x86: suffix_global_x86,
-                        maybe_global_x64: None,
-                        maybe_global_arm64: None,
-                        user_x86: suffix_user_x86,
-                        maybe_user_x64: None,
-                        maybe_user_arm64: None,
-                    }
-                }
-                other => panic!("{:?} has length {}, expected 2 or 6.", other, other.len()),
-            }
+            let user = RelativeUserGitBinPaths::assert_from(&pf.user, locations);
+            let global = RelativeGlobalGitBinPaths::assert_from(pf, locations);
+            Self { global, user }
         }
 
-        /// Assert that the suffixes (relative subdirectories) are the common Git install locations.
+        /// Assert that global and user suffixes (relative subdirectories) are common Git install locations.
         fn assert_architectures(&self) {
-            self.assert_architectures_global();
-            self.assert_architectures_user();
-        }
-
-        fn assert_architectures_global(&self) {
-            assert_eq!(self.global_x86, Path::new("Git/mingw32/bin"));
-
-            if let Some(suffix_x64) = self.maybe_global_x64 {
-                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
-            }
-            if let Some(suffix_arm64) = self.maybe_global_arm64 {
-                assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
-            }
-        }
-
-        fn assert_architectures_user(&self) {
-            assert_eq!(self.user_x86, Path::new("Git/mingw32/bin"));
-
-            if let Some(suffix_x64) = self.maybe_user_x64 {
-                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
-            }
-            if let Some(suffix_arm64) = self.maybe_user_arm64 {
-                assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
-            }
+            self.global.assert_architectures();
+            self.user.assert_architectures();
         }
     }
 
