@@ -205,9 +205,10 @@ mod locations {
         Some(folded_text.ends_with(&folded_pattern))
     }
 
-    /// The most common global program files paths on this system, by process and system architecture.
+    /// The most common program files paths, as they are available in this environment.
     ///
-    /// This omits the 32-bit ARM program files directory, as Git for Windows is never installed there.
+    /// This omits the global 32-bit ARM program files directory, because Git for Windows is never
+    /// installed there.
     #[derive(Clone, Debug)]
     struct ProgramFilesPaths {
         /// The program files directory used for whatever architecture this program was built for.
@@ -224,10 +225,13 @@ mod locations {
         /// AMD64 programs use the same program files directory while 32-bit x86 and 32-bit ARM
         /// programs use two others. Only a 32-bit system has no 64-bit program files directory.
         maybe_64bit: Option<PathBuf>,
+
+        /// The per-user `Programs` subdirectory of the user's local application data directory.
+        user: PathBuf,
     }
 
     impl ProgramFilesPaths {
-        /// Get the three most common kinds of global program files paths without environment variables.
+        /// Get the four most common kinds of program files paths without environment variables.
         ///
         /// The idea here is to obtain this information, which the `alternative_locations()` unit
         /// test uses to learn the expected alternative locations, without duplicating *any* of the
@@ -235,9 +239,10 @@ mod locations {
         /// here is also more reliable than using environment variables, but it is a bit more
         /// complex, and it requires either additional dependencies or the use of unsafe code.
         ///
-        /// This gets `pf_current` and `pf_x86` by the [known folders][known-folders] system. But
-        /// it gets `maybe_pf_64bit` from the registry, as the corresponding known folder is not
-        /// available to 32-bit processes. See the [`KNOWNFOLDDERID`][knownfolderid] documentation.
+        /// This gets `pf_user`, `pf_current`, and `pf_x86` by the [known folders][known-folders]
+        /// system. But it gets `maybe_pf_64bit` from the registry, as the corresponding known
+        /// folder is not available to 32-bit processes. See the [`KNOWNFOLDDERID`][knownfolderid]
+        /// documentation.
         ///
         /// If in the future the implementation of `ALTERNATIVE_LOCATIONS` uses these techniques,
         /// then this function can be changed to use environment variables and renamed accordingly.
@@ -262,10 +267,15 @@ mod locations {
                 })
                 .ok();
 
+            // FIXME: This lacks KF_FLAG_DONT_VERIFY, so it errors out if the folder hasn't been created.
+            let pf_user = get_known_folder_path(KnownFolder::UserProgramFiles)
+                .expect("The path where the user's local Programs folder is, or would be created, is known");
+
             Self {
                 current: pf_current,
                 x86: pf_x86,
                 maybe_64bit: maybe_pf_64bit,
+                user: pf_user,
             }
         }
 
@@ -274,6 +284,12 @@ mod locations {
         /// This checks that `obtain_envlessly()` returned paths that are likely to be correct and
         /// that satisfy the most important properties based on the current system and process.
         fn validated(self) -> Self {
+            self.validate_global_folders();
+            self.validate_user_folder();
+            self
+        }
+
+        fn validate_global_folders(&self) {
             match PlatformBitness::current().expect("Process and system 'bitness' should be available") {
                 PlatformBitness::Is32on32 => {
                     assert_eq!(
@@ -325,66 +341,111 @@ mod locations {
                     );
                 }
             }
+        }
 
-            self
+        fn validate_user_folder(&self) {
+            let expected = get_known_folder_path(KnownFolder::LocalAppData)
+                .expect("The user's local application data directory is available")
+                .join("Programs");
+            assert_eq!(
+                self.user, expected,
+                "The user program files directory is Programs in the local application data directory.",
+            );
         }
     }
 
-    /// Paths relative to process architecture specific program files directories.
+    /// Architecture-specific Git for Windows paths relative to particular program files directories.
     #[derive(Clone, Debug)]
     struct RelativeGitBinPaths<'a> {
-        x86: &'a Path,
-        maybe_x64: Option<&'a Path>,
-        maybe_arm64: Option<&'a Path>,
+        global_x86: &'a Path,
+        maybe_global_x64: Option<&'a Path>,
+        maybe_global_arm64: Option<&'a Path>,
+        user_x86: &'a Path,
+        maybe_user_x64: Option<&'a Path>,
+        maybe_user_arm64: Option<&'a Path>,
     }
 
     impl<'a> RelativeGitBinPaths<'a> {
         /// Assert that `locations` has the given path prefixes, and extract the suffixes.
         fn assert_from(pf: &'a ProgramFilesPaths, locations: &'static [PathBuf]) -> Self {
             match locations {
-                [primary, secondary, tertiary] => {
+                [path1, path2, path3, path4, path5, path6] => {
                     let prefix_64bit = pf
                         .maybe_64bit
                         .as_ref()
-                        .expect("It gives three paths only if some can be 64-bit");
-                    let suffix_arm64 = primary
+                        .expect("It gives six paths only if some can be 64-bit");
+                    let suffix_user_arm64 = path1
+                        .strip_prefix(pf.user.as_path())
+                        .expect("It gives the per-user 64-bit ARM64 path and lists it first");
+                    let suffix_user_x64 = path2
+                        .strip_prefix(pf.user.as_path())
+                        .expect("It gives the per-user 64-bit x86 path and lists it second");
+                    let suffix_user_x86 = path3
+                        .strip_prefix(pf.user.as_path())
+                        .expect("It gives the per-user 32-bit x86 path and lists it third");
+                    let suffix_global_arm64 = path4
                         .strip_prefix(prefix_64bit)
-                        .expect("It gives the 64-bit ARM64 path and lists it first");
-                    let suffix_x64 = secondary
+                        .expect("It gives the global 64-bit ARM64 path and lists it fourth");
+                    let suffix_global_x64 = path5
                         .strip_prefix(prefix_64bit)
-                        .expect("It gives the 64-bit x86 path and lists it second");
-                    let suffix_x86 = tertiary
+                        .expect("It gives the global 64-bit x86 path and lists it fifth");
+                    let suffix_global_x86 = path6
                         .strip_prefix(pf.x86.as_path())
-                        .expect("It gives the 32-bit path and lists it third");
+                        .expect("It gives the global 32-bit path and lists it sixth");
                     Self {
-                        x86: suffix_x86,
-                        maybe_x64: Some(suffix_x64),
-                        maybe_arm64: Some(suffix_arm64),
+                        global_x86: suffix_global_x86,
+                        maybe_global_x64: Some(suffix_global_x64),
+                        maybe_global_arm64: Some(suffix_global_arm64),
+                        user_x86: suffix_user_x86,
+                        maybe_user_x64: Some(suffix_user_x64),
+                        maybe_user_arm64: Some(suffix_user_arm64),
                     }
                 }
-                [only] => {
-                    assert_eq!(pf.maybe_64bit, None, "It gives one path only if none can be 64-bit.");
-                    let suffix_x86 = only
+                [path1, path2] => {
+                    assert_eq!(pf.maybe_64bit, None, "It gives two paths only if none can be 64-bit.");
+                    let suffix_user_x86 = path1
+                        .strip_prefix(pf.user.as_path())
+                        .expect("It gives the per-user 32-bit path and lists it first");
+                    let suffix_global_x86 = path2
                         .strip_prefix(pf.x86.as_path())
-                        .expect("The one path it gives is the 32-bit path");
+                        .expect("It gives the global 32-bit path and lists it second");
                     Self {
-                        x86: suffix_x86,
-                        maybe_x64: None,
-                        maybe_arm64: None,
+                        global_x86: suffix_global_x86,
+                        maybe_global_x64: None,
+                        maybe_global_arm64: None,
+                        user_x86: suffix_user_x86,
+                        maybe_user_x64: None,
+                        maybe_user_arm64: None,
                     }
                 }
-                other => panic!("{:?} has length {}, expected 1 or 3.", other, other.len()),
+                other => panic!("{:?} has length {}, expected 2 or 6.", other, other.len()),
             }
         }
 
-        /// Assert that the suffixes (relative subdirectories) are the common per-architecture Git install locations.
+        /// Assert that the suffixes (relative subdirectories) are the common Git install locations.
         fn assert_architectures(&self) {
-            assert_eq!(self.x86, Path::new("Git/mingw32/bin"));
+            self.assert_architectures_global();
+            self.assert_architectures_user();
+        }
 
-            if let Some(suffix_x64) = self.maybe_x64 {
+        fn assert_architectures_global(&self) {
+            assert_eq!(self.global_x86, Path::new("Git/mingw32/bin"));
+
+            if let Some(suffix_x64) = self.maybe_global_x64 {
                 assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
             }
-            if let Some(suffix_arm64) = self.maybe_arm64 {
+            if let Some(suffix_arm64) = self.maybe_global_arm64 {
+                assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
+            }
+        }
+
+        fn assert_architectures_user(&self) {
+            assert_eq!(self.user_x86, Path::new("Git/mingw32/bin"));
+
+            if let Some(suffix_x64) = self.maybe_user_x64 {
+                assert_eq!(suffix_x64, Path::new("Git/mingw64/bin"));
+            }
+            if let Some(suffix_arm64) = self.maybe_user_arm64 {
                 assert_eq!(suffix_arm64, Path::new("Git/clangarm64/bin"));
             }
         }
