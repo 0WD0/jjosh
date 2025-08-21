@@ -50,7 +50,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary() {
+    fn locations_under_program_files_ordinary_current_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"C:\Program Files",
@@ -64,6 +64,10 @@ mod locations {
                 pathbuf_vec![r"C:\Program Files\Git\mingw32\bin"]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_ordinary_all_vars() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => {
@@ -82,11 +86,15 @@ mod locations {
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_ordinary_no_vars() {
         assert_eq!(locations_from!(), Vec::<PathBuf>::new());
     }
 
     #[test]
-    fn locations_under_program_files_strange() {
+    fn locations_under_program_files_strange_all_vars_distinct() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"X:\cur\rent",
@@ -110,12 +118,20 @@ mod locations {
                 ]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_64bit_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
             pathbuf_vec![r"Z:\wi\de\Git\clangarm64\bin", r"Z:\wi\de\Git\mingw64\bin"],
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_all_vars_path_cruft() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"Z:/wi//de/",
@@ -137,6 +153,10 @@ mod locations {
                 ]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_some_relative() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"foo\bar",
