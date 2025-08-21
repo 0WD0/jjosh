@@ -50,7 +50,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary_current_var_only() {
+    fn locations_under_program_files_ordinary_values_current_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"C:\Program Files",
@@ -67,7 +67,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary_all_vars() {
+    fn locations_under_program_files_ordinary_values_all_vars() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => {
@@ -89,12 +89,13 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary_no_vars() {
+    fn locations_under_program_files_ordinary_values_no_vars() {
+        // Regarding this test name: the significance of "ordinary values" is "no strange values."
         assert_eq!(locations_from!(), Vec::<PathBuf>::new());
     }
 
     #[test]
-    fn locations_under_program_files_strange_all_vars_distinct() {
+    fn locations_under_program_files_strange_values_all_vars_distinct() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"X:\cur\rent",
@@ -121,7 +122,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_64bit_var_only() {
+    fn locations_under_program_files_strange_values_64bit_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
@@ -131,7 +132,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_all_vars_path_cruft() {
+    fn locations_under_program_files_strange_values_all_vars_path_cruft() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"Z:/wi//de/",
@@ -156,7 +157,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_some_relative() {
+    fn locations_under_program_files_strange_values_some_relative() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"foo\bar",
