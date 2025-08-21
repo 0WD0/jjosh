@@ -50,6 +50,11 @@ mod locations {
     }
 
     #[test]
+    fn locations_under_program_files_no_vars() {
+        assert_eq!(locations_from!(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
     fn locations_under_program_files_ordinary_values_current_var_only() {
         assert_eq!(
             locations_from!(
@@ -86,12 +91,6 @@ mod locations {
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
         );
-    }
-
-    #[test]
-    fn locations_under_program_files_ordinary_values_no_vars() {
-        // Regarding this test name: the significance of "ordinary values" is "no strange values."
-        assert_eq!(locations_from!(), Vec::<PathBuf>::new());
     }
 
     #[test]
