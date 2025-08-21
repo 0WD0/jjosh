@@ -3,15 +3,22 @@ use std::path::Path;
 #[cfg(windows)]
 mod locations {
     use std::{
-        ffi::{OsStr, OsString},
+        ffi::{c_void, OsStr, OsString},
         io::ErrorKind,
+        os::windows::ffi::OsStringExt,
         path::{Path, PathBuf},
     };
 
     use known_folders::{get_known_folder_path, KnownFolder};
     use windows::{
-        core::{Result as WindowsResult, BOOL},
-        Win32::System::Threading::{GetCurrentProcess, IsWow64Process},
+        core::{Result as WindowsResult, BOOL, GUID, PWSTR},
+        Win32::{
+            System::{
+                Com::CoTaskMemFree,
+                Threading::{GetCurrentProcess, IsWow64Process},
+            },
+            UI::Shell::{FOLDERID_UserProgramFiles, SHGetKnownFolderPath, KF_FLAG_DONT_VERIFY, KNOWN_FOLDER_FLAG},
+        },
     };
     use winreg::{
         enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE},
@@ -361,6 +368,32 @@ mod locations {
         );
     }
 
+    /// Owner of a `PWSTR` that must be freed with `CoTaskMemFree`.
+    struct CoStr {
+        pwstr: PWSTR,
+    }
+
+    impl CoStr {
+        fn new(pwstr: PWSTR) -> Self {
+            Self { pwstr }
+        }
+    }
+
+    impl Drop for CoStr {
+        fn drop(&mut self) {
+            unsafe { CoTaskMemFree(Some(self.pwstr.as_ptr().cast::<c_void>())) };
+        }
+    }
+
+    fn get_known_folder_path_with_flag(id: GUID, flag: KNOWN_FOLDER_FLAG) -> WindowsResult<PathBuf> {
+        unsafe {
+            SHGetKnownFolderPath(&id, flag, None)
+                .map(CoStr::new)
+                .map(|costr| OsString::from_wide(costr.pwstr.as_wide()))
+                .map(PathBuf::from)
+        }
+    }
+
     #[derive(Clone, Copy, Debug)]
     enum PlatformBitness {
         Is32on32,
@@ -461,8 +494,7 @@ mod locations {
                 })
                 .ok();
 
-            // FIXME: This lacks KF_FLAG_DONT_VERIFY, so it errors out if the folder hasn't been created.
-            let pf_user = get_known_folder_path(KnownFolder::UserProgramFiles)
+            let pf_user = get_known_folder_path_with_flag(FOLDERID_UserProgramFiles, KF_FLAG_DONT_VERIFY)
                 .expect("The path where the user's local Programs folder is, or would be created, is known");
 
             Self {
