@@ -55,7 +55,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary_values_current_var_only() {
+    fn locations_under_program_files_global_only_ordinary_values_current_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"C:\Program Files",
@@ -72,7 +72,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary_values_all_vars() {
+    fn locations_under_program_files_global_only_ordinary_values_all_vars() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => {
@@ -94,7 +94,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_values_all_vars_distinct() {
+    fn locations_under_program_files_global_only_strange_values_all_vars_distinct() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"X:\cur\rent",
@@ -121,7 +121,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_values_64bit_var_only() {
+    fn locations_under_program_files_global_only_strange_values_64bit_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
@@ -131,7 +131,7 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_values_all_vars_path_cruft() {
+    fn locations_under_program_files_global_only_strange_values_all_vars_path_cruft() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"Z:/wi//de/",
@@ -156,9 +156,203 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_strange_values_some_relative() {
+    fn locations_under_program_files_global_only_strange_values_some_relative() {
         assert_eq!(
             locations_from!(
+                "ProgramFiles" => r"foo\bar",
+                "ProgramFiles(x86)" => r"\\host\share\subdir",
+                "ProgramW6432" => r"",
+            ),
+            pathbuf_vec![r"\\host\share\subdir\Git\mingw32\bin"],
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_only_ordinary_value() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"C:\Users\alice\AppData\Local",
+            ),
+            pathbuf_vec![
+                r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
+                r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
+            ],
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_only_strange_value_path_cruft() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"\\.\Q:\Documents and Settings/bob\/weird\.\sub//dir",
+            ),
+            pathbuf_vec![
+                r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\clangarm64\bin",
+                r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\mingw64\bin",
+                r"\\.\Q:\Documents and Settings\bob\weird\sub\dir\Programs\Git\mingw32\bin",
+            ],
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_only_strange_value_empty() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => "",
+            ),
+            Vec::<PathBuf>::new(),
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_only_strange_value_relative_nonempty() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"AppData\Local",
+            ),
+            Vec::<PathBuf>::new(),
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_ordinary_values_limited_vars() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"C:\Users\alice\AppData\Local",
+                "ProgramFiles" => r"C:\Program Files",
+            ),
+            if cfg!(target_pointer_width = "64") {
+                pathbuf_vec![
+                    r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
+                    r"C:\Program Files\Git\clangarm64\bin",
+                    r"C:\Program Files\Git\mingw64\bin",
+                ]
+            } else {
+                pathbuf_vec![
+                    r"C:\Users\alice\AppData\Local\Programs\Git\clangarm64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\mingw64\bin",
+                    r"C:\Users\alice\AppData\Local\Programs\Git\mingw32\bin",
+                    r"C:\Program Files\Git\mingw32\bin",
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_ordinary_values_all_vars() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"C:\Users\bob\AppData\Local",
+                "ProgramFiles" => {
+                    if cfg!(target_pointer_width = "64") {
+                        r"C:\Program Files"
+                    } else {
+                        r"C:\Program Files (x86)"
+                    }
+                },
+                "ProgramFiles(x86)" => r"C:\Program Files (x86)",
+                "ProgramW6432" => r"C:\Program Files",
+            ),
+            pathbuf_vec![
+                r"C:\Users\bob\AppData\Local\Programs\Git\clangarm64\bin",
+                r"C:\Users\bob\AppData\Local\Programs\Git\mingw64\bin",
+                r"C:\Users\bob\AppData\Local\Programs\Git\mingw32\bin",
+                r"C:\Program Files\Git\clangarm64\bin",
+                r"C:\Program Files\Git\mingw64\bin",
+                r"C:\Program Files (x86)\Git\mingw32\bin",
+            ],
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_strange_values_all_vars_distinct() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"W:\us\er",
+                "ProgramFiles" => r"X:\cur\rent",
+                "ProgramFiles(x86)" => r"Y:\nar\row",
+                "ProgramW6432" => r"Z:\wi\de",
+            ),
+            if cfg!(target_pointer_width = "64") {
+                pathbuf_vec![
+                    r"W:\us\er\Programs\Git\clangarm64\bin",
+                    r"W:\us\er\Programs\Git\mingw64\bin",
+                    r"W:\us\er\Programs\Git\mingw32\bin",
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\clangarm64\bin",
+                    r"X:\cur\rent\Git\mingw64\bin",
+                ]
+            } else {
+                pathbuf_vec![
+                    r"W:\us\er\Programs\Git\clangarm64\bin",
+                    r"W:\us\er\Programs\Git\mingw64\bin",
+                    r"W:\us\er\Programs\Git\mingw32\bin",
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Y:\nar\row\Git\mingw32\bin",
+                    r"X:\cur\rent\Git\mingw32\bin",
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_strange_values_limited_64bit_var() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"W:\us\er",
+                "ProgramW6432" => r"Z:\wi\de",
+            ),
+            pathbuf_vec![
+                r"W:\us\er\Programs\Git\clangarm64\bin",
+                r"W:\us\er\Programs\Git\mingw64\bin",
+                r"W:\us\er\Programs\Git\mingw32\bin",
+                r"Z:\wi\de\Git\clangarm64\bin",
+                r"Z:\wi\de\Git\mingw64\bin",
+            ],
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_strange_values_crufty_cross_clash() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => r"Y:\nar\row",
+                "ProgramFiles" => r"Z:/wi//de/",
+                "ProgramFiles(x86)" => r"Y:/\nar/row\Programs",
+                "ProgramW6432" => r"Z:\wi\.\de",
+            ),
+            if cfg!(target_pointer_width = "64") {
+                pathbuf_vec![
+                    r"Y:\nar\row\Programs\Git\clangarm64\bin",
+                    r"Y:\nar\row\Programs\Git\mingw64\bin",
+                    r"Y:\nar\row\Programs\Git\mingw32\bin",
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                ]
+            } else {
+                pathbuf_vec![
+                    r"Y:\nar\row\Programs\Git\clangarm64\bin",
+                    r"Y:\nar\row\Programs\Git\mingw64\bin",
+                    r"Y:\nar\row\Programs\Git\mingw32\bin",
+                    r"Z:\wi\de\Git\clangarm64\bin",
+                    r"Z:\wi\de\Git\mingw64\bin",
+                    r"Z:\wi\de\Git\mingw32\bin",
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn locations_under_program_files_local_and_global_strange_values_some_relative() {
+        assert_eq!(
+            locations_from!(
+                "LocalAppData" => "dir",
                 "ProgramFiles" => r"foo\bar",
                 "ProgramFiles(x86)" => r"\\host\share\subdir",
                 "ProgramW6432" => r"",
