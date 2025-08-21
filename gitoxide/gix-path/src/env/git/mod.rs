@@ -38,13 +38,21 @@ where
     // known. So the situation where a process only passes down `ProgramFiles` sometimes happens.
     let varname_current = "ProgramFiles";
 
+    // Should give the user's local application data path on any system. If a user program files
+    // directory exists for this user, then it should be the `Programs` subdirectory of this. If it
+    // doesn't exist, or on a future or extremely strangely configured Windows setup where it is
+    // somewhere else, it should still be safe to attempt to use it. (This differs from global
+    // program files paths, which are usually subdirectories of the root of the system drive, which
+    // limited user accounts can usually create their own arbitrarily named directories inside.)
+    let varname_user_appdata_local = "LocalAppData";
+
     // 64-bit relative bin dirs. So far, this is always `mingw64` or `clangarm64`, not `urct64` or
     // `clang64`. We check `clangarm64` before `mingw64`, because in the strange case that both are
     // available, we don't want to skip over a native ARM64 executable for an emulated x86_64 one.
-    let suffixes_64 = [r"Git\clangarm64\bin", r"Git\mingw64\bin"].as_slice();
+    let suffixes_64 = &[r"Git\clangarm64\bin", r"Git\mingw64\bin"][..];
 
     // 32-bit relative bin dirs. So far, this is only ever `mingw32`, not `clang32`.
-    let suffixes_32 = [r"Git\mingw32\bin"].as_slice();
+    let suffixes_32 = &[r"Git\mingw32\bin"][..];
 
     // Whichever of the 64-bit or 32-bit relative bin better matches this process's architecture.
     // Unlike the system architecture, the process architecture is always known at compile time.
@@ -53,7 +61,15 @@ where
     #[cfg(target_pointer_width = "32")]
     let suffixes_current = suffixes_32;
 
+    // Bin dirs relative to a user's local application data directory. We try each architecture.
+    let suffixes_user = &[
+        r"Programs\Git\clangarm64\bin",
+        r"Programs\Git\mingw64\bin",
+        r"Programs\Git\mingw32\bin",
+    ][..];
+
     let rules = [
+        (varname_user_appdata_local, suffixes_user),
         (varname_64bit, suffixes_64),
         (varname_x86, suffixes_32),
         (varname_current, suffixes_current),
