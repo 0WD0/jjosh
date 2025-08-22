@@ -1312,7 +1312,7 @@ pub fn main() -> Result<()> {
                 progress,
                 progress_keep_open,
                 None,
-                move |_progress, out, _err| core::repository::tag::list(repository(Mode::Lenient)?, out),
+                move |_progress, out, _err| core::repository::tag::list(repository(Mode::Lenient)?, out, format),
             ),
         },
         Subcommands::Tree(cmd) => match cmd {

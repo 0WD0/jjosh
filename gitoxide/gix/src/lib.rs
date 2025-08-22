@@ -29,7 +29,7 @@
 //!
 //! By default, the [`Repository`] isn't `Sync` and thus can't be used in certain contexts which require the `Sync` trait.
 //!
-//! To help with this, convert it with [`.into_sync()`][Repository::into_sync()] into a [`ThreadSafeRepository`].
+//! To help with this, convert it with [`Repository::into_sync()`] into a [`ThreadSafeRepository`].
 //!
 //! ### Object-Access Performance
 //!
@@ -41,7 +41,7 @@
 //! On miss, the object is looked up and if a pack is hit, there is a small fixed-size cache for delta-base objects.
 //!
 //! In scenarios where the same objects are accessed multiple times, the object cache can be useful and is to be configured specifically
-//! using the [`object_cache_size(…)`][crate::Repository::object_cache_size()] method.
+//! using the [`Repository::object_cache_size()`] method.
 //!
 //! Use the `cache-efficiency-debug` cargo feature to learn how efficient the cache actually is - it's easy to end up with lowered
 //! performance if the cache is not hit in 50% of the time.
@@ -207,7 +207,10 @@ pub mod diff;
 #[cfg(feature = "merge")]
 pub mod merge;
 
-/// See [`ThreadSafeRepository::discover()`], but returns a [`Repository`] instead.
+/// Try to open a git repository in `directory` and search upwards through its parents until one is found,
+/// using default trust options which matters in case the found repository isn't owned by the current user.
+///
+/// For details, see [`ThreadSafeRepository::discover()`].
 ///
 /// # Note
 ///
@@ -220,6 +223,24 @@ pub mod merge;
 #[allow(clippy::result_large_err)]
 pub fn discover(directory: impl AsRef<std::path::Path>) -> Result<Repository, discover::Error> {
     ThreadSafeRepository::discover(directory).map(Into::into)
+}
+
+/// Try to discover a git repository directly from the environment.
+///
+/// For details, see [`ThreadSafeRepository::discover_with_environment_overrides_opts()`].
+#[allow(clippy::result_large_err)]
+pub fn discover_with_environment_overrides(
+    directory: impl AsRef<std::path::Path>,
+) -> Result<Repository, discover::Error> {
+    ThreadSafeRepository::discover_with_environment_overrides(directory).map(Into::into)
+}
+
+/// Try to open a git repository directly from the environment.
+///
+/// See [`ThreadSafeRepository::open_with_environment_overrides()`].
+#[allow(clippy::result_large_err)]
+pub fn open_with_environment_overrides(directory: impl Into<std::path::PathBuf>) -> Result<Repository, open::Error> {
+    ThreadSafeRepository::open_with_environment_overrides(directory, Default::default()).map(Into::into)
 }
 
 /// See [`ThreadSafeRepository::init()`], but returns a [`Repository`] instead.
