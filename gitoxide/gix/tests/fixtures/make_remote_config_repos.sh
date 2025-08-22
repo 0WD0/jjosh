@@ -134,9 +134,14 @@ EOF
 
 git clone fetch multiple-remotes
 (cd multiple-remotes
-  git remote add other ../fetch && git fetch other
-  git remote add with/two/slashes ../fetch && git fetch with/two/slashes
-  git remote add with/two ../fetch && git fetch with/two
+  git remote add other ../fetch
+  git fetch other
+
+  git remote add with/two/slashes ../fetch
+  git fetch with/two/slashes
+
+  git remote add with/two ../fetch
+  git fetch with/two
 
   # add a specialised refspec mapping
   git config --add remote.with/two.fetch +refs/heads/special:refs/remotes/with/two/special
