@@ -140,7 +140,8 @@ git clone fetch multiple-remotes
   git remote add with/two/slashes ../fetch
   git fetch with/two/slashes
 
-  git remote add with/two ../fetch
+  git config remote.with/two.url ../fetch
+  git config remote.with/two.fetch '+refs/heads/*:refs/remotes/with/two/*'
   git fetch with/two
 
   # add a specialised refspec mapping
