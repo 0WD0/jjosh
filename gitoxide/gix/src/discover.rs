@@ -3,7 +3,7 @@ use std::path::Path;
 
 pub use gix_discover::*;
 
-use crate::{bstr::BString, ThreadSafeRepository};
+use crate::{bstr::BString, Repository, ThreadSafeRepository};
 
 /// The error returned by [`crate::discover()`].
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +49,8 @@ impl ThreadSafeRepository {
     /// Try to open a git repository directly from the environment.
     /// If that fails, discover upwards from `directory` until one is found,
     /// while applying discovery options from the environment.
+    ///
+    /// For more, see [`ThreadSafeRepository::discover_with_environment_overrides_opts()`].
     pub fn discover_with_environment_overrides(directory: impl AsRef<Path>) -> Result<Self, Error> {
         Self::discover_with_environment_overrides_opts(directory, Default::default(), Default::default())
     }

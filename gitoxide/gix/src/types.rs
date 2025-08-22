@@ -145,7 +145,9 @@ pub struct Reference<'r> {
 
 /// A thread-local handle to interact with a repository from a single thread.
 ///
-/// It is `Send` but **not** `Sync` - for the latter you can convert it `to_sync()`.
+/// It is `Send`, but **not** `Sync` - for the latter you can convert it using
+/// [`Repository::into_sync()`].
+///
 /// Note that it clones itself so that it is empty, requiring the user to configure each clone separately, specifically
 /// and explicitly. This is to have the fastest-possible default configuration available by default, but allow
 /// those who experiment with workloads to get speed boosts of 2x or more.
