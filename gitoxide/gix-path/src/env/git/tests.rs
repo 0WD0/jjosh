@@ -181,7 +181,11 @@ mod locations {
             // is for the test suite, and doing it this way allows problems to be caught earlier if
             // a change made on a 64-bit development machine breaks the IsWow64Process() call.
             let mut wow64process = BOOL::default();
-            unsafe { IsWow64Process(GetCurrentProcess(), &mut wow64process)? };
+            unsafe {
+                // SAFETY: `GetCurrentProcess` always succeeds, and the handle it returns is a
+                // valid process handle to pass to `IsWow64Process`.
+                IsWow64Process(GetCurrentProcess(), &mut wow64process)?;
+            }
 
             let platform_bitness = if wow64process.as_bool() {
                 Self::Is32on64
