@@ -368,30 +368,39 @@ mod locations {
         );
     }
 
-    /// Owner of a `PWSTR` that must be freed with `CoTaskMemFree`.
+    /// Owner of a null-terminated `PWSTR` that must be freed with `CoTaskMemFree`.
     struct CoStr {
         pwstr: PWSTR,
     }
 
     impl CoStr {
-        fn new(pwstr: PWSTR) -> Self {
+        /// SAFETY: The caller must ensure `pwstr` is a non-null pointer to the beginning of a
+        /// null-terminated (zero-codepoint-terminated) wide string releasable by `CoTaskMemFree`.
+        unsafe fn new(pwstr: PWSTR) -> Self {
             Self { pwstr }
+        }
+
+        fn to_os_string(&self) -> OsString {
+            // SAFETY: We know `pwstr` is derefrenceable and the string is null-terminated.
+            let wide = unsafe { self.pwstr.as_wide() };
+            OsString::from_wide(wide)
         }
     }
 
     impl Drop for CoStr {
         fn drop(&mut self) {
+            // SAFETY: `pwstr` is allowed to be passed to `CoTaskMemFree`. (We happen to know it's
+            // non-null, but `CoTaskMemFree` permits null as well, so the cast is doubly safe.)
             unsafe { CoTaskMemFree(Some(self.pwstr.as_ptr().cast::<c_void>())) };
         }
     }
 
     fn get_known_folder_path_with_flag(id: GUID, flag: KNOWN_FOLDER_FLAG) -> WindowsResult<PathBuf> {
-        unsafe {
-            SHGetKnownFolderPath(&id, flag, None)
-                .map(CoStr::new)
-                .map(|costr| OsString::from_wide(costr.pwstr.as_wide()))
-                .map(PathBuf::from)
-        }
+        // SAFETY: `SHGetKnownFolderPath` in the `windows` crate wraps the API function and returns
+        // a non-null pointer to a null-terminated wide string, or an error, not a null pointer.
+        // As in the wrapped API function, the pointer it returns can be passed to `CoTaskMemFree`.
+        let costr = unsafe { CoStr::new(SHGetKnownFolderPath(&id, flag, None)?) };
+        Ok(PathBuf::from(costr.to_os_string()))
     }
 
     #[derive(Clone, Copy, Debug)]
