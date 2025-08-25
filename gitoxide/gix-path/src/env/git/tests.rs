@@ -9,7 +9,6 @@ mod locations {
         path::{Path, PathBuf},
     };
 
-    use known_folders::{get_known_folder_path, KnownFolder};
     use windows::{
         core::{Result as WindowsResult, BOOL, GUID, PWSTR},
         Win32::{
@@ -17,7 +16,10 @@ mod locations {
                 Com::CoTaskMemFree,
                 Threading::{GetCurrentProcess, IsWow64Process},
             },
-            UI::Shell::{FOLDERID_UserProgramFiles, SHGetKnownFolderPath, KF_FLAG_DONT_VERIFY, KNOWN_FOLDER_FLAG},
+            UI::Shell::{
+                FOLDERID_LocalAppData, FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86, FOLDERID_UserProgramFiles,
+                SHGetKnownFolderPath, KF_FLAG_DEFAULT, KF_FLAG_DONT_VERIFY, KNOWN_FOLDER_FLAG,
+            },
         },
     };
     use winreg::{
@@ -486,10 +488,10 @@ mod locations {
         /// [known-folders]: https://learn.microsoft.com/en-us/windows/win32/shell/known-folders
         /// [knownfolderid]: https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid#remarks
         fn obtain_envlessly() -> Self {
-            let pf_current = get_known_folder_path(KnownFolder::ProgramFiles)
+            let pf_current = get_known_folder_path_with_flag(FOLDERID_ProgramFiles, KF_FLAG_DEFAULT)
                 .expect("The process architecture specific program files folder is always available");
 
-            let pf_x86 = get_known_folder_path(KnownFolder::ProgramFilesX86)
+            let pf_x86 = get_known_folder_path_with_flag(FOLDERID_ProgramFilesX86, KF_FLAG_DEFAULT)
                 .expect("The x86 program files folder will in practice always be available");
 
             let maybe_pf_64bit = RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -579,7 +581,7 @@ mod locations {
         }
 
         fn validate_user_folder(&self) {
-            let expected = get_known_folder_path(KnownFolder::LocalAppData)
+            let expected = get_known_folder_path_with_flag(FOLDERID_LocalAppData, KF_FLAG_DEFAULT)
                 .expect("The user's local application data directory is available")
                 .join("Programs");
             assert_eq!(
