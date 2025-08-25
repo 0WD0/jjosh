@@ -39,7 +39,7 @@ where
     let varname_current = "ProgramFiles";
 
     // 64-bit relative bin dirs. So far, this is always `mingw64` or `clangarm64`, not `urct64` or
-    // `clang64`. We check `clangarm64` before `mingw64`, because in the strage case that both are
+    // `clang64`. We check `clangarm64` before `mingw64`, because in the strange case that both are
     // available, we don't want to skip over a native ARM64 executable for an emulated x86_64 one.
     let suffixes_64 = [r"Git\clangarm64\bin", r"Git\mingw64\bin"].as_slice();
 

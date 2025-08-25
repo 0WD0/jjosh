@@ -50,7 +50,12 @@ mod locations {
     }
 
     #[test]
-    fn locations_under_program_files_ordinary() {
+    fn locations_under_program_files_no_vars() {
+        assert_eq!(locations_from!(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn locations_under_program_files_ordinary_values_current_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"C:\Program Files",
@@ -64,6 +69,10 @@ mod locations {
                 pathbuf_vec![r"C:\Program Files\Git\mingw32\bin"]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_ordinary_values_all_vars() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => {
@@ -82,11 +91,10 @@ mod locations {
                 r"C:\Program Files (x86)\Git\mingw32\bin",
             ],
         );
-        assert_eq!(locations_from!(), Vec::<PathBuf>::new());
     }
 
     #[test]
-    fn locations_under_program_files_strange() {
+    fn locations_under_program_files_strange_values_all_vars_distinct() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"X:\cur\rent",
@@ -110,12 +118,20 @@ mod locations {
                 ]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_values_64bit_var_only() {
         assert_eq!(
             locations_from!(
                 "ProgramW6432" => r"Z:\wi\de",
             ),
             pathbuf_vec![r"Z:\wi\de\Git\clangarm64\bin", r"Z:\wi\de\Git\mingw64\bin"],
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_values_all_vars_path_cruft() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"Z:/wi//de/",
@@ -137,6 +153,10 @@ mod locations {
                 ]
             },
         );
+    }
+
+    #[test]
+    fn locations_under_program_files_strange_values_some_relative() {
         assert_eq!(
             locations_from!(
                 "ProgramFiles" => r"foo\bar",
@@ -161,7 +181,11 @@ mod locations {
             // is for the test suite, and doing it this way allows problems to be caught earlier if
             // a change made on a 64-bit development machine breaks the IsWow64Process() call.
             let mut wow64process = BOOL::default();
-            unsafe { IsWow64Process(GetCurrentProcess(), &mut wow64process)? };
+            unsafe {
+                // SAFETY: `GetCurrentProcess` always succeeds, and the handle it returns is a
+                // valid process handle to pass to `IsWow64Process`.
+                IsWow64Process(GetCurrentProcess(), &mut wow64process)?;
+            }
 
             let platform_bitness = if wow64process.as_bool() {
                 Self::Is32on64
@@ -181,27 +205,29 @@ mod locations {
         Some(folded_text.ends_with(&folded_pattern))
     }
 
-    /// The common global program files paths on this system, by process and system architecture.
+    /// The most common global program files paths on this system, by process and system architecture.
+    ///
+    /// This omits the 32-bit ARM program files directory, as Git for Windows is never installed there.
     #[derive(Clone, Debug)]
     struct ProgramFilesPaths {
         /// The program files directory used for whatever architecture this program was built for.
         current: PathBuf,
 
-        /// The x86 program files directory regardless of the architecture of the program.
+        /// The 32-bit x86 program files directory regardless of the architecture of the program.
         ///
         /// If Rust gains Windows targets like ARMv7 where this is unavailable, this could fail.
         x86: PathBuf,
 
         /// The 64-bit program files directory if there is one.
         ///
-        /// This is present on x64 and also ARM64 systems. On an ARM64 system, ARM64 and AMD64
-        /// programs use the same program files directory while 32-bit x86 and ARM programs use
-        /// two others. Only a 32-bit system has no 64-bit program files directory.
+        /// This is present on x64 (AMD64) and also ARM64 systems. On an ARM64 system, ARM64 and
+        /// AMD64 programs use the same program files directory while 32-bit x86 and 32-bit ARM
+        /// programs use two others. Only a 32-bit system has no 64-bit program files directory.
         maybe_64bit: Option<PathBuf>,
     }
 
     impl ProgramFilesPaths {
-        /// Get the three common kinds of global program files paths without environment variables.
+        /// Get the three most common kinds of global program files paths without environment variables.
         ///
         /// The idea here is to obtain this information, which the `alternative_locations()` unit
         /// test uses to learn the expected alternative locations, without duplicating *any* of the
