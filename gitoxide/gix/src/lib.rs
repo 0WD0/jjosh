@@ -37,7 +37,7 @@
 //! to understand which cache levels exist and how to leverage them.
 //!
 //! When accessing an object, the first cache that's queried is a  memory-capped LRU object cache, mapping their id to data and kind.
-//! It has to be specifically enabled a [`Repository`].
+//! It has to be specifically enabled on a [`Repository`].
 //! On miss, the object is looked up and if a pack is hit, there is a small fixed-size cache for delta-base objects.
 //!
 //! In scenarios where the same objects are accessed multiple times, the object cache can be useful and is to be configured specifically
