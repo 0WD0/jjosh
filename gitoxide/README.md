@@ -12,7 +12,7 @@ There are two primary ways to use `gitoxide`:
     and the `ein` binary with workflow-enhancing tools. Both binaries may forever be unstable,
     *do not rely on them in scripts*.
 
-[![asciicast](https://asciinema.org/a/542159.svg)](https://asciinema.org/a/542159)
+[![asciicast](etc/gix-asciicast.svg)](https://asciinema.org/a/542159)
 
 [`gix`]: https://docs.rs/gix
 
