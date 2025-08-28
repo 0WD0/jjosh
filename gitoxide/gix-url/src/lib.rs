@@ -78,6 +78,13 @@ pub enum ArgumentSafety<'a> {
 ///
 /// Additionally there is support for [deserialization](Url::from_bytes()) and [serialization](Url::to_bstring()).
 ///
+/// # Mutability Warning
+///
+/// Due to the mutability of this type, it's possible that the URL serializes to something invalid
+/// when fields are modified directly. URLs should always be parsed to this type from string or byte
+/// parameters, but never be accepted as an instance of this type and then reconstructed, to maintain
+/// validity guarantees.
+///
 /// # Security Warning
 ///
 /// URLs may contain passwords and using standard [formatting](std::fmt::Display) will redact
@@ -93,13 +100,13 @@ pub struct Url {
     /// The URL scheme.
     pub scheme: Scheme,
     /// The user to impersonate on the remote.
-    user: Option<String>,
+    pub user: Option<String>,
     /// The password associated with a user.
-    password: Option<String>,
+    pub password: Option<String>,
     /// The host to which to connect. Localhost is implied if `None`.
-    host: Option<String>,
+    pub host: Option<String>,
     /// When serializing, use the alternative forms as it was parsed as such.
-    serialize_alternative_form: bool,
+    pub serialize_alternative_form: bool,
     /// The port to use when connecting to a host. If `None`, standard ports depending on `scheme` will be used.
     pub port: Option<u16>,
     /// The path portion of the URL, usually the location of the git repository.
@@ -346,7 +353,11 @@ impl Url {
                 out.write_all(host.as_bytes())?;
             }
             (None, None) => {}
-            (Some(_user), None) => unreachable!("BUG: should not be possible to have a user but no host"),
+            (Some(_user), None) => {
+                return Err(std::io::Error::other(
+                    "Invalid URL structure: user specified without host",
+                ));
+            }
         }
         if let Some(port) = &self.port {
             write!(out, ":{port}")?;
@@ -370,7 +381,11 @@ impl Url {
                 out.write_all(host.as_bytes())?;
             }
             (None, None) => {}
-            (Some(_user), None) => unreachable!("BUG: should not be possible to have a user but no host"),
+            (Some(_user), None) => {
+                return Err(std::io::Error::other(
+                    "Invalid URL structure: user specified without host",
+                ));
+            }
         }
         assert!(self.port.is_none(), "BUG: cannot serialize port in alternative form");
         if self.scheme == Scheme::Ssh {
