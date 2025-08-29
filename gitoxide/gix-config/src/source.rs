@@ -100,11 +100,22 @@ impl Source {
             User => env_var("GIT_CONFIG_GLOBAL")
                 .map(|global_override| PathBuf::from(global_override).into())
                 .or_else(|| {
-                    env_var("HOME").map(|home| {
-                        let mut p = PathBuf::from(home);
-                        p.push(".gitconfig");
-                        p.into()
-                    })
+                    env_var("HOME")
+                        .map(PathBuf::from)
+                        .or_else(|| {
+                            #[cfg(not(target_family = "wasm"))]
+                            {
+                                home::home_dir()
+                            }
+                            #[cfg(target_family = "wasm")]
+                            {
+                                None
+                            }
+                        })
+                        .map(|mut p| {
+                            p.push(".gitconfig");
+                            p.into()
+                        })
                 }),
             Local => Some(Path::new("config").into()),
             Worktree => Some(Path::new("config.worktree").into()),
