@@ -103,12 +103,11 @@ impl Source {
                     env_var("HOME")
                         .map(PathBuf::from)
                         .or_else(|| {
-                            #[cfg(not(target_family = "wasm"))]
-                            {
-                                home::home_dir()
-                            }
-                            #[cfg(target_family = "wasm")]
-                            {
+                            if cfg!(windows) {
+                                // On Windows, HOME is rarely set, and we generally need something more.
+                                std::env::home_dir()
+                            } else {
+                                // Git also only tries the env var on unix, and so do we
                                 None
                             }
                         })
