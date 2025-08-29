@@ -1,11 +1,8 @@
 use anyhow::Context;
+use gix::diff::blob::unified_diff::ConsumeBinaryHunk;
 use gix::{
     bstr::{BString, ByteSlice},
-    diff::blob::{
-        intern::TokenSource,
-        unified_diff::{ContextSize, NewlineSeparator},
-        UnifiedDiff,
-    },
+    diff::blob::{intern::TokenSource, unified_diff::ContextSize, UnifiedDiff},
     objs::tree::EntryMode,
     odb::store::RefreshMode,
     prelude::ObjectIdExt,
@@ -206,8 +203,7 @@ pub fn file(
 
     let unified_diff = UnifiedDiff::new(
         &interner,
-        String::new(),
-        NewlineSeparator::AfterHeaderAndLine("\n"),
+        ConsumeBinaryHunk::new(BString::default(), "\n"),
         ContextSize::symmetrical(3),
     );
 
