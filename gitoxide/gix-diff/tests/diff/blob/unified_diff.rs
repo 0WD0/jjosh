@@ -1,5 +1,6 @@
+use gix_diff::blob::unified_diff::ConsumeBinaryHunk;
 use gix_diff::blob::{
-    unified_diff::{ConsumeHunk, ContextSize, NewlineSeparator},
+    unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
     Algorithm, UnifiedDiff,
 };
 
@@ -14,8 +15,7 @@ fn removed_modified_added() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -43,8 +43,7 @@ fn removed_modified_added() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(1),
         ),
     )?;
@@ -69,8 +68,7 @@ fn removed_modified_added() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(0),
         ),
     )?;
@@ -89,12 +87,7 @@ fn removed_modified_added() -> crate::Result {
     let actual = gix_diff::blob::diff(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            Recorder::default(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
-            ContextSize::symmetrical(1),
-        ),
+        UnifiedDiff::new(&interner, Recorder::new("\n"), ContextSize::symmetrical(1)),
     )?;
     assert_eq!(
         actual,
@@ -119,8 +112,7 @@ fn context_overlap_by_one_line_move_up() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -150,8 +142,7 @@ fn context_overlap_by_one_line_move_down() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -184,8 +175,7 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -213,8 +203,7 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -241,8 +230,7 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -271,8 +259,7 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -302,8 +289,7 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -333,8 +319,7 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(1),
         ),
     )?;
@@ -361,8 +346,7 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(0),
         ),
     )?;
@@ -383,12 +367,7 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     let actual = gix_diff::blob::diff(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            Recorder::default(),
-            NewlineSeparator::AfterHeaderAndWhenNeeded("\r\n"),
-            ContextSize::symmetrical(1),
-        ),
+        UnifiedDiff::new(&interner, Recorder::new("\r\n"), ContextSize::symmetrical(1)),
     )?;
     assert_eq!(
         actual,
@@ -396,6 +375,32 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
             ((1, 2), (1, 1), "@@ -1,2 +1,1 @@\r\n".to_string()),
             ((5, 3), (4, 3), "@@ -5,3 +4,3 @@\r\n".into()),
             ((9, 2), (8, 4), "@@ -9,2 +8,4 @@\r\n".into())
+        ]
+    );
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(&interner, DiffLineKindRecorder::default(), ContextSize::symmetrical(1)),
+    )?;
+
+    assert_eq!(
+        actual,
+        &[
+            vec![DiffLineKind::Remove, DiffLineKind::Context],
+            vec![
+                DiffLineKind::Context,
+                DiffLineKind::Remove,
+                DiffLineKind::Add,
+                DiffLineKind::Context
+            ],
+            vec![
+                DiffLineKind::Context,
+                DiffLineKind::Remove,
+                DiffLineKind::Add,
+                DiffLineKind::Add,
+                DiffLineKind::Add
+            ]
         ]
     );
 
@@ -414,8 +419,7 @@ fn all_added_or_removed() -> crate::Result {
             &interner,
             UnifiedDiff::new(
                 &interner,
-                String::new(),
-                NewlineSeparator::AfterHeaderAndLine("\n"),
+                ConsumeBinaryHunk::new(String::new(), "\n"),
                 ContextSize::symmetrical(context_lines),
             ),
         )?;
@@ -439,8 +443,7 @@ fn all_added_or_removed() -> crate::Result {
             &interner,
             UnifiedDiff::new(
                 &interner,
-                String::new(),
-                NewlineSeparator::AfterHeaderAndLine("\n"),
+                ConsumeBinaryHunk::new(String::new(), "\n"),
                 ContextSize::symmetrical(context_lines),
             ),
         )?;
@@ -467,8 +470,7 @@ fn empty() -> crate::Result {
         &interner,
         UnifiedDiff::new(
             &interner,
-            String::new(),
-            NewlineSeparator::AfterHeaderAndLine("\n"),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
             ContextSize::symmetrical(3),
         ),
     )?;
@@ -477,33 +479,56 @@ fn empty() -> crate::Result {
     Ok(())
 }
 
-#[derive(Default)]
 struct Recorder {
     #[allow(clippy::type_complexity)]
     hunks: Vec<((u32, u32), (u32, u32), String)>,
+    newline: &'static str,
+}
+
+impl Recorder {
+    pub fn new(newline: &'static str) -> Self {
+        Recorder {
+            hunks: Vec::new(),
+            newline,
+        }
+    }
 }
 
 impl ConsumeHunk for Recorder {
     type Out = Vec<((u32, u32), (u32, u32), String)>;
 
-    fn consume_hunk(
-        &mut self,
-        before_hunk_start: u32,
-        before_hunk_len: u32,
-        after_hunk_start: u32,
-        after_hunk_len: u32,
-        header: &str,
-        _hunk: &[u8],
-    ) -> std::io::Result<()> {
+    fn consume_hunk(&mut self, header: HunkHeader, _hunk: &[(DiffLineKind, &[u8])]) -> std::io::Result<()> {
+        let mut formatted_header = header.to_string();
+        formatted_header.push_str(self.newline);
+
         self.hunks.push((
-            (before_hunk_start, before_hunk_len),
-            (after_hunk_start, after_hunk_len),
-            header.to_string(),
+            (header.before_hunk_start, header.before_hunk_len),
+            (header.after_hunk_start, header.after_hunk_len),
+            formatted_header,
         ));
         Ok(())
     }
 
     fn finish(self) -> Self::Out {
         self.hunks
+    }
+}
+
+#[derive(Default)]
+struct DiffLineKindRecorder {
+    line_kinds: Vec<Vec<DiffLineKind>>,
+}
+
+impl ConsumeHunk for DiffLineKindRecorder {
+    type Out = Vec<Vec<DiffLineKind>>;
+
+    fn consume_hunk(&mut self, _header: HunkHeader, hunk: &[(DiffLineKind, &[u8])]) -> std::io::Result<()> {
+        self.line_kinds
+            .push(hunk.iter().map(|(line_type, _)| *line_type).collect());
+        Ok(())
+    }
+
+    fn finish(self) -> Self::Out {
+        self.line_kinds
     }
 }
