@@ -1574,6 +1574,7 @@ dependencies = [
  "gix-path",
  "gix-ref",
  "gix-sec",
+ "home",
  "memchr",
  "once_cell",
  "serde",

@@ -53,6 +53,9 @@ $(test_many_commits_1m_repo):
 	mkdir -p $@
 	cd $@ && git init --bare && git remote add origin https://github.com/cirosantilli/test-many-commits-1m.git && git fetch
 
+etc/gix-asciicast.svg:
+	svg-term --cast=542159 --out $@ --window
+
 ## get all non-rc tags up to v5.8, oldest tag first (should have 78 tags)
 ## -> convert to commit ids
 ## -> write a new incremental commit-graph file for each commit id
