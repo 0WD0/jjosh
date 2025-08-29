@@ -5,21 +5,6 @@ pub enum Kind {
     All,
 }
 
-impl Kind {
-    fn includes_local_branches(&self) -> bool {
-        match self {
-            Self::Local | Self::All => true,
-        }
-    }
-
-    fn includes_remote_branches(&self) -> bool {
-        match self {
-            Self::Local => false,
-            Self::All => true,
-        }
-    }
-}
-
 pub struct Options {
     pub kind: Kind,
 }
@@ -36,7 +21,12 @@ pub fn list(
 
     let platform = repo.references()?;
 
-    if options.kind.includes_local_branches() {
+    let (show_local, show_remotes) = match options.kind {
+        Kind::Local => (true, false),
+        Kind::All => (true, true),
+    };
+
+    if show_local {
         let mut branch_names: Vec<String> = platform
             .local_branches()?
             .flatten()
@@ -50,7 +40,7 @@ pub fn list(
         }
     }
 
-    if options.kind.includes_remote_branches() {
+    if show_remotes {
         let mut branch_names: Vec<String> = platform
             .remote_branches()?
             .flatten()
