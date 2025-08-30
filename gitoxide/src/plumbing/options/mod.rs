@@ -83,6 +83,9 @@ pub enum Subcommands {
     /// Subcommands for creating worktree archives.
     #[cfg(feature = "gitoxide-core-tools-archive")]
     Archive(archive::Platform),
+    /// Interact with branches.
+    #[clap(visible_alias = "branches")]
+    Branch(branch::Platform),
     /// Remove untracked files from the working tree.
     #[cfg(feature = "gitoxide-core-tools-clean")]
     Clean(clean::Command),
@@ -233,6 +236,24 @@ pub mod archive {
         ///
         /// If commit, the commit timestamp will be used as timestamp for each file in the archive.
         pub treeish: Option<String>,
+    }
+}
+
+pub mod branch {
+    #[derive(Debug, clap::Parser)]
+    pub struct Platform {
+        #[clap(subcommand)]
+        pub cmd: Subcommands,
+    }
+
+    #[derive(Debug, clap::Subcommand)]
+    pub enum Subcommands {
+        /// List branches.
+        List {
+            /// List remote-tracking as well as local branches.
+            #[clap(long, short = 'a')]
+            all: bool,
+        },
     }
 }
 
