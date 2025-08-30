@@ -125,7 +125,8 @@ fn author_and_committer_and_fallback() -> crate::Result {
         } else {
             assert!(
                 config.trusted_path(relative_path_key).is_none(),
-                "trusted paths need full trust"
+                "trusted path at {relative_path_key} need full trust: {path:?}",
+                path = config.string(relative_path_key)
             );
         }
     }
