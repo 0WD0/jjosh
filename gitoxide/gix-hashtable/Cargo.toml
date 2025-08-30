@@ -16,5 +16,5 @@ doctest = false
 
 [dependencies]
 parking_lot = "0.12.4"
-hashbrown = { version = "0.15.4", default-features = false, features = ["inline-more"] }
+hashbrown = { version = "0.16.0", default-features = false, features = ["inline-more"] }
 gix-hash = { version = "^0.19.0", path = "../gix-hash" }
