@@ -243,17 +243,17 @@ pub mod branch {
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
         #[clap(subcommand)]
-        pub cmds: Option<Subcommands>,
-
-        /// List remote-tracking as well as local branches.
-        #[clap(long, short = 'a')]
-        pub all: bool,
+        pub cmd: Subcommands,
     }
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
         /// List all tags.
-        List,
+        List {
+            /// List remote-tracking as well as local branches.
+            #[clap(long, short = 'a')]
+            all: bool,
+        },
     }
 }
 

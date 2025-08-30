@@ -509,16 +509,12 @@ pub fn main() -> Result<()> {
                 )
             },
         ),
-        Subcommands::Branch(platform) => match platform.cmds {
-            Some(branch::Subcommands::List) | None => {
-                use core::repository::branch;
+        Subcommands::Branch(platform) => match platform.cmd {
+            branch::Subcommands::List { all } => {
+                use core::repository::branch::list;
 
-                let kind = if platform.all {
-                    branch::Kind::All
-                } else {
-                    branch::Kind::Local
-                };
-                let options = branch::Options { kind };
+                let kind = if all { list::Kind::All } else { list::Kind::Local };
+                let options = list::Options { kind };
 
                 prepare_and_run(
                     "branch-list",

@@ -1,19 +1,21 @@
 use crate::OutputFormat;
 
-pub enum Kind {
-    Local,
-    All,
-}
+pub mod list {
+    pub enum Kind {
+        Local,
+        All,
+    }
 
-pub struct Options {
-    pub kind: Kind,
+    pub struct Options {
+        pub kind: Kind,
+    }
 }
 
 pub fn list(
     repo: gix::Repository,
     out: &mut dyn std::io::Write,
     format: OutputFormat,
-    options: Options,
+    options: list::Options,
 ) -> anyhow::Result<()> {
     if format != OutputFormat::Human {
         anyhow::bail!("JSON output isn't supported");
@@ -22,8 +24,8 @@ pub fn list(
     let platform = repo.references()?;
 
     let (show_local, show_remotes) = match options.kind {
-        Kind::Local => (true, false),
-        Kind::All => (true, true),
+        list::Kind::Local => (true, false),
+        list::Kind::All => (true, true),
     };
 
     if show_local {
