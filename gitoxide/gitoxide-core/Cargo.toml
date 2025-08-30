@@ -86,7 +86,7 @@ parking_lot = { version = "0.12.4", optional = true }
 sysinfo = { version = "0.36.1", optional = true, default-features = false, features = ["system"] }
 serde_json = { version = "1.0.142", optional = true }
 tracing-forest = { version = "0.1.5", features = ["serde"], optional = true }
-tracing-subscriber = { version = "0.3.17", optional = true }
+tracing-subscriber = { version = "0.3.20", optional = true }
 tracing = { version = "0.1.37", optional = true }
 
 # for svg graph output
