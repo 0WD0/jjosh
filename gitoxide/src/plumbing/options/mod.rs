@@ -248,7 +248,7 @@ pub mod branch {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// List all tags.
+        /// List branches.
         List {
             /// List remote-tracking as well as local branches.
             #[clap(long, short = 'a')]
