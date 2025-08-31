@@ -123,9 +123,9 @@ mod impl_ {
                 );
 
                 if result != ERROR_SUCCESS {
-                    // We cannot determine ownership, so we default to reduced trust (false) rather
-                    // than failing completely.
                     if result == ERROR_INVALID_FUNCTION {
+                        // We cannot obtain security information, so we default to reduced trust
+                        // (false) rather than failing completely.
                         return Ok(false);
                     }
                     let inner = io::Error::from_raw_os_error(result as _);
