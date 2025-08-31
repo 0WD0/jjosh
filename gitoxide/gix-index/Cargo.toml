@@ -34,7 +34,7 @@ gix-lock = { version = "^18.0.0", path = "../gix-lock" }
 gix-fs = { version = "^0.16.1", path = "../gix-fs" }
 gix-utils = { version = "^0.3.0", path = "../gix-utils" }
 
-hashbrown = "0.15.4"
+hashbrown = "0.16.0"
 fnv = "1.0.7"
 thiserror = "2.0.0"
 memmap2 = "0.9.7"
