@@ -82,7 +82,7 @@ mod impl_ {
 
     pub fn is_path_owned_by_current_user(path: &Path) -> io::Result<bool> {
         use windows_sys::Win32::{
-            Foundation::{GetLastError, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
+            Foundation::{GetLastError, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION, ERROR_SUCCESS},
             Security::{
                 Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
                 CheckTokenMembership, EqualSid, GetTokenInformation, IsWellKnownSid, TokenOwner,
@@ -123,6 +123,11 @@ mod impl_ {
                 );
 
                 if result != ERROR_SUCCESS {
+                    if result == ERROR_INVALID_FUNCTION {
+                        // We cannot obtain security information, so we default to reduced trust
+                        // (false) rather than failing completely.
+                        return Ok(false);
+                    }
                     let inner = io::Error::from_raw_os_error(result as _);
                     error!(
                         inner,
