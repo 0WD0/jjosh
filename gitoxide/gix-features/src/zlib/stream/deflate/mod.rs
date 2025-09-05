@@ -1,4 +1,4 @@
-use flate2::Compress;
+use crate::zlib::Status;
 
 const BUF_SIZE: usize = 4096 * 8;
 
@@ -24,15 +24,124 @@ where
     }
 }
 
+pub struct Compress(Box<libz_rs_sys::z_stream>);
+
+unsafe impl Sync for Compress {}
+unsafe impl Send for Compress {}
+
+impl Compress {
+    pub fn total_in(&self) -> u64 {
+        self.0.total_in
+    }
+
+    pub fn total_out(&self) -> u64 {
+        self.0.total_out
+    }
+
+    pub fn new() -> Self {
+        let mut this = Box::new(libz_rs_sys::z_stream::default());
+
+        unsafe {
+            libz_rs_sys::deflateInit_(
+                &mut *this,
+                libz_rs_sys::Z_BEST_SPEED,
+                libz_rs_sys::zlibVersion(),
+                core::mem::size_of::<libz_rs_sys::z_stream>() as core::ffi::c_int,
+            );
+        }
+
+        Self(this)
+    }
+
+    pub fn reset(&mut self) {
+        unsafe { libz_rs_sys::deflateReset(&mut *self.0) };
+    }
+
+    pub fn compress(&mut self, input: &[u8], output: &mut [u8], flush: FlushCompress) -> Result<Status, CompressError> {
+        self.0.avail_in = input.len() as _;
+        self.0.avail_out = output.len() as _;
+
+        self.0.next_in = input.as_ptr();
+        self.0.next_out = output.as_mut_ptr();
+
+        match unsafe { libz_rs_sys::deflate(&mut *self.0, flush as _) } {
+            libz_rs_sys::Z_OK => Ok(Status::Ok),
+            libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
+            libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
+
+            libz_rs_sys::Z_STREAM_ERROR => Err(CompressError("stream error")),
+            _ => todo!(),
+        }
+    }
+}
+
+impl Drop for Compress {
+    fn drop(&mut self) {
+        unsafe { libz_rs_sys::deflateEnd(&mut *self.0) };
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct CompressError(&'static str);
+
+impl std::fmt::Display for CompressError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// Values which indicate the form of flushing to be used when compressing
+/// in-memory data.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+#[allow(clippy::unnecessary_cast)]
+pub enum FlushCompress {
+    /// A typical parameter for passing to compression/decompression functions,
+    /// this indicates that the underlying stream to decide how much data to
+    /// accumulate before producing output in order to maximize compression.
+    None = libz_rs_sys::Z_NO_FLUSH as isize,
+
+    /// All pending output is flushed to the output buffer, but the output is
+    /// not aligned to a byte boundary.
+    ///
+    /// All input data so far will be available to the decompressor (as with
+    /// `Flush::Sync`). This completes the current deflate block and follows it
+    /// with an empty fixed codes block that is 10 bits long, and it assures
+    /// that enough bytes are output in order for the decompressor to finish the
+    /// block before the empty fixed code block.
+    Partial = libz_rs_sys::Z_PARTIAL_FLUSH as isize,
+
+    /// All pending output is flushed to the output buffer and the output is
+    /// aligned on a byte boundary so that the decompressor can get all input
+    /// data available so far.
+    ///
+    /// Flushing may degrade compression for some compression algorithms and so
+    /// it should only be used when necessary. This will complete the current
+    /// deflate block and follow it with an empty stored block.
+    Sync = libz_rs_sys::Z_SYNC_FLUSH as isize,
+
+    /// All output is flushed as with `Flush::Sync` and the compression state is
+    /// reset so decompression can restart from this point if previous
+    /// compressed data has been damaged or if random access is desired.
+    ///
+    /// Using this option too often can seriously degrade compression.
+    Full = libz_rs_sys::Z_FULL_FLUSH as isize,
+
+    /// Pending input is processed and pending output is flushed.
+    ///
+    /// The return value may indicate that the stream is not yet done and more
+    /// data has yet to be processed.
+    Finish = libz_rs_sys::Z_FINISH as isize,
+}
+
 mod impls {
     use std::io;
 
-    use flate2::{Compress, Compression, FlushCompress, Status};
-
-    use crate::zlib::stream::deflate;
+    use crate::zlib::stream::deflate::{self, Compress, FlushCompress};
+    use crate::zlib::Status;
 
     pub(crate) fn new_compress() -> Compress {
-        Compress::new(Compression::fast(), true)
+        Compress::new()
     }
 
     impl<W> deflate::Write<W>
