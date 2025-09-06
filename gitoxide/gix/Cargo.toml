@@ -246,8 +246,8 @@ pack-cache-lru-static = ["gix-pack/pack-cache-lru-static"]
 ## Provide a hash-map based LRU cache whose eviction is based a memory cap calculated from object data.
 pack-cache-lru-dynamic = ["gix-pack/pack-cache-lru-dynamic"]
 
-## Enable all features required for performance. Currently, this is equivalent to `max-control`, as gix always uses zlib-rs.
-max-performance = ["max-control"]
+## Enable all features required for performance.
+max-performance = ["max-performance-safe"]
 
 ## Deprecated: gix always uses zlib-rs.
 zlib-ng = ["gix-features/zlib"]
