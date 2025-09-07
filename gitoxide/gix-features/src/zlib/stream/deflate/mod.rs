@@ -26,7 +26,7 @@ where
 }
 
 /// Hold all state needed for compressing data.
-pub struct Compress(Box<libz_rs_sys::z_stream>);
+pub struct Compress(libz_rs_sys::z_stream);
 
 unsafe impl Sync for Compress {}
 unsafe impl Send for Compress {}
@@ -50,11 +50,11 @@ impl Compress {
 
     /// Create a new instance - this allocates so should be done with care.
     pub fn new() -> Self {
-        let mut this = Box::new(libz_rs_sys::z_stream::default());
+        let mut this = libz_rs_sys::z_stream::default();
 
         unsafe {
             libz_rs_sys::deflateInit_(
-                &mut *this,
+                &mut this,
                 libz_rs_sys::Z_BEST_SPEED,
                 libz_rs_sys::zlibVersion(),
                 core::mem::size_of::<libz_rs_sys::z_stream>() as core::ffi::c_int,
@@ -66,7 +66,7 @@ impl Compress {
 
     /// Prepare the instance for a new stream.
     pub fn reset(&mut self) {
-        unsafe { libz_rs_sys::deflateReset(&mut *self.0) };
+        unsafe { libz_rs_sys::deflateReset(&mut self.0) };
     }
 
     /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
@@ -77,7 +77,7 @@ impl Compress {
         self.0.next_in = input.as_ptr();
         self.0.next_out = output.as_mut_ptr();
 
-        match unsafe { libz_rs_sys::deflate(&mut *self.0, flush as _) } {
+        match unsafe { libz_rs_sys::deflate(&mut self.0, flush as _) } {
             libz_rs_sys::Z_OK => Ok(Status::Ok),
             libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
             libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
@@ -91,7 +91,7 @@ impl Compress {
 
 impl Drop for Compress {
     fn drop(&mut self) {
-        unsafe { libz_rs_sys::deflateEnd(&mut *self.0) };
+        unsafe { libz_rs_sys::deflateEnd(&mut self.0) };
     }
 }
 

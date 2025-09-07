@@ -1,7 +1,7 @@
 use std::ffi::c_int;
 
 /// A type to hold all state needed for decompressing a ZLIB encoded stream.
-pub struct Decompress(Box<libz_rs_sys::z_stream>);
+pub struct Decompress(libz_rs_sys::z_stream);
 
 unsafe impl Sync for Decompress {}
 unsafe impl Send for Decompress {}
@@ -25,11 +25,11 @@ impl Decompress {
 
     /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
     pub fn new() -> Self {
-        let mut this = Box::new(libz_rs_sys::z_stream::default());
+        let mut this = libz_rs_sys::z_stream::default();
 
         unsafe {
             libz_rs_sys::inflateInit_(
-                &mut *this,
+                &mut this,
                 libz_rs_sys::zlibVersion(),
                 core::mem::size_of::<libz_rs_sys::z_stream>() as core::ffi::c_int,
             );
@@ -40,7 +40,7 @@ impl Decompress {
 
     /// Reset the state to allow handling a new stream.
     pub fn reset(&mut self) {
-        unsafe { libz_rs_sys::inflateReset(&mut *self.0) };
+        unsafe { libz_rs_sys::inflateReset(&mut self.0) };
     }
 
     /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
@@ -56,7 +56,7 @@ impl Decompress {
         self.0.next_in = input.as_ptr();
         self.0.next_out = output.as_mut_ptr();
 
-        match unsafe { libz_rs_sys::inflate(&mut *self.0, flush as _) } {
+        match unsafe { libz_rs_sys::inflate(&mut self.0, flush as _) } {
             libz_rs_sys::Z_OK => Ok(Status::Ok),
             libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
             libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
@@ -71,7 +71,7 @@ impl Decompress {
 
 impl Drop for Decompress {
     fn drop(&mut self) {
-        unsafe { libz_rs_sys::inflateEnd(&mut *self.0) };
+        unsafe { libz_rs_sys::inflateEnd(&mut self.0) };
     }
 }
 
