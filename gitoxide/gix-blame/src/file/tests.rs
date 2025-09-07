@@ -18,6 +18,18 @@ fn new_unblamed_hunk(range_in_blamed_file: Range<u32>, suspect: ObjectId, offset
     }
 }
 
+impl From<(Range<u32>, ObjectId)> for UnblamedHunk {
+    fn from(value: (Range<u32>, ObjectId)) -> Self {
+        assert!(value.0.end > value.0.start, "{:?}", value.0);
+
+        UnblamedHunk {
+            range_in_blamed_file: value.0.clone(),
+            suspects: [(value.1, value.0)].into(),
+            source_file_name: None,
+        }
+    }
+}
+
 fn zero_sha() -> ObjectId {
     use std::str::FromStr;
 
@@ -67,27 +79,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::AddedOrReplaced(0..3, 0)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 3..5,
-                suspects: [(suspect, 3..5)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((3..5, suspect).into()));
         assert_eq!(change, None);
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 0..3,
-                suspects: [(suspect, 0..3)].into(),
-                source_file_name: None,
-            }]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..3, suspect).into()]);
         assert_eq!(offset_in_destination, Offset::Added(3));
     }
 
@@ -103,34 +101,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::AddedOrReplaced(2..3, 0)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 3..5,
-                suspects: [(suspect, 3..5)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((3..5, suspect).into()));
         assert_eq!(change, None);
-        assert_eq!(
-            new_hunks_to_blame,
-            [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..2,
-                    suspects: [(parent, 0..2)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 2..3,
-                    suspects: [(suspect, 2..3)].into(),
-                    source_file_name: None,
-                }
-            ]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..2, parent).into(), (2..3, suspect).into()]);
         assert_eq!(offset_in_destination, Offset::Added(1));
     }
 
@@ -146,18 +123,11 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(10..15, suspect, Offset::Added(0))),
+            Some((10..15, suspect).into()),
             Some(Change::AddedOrReplaced(12..13, 0)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 13..15,
-                suspects: [(suspect, 13..15)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((13..15, suspect).into()));
         assert_eq!(change, None);
         assert_eq!(
             new_hunks_to_blame,
@@ -167,11 +137,7 @@ mod process_change {
                     suspects: [(parent, 5..7)].into(),
                     source_file_name: None,
                 },
-                UnblamedHunk {
-                    range_in_blamed_file: 12..13,
-                    suspects: [(suspect, 12..13)].into(),
-                    source_file_name: None,
-                }
+                (12..13, suspect).into()
             ]
         );
         assert_eq!(offset_in_destination, Offset::Added(6));
@@ -233,27 +199,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::AddedOrReplaced(0..3, 1)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 3..5,
-                suspects: [(suspect, 3..5)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((3..5, suspect).into()));
         assert_eq!(change, None);
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 0..3,
-                suspects: [(suspect, 0..3)].into(),
-                source_file_name: None,
-            }]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..3, suspect).into()]);
         assert_eq!(offset_in_destination, Offset::Added(2));
     }
 
@@ -761,18 +713,11 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::Unchanged(0..3)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 0..5,
-                suspects: [(suspect, 0..5)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((0..5, suspect).into()));
         assert_eq!(change, None);
         assert_eq!(new_hunks_to_blame, []);
         assert_eq!(offset_in_destination, Offset::Added(0));
@@ -790,20 +735,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::Unchanged(0..7)),
         );
 
         assert_eq!(hunk, None);
         assert_eq!(change, Some(Change::Unchanged(0..7)));
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 0..5,
-                suspects: [(parent, 0..5)].into(),
-                source_file_name: None,
-            }]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..5, parent).into()]);
         assert_eq!(offset_in_destination, Offset::Added(0));
     }
 
@@ -852,20 +790,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(0..5, suspect, Offset::Added(0))),
+            Some((0..5, suspect).into()),
             Some(Change::Deleted(5, 3)),
         );
 
         assert_eq!(hunk, None);
         assert_eq!(change, Some(Change::Deleted(5, 3)));
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 0..5,
-                suspects: [(parent, 0..5)].into(),
-                source_file_name: None,
-            }]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..5, parent).into()]);
         assert_eq!(offset_in_destination, Offset::Added(0));
     }
 
@@ -881,18 +812,11 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(2..16, suspect, Offset::Added(0))),
+            Some((2..16, suspect).into()),
             Some(Change::Deleted(0, 4)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 2..16,
-                suspects: [(suspect, 2..16)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((2..16, suspect).into()));
         assert_eq!(change, None);
         assert_eq!(new_hunks_to_blame, []);
         assert_eq!(offset_in_destination, Offset::Deleted(4));
@@ -910,27 +834,13 @@ mod process_change {
             &mut offset_in_destination,
             suspect,
             parent,
-            Some(new_unblamed_hunk(2..16, suspect, Offset::Added(0))),
+            Some((2..16, suspect).into()),
             Some(Change::Deleted(14, 4)),
         );
 
-        assert_eq!(
-            hunk,
-            Some(UnblamedHunk {
-                range_in_blamed_file: 14..16,
-                suspects: [(suspect, 14..16)].into(),
-                source_file_name: None,
-            })
-        );
+        assert_eq!(hunk, Some((14..16, suspect).into()));
         assert_eq!(change, None);
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 2..14,
-                suspects: [(parent, 2..14)].into(),
-                source_file_name: None,
-            }]
-        );
+        assert_eq!(new_hunks_to_blame, [(2..14, parent).into()]);
         assert_eq!(offset_in_destination, Offset::Deleted(4));
     }
 
@@ -1023,36 +933,25 @@ mod process_changes {
     fn added_hunk() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..4, suspect).into()];
         let changes = vec![Change::AddedOrReplaced(0..4, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
-        assert_eq!(
-            new_hunks_to_blame,
-            [UnblamedHunk {
-                range_in_blamed_file: 0..4,
-                suspects: [(suspect, 0..4)].into(),
-                source_file_name: None,
-            },]
-        );
+        assert_eq!(new_hunks_to_blame, [(0..4, suspect).into()]);
     }
 
     #[test]
     fn added_hunk_2() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..6, suspect).into()];
         let changes = vec![Change::AddedOrReplaced(0..4, 0), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..4,
-                    suspects: [(suspect, 0..4)].into(),
-                    source_file_name: None,
-                },
+                (0..4, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 4..6,
                     suspects: [(parent, 0..2)].into(),
@@ -1066,7 +965,7 @@ mod process_changes {
     fn added_hunk_3() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..6, suspect).into()];
         let changes = vec![
             Change::Unchanged(0..2),
             Change::AddedOrReplaced(2..4, 0),
@@ -1077,16 +976,8 @@ mod process_changes {
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..2,
-                    suspects: [(parent, 0..2)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 2..4,
-                    suspects: [(suspect, 2..4)].into(),
-                    source_file_name: None,
-                },
+                (0..2, parent).into(),
+                (2..4, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 4..6,
                     suspects: [(parent, 2..4)].into(),
@@ -1100,7 +991,7 @@ mod process_changes {
     fn added_hunk_4_0() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..6, suspect).into()];
         let changes = vec![
             Change::AddedOrReplaced(0..1, 0),
             Change::AddedOrReplaced(1..4, 0),
@@ -1111,16 +1002,8 @@ mod process_changes {
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..1,
-                    suspects: [(suspect, 0..1)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 1..4,
-                    suspects: [(suspect, 1..4)].into(),
-                    source_file_name: None,
-                },
+                (0..1, suspect).into(),
+                (1..4, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 4..6,
                     suspects: [(parent, 0..2)].into(),
@@ -1134,18 +1017,14 @@ mod process_changes {
     fn added_hunk_4_1() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..6, suspect).into()];
         let changes = vec![Change::AddedOrReplaced(0..1, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..1,
-                    suspects: [(suspect, 0..1)].into(),
-                    source_file_name: None,
-                },
+                (0..1, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 1..6,
                     suspects: [(parent, 0..5)].into(),
@@ -1184,18 +1063,14 @@ mod process_changes {
     fn added_hunk_5() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..6, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..6, suspect).into()];
         let changes = vec![Change::AddedOrReplaced(0..4, 3), Change::Unchanged(4..6)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..4,
-                    suspects: [(suspect, 0..4)].into(),
-                    source_file_name: None,
-                },
+                (0..4, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 4..6,
                     suspects: [(parent, 3..5)].into(),
@@ -1239,11 +1114,7 @@ mod process_changes {
                     suspects: [(suspect, 0..1)].into(),
                     source_file_name: None,
                 },
-                UnblamedHunk {
-                    range_in_blamed_file: 2..3,
-                    suspects: [(parent, 2..3)].into(),
-                    source_file_name: None,
-                }
+                (2..3, parent).into()
             ]
         );
     }
@@ -1252,7 +1123,7 @@ mod process_changes {
     fn added_hunk_8() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![new_unblamed_hunk(0..4, suspect, Offset::Added(0))];
+        let hunks_to_blame = vec![(0..4, suspect).into()];
         let changes = vec![
             Change::AddedOrReplaced(0..2, 0),
             Change::Unchanged(2..3),
@@ -1263,21 +1134,13 @@ mod process_changes {
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..2,
-                    suspects: [(suspect, 0..2)].into(),
-                    source_file_name: None,
-                },
+                (0..2, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 2..3,
                     suspects: [(parent, 0..1)].into(),
                     source_file_name: None,
                 },
-                UnblamedHunk {
-                    range_in_blamed_file: 3..4,
-                    suspects: [(suspect, 3..4)].into(),
-                    source_file_name: None,
-                },
+                (3..4, suspect).into(),
             ]
         );
     }
@@ -1286,18 +1149,7 @@ mod process_changes {
     fn added_hunk_9() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![
-            UnblamedHunk {
-                range_in_blamed_file: 0..30,
-                suspects: [(suspect, 0..30)].into(),
-                source_file_name: None,
-            },
-            UnblamedHunk {
-                range_in_blamed_file: 31..37,
-                suspects: [(suspect, 31..37)].into(),
-                source_file_name: None,
-            },
-        ];
+        let hunks_to_blame = vec![(0..30, suspect).into(), (31..37, suspect).into()];
         let changes = vec![
             Change::Unchanged(0..16),
             Change::AddedOrReplaced(16..17, 0),
@@ -1308,16 +1160,8 @@ mod process_changes {
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..16,
-                    suspects: [(parent, 0..16)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 16..17,
-                    suspects: [(suspect, 16..17)].into(),
-                    source_file_name: None,
-                },
+                (0..16, parent).into(),
+                (16..17, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 17..30,
                     suspects: [(parent, 16..29)].into(),
@@ -1336,23 +1180,7 @@ mod process_changes {
     fn added_hunk_10() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![
-            UnblamedHunk {
-                range_in_blamed_file: 1..3,
-                suspects: [(suspect, 1..3)].into(),
-                source_file_name: None,
-            },
-            UnblamedHunk {
-                range_in_blamed_file: 5..7,
-                suspects: [(suspect, 5..7)].into(),
-                source_file_name: None,
-            },
-            UnblamedHunk {
-                range_in_blamed_file: 8..10,
-                suspects: [(suspect, 8..10)].into(),
-                source_file_name: None,
-            },
-        ];
+        let hunks_to_blame = vec![(1..3, suspect).into(), (5..7, suspect).into(), (8..10, suspect).into()];
         let changes = vec![
             Change::Unchanged(0..6),
             Change::AddedOrReplaced(6..9, 0),
@@ -1363,26 +1191,10 @@ mod process_changes {
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 1..3,
-                    suspects: [(parent, 1..3)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 5..6,
-                    suspects: [(parent, 5..6)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 6..7,
-                    suspects: [(suspect, 6..7)].into(),
-                    source_file_name: None,
-                },
-                UnblamedHunk {
-                    range_in_blamed_file: 8..9,
-                    suspects: [(suspect, 8..9)].into(),
-                    source_file_name: None,
-                },
+                (1..3, parent).into(),
+                (5..6, parent).into(),
+                (6..7, suspect).into(),
+                (8..9, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 9..10,
                     suspects: [(parent, 6..7)].into(),
@@ -1396,21 +1208,14 @@ mod process_changes {
     fn deleted_hunk() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![
-            new_unblamed_hunk(0..4, suspect, Offset::Added(0)),
-            new_unblamed_hunk(4..7, suspect, Offset::Added(0)),
-        ];
+        let hunks_to_blame = vec![(0..4, suspect).into(), (4..7, suspect).into()];
         let changes = vec![Change::Deleted(0, 3), Change::AddedOrReplaced(0..4, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 0..4,
-                    suspects: [(suspect, 0..4)].into(),
-                    source_file_name: None,
-                },
+                (0..4, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 4..7,
                     suspects: [(parent, 3..6)].into(),
@@ -1424,31 +1229,20 @@ mod process_changes {
     fn subsequent_hunks_overlapping_end_of_addition() {
         let suspect = zero_sha();
         let parent = one_sha();
-        let hunks_to_blame = vec![
-            new_unblamed_hunk(13..16, suspect, Offset::Added(0)),
-            new_unblamed_hunk(10..17, suspect, Offset::Added(0)),
-        ];
+        let hunks_to_blame = vec![(13..16, suspect).into(), (10..17, suspect).into()];
         let changes = vec![Change::AddedOrReplaced(10..14, 0)];
         let new_hunks_to_blame = process_changes(hunks_to_blame, changes, suspect, parent);
 
         assert_eq!(
             new_hunks_to_blame,
             [
-                UnblamedHunk {
-                    range_in_blamed_file: 13..14,
-                    suspects: [(suspect, 13..14)].into(),
-                    source_file_name: None,
-                },
+                (13..14, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 14..16,
                     suspects: [(parent, 10..12)].into(),
                     source_file_name: None,
                 },
-                UnblamedHunk {
-                    range_in_blamed_file: 10..14,
-                    suspects: [(suspect, 10..14)].into(),
-                    source_file_name: None,
-                },
+                (10..14, suspect).into(),
                 UnblamedHunk {
                     range_in_blamed_file: 14..17,
                     suspects: [(parent, 10..13)].into(),
