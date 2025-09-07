@@ -67,6 +67,7 @@ extras = [
     "interrupt",
     "status",
     "dirwalk",
+    "blame"
 ]
 
 ## A collection of features that need a larger MSRV, and thus are disabled by default.
