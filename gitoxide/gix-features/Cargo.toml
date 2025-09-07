@@ -56,21 +56,7 @@ crc32 = ["dep:crc32fast"]
 
 ## Enable the usage of zlib-related utilities to compress or decompress data.
 ## This enables and uses the high-performance `zlib-rs` backend.
-## Note that the various past features for selecting zlib backends are now deprecated and do nothing.
 zlib = ["dep:libz-rs-sys", "dep:thiserror"]
-## Deprecated: gix always uses zlib-rs.
-zlib-ng = ["zlib"]
-## Deprecated: gix always uses zlib-rs now. As of zlib-rs 0.5.0 (used by flate2
-## 1.1.1), this no longer exports C symbols # by default, so it doesn't
-## conflict with any other zlib library that might be loaded into the same
-## address space.
-zlib-rs = ["zlib"]
-## Deprecated: gix always uses zlib-rs.
-zlib-ng-compat = ["zlib"]
-## Deprecated: gix always uses zlib-rs.
-zlib-stock = ["zlib"]
-## Deprecated: gix always uses zlib-rs.
-zlib-rust-backend = ["zlib"]
 
 #! ### Other
 
