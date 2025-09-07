@@ -62,7 +62,7 @@ where
         );
         Ok(BytesToEntriesIter {
             read,
-            decompressor: Decompress::new(true),
+            decompressor: Decompress::new(),
             compressed,
             offset: 12,
             had_error: false,
@@ -101,7 +101,7 @@ where
 
         // Decompress object to learn its compressed bytes
         let compressed_buf = self.compressed_buf.take().unwrap_or_else(|| Vec::with_capacity(4096));
-        self.decompressor.reset(true);
+        self.decompressor.reset();
         let mut decompressed_reader = DecompressRead {
             inner: read_and_pass_to(
                 &mut self.read,
