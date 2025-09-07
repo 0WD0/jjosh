@@ -1,20 +1,30 @@
-use std::fmt::Display;
+use std::ffi::c_int;
 
+/// A type to hold all state needed for decompressing a ZLIB encoded stream.
 pub struct Decompress(Box<libz_rs_sys::z_stream>);
 
 unsafe impl Sync for Decompress {}
 unsafe impl Send for Decompress {}
 
+impl Default for Decompress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Decompress {
+    /// The amount of bytes consumed from the input so far.
     pub fn total_in(&self) -> u64 {
-        self.0.total_in
+        self.0.total_in as _
     }
 
+    /// The amount of decompressed bytes that have been written to the output thus far.
     pub fn total_out(&self) -> u64 {
-        self.0.total_out
+        self.0.total_out as _
     }
 
-    pub fn new(_zlib_header: bool) -> Self {
+    /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
+    pub fn new() -> Self {
         let mut this = Box::new(libz_rs_sys::z_stream::default());
 
         unsafe {
@@ -28,10 +38,12 @@ impl Decompress {
         Self(this)
     }
 
-    pub fn reset(&mut self, _: bool) {
+    /// Reset the state to allow handling a new stream.
+    pub fn reset(&mut self) {
         unsafe { libz_rs_sys::inflateReset(&mut *self.0) };
     }
 
+    /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
     pub fn decompress(
         &mut self,
         input: &[u8],
@@ -49,11 +61,10 @@ impl Decompress {
             libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
             libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
 
-            libz_rs_sys::Z_STREAM_ERROR => Err(DecompressError("stream error")),
-            libz_rs_sys::Z_DATA_ERROR => Err(DecompressError("data error")),
-            libz_rs_sys::Z_MEM_ERROR => Err(DecompressError("insufficient memory")),
-            libz_rs_sys::Z_NEED_DICT => Err(DecompressError("need dictionary")),
-            c => panic!("unknown return code: {}", c),
+            libz_rs_sys::Z_STREAM_ERROR => Err(DecompressError::StreamError),
+            libz_rs_sys::Z_DATA_ERROR => Err(DecompressError::DataError),
+            libz_rs_sys::Z_MEM_ERROR => Err(DecompressError::InsufficientMemory),
+            err => Err(DecompressError::Unknown { err }),
         }
     }
 }
@@ -64,19 +75,29 @@ impl Drop for Decompress {
     }
 }
 
+/// The error produced by [`Decompress::decompress()`].
 #[derive(Debug, thiserror::Error)]
-pub struct DecompressError(&'static str);
-
-impl Display for DecompressError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
+#[allow(missing_docs)]
+pub enum DecompressError {
+    #[error("stream error")]
+    StreamError,
+    #[error("Not enough memory")]
+    InsufficientMemory,
+    #[error("Invalid input data")]
+    DataError,
+    #[error("An unknown error occurred: {err}")]
+    Unknown { err: c_int },
 }
 
+/// The status returned by [`Decompress::decompress()`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
+    /// The decompress operation went well. Not to be confused with `StreamEnd`, so one can continue
+    /// the decompression.
     Ok,
+    /// An error occurred when decompression.
     BufError,
+    /// The stream was fully decompressed.
     StreamEnd,
 }
 
@@ -123,17 +144,10 @@ pub mod inflate {
 }
 
 /// Decompress a few bytes of a zlib stream without allocation
+#[derive(Default)]
 pub struct Inflate {
     /// The actual decompressor doing all the work.
     pub state: Decompress,
-}
-
-impl Default for Inflate {
-    fn default() -> Self {
-        Inflate {
-            state: Decompress::new(true),
-        }
-    }
 }
 
 impl Inflate {
@@ -151,7 +165,7 @@ impl Inflate {
 
     /// Ready this instance for decoding another data stream.
     pub fn reset(&mut self) {
-        self.state.reset(true);
+        self.state.reset();
     }
 }
 

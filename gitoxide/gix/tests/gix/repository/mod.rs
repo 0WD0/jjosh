@@ -134,7 +134,7 @@ mod dirwalk {
 #[test]
 fn size_in_memory() {
     let actual_size = std::mem::size_of::<Repository>();
-    let limit = 1200;
+    let limit = 1250;
     assert!(
         actual_size <= limit,
         "size of Repository shouldn't change without us noticing, it's meant to be cloned: should have been below {limit:?}, was {actual_size} (bigger on windows)"

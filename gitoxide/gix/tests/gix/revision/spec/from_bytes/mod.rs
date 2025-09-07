@@ -126,8 +126,8 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
             Spec::from_id(hex_to_id("cafea31147e840161a1860c50af999917ae1536b").attach(&repo))
         );
         assert_eq!(
-            &format!("{:?}", parse_spec("cafea^{object}", &repo).unwrap_err())[..80],
-            r#"FindObject(Find(Loose(DecompressFile { source: Inflate(DecompressError("data err"#
+            &format!("{:?}", parse_spec("cafea^{object}", &repo).unwrap_err())[..65],
+            r#"FindObject(Find(Loose(DecompressFile { source: Inflate(DataError)"#
         );
     }
 }

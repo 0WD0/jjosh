@@ -1,4 +1,5 @@
 use crate::zlib::Status;
+use std::ffi::c_int;
 
 const BUF_SIZE: usize = 4096 * 8;
 
@@ -24,20 +25,30 @@ where
     }
 }
 
+/// Hold all state needed for compressing data.
 pub struct Compress(Box<libz_rs_sys::z_stream>);
 
 unsafe impl Sync for Compress {}
 unsafe impl Send for Compress {}
 
+impl Default for Compress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compress {
+    /// The number of bytes that were read from the input.
     pub fn total_in(&self) -> u64 {
-        self.0.total_in
+        self.0.total_in as _
     }
 
+    /// The number of compressed bytes that were written to the output.
     pub fn total_out(&self) -> u64 {
-        self.0.total_out
+        self.0.total_out as _
     }
 
+    /// Create a new instance - this allocates so should be done with care.
     pub fn new() -> Self {
         let mut this = Box::new(libz_rs_sys::z_stream::default());
 
@@ -53,10 +64,12 @@ impl Compress {
         Self(this)
     }
 
+    /// Prepare the instance for a new stream.
     pub fn reset(&mut self) {
         unsafe { libz_rs_sys::deflateReset(&mut *self.0) };
     }
 
+    /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
     pub fn compress(&mut self, input: &[u8], output: &mut [u8], flush: FlushCompress) -> Result<Status, CompressError> {
         self.0.avail_in = input.len() as _;
         self.0.avail_out = output.len() as _;
@@ -69,8 +82,9 @@ impl Compress {
             libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
             libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
 
-            libz_rs_sys::Z_STREAM_ERROR => Err(CompressError("stream error")),
-            _ => todo!(),
+            libz_rs_sys::Z_STREAM_ERROR => Err(CompressError::StreamError),
+            libz_rs_sys::Z_MEM_ERROR => Err(CompressError::InsufficientMemory),
+            err => Err(CompressError::Unknown { err }),
         }
     }
 }
@@ -81,13 +95,17 @@ impl Drop for Compress {
     }
 }
 
+/// The error produced by [`Compress::compress()`].
 #[derive(Debug, thiserror::Error)]
-pub struct CompressError(&'static str);
-
-impl std::fmt::Display for CompressError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
+#[error("{msg}")]
+#[allow(missing_docs)]
+pub enum CompressError {
+    #[error("stream error")]
+    StreamError,
+    #[error("Not enough memory")]
+    InsufficientMemory,
+    #[error("An unknown error occurred: {err}")]
+    Unknown { err: c_int },
 }
 
 /// Values which indicate the form of flushing to be used when compressing
