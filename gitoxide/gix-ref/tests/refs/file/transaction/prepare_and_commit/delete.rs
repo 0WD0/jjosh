@@ -1,17 +1,18 @@
-use gix_date::parse::TimeBuf;
-use gix_lock::acquire::Fail;
-use gix_ref::{
-    file::ReferenceExt,
-    transaction::{Change, PreviousValue, RefEdit, RefLog},
-    Reference, Target,
-};
-
 use crate::{
     file::{
         store_writable,
         transaction::prepare_and_commit::{committer, empty_store},
     },
     hex_to_id,
+};
+use gix_date::parse::TimeBuf;
+use gix_lock::acquire::Fail;
+use gix_ref::file::transaction::prepare::Error;
+use gix_ref::transaction::LogChange;
+use gix_ref::{
+    file::ReferenceExt,
+    transaction::{Change, PreviousValue, RefEdit, RefLog},
+    FullName, Reference, Target,
 };
 
 #[test]
@@ -204,6 +205,97 @@ fn delete_reflog_only_of_symbolic_with_deref() -> crate::Result {
         main.target,
         head.follow(&store).expect("a symref")?.target,
         "head points to main"
+    );
+    Ok(())
+}
+
+#[test]
+fn rename_a_to_a_slash_b_in_one_transaction() -> crate::Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let old = store.find_loose("old")?;
+
+    let new_name: FullName = "refs/heads/old/new".try_into()?;
+    let err = store
+        .transaction()
+        .prepare(
+            [
+                RefEdit {
+                    change: Change::Delete {
+                        expected: PreviousValue::MustExist,
+                        log: RefLog::AndReference,
+                    },
+                    name: old.name.clone(),
+                    deref: true,
+                },
+                RefEdit {
+                    change: Change::Update {
+                        expected: PreviousValue::MustNotExist,
+                        log: LogChange::default(),
+                        new: old.target.clone(),
+                    },
+                    name: new_name.clone(),
+                    deref: true,
+                },
+            ],
+            Fail::Immediately,
+            Fail::Immediately,
+        )
+        .unwrap_err();
+
+    match err {
+        #[cfg(unix)]
+        Error::Io(err) => {
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::NotADirectory,
+                "For now this isn't supported in the same transaction."
+            );
+        }
+        #[cfg(windows)]
+        Error::LockAcquire { .. } => {
+            // It's bad that the error differs on Windows, but then again, doing this kind of pseudo-db on a filesystem
+            // probably is never going to be great, so let's wait for ref-tables.
+        }
+        err => unreachable!("unexpected error variant: {err:?}"),
+    }
+
+    let edits = store
+        .transaction()
+        .prepare(
+            [RefEdit {
+                change: Change::Delete {
+                    expected: PreviousValue::MustExist,
+                    log: RefLog::AndReference,
+                },
+                name: old.name,
+                deref: true,
+            }],
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+    assert_eq!(edits.len(), 1, "First delete to make space");
+
+    let edits = store
+        .transaction()
+        .prepare(
+            [RefEdit {
+                change: Change::Update {
+                    expected: PreviousValue::MustNotExist,
+                    log: LogChange::default(),
+                    new: old.target,
+                },
+                name: new_name.clone(),
+                deref: true,
+            }],
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+    assert_eq!(edits.len(), 1, "Then create the new ref in place of the old");
+    assert!(
+        store.try_find_loose(new_name.as_ref())?.is_some(),
+        "must have created the new reference"
     );
     Ok(())
 }

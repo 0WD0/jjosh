@@ -135,6 +135,8 @@ pub mod convert_to_diffable {
     pub enum Error {
         #[error("Entry at '{rela_path}' must be regular file or symlink, but was {actual:?}")]
         InvalidEntryKind { rela_path: BString, actual: EntryKind },
+        #[error("Entry at '{rela_path}' is declared as symlink but symlinks are disabled via core.symlinks")]
+        SymlinkDisabled { rela_path: BString },
         #[error("Entry at '{rela_path}' could not be read as symbolic link")]
         ReadLink { rela_path: BString, source: std::io::Error },
         #[error("Entry at '{rela_path}' could not be opened for reading or read from")]
@@ -240,7 +242,7 @@ impl Pipeline {
         out: &mut Vec<u8>,
     ) -> Result<Outcome, convert_to_diffable::Error> {
         let is_symlink = match mode {
-            EntryKind::Link if self.options.fs.symlink => true,
+            EntryKind::Link => true,
             EntryKind::Blob | EntryKind::BlobExecutable => false,
             _ => {
                 return Err(convert_to_diffable::Error::InvalidEntryKind {
@@ -272,6 +274,11 @@ impl Pipeline {
                 self.path.push(root);
                 self.path.push(gix_path::from_bstr(rela_path));
                 let data = if is_symlink {
+                    if !self.options.fs.symlink {
+                        return Err(convert_to_diffable::Error::SymlinkDisabled {
+                            rela_path: rela_path.to_owned(),
+                        });
+                    }
                     let target = none_if_missing(std::fs::read_link(&self.path)).map_err(|err| {
                         convert_to_diffable::Error::ReadLink {
                             rela_path: rela_path.to_owned(),
