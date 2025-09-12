@@ -214,7 +214,7 @@ impl delegate::Revision for Delegate<'_> {
             Ok(Some((ref_name, id))) => {
                 let id = match self.repo.find_reference(ref_name.as_bstr()) {
                     Ok(mut r) => {
-                        let id = r.peel_to_id_in_place().map(crate::Id::detach).unwrap_or(id);
+                        let id = r.peel_to_id().map(crate::Id::detach).unwrap_or(id);
                         self.refs[self.idx] = Some(r.detach());
                         id
                     }

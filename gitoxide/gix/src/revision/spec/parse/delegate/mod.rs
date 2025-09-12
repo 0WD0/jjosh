@@ -201,7 +201,7 @@ impl Delegate<'_> {
         for (r, obj) in self.refs.iter().zip(self.objs.iter_mut()) {
             if let (Some(ref_), obj_opt @ None) = (r, obj) {
                 if let Some(id) = ref_.target.try_id().map(ToOwned::to_owned).or_else(|| {
-                    match ref_.clone().attach(repo).peel_to_id_in_place() {
+                    match ref_.clone().attach(repo).peel_to_id() {
                         Err(err) => {
                             self.err.push(Error::PeelToId {
                                 name: ref_.name.clone(),

@@ -36,7 +36,7 @@ fn run() -> crate::Result {
                     .iter()
                     .filter_map(|name| {
                         refs.try_find(*name).expect("one tag per commit").map(|mut r| {
-                            r.peel_to_id_in_place(&refs, &store).expect("works");
+                            r.peel_to_id(&refs, &store).expect("works");
                             r.target.into_id()
                         })
                     })

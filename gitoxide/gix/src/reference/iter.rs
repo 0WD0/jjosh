@@ -112,13 +112,9 @@ impl<'r> Iterator for Iter<'_, 'r> {
                 .and_then(|mut r| {
                     if self.peel {
                         let repo = &self.repo;
-                        r.peel_to_id_in_place_packed(
-                            &repo.refs,
-                            &repo.objects,
-                            self.peel_with_packed.as_ref().map(|p| &***p),
-                        )
-                        .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync + 'static>)
-                        .map(|_| r)
+                        r.peel_to_id_packed(&repo.refs, &repo.objects, self.peel_with_packed.as_ref().map(|p| &***p))
+                            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync + 'static>)
+                            .map(|_| r)
                     } else {
                         Ok(r)
                     }

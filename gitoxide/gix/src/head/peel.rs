@@ -128,7 +128,7 @@ impl<'repo> Head<'repo> {
             }
             Kind::Symbolic(r) => {
                 let mut nr = r.clone().attach(self.repo);
-                let peeled = nr.peel_to_id_in_place();
+                let peeled = nr.peel_to_id();
                 *r = nr.detach();
                 peeled?
             }
