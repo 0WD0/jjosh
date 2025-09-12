@@ -81,11 +81,11 @@ mod peel {
         let store = store_with_packed_refs()?;
         let mut head: Reference = store.find_loose("HEAD")?.into();
         let expected = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
-        assert_eq!(head.peel_to_id_in_place(&store, &EmptyCommit)?, expected);
+        assert_eq!(head.peel_to_id(&store, &EmptyCommit)?, expected);
         assert_eq!(head.target.try_id().map(ToOwned::to_owned), Some(expected));
 
         let mut head = store.find("dt1")?;
-        assert_eq!(head.peel_to_id_in_place(&store, &gix_object::find::Never)?, expected);
+        assert_eq!(head.peel_to_id(&store, &gix_object::find::Never)?, expected);
         assert_eq!(head.target.into_id(), expected);
         Ok(())
     }
@@ -113,7 +113,7 @@ mod peel {
             "but following doesn't do that, only real peeling does"
         );
 
-        head.peel_to_id_in_place(&store, &EmptyCommit)?;
+        head.peel_to_id(&store, &EmptyCommit)?;
         assert_eq!(
             head.target.try_id().map(ToOwned::to_owned),
             Some(final_stop),
@@ -135,23 +135,19 @@ mod peel {
         assert_eq!(r.kind(), gix_ref::Kind::Symbolic, "there is something to peel");
 
         let commit = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
-        assert_eq!(r.peel_to_id_in_place(&store, &EmptyCommit)?, commit);
+        assert_eq!(r.peel_to_id(&store, &EmptyCommit)?, commit);
         assert_eq!(r.name.as_bstr(), "refs/remotes/origin/multi-link-target3");
 
         let mut r: Reference = store.find_loose("dt1")?.into();
         assert_eq!(
-            r.peel_to_id_in_place(&store, &EmptyCommit)?,
+            r.peel_to_id(&store, &EmptyCommit)?,
             hex_to_id("4c3f4cce493d7beb45012e478021b5f65295e5a3"),
             "points to a tag object without actual object lookup"
         );
 
         let odb = gix_odb::at(store.git_dir().join("objects"))?;
         let mut r: Reference = store.find_loose("dt1")?.into();
-        assert_eq!(
-            r.peel_to_id_in_place(&store, &odb)?,
-            commit,
-            "points to the commit with lookup"
-        );
+        assert_eq!(r.peel_to_id(&store, &odb)?, commit, "points to the commit with lookup");
 
         Ok(())
     }
@@ -162,7 +158,7 @@ mod peel {
             let store = file::store_at_with_args("make_multi_hop_ref.sh", packed)?;
             let odb = gix_odb::at(store.git_dir().join("objects"))?;
             let mut r: Reference = store.find("multi-hop")?;
-            r.peel_to_id_in_place(&store, &odb)?;
+            r.peel_to_id(&store, &odb)?;
 
             let commit_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
             assert_eq!(r.peeled, Some(commit_id));
@@ -172,8 +168,7 @@ mod peel {
             assert_eq!(obj.kind, gix_object::Kind::Commit, "always peeled to the first non-tag");
 
             let mut r: Reference = store.find("multi-hop")?;
-            let tag_id =
-                r.follow_to_object_in_place_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))?;
+            let tag_id = r.follow_to_object_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))?;
             let obj = odb.find(&tag_id, &mut buf)?;
             assert_eq!(obj.kind, gix_object::Kind::Tag, "the first direct object target");
             assert_eq!(
@@ -183,7 +178,7 @@ mod peel {
             );
             let mut r: Reference = store.find("multi-hop2")?;
             let other_tag_id =
-                r.follow_to_object_in_place_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))?;
+                r.follow_to_object_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))?;
             assert_eq!(other_tag_id, tag_id, "it can follow with multiple hops as well");
         }
         Ok(())
@@ -197,14 +192,14 @@ mod peel {
         assert_eq!(r.name.as_bstr(), "refs/loop-a");
 
         assert!(matches!(
-            r.peel_to_id_in_place(&store, &gix_object::find::Never).unwrap_err(),
+            r.peel_to_id(&store, &gix_object::find::Never).unwrap_err(),
             gix_ref::peel::to_id::Error::FollowToObject(gix_ref::peel::to_object::Error::Cycle { .. })
         ));
         assert_eq!(r.name.as_bstr(), "refs/loop-a", "the ref is not changed on error");
 
         let mut r: Reference = store.find_loose("loop-a")?.into();
         let err = r
-            .follow_to_object_in_place_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))
+            .follow_to_object_packed(&store, store.cached_packed_buffer()?.as_ref().map(|p| &***p))
             .unwrap_err();
         assert!(matches!(err, gix_ref::peel::to_object::Error::Cycle { .. }));
         Ok(())
