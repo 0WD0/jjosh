@@ -200,7 +200,7 @@ where
         buf.clear();
         for &(line_type, content) in lines {
             buf.push(line_type.to_prefix() as u8);
-            buf.push_str(std::str::from_utf8(content).map_err(std::io::Error::other)?);
+            buf.extend_from_slice(content);
 
             if !content.ends_with_str(self.newline) {
                 buf.push_str(self.newline);
