@@ -3,6 +3,7 @@ use gix_diff::blob::{
     unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
     Algorithm, UnifiedDiff,
 };
+use gix_object::bstr::BString;
 
 #[test]
 fn removed_modified_added() -> crate::Result {
@@ -127,6 +128,45 @@ fn context_overlap_by_one_line_move_up() -> crate::Result {
      5
      6
     -7
+    ");
+    Ok(())
+}
+
+#[test]
+fn non_utf8() -> crate::Result {
+    let a = &b"\xC0\x80"[..];
+    let b = b"ascii";
+
+    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let err = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            ConsumeBinaryHunk::new(String::new(), "\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )
+    .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "invalid UTF-8 found at byte offset 1",
+        "strings enforce an encoding, which fails here"
+    );
+
+    let actual = gix_diff::blob::diff(
+        Algorithm::Myers,
+        &interner,
+        UnifiedDiff::new(
+            &interner,
+            ConsumeBinaryHunk::new(BString::default(), "\n"),
+            ContextSize::symmetrical(3),
+        ),
+    )?;
+    insta::assert_snapshot!(actual, @r"
+    @@ -1,1 +1,1 @@
+    -��
+    +ascii
     ");
     Ok(())
 }
