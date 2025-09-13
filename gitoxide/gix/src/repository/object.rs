@@ -49,6 +49,14 @@ impl crate::Repository {
                 repo: self,
             });
         }
+        if id == ObjectId::empty_blob(self.object_hash()) {
+            return Ok(Object {
+                id,
+                kind: gix_object::Kind::Blob,
+                data: Vec::new(),
+                repo: self,
+            });
+        }
         let mut buf = self.free_buf();
         let kind = self.objects.find(&id, &mut buf)?.kind;
         Ok(Object::from_data(id, kind, buf, self))
@@ -86,12 +94,20 @@ impl crate::Repository {
     /// Obtain information about an object without fully decoding it, or fail if the object doesn't exist.
     ///
     /// Note that despite being cheaper than [`Self::find_object()`], there is still some effort traversing delta-chains.
+    /// Also note that for empty trees and blobs, it will always report it to exist in loose objects, even if they don't
+    /// exist or if they exist in a pack.
     #[doc(alias = "read_header", alias = "git2")]
     pub fn find_header(&self, id: impl Into<ObjectId>) -> Result<gix_odb::find::Header, object::find::existing::Error> {
         let id = id.into();
         if id == ObjectId::empty_tree(self.object_hash()) {
             return Ok(gix_odb::find::Header::Loose {
                 kind: gix_object::Kind::Tree,
+                size: 0,
+            });
+        }
+        if id == ObjectId::empty_blob(self.object_hash()) {
+            return Ok(gix_odb::find::Header::Loose {
+                kind: gix_object::Kind::Blob,
                 size: 0,
             });
         }
@@ -109,7 +125,7 @@ impl crate::Repository {
     #[doc(alias = "exists", alias = "git2")]
     pub fn has_object(&self, id: impl AsRef<gix_hash::oid>) -> bool {
         let id = id.as_ref();
-        if id.to_owned().is_empty_tree() {
+        if id.to_owned().is_empty_tree() || id.to_owned().is_empty_blob() {
             true
         } else {
             self.objects.exists(id)
@@ -130,6 +146,12 @@ impl crate::Repository {
                 size: 0,
             }));
         }
+        if id == ObjectId::empty_blob(self.object_hash()) {
+            return Ok(Some(gix_odb::find::Header::Loose {
+                kind: gix_object::Kind::Blob,
+                size: 0,
+            }));
+        }
         self.objects.try_header(&id).map_err(Into::into)
     }
 
@@ -140,6 +162,14 @@ impl crate::Repository {
             return Ok(Some(Object {
                 id,
                 kind: gix_object::Kind::Tree,
+                data: Vec::new(),
+                repo: self,
+            }));
+        }
+        if id == ObjectId::empty_blob(self.object_hash()) {
+            return Ok(Some(Object {
+                id,
+                kind: gix_object::Kind::Blob,
                 data: Vec::new(),
                 repo: self,
             }));
