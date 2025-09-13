@@ -127,7 +127,7 @@ pub(crate) fn update(
 
                         match existing
                             .try_id()
-                            .map_or_else(|| existing.clone().peel_to_id_in_place(), Ok)
+                            .map_or_else(|| existing.clone().peel_to_id(), Ok)
                             .map(crate::Id::detach)
                         {
                             Ok(local_id) => {

@@ -60,7 +60,7 @@ fn into_peel(
     store: &gix_ref::file::Store,
     odb: gix_odb::Handle,
 ) -> impl Fn(gix_ref::Reference) -> gix_hash::ObjectId + '_ {
-    move |mut r: gix_ref::Reference| r.peel_to_id_in_place(store, &odb).unwrap()
+    move |mut r: gix_ref::Reference| r.peel_to_id(store, &odb).unwrap()
 }
 
 enum Mode {

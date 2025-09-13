@@ -66,12 +66,12 @@ mod find {
             "it points to a tag object"
         );
 
-        let object = packed_tag_ref.peel_to_id_in_place()?;
+        let object = packed_tag_ref.peel_to_id()?;
         let the_commit = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
         assert_eq!(object, the_commit, "it is assumed to be fully peeled");
         assert_eq!(
             object,
-            packed_tag_ref.peel_to_id_in_place()?,
+            packed_tag_ref.peel_to_id()?,
             "peeling again yields the same object"
         );
 
@@ -79,7 +79,7 @@ mod find {
 
         let expected: &FullNameRef = "refs/heads/multi-link-target1".try_into()?;
         assert_eq!(symbolic_ref.name(), expected);
-        assert_eq!(symbolic_ref.peel_to_id_in_place()?, the_commit);
+        assert_eq!(symbolic_ref.peel_to_id()?, the_commit);
 
         let expected: &FullNameRef = "refs/remotes/origin/multi-link-target3".try_into()?;
         assert_eq!(symbolic_ref.name(), expected, "it follows symbolic refs, too");

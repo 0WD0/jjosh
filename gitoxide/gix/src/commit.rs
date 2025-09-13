@@ -122,7 +122,7 @@ pub mod describe {
                     .filter_map(Result::ok)
                     .filter_map(|mut r: crate::Reference<'_>| {
                         let target_id = r.target().try_id().map(ToOwned::to_owned);
-                        let peeled_id = r.peel_to_id_in_place().ok()?;
+                        let peeled_id = r.peel_to_id().ok()?;
                         let (prio, tag_time) = match target_id {
                             Some(target_id) if peeled_id != *target_id => {
                                 let tag = repo.find_object(target_id).ok()?.try_into_tag().ok()?;

@@ -648,7 +648,7 @@ mod commit {
     fn multi_line_commit_message_uses_first_line_in_ref_log_ref_nonexisting() -> crate::Result {
         let _env = freeze_time();
         let (repo, _keep) = crate::repo_rw_opts("make_basic_repo.sh", restricted_and_git())?;
-        let parent = repo.find_reference("HEAD")?.peel_to_id_in_place()?;
+        let parent = repo.find_reference("HEAD")?.peel_to_id()?;
         let empty_tree_id = parent.object()?.to_commit_ref_iter().tree_id().expect("tree to be set");
         assert_eq!(
             parent
@@ -697,7 +697,7 @@ mod commit {
         );
 
         let mut branch = repo.find_reference("new-branch")?;
-        let current_commit = branch.peel_to_id_in_place()?;
+        let current_commit = branch.peel_to_id()?;
         assert_eq!(current_commit, second_commit_id, "the commit was set");
 
         let mut log = branch.log_iter();

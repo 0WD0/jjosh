@@ -166,10 +166,10 @@ impl Fixture {
 
         let mut reference = gix_ref::file::Store::find(&store, "HEAD")?;
 
-        // Needed for `peel_to_id_in_place`.
+        // Needed for `peel_to_id`.
         use gix_ref::file::ReferenceExt;
 
-        let head_id = reference.peel_to_id_in_place(&store, &odb)?;
+        let head_id = reference.peel_to_id(&store, &odb)?;
 
         let git_dir = worktree_path.join(".git");
         let index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default())?;
