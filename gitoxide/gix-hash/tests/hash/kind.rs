@@ -1,3 +1,5 @@
+use gix_hash::{Kind, ObjectId};
+
 mod from_hex_len {
     use gix_hash::Kind;
 
@@ -13,4 +15,16 @@ mod from_hex_len {
     fn none_if_there_is_no_fit() {
         assert_eq!(Kind::from_hex_len(65), None);
     }
+}
+
+#[test]
+fn empty_blob() {
+    let sha1 = Kind::Sha1;
+    assert_eq!(sha1.empty_blob(), ObjectId::empty_blob(sha1));
+}
+
+#[test]
+fn empty_tree() {
+    let sha1 = Kind::Sha1;
+    assert_eq!(sha1.empty_tree(), ObjectId::empty_tree(sha1));
 }
