@@ -406,6 +406,49 @@ impl crate::Repository {
         self.commit_as(committer, author, reference, message, tree, parents)
     }
 
+    /// Create a raw commit object with `message` referring to `tree` with `parents`, without writing it to the object database
+    /// or updating any references. The commit object can later be written using [`Self::write_object()`].
+    /// 
+    /// The commit is created without message encoding field, which can be assumed to be UTF-8.
+    /// `author` and `committer` fields are pre-set from the configuration, which can be altered
+    /// [temporarily](crate::Repository::config_snapshot_mut()) before the call if required.
+    pub fn commit_raw(
+        &self,
+        message: impl AsRef<str>,
+        tree: impl Into<ObjectId>,
+        parents: impl IntoIterator<Item = impl Into<ObjectId>>,
+    ) -> Result<gix_object::Commit, commit::Error> {
+        let author = self.author().ok_or(commit::Error::AuthorMissing)??;
+        let committer = self.committer().ok_or(commit::Error::CommitterMissing)??;
+        self.commit_as_raw(committer, author, message, tree, parents)
+    }
+
+    /// Create a raw commit object with `message` referring to `tree` with `parents`, using the specified
+    /// `committer` and `author`, without writing it to the object database or updating any references.
+    /// The commit object can later be written using [`Self::write_object()`].
+    ///
+    /// This forces setting the commit time and author time by hand. Note that typically, committer and author are the same.
+    /// The commit is created without message encoding field, which can be assumed to be UTF-8.
+    pub fn commit_as_raw<'a, 'c>(
+        &self,
+        committer: impl Into<gix_actor::SignatureRef<'c>>,
+        author: impl Into<gix_actor::SignatureRef<'a>>,
+        message: impl AsRef<str>,
+        tree: impl Into<ObjectId>,
+        parents: impl IntoIterator<Item = impl Into<ObjectId>>,
+    ) -> Result<gix_object::Commit, commit::Error> {
+        let commit = gix_object::Commit {
+            message: message.as_ref().into(),
+            tree: tree.into(),
+            author: author.into().into(),
+            committer: committer.into().into(),
+            encoding: None,
+            parents: parents.into_iter().map(Into::into).collect(),
+            extra_headers: Default::default(),
+        };
+        Ok(commit)
+    }
+
     /// Return an empty tree object, suitable for [getting changes](Tree::changes()).
     ///
     /// Note that the returned object is special and doesn't necessarily physically exist in the object database.
