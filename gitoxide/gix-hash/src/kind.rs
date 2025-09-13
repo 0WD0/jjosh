@@ -113,4 +113,16 @@ impl Kind {
             Kind::Sha1 => ObjectId::null_sha1(),
         }
     }
+
+    /// Create an owned empty-blob id of our hash kind.
+    #[inline]
+    pub const fn empty_blob(&self) -> ObjectId {
+        ObjectId::empty_blob(*self)
+    }
+
+    /// Create an owned empty-tree id of our hash kind.
+    #[inline]
+    pub const fn empty_tree(&self) -> ObjectId {
+        ObjectId::empty_tree(*self)
+    }
 }
