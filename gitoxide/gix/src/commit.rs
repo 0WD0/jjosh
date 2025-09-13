@@ -6,7 +6,7 @@ use std::convert::Infallible;
 /// An empty array of a type usable with the `gix::easy` API to help declaring no parents should be used
 pub const NO_PARENT_IDS: [gix_hash::ObjectId; 0] = [];
 
-/// The error returned by [`commit(…)`][crate::Repository::commit()].
+/// The error returned by [`commit(…)`](crate::Repository::commit()).
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {

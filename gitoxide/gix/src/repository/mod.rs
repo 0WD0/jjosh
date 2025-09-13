@@ -64,6 +64,36 @@ mod thread_safe;
 mod worktree;
 
 ///
+mod new_commit {
+    /// The error returned by [`new_commit(…)`](crate::Repository::new_commit()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        ParseTime(#[from] crate::config::time::Error),
+        #[error("Committer identity is not configured")]
+        CommitterMissing,
+        #[error("Author identity is not configured")]
+        AuthorMissing,
+        #[error(transparent)]
+        NewCommitAs(#[from] crate::repository::new_commit_as::Error),
+    }
+}
+
+///
+mod new_commit_as {
+    /// The error returned by [`new_commit_as(…)`](crate::Repository::new_commit_as()).
+    #[derive(Debug, thiserror::Error)]
+    #[allow(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        WriteObject(#[from] crate::object::write::Error),
+        #[error(transparent)]
+        FindCommit(#[from] crate::object::find::existing::Error),
+    }
+}
+
+///
 #[cfg(feature = "blame")]
 pub mod blame_file {
     /// The error returned by [Repository::blame_file()](crate::Repository::blame_file()).

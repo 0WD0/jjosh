@@ -1,8 +1,9 @@
+use gix_date::parse::TimeBuf;
 use gix_odb::Header;
 use gix_pack::Find;
 use gix_testtools::tempfile;
 
-use crate::util::named_subrepo_opts;
+use crate::util::{hex_to_id, named_subrepo_opts};
 
 mod object_database_impl {
     use gix_object::{Exists, Find, FindHeader};
@@ -784,6 +785,68 @@ mod commit {
         );
         Ok(())
     }
+}
+
+#[test]
+fn new_commit_as() -> crate::Result {
+    let repo = empty_bare_in_memory_repo()?;
+    let empty_tree = repo.empty_tree();
+    let committer = gix::actor::Signature {
+        name: "c".into(),
+        email: "c@example.com".into(),
+        time: gix_date::parse_header("1 +0030").unwrap(),
+    };
+    let author = gix::actor::Signature {
+        name: "a".into(),
+        email: "a@example.com".into(),
+        time: gix_date::parse_header("3 +0100").unwrap(),
+    };
+
+    let commit = repo.new_commit_as(
+        committer.to_ref(&mut TimeBuf::default()),
+        author.to_ref(&mut TimeBuf::default()),
+        "message",
+        empty_tree.id,
+        gix::commit::NO_PARENT_IDS,
+    )?;
+
+    assert_eq!(
+        commit.id,
+        hex_to_id("b51277f2b2ea77676dd6fa877b5eb5ba2f7094d9"),
+        "The commit-id is stable as the author/committer is controlled"
+    );
+
+    let commit = commit.decode()?;
+
+    let mut buf = TimeBuf::default();
+    assert_eq!(commit.committer, committer.to_ref(&mut buf));
+    assert_eq!(commit.author, author.to_ref(&mut buf));
+    assert_eq!(commit.message, "message");
+    assert_eq!(commit.tree(), empty_tree.id);
+    assert_eq!(commit.parents.len(), 0);
+
+    assert!(repo.head()?.is_unborn(), "The head-ref wasn't touched");
+    Ok(())
+}
+
+#[test]
+fn new_commit() -> crate::Result {
+    let mut repo = empty_bare_in_memory_repo()?;
+    let mut config = repo.config_snapshot_mut();
+    config.set_value(&gix::config::tree::User::NAME, "user")?;
+    config.set_value(&gix::config::tree::User::EMAIL, "user@example.com")?;
+    config.commit()?;
+
+    let empty_tree_id = repo.object_hash().empty_tree();
+    let commit = repo.new_commit("initial", empty_tree_id, gix::commit::NO_PARENT_IDS)?;
+    let commit = commit.decode()?;
+
+    assert_eq!(commit.message, "initial");
+    assert_eq!(commit.tree(), empty_tree_id);
+    assert_eq!(commit.parents.len(), 0);
+
+    assert!(repo.head()?.is_unborn(), "The head-ref wasn't touched");
+    Ok(())
 }
 
 fn empty_bare_in_memory_repo() -> crate::Result<gix::Repository> {
