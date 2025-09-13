@@ -1,3 +1,5 @@
+use gix_hash::{Kind, ObjectId};
+
 mod from_hex_len {
     use gix_hash::Kind;
 
@@ -15,18 +17,14 @@ mod from_hex_len {
     }
 }
 
-mod empty_objects {
-    use gix_hash::{Kind, ObjectId};
+#[test]
+fn empty_blob() {
+    let sha1 = Kind::Sha1;
+    assert_eq!(sha1.empty_blob(), ObjectId::empty_blob(sha1));
+}
 
-    #[test]
-    fn empty_blob() {
-        let kind = Kind::Sha1;
-        assert_eq!(kind.empty_blob(), ObjectId::empty_blob(kind));
-    }
-
-    #[test]
-    fn empty_tree() {
-        let kind = Kind::Sha1;
-        assert_eq!(kind.empty_tree(), ObjectId::empty_tree(kind));
-    }
+#[test]
+fn empty_tree() {
+    let sha1 = Kind::Sha1;
+    assert_eq!(sha1.empty_tree(), ObjectId::empty_tree(sha1));
 }
