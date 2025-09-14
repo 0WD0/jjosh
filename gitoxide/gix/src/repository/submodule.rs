@@ -55,7 +55,7 @@ impl Repository {
                     Some(id) => id,
                     None => match self
                         .head()?
-                        .try_peel_to_id_in_place()?
+                        .try_peel_to_id()?
                         .map(|id| -> Result<Option<_>, submodule::modules::Error> {
                             Ok(id
                                 .object()?
