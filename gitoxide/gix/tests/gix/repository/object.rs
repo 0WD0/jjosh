@@ -432,6 +432,7 @@ mod find {
     use gix_pack::Find;
 
     use crate::basic_repo;
+    use crate::repository::object::empty_bare_in_memory_repo;
 
     #[test]
     fn find_and_try_find_with_and_without_object_cache() -> crate::Result {
@@ -515,9 +516,12 @@ mod find {
     fn empty_blob_can_be_found_if_it_exists() -> crate::Result {
         let repo = basic_repo()?;
         let empty_blob = gix::hash::ObjectId::empty_blob(repo.object_hash());
-        
-        // The basic_repo fixture contains an empty blob, so these should work
-        assert_eq!(repo.find_object(empty_blob)?.into_blob().data.len(), 0);
+
+        assert_eq!(
+            repo.find_object(empty_blob)?.into_blob().data.len(),
+            0,
+            "The basic_repo fixture contains an empty blob"
+        );
         assert!(repo.has_object(empty_blob));
         assert_eq!(
             repo.find_header(empty_blob)?,
@@ -547,14 +551,17 @@ mod find {
     }
 
     #[test]
-    fn empty_blob_method_creates_correct_object() -> crate::Result {
-        let repo = basic_repo()?;
+    fn empty_blob() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
         let empty_blob = repo.empty_blob();
-        
-        // The empty_blob method should create an object with the right ID and empty data
-        assert_eq!(empty_blob.id, gix::hash::ObjectId::empty_blob(repo.object_hash()));
+
+        assert_eq!(empty_blob.id, repo.object_hash().empty_blob());
         assert_eq!(empty_blob.data.len(), 0);
-        
+
+        assert!(!repo.has_object(empty_blob.id), "it doesn't exist by default");
+        repo.write_blob(&empty_blob.data)?;
+        assert!(repo.has_object(empty_blob.id), "it exists after it was written");
+
         Ok(())
     }
 }
@@ -562,7 +569,7 @@ mod find {
 #[test]
 fn empty_objects_are_always_present_but_not_in_plumbing() -> crate::Result {
     let repo = empty_bare_in_memory_repo()?;
-    let empty_blob_id = gix::hash::ObjectId::empty_blob(repo.object_hash());
+    let empty_blob_id = repo.object_hash().empty_blob();
 
     assert!(
         !repo.has_object(empty_blob_id),
@@ -570,17 +577,18 @@ fn empty_objects_are_always_present_but_not_in_plumbing() -> crate::Result {
     );
     assert!(!repo.objects.contains(&empty_blob_id));
 
-    // Empty blob should cause errors when it doesn't exist
-    assert!(repo.find_header(empty_blob_id).is_err());
+    assert!(
+        repo.find_header(empty_blob_id).is_err(),
+        "Empty blob doesn't exist automatically just like in Git"
+    );
     assert_eq!(repo.objects.try_header(&empty_blob_id)?, None);
 
     assert_eq!(repo.try_find_header(empty_blob_id)?, None);
     assert!(repo.find_object(empty_blob_id).is_err());
 
+    assert!(repo.try_find_object(empty_blob_id)?.is_none());
     let mut buf = Vec::new();
     assert_eq!(repo.objects.try_find(&empty_blob_id, &mut buf)?, None);
-
-    assert!(repo.try_find_object(empty_blob_id)?.is_none());
 
     Ok(())
 }

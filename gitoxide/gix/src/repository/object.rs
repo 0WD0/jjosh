@@ -438,7 +438,7 @@ impl crate::Repository {
     /// This means that this object can be used in an uninitialized, empty repository which would report to have no objects at all.
     pub fn empty_blob(&self) -> Blob<'_> {
         Blob {
-            id: gix_hash::ObjectId::empty_blob(self.object_hash()),
+            id: self.object_hash().empty_blob(),
             data: Vec::new(),
             repo: self,
         }
