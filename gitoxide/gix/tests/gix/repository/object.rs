@@ -432,6 +432,7 @@ mod find {
     use gix_pack::Find;
 
     use crate::basic_repo;
+    use crate::repository::object::empty_bare_in_memory_repo;
 
     #[test]
     fn find_and_try_find_with_and_without_object_cache() -> crate::Result {
@@ -512,10 +513,15 @@ mod find {
     }
 
     #[test]
-    fn empty_blob_can_always_be_found() -> crate::Result {
+    fn empty_blob_can_be_found_if_it_exists() -> crate::Result {
         let repo = basic_repo()?;
         let empty_blob = gix::hash::ObjectId::empty_blob(repo.object_hash());
-        assert_eq!(repo.find_object(empty_blob)?.into_blob().data.len(), 0);
+
+        assert_eq!(
+            repo.find_object(empty_blob)?.into_blob().data.len(),
+            0,
+            "The basic_repo fixture contains an empty blob"
+        );
         assert!(repo.has_object(empty_blob));
         assert_eq!(
             repo.find_header(empty_blob)?,
@@ -523,7 +529,7 @@ mod find {
                 kind: gix_object::Kind::Blob,
                 size: 0,
             },
-            "empty blob is considered a loose object"
+            "empty blob is found when it exists in the repository"
         );
         assert_eq!(
             repo.try_find_object(empty_blob)?
@@ -539,8 +545,23 @@ mod find {
                 kind: gix_object::Kind::Blob,
                 size: 0,
             }),
-            "empty blob is considered a loose object"
+            "empty blob is found when it exists in the repository"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_blob() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let empty_blob = repo.empty_blob();
+
+        assert_eq!(empty_blob.id, repo.object_hash().empty_blob());
+        assert_eq!(empty_blob.data.len(), 0);
+
+        assert!(!repo.has_object(empty_blob.id), "it doesn't exist by default");
+        repo.write_blob(&empty_blob.data)?;
+        assert!(repo.has_object(empty_blob.id), "it exists after it was written");
+
         Ok(())
     }
 }
@@ -548,36 +569,26 @@ mod find {
 #[test]
 fn empty_objects_are_always_present_but_not_in_plumbing() -> crate::Result {
     let repo = empty_bare_in_memory_repo()?;
-    let empty_blob_id = gix::hash::ObjectId::empty_blob(repo.object_hash());
+    let empty_blob_id = repo.object_hash().empty_blob();
 
     assert!(
-        repo.has_object(empty_blob_id),
-        "empty object is always present even if it's not"
+        !repo.has_object(empty_blob_id),
+        "empty blob is not present unless it actually exists"
     );
     assert!(!repo.objects.contains(&empty_blob_id));
 
-    let header = repo.find_header(empty_blob_id)?;
-    assert_eq!(header.kind(), gix_object::Kind::Blob);
-    assert_eq!(header.size(), 0);
+    assert!(
+        repo.find_header(empty_blob_id).is_err(),
+        "Empty blob doesn't exist automatically just like in Git"
+    );
     assert_eq!(repo.objects.try_header(&empty_blob_id)?, None);
 
-    let header = repo.try_find_header(empty_blob_id)?.expect("should find header");
-    assert_eq!(header.kind(), gix_object::Kind::Blob);
-    assert_eq!(header.size(), 0);
+    assert_eq!(repo.try_find_header(empty_blob_id)?, None);
+    assert!(repo.find_object(empty_blob_id).is_err());
 
-    let obj = repo.find_object(empty_blob_id)?;
-    assert_eq!(obj.kind, gix_object::Kind::Blob);
-    assert_eq!(obj.data.len(), 0);
-
+    assert!(repo.try_find_object(empty_blob_id)?.is_none());
     let mut buf = Vec::new();
     assert_eq!(repo.objects.try_find(&empty_blob_id, &mut buf)?, None);
-
-    let obj = repo.try_find_object(empty_blob_id)?.expect("should find object");
-    assert_eq!(obj.kind, gix_object::Kind::Blob);
-    assert_eq!(obj.data.len(), 0);
-
-    let blob = obj.try_into_blob()?;
-    assert_eq!(blob.data.len(), 0);
 
     Ok(())
 }
