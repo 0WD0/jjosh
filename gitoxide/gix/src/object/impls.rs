@@ -150,6 +150,23 @@ impl std::fmt::Debug for Object<'_> {
     }
 }
 
+/// Note that the `data` written here might not correspond to the `id` of the `Blob` anymore if it was modified.
+/// Also, this is merely for convenience when writing empty blobs to the ODB. For writing any blob, use
+/// [`Repository::write_blob()`](crate::Repository::write_blob()).
+impl gix_object::WriteTo for Blob<'_> {
+    fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        out.write_all(&self.data)
+    }
+
+    fn kind(&self) -> gix_object::Kind {
+        gix_object::Kind::Blob
+    }
+
+    fn size(&self) -> u64 {
+        self.data.len() as u64
+    }
+}
+
 /// In conjunction with the handles free list, leaving an empty Vec in place of the original causes it to not be
 /// returned to the free list.
 fn steal_from_freelist(data: &mut Vec<u8>) -> Vec<u8> {

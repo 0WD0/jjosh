@@ -262,7 +262,7 @@ mod write_object {
         let oid = repo.write_object(gix::objs::TreeRef::empty())?;
         assert_eq!(
             oid,
-            gix::hash::ObjectId::empty_tree(repo.object_hash()),
+            repo.object_hash().empty_tree(),
             "it produces a well-known empty tree id"
         );
         Ok(())
@@ -277,7 +277,7 @@ mod write_object {
             time: Default::default(),
         };
         let commit = gix::objs::Commit {
-            tree: gix::hash::ObjectId::empty_tree(repo.object_hash()),
+            tree: repo.object_hash().empty_tree(),
             author: actor.clone(),
             committer: actor,
             parents: Default::default(),
@@ -290,6 +290,21 @@ mod write_object {
             r"Signature name or email must not contain '<', '>' or \n",
             "the actor is invalid so triggers an error when persisting it"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_to_implementation() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let blob = repo.empty_blob();
+
+        // Create a blob directly to test our WriteTo implementation
+        let actual_id = repo.write_object(&blob)?;
+        let actual_blob = repo.find_object(actual_id)?.into_blob();
+        assert_eq!(actual_id, repo.object_hash().empty_blob());
+
+        assert_eq!(actual_blob.data, blob.data);
+
         Ok(())
     }
 }
