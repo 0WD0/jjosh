@@ -292,6 +292,80 @@ mod write_object {
         );
         Ok(())
     }
+
+    #[test]
+    fn blob_write_to_implementation() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let test_data = b"hello world";
+        
+        // Create a blob directly to test our WriteTo implementation
+        let blob_id = repo.write_blob(test_data)?;
+        let blob = repo.find_object(blob_id)?.into_blob();
+        
+        // Test that we can use the blob with write_object (which requires WriteTo)
+        let written_id = repo.write_object(blob)?;
+        
+        // The written blob should have the same ID as the original
+        assert_eq!(blob_id, written_id, "WriteTo implementation should produce identical blob");
+        
+        // Verify the content is correct
+        let retrieved_blob = repo.find_object(written_id)?.into_blob();
+        assert_eq!(retrieved_blob.data, test_data, "Blob data should be preserved");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_to_properties() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let test_data = b"test data for WriteTo properties";
+        
+        // Create a blob to test WriteTo trait methods
+        let blob_id = repo.write_blob(test_data)?;
+        let blob = repo.find_object(blob_id)?.into_blob();
+        
+        // Test WriteTo trait methods directly
+        use gix_object::WriteTo;
+        
+        // Test kind() method
+        assert_eq!(blob.kind(), gix_object::Kind::Blob, "kind() should return Blob");
+        
+        // Test size() method
+        assert_eq!(blob.size(), test_data.len() as u64, "size() should return data length");
+        
+        // Test write_to() method
+        let mut buffer = Vec::new();
+        blob.write_to(&mut buffer)?;
+        assert_eq!(buffer, test_data, "write_to() should write blob data verbatim");
+        
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_to_empty_blob() -> crate::Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let empty_data = b"";
+        
+        // Create an empty blob to test edge case
+        let blob_id = repo.write_blob(empty_data)?;
+        let blob = repo.find_object(blob_id)?.into_blob();
+        
+        // Test WriteTo trait methods with empty blob
+        use gix_object::WriteTo;
+        
+        assert_eq!(blob.kind(), gix_object::Kind::Blob, "kind() should return Blob for empty blob");
+        assert_eq!(blob.size(), 0, "size() should return 0 for empty blob");
+        
+        let mut buffer = Vec::new();
+        blob.write_to(&mut buffer)?;
+        assert_eq!(buffer, empty_data, "write_to() should write empty data for empty blob");
+        
+        // Test that we can write the empty blob using write_object
+        let written_id = repo.write_object(blob)?;
+        assert_eq!(blob_id, written_id, "WriteTo implementation should work for empty blobs");
+        
+        Ok(())
+    }
 }
 
 mod write_blob {

@@ -150,6 +150,20 @@ impl std::fmt::Debug for Object<'_> {
     }
 }
 
+impl<'repo> gix_object::WriteTo for Blob<'repo> {
+    fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        out.write_all(&self.data)
+    }
+
+    fn kind(&self) -> gix_object::Kind {
+        gix_object::Kind::Blob
+    }
+
+    fn size(&self) -> u64 {
+        self.data.len() as u64
+    }
+}
+
 /// In conjunction with the handles free list, leaving an empty Vec in place of the original causes it to not be
 /// returned to the free list.
 fn steal_from_freelist(data: &mut Vec<u8>) -> Vec<u8> {
