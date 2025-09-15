@@ -150,7 +150,10 @@ impl std::fmt::Debug for Object<'_> {
     }
 }
 
-impl<'repo> gix_object::WriteTo for Blob<'repo> {
+/// Note that the `data` written here might not correspond to the `id` of the `Blob` anymore if it was modified.
+/// Also, this is merely for convenience when writing empty blobs to the ODB. For writing any blob, use
+/// [`Repository::write_blob()`](crate::Repository::write_blob()).
+impl gix_object::WriteTo for Blob<'_> {
     fn write_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
         out.write_all(&self.data)
     }
