@@ -349,7 +349,7 @@ impl Cache {
             if let Ok(mut head) = repo.head() {
                 let ctx = filters.driver_context_mut();
                 ctx.ref_name = head.referent_name().map(|name| name.as_bstr().to_owned());
-                ctx.treeish = head.peel_to_commit_in_place().ok().map(|commit| commit.id);
+                ctx.treeish = head.peel_to_commit().ok().map(|commit| commit.id);
             }
             filters
         };

@@ -12,7 +12,7 @@ pub fn log(mut repo: gix::Repository, out: &mut dyn std::io::Write, path: Option
 }
 
 fn log_all(repo: gix::Repository, out: &mut dyn std::io::Write) -> Result<(), anyhow::Error> {
-    let head = repo.head()?.peel_to_commit_in_place()?;
+    let head = repo.head()?.peel_to_commit()?;
     let topo = gix::traverse::commit::topo::Builder::from_iters(&repo.objects, [head.id], None::<Vec<gix::ObjectId>>)
         .build()?;
 
