@@ -81,8 +81,8 @@ impl<'repo> Reference<'repo> {
     /// This is useful to learn where this reference is ultimately pointing to after following
     /// the chain of symbolic refs and annotated tags.
     ///
-    /// Note that this method mutates `self` in place if it does not already point to non-symbolic
-    /// object.
+    /// Note that this method mutates `self` in place if it does not already point to a
+    /// non-symbolic object.
     pub fn peel_to_id(&mut self) -> Result<Id<'repo>, peel::Error> {
         let oid = self.inner.peel_to_id(&self.repo.refs, &self.repo.objects)?;
         Ok(Id::from_id(oid, self.repo))
@@ -93,10 +93,26 @@ impl<'repo> Reference<'repo> {
     ///
     /// This is useful to learn where this reference is ultimately pointing to after following
     /// the chain of symbolic refs and annotated tags.
+    #[deprecated = "Use `peel_to_id_packed()` instead"]
     pub fn peel_to_id_in_place_packed(
         &mut self,
         packed: Option<&gix_ref::packed::Buffer>,
     ) -> Result<Id<'repo>, peel::Error> {
+        let oid = self
+            .inner
+            .peel_to_id_packed(&self.repo.refs, &self.repo.objects, packed)?;
+        Ok(Id::from_id(oid, self.repo))
+    }
+
+    /// Follow all symbolic targets this reference might point to and peel all annotated tags
+    /// to their first non-tag target, and return it, reusing the `packed` buffer if available.
+    ///
+    /// This is useful to learn where this reference is ultimately pointing to after following
+    /// the chain of symbolic refs and annotated tags.
+    ///
+    /// Note that this method mutates `self` in place if it does not already point to a
+    /// non-symbolic object.
+    pub fn peel_to_id_packed(&mut self, packed: Option<&gix_ref::packed::Buffer>) -> Result<Id<'repo>, peel::Error> {
         let oid = self
             .inner
             .peel_to_id_packed(&self.repo.refs, &self.repo.objects, packed)?;
@@ -112,7 +128,7 @@ impl<'repo> Reference<'repo> {
     /// its type matches the given `kind`. It's an error to try to peel to a kind that this ref doesn't point to.
     ///
     /// Note that this ref will point to the first target object afterward, which may be a tag. This is different
-    /// from [`peel_to_id_in_place()`](Self::peel_to_id_in_place()) where it will point to the first non-tag object.
+    /// from [`peel_to_id()`](Self::peel_to_id()) where it will point to the first non-tag object.
     ///
     /// Note that `git2::Reference::peel` does not "peel in place", but returns a new object
     /// instead.

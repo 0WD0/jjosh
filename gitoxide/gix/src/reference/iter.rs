@@ -90,7 +90,7 @@ impl<'repo> Platform<'repo> {
 impl Iter<'_, '_> {
     /// Automatically peel references before yielding them during iteration.
     ///
-    /// This has the same effect as using `iter.map(|r| {r.peel_to_id_in_place(); r})`.
+    /// This has the same effect as using `iter.map(|r| {r.peel_to_id(); r})`.
     ///
     /// # Note
     ///
