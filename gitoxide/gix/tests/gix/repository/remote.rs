@@ -13,7 +13,7 @@ mod remote_at {
         assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), fetch_url);
         assert_eq!(remote.url(Direction::Push).unwrap().to_bstring(), fetch_url);
 
-        let mut remote = remote.push_url("user@host.xz:./relative")?;
+        let mut remote = remote.with_push_url("user@host.xz:./relative")?;
         assert_eq!(
             remote.url(Direction::Push).unwrap().to_bstring(),
             "user@host.xz:./relative"
@@ -75,7 +75,7 @@ mod remote_at {
 
         let remote = repo
             .remote_at("https://github.com/foobar/gitoxide".to_owned())?
-            .push_url("file://dev/null".to_owned())?;
+            .with_push_url("file://dev/null".to_owned())?;
         assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), rewritten_fetch_url);
         assert_eq!(
             remote.url(Direction::Push).unwrap().to_bstring(),
@@ -117,7 +117,7 @@ mod remote_at {
 
         let remote = repo
             .remote_at_without_url_rewrite("https://github.com/foobar/gitoxide".to_owned())?
-            .push_url_without_url_rewrite("file://dev/null".to_owned())?;
+            .with_push_url_without_url_rewrite("file://dev/null".to_owned())?;
         assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), fetch_url);
         assert_eq!(
             remote.url(Direction::Push).unwrap().to_bstring(),
@@ -127,7 +127,7 @@ mod remote_at {
 
         let remote = remote
             .with_url_without_url_rewrite("https://github.com/foobaz/gitoxide".to_owned())?
-            .push_url_without_url_rewrite("file://dev/null".to_owned())?;
+            .with_push_url_without_url_rewrite("file://dev/null".to_owned())?;
         assert_eq!(
             remote.url(Direction::Fetch).unwrap().to_bstring(),
             "https://github.com/foobaz/gitoxide"

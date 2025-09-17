@@ -2,7 +2,9 @@ use crate::{bstr::BStr, remote, Remote};
 
 /// Builder methods
 impl Remote<'_> {
-    /// Set the `url` to be used when fetching data from a remote.
+    /// Override the `url` to be used when fetching data from a remote.
+    ///
+    /// Note that this URL is typically set during instantiation with [`crate::Repository::remote_at()`].
     pub fn with_url<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
     where
         Url: TryInto<gix_url::Url, Error = E>,
@@ -16,6 +18,8 @@ impl Remote<'_> {
 
     /// Set the `url` to be used when fetching data from a remote, without applying rewrite rules in case these could be faulty,
     /// eliminating one failure mode.
+    ///
+    /// Note that this URL is typically set during instantiation with [`crate::Repository::remote_at_without_url_rewrite()`].
     pub fn with_url_without_url_rewrite<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
     where
         Url: TryInto<gix_url::Url, Error = E>,
@@ -28,7 +32,17 @@ impl Remote<'_> {
     }
 
     /// Set the `url` to be used when pushing data to a remote.
+    #[deprecated = "Use `with_push_url()` instead"]
     pub fn push_url<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
+    where
+        Url: TryInto<gix_url::Url, Error = E>,
+        gix_url::parse::Error: From<E>,
+    {
+        self.with_push_url(url)
+    }
+
+    /// Set the `url` to be used when pushing data to a remote.
+    pub fn with_push_url<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
     where
         Url: TryInto<gix_url::Url, Error = E>,
         gix_url::parse::Error: From<E>,
@@ -41,7 +55,18 @@ impl Remote<'_> {
 
     /// Set the `url` to be used when pushing data to a remote, without applying rewrite rules in case these could be faulty,
     /// eliminating one failure mode.
+    #[deprecated = "Use `with_push_url_without_rewrite()` instead"]
     pub fn push_url_without_url_rewrite<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
+    where
+        Url: TryInto<gix_url::Url, Error = E>,
+        gix_url::parse::Error: From<E>,
+    {
+        self.with_push_url_without_url_rewrite(url)
+    }
+
+    /// Set the `url` to be used when pushing data to a remote, without applying rewrite rules in case these could be faulty,
+    /// eliminating one failure mode.
+    pub fn with_push_url_without_url_rewrite<Url, E>(self, url: Url) -> Result<Self, remote::init::Error>
     where
         Url: TryInto<gix_url::Url, Error = E>,
         gix_url::parse::Error: From<E>,
