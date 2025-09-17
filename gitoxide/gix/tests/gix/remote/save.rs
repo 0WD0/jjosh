@@ -63,7 +63,7 @@ mod save_as_to {
         let repo = basic_repo()?;
         let mut remote = repo
             .remote_at("https://example.com/path")?
-            .push_url("https://ein.hub/path")?
+            .with_push_url("https://ein.hub/path")?
             .with_fetch_tags(gix::remote::fetch::Tags::All)
             .with_refspecs(
                 [
