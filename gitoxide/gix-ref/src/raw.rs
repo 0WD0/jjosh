@@ -12,7 +12,7 @@ pub struct Reference {
     pub target: Target,
     /// The fully peeled object to which this reference ultimately points to after following all symbolic refs and all annotated
     /// tags. Only guaranteed to be set after
-    /// [`Reference::peel_to_id_in_place()`](crate::file::ReferenceExt) was called or if this reference originated
+    /// [`Reference::peel_to_id()`](crate::file::ReferenceExt::peel_to_id) was called or if this reference originated
     /// from a packed ref.
     pub peeled: Option<ObjectId>,
 }

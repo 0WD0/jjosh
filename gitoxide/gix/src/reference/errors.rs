@@ -22,8 +22,8 @@ pub mod edit {
 
 ///
 pub mod peel {
-    /// The error returned by [`Reference::peel_to_id_in_place(…)`](crate::Reference::peel_to_id_in_place()) and
-    /// [`Reference::into_fully_peeled_id(…)`](crate::Reference::into_fully_peeled_id()).
+    /// The error returned by [`Reference::peel_to_id()`](crate::Reference::peel_to_id()) and
+    /// [`Reference::into_fully_peeled_id()`](crate::Reference::into_fully_peeled_id()).
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {

@@ -58,8 +58,8 @@ pub trait ReferenceExt: Sealed {
         packed: Option<&packed::Buffer>,
     ) -> Result<ObjectId, peel::to_id::Error>;
 
-    /// Like [`ReferenceExt::peel_to_id_in_place()`], but with support for a known stable `packed` buffer
-    /// to use for resolving symbolic links.
+    /// Like [`ReferenceExt::peel_to_id()`], but with support for a known stable `packed` buffer to
+    /// use for resolving symbolic links.
     fn peel_to_id_packed(
         &mut self,
         store: &file::Store,

@@ -2,7 +2,7 @@
 pub mod to_id {
     use gix_object::bstr::BString;
 
-    /// The error returned by [`crate::file::ReferenceExt::peel_to_id_in_place()`].
+    /// The error returned by [`crate::file::ReferenceExt::peel_to_id()`].
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
@@ -21,7 +21,7 @@ pub mod to_object {
 
     use crate::file;
 
-    /// The error returned by [`file::ReferenceExt::follow_to_object_in_place_packed()`].
+    /// The error returned by [`file::ReferenceExt::follow_to_object_packed()`].
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
