@@ -422,7 +422,7 @@ mod blame_ranges {
             source_file_name.as_ref(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                ranges: BlameRanges::from_range(1..=2),
+                ranges: BlameRanges::from_one_based_inclusive_range(1..=2).unwrap(),
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
                 debug_track_path: false,
@@ -448,10 +448,12 @@ mod blame_ranges {
             suspect,
         } = Fixture::new()?;
 
-        let mut ranges = BlameRanges::new();
-        ranges.add_range(1..=2); // Lines 1-2
-        ranges.add_range(1..=1); // Duplicate range, should be ignored
-        ranges.add_range(4..=4); // Line 4
+        let ranges = BlameRanges::from_one_based_inclusive_ranges(vec![
+            1..=2, // Lines 1-2
+            1..=1, // Duplicate range, should be ignored
+            4..=4, // Line 4
+        ])
+        .unwrap();
 
         let source_file_name: gix_object::bstr::BString = "simple.txt".into();
 
@@ -492,7 +494,7 @@ mod blame_ranges {
             suspect,
         } = Fixture::new()?;
 
-        let ranges = BlameRanges::from_ranges(vec![1..=2, 1..=1, 4..=4]);
+        let ranges = BlameRanges::from_one_based_inclusive_ranges(vec![1..=2, 1..=1, 4..=4]).unwrap();
 
         let source_file_name: gix_object::bstr::BString = "simple.txt".into();
 
