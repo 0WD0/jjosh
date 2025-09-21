@@ -58,7 +58,7 @@ lean = ["fast", "tracing", "pretty-cli", "http-client-curl", "gitoxide-core-tool
 
 ## The smallest possible build, best suitable for small single-core machines.
 ##
-## This build is essentially limited to local operations without any fanciness.
+## This build is essentially limited to local operations without any fanciness. It does not have `gix clone`.
 ##
 ## Optimized for size, no parallelism thus much slower, progress line rendering.
 small = ["pretty-cli", "prodash-render-line", "is-terminal"]
