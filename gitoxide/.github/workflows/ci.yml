@@ -561,6 +561,33 @@ jobs:
           git status
           git diff --exit-code
 
+  # Check that all `actions/checkout` in CI jobs have `persist-credentials: false`.
+  check-no-persist-credentials:
+    runs-on: ubuntu-latest
+
+    env:
+      GLOB: .github/workflows/*.@(yaml|yml)
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: '.github/workflows'
+      - name: List workflows to be scanned
+        run: |
+          shopt -s extglob
+          printf '%s\n' ${{ env.GLOB }}
+      - name: Scan workflows
+        run: |
+          shopt -s extglob
+          yq '.jobs.*.steps[]
+            | select(.uses == "actions/checkout@*" and .with.["persist-credentials"]? != false)
+            | {"file": filename, "line": line, "name": (.name // .uses)}
+            | .file + ":" + (.line | tostring) + ": " + .name
+          ' -- ${{ env.GLOB }} >query-output.txt
+          cat query-output.txt
+          test -z "$(<query-output.txt)"  # Report failure if we found anything.
+
   # Check that only jobs intended not to block PR auto-merge are omitted as
   # dependencies of the `tests-pass` job below, so that whenever a job is
   # added, a decision is made about whether it must pass for PRs to merge.
@@ -615,6 +642,7 @@ jobs:
       - lint
       - cargo-deny
       - check-packetline
+      - check-no-persist-credentials
       - check-blocking
 
     if: always()  # Always run even if dependencies fail.
