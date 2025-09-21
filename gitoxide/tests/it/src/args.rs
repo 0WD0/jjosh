@@ -16,19 +16,16 @@ pub struct Args {
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommands {
     /// Generate a shell script that creates a git repository containing all commits that are
-    /// traversed when a blame is generated.
+    /// traversed when following a given file through the Git history just as `git blame` would.
     ///
     /// This command extracts the file’s history so that blame, when run on the repository created
     /// by the script, shows the same characteristics, in particular bugs, as the original, but in
-    /// a way that the original source file's content cannot be reconstructed.
+    /// a way that does not resemble the original source file's content to any greater extent than
+    /// is useful and necessary.
     ///
-    /// The idea is that by obfuscating the file's content we make it easier for people to share
-    /// the subset of data that's required for debugging purposes from repositories that are not
-    /// public.
-    ///
-    /// Note that the obfuscation leaves certain properties of the source intact, so they can still
-    /// be inferred from the extracted history. Among these properties are directory structure
-    /// (though not the directories' names), renames, number of lines, and whitespace.
+    /// Note that this should not be used to redact sensitive information. The obfuscation leaves
+    /// numerous properties of the source intact, such that it may be feasible to reconstruct the
+    /// input.
     ///
     /// This command can also be helpful in debugging the blame algorithm itself.
     ///
@@ -59,15 +56,27 @@ pub enum Subcommands {
         file: std::ffi::OsString,
         /// Do not use `copy-royal` to obfuscate the content of blobs, but copy it verbatim.
         ///
-        /// Note that this should only be done if the source history does not contain information
-        /// you're not willing to share.
+        /// Note that, for producing cases for the gitoxide test suite, we usually prefer only to
+        /// take blobs verbatim if the source repository was purely for testing.
         #[clap(long)]
         verbatim: bool,
     },
-    /// Copy a tree so that it diffs the same but can't be traced back uniquely to its source.
+    /// Copy a tree so that it diffs the same but does not resemble the original files' content to
+    /// any greater extent than is useful and necessary.
     ///
-    /// The idea is that we don't want to deal with licensing, it's more about patterns in order to
-    /// reproduce cases for tests.
+    /// The idea is that this preserves the patterns that are usually sufficient to reproduce cases
+    /// for tests of diffs, both for making the tests work and for keeping the diffs understandable
+    /// to developers working on the tests, while avoiding keeping large verbatim fragments of code
+    /// based on which the test cases were created. The benefits of "reducing" the code to these
+    /// patterns include that the original meaning and function of code will not be confused with
+    /// the code of gitoxide itself, will not distract from the effects observed in their diffs,
+    /// and will not inadvertently be caught up in code cleanup efforts (e.g. attempting to adjust
+    /// style or fix bugs) that would make sense in code of gitoxide itself but that would subtly
+    /// break data test fixtures if done on their data.
+    ///
+    /// Note that this should not be used to redact sensitive information. The obfuscation leaves
+    /// numerous properties of the source intact, such that it may be feasible to reconstruct the
+    /// input.
     #[clap(visible_alias = "cr")]
     CopyRoyal {
         /// Don't really copy anything.
@@ -93,8 +102,8 @@ pub enum Subcommands {
         count: usize,
         /// Do not use `copy-royal` to degenerate information of blobs, but take blobs verbatim.
         ///
-        /// Note that this should only be done if the source repository is purely for testing
-        /// or was created by yourself.
+        /// Note that, for producing cases for the gitoxide test suite, we usually prefer only to
+        /// take blobs verbatim if the source repository was purely for testing.
         #[clap(long)]
         verbatim: bool,
         /// The directory into which the blobs and tree declarations will be written.
