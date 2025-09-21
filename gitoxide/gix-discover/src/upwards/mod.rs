@@ -168,7 +168,7 @@ pub(crate) mod function {
                     }
                 }
             }
-            if cursor.parent().is_some_and(|p| p.as_os_str().is_empty()) {
+            if cursor.as_os_str().is_empty() || cursor.as_os_str() == OsStr::new(".") {
                 cursor = cwd.to_path_buf();
                 dir_made_absolute = true;
             }
