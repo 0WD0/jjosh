@@ -229,7 +229,7 @@ macro_rules! mktest {
                 source_file_name.as_ref(),
                 gix_blame::Options {
                     diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                    range: BlameRanges::default(),
+                    ranges: BlameRanges::default(),
                     since: None,
                     rewrites: Some(gix_diff::Rewrites::default()),
                     debug_track_path: false,
@@ -315,7 +315,7 @@ fn diff_disparity() {
             source_file_name.as_ref(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: BlameRanges::default(),
+                ranges: BlameRanges::default(),
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
                 debug_track_path: false,
@@ -382,7 +382,7 @@ fn since() -> gix_testtools::Result {
         source_file_name.as_ref(),
         gix_blame::Options {
             diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-            range: BlameRanges::default(),
+            ranges: BlameRanges::default(),
             since: Some(gix_date::parse("2025-01-31", None)?),
             rewrites: Some(gix_diff::Rewrites::default()),
             debug_track_path: false,
@@ -422,7 +422,7 @@ mod blame_ranges {
             source_file_name.as_ref(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: BlameRanges::from_range(1..=2),
+                ranges: BlameRanges::from_range(1..=2),
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
                 debug_track_path: false,
@@ -463,7 +463,7 @@ mod blame_ranges {
             source_file_name.as_ref(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: ranges,
+                ranges,
                 since: None,
                 rewrites: None,
                 debug_track_path: false,
@@ -504,7 +504,7 @@ mod blame_ranges {
             source_file_name.as_ref(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: ranges,
+                ranges,
                 since: None,
                 rewrites: None,
                 debug_track_path: false,
@@ -550,7 +550,7 @@ mod rename_tracking {
             source_file_name.into(),
             gix_blame::Options {
                 diff_algorithm: gix_diff::blob::Algorithm::Histogram,
-                range: BlameRanges::default(),
+                ranges: BlameRanges::default(),
                 since: None,
                 rewrites: Some(gix_diff::Rewrites::default()),
                 debug_track_path: false,

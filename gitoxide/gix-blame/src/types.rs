@@ -144,7 +144,7 @@ pub struct Options {
     /// The algorithm to use for diffing.
     pub diff_algorithm: gix_diff::blob::Algorithm,
     /// The ranges to blame in the file.
-    pub range: BlameRanges,
+    pub ranges: BlameRanges,
     /// Don't consider commits before the given date.
     pub since: Option<gix_date::Time>,
     /// Determine if rename tracking should be performed, and how.
