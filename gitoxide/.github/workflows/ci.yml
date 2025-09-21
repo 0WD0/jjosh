@@ -38,6 +38,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: extractions/setup-just@v3
       - name: Read the MSRV
         run: |
@@ -60,6 +62,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: extractions/setup-just@v3
       - name: Ensure we start out clean
         run: git diff --exit-code
@@ -75,6 +79,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Prerequisites
         run: |
           prerequisites=(
@@ -177,6 +183,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Setup dependencies
@@ -197,6 +205,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: extractions/setup-just@v3
@@ -221,6 +231,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo check default features
@@ -268,6 +280,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
@@ -339,6 +353,8 @@ jobs:
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash  # This step needs `bash`, and the default in container jobs is `sh`.
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Install Rust via Rustup
         run: |
           # Specify toolchain to avoid possible misdetection based on the 64-bit running kernel.
@@ -365,6 +381,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.TARGET }}
@@ -382,6 +400,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -412,6 +432,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories
@@ -422,6 +444,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check bans licenses sources
@@ -441,6 +465,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Install Rust
         run: |
           rustup update stable
@@ -520,6 +546,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Check that working tree is initially clean
         run: |
           set -x
@@ -557,6 +585,7 @@ jobs:
           echo "WORKFLOW_PATH=${relative_workflow_with_ref%@*}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           sparse-checkout: ${{ env.WORKFLOW_PATH }}
       - name: Get all jobs
         run: yq '.jobs | keys.[]' -- "$WORKFLOW_PATH" | sort | tee all-jobs.txt
