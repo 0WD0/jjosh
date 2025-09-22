@@ -15,7 +15,7 @@ fn in_cwd_upwards_from_nested_dir() -> gix_testtools::Result {
             repo_path.kind(),
             gix_discover::repository::Kind::WorkTree { linked_git_dir: None },
         );
-        assert_eq!(repo_path.as_ref(), Path::new("."));
+        assert_eq!(repo_path.as_ref(), Path::new("."), "{dir}");
     }
     Ok(())
 }
@@ -76,9 +76,10 @@ fn upwards_with_relative_directories_and_optional_ceiling() -> gix_testtools::Re
         ("./././very/deeply/nested/subdir", ".."),
         ("very/deeply/nested/subdir", ".."),
     ] {
+        let search_dir = Path::new(search_dir);
         let ceiling_dir = cwd.join(ceiling_dir_component);
         let (repo_path, _trust) = gix_discover::upwards_opts(
-            search_dir.as_ref(),
+            search_dir,
             Options {
                 ceiling_dirs: vec![ceiling_dir],
                 ..Default::default()
@@ -87,12 +88,12 @@ fn upwards_with_relative_directories_and_optional_ceiling() -> gix_testtools::Re
         .expect("ceiling dir should allow us to discover the repo");
         assert_repo_is_current_workdir(repo_path, Path::new(".."));
 
-        let (repo_path, _trust) = gix_discover::upwards_opts(search_dir.as_ref(), Default::default())
-            .expect("without ceiling dir we see the same");
+        let (repo_path, _trust) =
+            gix_discover::upwards_opts(search_dir, Default::default()).expect("without ceiling dir we see the same");
         assert_repo_is_current_workdir(repo_path, Path::new(".."));
 
         let (repo_path, _trust) = gix_discover::upwards_opts(
-            search_dir.as_ref(),
+            search_dir,
             Options {
                 ceiling_dirs: vec![PathBuf::from("..")],
                 ..Default::default()
@@ -102,7 +103,7 @@ fn upwards_with_relative_directories_and_optional_ceiling() -> gix_testtools::Re
         assert_repo_is_current_workdir(repo_path, Path::new(".."));
 
         let err = gix_discover::upwards_opts(
-            search_dir.as_ref(),
+            search_dir,
             Options {
                 ceiling_dirs: vec![PathBuf::from(".")],
                 ..Default::default()
@@ -110,9 +111,7 @@ fn upwards_with_relative_directories_and_optional_ceiling() -> gix_testtools::Re
         )
         .unwrap_err();
 
-        if Path::new(search_dir).parent() == Some(Path::new("."))
-            || Path::new(search_dir).parent() == Some(Path::new(""))
-        {
+        if search_dir.parent() == Some(".".as_ref()) || search_dir.parent() == Some("".as_ref()) {
             assert!(matches!(err, gix_discover::upwards::Error::NoMatchingCeilingDir));
         } else {
             assert!(matches!(
