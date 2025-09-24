@@ -15,12 +15,14 @@ pub fn function(repo: gix::Repository, action: gix::credentials::program::main::
         std::io::stdin(),
         std::io::stdout(),
         |action, context| -> Result<_, Error> {
-            let url = context.url.clone().or_else(|| context.to_url()).ok_or_else(|| {
-                Error::Protocol(gix::credentials::protocol::Error::UrlMissing)
-            })?;
-            let (mut cascade, _action, prompt_options) = repo.config_snapshot().credential_helpers(gix::url::parse(
-                url.as_ref(),
-            )?)?;
+            let url = context
+                .url
+                .clone()
+                .or_else(|| context.to_url())
+                .ok_or(Error::Protocol(gix::credentials::protocol::Error::UrlMissing))?;
+            let (mut cascade, _action, prompt_options) = repo
+                .config_snapshot()
+                .credential_helpers(gix::url::parse(url.as_ref())?)?;
             cascade
                 .invoke(
                     match action {

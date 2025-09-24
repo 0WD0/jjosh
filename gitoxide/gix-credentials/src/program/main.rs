@@ -92,14 +92,16 @@ pub(crate) mod function {
         if ctx.url.is_none() && (ctx.protocol.is_none() || ctx.host.is_none()) {
             return Err(Error::UrlMissing);
         }
-        let res = credentials(action, ctx).map_err(|err| Error::Helper { source: Box::new(err) })?;
+        let res = credentials(action, ctx.clone()).map_err(|err| Error::Helper { source: Box::new(err) })?;
         match (action, res) {
             (Action::Get, None) => {
-                let ctx_for_error = Context::from_bytes(&buf)?;
-                let url = ctx_for_error.url.clone()
+                let ctx_for_error = ctx;
+                let url = ctx_for_error
+                    .url
+                    .clone()
                     .or_else(|| ctx_for_error.to_url())
-                    .expect("URL is available either directly or via protocol+host");
-                return Err(Error::CredentialsMissing { url })
+                    .expect("URL is available either directly or via protocol+host which we checked for");
+                return Err(Error::CredentialsMissing { url });
             }
             (Action::Get, Some(ctx)) => ctx.write_to(stdout)?,
             (Action::Erase | Action::Store, None) => {}
