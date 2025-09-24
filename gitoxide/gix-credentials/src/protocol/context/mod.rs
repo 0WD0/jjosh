@@ -92,7 +92,16 @@ mod mutate {
         /// normally this isn't the case.
         #[allow(clippy::result_large_err)]
         pub fn destructure_url_in_place(&mut self, use_http_path: bool) -> Result<&mut Self, protocol::Error> {
-            let url = gix_url::parse(self.url.as_ref().ok_or(protocol::Error::UrlMissing)?.as_ref())?;
+            if self.url.is_none() {
+                // If URL is not present but protocol and host are, construct the URL
+                if let Some(constructed_url) = self.to_url() {
+                    self.url = Some(constructed_url);
+                } else {
+                    return Err(protocol::Error::UrlMissing);
+                }
+            }
+            
+            let url = gix_url::parse(self.url.as_ref().expect("URL is present after check above").as_ref())?;
             self.protocol = Some(url.scheme.as_str().into());
             self.username = url.user().map(ToOwned::to_owned);
             self.password = url.password().map(ToOwned::to_owned);
