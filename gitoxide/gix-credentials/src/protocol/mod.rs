@@ -20,7 +20,7 @@ pub type Result = std::result::Result<Option<Outcome>, Error>;
 pub enum Error {
     #[error(transparent)]
     UrlParse(#[from] gix_url::parse::Error),
-    #[error("The 'url' field must be set when performing a 'get/fill' action")]
+    #[error("Either 'url' field or both 'protocol' and 'host' fields must be provided")]
     UrlMissing,
     #[error(transparent)]
     ContextDecode(#[from] context::decode::Error),
