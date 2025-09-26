@@ -1,8 +1,9 @@
 # Security process documents
 
-To *report* a vulnerablity, see the [**security policy**](https://github.com/GitoxideLabs/gitoxide/security/policy), which can also be read in the top-level [`SECURITY.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/SECURITY.md).
+> [!NOTE]
+> To *report* a vulnerablity, see the [**security policy**](https://github.com/GitoxideLabs/gitoxide/security/policy), which can also be read in the top-level [`SECURITY.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/SECURITY.md).
 
-## Contents
+## Table of Contents
 
 The documents in this directory are things we use when managing vulnerabilities:
 
