@@ -1,13 +1,13 @@
 # Security process documents
 
 > [!NOTE]
-> To *report* a vulnerablity, see the [**security policy**](https://github.com/GitoxideLabs/gitoxide/security/policy), which can also be read in the top-level [`SECURITY.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/SECURITY.md).
+> To *report* a vulnerability, see the [**security policy**](https://github.com/GitoxideLabs/gitoxide/security/policy), which can also be read in the top-level [`SECURITY.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/SECURITY.md).
 
 ## Table of Contents
 
 The documents in this directory are things we use when managing vulnerabilities:
 
-### Incident Repsonse Plan
+### Incident Response Plan
 
 - [*`irp.md`*](irp.md) is our incident response plan.
 

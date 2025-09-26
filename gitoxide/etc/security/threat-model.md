@@ -22,6 +22,7 @@ The security considerations for Gitoxide are similar to those of Git itself, and
 ### 2.1. Data Trust Boundaries
 
 #### 2.1.1. Untrusted Remote Repositories and Servers
+
 Remote repositories and the servers that host them are generally treated as untrusted. We assume they may serve malicious, malformed, or unexpected data.
 
 - **Sanitization:** Gitoxide must sanitize all data from remotes. We never automatically install or run hooks provided by a repository we clone. We must also protect against directory traversal attacks during checkout, which includes handling sensitive tree entry filenames (e.g., `..`, `.git`), and malformed or platform-unsupported filenames containing separators or prohibited characters (e.g., `a/../b`, `a\..\b`, `C:x`). Similarly, ref names must be validated to conform to Git's naming rules, and on Windows, they must be prohibited from having reserved names (e.g., `COM1`).
@@ -29,11 +30,13 @@ Remote repositories and the servers that host them are generally treated as untr
 - **Data Transported via Insecure Protocols:** Data transported via protocols that inherently do not guarantee integrity (like `http://` or `git://`) is vulnerable to MITM attacks. While we cannot secure the underlying protocol, we must preserve other security guarantees, such as SHA-1 collision detection.
 
 #### 2.1.2. Untrusted Local Repositories
+
 A local repository on the filesystem is not inherently more trustworthy than a remote one. For example, a user might unpack a malicious repository from an archive. Cloning such a repository (even via the filesystem) is a valid way to sanitize it, as the clone operation itself is designed to be safe. Therefore, any repository used as a *source* for a clone must be treated with the same level of scrutiny as a network remote.
 
 - **"Dubious Ownership":** For "dubiously owned" repos, unless allowlisted in a value of `safe.directory` set in a protected scope, Gitoxide must operate in a restricted mode. Our model differs slightly from Git: we will read the repository's `.git/config` file but treat its contents as **untrusted**, refusing to execute any commands or perform other dangerous actions based on its configuration. This allows for broader library use cases without requiring users to unsafely take ownership of untrusted files.
 
 #### 2.1.3. Untrusted Environment & Filesystem Locations
+
 The environment in which Gitoxide runs is not fully trusted.
 
 - **Working Tree:** The contents of a repository's working tree are untrusted, as they are derived from (untrusted) repository history.
