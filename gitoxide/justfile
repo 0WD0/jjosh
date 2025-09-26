@@ -239,7 +239,7 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 
 # Run `cargo diet` on all crates to see that they are still in bounds
 check-size:
-    etc/check-package-size.sh
+    etc/scripts/check-package-size.sh
 
 # Report the Minimum Supported Rust Version (the `rust-version` of `gix`) in X.Y.Z form
 msrv: (query-meta '''
@@ -295,11 +295,11 @@ check-mode:
 
 # Delete `gix-packetline-blocking/src` and regenerate from `gix-packetline/src`
 copy-packetline:
-    etc/copy-packetline.sh
+    etc/scripts/copy-packetline.sh
 
 # Get the unique `v*` tag at `HEAD`, or fail with an error
 unique-v-tag:
-    etc/unique-v-tag.sh
+    etc/scripts/unique-v-tag.sh
 
 # Trigger the `release.yml` workflow on the current `v*` tag
 run-release-workflow repo='':
