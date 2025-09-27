@@ -36,6 +36,15 @@ mod partialname {
         );
         Ok(())
     }
+
+    #[test]
+    fn display() {
+        let partial_name = PartialName::try_from("heads/main").unwrap();
+        assert_eq!(format!("{partial_name}"), "heads/main");
+
+        let partial_name_ref = partial_name.as_ref();
+        assert_eq!(format!("{partial_name_ref}"), "heads/main");
+    }
 }
 mod namespace;
 mod packed;

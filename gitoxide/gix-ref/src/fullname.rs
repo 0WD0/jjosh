@@ -1,6 +1,5 @@
-use std::{borrow::Borrow, path::Path};
-
 use gix_object::bstr::{BStr, BString, ByteSlice};
+use std::{borrow::Borrow, path::Path};
 
 use crate::{bstr::ByteVec, name::is_pseudo_ref, Category, FullName, FullNameRef, Namespace, PartialNameRef};
 
@@ -68,6 +67,12 @@ impl<'a> From<&'a FullNameRef> for FullName {
 }
 
 impl std::fmt::Display for FullName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl std::fmt::Display for FullNameRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
     }
