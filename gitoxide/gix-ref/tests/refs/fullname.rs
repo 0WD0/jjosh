@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use gix_ref::{Category, FullNameRef, PartialNameRef};
+use gix_ref::{Category, FullName, FullNameRef, PartialNameRef};
 
 #[test]
 fn cow() {
@@ -136,4 +136,13 @@ fn prefix_with_namespace_and_stripping() {
         "refs/heads/main",
         "idempotent stripping"
     );
+}
+
+#[test]
+fn display() {
+    let full_name = FullName::try_from("refs/heads/main").unwrap();
+    assert_eq!(format!("{full_name}"), "refs/heads/main");
+
+    let full_name_ref = full_name.as_ref();
+    assert_eq!(format!("{full_name_ref}"), "refs/heads/main");
 }
