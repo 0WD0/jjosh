@@ -262,7 +262,7 @@ pub fn run<P: NestedProgress>(
     }
 
     if num_errors > 0 {
-        anyhow::bail!("Failed to handle {} repositories", num_errors)
+        anyhow::bail!("Failed to handle {num_errors} repositories")
     } else {
         Ok(())
     }

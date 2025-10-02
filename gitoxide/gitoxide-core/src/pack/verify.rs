@@ -186,7 +186,7 @@ where
                     ))
             }
         }
-        ext => return Err(anyhow!("Unknown extension {:?}, expecting 'idx' or 'pack'", ext)),
+        ext => return Err(anyhow!("Unknown extension {ext:?}, expecting 'idx' or 'pack'")),
     };
     if let Some(stats) = res.1.as_ref() {
         #[cfg_attr(not(feature = "serde"), allow(clippy::single_match))]

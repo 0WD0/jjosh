@@ -41,7 +41,7 @@ pub fn display_object(
                     let data = resource
                         .data
                         .as_slice()
-                        .ok_or_else(|| anyhow!("Binary data at {} cannot be diffed", path))?;
+                        .ok_or_else(|| anyhow!("Binary data at {path} cannot be diffed"))?;
                     out.write_all(data)?;
                 }
             }
