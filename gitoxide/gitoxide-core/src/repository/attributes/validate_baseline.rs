@@ -114,6 +114,7 @@ pub(crate) mod function {
         };
         let work_dir = ignore
             .then(|| {
+                #[allow(clippy::unnecessary_debug_formatting)]
                 repo.workdir()
                     .map(ToOwned::to_owned)
                     .ok_or_else(|| anyhow!("repository at {:?} must have a worktree checkout", repo.path()))

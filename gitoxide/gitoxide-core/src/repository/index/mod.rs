@@ -51,6 +51,7 @@ pub fn from_list(
     let mut index = gix::index::State::new(object_hash);
     for path in std::io::BufReader::new(std::fs::File::open(entries_file)?).lines() {
         let path: PathBuf = path?.into();
+        #[allow(clippy::unnecessary_debug_formatting)]
         if !path.is_relative() {
             bail!("Input paths need to be relative, but {path:?} is not.")
         }
