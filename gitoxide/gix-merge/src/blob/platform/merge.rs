@@ -125,8 +125,9 @@ pub(super) mod inner {
             ) -> Result<merge::Command, Error> {
                 fn write_data(
                     data: &[u8],
+                    directory: &Path,
                 ) -> std::io::Result<(gix_tempfile::Handle<gix_tempfile::handle::Closed>, PathBuf)> {
-                    let mut file = gix_tempfile::new(Path::new(""), ContainingDirectory::Exists, AutoRemove::Tempfile)?;
+                    let mut file = gix_tempfile::new(directory, ContainingDirectory::Exists, AutoRemove::Tempfile)?;
                     file.write_all(data)?;
                     let mut path = Default::default();
                     file.with_mut(|f| {
@@ -146,17 +147,22 @@ pub(super) mod inner {
                     kind: ResourceKind::OtherOrTheirs,
                 })?;
 
-                let (base_tmp, base_path) = write_data(base).map_err(|err| Error::CreateTempfile {
+                let tmp_dir = context
+                    .worktree_dir
+                    .as_deref()
+                    .or(context.git_dir.as_deref())
+                    .unwrap_or(Path::new(""));
+                let (base_tmp, base_path) = write_data(base, tmp_dir).map_err(|err| Error::CreateTempfile {
                     rela_path: self.ancestor.rela_path.into(),
                     kind: ResourceKind::CommonAncestorOrBase,
                     source: err,
                 })?;
-                let (ours_tmp, ours_path) = write_data(ours).map_err(|err| Error::CreateTempfile {
+                let (ours_tmp, ours_path) = write_data(ours, tmp_dir).map_err(|err| Error::CreateTempfile {
                     rela_path: self.current.rela_path.into(),
                     kind: ResourceKind::CurrentOrOurs,
                     source: err,
                 })?;
-                let (theirs_tmp, theirs_path) = write_data(theirs).map_err(|err| Error::CreateTempfile {
+                let (theirs_tmp, theirs_path) = write_data(theirs, tmp_dir).map_err(|err| Error::CreateTempfile {
                     rela_path: self.other.rela_path.into(),
                     kind: ResourceKind::OtherOrTheirs,
                     source: err,
