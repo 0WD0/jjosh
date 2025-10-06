@@ -16,7 +16,6 @@ pub fn merge_base(
     let first_id = repo.rev_parse_single(first.as_str())?;
     let other_ids: Vec<_> = others
         .iter()
-        .cloned()
         .map(|other| repo.rev_parse_single(other.as_str()).map(gix::Id::detach))
         .collect::<Result<_, _>>()?;
 
