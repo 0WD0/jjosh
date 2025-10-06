@@ -132,7 +132,20 @@ impl BlameRanges {
                 let full_range = 0..max_lines;
                 vec![full_range]
             }
-            Self::PartialFile(ranges) => ranges.clone(),
+            Self::PartialFile(ranges) => ranges
+                .iter()
+                .filter_map(|range| {
+                    if range.end < max_lines {
+                        return Some(range.clone());
+                    }
+
+                    if range.start < max_lines {
+                        Some(range.start..max_lines)
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         }
     }
 }

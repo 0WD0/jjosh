@@ -1081,6 +1081,30 @@ mod blame_ranges {
     }
 
     #[test]
+    fn to_zero_based_exclusive_ignores_range_past_max_lines() {
+        let mut ranges = BlameRanges::from_one_based_inclusive_range(1..=5).unwrap();
+        ranges.add_one_based_inclusive_range(16..=20).unwrap();
+
+        assert_eq!(ranges.to_zero_based_exclusive_ranges(7), vec![0..5]);
+    }
+
+    #[test]
+    fn to_zero_based_exclusive_range_doesnt_exceed_max_lines() {
+        let mut ranges = BlameRanges::from_one_based_inclusive_range(1..=5).unwrap();
+        ranges.add_one_based_inclusive_range(6..=10).unwrap();
+
+        assert_eq!(ranges.to_zero_based_exclusive_ranges(7), vec![0..7]);
+    }
+
+    #[test]
+    fn to_zero_based_exclusive_merged_ranges_dont_exceed_max_lines() {
+        let mut ranges = BlameRanges::from_one_based_inclusive_range(1..=4).unwrap();
+        ranges.add_one_based_inclusive_range(6..=10).unwrap();
+
+        assert_eq!(ranges.to_zero_based_exclusive_ranges(7), vec![0..4, 5..7]);
+    }
+
+    #[test]
     fn default_is_full_file() {
         let ranges = BlameRanges::default();
 
