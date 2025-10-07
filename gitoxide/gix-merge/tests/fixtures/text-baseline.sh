@@ -19,6 +19,10 @@ function baseline() {
   echo "$theirs" "$base" "$ours" "${output}" "$@" >> baseline-reversed.cases
 }
 
+function write_lines () {
+	printf "%s\n" "$@"
+}
+
 mkdir simple
 (cd simple
   echo -e "line1-changed-by-both\nline2-to-be-changed-in-incoming" > ours.blob
@@ -396,6 +400,27 @@ mkdir no-change-remove
   cp ours.blob theirs.blob
 )
 
+mkdir simple-conflict
+(cd simple-conflict
+  touch base.blob
+  write_lines a c >ours.blob
+  write_lines a b c >theirs.blob
+)
+
+mkdir simple-conflict-2
+(cd simple-conflict-2
+  touch base.blob
+  write_lines a b c d >ours.blob
+  write_lines a b c >theirs.blob
+)
+
+mkdir simple-conflict-3
+(cd simple-conflict-3
+  touch base.blob
+  write_lines b c >ours.blob
+  write_lines a b c >theirs.blob
+)
+
 mkdir complex
 (cd complex
   cat <<EOF >base.blob
@@ -627,7 +652,10 @@ mkdir line-ending-change
 )
 
 
-for dir in  simple \
+for dir in  simple-conflict-3 \
+            simple-conflict-2 \
+            simple-conflict \
+            simple \
             multi-change \
             clear-ours \
             clear-theirs \

@@ -144,8 +144,8 @@ mod text {
     fn run_baseline() -> crate::Result {
         let root = gix_testtools::scripted_fixture_read_only("text-baseline.sh")?;
         for (baseline, diverging, expected_percentage) in [
-            ("baseline-reversed.cases", DIVERGING_REVERSED, 11),
-            ("baseline.cases", DIVERGING, 11),
+            ("baseline.cases", DIVERGING, 10),
+            ("baseline-reversed.cases", DIVERGING_REVERSED, 10),
         ] {
             let cases = std::fs::read_to_string(root.join(baseline))?;
             let mut out = Vec::new();
@@ -392,7 +392,7 @@ mod text {
 
         fn read_blob(root: &Path, rela_path: &str) -> BString {
             std::fs::read(root.join(rela_path))
-                .unwrap_or_else(|_| panic!("Failed to read '{rela_path}' in '{}'", root.display()))
+                .unwrap_or_else(|err| panic!("Failed to read '{rela_path}' in '{}': {err}", root.display()))
                 .into()
         }
     }

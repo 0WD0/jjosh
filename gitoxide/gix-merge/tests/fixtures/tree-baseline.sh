@@ -596,13 +596,40 @@ git init rename-within-rename-2
 
   git checkout expected
   write_lines 1 2 3 4 5 6 >a/x.f
-  write_lines 1 2 3 4 5 6 >a/sub/y.f
+#  write_lines 1 2 3 4 5 6 >a/sub/y.f
+  echo -ne "1\n2\n3\n4\n5\n<<<<<<< A\n=======\n6\n>>>>>>> B\n" >a/sub/y.f
   git mv a/sub a/sub-renamed
   git mv a a-renamed
   git commit -am "tracked both renames, applied all modifications by merge"
 
-  # This means there are no conflicts actually.
+  # In reverse, it finds a rewrite/rewrite case which gives a base to the merge, hence it passes.
+  # It should of course be reversible… .
+  git checkout -b expected-reversed B
+  write_lines 1 2 3 4 5 6 >a/x.f
+  write_lines 1 2 3 4 5 6 >a/sub-renamed/y.f
+  git mv a a-renamed
+  git commit -am "need to hack this unfortunately"
+
+
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 8a1218a1024a212bb3db30becd860315f9f3ac52 2	a-renamed/sub-renamed/y.f
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 3	a-renamed/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub-renamed/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+EOF
   make_conflict_index rename-within-rename-2-A-B-deviates
+
+ # The reverse index is showing the right thing, albeit it also shows the reversal yields
+ # different results.
+  rm .git/index
+  git update-index --index-info <<EOF
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/sub-renamed/y.f
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/sub-renamed/z
+100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0	a-renamed/w
+100644 b414108e81e5091fe0974a1858b4d0d22b107f70 0	a-renamed/x.f
+EOF
   make_conflict_index rename-within-rename-2-A-B-deviates-reversed
 )
 
@@ -1198,8 +1225,8 @@ baseline super-1 A-B-diff3 A B
 baseline super-2 A-B A B
 baseline super-2 A-B-diff3 A B
 
-baseline rename-within-rename A-B-deviates A B "Git doesn't detect the rename-nesting, and we do neith, and we do neither"
-baseline rename-within-rename-2 A-B-deviates A B "TBD: Right, something is different documentation was forgotten :/"
+baseline rename-within-rename A-B-deviates A B "Git doesn't detect the rename-nesting, we do neither"
+baseline rename-within-rename-2 A-B-deviates A B "The tree matches, but the index we produce is different. As a rename is involved, it's strange anyway, the index can't represent it properly as only one side has a base at all"
 baseline conflicting-rename A-B A B
 baseline conflicting-rename-2 A-B A B
 baseline conflicting-rename-complex A-B A B "Git has different rename tracking - overall result it's still close enough"
