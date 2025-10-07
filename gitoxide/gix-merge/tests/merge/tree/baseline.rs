@@ -300,7 +300,7 @@ pub struct DebugIndexEntry<'a> {
     stage: gix_index::entry::Stage,
 }
 
-pub fn clear_entries(state: &gix_index::State) -> Vec<DebugIndexEntry<'_>> {
+pub fn debug_entries(state: &gix_index::State) -> Vec<DebugIndexEntry<'_>> {
     state
         .entries()
         .iter()

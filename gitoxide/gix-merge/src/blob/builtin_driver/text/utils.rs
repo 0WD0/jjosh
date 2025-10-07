@@ -163,10 +163,9 @@ fn ancestor_hunk(start: u32, num_lines: u32) -> Hunk {
 /// actually different remain. Note that we have to compare the resolved values, not only the tokens,
 /// so `current_tokens` is expected to be known to the `input` (and its `interner`).
 /// Hunks from all input arrays maybe removed in the process from the front and back, in case they
-/// are entirely equal to what's in `hunk`. Note also that `a_hunks` and `b_hunks` are treated to be consecutive,
-/// so [`fill_ancestor()`] must have been called beforehand, and are assumed to covert the same space in the
-/// ancestor buffer.
-/// Use `mode` to determine how hunks may be handled.
+/// are entirely equal to each other.
+/// Note also that `a_hunks` and `b_hunks` are treated to be consecutive, so [`fill_ancestor()`] must
+/// have been called beforehand, and are assumed to cover the same space in the ancestor buffer.
 ///
 /// Return a new vector of all the hunks that were removed from front and back, with partial hunks inserted,
 /// along with the amount of hunks that go front, with the remaining going towards the back.
@@ -418,7 +417,7 @@ fn write_tokens(
 /// Find all hunks in `iter` which aren't from the same side as `hunk` and intersect with it.
 /// Also put `hunk` into `input` so it's the first item, and possibly put more hunks of the side of `hunk` so
 /// `iter` doesn't have any overlapping hunks left.
-/// Return `true` if `intersecting` is non-empty after the operation, indicating overlapping hunks were found.
+/// Return `Some` if `intersecting` is non-empty after the operation, indicating overlapping hunks were found.
 pub fn take_intersecting(
     iter: &mut Peekable<impl Iterator<Item = Hunk>>,
     input: &mut Vec<Hunk>,

@@ -50,7 +50,7 @@ pub fn merge<'a>(
         input,
         CollectHunks {
             side: Side::Current,
-            hunks: Default::default(),
+            hunks: Vec::new(),
         },
     );
 
@@ -115,65 +115,60 @@ pub fn merge<'a>(
                 let last_hunk = last_hunk(front_hunks, our_hunks, their_hunks, back_hunks);
                 write_ancestor(input, ancestor_integrated_until, first_hunk.before.start as usize, out);
                 write_hunks(front_hunks, input, &current_tokens, out);
-                if their_hunks.is_empty() {
-                    write_hunks(our_hunks, input, &current_tokens, out);
-                } else if our_hunks.is_empty() {
-                    write_hunks(their_hunks, input, &current_tokens, out);
-                } else {
-                    // DEVIATION: this makes tests (mostly) pass, but probably is very different from what Git does.
-                    let hunk_storage;
-                    let nl = detect_line_ending(
-                        if front_hunks.is_empty() {
-                            hunk_storage = Hunk {
-                                before: ancestor_integrated_until..first_hunk.before.start,
-                                after: Default::default(),
-                                side: Side::Ancestor,
-                            };
-                            std::slice::from_ref(&hunk_storage)
-                        } else {
-                            front_hunks
-                        },
-                        input,
-                        &current_tokens,
-                    )
-                    .or_else(|| detect_line_ending(our_hunks, input, &current_tokens))
-                    .unwrap_or(b"\n".into());
-                    match style {
-                        ConflictStyle::Merge => {
-                            if contains_lines(our_hunks) || contains_lines(their_hunks) {
+                // DEVIATION: this makes tests (mostly) pass, but probably is very different from what Git does.
+                let hunk_storage;
+                let nl = detect_line_ending(
+                    if front_hunks.is_empty() {
+                        hunk_storage = Hunk {
+                            before: ancestor_integrated_until..first_hunk.before.start,
+                            after: Default::default(),
+                            side: Side::Ancestor,
+                        };
+                        std::slice::from_ref(&hunk_storage)
+                    } else {
+                        front_hunks
+                    },
+                    input,
+                    &current_tokens,
+                )
+                .or_else(|| detect_line_ending(our_hunks, input, &current_tokens))
+                .unwrap_or(b"\n".into());
+                match style {
+                    ConflictStyle::Merge => {
+                        if contains_lines(our_hunks) || contains_lines(their_hunks) {
+                            resolution = Resolution::Conflict;
+                            write_conflict_marker(out, b'<', current_label, marker_size, nl);
+                            write_hunks(our_hunks, input, &current_tokens, out);
+                            write_conflict_marker(out, b'=', None, marker_size, nl);
+                            write_hunks(their_hunks, input, &current_tokens, out);
+                            write_conflict_marker(out, b'>', other_label, marker_size, nl);
+                        }
+                    }
+                    ConflictStyle::Diff3 | ConflictStyle::ZealousDiff3 => {
+                        if contains_lines(our_hunks) || contains_lines(their_hunks) {
+                            if hunks_differ_in_diff3(style, our_hunks, their_hunks, input, &current_tokens) {
                                 resolution = Resolution::Conflict;
                                 write_conflict_marker(out, b'<', current_label, marker_size, nl);
                                 write_hunks(our_hunks, input, &current_tokens, out);
+                                let ancestor_hunk = Hunk {
+                                    before: first_hunk.before.start..last_hunk.before.end,
+                                    after: Default::default(),
+                                    side: Side::Ancestor,
+                                };
+                                let ancestor_hunk = std::slice::from_ref(&ancestor_hunk);
+                                let ancestor_nl = detect_line_ending_or_nl(ancestor_hunk, input, &current_tokens);
+                                write_conflict_marker(out, b'|', ancestor_label, marker_size, ancestor_nl);
+                                write_hunks(ancestor_hunk, input, &current_tokens, out);
                                 write_conflict_marker(out, b'=', None, marker_size, nl);
                                 write_hunks(their_hunks, input, &current_tokens, out);
                                 write_conflict_marker(out, b'>', other_label, marker_size, nl);
-                            }
-                        }
-                        ConflictStyle::Diff3 | ConflictStyle::ZealousDiff3 => {
-                            if contains_lines(our_hunks) || contains_lines(their_hunks) {
-                                if hunks_differ_in_diff3(style, our_hunks, their_hunks, input, &current_tokens) {
-                                    resolution = Resolution::Conflict;
-                                    write_conflict_marker(out, b'<', current_label, marker_size, nl);
-                                    write_hunks(our_hunks, input, &current_tokens, out);
-                                    let ancestor_hunk = Hunk {
-                                        before: first_hunk.before.start..last_hunk.before.end,
-                                        after: Default::default(),
-                                        side: Side::Ancestor,
-                                    };
-                                    let ancestor_hunk = std::slice::from_ref(&ancestor_hunk);
-                                    let ancestor_nl = detect_line_ending_or_nl(ancestor_hunk, input, &current_tokens);
-                                    write_conflict_marker(out, b'|', ancestor_label, marker_size, ancestor_nl);
-                                    write_hunks(ancestor_hunk, input, &current_tokens, out);
-                                    write_conflict_marker(out, b'=', None, marker_size, nl);
-                                    write_hunks(their_hunks, input, &current_tokens, out);
-                                    write_conflict_marker(out, b'>', other_label, marker_size, nl);
-                                } else {
-                                    write_hunks(our_hunks, input, &current_tokens, out);
-                                }
+                            } else {
+                                write_hunks(our_hunks, input, &current_tokens, out);
                             }
                         }
                     }
                 }
+
                 write_hunks(back_hunks, input, &current_tokens, out);
                 ancestor_integrated_until = last_hunk.before.end;
             }

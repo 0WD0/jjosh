@@ -26,7 +26,7 @@ fn run_baseline() -> crate::Result {
     let cases = std::fs::read_to_string(root.join("baseline.cases"))?;
     let mut actual_cases = 0;
     let mut skipped_tree_resolve_cases = 0;
-    // let new_test = Some("tree-to-non-tree-with-rename-A-B");
+    // let new_test = Some("rename-within-rename-2-A-B-deviates");
     let new_test = None;
     for baseline::Expectation {
         root,
@@ -122,9 +122,9 @@ fn run_baseline() -> crate::Result {
             actual.index_changed_after_applying_conflicts(&mut actual_index, conflicts_like_in_git, RemovalMode::Prune);
 
         pretty_assertions::assert_eq!(
-            baseline::clear_entries(&actual_index),
-            baseline::clear_entries(&expected_index),
-            "{case_name}: index mismatch\n{:#?}\n{:#?}",
+            baseline::debug_entries(&actual_index),
+            baseline::debug_entries(&expected_index),
+            "{case_name}: index mismatch\nOur conflicts {:#?}\nGit conflicts {:#?}",
             actual.conflicts,
             merge_info.conflicts
         );
