@@ -73,6 +73,7 @@ impl Cascade {
         let mut url = action
             .context_mut()
             .map(|ctx| {
+                #[allow(clippy::manual_inspect)] /* false positive */
                 ctx.destructure_url_in_place(self.use_http_path).map(|ctx| {
                     if self.query_user_only && ctx.password.is_none() {
                         ctx.password = Some("".into());

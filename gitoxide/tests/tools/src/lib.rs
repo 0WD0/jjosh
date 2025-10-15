@@ -22,9 +22,8 @@ pub use bstr;
 use bstr::ByteSlice;
 use io_close::Close;
 pub use is_ci;
-pub use once_cell;
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use std::sync::LazyLock;
 pub use tempfile;
 
 /// A result type to allow using the try operator `?` in unit tests.
@@ -58,9 +57,9 @@ impl Drop for GitDaemon {
     }
 }
 
-static SCRIPT_IDENTITY: Lazy<Mutex<BTreeMap<PathBuf, u32>>> = Lazy::new(|| Mutex::new(BTreeMap::new()));
+static SCRIPT_IDENTITY: LazyLock<Mutex<BTreeMap<PathBuf, u32>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
-static EXCLUDE_LUT: Lazy<Mutex<Option<gix_worktree::Stack>>> = Lazy::new(|| {
+static EXCLUDE_LUT: LazyLock<Mutex<Option<gix_worktree::Stack>>> = LazyLock::new(|| {
     let cache = (|| {
         let (repo_path, _) = gix_discover::upwards(Path::new(".")).ok()?;
         let (gix_dir, work_tree) = repo_path.into_repository_and_work_tree_directories();
@@ -103,7 +102,7 @@ const GIT_PROGRAM: &str = "git.exe";
 #[cfg(not(windows))]
 const GIT_PROGRAM: &str = "git";
 
-static GIT_CORE_DIR: Lazy<PathBuf> = Lazy::new(|| {
+static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let output = std::process::Command::new(GIT_PROGRAM)
         .arg("--exec-path")
         .output()
@@ -121,7 +120,8 @@ static GIT_CORE_DIR: Lazy<PathBuf> = Lazy::new(|| {
 });
 
 /// The major, minor and patch level of the git version on the system.
-pub static GIT_VERSION: Lazy<(u8, u8, u8)> = Lazy::new(|| parse_git_version().expect("git version to be parsable"));
+pub static GIT_VERSION: LazyLock<(u8, u8, u8)> =
+    LazyLock::new(|| parse_git_version().expect("git version to be parsable"));
 
 /// Define how [`scripted_fixture_writable_with_args()`] uses produces the writable copy.
 pub enum Creation {
@@ -697,7 +697,7 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
 pub fn bash_program() -> &'static Path {
     // TODO(deps): Unify with `gix_path::env::shell()` by having both call a more general function
     //             in `gix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
-    static GIT_BASH: Lazy<PathBuf> = Lazy::new(|| {
+    static GIT_BASH: LazyLock<PathBuf> = LazyLock::new(|| {
         if cfg!(windows) {
             GIT_CORE_DIR
                 .ancestors()

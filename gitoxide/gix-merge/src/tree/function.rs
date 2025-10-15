@@ -197,7 +197,7 @@ where
                     .filter(|ours| {
                         ours.change_idx()
                             .zip(needs_tree_insertion.flatten())
-                            .map_or(true, |(ours_idx, ignore_idx)| ours_idx != ignore_idx)
+                            .is_none_or(|(ours_idx, ignore_idx)| ours_idx != ignore_idx)
                             && our_tree.is_not_same_change_in_possible_conflict(theirs, ours, our_changes)
                     }) {
                     None => {

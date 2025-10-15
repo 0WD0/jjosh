@@ -135,10 +135,10 @@ impl Program {
         if status.success() {
             Ok(())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Credentials helper program failed with status code {:?}", status.code()),
-            ))
+            Err(std::io::Error::other(format!(
+                "Credentials helper program failed with status code {:?}",
+                status.code()
+            )))
         }
     }
 }

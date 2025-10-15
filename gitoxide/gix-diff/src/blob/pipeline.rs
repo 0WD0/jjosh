@@ -498,7 +498,7 @@ impl Pipeline {
                             }
                         }
 
-                        if driver.map_or(true, |d| d.binary_to_text_command.is_none())
+                        if driver.is_none_or(|d| d.binary_to_text_command.is_none())
                             && is_binary.unwrap_or_else(|| is_binary_buf(out))
                         {
                             let size = out.len() as u64;

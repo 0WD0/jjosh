@@ -91,14 +91,13 @@ impl packed::Buffer {
         };
         let mut encountered_parse_failure = false;
         a.binary_search_by_key(&full_name.as_ref(), |b: &u8| {
-            let ofs = b as *const u8 as usize - a.as_ptr() as usize;
+            let ofs = std::ptr::from_ref::<u8>(b) as usize - a.as_ptr() as usize;
             let mut line = &a[search_start_of_record(ofs)..];
             packed::decode::reference::<()>
                 .parse_next(&mut line)
                 .map(|r| r.name.as_bstr().as_bytes())
-                .map_err(|err| {
+                .inspect_err(|_err| {
                     encountered_parse_failure = true;
-                    err
                 })
                 .unwrap_or(&[])
         })

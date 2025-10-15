@@ -6,7 +6,7 @@ fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
 mod from_tree {
     use std::{
         convert::Infallible,
-        io::{Error, ErrorKind, Read, Write},
+        io::{Error, Read, Write},
         path::PathBuf,
         sync::Arc,
     };
@@ -14,8 +14,8 @@ mod from_tree {
     use gix_attributes::glob::pattern::Case;
     use gix_hash::oid;
     use gix_object::{bstr::ByteSlice, tree::EntryKind, Data};
-    use gix_testtools::once_cell::sync::Lazy;
     use gix_worktree::stack::state::attributes::Source;
+    use std::sync::LazyLock;
 
     use crate::hex_to_id;
 
@@ -28,7 +28,7 @@ mod from_tree {
             _id: &oid,
             _buffer: &'a mut Vec<u8>,
         ) -> Result<Option<Data<'a>>, gix_object::find::Error> {
-            Err(Box::new(Error::new(ErrorKind::Other, "object retrieval failed")))
+            Err(Box::new(Error::other("object retrieval failed")))
         }
     }
 
@@ -48,7 +48,7 @@ mod from_tree {
     fn can_receive_err_if_attribute_not_found() -> gix_testtools::Result {
         let (_dir, head_tree, odb, _cache) = basic()?;
         let mut stream = gix_worktree_stream::from_tree(head_tree, odb, mutating_pipeline(false), |_, _, _| {
-            Err(Error::new(ErrorKind::Other, "attribute retrieval failed"))
+            Err(Error::other("attribute retrieval failed"))
         });
         let err = stream.next_entry().unwrap_err();
         assert_eq!(
@@ -280,7 +280,7 @@ mod from_tree {
         }
     }
 
-    static DRIVER: Lazy<PathBuf> = Lazy::new(|| {
+    static DRIVER: LazyLock<PathBuf> = LazyLock::new(|| {
         let mut cargo = std::process::Command::new(env!("CARGO"));
         let res = cargo
             .args(["build", "-p=gix-filter", "--example", "arrow"])

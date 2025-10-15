@@ -228,10 +228,7 @@ impl std::io::Read for ReadFilterOutput {
                     if let Some((mut child, cmd)) = self.child.take() {
                         let status = child.wait()?;
                         if !status.success() {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("Driver process {cmd:?} failed"),
-                            ));
+                            return Err(std::io::Error::other(format!("Driver process {cmd:?} failed")));
                         }
                     }
                 }

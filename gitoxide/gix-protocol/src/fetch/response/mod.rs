@@ -27,7 +27,7 @@ impl From<std::io::Error> for Error {
             match err.into_inner() {
                 Some(err) => match err.downcast::<gix_transport::packetline::read::Error>() {
                     Ok(err) => Error::UploadPack(*err),
-                    Err(err) => Error::Io(std::io::Error::new(std::io::ErrorKind::Other, err)),
+                    Err(err) => Error::Io(std::io::Error::other(err)),
                 },
                 None => Error::Io(std::io::ErrorKind::Other.into()),
             }

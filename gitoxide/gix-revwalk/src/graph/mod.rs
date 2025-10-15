@@ -327,18 +327,15 @@ impl<'cache, T> Graph<'_, 'cache, T> {
         update_data: impl FnOnce(&mut T),
     ) -> Result<Option<LazyCommit<'_, 'cache>>, get_or_insert_default::Error> {
         let res = try_lookup(&id, &*self.find, self.cache, &mut self.buf)?;
-        Ok(res.map(|commit| {
-            match self.map.entry(id) {
-                gix_hashtable::hash_map::Entry::Vacant(entry) => {
-                    let mut data = default();
-                    update_data(&mut data);
-                    entry.insert(data);
-                }
-                gix_hashtable::hash_map::Entry::Occupied(mut entry) => {
-                    update_data(entry.get_mut());
-                }
+        Ok(res.inspect(|_commit| match self.map.entry(id) {
+            gix_hashtable::hash_map::Entry::Vacant(entry) => {
+                let mut data = default();
+                update_data(&mut data);
+                entry.insert(data);
             }
-            commit
+            gix_hashtable::hash_map::Entry::Occupied(mut entry) => {
+                update_data(entry.get_mut());
+            }
         }))
     }
 

@@ -70,11 +70,10 @@ pub mod read_data {
         /// If `None`, read from this instance like a stream.
         /// Note that this method should only be called once to assure proper accounting of the amount of bytes read.
         pub fn as_bytes(&self) -> Option<&'a [u8]> {
-            self.inner.as_bytes().map(|v| {
+            self.inner.as_bytes().inspect(|v| {
                 if let Some(bytes) = self.bytes {
                     bytes.fetch_add(v.len() as u64, Ordering::Relaxed);
                 }
-                v
             })
         }
 

@@ -40,7 +40,7 @@ fn in_parallel() {
 #[test]
 fn in_parallel_with_mut_slice_in_chunks() {
     let num_items = 33;
-    let mut input: Vec<_> = std::iter::repeat(1).take(num_items).collect();
+    let mut input: Vec<_> = std::iter::repeat_n(1, num_items).collect();
     let counts = parallel::in_parallel_with_slice(
         &mut input,
         None,
@@ -54,7 +54,7 @@ fn in_parallel_with_mut_slice_in_chunks() {
         std::convert::identity,
     )
     .unwrap();
-    let expected = std::iter::repeat(1).take(num_items).sum::<usize>();
+    let expected = std::iter::repeat_n(1, num_items).sum::<usize>();
     assert_eq!(counts.iter().sum::<usize>(), expected);
     assert_eq!(input.iter().sum::<usize>(), expected * 2, "we increment each entry");
 }

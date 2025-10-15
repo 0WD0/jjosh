@@ -84,7 +84,7 @@ impl Client {
         read.read_line_to_string(&mut buf)?;
         if buf
             .strip_prefix(welcome_prefix)
-            .map_or(true, |rest| rest.trim_end() != "-server")
+            .is_none_or(|rest| rest.trim_end() != "-server")
         {
             return Err(handshake::Error::Protocol {
                 msg: format!("Wanted '{welcome_prefix}-server, got "),
@@ -266,13 +266,10 @@ impl std::io::Read for ReadProcessOutputAndStatus<'_> {
             if status.is_success() {
                 Ok(0)
             } else {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!(
-                        "Process indicated error after reading: {}",
-                        status.message().unwrap_or_default()
-                    ),
-                ))
+                Err(std::io::Error::other(format!(
+                    "Process indicated error after reading: {}",
+                    status.message().unwrap_or_default()
+                )))
             }
         } else {
             Ok(num_read)

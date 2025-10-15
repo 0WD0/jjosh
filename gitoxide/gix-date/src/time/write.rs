@@ -24,10 +24,7 @@ impl Time {
         let minutes = (offset - (hours * SECONDS_PER_HOUR)) / 60;
 
         if hours > 99 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Cannot represent offsets larger than +-9900",
-            ));
+            return Err(std::io::Error::other("Cannot represent offsets larger than +-9900"));
         }
 
         let mut itoa = itoa::Buffer::new();

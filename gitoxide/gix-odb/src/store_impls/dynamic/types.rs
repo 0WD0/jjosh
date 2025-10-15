@@ -318,7 +318,7 @@ impl IndexAndPacks {
                     .map(Arc::new)
                     .map_err(|err| match err {
                         gix_pack::index::init::Error::Io { source, .. } => source,
-                        err => std::io::Error::new(std::io::ErrorKind::Other, err),
+                        err => std::io::Error::other(err),
                     })
             }),
             IndexAndPacks::MultiIndex(bundle) => {
@@ -327,7 +327,7 @@ impl IndexAndPacks {
                         .map(Arc::new)
                         .map_err(|err| match err {
                             gix_pack::multi_index::init::Error::Io { source, .. } => source,
-                            err => std::io::Error::new(std::io::ErrorKind::Other, err),
+                            err => std::io::Error::other(err),
                         })
                 })?;
                 if let Some(multi_index) = bundle.multi_index.loaded() {

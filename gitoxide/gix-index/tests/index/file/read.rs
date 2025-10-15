@@ -160,8 +160,7 @@ fn v2_very_long_path() {
     assert_eq!(file.entries().len(), 9);
     assert_eq!(
         file.entries()[0].path(&file),
-        std::iter::repeat('a')
-            .take(4096)
+        std::iter::repeat_n('a', 4096)
             .chain(std::iter::once('q'))
             .collect::<String>()
     );

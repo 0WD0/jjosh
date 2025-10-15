@@ -206,12 +206,7 @@ mod util {
             self.count = self
                 .count
                 .checked_add(u32::try_from(written).expect("we don't write 4GB buffers"))
-                .ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Cannot write indices larger than 4 gigabytes",
-                    )
-                })?;
+                .ok_or_else(|| std::io::Error::other("Cannot write indices larger than 4 gigabytes"))?;
             Ok(written)
         }
 

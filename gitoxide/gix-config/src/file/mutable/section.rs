@@ -71,7 +71,7 @@ impl<'event> SectionMut<'_, 'event> {
                 text: Cow::Owned({
                     let mut c = Vec::with_capacity(comment.len());
                     let mut bytes = comment.iter().peekable();
-                    if !bytes.peek().map_or(true, |b| b.is_ascii_whitespace()) {
+                    if !bytes.peek().is_none_or(|b| b.is_ascii_whitespace()) {
                         c.insert(0, b' ');
                     }
                     c.extend(bytes.map(|b| if *b == b'\n' { b' ' } else { *b }));
@@ -194,7 +194,7 @@ impl<'event> SectionMut<'_, 'event> {
         assert!(
             whitespace
                 .as_deref()
-                .map_or(true, |ws| ws.iter().all(u8::is_ascii_whitespace)),
+                .is_none_or(|ws| ws.iter().all(u8::is_ascii_whitespace)),
             "input whitespace must only contain whitespace characters."
         );
         self.whitespace.pre_key = whitespace;

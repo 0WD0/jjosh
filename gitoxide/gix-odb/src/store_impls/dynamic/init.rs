@@ -88,19 +88,19 @@ impl Store {
             Ok,
         )?;
         if !objects_dir.is_dir() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other, // TODO: use NotADirectory when stabilized
-                format!("'{}' wasn't a directory", objects_dir.display()),
-            ));
+            return Err(std::io::Error::other(format!(
+                "'{}' wasn't a directory",
+                objects_dir.display()
+            )));
         }
         let slot_count = match slots {
             Slots::Given(n) => n as usize,
             Slots::AsNeededByDiskState { multiplier, minimum } => {
-                let mut db_paths = crate::alternate::resolve(objects_dir.clone(), &current_dir)
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+                let mut db_paths =
+                    crate::alternate::resolve(objects_dir.clone(), &current_dir).map_err(std::io::Error::other)?;
                 db_paths.insert(0, objects_dir.clone());
                 let num_slots = Store::collect_indices_and_mtime_sorted_by_size(db_paths, None, None)
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?
+                    .map_err(std::io::Error::other)?
                     .len();
 
                 let candidate = ((num_slots as f32 * multiplier) as usize).max(minimum);
@@ -114,10 +114,9 @@ impl Store {
             }
         };
         if slot_count > crate::store::types::PackId::max_indices() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Cannot use more than 2^15-1 slots, got {slot_count}"),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Cannot use more than 2^15-1 slots, got {slot_count}"
+            )));
         }
         let mut replacements: Vec<_> = replacements.collect();
         replacements.sort_by(|a, b| a.0.cmp(&b.0));

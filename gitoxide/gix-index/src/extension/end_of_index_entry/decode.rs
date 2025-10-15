@@ -48,7 +48,7 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind) -> Result<Option<usize>,
         return Ok(None);
     }
     // The last-to-this chunk ends where ours starts
-    if last_chunk.map_or(true, |s| !std::ptr::eq(s.as_ptr_range().end, &data[start_of_eoie])) {
+    if last_chunk.is_none_or(|s| !std::ptr::eq(s.as_ptr_range().end, &data[start_of_eoie])) {
         return Ok(None);
     }
 

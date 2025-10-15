@@ -63,10 +63,7 @@ where
                         *slot = Some(err);
                     } else {
                         drop(slot);
-                        write
-                            .channel
-                            .send(Err(std::io::Error::new(std::io::ErrorKind::Other, err)))
-                            .ok();
+                        write.channel.send(Err(std::io::Error::other(err))).ok();
                     }
                 }
             }

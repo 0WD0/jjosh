@@ -32,8 +32,7 @@ mod write {
             } = self;
             for (key, value) in [("url", url), ("path", path)] {
                 if let Some(value) = value {
-                    validate(key, value.as_slice().into())
-                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+                    validate(key, value.as_slice().into()).map_err(std::io::Error::other)?;
                     write_key(&mut out, key, value.as_ref()).ok();
                 }
             }
@@ -45,16 +44,14 @@ mod write {
                 ("oauth_refresh_token", oauth_refresh_token),
             ] {
                 if let Some(value) = value {
-                    validate(key, value.as_str().into())
-                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+                    validate(key, value.as_str().into()).map_err(std::io::Error::other)?;
                     write_key(&mut out, key, value.as_bytes().as_bstr()).ok();
                 }
             }
             if let Some(value) = password_expiry_utc {
                 let key = "password_expiry_utc";
                 let value = value.to_string();
-                validate(key, value.as_str().into())
-                    .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+                validate(key, value.as_str().into()).map_err(std::io::Error::other)?;
                 write_key(&mut out, key, value.as_bytes().as_bstr()).ok();
             }
             Ok(())

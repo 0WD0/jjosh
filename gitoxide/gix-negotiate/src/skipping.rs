@@ -81,9 +81,8 @@ impl Algorithm {
         let mut was_seen = false;
         if let Some(parent) = graph
             .get(&parent_id)
-            .map(|parent| {
+            .inspect(|parent| {
                 was_seen = parent.data.flags.contains(Flags::SEEN);
-                parent
             })
             .filter(|_| was_seen)
         {

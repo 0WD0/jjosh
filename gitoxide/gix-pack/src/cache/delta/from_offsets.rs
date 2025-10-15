@@ -60,9 +60,8 @@ impl<T> Tree<T> {
         let anticipated_num_objects = data_sorted_by_offsets
             .size_hint()
             .1
-            .map(|num_objects| {
+            .inspect(|&num_objects| {
                 progress.init(Some(num_objects), progress::count("objects"));
-                num_objects
             })
             .unwrap_or_default();
         let mut tree = Tree::with_capacity(anticipated_num_objects)?;

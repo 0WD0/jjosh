@@ -13,8 +13,7 @@ pub fn main() -> Result<(), gix_credentials::program::main::Error> {
                     password: Some("pass".into()),
                     ..context
                 })),
-                program::main::Action::Erase => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                program::main::Action::Erase => Err(std::io::Error::other(
                     "Refusing to delete credentials for demo purposes",
                 )),
                 program::main::Action::Store => Ok(None),

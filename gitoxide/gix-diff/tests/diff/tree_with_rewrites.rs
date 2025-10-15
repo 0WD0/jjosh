@@ -112,7 +112,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
             &mut cache,
             &mut Default::default(),
             &odb,
-            |_change| Err(std::io::Error::new(std::io::ErrorKind::Other, "custom error")),
+            |_change| Err(std::io::Error::other("custom error")),
             Options::default(),
         )
         .unwrap_err();
@@ -1860,12 +1860,8 @@ mod util {
     fn read_tree(odb: &dyn gix_object::Find, root: &Path, tree: Option<&str>) -> gix_testtools::Result<Vec<u8>> {
         let Some(tree) = tree else { return Ok(Vec::new()) };
         let tree_id_path = root.join(tree).with_extension("tree");
-        let hex_id = std::fs::read_to_string(&tree_id_path).map_err(|err| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Could not read '{}': {}", tree_id_path.display(), err),
-            )
-        })?;
+        let hex_id = std::fs::read_to_string(&tree_id_path)
+            .map_err(|err| std::io::Error::other(format!("Could not read '{}': {}", tree_id_path.display(), err)))?;
         let tree_id = gix_hash::ObjectId::from_hex(hex_id.trim().as_bytes())?;
         let mut buf = Vec::new();
         odb.find_tree(&tree_id, &mut buf)?;

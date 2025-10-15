@@ -73,7 +73,7 @@ impl Server {
         read.read_line_to_string(&mut buf)?;
         if buf
             .strip_prefix(welcome_prefix)
-            .map_or(true, |rest| rest.trim_end() != "-client")
+            .is_none_or(|rest| rest.trim_end() != "-client")
         {
             return Err(handshake::Error::Protocol {
                 msg: format!("Expected '{welcome_prefix}-client, got"),

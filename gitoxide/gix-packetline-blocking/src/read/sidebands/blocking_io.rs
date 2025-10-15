@@ -121,7 +121,7 @@ where
             self.cap, 0,
             "we don't support partial buffers right now - read-line must be used consistently"
         );
-        let line = std::str::from_utf8(self.fill_buf()?).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        let line = std::str::from_utf8(self.fill_buf()?).map_err(io::Error::other)?;
         buf.push_str(line);
         let bytes = line.len();
         self.cap = 0;
@@ -138,14 +138,12 @@ where
         if self.pos >= self.cap {
             let (ofs, cap) = loop {
                 let line = match self.parent.read_line() {
-                    Some(line) => line?.map_err(|err| io::Error::new(io::ErrorKind::Other, err))?,
+                    Some(line) => line?.map_err(io::Error::other)?,
                     None => break (0, 0),
                 };
                 match self.handle_progress.as_mut() {
                     Some(handle_progress) => {
-                        let band = line
-                            .decode_band()
-                            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                        let band = line.decode_band().map_err(io::Error::other)?;
                         const ENCODED_BAND: usize = 1;
                         match band {
                             BandRef::Data(d) => {
@@ -159,10 +157,7 @@ where
                                 match handle_progress(false, text) {
                                     ProgressAction::Continue => {}
                                     ProgressAction::Interrupt => {
-                                        return Err(std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            "interrupted by user",
-                                        ))
+                                        return Err(std::io::Error::other("interrupted by user"))
                                     }
                                 }
                             }
@@ -171,10 +166,7 @@ where
                                 match handle_progress(true, text) {
                                     ProgressAction::Continue => {}
                                     ProgressAction::Interrupt => {
-                                        return Err(std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            "interrupted by user",
-                                        ))
+                                        return Err(std::io::Error::other("interrupted by user"))
                                     }
                                 }
                             }

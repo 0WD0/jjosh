@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 /// `usr`-like directory component names that MSYS2 may provide, other than for `/usr` itself.
 ///
@@ -54,7 +54,7 @@ const MSYS_USR_VARIANTS: &[&str] = &["mingw64", "mingw32", "clangarm64", "clang6
 /// But it is possible that some marginal uses of `installation_config_prefix()`, if they do not
 /// really relate to configuration, could be replaced with `git_for_windows_root()` in the future.
 fn git_for_windows_root() -> Option<&'static Path> {
-    static GIT_ROOT: Lazy<Option<PathBuf>> = Lazy::new(|| {
+    static GIT_ROOT: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
         super::core_dir()
             .filter(|core| {
                 // Only use this if the directory structure resembles a Git installation. This

@@ -115,9 +115,10 @@ mod prepare {
         /// If neither this method nor [`with_shell()`](Self::with_shell()) is called, commands are
         /// always executed verbatim and directly, without the use of a shell.
         pub fn command_may_be_shell_script(mut self) -> Self {
-            self.use_shell = self.command.to_str().map_or(true, |cmd| {
-                cmd.as_bytes().find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some()
-            });
+            self.use_shell = self
+                .command
+                .to_str()
+                .is_none_or(|cmd| cmd.as_bytes().find_byteset(b"|&;<>()$`\\\"' \t\n*?[#~=%").is_some());
             self
         }
 
@@ -289,7 +290,7 @@ mod prepare {
                         let mut cmd = Command::new(shell);
                         cmd.arg("-c");
                         if !prep.args.is_empty() {
-                            if prep.command.to_str().map_or(true, |cmd| !cmd.contains("$@")) {
+                            if prep.command.to_str().is_none_or(|cmd| !cmd.contains("$@")) {
                                 if prep.quote_command {
                                     if let Ok(command) = gix_path::os_str_into_bstr(&prep.command) {
                                         prep.command = gix_path::from_bstring(gix_quote::single(command)).into();
