@@ -9,7 +9,7 @@ description = "A crate of the gitoxide project dealing paths and their conversio
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 include = ["src/**/*", "LICENSE-*"]
-rust-version = "1.70"
+rust-version = "1.82"
 
 [lib]
 doctest = true
@@ -19,7 +19,6 @@ gix-trace = { version = "^0.1.13", path = "../gix-trace" }
 gix-validate = { version = "^0.10.0", path = "../gix-validate" }
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 thiserror = "2.0.17"
-once_cell = "1.21.3"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 home = "0.5.5"

@@ -5,7 +5,7 @@ use gix_date::{
     SecondsSinceUnixEpoch,
 };
 use gix_testtools::Result;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 struct Sample {
     format_name: Option<String>,

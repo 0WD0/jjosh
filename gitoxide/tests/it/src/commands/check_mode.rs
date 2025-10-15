@@ -7,7 +7,7 @@ pub(super) mod function {
 
     use anyhow::{bail, Context};
     use gix::bstr::ByteSlice;
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
     use regex::bytes::Regex;
 
     pub fn check_mode() -> anyhow::Result<()> {
@@ -69,7 +69,7 @@ pub(super) mod function {
 
     /// On mismatch, report it and return `Some(true)`.
     fn check_for_mismatch(root: &OsStr, record: &[u8]) -> anyhow::Result<bool> {
-        static RECORD_REGEX: Lazy<Regex> = Lazy::new(|| {
+        static RECORD_REGEX: LazyLock<Regex> = LazyLock::new(|| {
             let pattern = r"(?-u)\A([0-7]+) ([[:xdigit:]]+) [[:digit:]]+\t(.+)\z";
             Regex::new(pattern).expect("regex should be valid")
         });

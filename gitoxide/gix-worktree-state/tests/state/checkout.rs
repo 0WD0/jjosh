@@ -11,7 +11,7 @@ use gix_features::progress;
 use gix_object::{bstr::ByteSlice, Data};
 use gix_testtools::tempfile::TempDir;
 use gix_worktree_state::checkout::Collision;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::fixture_path;
 

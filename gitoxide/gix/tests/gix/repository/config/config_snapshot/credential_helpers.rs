@@ -6,7 +6,7 @@ mod baseline {
     use std::collections::HashMap;
 
     use gix_object::bstr::BString;
-    use gix_testtools::once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     use crate::remote;
 

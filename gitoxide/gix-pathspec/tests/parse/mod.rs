@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bstr::{BStr, BString, ByteSlice};
 use gix_attributes::State;
 use gix_pathspec::{MagicSignature, Pattern, SearchMode};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[test]
 fn baseline() {

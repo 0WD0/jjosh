@@ -4,7 +4,7 @@ use std::{
 };
 
 use bstr::{BString, ByteSlice};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::env::git::EXE_NAME;
 
@@ -40,7 +40,7 @@ pub fn installation_config_prefix() -> Option<&'static Path> {
 /// Note that the returned path might not be a path on disk, if it is a fallback path or if the
 /// file was moved or deleted since the first time this function is called.
 pub fn shell() -> &'static OsStr {
-    static PATH: Lazy<OsString> = Lazy::new(|| {
+    static PATH: LazyLock<OsString> = LazyLock::new(|| {
         if cfg!(windows) {
             auxiliary::find_git_associated_windows_executable_with_fallback("sh")
         } else {
@@ -61,7 +61,7 @@ pub fn exe_invocation() -> &'static Path {
         /// The path to the Git executable as located in the `PATH` or in other locations that it's
         /// known to be installed to. It's `None` if environment variables couldn't be read or if
         /// no executable could be found.
-        static EXECUTABLE_PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+        static EXECUTABLE_PATH: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
             std::env::split_paths(&std::env::var_os("PATH")?)
                 .chain(git::ALTERNATIVE_LOCATIONS.iter().map(Into::into))
                 .find_map(|prefix| {
@@ -109,7 +109,7 @@ pub fn xdg_config(file: &str, env_var: &mut dyn FnMut(&str) -> Option<OsString>)
         })
 }
 
-static GIT_CORE_DIR: Lazy<Option<PathBuf>> = Lazy::new(|| {
+static GIT_CORE_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
     let mut cmd = std::process::Command::new(exe_invocation());
 
     #[cfg(windows)]
@@ -182,7 +182,7 @@ where
 /// path, or if the git binary wasn't built with a well-known directory structure or environment.
 pub fn system_prefix() -> Option<&'static Path> {
     if cfg!(windows) {
-        static PREFIX: Lazy<Option<PathBuf>> = Lazy::new(|| {
+        static PREFIX: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
             system_prefix_from_exepath_var(|key| std::env::var_os(key))
                 .or_else(|| system_prefix_from_core_dir(core_dir))
         });

@@ -1,7 +1,7 @@
 use gix_credentials::{helper, program::Kind, Program};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
-static GIT: once_cell::sync::Lazy<&'static str> = once_cell::sync::Lazy::new(|| {
+static GIT: std::sync::LazyLock<&'static str> = std::sync::LazyLock::new(|| {
     gix_path::env::exe_invocation()
         .to_str()
         .expect("some `from_custom_definition` tests must be run where 'git' path is valid Unicode")

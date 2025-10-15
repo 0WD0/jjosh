@@ -224,7 +224,7 @@ mod context {
 }
 
 mod prepare {
-    use once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     static SH: Lazy<&'static str> = Lazy::new(|| {
         gix_path::env::shell()

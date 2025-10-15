@@ -14,7 +14,7 @@ mod from_tree {
     use gix_attributes::glob::pattern::Case;
     use gix_hash::oid;
     use gix_object::{bstr::ByteSlice, tree::EntryKind, Data};
-    use gix_testtools::once_cell::sync::Lazy;
+    use std::sync::LazyLock;
     use gix_worktree::stack::state::attributes::Source;
 
     use crate::hex_to_id;

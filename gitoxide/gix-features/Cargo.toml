@@ -8,7 +8,7 @@ version = "0.43.1"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.82"
 include = ["src/**/*", "LICENSE-*"]
 
 [lib]
@@ -45,6 +45,7 @@ tracing-detail = ["gix-trace/tracing-detail"]
 ## This way, single-threaded applications don't have to pay for threaded primitives.
 parallel = ["dep:crossbeam-channel", "dep:parking_lot"]
 ## If enabled, OnceCell will be made available for interior mutability either in sync or unsync forms.
+## Note: This still uses once_cell because std::sync::OnceLock::get_or_try_init() is not yet stable.
 once_cell = ["dep:once_cell"]
 ## Makes facilities of the `walkdir` crate partially available.
 ## In conjunction with the **parallel** feature, directory walking will be parallel instead behind a compatible interface.
@@ -110,6 +111,8 @@ bytes = { version = "1.0.0", optional = true }
 libz-rs-sys = { version = "0.5.2", optional = true }
 thiserror = { version = "2.0.17", optional = true }
 
+# Note: once_cell is kept for OnceCell type because std::sync::OnceLock::get_or_try_init() is not yet stable.
+# Once it's stabilized (tracking issue #109737), we can remove this dependency.
 once_cell = { version = "1.21.3", optional = true }
 
 document-features = { version = "0.2.0", optional = true }

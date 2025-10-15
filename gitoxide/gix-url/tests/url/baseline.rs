@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use bstr::ByteSlice;
-use gix_testtools::once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 /// To see all current failures run the following command or execute cargo-nextest directly with
 /// the below shown arguments.
@@ -167,7 +167,7 @@ fn assert_urls_equal(expected: &baseline::GitDiagUrl<'_>, actual: &gix_url::Url)
 #[allow(clippy::module_inception)]
 mod baseline {
     use bstr::{BStr, BString, ByteSlice};
-    use gix_testtools::once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     pub enum Kind {
         Unix,

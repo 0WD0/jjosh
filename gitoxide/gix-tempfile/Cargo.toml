@@ -9,7 +9,7 @@ description = "A tempfile implementation with a global registry to assure cleanu
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 include = ["src/**/*", "LICENSE-*", "README.md"]
-rust-version = "1.70"
+rust-version = "1.82"
 
 [[example]]
 name = "delete-tempfiles-on-sigterm"
@@ -34,7 +34,6 @@ test = true
 gix-fs = { version = "^0.16.0", path = "../gix-fs" }
 parking_lot = "0.12.4"
 dashmap = { version = "6.0.1", optional = true }
-once_cell = { version = "1.21.3", default-features = false, features = ["race", "std"] }
 tempfile = "3.23.0"
 
 signal-hook = { version = "0.3.18", default-features = false, optional = true }

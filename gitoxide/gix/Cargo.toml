@@ -11,7 +11,7 @@ edition = "2021"
 include = ["src/**/*", "LICENSE-*"]
 # This MSRV is dictated by `firefox` to support the `helix` editor, but is now probably
 # effectively controlled by `jiff`, which also aligns with `regex`.
-rust-version = "1.75"
+rust-version = "1.82"
 
 [lib]
 doctest = false
@@ -372,7 +372,6 @@ gix-transport = { version = "^0.48.0", path = "../gix-transport", optional = tru
 
 # Just to get the progress-tree feature
 prodash = { version = "30.0.1", optional = true, features = ["progress-tree"] }
-once_cell = "1.21.3"
 signal-hook = { version = "0.3.18", default-features = false, optional = true }
 thiserror = "2.0.17"
 serde = { version = "1.0.114", optional = true, default-features = false, features = [

@@ -1,4 +1,4 @@
-use gix_testtools::once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 static BASELINE: Lazy<baseline::Baseline> = Lazy::new(|| baseline::parse().unwrap());
 
@@ -12,7 +12,7 @@ pub mod baseline {
         parse::Operation,
         MatchGroup,
     };
-    use gix_testtools::once_cell::sync::Lazy;
+    use std::sync::LazyLock;
 
     use crate::matching::BASELINE;
 
