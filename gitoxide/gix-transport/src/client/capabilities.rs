@@ -172,7 +172,10 @@ pub mod recv {
 
     use bstr::ByteVec;
 
-    use crate::{client, client::Capabilities, Protocol};
+    use crate::{
+        client::{self, blocking_io::ReadlineBufRead, Capabilities},
+        Protocol,
+    };
 
     /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
@@ -182,7 +185,7 @@ pub mod recv {
         ///
         /// This is `Some` only when protocol v1 is used. The [`io::BufRead`] must be exhausted by
         /// the caller.
-        pub refs: Option<Box<dyn crate::client::ReadlineBufRead + 'a>>,
+        pub refs: Option<Box<dyn ReadlineBufRead + 'a>>,
         /// The [`Protocol`] the remote advertised.
         pub protocol: Protocol,
     }
@@ -193,7 +196,7 @@ pub mod recv {
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
         /// advertisement will also be included in the [`Outcome`].
         pub fn from_lines_with_version_detection<T: io::Read>(
-            rd: &mut gix_packetline::StreamingPeekableIter<T>,
+            rd: &mut gix_packetline::read::blocking_io::StreamingPeekableIter<T>,
         ) -> Result<Outcome<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.
@@ -249,14 +252,17 @@ pub mod recv {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 #[allow(missing_docs)]
 ///
 pub mod recv {
     use bstr::ByteVec;
     use futures_io::AsyncRead;
 
-    use crate::{client, client::Capabilities, Protocol};
+    use crate::{
+        client::{self, async_io::ReadlineBufRead, Capabilities},
+        Protocol,
+    };
 
     /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
@@ -266,7 +272,7 @@ pub mod recv {
         ///
         /// This is `Some` only when protocol v1 is used. The [`AsyncBufRead`] must be exhausted by
         /// the caller.
-        pub refs: Option<Box<dyn crate::client::ReadlineBufRead + Unpin + 'a>>,
+        pub refs: Option<Box<dyn ReadlineBufRead + Unpin + 'a>>,
         /// The [`Protocol`] the remote advertised.
         pub protocol: Protocol,
     }
@@ -277,7 +283,7 @@ pub mod recv {
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
         /// advertisement will also be included in the [`Outcome`].
         pub async fn from_lines_with_version_detection<T: AsyncRead + Unpin>(
-            rd: &mut gix_packetline::StreamingPeekableIter<T>,
+            rd: &mut gix_packetline::read::async_io::StreamingPeekableIter<T>,
         ) -> Result<Outcome<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.

@@ -1,6 +1,5 @@
 //! Read and write the git packet line wire format without copying it.
 //!
-//! For reading the packet line format use the [`StreamingPeekableIter`], and for writing the [`Writer`].
 //! ## Feature Flags
 #![cfg_attr(
     all(doc, all(doc, feature = "document-features")),
@@ -32,14 +31,8 @@ pub enum Channel {
 mod line;
 ///
 pub mod read;
-
 ///
-#[cfg(any(feature = "async-io", feature = "blocking-io"))]
-mod write;
-#[cfg(all(not(feature = "blocking-io"), feature = "async-io"))]
-pub use write::async_io::Writer;
-#[cfg(feature = "blocking-io")]
-pub use write::blocking_io::Writer;
+pub mod write;
 
 /// A borrowed packet line as it refers to a slice of data by reference.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -77,12 +70,8 @@ pub enum BandRef<'a> {
     Error(&'a [u8]),
 }
 
-/// Read pack lines one after another, without consuming more than needed from the underlying
-/// [`Read`][std::io::Read]. [`Flush`][PacketLineRef::Flush] lines cause the reader to stop producing lines forever,
-/// leaving [`Read`][std::io::Read] at the start of whatever comes next.
-///
-/// This implementation tries hard not to allocate at all which leads to quite some added complexity and plenty of extra memory copies.
-pub struct StreamingPeekableIter<T> {
+/// State for `StreamingPeekableIter` implementations.
+pub struct StreamingPeekableIterState<T> {
     read: T,
     peek_buf: Vec<u8>,
     #[cfg(any(feature = "blocking-io", feature = "async-io"))]
@@ -101,6 +90,3 @@ pub mod decode;
 pub use decode::all_at_once as decode;
 /// Utilities to encode different kinds of packet lines
 pub mod encode;
-
-#[cfg(all(feature = "async-io", feature = "blocking-io"))]
-compile_error!("Cannot set both 'blocking-io' and 'async-io' features as they are mutually exclusive");

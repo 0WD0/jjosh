@@ -10,7 +10,12 @@ use std::{
 use bstr::{io::BufReadExt, BStr, BString, ByteSlice};
 
 use crate::{
-    client::{self, git, ssh, MessageKind, RequestWriter, SetServiceResponse, WriteMode},
+    client::{
+        self,
+        blocking_io::{ssh, RequestWriter, SetServiceResponse},
+        git::blocking_io::Connection,
+        MessageKind, WriteMode,
+    },
     Protocol, Service,
 };
 
@@ -45,7 +50,7 @@ pub struct SpawnProcessOnDemand {
     /// The environment variables to set in the invoked command.
     envs: Vec<(&'static str, String)>,
     ssh_disallow_shell: bool,
-    connection: Option<git::Connection<Box<dyn std::io::Read + Send>, process::ChildStdin>>,
+    connection: Option<Connection<Box<dyn std::io::Read + Send>, process::ChildStdin>>,
     child: Option<process::Child>,
     trace: bool,
 }
@@ -209,7 +214,7 @@ fn supervise_stderr(
     ReadStdoutFailOnError { read: stdout, recv }
 }
 
-impl client::Transport for SpawnProcessOnDemand {
+impl client::blocking_io::Transport for SpawnProcessOnDemand {
     fn handshake<'a>(
         &mut self,
         service: Service,
@@ -263,7 +268,7 @@ impl client::Transport for SpawnProcessOnDemand {
             )),
             None => Box::new(child.stdout.take().expect("stdout configured")),
         };
-        self.connection = Some(git::Connection::new_for_spawned_process(
+        self.connection = Some(Connection::new_for_spawned_process(
             stdout,
             child.stdin.take().expect("stdin configured"),
             self.desired_version,

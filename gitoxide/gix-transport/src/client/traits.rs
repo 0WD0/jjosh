@@ -6,8 +6,12 @@ use std::{
 
 use bstr::BStr;
 
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+use crate::client::async_io::RequestWriter;
+#[cfg(feature = "blocking-client")]
+use crate::client::blocking_io::RequestWriter;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
-use crate::client::{MessageKind, RequestWriter, WriteMode};
+use crate::client::{MessageKind, WriteMode};
 use crate::{client::Error, Protocol};
 
 /// This trait represents all transport related functions that don't require any input/output to be done which helps

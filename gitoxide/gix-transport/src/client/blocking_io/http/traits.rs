@@ -21,7 +21,7 @@ impl crate::IsSpuriousError for Error {
             #[cfg(any(feature = "http-client-reqwest", feature = "http-client-curl"))]
             Error::InitHttpClient { source } => {
                 #[cfg(feature = "http-client-curl")]
-                if let Some(err) = source.downcast_ref::<crate::client::http::curl::Error>() {
+                if let Some(err) = source.downcast_ref::<crate::client::blocking_io::http::curl::Error>() {
                     return err.is_spurious();
                 }
                 #[cfg(feature = "http-client-reqwest")]

@@ -1,6 +1,6 @@
 #[cfg(any(feature = "blocking-io", feature = "async-io"))]
 use crate::MAX_LINE_LEN;
-use crate::{PacketLineRef, StreamingPeekableIter, U16_HEX_BYTES};
+use crate::{PacketLineRef, StreamingPeekableIterState, U16_HEX_BYTES};
 
 /// Allow the read-progress handler to determine how to continue.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -23,8 +23,7 @@ mod error {
 
     use bstr::BString;
 
-    /// The error representing an ERR packet line, as possibly wrapped into an `std::io::Error` in
-    /// [`read_line(…)`][super::StreamingPeekableIter::read_line()].
+    /// The error representing an ERR packet line, as possibly wrapped into an `std::io::Error`.
     #[derive(Debug)]
     pub struct Error {
         /// The contents of the ERR line, with `ERR` portion stripped.
@@ -41,11 +40,12 @@ mod error {
 }
 pub use error::Error;
 
-impl<T> StreamingPeekableIter<T> {
+impl<T> StreamingPeekableIterState<T> {
     /// Return a new instance from `read` which will stop decoding packet lines when receiving one of the given `delimiters`.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
-    pub fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
-        StreamingPeekableIter {
+    #[cfg(any(feature = "blocking-io", feature = "async-io"))]
+    fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
+        Self {
             read,
             #[cfg(any(feature = "blocking-io", feature = "async-io"))]
             buf: vec![0; MAX_LINE_LEN],
@@ -75,7 +75,7 @@ impl<T> StreamingPeekableIter<T> {
     }
 
     /// Returns the packet line that stopped the iteration, or
-    /// `None` if the end wasn't reached yet, on EOF, or if [`fail_on_err_lines()`][StreamingPeekableIter::fail_on_err_lines()] was true.
+    /// `None` if the end wasn't reached yet, on EOF, or if [`fail_on_err_lines()`][StreamingPeekableIterState::fail_on_err_lines()] was true.
     pub fn stopped_at(&self) -> Option<PacketLineRef<'static>> {
         self.stopped_at
     }
@@ -88,7 +88,7 @@ impl<T> StreamingPeekableIter<T> {
         self.reset_with(delimiters);
     }
 
-    /// Similar to [`reset()`][StreamingPeekableIter::reset()] with support to changing the `delimiters`.
+    /// Similar to [`reset()`][StreamingPeekableIterState::reset()] with support to changing the `delimiters`.
     pub fn reset_with(&mut self, delimiters: &'static [PacketLineRef<'static>]) {
         self.delimiters = delimiters;
         self.is_done = false;
@@ -97,7 +97,7 @@ impl<T> StreamingPeekableIter<T> {
 
     /// If `value` is `true` the provider will check for special `ERR` packet lines and stop iteration when one is encountered.
     ///
-    /// Use [`stopped_at()]`[`StreamingPeekableIter::stopped_at()`] to inspect the cause of the end of the iteration.
+    /// Use [`stopped_at()]`[`StreamingPeekableIterState::stopped_at()`] to inspect the cause of the end of the iteration.
     /// ne
     pub fn fail_on_err_lines(&mut self, value: bool) {
         self.fail_on_err_lines = value;
@@ -110,19 +110,14 @@ impl<T> StreamingPeekableIter<T> {
         self.fail_on_err_lines = false;
         prev
     }
-
-    /// Return the inner read
-    pub fn into_inner(self) -> T {
-        self.read
-    }
 }
 
+/// Blocking IO support
 #[cfg(feature = "blocking-io")]
-mod blocking_io;
+pub mod blocking_io;
 
-#[cfg(all(not(feature = "blocking-io"), feature = "async-io"))]
-mod async_io;
+/// Async IO support
+#[cfg(feature = "async-io")]
+pub mod async_io;
 
 mod sidebands;
-#[cfg(any(feature = "blocking-io", feature = "async-io"))]
-pub use sidebands::WithSidebands;

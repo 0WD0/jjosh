@@ -4,7 +4,10 @@ use std::io::Write;
 use bstr::ByteSlice;
 #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
 use futures_lite::prelude::*;
-use gix_packetline::Writer;
+#[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
+use gix_packetline::write::async_io::Writer;
+#[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+use gix_packetline::write::blocking_io::Writer;
 
 const MAX_DATA_LEN: usize = 65516;
 const MAX_LINE_LEN: usize = 4 + MAX_DATA_LEN;
@@ -24,9 +27,10 @@ async fn each_write_results_in_one_line() -> crate::Result {
 #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
 async fn write_text_and_write_binary() -> crate::Result {
     let buf = {
-        let mut w = Writer::new(Vec::new()).text_mode();
+        let mut w = Writer::new(Vec::new());
+        w.enable_text_mode();
         w.write_all(b"hello").await?;
-        w = w.binary_mode();
+        w.enable_binary_mode();
         w.write(b"world").await?;
         w.into_inner()
     };

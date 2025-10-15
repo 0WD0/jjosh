@@ -90,7 +90,7 @@ impl<'a, T: ExtendedBufRead<'a> + ?Sized + 'a + Unpin> ExtendedBufRead<'a> for B
 
 #[async_trait(?Send)]
 impl<T: AsyncRead + Unpin> ReadlineBufRead
-    for gix_packetline::read::WithSidebands<'_, T, for<'b> fn(bool, &'b [u8]) -> ProgressAction>
+    for gix_packetline::read::async_io::WithSidebands<'_, T, for<'b> fn(bool, &'b [u8]) -> ProgressAction>
 {
     async fn readline(&mut self) -> Option<io::Result<Result<PacketLineRef<'_>, gix_packetline::decode::Error>>> {
         self.read_data_line().await
@@ -101,7 +101,9 @@ impl<T: AsyncRead + Unpin> ReadlineBufRead
 }
 
 #[async_trait(?Send)]
-impl<'a, T: AsyncRead + Unpin> ReadlineBufRead for gix_packetline::read::WithSidebands<'a, T, HandleProgress<'a>> {
+impl<'a, T: AsyncRead + Unpin> ReadlineBufRead
+    for gix_packetline::read::async_io::WithSidebands<'a, T, HandleProgress<'a>>
+{
     async fn readline(&mut self) -> Option<io::Result<Result<PacketLineRef<'_>, gix_packetline::decode::Error>>> {
         self.read_data_line().await
     }
@@ -111,7 +113,9 @@ impl<'a, T: AsyncRead + Unpin> ReadlineBufRead for gix_packetline::read::WithSid
 }
 
 #[async_trait(?Send)]
-impl<'a, T: AsyncRead + Unpin> ExtendedBufRead<'a> for gix_packetline::read::WithSidebands<'a, T, HandleProgress<'a>> {
+impl<'a, T: AsyncRead + Unpin> ExtendedBufRead<'a>
+    for gix_packetline::read::async_io::WithSidebands<'a, T, HandleProgress<'a>>
+{
     fn set_progress_handler(&mut self, handle_progress: Option<HandleProgress<'a>>) {
         self.set_progress_handler(handle_progress);
     }
