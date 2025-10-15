@@ -198,12 +198,14 @@ pub(crate) mod util {
 
     #[inline]
     pub fn read_u32(data: &[u8]) -> Option<(u32, &[u8])> {
-        split_at_pos(data, 4).map(|(num, data)| (u32::from_be_bytes(num.try_into().unwrap()), data))
+        data.split_at_checked(4)
+            .map(|(num, data)| (u32::from_be_bytes(num.try_into().unwrap()), data))
     }
 
     #[inline]
     pub fn read_u64(data: &[u8]) -> Option<(u64, &[u8])> {
-        split_at_pos(data, 8).map(|(num, data)| (u64::from_be_bytes(num.try_into().unwrap()), data))
+        data.split_at_checked(8)
+            .map(|(num, data)| (u64::from_be_bytes(num.try_into().unwrap()), data))
     }
 
     #[inline]
@@ -226,13 +228,5 @@ pub(crate) mod util {
                 }
             })
         })
-    }
-
-    #[inline]
-    pub fn split_at_pos(data: &[u8], pos: usize) -> Option<(&[u8], &[u8])> {
-        if data.len() < pos {
-            return None;
-        }
-        data.split_at(pos).into()
     }
 }
