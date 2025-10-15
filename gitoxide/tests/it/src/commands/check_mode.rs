@@ -7,8 +7,8 @@ pub(super) mod function {
 
     use anyhow::{bail, Context};
     use gix::bstr::ByteSlice;
-    use std::sync::LazyLock;
     use regex::bytes::Regex;
+    use std::sync::LazyLock;
 
     pub fn check_mode() -> anyhow::Result<()> {
         let root = find_root()?;

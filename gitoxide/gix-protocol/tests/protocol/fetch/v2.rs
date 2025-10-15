@@ -12,7 +12,7 @@ use crate::fetch::{
 async fn clone_abort_prep() -> crate::Result {
     let out = Vec::new();
     let mut dlg = CloneDelegate {
-        abort_with: Some(std::io::Error::new(std::io::ErrorKind::Other, "hello world")),
+        abort_with: Some(std::io::Error::other("hello world")),
         ..Default::default()
     };
     let mut transport = transport(
@@ -116,7 +116,7 @@ async fn ls_remote() -> crate::Result {
 async fn ls_remote_abort_in_prep_ls_refs() -> crate::Result {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate {
-        abort_with: Some(std::io::Error::new(std::io::ErrorKind::Other, "hello world")),
+        abort_with: Some(std::io::Error::other("hello world")),
         ..Default::default()
     };
     let mut transport = transport(

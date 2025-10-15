@@ -65,8 +65,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Writer<T> {
             match this.state {
                 State::Idle => {
                     if buf.is_empty() {
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::Other,
+                        return Poll::Ready(Err(io::Error::other(
                             "empty packet lines are not permitted as '0004' is invalid",
                         )));
                     }

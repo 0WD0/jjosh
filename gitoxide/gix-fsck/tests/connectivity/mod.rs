@@ -40,7 +40,7 @@ fn hex_to_objects<'a>(hex_ids: impl IntoIterator<Item = &'a str>, kind: Kind) ->
 
 // Get a `&Vec<ObjectID` for each commit in the test fixture repository
 fn all_commits() -> &'static [ObjectId] {
-    static ALL_COMMITS: Lazy<Vec<ObjectId>> = Lazy::new(|| {
+    static ALL_COMMITS: LazyLock<Vec<ObjectId>> = LazyLock::new(|| {
         hex_to_ids([
             "ebed23648b19484cb1f340c4ee04dda08479188a",
             "8ff6d0f8891c3cb22827be142cc64606121d47b3",

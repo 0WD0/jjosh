@@ -80,7 +80,7 @@ impl oid {
             20 => Ok(
                 #[allow(unsafe_code)]
                 unsafe {
-                    &*(digest as *const [u8] as *const oid)
+                    &*(std::ptr::from_ref::<[u8]>(digest) as *const oid)
                 },
             ),
             len => Err(Error::InvalidByteSliceLength(len)),
@@ -97,7 +97,7 @@ impl oid {
     pub(crate) fn from_bytes(value: &[u8]) -> &Self {
         #[allow(unsafe_code)]
         unsafe {
-            &*(value as *const [u8] as *const oid)
+            &*(std::ptr::from_ref::<[u8]>(value) as *const oid)
         }
     }
 }

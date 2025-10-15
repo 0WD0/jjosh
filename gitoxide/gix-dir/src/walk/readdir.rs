@@ -189,7 +189,7 @@ impl State {
     pub(super) fn may_collapse(&self, directory_to_traverse: &Path) -> bool {
         self.worktree_relative_current_dir
             .as_ref()
-            .map_or(true, |cwd| cwd != directory_to_traverse)
+            .is_none_or(|cwd| cwd != directory_to_traverse)
     }
 
     pub(super) fn emit_remaining(

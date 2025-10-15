@@ -667,7 +667,7 @@ fn estimate_involved_items(
 }
 
 fn needs_exact_match(percentage: Option<f32>) -> bool {
-    percentage.map_or(true, |p| p >= 1.0)
+    percentage.is_none_or(|p| p >= 1.0)
 }
 
 /// <`src_idx`, src, possibly diff stat>

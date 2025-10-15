@@ -22,8 +22,8 @@ pub use bstr;
 use bstr::ByteSlice;
 use io_close::Close;
 pub use is_ci;
-use std::sync::LazyLock;
 use parking_lot::Mutex;
+use std::sync::LazyLock;
 pub use tempfile;
 
 /// A result type to allow using the try operator `?` in unit tests.
@@ -120,7 +120,8 @@ static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 });
 
 /// The major, minor and patch level of the git version on the system.
-pub static GIT_VERSION: LazyLock<(u8, u8, u8)> = LazyLock::new(|| parse_git_version().expect("git version to be parsable"));
+pub static GIT_VERSION: LazyLock<(u8, u8, u8)> =
+    LazyLock::new(|| parse_git_version().expect("git version to be parsable"));
 
 /// Define how [`scripted_fixture_writable_with_args()`] uses produces the writable copy.
 pub enum Creation {

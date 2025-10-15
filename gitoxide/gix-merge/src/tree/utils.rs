@@ -484,7 +484,7 @@ impl TreeNodes {
     ) -> bool {
         conflict
             .change_idx()
-            .map_or(true, |idx| our_changes[idx].inner != *theirs)
+            .is_none_or(|idx| our_changes[idx].inner != *theirs)
     }
 
     pub fn remove_existing_leaf(&mut self, location: &BStr) {

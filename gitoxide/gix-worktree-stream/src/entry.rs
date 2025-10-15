@@ -141,7 +141,7 @@ impl std::io::Read for Entry<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let buf_len = buf.len();
         if let Some(err) = self.parent.err.lock().take() {
-            return Err(std::io::Error::new(ErrorKind::Other, err));
+            return Err(std::io::Error::other(err));
         }
         let bytes_read = match self.remaining.as_mut() {
             None => {

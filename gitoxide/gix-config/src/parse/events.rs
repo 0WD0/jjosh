@@ -313,7 +313,7 @@ fn from_bytes<'a, 'b>(
             .into();
         }
         event => {
-            if filter.map_or(true, |f| f(&event)) {
+            if filter.is_none_or(|f| f(&event)) {
                 events.push(convert(event));
             }
         }

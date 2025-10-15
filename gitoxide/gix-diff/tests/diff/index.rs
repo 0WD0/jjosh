@@ -52,7 +52,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
         let err = gix_diff::index(
             &lhs,
             &rhs,
-            |_change| Err(std::io::Error::new(std::io::ErrorKind::Other, "custom error")),
+            |_change| Err(std::io::Error::other("custom error")),
             None::<gix_diff::index::RewriteOptions<'_, gix_odb::Handle>>,
             &mut pathspec,
             &mut |_, _, _, _| true,
@@ -1340,10 +1340,7 @@ mod util {
         } else {
             let tree_id_path = root.join(tree).with_extension("tree");
             let hex_id = std::fs::read_to_string(&tree_id_path).map_err(|err| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Could not read '{}': {}", tree_id_path.display(), err),
-                )
+                std::io::Error::other(format!("Could not read '{}': {}", tree_id_path.display(), err))
             })?;
             let tree_id = gix_hash::ObjectId::from_hex(hex_id.trim().as_bytes())?;
             Ok(gix_index::State::from_tree(&tree_id, odb, Default::default())?)

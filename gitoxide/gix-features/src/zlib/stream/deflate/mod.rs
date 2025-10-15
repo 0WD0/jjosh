@@ -196,7 +196,7 @@ mod impls {
                 let status = self
                     .compressor
                     .compress(buf, &mut self.buf, flush)
-                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                    .map_err(io::Error::other)?;
 
                 let written = self.compressor.total_out() - last_total_out;
                 if written > 0 {

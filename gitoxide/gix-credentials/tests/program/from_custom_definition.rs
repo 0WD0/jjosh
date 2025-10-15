@@ -7,7 +7,7 @@ static GIT: std::sync::LazyLock<&'static str> = std::sync::LazyLock::new(|| {
         .expect("some `from_custom_definition` tests must be run where 'git' path is valid Unicode")
 });
 
-static SH: Lazy<&'static str> = Lazy::new(|| {
+static SH: LazyLock<&'static str> = LazyLock::new(|| {
     gix_path::env::shell()
         .to_str()
         .expect("some `from_custom_definition` tests must be run where 'sh' path is valid Unicode")

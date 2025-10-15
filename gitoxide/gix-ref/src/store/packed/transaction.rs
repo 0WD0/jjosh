@@ -87,7 +87,7 @@ impl packed::Transaction {
             })
             .filter(|edit| {
                 if let Change::Delete { .. } = edit.change {
-                    buffer.as_ref().map_or(true, |b| b.find(edit.name.as_ref()).is_ok())
+                    buffer.as_ref().is_none_or(|b| b.find(edit.name.as_ref()).is_ok())
                 } else {
                     true
                 }

@@ -226,7 +226,7 @@ mod context {
 mod prepare {
     use std::sync::LazyLock;
 
-    static SH: Lazy<&'static str> = Lazy::new(|| {
+    static SH: LazyLock<&'static str> = LazyLock::new(|| {
         gix_path::env::shell()
             .to_str()
             .expect("`prepare` tests must be run where 'sh' path is valid Unicode")

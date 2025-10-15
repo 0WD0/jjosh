@@ -483,8 +483,7 @@ struct HeadersThenBody<H: Http, B: Unpin> {
 impl<H: Http, B: Unpin> HeadersThenBody<H, B> {
     fn handle_headers(&mut self) -> std::io::Result<()> {
         if let Some(headers) = self.headers.take() {
-            <Transport<H>>::check_content_type(self.service, "result", headers)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+            <Transport<H>>::check_content_type(self.service, "result", headers).map_err(std::io::Error::other)?;
         }
         Ok(())
     }

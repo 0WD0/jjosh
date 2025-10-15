@@ -59,7 +59,7 @@ mod io {
         let (writer, mut reader) = io::pipe::unidirectional(1);
         writer
             .channel
-            .send(Err(std::io::Error::new(std::io::ErrorKind::Other, "the error")))
+            .send(Err(std::io::Error::other("the error")))
             .expect("send success");
         let mut buf = [0];
         assert_eq!(
@@ -70,7 +70,7 @@ mod io {
 
         writer
             .channel
-            .send(Err(std::io::Error::new(std::io::ErrorKind::Other, "the error")))
+            .send(Err(std::io::Error::other("the error")))
             .expect("send success");
         assert_eq!(
             reader.fill_buf().unwrap_err().to_string(),

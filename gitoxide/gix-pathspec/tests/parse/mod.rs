@@ -54,7 +54,7 @@ impl From<Pattern> for NormalizedPattern {
     }
 }
 
-static BASELINE: Lazy<HashMap<BString, usize>> = Lazy::new(|| {
+static BASELINE: LazyLock<HashMap<BString, usize>> = LazyLock::new(|| {
     let base = gix_testtools::scripted_fixture_read_only("parse_baseline.sh").unwrap();
 
     (|| -> crate::Result<_> {

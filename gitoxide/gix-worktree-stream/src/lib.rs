@@ -98,7 +98,7 @@ impl Stream {
             extra_entries: None,
             path_buf: Some(Vec::with_capacity(1024).into()),
             err: Default::default(),
-            buf: std::iter::repeat(0).take(u16::MAX as usize).collect(),
+            buf: std::iter::repeat_n(0, u16::MAX as usize).collect(),
             pos: 0,
             filled: 0,
         }
@@ -126,9 +126,7 @@ impl Stream {
     /// Note that the created entries will always have a null SHA1, and that we access this path
     /// to determine its type, and will access it again when it is requested.
     pub fn add_entry_from_path(&mut self, root: &Path, path: &Path) -> std::io::Result<&mut Self> {
-        let rela_path = path
-            .strip_prefix(root)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+        let rela_path = path.strip_prefix(root).map_err(std::io::Error::other)?;
         let meta = path.symlink_metadata()?;
         let relative_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).into_owned();
         let id = gix_hash::ObjectId::null(gix_hash::Kind::Sha1);
@@ -185,7 +183,7 @@ impl Stream {
                 extra_entries: Some(tx_entries),
                 path_buf: Some(Vec::with_capacity(1024).into()),
                 err: Default::default(),
-                buf: std::iter::repeat(0).take(u16::MAX as usize).collect(),
+                buf: std::iter::repeat_n(0, u16::MAX as usize).collect(),
                 pos: 0,
                 filled: 0,
             },

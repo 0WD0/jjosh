@@ -156,8 +156,8 @@ where
     // and keep the oldest one.
     let mut cutoff_date = None::<SecondsSinceUnixEpoch>;
     let mut num_mappings_with_change = 0;
-    let mut remote_ref_target_known: Vec<bool> = std::iter::repeat(false).take(ref_map.mappings.len()).collect();
-    let mut remote_ref_included: Vec<bool> = std::iter::repeat(false).take(ref_map.mappings.len()).collect();
+    let mut remote_ref_target_known: Vec<bool> = std::iter::repeat_n(false, ref_map.mappings.len()).collect();
+    let mut remote_ref_included: Vec<bool> = std::iter::repeat_n(false, ref_map.mappings.len()).collect();
 
     for (mapping_idx, mapping) in ref_map.mappings.iter().enumerate() {
         let want_id = mapping.remote.as_id();
@@ -171,7 +171,7 @@ where
         if !mapping_is_ignored(mapping) {
             remote_ref_included[mapping_idx] = true;
             // Like git, we don't let known unchanged mappings participate in the tree traversal
-            if want_id.zip(have_id).map_or(true, |(want, have)| want != have) {
+            if want_id.zip(have_id).is_none_or(|(want, have)| want != have) {
                 num_mappings_with_change += 1;
             }
         }

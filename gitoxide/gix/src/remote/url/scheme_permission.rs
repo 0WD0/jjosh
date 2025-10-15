@@ -92,7 +92,7 @@ impl SchemePermission {
         let user_allowed = saw_user.then(|| {
             config
                 .string_filter(gitoxide::Allow::PROTOCOL_FROM_USER, &mut filter)
-                .map_or(true, |val| val.as_ref() == "1")
+                .is_none_or(|val| val.as_ref() == "1")
         });
         Ok(SchemePermission {
             allow,

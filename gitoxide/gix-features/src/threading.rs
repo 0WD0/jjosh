@@ -7,7 +7,7 @@ mod _impl {
     use std::sync::Arc;
 
     /// A thread-safe cell which can be written to only once.
-    /// 
+    ///
     /// Note: We use `once_cell` here because `std::sync::OnceLock::get_or_try_init()` is not yet stable.
     /// Once it's stabilized, we can switch to `std::sync::OnceLock`.
     #[cfg(feature = "once_cell")]
@@ -65,7 +65,7 @@ mod _impl {
     };
 
     /// A thread-safe cell which can be written to only once.
-    /// 
+    ///
     /// Note: We use `once_cell` here because `std::cell::OnceCell::get_or_try_init()` is not yet stable.
     /// Once it's stabilized, we can switch to `std::cell::OnceCell`.
     #[cfg(feature = "once_cell")]

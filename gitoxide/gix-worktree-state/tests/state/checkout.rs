@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 
 use crate::fixture_path;
 
-static DRIVER: Lazy<PathBuf> = Lazy::new(|| {
+static DRIVER: LazyLock<PathBuf> = LazyLock::new(|| {
     let mut cargo = std::process::Command::new(env!("CARGO"));
     let res = cargo
         .args(["build", "-p=gix-filter", "--example", "arrow"])
@@ -686,7 +686,7 @@ fn probe_gitoxide_dir() -> crate::Result<gix_fs::Capabilities> {
 }
 
 fn opts_from_probe() -> gix_worktree_state::checkout::Options {
-    static CAPABILITIES: Lazy<gix_fs::Capabilities> = Lazy::new(|| probe_gitoxide_dir().unwrap());
+    static CAPABILITIES: LazyLock<gix_fs::Capabilities> = LazyLock::new(|| probe_gitoxide_dir().unwrap());
 
     gix_worktree_state::checkout::Options {
         fs: *CAPABILITIES,

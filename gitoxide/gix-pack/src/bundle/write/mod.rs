@@ -329,9 +329,8 @@ impl crate::Bundle {
                     if !index_path.is_file() {
                         index_file
                             .persist(&index_path)
-                            .map_err(|err| {
+                            .inspect_err(|_err| {
                                 gix_features::trace::warn!("pack file at \"{}\" is retained despite failing to move the index file into place. You can use plumbing to make it usable.",data_path.display());
-                                err
                             })?;
                     }
                     WriteOutcome {

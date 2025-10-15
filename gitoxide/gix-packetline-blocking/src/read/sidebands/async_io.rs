@@ -222,8 +222,7 @@ where
             "we don't support partial buffers right now - read-line must be used consistently"
         );
         let Self { buf, parent } = &mut *self;
-        let line = std::str::from_utf8(ready!(Pin::new(parent).poll_fill_buf(cx))?)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+        let line = std::str::from_utf8(ready!(Pin::new(parent).poll_fill_buf(cx))?).map_err(std::io::Error::other)?;
         buf.clear();
         buf.push_str(line);
         let bytes = line.len();
@@ -275,15 +274,13 @@ where
                             };
 
                             let line = match line {
-                                Some(line) => line?.map_err(|err| io::Error::new(io::ErrorKind::Other, err))?,
+                                Some(line) => line?.map_err(io::Error::other)?,
                                 None => break (0, 0),
                             };
 
                             match this.handle_progress.as_mut() {
                                 Some(handle_progress) => {
-                                    let band = line
-                                        .decode_band()
-                                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                                    let band = line.decode_band().map_err(io::Error::other)?;
                                     const ENCODED_BAND: usize = 1;
                                     match band {
                                         BandRef::Data(d) => {
@@ -297,10 +294,7 @@ where
                                             match handle_progress(false, text) {
                                                 ProgressAction::Continue => {}
                                                 ProgressAction::Interrupt => {
-                                                    return Poll::Ready(Err(io::Error::new(
-                                                        std::io::ErrorKind::Other,
-                                                        "interrupted by user",
-                                                    )))
+                                                    return Poll::Ready(Err(io::Error::other("interrupted by user")))
                                                 }
                                             }
                                         }
@@ -309,10 +303,7 @@ where
                                             match handle_progress(true, text) {
                                                 ProgressAction::Continue => {}
                                                 ProgressAction::Interrupt => {
-                                                    return Poll::Ready(Err(io::Error::new(
-                                                        io::ErrorKind::Other,
-                                                        "interrupted by user",
-                                                    )))
+                                                    return Poll::Ready(Err(io::Error::other("interrupted by user")))
                                                 }
                                             }
                                         }
@@ -322,8 +313,7 @@ where
                                     break match line.as_slice() {
                                         Some(d) => (U16_HEX_BYTES, d.len()),
                                         None => {
-                                            return Poll::Ready(Err(io::Error::new(
-                                                io::ErrorKind::UnexpectedEof,
+                                            return Poll::Ready(Err(io::Error::other(
                                                 "encountered non-data line in a data-line only context",
                                             )))
                                         }

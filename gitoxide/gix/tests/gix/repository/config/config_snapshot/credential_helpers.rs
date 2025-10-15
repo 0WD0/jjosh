@@ -16,7 +16,7 @@ mod baseline {
         pub helpers: Vec<BString>,
     }
 
-    static BASELINE: Lazy<HashMap<String, Helpers>> = Lazy::new(|| {
+    static BASELINE: LazyLock<HashMap<String, Helpers>> = LazyLock::new(|| {
         let base = remote::repo_path("credential-helpers");
 
         (|| -> crate::Result<_> {

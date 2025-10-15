@@ -60,7 +60,7 @@ impl Algorithm {
             while let Some((id, generation)) = queue.pop_value() {
                 if graph
                     .get(&id)
-                    .map_or(true, |commit| !commit.data.flags.contains(Flags::SEEN))
+                    .is_none_or(|commit| !commit.data.flags.contains(Flags::SEEN))
                 {
                     self.add_to_queue(id, Flags::SEEN, graph)?;
                 } else if matches!(ancestors, Ancestors::AllUnseen) || generation < 2 {
@@ -92,7 +92,7 @@ impl Negotiator for Algorithm {
     fn known_common(&mut self, id: ObjectId, graph: &mut crate::Graph<'_, '_>) -> Result<(), Error> {
         if graph
             .get(&id)
-            .map_or(true, |commit| !commit.data.flags.contains(Flags::SEEN))
+            .is_none_or(|commit| !commit.data.flags.contains(Flags::SEEN))
         {
             self.add_to_queue(id, Flags::COMMON_REF | Flags::SEEN, graph)?;
             self.mark_common(id, Mark::AncestorsOnly, Ancestors::DirectUnseen, graph)?;
@@ -126,7 +126,7 @@ impl Negotiator for Algorithm {
             for parent_id in commit.parents.clone() {
                 if graph
                     .get(&parent_id)
-                    .map_or(true, |commit| !commit.data.flags.contains(Flags::SEEN))
+                    .is_none_or(|commit| !commit.data.flags.contains(Flags::SEEN))
                 {
                     if let Err(err) = self.add_to_queue(parent_id, mark, graph) {
                         return Some(Err(err));

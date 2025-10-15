@@ -40,7 +40,7 @@ fn run_baseline() -> crate::Result {
         case_name,
         deviation,
     } in baseline::Expectations::new(&root, &cases)
-        .filter(|case| new_test.map_or(true, |prefix: &str| case.case_name.starts_with(prefix)))
+        .filter(|case| new_test.is_none_or(|prefix: &str| case.case_name.starts_with(prefix)))
     {
         actual_cases += 1;
         let mut graph = gix_revwalk::Graph::new(&odb, None);

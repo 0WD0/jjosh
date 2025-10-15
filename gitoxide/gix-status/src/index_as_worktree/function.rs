@@ -280,7 +280,7 @@ impl<'index> State<'_, 'index> {
                         .is_ok_and(|platform| platform.matching_attributes(out))
                 },
             )
-            .map_or(true, |m| m.is_excluded());
+            .is_none_or(|m| m.is_excluded());
 
         if is_excluded {
             self.skipped_by_pathspec.fetch_add(1, Ordering::Relaxed);

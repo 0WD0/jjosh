@@ -89,8 +89,8 @@ pub(crate) mod function {
                                 next = p.next();
                                 if !mode.contains(Mode::NO_MATCH_SLASH_LITERAL) {
                                     match_slash = true;
-                                } else if leading_slash_idx.map_or(true, |idx| pattern[idx] == SLASH)
-                                    && next.map_or(true, |(_, c)| {
+                                } else if leading_slash_idx.is_none_or(|idx| pattern[idx] == SLASH)
+                                    && next.is_none_or(|(_, c)| {
                                         c == SLASH || (c == BACKSLASH && p.peek().map(|t| t.1) == Some(SLASH))
                                     })
                                 {

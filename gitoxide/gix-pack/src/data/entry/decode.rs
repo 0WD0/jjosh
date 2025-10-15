@@ -82,12 +82,7 @@ impl data::Entry {
             TREE => Tree,
             COMMIT => Commit,
             TAG => Tag,
-            other => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Object type {other} is unsupported"),
-                ))
-            }
+            other => return Err(io::Error::other(format!("Object type {other} is unsupported"))),
         };
         Ok(data::Entry {
             header: object,

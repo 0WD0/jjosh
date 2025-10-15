@@ -124,7 +124,7 @@ pub(super) mod function {
                         };
                         let path = (!(is_http && pattern.path_is_root())).then_some(&pattern.path);
 
-                        if !path.map_or(true, |path| path == &url.path) {
+                        if path.is_some_and(|path| path != &url.path) {
                             return None;
                         }
                         if pattern.user().is_some() && pattern.user() != url.user() {

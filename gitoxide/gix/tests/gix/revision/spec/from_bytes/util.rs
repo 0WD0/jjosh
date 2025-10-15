@@ -7,7 +7,7 @@ use gix_revision::spec::Kind;
 use std::sync::LazyLock;
 
 const FIXTURE_NAME: &str = "make_rev_spec_parse_repos.sh";
-static BASELINE: Lazy<HashMap<PathBuf, HashMap<BString, Option<gix_revision::Spec>>>> = Lazy::new(|| {
+static BASELINE: LazyLock<HashMap<PathBuf, HashMap<BString, Option<gix_revision::Spec>>>> = LazyLock::new(|| {
     fn kind_of(spec: &BStr) -> gix_revision::spec::Kind {
         if spec.starts_with(b"^") {
             gix_revision::spec::Kind::IncludeReachable

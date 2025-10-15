@@ -96,9 +96,8 @@ fn section<'i>(
     dispatch: &mut dyn FnMut(Event<'i>),
 ) -> ModalResult<(), NomError<&'i [u8]>> {
     let start = i.checkpoint();
-    let header = section_header(i).map_err(|e| {
+    let header = section_header(i).inspect_err(|_err| {
         i.reset(&start);
-        e
     })?;
     dispatch(Event::SectionHeader(header));
 

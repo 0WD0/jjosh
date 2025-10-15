@@ -300,7 +300,7 @@ fn is_dot_ntfs(input: &BStr, search_case_insensitive: &str, ntfs_shortname_prefi
                 || b & 0x80 == 0x80
                 || ntfs_shortname_prefix
                     .get(pos)
-                    .map_or(true, |ob| !b.eq_ignore_ascii_case(ob))
+                    .is_none_or(|ob| !b.eq_ignore_ascii_case(ob))
             {
                 return false;
             }
