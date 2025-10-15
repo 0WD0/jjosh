@@ -12,7 +12,7 @@
 // Remove this once other hashes (e.g., SHA-256, and potentially others)
 // are supported, and this crate can build without [`ObjectId::Sha1`].
 #[cfg(not(feature = "sha1"))]
-compile_error!("The feature `sha1` feature is required.");
+compile_error!("Please set the `sha1` feature flag");
 
 #[path = "oid.rs"]
 mod borrowed;
