@@ -9,6 +9,11 @@
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg, doc_auto_cfg))]
 #![deny(missing_docs, rust_2018_idioms, unsafe_code)]
 
+// Remove this once other hashes (e.g., SHA-256, and potentially others)
+// are supported, and this crate can build without [`ObjectId::Sha1`].
+#[cfg(not(feature = "sha1"))]
+compile_error!("Please set the `sha1` feature flag");
+
 #[path = "oid.rs"]
 mod borrowed;
 pub use borrowed::{oid, Error};
