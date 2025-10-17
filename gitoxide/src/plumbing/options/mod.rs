@@ -912,6 +912,12 @@ pub mod commit {
             /// A specification of the revision to verify, or the current `HEAD` if unset.
             rev_spec: Option<String>,
         },
+        /// Sign a commit and print the signed commit's id to stdout. This command does not change
+        /// symbolic refs.
+        Sign {
+            /// A specification of the revision to sign, or the current `HEAD` if unset.
+            rev_spec: Option<String>,
+        },
         /// Describe the current commit or the given one using the name of the closest annotated tag in its ancestry.
         Describe {
             /// Use annotated tag references only, not all tags.
