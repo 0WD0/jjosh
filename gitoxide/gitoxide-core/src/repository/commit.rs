@@ -47,14 +47,18 @@ pub fn verify(repo: gix::Repository, rev_spec: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Note that this is a quick first prototype that lacks some of the features provided by `git
-/// verify-commit`.
+/// Note that this is a quick first prototype that lacks some of the features provided by `git verify-commit`.
 pub fn sign(repo: gix::Repository, rev_spec: Option<&str>, mut out: impl std::io::Write) -> Result<()> {
     let rev_spec = rev_spec.unwrap_or("HEAD");
     let object = repo
         .rev_parse_single(format!("{rev_spec}^{{commit}}").as_str())?
         .object()?;
     let mut commit_ref = object.to_commit_ref();
+    if commit_ref.extra_headers().pgp_signature().is_some() {
+        gix::trace::info!("The commit {id} is already signed, did nothing", id = object.id);
+        writeln!(out, "{id}", id = object.id)?;
+        return Ok(());
+    }
 
     let mut cmd: std::process::Command = gix::command::prepare("gpg").into();
     cmd.args([
@@ -66,6 +70,7 @@ pub fn sign(repo: gix::Repository, rev_spec: Option<&str>, mut out: impl std::io
     ])
     .stdin(Stdio::piped())
     .stdout(Stdio::piped());
+
     gix::trace::debug!("About to execute {cmd:?}");
     let mut child = cmd.spawn()?;
     child.stdin.take().expect("to be present").write_all(&object.data)?;
@@ -75,28 +80,13 @@ pub fn sign(repo: gix::Repository, rev_spec: Option<&str>, mut out: impl std::io
     }
 
     let mut signed_data = Vec::new();
-    child
-        .stdout
-        .take()
-        .expect("to be present")
-        .read_to_end(&mut signed_data)?;
-
-    let extra_header: Cow<'_, BStr> = Cow::Owned(BString::new(signed_data));
-
-    assert!(
-        !commit_ref
-            .extra_headers
-            .iter()
-            .any(|(header_name, _)| *header_name == BStr::new(SIGNATURE_FIELD_NAME)),
-        "Commit is already signed, doing nothing"
-    );
+    child.stdout.expect("to be present").read_to_end(&mut signed_data)?;
 
     commit_ref
         .extra_headers
-        .push((BStr::new(SIGNATURE_FIELD_NAME), extra_header));
+        .push((BStr::new(SIGNATURE_FIELD_NAME), Cow::Owned(BString::new(signed_data))));
 
     let signed_id = repo.write_object(&commit_ref)?;
-
     writeln!(&mut out, "{signed_id}")?;
 
     Ok(())
