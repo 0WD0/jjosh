@@ -7,7 +7,7 @@ use bstr::ByteSlice;
 use futures_io::AsyncRead;
 use futures_lite::AsyncReadExt;
 
-pub use super::sidebands::async_io::WithSidebands;
+pub use super::sidebands::WithSidebands;
 use crate::{
     decode,
     read::{ExhaustiveOutcome, ProgressAction},

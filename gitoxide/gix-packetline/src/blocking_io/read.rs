@@ -5,11 +5,11 @@ use std::{
 
 use bstr::ByteSlice;
 
-pub use super::sidebands::blocking_io::WithSidebands;
+pub use super::sidebands::WithSidebands;
 use crate::{
     decode,
-    read::{ExhaustiveOutcome, ProgressAction},
-    PacketLineRef, StreamingPeekableIterState, MAX_LINE_LEN, U16_HEX_BYTES,
+    read::{ExhaustiveOutcome, ProgressAction, StreamingPeekableIterState},
+    PacketLineRef, MAX_LINE_LEN, U16_HEX_BYTES,
 };
 
 /// Read pack lines one after another, without consuming more than needed from the underlying

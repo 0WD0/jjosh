@@ -6,9 +6,9 @@ use bstr::{BString, ByteSlice};
 use futures_lite::io::AsyncReadExt;
 use gix_odb::pack;
 #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
-use gix_packetline::read::async_io::StreamingPeekableIter;
+use gix_packetline::async_io::StreamingPeekableIter;
 #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
-use gix_packetline::read::blocking_io::StreamingPeekableIter;
+use gix_packetline::blocking_io::StreamingPeekableIter;
 use gix_packetline::{read::ProgressAction, PacketLineRef};
 
 use crate::read::streaming_peek_iter::fixture_bytes;

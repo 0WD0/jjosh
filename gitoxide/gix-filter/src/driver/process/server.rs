@@ -1,6 +1,7 @@
 use std::{collections::HashSet, io::Write, str::FromStr};
 
 use bstr::{BString, ByteSlice};
+use gix_packetline::blocking_io::{encode, StreamingPeekableIter, Writer};
 
 use crate::driver::process::Server;
 
@@ -63,7 +64,7 @@ impl Server {
         pick_version: &mut dyn FnMut(&[usize]) -> Option<usize>,
         available_capabilities: &[&str],
     ) -> Result<Self, handshake::Error> {
-        let mut input = gix_packetline::read::blocking_io::StreamingPeekableIter::new(
+        let mut input = StreamingPeekableIter::new(
             stdin.lock(),
             &[gix_packetline::PacketLineRef::Flush],
             false, /* packet tracing */
@@ -105,10 +106,10 @@ impl Server {
         }
         let version = pick_version(&versions).ok_or(handshake::Error::VersionMismatch { actual: versions })?;
         read.reset_with(&[gix_packetline::PacketLineRef::Flush]);
-        let mut out = gix_packetline::write::blocking_io::Writer::new(stdout.lock());
+        let mut out = Writer::new(stdout.lock());
         out.write_all(format!("{welcome_prefix}-server").as_bytes())?;
         out.write_all(format!("version={version}").as_bytes())?;
-        gix_packetline::encode::blocking_io::flush_to_write(out.inner_mut())?;
+        encode::flush_to_write(out.inner_mut())?;
         out.flush()?;
 
         let mut capabilities = HashSet::new();
@@ -132,7 +133,7 @@ impl Server {
         for cap in &capabilities {
             out.write_all(format!("capability={cap}").as_bytes())?;
         }
-        gix_packetline::encode::blocking_io::flush_to_write(out.inner_mut())?;
+        encode::flush_to_write(out.inner_mut())?;
         out.flush()?;
 
         drop(read);
@@ -209,6 +210,8 @@ impl Server {
 mod request {
     use std::io::Write;
 
+    use gix_packetline::blocking_io::{encode, Writer};
+
     use crate::driver::{
         process,
         process::{server::Request, PacketlineReader},
@@ -233,7 +236,7 @@ mod request {
             if let Some(message) = status.message() {
                 out.write_all(format!("status={message}").as_bytes())?;
             }
-            gix_packetline::encode::blocking_io::flush_to_write(out.inner_mut())?;
+            encode::flush_to_write(out.inner_mut())?;
             out.flush()
         }
     }
@@ -248,7 +251,7 @@ mod request {
     }
 
     struct WriteAndFlushOnDrop<'a> {
-        inner: &'a mut gix_packetline::write::blocking_io::Writer<std::io::StdoutLock<'static>>,
+        inner: &'a mut Writer<std::io::StdoutLock<'static>>,
     }
 
     impl std::io::Write for WriteAndFlushOnDrop<'_> {
@@ -263,7 +266,7 @@ mod request {
 
     impl Drop for WriteAndFlushOnDrop<'_> {
         fn drop(&mut self) {
-            gix_packetline::encode::blocking_io::flush_to_write(self.inner.inner_mut()).ok();
+            encode::flush_to_write(self.inner.inner_mut()).ok();
             self.inner.flush().ok();
         }
     }

@@ -5,9 +5,9 @@ use bstr::ByteSlice;
 #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
 use futures_lite::prelude::*;
 #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
-use gix_packetline::write::async_io::Writer;
+use gix_packetline::async_io::Writer;
 #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
-use gix_packetline::write::blocking_io::Writer;
+use gix_packetline::blocking_io::Writer;
 
 const MAX_DATA_LEN: usize = 65516;
 const MAX_LINE_LEN: usize = 4 + MAX_DATA_LEN;

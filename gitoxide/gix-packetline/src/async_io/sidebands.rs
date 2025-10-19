@@ -6,7 +6,7 @@ use std::{
 
 use futures_io::{AsyncBufRead, AsyncRead};
 
-use crate::read::async_io::StreamingPeekableIter;
+use super::read::StreamingPeekableIter;
 use crate::{decode, read::ProgressAction, BandRef, PacketLineRef, TextRef, U16_HEX_BYTES};
 
 type ReadLineResult<'a> = Option<std::io::Result<Result<PacketLineRef<'a>, decode::Error>>>;

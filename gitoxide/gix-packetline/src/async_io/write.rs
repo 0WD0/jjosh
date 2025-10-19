@@ -6,14 +6,15 @@ use std::{
 
 use futures_io::AsyncWrite;
 
-use crate::{encode, MAX_DATA_LEN, U16_HEX_BYTES};
+use super::encode::LineWriter;
+use crate::{MAX_DATA_LEN, U16_HEX_BYTES};
 
 pin_project_lite::pin_project! {
     /// An implementor of [`Write`][io::Write] which passes all input to an inner `Write` in packet line data encoding,
     /// one line per `write(…)` call or as many lines as it takes if the data doesn't fit into the maximum allowed line length.
     pub struct Writer<T> {
         #[pin]
-        inner: encode::async_io::LineWriter<'static, T>,
+        inner: LineWriter<'static, T>,
         state: State,
     }
 }
@@ -27,7 +28,7 @@ impl<T: AsyncWrite + Unpin> Writer<T> {
     /// Create a new instance from the given `write`
     pub fn new(write: T) -> Self {
         Writer {
-            inner: encode::async_io::LineWriter::new(write, &[], &[]),
+            inner: LineWriter::new(write, &[], &[]),
             state: State::Idle,
         }
     }

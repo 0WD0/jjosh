@@ -5,9 +5,9 @@ pub mod streaming_peek_iter {
 
     use bstr::ByteSlice;
     #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
-    use gix_packetline::read::async_io::StreamingPeekableIter;
+    use gix_packetline::async_io::StreamingPeekableIter;
     #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
-    use gix_packetline::read::blocking_io::StreamingPeekableIter;
+    use gix_packetline::blocking_io::StreamingPeekableIter;
     use gix_packetline::PacketLineRef;
 
     fn fixture_path(path: &str) -> PathBuf {

@@ -1,9 +1,7 @@
 use std::{io, io::BufRead};
 
-use crate::{
-    read::{blocking_io::StreamingPeekableIter, ProgressAction},
-    BandRef, PacketLineRef, TextRef, U16_HEX_BYTES,
-};
+use super::read::StreamingPeekableIter;
+use crate::{read::ProgressAction, BandRef, PacketLineRef, TextRef, U16_HEX_BYTES};
 
 /// An implementor of [`BufRead`][io::BufRead] yielding packet lines on each call to [`read_line()`][io::BufRead::read_line()].
 /// It's also possible to hide the underlying packet lines using the [`Read`][io::Read] implementation which is useful

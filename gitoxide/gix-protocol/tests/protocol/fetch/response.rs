@@ -1,8 +1,8 @@
 use crate::fetch::Cursor;
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-use gix_packetline::read::async_io::StreamingPeekableIter;
+use gix_packetline::async_io::StreamingPeekableIter;
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-use gix_packetline::read::blocking_io::StreamingPeekableIter;
+use gix_packetline::blocking_io::StreamingPeekableIter;
 
 fn mock_reader(path: &str) -> StreamingPeekableIter<Cursor> {
     use crate::fixture_bytes;

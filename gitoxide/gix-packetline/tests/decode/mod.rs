@@ -27,9 +27,9 @@ mod streaming {
 
         use crate::decode::streaming::assert_complete;
         #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
-        use gix_packetline::encode::async_io as encode_io;
+        use gix_packetline::async_io::encode as encode_io;
         #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
-        use gix_packetline::encode::blocking_io as encode_io;
+        use gix_packetline::blocking_io::encode as encode_io;
 
         #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
         async fn trailing_line_feeds_are_removed_explicitly() -> crate::Result {

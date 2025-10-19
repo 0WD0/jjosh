@@ -8,7 +8,6 @@ use std::{
 
 use base64::Engine;
 use bstr::BStr;
-use gix_packetline::PacketLineRef;
 pub use traits::{Error, GetResponse, Http, PostBodyDataKind, PostResponse};
 
 use crate::{
@@ -22,6 +21,7 @@ use crate::{
         },
         capabilities, Capabilities, MessageKind,
     },
+    packetline::{blocking_io::StreamingPeekableIter, PacketLineRef},
     Protocol, Service,
 };
 
@@ -230,7 +230,7 @@ pub struct Transport<H: Http> {
     actual_version: Protocol,
     http: H,
     service: Option<Service>,
-    line_provider: Option<gix_packetline::read::blocking_io::StreamingPeekableIter<H::ResponseBody>>,
+    line_provider: Option<StreamingPeekableIter<H::ResponseBody>>,
     identity: Option<gix_sec::identity::Account>,
     trace: bool,
 }
@@ -436,9 +436,9 @@ impl<H: Http> blocking_io::Transport for Transport<H> {
                 .get(url.as_ref(), &self.url, static_headers.iter().chain(&dynamic_headers))?;
         <Transport<H>>::check_content_type(service, "advertisement", headers)?;
 
-        let line_reader = self.line_provider.get_or_insert_with(|| {
-            gix_packetline::read::blocking_io::StreamingPeekableIter::new(body, &[PacketLineRef::Flush], self.trace)
-        });
+        let line_reader = self
+            .line_provider
+            .get_or_insert_with(|| StreamingPeekableIter::new(body, &[PacketLineRef::Flush], self.trace));
 
         // the service announcement is only sent sometimes depending on the exact server/protocol version/used protocol (http?)
         // eat the announcement when its there to avoid errors later (and check that the correct service was announced).

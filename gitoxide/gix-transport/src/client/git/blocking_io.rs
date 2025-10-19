@@ -1,7 +1,6 @@
 use std::{any::Any, borrow::Cow, error::Error, io::Write};
 
 use bstr::{BStr, BString, ByteVec};
-use gix_packetline::PacketLineRef;
 
 use crate::{
     client::{
@@ -10,6 +9,10 @@ use crate::{
         capabilities,
         git::{self, ConnectionState},
         Capabilities,
+    },
+    packetline::{
+        blocking_io::{StreamingPeekableIter, Writer},
+        PacketLineRef,
     },
     Protocol, Service,
 };
@@ -20,7 +23,7 @@ use crate::{
 /// context is passed using command line arguments to a [spawned `git` process][crate::client::file::SpawnProcessOnDemand].
 pub struct Connection<R, W> {
     pub(in crate::client) writer: W,
-    pub(in crate::client) line_provider: gix_packetline::read::blocking_io::StreamingPeekableIter<R>,
+    pub(in crate::client) line_provider: StreamingPeekableIter<R>,
     pub(in crate::client) state: ConnectionState,
 }
 
@@ -92,7 +95,7 @@ where
         extra_parameters: &'a [(&'a str, Option<&'a str>)],
     ) -> Result<SetServiceResponse<'_>, client::Error> {
         if self.state.mode == git::ConnectMode::Daemon {
-            let mut line_writer = gix_packetline::write::blocking_io::Writer::new(&mut self.writer);
+            let mut line_writer = Writer::new(&mut self.writer);
             line_writer.enable_binary_mode();
             line_writer.write_all(&git::message::connect(
                 service,
@@ -138,11 +141,7 @@ where
     ) -> Self {
         Connection {
             writer: write,
-            line_provider: gix_packetline::read::blocking_io::StreamingPeekableIter::new(
-                read,
-                &[PacketLineRef::Flush],
-                trace,
-            ),
+            line_provider: StreamingPeekableIter::new(read, &[PacketLineRef::Flush], trace),
             state: ConnectionState {
                 path: repository_path.into(),
                 virtual_host: virtual_host.map(|(h, p)| (h.into(), p)),

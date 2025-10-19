@@ -1,9 +1,9 @@
 use std::io;
 
-use super::u16_to_hex;
 use crate::{
-    encode::Error, BandRef, Channel, ErrorRef, PacketLineRef, TextRef, DELIMITER_LINE, ERR_PREFIX, FLUSH_LINE,
-    MAX_DATA_LEN, RESPONSE_END_LINE,
+    encode::{u16_to_hex, Error},
+    BandRef, Channel, ErrorRef, PacketLineRef, TextRef, DELIMITER_LINE, ERR_PREFIX, FLUSH_LINE, MAX_DATA_LEN,
+    RESPONSE_END_LINE,
 };
 
 /// Write a response-end message to `out`.

@@ -1,6 +1,6 @@
 #[cfg(any(feature = "blocking-io", feature = "async-io"))]
 use crate::MAX_LINE_LEN;
-use crate::{PacketLineRef, StreamingPeekableIterState, U16_HEX_BYTES};
+use crate::{PacketLineRef, U16_HEX_BYTES};
 
 /// Allow the read-progress handler to determine how to continue.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -12,7 +12,7 @@ pub enum ProgressAction {
 }
 
 #[cfg(any(feature = "blocking-io", feature = "async-io"))]
-type ExhaustiveOutcome<'a> = (
+pub(crate) type ExhaustiveOutcome<'a> = (
     bool,                                                                     // is_done
     Option<PacketLineRef<'static>>,                                           // stopped_at
     Option<std::io::Result<Result<PacketLineRef<'a>, crate::decode::Error>>>, // actual method result
@@ -40,11 +40,25 @@ mod error {
 }
 pub use error::Error;
 
+/// State for `StreamingPeekableIter` implementations.
+pub struct StreamingPeekableIterState<T> {
+    pub(crate) read: T,
+    pub(crate) peek_buf: Vec<u8>,
+    #[cfg(any(feature = "blocking-io", feature = "async-io"))]
+    pub(crate) buf: Vec<u8>,
+    pub(crate) fail_on_err_lines: bool,
+    pub(crate) delimiters: &'static [PacketLineRef<'static>],
+    pub(crate) is_done: bool,
+    pub(crate) stopped_at: Option<PacketLineRef<'static>>,
+    #[cfg_attr(all(not(feature = "async-io"), not(feature = "blocking-io")), allow(dead_code))]
+    pub(crate) trace: bool,
+}
+
 impl<T> StreamingPeekableIterState<T> {
     /// Return a new instance from `read` which will stop decoding packet lines when receiving one of the given `delimiters`.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
     #[cfg(any(feature = "blocking-io", feature = "async-io"))]
-    fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
+    pub(crate) fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
         Self {
             read,
             #[cfg(any(feature = "blocking-io", feature = "async-io"))]
@@ -111,13 +125,3 @@ impl<T> StreamingPeekableIterState<T> {
         prev
     }
 }
-
-/// Blocking IO support
-#[cfg(feature = "blocking-io")]
-pub mod blocking_io;
-
-/// Async IO support
-#[cfg(feature = "async-io")]
-pub mod async_io;
-
-mod sidebands;
