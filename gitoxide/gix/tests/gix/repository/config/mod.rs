@@ -27,7 +27,10 @@ mod ssh_options {
         let repo = repo("ssh-all-options");
         let opts = repo.ssh_connect_options()?;
         assert_eq!(opts.command.as_deref(), Some(OsStr::new("ssh -VVV")));
-        assert_eq!(opts.kind, Some(gix::protocol::transport::client::ssh::ProgramKind::Ssh));
+        assert_eq!(
+            opts.kind,
+            Some(gix::protocol::transport::client::blocking_io::ssh::ProgramKind::Ssh)
+        );
         assert!(!opts.disallow_shell, "we can use the shell by default");
         Ok(())
     }
@@ -39,7 +42,7 @@ mod ssh_options {
         assert_eq!(opts.command.as_deref(), Some(OsStr::new("ssh --fallback")));
         assert_eq!(
             opts.kind,
-            Some(gix::protocol::transport::client::ssh::ProgramKind::Putty)
+            Some(gix::protocol::transport::client::blocking_io::ssh::ProgramKind::Putty)
         );
         assert!(
             opts.disallow_shell,

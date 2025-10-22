@@ -2,7 +2,7 @@
 //!
 //! Generally, there is the following order of operations.
 //!
-//! * create a [`Transport`](gix_transport::client::Transport)
+//! * create a `Transport`, either blocking or async
 //! * perform a [`handshake()`]
 //! * execute a [`Command`]
 //!     - [list references](ls_refs())

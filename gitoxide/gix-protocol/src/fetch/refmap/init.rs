@@ -3,13 +3,16 @@ use std::collections::HashSet;
 use bstr::{BString, ByteVec};
 use gix_features::progress::Progress;
 
+#[cfg(feature = "async-client")]
+use crate::transport::client::async_io::Transport;
+#[cfg(feature = "blocking-client")]
+use crate::transport::client::blocking_io::Transport;
 use crate::{
     fetch,
     fetch::{
         refmap::{Mapping, Source, SpecIndex},
         RefMap,
     },
-    transport::client::Transport,
 };
 
 /// The error returned by [`RefMap::new()`].

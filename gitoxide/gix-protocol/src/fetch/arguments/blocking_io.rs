@@ -1,16 +1,19 @@
 use std::io::Write;
 
-use gix_transport::{client, client::TransportV2Ext};
+use gix_transport::client::{
+    self,
+    blocking_io::{ExtendedBufRead, Transport, TransportV2Ext},
+};
 
 use crate::{fetch::Arguments, Command};
 
 impl Arguments {
     /// Send fetch arguments to the server, and indicate this is the end of negotiations only if `add_done_argument` is present.
-    pub fn send<'a, T: client::Transport + 'a>(
+    pub fn send<'a, T: Transport + 'a>(
         &mut self,
         transport: &'a mut T,
         add_done_argument: bool,
-    ) -> Result<Box<dyn client::ExtendedBufRead<'a> + Unpin + 'a>, client::Error> {
+    ) -> Result<Box<dyn ExtendedBufRead<'a> + Unpin + 'a>, client::Error> {
         if self.haves.is_empty() {
             assert!(add_done_argument, "If there are no haves, is_done must be true.");
         }

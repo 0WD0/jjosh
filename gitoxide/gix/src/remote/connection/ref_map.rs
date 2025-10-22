@@ -1,5 +1,8 @@
 use gix_features::progress::Progress;
-use gix_protocol::transport::client::Transport;
+#[cfg(feature = "async-network-client")]
+use gix_transport::client::async_io::Transport;
+#[cfg(feature = "blocking-network-client")]
+use gix_transport::client::blocking_io::Transport;
 
 use crate::{
     bstr::BString,

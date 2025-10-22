@@ -2,11 +2,15 @@ use crate::{
     remote::{connection::AuthenticateFn, Connection},
     Remote,
 };
+#[cfg(feature = "async-network-client")]
+use gix_transport::client::async_io::Transport;
+#[cfg(feature = "blocking-network-client")]
+use gix_transport::client::blocking_io::Transport;
 
 /// Builder
 impl<'a, T> Connection<'a, '_, T>
 where
-    T: gix_transport::client::Transport,
+    T: Transport,
 {
     /// Set a custom credentials callback to provide credentials if the remotes require authentication.
     ///
@@ -43,7 +47,7 @@ where
 /// Mutation
 impl<'a, T> Connection<'a, '_, T>
 where
-    T: gix_transport::client::Transport,
+    T: Transport,
 {
     /// Like [`with_credentials()`](Self::with_credentials()), but without consuming the connection.
     pub fn set_credentials(
@@ -64,7 +68,7 @@ where
 /// Access
 impl<'repo, T> Connection<'_, 'repo, T>
 where
-    T: gix_transport::client::Transport,
+    T: Transport,
 {
     /// A utility to return a function that will use this repository's configuration to obtain credentials, similar to
     /// what `git credential` is doing.

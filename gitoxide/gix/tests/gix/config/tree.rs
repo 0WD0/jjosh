@@ -122,7 +122,7 @@ mod ssh {
     #[cfg(feature = "blocking-network-client")]
     fn variant() -> crate::Result {
         use gix::config::tree::Ssh;
-        use gix_protocol::transport::client::ssh::ProgramKind;
+        use gix_protocol::transport::client::blocking_io::ssh::ProgramKind;
 
         use crate::config::tree::bcow;
         for (actual, expected) in [
@@ -931,7 +931,7 @@ mod http {
 
     #[test]
     fn follow_redirects() -> crate::Result {
-        use gix_transport::client::http::options::FollowRedirects;
+        use gix_transport::client::blocking_io::http::options::FollowRedirects;
         assert_eq!(
             Http::FOLLOW_REDIRECTS.try_into_follow_redirects(bcow("initial"), || unreachable!("no call"))?,
             FollowRedirects::Initial
@@ -989,7 +989,7 @@ mod http {
 
     #[test]
     fn http_version() -> crate::Result {
-        use gix_transport::client::http::options::HttpVersion;
+        use gix_transport::client::blocking_io::http::options::HttpVersion;
 
         for (actual, expected) in [("HTTP/1.1", HttpVersion::V1_1), ("HTTP/2", HttpVersion::V2)] {
             assert_eq!(Http::VERSION.try_into_http_version(bcow(actual))?, expected);
@@ -1009,7 +1009,7 @@ mod http {
 
     #[test]
     fn ssl_version() -> crate::Result {
-        use gix_transport::client::http::options::SslVersion::*;
+        use gix_transport::client::blocking_io::http::options::SslVersion::*;
 
         for (actual, expected) in [
             ("default", Default),
@@ -1039,7 +1039,7 @@ mod http {
 
     #[test]
     fn proxy_auth_method() -> crate::Result {
-        use gix_transport::client::http::options::ProxyAuthMethod::*;
+        use gix_transport::client::blocking_io::http::options::ProxyAuthMethod::*;
         for (actual, expected) in [
             ("anyauth", AnyAuth),
             ("basic", Basic),

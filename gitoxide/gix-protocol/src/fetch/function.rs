@@ -5,6 +5,10 @@ use std::{
 
 use gix_features::progress::DynNestedProgress;
 
+#[cfg(feature = "async-client")]
+use crate::transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
+#[cfg(feature = "blocking-client")]
+use crate::transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
 use crate::{
     fetch::{
         negotiate, Arguments, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags,
@@ -56,7 +60,7 @@ pub async fn fetch<P, T, E>(
 where
     P: gix_features::progress::NestedProgress,
     P::SubProgress: 'static,
-    T: gix_transport::client::Transport,
+    T: Transport,
     E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
 {
     let _span = gix_trace::coarse!("gix_protocol::fetch()");
@@ -251,10 +255,9 @@ fn add_shallow_args(
 
 fn setup_remote_progress<'a>(
     progress: &mut dyn gix_features::progress::DynNestedProgress,
-    reader: &mut Box<dyn crate::transport::client::ExtendedBufRead<'a> + Unpin + 'a>,
+    reader: &mut Box<dyn ExtendedBufRead<'a> + Unpin + 'a>,
     should_interrupt: &'a AtomicBool,
 ) {
-    use crate::transport::client::ExtendedBufRead;
     reader.set_progress_handler(Some(Box::new({
         let mut remote_progress = progress.add_child_with_id("remote".to_string(), ProgressId::RemoteProgress.into());
         move |is_err: bool, data: &[u8]| {
@@ -265,5 +268,5 @@ fn setup_remote_progress<'a>(
                 ProgressAction::Continue
             }
         }
-    }) as crate::transport::client::HandleProgress<'a>));
+    }) as HandleProgress<'a>));
 }

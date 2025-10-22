@@ -1,4 +1,4 @@
-/// Configure how the [`RequestWriter`][crate::client::RequestWriter] behaves when writing bytes.
+/// Configure how a `RequestWriter` behaves when writing bytes.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WriteMode {
@@ -15,8 +15,9 @@ pub enum WriteMode {
     OneLfTerminatedLinePerWriteCall,
 }
 
-/// The kind of packet line to write when transforming a [`RequestWriter`][crate::client::RequestWriter] into an
-/// [`ExtendedBufRead`][crate::client::ExtendedBufRead].
+/// The kind of packet line to write when transforming a `RequestWriter` into an `ExtendedBufRead`.
+///
+/// Both the type and the trait have different implementations for blocking vs async I/O.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MessageKind {
@@ -44,7 +45,9 @@ pub(crate) mod connect {
         pub trace: bool,
     }
 
-    /// The error used in [`connect()`][crate::connect()].
+    /// The error used in `connect()`.
+    ///
+    /// (Both blocking and async I/O use the same error type.)
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {

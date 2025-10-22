@@ -41,7 +41,7 @@ const ENV_VARS_TO_REMOVE: &[&str] = &[
 
 /// A utility to spawn a helper process to actually transmit data, possibly over `ssh`.
 ///
-/// It can only be instantiated using the local [`connect()`] or [ssh connect][crate::client::ssh::connect()].
+/// It can only be instantiated using the local [`connect()`] or [ssh connect][super::ssh::connect()].
 pub struct SpawnProcessOnDemand {
     desired_version: Protocol,
     url: gix_url::Url,
