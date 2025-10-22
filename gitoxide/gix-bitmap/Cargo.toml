@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-bitmap"
-version = "0.2.14"
+version = "0.2.15"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dedicated implementing the standard git bitmap format"
