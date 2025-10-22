@@ -76,7 +76,7 @@ pub enum ArgumentSafety<'a> {
 
 /// A URL with support for specialized git related capabilities.
 ///
-/// Additionally there is support for [deserialization](Url::from_bytes()) and [serialization](Url::to_bstring()).
+/// Additionally, there is support for [deserialization](Url::from_bytes()) and [serialization](Url::to_bstring()).
 ///
 /// # Mutability Warning
 ///
@@ -87,15 +87,13 @@ pub enum ArgumentSafety<'a> {
 ///
 /// # Serialization
 ///
-/// This type does not implement `Into<String>` or `From<Url> for String` because URLs can contain
-/// non-UTF-8 sequences in the path component. Use [to_bstring()](Url::to_bstring()) for lossless
-/// serialization, or use the [`Display`](std::fmt::Display) trait for a UTF-8 representation that
-/// redacts passwords for safe logging.
+/// This type does not implement `Into<String>`, `From<Url> for String` because URLs
+/// can contain non-UTF-8 sequences in the path component when parsed from raw bytes.
+/// Use [to_bstring()](Url::to_bstring()) for lossless serialization, or use the [`Display`](std::fmt::Display)
+/// trait for a UTF-8 representation that redacts passwords for safe logging.
 ///
 /// When the `serde` feature is enabled, this type implements `serde::Serialize` and `serde::Deserialize`,
-/// which will serialize *all* fields including passwords. The password is never serialized through the
-/// `Display` trait or in any other context unless the `serde` feature is enabled and serde serialization
-/// is explicitly used.
+/// which will serialize *all* fields, including the password.
 ///
 /// # Security Warning
 ///
