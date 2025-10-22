@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-status"
-version = "0.20.0"
+version = "0.21.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing with 'git status'-like functionality"
@@ -20,18 +20,18 @@ doctest = false
 worktree-rewrites = ["dep:gix-dir", "dep:gix-diff"]
 
 [dependencies]
-gix-index = { version = "^0.41.0", path = "../gix-index" }
-gix-fs = { version = "^0.16.1", path = "../gix-fs" }
-gix-hash = { version = "^0.19.0", path = "../gix-hash" }
-gix-object = { version = "^0.50.2", path = "../gix-object" }
-gix-path = { version = "^0.10.20", path = "../gix-path" }
-gix-features = { version = "^0.43.1", path = "../gix-features", features = ["progress"] }
-gix-filter = { version = "^0.20.0", path = "../gix-filter" }
-gix-worktree = { version = "^0.42.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
-gix-pathspec = { version = "^0.12.0", path = "../gix-pathspec" }
+gix-index = { version = "^0.42.0", path = "../gix-index" }
+gix-fs = { version = "^0.17.0", path = "../gix-fs" }
+gix-hash = { version = "^0.20.0", path = "../gix-hash" }
+gix-object = { version = "^0.51.0", path = "../gix-object" }
+gix-path = { version = "^0.10.21", path = "../gix-path" }
+gix-features = { version = "^0.44.0", path = "../gix-features", features = ["progress"] }
+gix-filter = { version = "^0.21.0", path = "../gix-filter" }
+gix-worktree = { version = "^0.43.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
+gix-pathspec = { version = "^0.13.0", path = "../gix-pathspec" }
 
-gix-dir = { version = "^0.15.0", path = "../gix-dir", optional = true }
-gix-diff = { version = "^0.53.0", path = "../gix-diff", default-features = false, features = ["blob"], optional = true }
+gix-dir = { version = "^0.16.0", path = "../gix-dir", optional = true }
+gix-diff = { version = "^0.54.0", path = "../gix-diff", default-features = false, features = ["blob"], optional = true }
 
 thiserror = "2.0.17"
 filetime = "0.2.15"
