@@ -85,6 +85,18 @@ pub enum ArgumentSafety<'a> {
 /// parameters, but never be accepted as an instance of this type and then reconstructed, to maintain
 /// validity guarantees.
 ///
+/// # Serialization
+///
+/// This type does not implement `Into<String>` or `From<Url> for String` because URLs can contain
+/// non-UTF-8 sequences in the path component. Use [to_bstring()](Url::to_bstring()) for lossless
+/// serialization, or use the [`Display`](std::fmt::Display) trait for a UTF-8 representation that
+/// redacts passwords for safe logging.
+///
+/// When the `serde` feature is enabled, this type implements `serde::Serialize` and `serde::Deserialize`,
+/// which will serialize *all* fields including passwords. The password is never serialized through the
+/// `Display` trait or in any other context unless the `serde` feature is enabled and serde serialization
+/// is explicitly used.
+///
 /// # Security Warning
 ///
 /// URLs may contain passwords and using standard [formatting](std::fmt::Display) will redact
