@@ -3,7 +3,7 @@
     all(doc, feature = "document-features"),
     doc = ::document_features::document_features!()
 )]
-#![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
 #![deny(unsafe_code, missing_docs, rust_2018_idioms)]
 
 use std::{ops::Range, path::PathBuf};
