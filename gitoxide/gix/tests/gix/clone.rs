@@ -4,6 +4,10 @@ use crate::{remote, util::restricted};
 mod blocking_io {
     use std::{borrow::Cow, path::Path, sync::atomic::AtomicBool};
 
+    use crate::{
+        remote,
+        util::{hex_to_id, restricted},
+    };
     use gix::{
         bstr::BString,
         config::tree::{Clone, Core, Init, Key},
@@ -14,11 +18,7 @@ mod blocking_io {
     };
     use gix_object::bstr::ByteSlice;
     use gix_ref::TargetRef;
-
-    use crate::{
-        remote,
-        util::{hex_to_id, restricted},
-    };
+    use gix_refspec::parse::Operation;
 
     #[test]
     fn fetch_shallow_no_checkout_then_unshallow() -> crate::Result {
@@ -104,15 +104,14 @@ mod blocking_io {
 
         // The refspec should be for a single branch (main), not a wildcard
         let refspec_str = refspecs[0].to_str().expect("valid utf8");
-        assert!(
-            !refspec_str.contains("*"),
-            "shallow clone refspec should not use wildcard: {}",
-            refspec_str
-        );
-        assert!(
-            refspec_str.contains("refs/heads/main"),
-            "shallow clone refspec should reference the main branch: {}",
-            refspec_str
+        assert_eq!(
+            refspec_str,
+            if cfg!(windows) {
+                "+refs/heads/master:refs/remotes/origin/master"
+            } else {
+                "+refs/heads/main:refs/remotes/origin/main"
+            },
+            "shallow clone refspec should not use wildcard and should be the main branch: {refspec_str}"
         );
 
         Ok(())
@@ -238,7 +237,16 @@ mod blocking_io {
     fn from_non_shallow_by_deepen_exclude_then_deepen_to_unshallow() -> crate::Result {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let excluded_leaf_refs = ["g", "h", "j"];
+
         let (repo, _change) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
+            .with_fetch_options(gix::remote::ref_map::Options {
+                extra_refspecs: vec![gix::refspec::parse(
+                    "refs/heads/*:refs/remotes/origin/*".into(),
+                    Operation::Fetch,
+                )?
+                .into()],
+                ..Default::default()
+            })
             .with_shallow(Shallow::Exclude {
                 remote_refs: excluded_leaf_refs
                     .into_iter()

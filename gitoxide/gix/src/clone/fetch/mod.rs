@@ -2,6 +2,7 @@ use crate::{
     bstr::{BString, ByteSlice},
     clone::PrepareFetch,
 };
+use gix_ref::Category;
 
 /// The error returned by [`PrepareFetch::fetch_only()`].
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +50,8 @@ pub enum Error {
     CommitterOrFallback(#[from] crate::config::time::Error),
     #[error(transparent)]
     RefMap(#[from] crate::remote::ref_map::Error),
+    #[error(transparent)]
+    ReferenceName(#[from] gix_validate::reference::name::Error),
 }
 
 /// Modification
@@ -107,14 +110,13 @@ impl PrepareFetch {
         // For shallow clones without custom configuration, we'll use a single-branch refspec
         // to match git's behavior (matching git's single-branch behavior for shallow clones).
         let use_single_branch_for_shallow = self.shallow != remote::fetch::Shallow::NoChange
-            && self.configure_remote.is_none()
-            && remote.fetch_specs.is_empty();
+            && remote.fetch_specs.is_empty()
+            && self.fetch_options.extra_refspecs.is_empty();
 
         let target_ref = if use_single_branch_for_shallow {
             // Determine target branch from user-specified ref_name or default branch
             if let Some(ref_name) = &self.ref_name {
-                // User specified a branch, use that
-                Some(format!("refs/heads/{}", ref_name.as_ref().as_bstr()))
+                Some(Category::LocalBranch.to_full_name(ref_name.as_ref().as_bstr())?)
             } else {
                 // For shallow clones without a specified ref, we need to determine the default branch.
                 // We'll connect to get HEAD information. For Protocol V2, we need to explicitly list refs.
@@ -129,7 +131,7 @@ impl PrepareFetch {
                         refs.iter().find_map(|r| match r {
                             gix_protocol::handshake::Ref::Symbolic {
                                 full_ref_name, target, ..
-                            } if full_ref_name == "HEAD" => Some(target.to_string()),
+                            } if full_ref_name == "HEAD" => gix_ref::FullName::try_from(target).ok(),
                             _ => None,
                         })
                     })
@@ -143,9 +145,9 @@ impl PrepareFetch {
                         repo.config
                             .resolved
                             .string(crate::config::tree::Init::DEFAULT_BRANCH)
-                            .and_then(|name| name.to_str().ok().map(|s| format!("refs/heads/{}", s)))
+                            .and_then(|name| Category::LocalBranch.to_full_name(name.as_bstr()).ok())
                     })
-                    .unwrap_or_else(|| "refs/heads/main".to_string());
+                    .unwrap_or_else(|| gix_ref::FullName::try_from("refs/heads/main").expect("known to be valid"));
 
                 // Drop the connection explicitly to release the borrow on remote
                 drop(connection);
@@ -156,11 +158,12 @@ impl PrepareFetch {
             None
         };
 
-        // Set up refspec based on whether we're doing a single-branch shallow clone
+        // Set up refspec based on whether we're doing a single-branch shallow clone,
+        // which requires a single ref to match Git unless it's overridden.
         if remote.fetch_specs.is_empty() {
             if let Some(target_ref) = &target_ref {
                 // Single-branch refspec for shallow clones
-                let short_name = target_ref.strip_prefix("refs/heads/").unwrap_or(target_ref.as_str());
+                let short_name = target_ref.shorten();
                 remote = remote
                     .with_refspecs(
                         Some(format!("+{target_ref}:refs/remotes/{remote_name}/{short_name}").as_str()),

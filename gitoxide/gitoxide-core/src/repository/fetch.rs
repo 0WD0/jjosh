@@ -320,7 +320,7 @@ pub(crate) mod function {
                 err,
                 "server sent {} tips, {} were filtered due to {} refspec(s).",
                 map.remote_refs.len(),
-                map.remote_refs.len() - map.mappings.len(),
+                map.remote_refs.len().saturating_sub(map.mappings.len()),
                 refspecs.len()
             )?;
         }
