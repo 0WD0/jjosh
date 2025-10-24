@@ -12,7 +12,7 @@ pub enum ConnectMode {
 }
 
 /// Connection state shared between blocking and async connections.
-pub struct ConnectionState {
+pub(crate) struct ConnectionState {
     pub(in crate::client) path: BString,
     pub(in crate::client) virtual_host: Option<(String, Option<u16>)>,
     pub(in crate::client) desired_version: Protocol,

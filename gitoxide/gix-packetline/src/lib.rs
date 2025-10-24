@@ -36,9 +36,10 @@ pub mod blocking_io {
     pub use write::Writer;
 }
 
+/// Various utilities for `io::Read` trait implementation.
 ///
+/// Only useful in conjunction with the `async-io` and `blocking-io` cargo features.
 pub mod read;
-pub use read::{ProgressAction, StreamingPeekableIterState};
 
 const U16_HEX_BYTES: usize = 4;
 const MAX_DATA_LEN: usize = 65516;
@@ -48,7 +49,7 @@ const DELIMITER_LINE: &[u8] = b"0001";
 const RESPONSE_END_LINE: &[u8] = b"0002";
 const ERR_PREFIX: &[u8] = b"ERR ";
 
-/// One of three side-band types allowing to multiplex information over a single connection.
+/// One of three sideband types allowing to multiplex information over a single connection.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Channel {
@@ -75,29 +76,29 @@ pub enum PacketLineRef<'a> {
 }
 
 impl<'a> PacketLineRef<'a> {
-    /// Return this instance as slice if it's [`Data`][PacketLineRef::Data].
+    /// Return this instance as slice if it's [`Data`](PacketLineRef::Data).
     pub fn as_slice(&self) -> Option<&'a [u8]> {
         match self {
             PacketLineRef::Data(d) => Some(d),
             PacketLineRef::Flush | PacketLineRef::Delimiter | PacketLineRef::ResponseEnd => None,
         }
     }
-    /// Return this instance's [`as_slice()`][PacketLineRef::as_slice()] as [`BStr`].
+    /// Return this instance's [`as_slice()`](PacketLineRef::as_slice()) as [`BStr`].
     pub fn as_bstr(&self) -> Option<&'a BStr> {
         self.as_slice().map(Into::into)
     }
-    /// Interpret this instance's [`as_slice()`][PacketLineRef::as_slice()] as [`ErrorRef`].
+    /// Interpret this instance's [`as_slice()`](PacketLineRef::as_slice()) as [`ErrorRef`].
     ///
-    /// This works for any data received in an error [channel][crate::Channel].
+    /// This works for any data received in an error [channel](crate::Channel).
     ///
     /// Note that this creates an unchecked error using the slice verbatim, which is useful to serialize it.
-    /// See [`check_error()`][PacketLineRef::check_error()] for a version that assures the error information is in the expected format.
+    /// See [`check_error()`](PacketLineRef::check_error()) for a version that assures the error information is in the expected format.
     pub fn as_error(&self) -> Option<ErrorRef<'a>> {
         self.as_slice().map(ErrorRef)
     }
-    /// Check this instance's [`as_slice()`][PacketLineRef::as_slice()] is a valid [`ErrorRef`] and return it.
+    /// Check this instance's [`as_slice()`](PacketLineRef::as_slice()) is a valid [`ErrorRef`] and return it.
     ///
-    /// This works for any data received in an error [channel][crate::Channel].
+    /// This works for any data received in an error [channel](crate::Channel).
     pub fn check_error(&self) -> Option<ErrorRef<'a>> {
         self.as_slice().and_then(|data| {
             if data.len() >= ERR_PREFIX.len() && &data[..ERR_PREFIX.len()] == ERR_PREFIX {
@@ -112,10 +113,10 @@ impl<'a> PacketLineRef<'a> {
         self.as_slice().map(Into::into)
     }
 
-    /// Interpret the data in this [`slice`][PacketLineRef::as_slice()] as [`BandRef`] according to the given `kind` of channel.
+    /// Interpret the data in this [`slice`](PacketLineRef::as_slice()) as [`BandRef`] according to the given `kind` of channel.
     ///
-    /// Note that this is only relevant in a side-band channel.
-    /// See [`decode_band()`][PacketLineRef::decode_band()] in case `kind` is unknown.
+    /// Note that this is only relevant in a sideband channel.
+    /// See [`decode_band()`](PacketLineRef::decode_band()) in case `kind` is unknown.
     pub fn as_band(&self, kind: Channel) -> Option<BandRef<'a>> {
         self.as_slice().map(|d| match kind {
             Channel::Data => BandRef::Data(d),
@@ -124,7 +125,7 @@ impl<'a> PacketLineRef<'a> {
         })
     }
 
-    /// Decode the band of this [`slice`][PacketLineRef::as_slice()]
+    /// Decode the band of this [`slice`](PacketLineRef::as_slice())
     pub fn decode_band(&self) -> Result<BandRef<'a>, decode::band::Error> {
         let d = self.as_slice().ok_or(decode::band::Error::NonDataLine)?;
         Ok(match d[0] {
@@ -136,7 +137,7 @@ impl<'a> PacketLineRef<'a> {
     }
 }
 
-/// A packet line representing an Error in a side-band channel.
+/// A packet line representing an Error in a sideband channel.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ErrorRef<'a>(pub &'a [u8]);
@@ -164,7 +165,7 @@ impl<'a> From<&'a [u8]> for TextRef<'a> {
     }
 }
 
-/// A band in a side-band channel.
+/// A band in a sideband channel.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BandRef<'a> {
@@ -182,22 +183,4 @@ pub mod decode;
 pub use decode::all_at_once as decode;
 
 /// Utilities to encode different kinds of packet lines
-pub mod encode {
-    use super::MAX_DATA_LEN;
-
-    /// The error returned by most functions in the [`encode`][crate::encode] module
-    #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
-    pub enum Error {
-        #[error("Cannot encode more than {MAX_DATA_LEN} bytes, got {length_in_bytes}")]
-        DataLengthLimitExceeded { length_in_bytes: usize },
-        #[error("Empty lines are invalid")]
-        DataIsEmpty,
-    }
-
-    pub(crate) fn u16_to_hex(value: u16) -> [u8; 4] {
-        let mut buf = [0u8; 4];
-        faster_hex::hex_encode(&value.to_be_bytes(), &mut buf).expect("two bytes to 4 hex chars never fails");
-        buf
-    }
-}
+pub mod encode;

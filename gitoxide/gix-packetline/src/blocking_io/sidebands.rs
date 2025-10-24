@@ -21,7 +21,7 @@ where
     T: io::Read,
 {
     fn drop(&mut self) {
-        self.parent.state.reset();
+        self.parent.reset();
     }
 }
 
@@ -70,12 +70,12 @@ where
 
     /// Forwards to the parent [`crate::read::StreamingPeekableIterState::reset_with()`]
     pub fn reset_with(&mut self, delimiters: &'static [PacketLineRef<'static>]) {
-        self.parent.state.reset_with(delimiters);
+        self.parent.reset_with(delimiters);
     }
 
     /// Forwards to the parent [`StreamingPeekableIterState::stopped_at()`][crate::read::StreamingPeekableIterState::stopped_at()]
     pub fn stopped_at(&self) -> Option<PacketLineRef<'static>> {
-        self.parent.state.stopped_at
+        self.parent.stopped_at
     }
 
     /// Set or unset the progress handler.
@@ -187,7 +187,7 @@ where
             self.cap = cap + ofs;
             self.pos = ofs;
         }
-        Ok(&self.parent.state.buf[self.pos..self.cap])
+        Ok(&self.parent.buf[self.pos..self.cap])
     }
 
     fn consume(&mut self, amt: usize) {

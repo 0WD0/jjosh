@@ -22,8 +22,7 @@ use crate::{
 
 /// A TCP connection to either a `git` daemon or a spawned `git` process.
 ///
-/// When connecting to a daemon, additional context information is sent with the first line of the handshake. Otherwise that
-/// context is passed using command line arguments to a [spawned `git` process][crate::client::file::SpawnProcessOnDemand].
+/// When connecting to a daemon, additional context information is sent with the first line of the handshake.
 pub struct Connection<R, W> {
     pub(in crate::client) writer: W,
     pub(in crate::client) line_provider: StreamingPeekableIter<R>,

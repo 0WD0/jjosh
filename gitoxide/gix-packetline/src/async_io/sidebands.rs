@@ -10,8 +10,8 @@ use super::read::StreamingPeekableIter;
 use crate::{decode, read::ProgressAction, BandRef, PacketLineRef, TextRef, U16_HEX_BYTES};
 
 type ReadLineResult<'a> = Option<std::io::Result<Result<PacketLineRef<'a>, decode::Error>>>;
-/// An implementor of [`AsyncBufRead`] yielding packet lines on each call to [`read_line()`][AsyncBufRead::read_line()].
-/// It's also possible to hide the underlying packet lines using the [`Read`][AsyncRead] implementation which is useful
+/// An implementor of [`AsyncBufRead`] yielding packet lines on each call to `read_line()`.
+/// It's also possible to hide the underlying packet lines using the [`Read`](AsyncRead) implementation which is useful
 /// if they represent binary data, like the one of a pack file.
 pub struct WithSidebands<'a, T, F>
 where
@@ -32,7 +32,6 @@ where
             parent
                 .as_mut()
                 .expect("parent is always available if we are idle")
-                .state
                 .reset();
         }
     }
@@ -101,25 +100,23 @@ where
         }
     }
 
-    /// Forwards to the parent [`StreamingPeekableIter::reset_with()`]
+    /// Forwards to the parent [`StreamingPeekableIter::reset_with()`](crate::read::StreamingPeekableIterState::reset_with()).
     pub fn reset_with(&mut self, delimiters: &'static [PacketLineRef<'static>]) {
         if let State::Idle { ref mut parent } = self.state {
             parent
                 .as_mut()
                 .expect("parent is always available if we are idle")
-                .state
                 .reset_with(delimiters);
         }
     }
 
-    /// Forwards to the parent [`StreamingPeekableIter::stopped_at()`]
+    /// Forwards to the parent [`StreamingPeekableIterState::stopped_at()`](crate::read::StreamingPeekableIterState::stopped_at()).
     pub fn stopped_at(&self) -> Option<PacketLineRef<'static>> {
         match self.state {
             State::Idle { ref parent } => {
                 parent
                     .as_ref()
                     .expect("parent is always available if we are idle")
-                    .state
                     .stopped_at
             }
             _ => None,
@@ -132,7 +129,7 @@ where
     }
 
     /// Effectively forwards to the parent [`StreamingPeekableIter::peek_line()`], allowing to see what would be returned
-    /// next on a call to [`read_line()`][io::BufRead::read_line()].
+    /// next on a call to `read_line()`.
     ///
     /// # Warning
     ///
@@ -331,9 +328,7 @@ where
         }
         let range = self.pos..self.cap;
         match &self.get_mut().state {
-            State::Idle { parent } => {
-                Poll::Ready(Ok(&parent.as_ref().expect("parent always available").state.buf[range]))
-            }
+            State::Idle { parent } => Poll::Ready(Ok(&parent.as_ref().expect("parent always available").buf[range])),
             State::ReadLine { .. } => unreachable!("at least in theory"),
         }
     }

@@ -10,12 +10,12 @@ use futures_lite::AsyncReadExt;
 pub use super::sidebands::WithSidebands;
 use crate::{
     decode,
-    read::{ExhaustiveOutcome, ProgressAction},
-    PacketLineRef, StreamingPeekableIterState, MAX_LINE_LEN, U16_HEX_BYTES,
+    read::{ExhaustiveOutcome, ProgressAction, StreamingPeekableIterState},
+    PacketLineRef, MAX_LINE_LEN, U16_HEX_BYTES,
 };
 
 /// Read pack lines one after another, without consuming more than needed from the underlying
-/// [`AsyncRead`]. [`Flush`][PacketLineRef::Flush] lines cause the reader to stop producing lines forever,
+/// [`AsyncRead`]. [`Flush`](PacketLineRef::Flush) lines cause the reader to stop producing lines forever,
 /// leaving [`AsyncRead`] at the start of whatever comes next.
 ///
 /// This implementation tries hard not to allocate at all which leads to quite some added complexity and plenty of extra memory copies.
@@ -36,7 +36,6 @@ where
         }
     }
 
-    #[allow(clippy::needless_lifetimes)] // TODO: remove once this is clippy false positive is fixed
     async fn read_line_inner<'a>(
         reader: &mut T,
         buf: &'a mut [u8],
@@ -127,33 +126,32 @@ where
     /// Returns `None` if the end of iteration is reached because of one of the following:
     ///
     ///  * natural EOF
-    ///  * ERR packet line encountered if [`fail_on_err_lines()`][StreamingPeekableIter::fail_on_err_lines()] is true.
+    ///  * ERR packet line encountered if [`fail_on_err_lines()`](StreamingPeekableIterState::fail_on_err_lines()) is true.
     ///  * A `delimiter` packet line encountered
     pub async fn read_line(&mut self) -> Option<io::Result<Result<PacketLineRef<'_>, decode::Error>>> {
-        if self.state.is_done {
+        let state = &mut self.state;
+        if state.is_done {
             return None;
         }
-        if !self.state.peek_buf.is_empty() {
-            std::mem::swap(&mut self.state.peek_buf, &mut self.state.buf);
-            self.state.peek_buf.clear();
-            Some(Ok(Ok(
-                crate::decode(&self.state.buf).expect("only valid data in peek buf")
-            )))
+        if !state.peek_buf.is_empty() {
+            std::mem::swap(&mut state.peek_buf, &mut state.buf);
+            state.peek_buf.clear();
+            Some(Ok(Ok(crate::decode(&state.buf).expect("only valid data in peek buf"))))
         } else {
-            if self.state.buf.len() != MAX_LINE_LEN {
-                self.state.buf.resize(MAX_LINE_LEN, 0);
+            if state.buf.len() != MAX_LINE_LEN {
+                state.buf.resize(MAX_LINE_LEN, 0);
             }
             let (is_done, stopped_at, res) = Self::read_line_inner_exhaustive(
-                &mut self.state.read,
-                &mut self.state.buf,
-                self.state.delimiters,
-                self.state.fail_on_err_lines,
+                &mut state.read,
+                &mut state.buf,
+                state.delimiters,
+                state.fail_on_err_lines,
                 false,
-                self.state.trace,
+                state.trace,
             )
             .await;
-            self.state.is_done = is_done;
-            self.state.stopped_at = stopped_at;
+            state.is_done = is_done;
+            state.stopped_at = stopped_at;
             res
         }
     }
@@ -163,31 +161,30 @@ where
     ///
     /// Multiple calls to peek will return the same packet line, if there is one.
     pub async fn peek_line(&mut self) -> Option<io::Result<Result<PacketLineRef<'_>, decode::Error>>> {
-        if self.state.is_done {
+        let state = &mut self.state;
+        if state.is_done {
             return None;
         }
-        if self.state.peek_buf.is_empty() {
-            self.state.peek_buf.resize(MAX_LINE_LEN, 0);
+        if state.peek_buf.is_empty() {
+            state.peek_buf.resize(MAX_LINE_LEN, 0);
             let (is_done, stopped_at, res) = Self::read_line_inner_exhaustive(
-                &mut self.state.read,
-                &mut self.state.peek_buf,
-                self.state.delimiters,
-                self.state.fail_on_err_lines,
+                &mut state.read,
+                &mut state.peek_buf,
+                state.delimiters,
+                state.fail_on_err_lines,
                 true,
-                self.state.trace,
+                state.trace,
             )
             .await;
-            self.state.is_done = is_done;
-            self.state.stopped_at = stopped_at;
+            state.is_done = is_done;
+            state.stopped_at = stopped_at;
             res
         } else {
-            Some(Ok(Ok(
-                crate::decode(&self.state.peek_buf).expect("only valid data here")
-            )))
+            Some(Ok(Ok(crate::decode(&state.peek_buf).expect("only valid data here"))))
         }
     }
 
-    /// Same as [`as_read_with_sidebands(…)`][StreamingPeekableIter::as_read_with_sidebands()], but for channels without side band support.
+    /// Same as [`as_read_with_sidebands(…)`](StreamingPeekableIter::as_read_with_sidebands()), but for channels without side band support.
     ///
     /// Due to the preconfigured function type this method can be called without 'turbofish'.
     #[allow(clippy::type_complexity)]
@@ -195,13 +192,13 @@ where
         WithSidebands::new(self)
     }
 
-    /// Return this instance as implementor of [`Read`][io::Read] assuming side bands to be used in all received packet lines.
-    /// Each invocation of [`read_line()`][io::BufRead::read_line()] returns a packet line.
+    /// Return this instance as implementor of [`Read`](io::Read) assuming sidebands to be used in all received packet lines.
+    /// Each invocation of [`read_line()`](io::BufRead::read_line()) returns a packet line.
     ///
     /// Progress or error information will be passed to the given `handle_progress(is_error, text)` function, with `is_error: bool`
     /// being true in case the `text` is to be interpreted as error.
     ///
-    /// _Please note_ that side bands need to be negotiated with the server.
+    /// _Please note_ that sidebands need to be negotiated with the server.
     pub fn as_read_with_sidebands<F: FnMut(bool, &[u8]) -> ProgressAction + Unpin>(
         &mut self,
         handle_progress: F,
@@ -209,10 +206,10 @@ where
         WithSidebands::with_progress_handler(self, handle_progress)
     }
 
-    /// Same as [`as_read_with_sidebands(…)`][StreamingPeekableIter::as_read_with_sidebands()], but for channels without side band support.
+    /// Same as [`as_read_with_sidebands(…)`](StreamingPeekableIter::as_read_with_sidebands()), but for channels without side band support.
     ///
     /// The type parameter `F` needs to be configured for this method to be callable using the 'turbofish' operator.
-    /// Use [`as_read()`][StreamingPeekableIter::as_read()].
+    /// Use [`as_read()`](StreamingPeekableIter::as_read()).
     pub fn as_read_without_sidebands<F: FnMut(bool, &[u8]) -> ProgressAction + Unpin>(
         &mut self,
     ) -> WithSidebands<'_, T, F> {
