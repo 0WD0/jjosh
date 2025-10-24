@@ -1,4 +1,8 @@
 use bstr::ByteSlice;
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+use gix_packetline::async_io::{encode, StreamingPeekableIter};
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use gix_packetline::blocking_io::{encode, StreamingPeekableIter};
 use gix_transport::client::Capabilities;
 
 #[test]
@@ -53,9 +57,8 @@ fn from_bytes() -> crate::Result {
 #[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
 async fn from_lines_with_version_detection_v0() -> crate::Result {
     let mut buf = Vec::<u8>::new();
-    gix_packetline::encode::flush_to_write(&mut buf).await?;
-    let mut stream =
-        gix_packetline::StreamingPeekableIter::new(buf.as_slice(), &[gix_packetline::PacketLineRef::Flush], false);
+    encode::flush_to_write(&mut buf).await?;
+    let mut stream = StreamingPeekableIter::new(buf.as_slice(), &[gix_packetline::PacketLineRef::Flush], false);
     let caps = Capabilities::from_lines_with_version_detection(&mut stream)
         .await
         .expect("we can parse V0 as very special case, useful for testing stateful connections in other crates")

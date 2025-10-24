@@ -3,7 +3,10 @@ use std::{io::Write, ops::DerefMut};
 use bstr::BString;
 
 use crate::{
-    client::{Capabilities, Error, ExtendedBufRead, MessageKind, TransportWithoutIO, WriteMode},
+    client::{
+        blocking_io::{ExtendedBufRead, ReadlineBufRead},
+        Capabilities, Error, MessageKind, TransportWithoutIO, WriteMode,
+    },
     Protocol, Service,
 };
 
@@ -14,7 +17,7 @@ pub struct SetServiceResponse<'a> {
     /// The capabilities parsed from the server response.
     pub capabilities: Capabilities,
     /// In protocol version one, this is set to a list of refs and their peeled counterparts.
-    pub refs: Option<Box<dyn crate::client::ReadlineBufRead + 'a>>,
+    pub refs: Option<Box<dyn ReadlineBufRead + 'a>>,
 }
 
 /// All methods provided here must be called in the correct order according to the [communication protocol][Protocol]

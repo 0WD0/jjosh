@@ -1,6 +1,6 @@
-use crate::MAX_DATA_LEN;
+use super::MAX_DATA_LEN;
 
-/// The error returned by most functions in the [`encode`][crate::encode] module
+/// The error returned by most functions in the [`encode`](crate::encode) module
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
@@ -9,16 +9,6 @@ pub enum Error {
     #[error("Empty lines are invalid")]
     DataIsEmpty,
 }
-
-#[cfg(all(not(feature = "blocking-io"), feature = "async-io"))]
-mod async_io;
-#[cfg(all(not(feature = "blocking-io"), feature = "async-io"))]
-pub use async_io::*;
-
-#[cfg(feature = "blocking-io")]
-mod blocking_io;
-#[cfg(feature = "blocking-io")]
-pub use blocking_io::*;
 
 pub(crate) fn u16_to_hex(value: u16) -> [u8; 4] {
     let mut buf = [0u8; 4];

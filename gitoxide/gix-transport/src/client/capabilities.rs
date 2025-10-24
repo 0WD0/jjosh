@@ -22,7 +22,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
-/// A structure to represent multiple [capabilities][Capability] or features supported by the server.
+/// A structure to represent multiple [capabilities](Capability) or features supported by the server.
 ///
 /// ### Deviation
 ///
@@ -63,15 +63,15 @@ impl<'a> Capability<'a> {
     /// Returns the value associated with the capability.
     ///
     /// Note that the caller must know whether a single or multiple values are expected, in which
-    /// case [`values()`][Capability::values()] should be called.
+    /// case [`values()`](Capability::values()) should be called.
     pub fn value(&self) -> Option<&'a BStr> {
         self.0.splitn(2, |b| *b == b'=').nth(1).map(ByteSlice::as_bstr)
     }
-    /// Returns the values of a capability if its [`value()`][Capability::value()] is space separated.
+    /// Returns the values of a capability if its [`value()`](Capability::value()) is space separated.
     pub fn values(&self) -> Option<impl Iterator<Item = &'a BStr>> {
         self.value().map(|v| v.split(|b| *b == b' ').map(ByteSlice::as_bstr))
     }
-    /// Returns true if its space-separated [`value()`][Capability::value()] contains the given `want`ed capability.
+    /// Returns true if its space-separated [`value()`](Capability::value()) contains the given `want`ed capability.
     pub fn supports(&self, want: impl Into<&'a BStr>) -> Option<bool> {
         let want = want.into();
         self.values().map(|mut iter| iter.any(|v| v == want))
@@ -172,7 +172,11 @@ pub mod recv {
 
     use bstr::ByteVec;
 
-    use crate::{client, client::Capabilities, Protocol};
+    use crate::{
+        client::{self, blocking_io::ReadlineBufRead, Capabilities},
+        packetline::blocking_io::StreamingPeekableIter,
+        Protocol,
+    };
 
     /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
@@ -182,7 +186,7 @@ pub mod recv {
         ///
         /// This is `Some` only when protocol v1 is used. The [`io::BufRead`] must be exhausted by
         /// the caller.
-        pub refs: Option<Box<dyn crate::client::ReadlineBufRead + 'a>>,
+        pub refs: Option<Box<dyn ReadlineBufRead + 'a>>,
         /// The [`Protocol`] the remote advertised.
         pub protocol: Protocol,
     }
@@ -193,7 +197,7 @@ pub mod recv {
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
         /// advertisement will also be included in the [`Outcome`].
         pub fn from_lines_with_version_detection<T: io::Read>(
-            rd: &mut gix_packetline::StreamingPeekableIter<T>,
+            rd: &mut StreamingPeekableIter<T>,
         ) -> Result<Outcome<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.
@@ -249,14 +253,18 @@ pub mod recv {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 #[allow(missing_docs)]
 ///
 pub mod recv {
     use bstr::ByteVec;
     use futures_io::AsyncRead;
 
-    use crate::{client, client::Capabilities, Protocol};
+    use crate::{
+        client::{self, async_io::ReadlineBufRead, Capabilities},
+        packetline::async_io::StreamingPeekableIter,
+        Protocol,
+    };
 
     /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
@@ -264,9 +272,9 @@ pub mod recv {
         pub capabilities: Capabilities,
         /// The remote refs as an [`AsyncBufRead`].
         ///
-        /// This is `Some` only when protocol v1 is used. The [`AsyncBufRead`] must be exhausted by
+        /// This is `Some` only when protocol v1 is used. The [`AsyncRead`] must be exhausted by
         /// the caller.
-        pub refs: Option<Box<dyn crate::client::ReadlineBufRead + Unpin + 'a>>,
+        pub refs: Option<Box<dyn ReadlineBufRead + Unpin + 'a>>,
         /// The [`Protocol`] the remote advertised.
         pub protocol: Protocol,
     }
@@ -277,7 +285,7 @@ pub mod recv {
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
         /// advertisement will also be included in the [`Outcome`].
         pub async fn from_lines_with_version_detection<T: AsyncRead + Unpin>(
-            rd: &mut gix_packetline::StreamingPeekableIter<T>,
+            rd: &mut StreamingPeekableIter<T>,
         ) -> Result<Outcome<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.

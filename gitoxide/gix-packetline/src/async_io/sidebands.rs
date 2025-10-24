@@ -1,5 +1,3 @@
-// DO NOT EDIT - this is a copy of gix-packetline/src/read/sidebands/async_io.rs. Run `just copy-packetline` to update it.
-
 use std::{
     future::Future,
     pin::Pin,
@@ -8,11 +6,12 @@ use std::{
 
 use futures_io::{AsyncBufRead, AsyncRead};
 
-use crate::{decode, read::ProgressAction, BandRef, PacketLineRef, StreamingPeekableIter, TextRef, U16_HEX_BYTES};
+use super::read::StreamingPeekableIter;
+use crate::{decode, read::ProgressAction, BandRef, PacketLineRef, TextRef, U16_HEX_BYTES};
 
 type ReadLineResult<'a> = Option<std::io::Result<Result<PacketLineRef<'a>, decode::Error>>>;
-/// An implementor of [`AsyncBufRead`] yielding packet lines on each call to [`read_line()`][AsyncBufRead::read_line()].
-/// It's also possible to hide the underlying packet lines using the [`Read`][AsyncRead] implementation which is useful
+/// An implementor of [`AsyncBufRead`] yielding packet lines on each call to `read_line()`.
+/// It's also possible to hide the underlying packet lines using the [`Read`](AsyncRead) implementation which is useful
 /// if they represent binary data, like the one of a pack file.
 pub struct WithSidebands<'a, T, F>
 where
@@ -101,7 +100,7 @@ where
         }
     }
 
-    /// Forwards to the parent [`StreamingPeekableIter::reset_with()`]
+    /// Forwards to the parent [`StreamingPeekableIter::reset_with()`](crate::read::StreamingPeekableIterState::reset_with()).
     pub fn reset_with(&mut self, delimiters: &'static [PacketLineRef<'static>]) {
         if let State::Idle { ref mut parent } = self.state {
             parent
@@ -111,7 +110,7 @@ where
         }
     }
 
-    /// Forwards to the parent [`StreamingPeekableIter::stopped_at()`]
+    /// Forwards to the parent [`StreamingPeekableIterState::stopped_at()`](crate::read::StreamingPeekableIterState::stopped_at()).
     pub fn stopped_at(&self) -> Option<PacketLineRef<'static>> {
         match self.state {
             State::Idle { ref parent } => {
@@ -130,7 +129,7 @@ where
     }
 
     /// Effectively forwards to the parent [`StreamingPeekableIter::peek_line()`], allowing to see what would be returned
-    /// next on a call to [`read_line()`][io::BufRead::read_line()].
+    /// next on a call to `read_line()`.
     ///
     /// # Warning
     ///
@@ -362,12 +361,12 @@ mod tests {
     /// We want to declare items containing pointers of `StreamingPeekableIter` `Send` as well, so it must be `Send` itself.
     #[test]
     fn streaming_peekable_iter_is_send() {
-        receiver(StreamingPeekableIter::new(Vec::<u8>::new(), &[], false));
+        receiver(StreamingPeekableIter::new(&[][..], &[], false));
     }
 
     #[test]
     fn state_is_send() {
-        let mut s = StreamingPeekableIter::new(Vec::<u8>::new(), &[], false);
+        let mut s = StreamingPeekableIter::new(&[][..], &[], false);
         receiver(State::Idle { parent: Some(&mut s) });
     }
 }

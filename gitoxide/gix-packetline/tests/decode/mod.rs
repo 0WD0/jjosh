@@ -26,15 +26,17 @@ mod streaming {
         use gix_packetline::{decode, decode::streaming, Channel, PacketLineRef};
 
         use crate::decode::streaming::assert_complete;
+        #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
+        use gix_packetline::async_io::encode as encode_io;
+        #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+        use gix_packetline::blocking_io::encode as encode_io;
 
         #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
         async fn trailing_line_feeds_are_removed_explicitly() -> crate::Result {
             let line = decode::all_at_once(b"0006a\n")?;
             assert_eq!(line.as_text().expect("text").0.as_bstr(), b"a".as_bstr());
             let mut out = Vec::new();
-            line.as_text()
-                .expect("text")
-                .write_to(&mut out)
+            encode_io::write_text(&line.as_text().expect("text"), &mut out)
                 .await
                 .expect("write to memory works");
             assert_eq!(out, b"0006a\n", "it appends a newline in text mode");
@@ -50,7 +52,7 @@ mod streaming {
                 (PacketLineRef::Data(b"hello there"), 15),
             ] {
                 let mut out = Vec::new();
-                line.write_to(&mut out).await?;
+                encode_io::write_packet_line(line, &mut out).await?;
                 assert_complete(streaming(&out), *bytes, *line)?;
             }
             Ok(())
@@ -59,11 +61,11 @@ mod streaming {
         #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
         async fn error_line() -> crate::Result {
             let mut out = Vec::new();
-            PacketLineRef::Data(b"the error")
-                .as_error()
-                .expect("data line")
-                .write_to(&mut out)
-                .await?;
+            encode_io::write_error(
+                &PacketLineRef::Data(b"the error").as_error().expect("data line"),
+                &mut out,
+            )
+            .await?;
             let line = decode::all_at_once(&out)?;
             assert_eq!(line.check_error().expect("err").0, b"the error");
             Ok(())
@@ -76,7 +78,7 @@ mod streaming {
                 let band = PacketLineRef::Data(b"band data")
                     .as_band(*channel)
                     .expect("data is valid for band");
-                band.write_to(&mut out).await?;
+                encode_io::write_band(&band, &mut out).await?;
                 let line = decode::all_at_once(&out)?;
                 assert_eq!(line.decode_band().expect("valid band"), band);
             }

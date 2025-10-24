@@ -1,8 +1,6 @@
-// DO NOT EDIT - this is a copy of gix-packetline/src/read/mod.rs. Run `just copy-packetline` to update it.
-
 #[cfg(any(feature = "blocking-io", feature = "async-io"))]
 use crate::MAX_LINE_LEN;
-use crate::{PacketLineRef, StreamingPeekableIter, U16_HEX_BYTES};
+use crate::{PacketLineRef, U16_HEX_BYTES};
 
 /// Allow the read-progress handler to determine how to continue.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -14,7 +12,7 @@ pub enum ProgressAction {
 }
 
 #[cfg(any(feature = "blocking-io", feature = "async-io"))]
-type ExhaustiveOutcome<'a> = (
+pub(crate) type ExhaustiveOutcome<'a> = (
     bool,                                                                     // is_done
     Option<PacketLineRef<'static>>,                                           // stopped_at
     Option<std::io::Result<Result<PacketLineRef<'a>, crate::decode::Error>>>, // actual method result
@@ -25,8 +23,7 @@ mod error {
 
     use bstr::BString;
 
-    /// The error representing an ERR packet line, as possibly wrapped into an `std::io::Error` in
-    /// [`read_line(…)`][super::StreamingPeekableIter::read_line()].
+    /// The error representing an ERR packet line, as possibly wrapped into an `std::io::Error`.
     #[derive(Debug)]
     pub struct Error {
         /// The contents of the ERR line, with `ERR` portion stripped.
@@ -43,11 +40,26 @@ mod error {
 }
 pub use error::Error;
 
-impl<T> StreamingPeekableIter<T> {
+/// State for `StreamingPeekableIter` implementations.
+pub struct StreamingPeekableIterState<T> {
+    pub(crate) read: T,
+    pub(crate) peek_buf: Vec<u8>,
+    #[cfg(any(feature = "blocking-io", feature = "async-io"))]
+    pub(crate) buf: Vec<u8>,
+    pub(crate) fail_on_err_lines: bool,
+    pub(crate) delimiters: &'static [PacketLineRef<'static>],
+    pub(crate) is_done: bool,
+    pub(crate) stopped_at: Option<PacketLineRef<'static>>,
+    #[cfg_attr(all(not(feature = "async-io"), not(feature = "blocking-io")), allow(dead_code))]
+    pub(crate) trace: bool,
+}
+
+impl<T> StreamingPeekableIterState<T> {
     /// Return a new instance from `read` which will stop decoding packet lines when receiving one of the given `delimiters`.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
-    pub fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
-        StreamingPeekableIter {
+    #[cfg(any(feature = "blocking-io", feature = "async-io"))]
+    pub(crate) fn new(read: T, delimiters: &'static [PacketLineRef<'static>], trace: bool) -> Self {
+        Self {
             read,
             #[cfg(any(feature = "blocking-io", feature = "async-io"))]
             buf: vec![0; MAX_LINE_LEN],
@@ -77,7 +89,7 @@ impl<T> StreamingPeekableIter<T> {
     }
 
     /// Returns the packet line that stopped the iteration, or
-    /// `None` if the end wasn't reached yet, on EOF, or if [`fail_on_err_lines()`][StreamingPeekableIter::fail_on_err_lines()] was true.
+    /// `None` if the end wasn't reached yet, on EOF, or if [`fail_on_err_lines()`][StreamingPeekableIterState::fail_on_err_lines()] was true.
     pub fn stopped_at(&self) -> Option<PacketLineRef<'static>> {
         self.stopped_at
     }
@@ -90,7 +102,7 @@ impl<T> StreamingPeekableIter<T> {
         self.reset_with(delimiters);
     }
 
-    /// Similar to [`reset()`][StreamingPeekableIter::reset()] with support to changing the `delimiters`.
+    /// Similar to [`reset()`][StreamingPeekableIterState::reset()] with support to changing the `delimiters`.
     pub fn reset_with(&mut self, delimiters: &'static [PacketLineRef<'static>]) {
         self.delimiters = delimiters;
         self.is_done = false;
@@ -99,7 +111,7 @@ impl<T> StreamingPeekableIter<T> {
 
     /// If `value` is `true` the provider will check for special `ERR` packet lines and stop iteration when one is encountered.
     ///
-    /// Use [`stopped_at()]`[`StreamingPeekableIter::stopped_at()`] to inspect the cause of the end of the iteration.
+    /// Use [`stopped_at()]`[`StreamingPeekableIterState::stopped_at()`] to inspect the cause of the end of the iteration.
     /// ne
     pub fn fail_on_err_lines(&mut self, value: bool) {
         self.fail_on_err_lines = value;
@@ -112,19 +124,4 @@ impl<T> StreamingPeekableIter<T> {
         self.fail_on_err_lines = false;
         prev
     }
-
-    /// Return the inner read
-    pub fn into_inner(self) -> T {
-        self.read
-    }
 }
-
-#[cfg(feature = "blocking-io")]
-mod blocking_io;
-
-#[cfg(all(not(feature = "blocking-io"), feature = "async-io"))]
-mod async_io;
-
-mod sidebands;
-#[cfg(any(feature = "blocking-io", feature = "async-io"))]
-pub use sidebands::WithSidebands;

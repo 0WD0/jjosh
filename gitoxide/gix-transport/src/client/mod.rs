@@ -1,6 +1,6 @@
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 mod async_io;
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 pub use async_io::{
     connect, ExtendedBufRead, HandleProgress, ReadlineBufRead, RequestWriter, SetServiceResponse, Transport,
     TransportV2Ext,

@@ -39,7 +39,7 @@ pub(crate) mod connect {
         pub version: crate::Protocol,
         #[cfg(feature = "blocking-client")]
         /// Options to use if the scheme of the URL is `ssh`.
-        pub ssh: crate::client::ssh::connect::Options,
+        pub ssh: crate::client::blocking_io::ssh::connect::Options,
         /// If `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
         pub trace: bool,
     }
@@ -74,7 +74,7 @@ pub(crate) mod connect {
             match self {
                 Error::Connection(err) => {
                     #[cfg(feature = "blocking-client")]
-                    if let Some(err) = err.downcast_ref::<crate::client::git::connect::Error>() {
+                    if let Some(err) = err.downcast_ref::<crate::client::git::blocking_io::connect::Error>() {
                         return err.is_spurious();
                     }
                     if let Some(err) = err.downcast_ref::<crate::client::Error>() {
@@ -93,11 +93,11 @@ mod error {
 
     use bstr::BString;
 
-    use crate::client::capabilities;
     #[cfg(feature = "http-client")]
-    use crate::client::http;
+    use crate::client::blocking_io::http;
     #[cfg(feature = "blocking-client")]
-    use crate::client::ssh;
+    use crate::client::blocking_io::ssh;
+    use crate::client::capabilities;
 
     #[cfg(feature = "http-client")]
     type HttpError = http::Error;

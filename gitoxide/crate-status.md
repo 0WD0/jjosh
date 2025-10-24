@@ -415,7 +415,7 @@ A utility crate with types and functionality related to shallow-file handling.
 * [x] decode (zero-copy)
 * [x] [error line](https://github.com/git/git/blob/master/Documentation/technical/pack-protocol.txt#L28:L28)
 * [x] [V2 additions](https://github.com/git/git/blob/master/Documentation/technical/protocol-v2.txt#L35:L36)
-* [x] [side-band mode](https://github.com/git/git/blob/master/Documentation/technical/pack-protocol.txt#L467:L467)
+* [x] [sideband mode](https://github.com/git/git/blob/master/Documentation/technical/pack-protocol.txt#L467:L467)
 * [x] `Read` from packet line with (optional) progress support via sidebands
 * [x] `Write` with built-in packet line encoding
 * [x] `async` support

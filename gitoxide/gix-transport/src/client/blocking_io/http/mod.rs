@@ -8,17 +8,20 @@ use std::{
 
 use base64::Engine;
 use bstr::BStr;
-use gix_packetline::PacketLineRef;
 pub use traits::{Error, GetResponse, Http, PostBodyDataKind, PostResponse};
 
 use crate::{
     client::{
         self,
-        blocking_io::bufread_ext::ReadlineBufRead,
-        capabilities,
-        http::options::{HttpVersion, SslVersionRangeInclusive},
-        Capabilities, ExtendedBufRead, HandleProgress, MessageKind, RequestWriter,
+        blocking_io::{
+            self,
+            bufread_ext::ReadlineBufRead,
+            http::options::{HttpVersion, SslVersionRangeInclusive},
+            ExtendedBufRead, HandleProgress, RequestWriter, SetServiceResponse,
+        },
+        capabilities, Capabilities, MessageKind,
     },
+    packetline::{blocking_io::StreamingPeekableIter, PacketLineRef},
     Protocol, Service,
 };
 
@@ -227,7 +230,7 @@ pub struct Transport<H: Http> {
     actual_version: Protocol,
     http: H,
     service: Option<Service>,
-    line_provider: Option<gix_packetline::StreamingPeekableIter<H::ResponseBody>>,
+    line_provider: Option<StreamingPeekableIter<H::ResponseBody>>,
     identity: Option<gix_sec::identity::Account>,
     trace: bool,
 }
@@ -396,12 +399,12 @@ impl<H: Http> client::TransportWithoutIO for Transport<H> {
     }
 }
 
-impl<H: Http> client::Transport for Transport<H> {
+impl<H: Http> blocking_io::Transport for Transport<H> {
     fn handshake<'a>(
         &mut self,
         service: Service,
         extra_parameters: &'a [(&'a str, Option<&'a str>)],
-    ) -> Result<client::SetServiceResponse<'_>, client::Error> {
+    ) -> Result<SetServiceResponse<'_>, client::Error> {
         let url = append_url(self.url.as_ref(), &format!("info/refs?service={}", service.as_str()));
         let static_headers = [Cow::Borrowed(self.user_agent_header)];
         let mut dynamic_headers = Vec::<Cow<'_, str>>::new();
@@ -433,9 +436,9 @@ impl<H: Http> client::Transport for Transport<H> {
                 .get(url.as_ref(), &self.url, static_headers.iter().chain(&dynamic_headers))?;
         <Transport<H>>::check_content_type(service, "advertisement", headers)?;
 
-        let line_reader = self.line_provider.get_or_insert_with(|| {
-            gix_packetline::StreamingPeekableIter::new(body, &[PacketLineRef::Flush], self.trace)
-        });
+        let line_reader = self
+            .line_provider
+            .get_or_insert_with(|| StreamingPeekableIter::new(body, &[PacketLineRef::Flush], self.trace));
 
         // the service announcement is only sent sometimes depending on the exact server/protocol version/used protocol (http?)
         // eat the announcement when its there to avoid errors later (and check that the correct service was announced).
@@ -466,7 +469,7 @@ impl<H: Http> client::Transport for Transport<H> {
         } = Capabilities::from_lines_with_version_detection(line_reader)?;
         self.actual_version = actual_protocol;
         self.service = Some(service);
-        Ok(client::SetServiceResponse {
+        Ok(SetServiceResponse {
             actual_protocol,
             capabilities,
             refs,

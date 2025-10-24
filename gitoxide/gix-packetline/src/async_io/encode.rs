@@ -1,5 +1,3 @@
-// DO NOT EDIT - this is a copy of gix-packetline/src/encode/async_io.rs. Run `just copy-packetline` to update it.
-
 use std::{
     io,
     pin::Pin,
@@ -9,8 +7,11 @@ use std::{
 use futures_io::AsyncWrite;
 use futures_lite::AsyncWriteExt;
 
-use super::u16_to_hex;
-use crate::{encode::Error, Channel, DELIMITER_LINE, ERR_PREFIX, FLUSH_LINE, MAX_DATA_LEN, RESPONSE_END_LINE};
+use crate::{
+    encode::{u16_to_hex, Error},
+    BandRef, Channel, ErrorRef, PacketLineRef, TextRef, DELIMITER_LINE, ERR_PREFIX, FLUSH_LINE, MAX_DATA_LEN,
+    RESPONSE_END_LINE,
+};
 
 pin_project_lite::pin_project! {
     /// A way of writing packet lines asynchronously.
@@ -208,7 +209,41 @@ pub async fn flush_to_write(mut out: impl AsyncWrite + Unpin) -> io::Result<usiz
     Ok(4)
 }
 
-/// Write `data` of `kind` to `out` using side-band encoding.
+/// Write `data` of `kind` to `out` using sideband encoding.
 pub async fn band_to_write(kind: Channel, data: &[u8], out: impl AsyncWrite + Unpin) -> io::Result<usize> {
     prefixed_data_to_write(&[kind as u8], data, out).await
+}
+
+/// Serialize `band` to `out`, returning the amount of bytes written.
+///
+/// The data written to `out` can be decoded with [`crate::PacketLineRef::decode_band()`].
+pub async fn write_band(band: &BandRef<'_>, out: impl AsyncWrite + Unpin) -> io::Result<usize> {
+    match band {
+        BandRef::Data(d) => band_to_write(Channel::Data, d, out),
+        BandRef::Progress(d) => band_to_write(Channel::Progress, d, out),
+        BandRef::Error(d) => band_to_write(Channel::Error, d, out),
+    }
+    .await
+}
+
+/// Serialize `band` to `out`, appending a newline if there is none, returning the amount of bytes written.
+pub async fn write_text(text: &TextRef<'_>, out: impl AsyncWrite + Unpin) -> io::Result<usize> {
+    text_to_write(text.0, out).await
+}
+
+/// Serialize `error` to `out`.
+///
+/// This includes a marker to allow decoding it outside a sideband channel, returning the amount of bytes written.
+pub async fn write_error(error: &ErrorRef<'_>, out: impl AsyncWrite + Unpin) -> io::Result<usize> {
+    error_to_write(error.0, out).await
+}
+
+/// Serialize `line` to `out` in git `packetline` format, returning the amount of bytes written to `out`.
+pub async fn write_packet_line(line: &PacketLineRef<'_>, out: impl AsyncWrite + Unpin) -> io::Result<usize> {
+    match line {
+        PacketLineRef::Data(d) => data_to_write(d, out).await,
+        PacketLineRef::Flush => flush_to_write(out).await,
+        PacketLineRef::Delimiter => delim_to_write(out).await,
+        PacketLineRef::ResponseEnd => response_end_to_write(out).await,
+    }
 }

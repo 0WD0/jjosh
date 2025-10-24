@@ -4,6 +4,10 @@ pub mod streaming_peek_iter {
     use std::{io, path::PathBuf};
 
     use bstr::ByteSlice;
+    #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
+    use gix_packetline::async_io::StreamingPeekableIter;
+    #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+    use gix_packetline::blocking_io::StreamingPeekableIter;
     use gix_packetline::PacketLineRef;
 
     fn fixture_path(path: &str) -> PathBuf {
@@ -20,7 +24,7 @@ pub mod streaming_peek_iter {
 
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn peek_follows_read_line_delimiter_logic() -> crate::Result {
-        let mut rd = gix_packetline::StreamingPeekableIter::new(&b"0005a00000005b"[..], &[PacketLineRef::Flush], false);
+        let mut rd = StreamingPeekableIter::new(&b"0005a00000005b"[..], &[PacketLineRef::Flush], false);
         let res = rd.peek_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Data(b"a"));
         rd.read_line().await;
@@ -46,8 +50,7 @@ pub mod streaming_peek_iter {
 
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn peek_follows_read_line_err_logic() -> crate::Result {
-        let mut rd =
-            gix_packetline::StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
+        let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(true);
         let res = rd.peek_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Data(b"a"));
@@ -74,8 +77,7 @@ pub mod streaming_peek_iter {
 
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn peek_eof_is_none() -> crate::Result {
-        let mut rd =
-            gix_packetline::StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
+        let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(false);
         let res = rd.peek_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Data(b"a"));
@@ -96,8 +98,7 @@ pub mod streaming_peek_iter {
 
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn peek_non_data() -> crate::Result {
-        let mut rd =
-            gix_packetline::StreamingPeekableIter::new(&b"000000010002"[..], &[PacketLineRef::ResponseEnd], false);
+        let mut rd = StreamingPeekableIter::new(&b"000000010002"[..], &[PacketLineRef::ResponseEnd], false);
         let res = rd.read_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Flush);
         let res = rd.read_line().await;
@@ -124,7 +125,7 @@ pub mod streaming_peek_iter {
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn fail_on_err_lines() -> crate::Result {
         let input = b"00010009ERR e0002";
-        let mut rd = gix_packetline::StreamingPeekableIter::new(&input[..], &[], false);
+        let mut rd = StreamingPeekableIter::new(&input[..], &[], false);
         let res = rd.read_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Delimiter);
         let res = rd.read_line().await;
@@ -134,7 +135,7 @@ pub mod streaming_peek_iter {
             "by default no special handling"
         );
 
-        let mut rd = gix_packetline::StreamingPeekableIter::new(&input[..], &[], false);
+        let mut rd = StreamingPeekableIter::new(&input[..], &[], false);
         rd.fail_on_err_lines(true);
         let res = rd.read_line().await;
         assert_eq!(res.expect("line")??, PacketLineRef::Delimiter);
@@ -162,7 +163,7 @@ pub mod streaming_peek_iter {
     #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
     async fn peek() -> crate::Result {
         let bytes = fixture_bytes("v1/fetch/01-many-refs.response");
-        let mut rd = gix_packetline::StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
+        let mut rd = StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
         let res = rd.peek_line().await;
         assert_eq!(res.expect("line")??, first_line(), "peek returns first line");
         let res = rd.peek_line().await;
@@ -199,7 +200,7 @@ pub mod streaming_peek_iter {
     async fn read_from_file_and_reader_advancement() -> crate::Result {
         let mut bytes = fixture_bytes("v1/fetch/01-many-refs.response");
         bytes.extend(fixture_bytes("v1/fetch/01-many-refs.response"));
-        let mut rd = gix_packetline::StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
+        let mut rd = StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
         let res = rd.read_line().await;
         assert_eq!(res.expect("line")??, first_line());
         let res = exhaust(&mut rd).await;
@@ -223,7 +224,7 @@ pub mod streaming_peek_iter {
     }
 
     #[maybe_async::maybe_async]
-    async fn exhaust(rd: &mut gix_packetline::StreamingPeekableIter<&[u8]>) -> i32 {
+    async fn exhaust(rd: &mut StreamingPeekableIter<&[u8]>) -> i32 {
         let mut count = 0;
         while rd.read_line().await.is_some() {
             count += 1;

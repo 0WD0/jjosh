@@ -44,10 +44,10 @@ clippy-fix:
 check:
     cargo check --workspace
     cargo check --no-default-features --features small
+    cargo check -p gix-packetline --all-features 2>/dev/null
     # assure compile error occurs
     ! cargo check --features lean-async 2>/dev/null
     ! cargo check -p gitoxide-core --all-features 2>/dev/null
-    ! cargo check -p gix-packetline --all-features 2>/dev/null
     ! cargo check -p gix-transport --all-features 2>/dev/null
     ! cargo check -p gix-protocol --all-features 2>/dev/null
     # warning happens if nothing found, no exit code :/
@@ -292,10 +292,6 @@ find-yanked:
 check-mode:
     cargo build -p internal-tools
     cargo run -p internal-tools -- check-mode
-
-# Delete `gix-packetline-blocking/src` and regenerate from `gix-packetline/src`
-copy-packetline:
-    etc/scripts/copy-packetline.sh
 
 # Get the unique `v*` tag at `HEAD`, or fail with an error
 unique-v-tag:

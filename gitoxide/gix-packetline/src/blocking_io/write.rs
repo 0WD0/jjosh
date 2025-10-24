@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{MAX_DATA_LEN, U16_HEX_BYTES};
+use crate::{blocking_io::encode, MAX_DATA_LEN, U16_HEX_BYTES};
 
 /// An implementor of [`Write`][io::Write] which passes all input to an inner `Write` in packet line data encoding,
 /// one line per `write(…)` call or as many lines as it takes if the data doesn't fit into the maximum allowed line length.
@@ -53,9 +53,9 @@ impl<T: io::Write> io::Write for Writer<T> {
         while !buf.is_empty() {
             let (data, rest) = buf.split_at(buf.len().min(MAX_DATA_LEN));
             written += if self.binary {
-                crate::encode::data_to_write(data, &mut self.inner)
+                encode::data_to_write(data, &mut self.inner)
             } else {
-                crate::encode::text_to_write(data, &mut self.inner)
+                encode::text_to_write(data, &mut self.inner)
             }?;
             // subtract header (and trailing NL) because write-all can't handle writing more than it passes in
             written -= U16_HEX_BYTES + usize::from(!self.binary);

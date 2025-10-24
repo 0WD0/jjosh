@@ -1,9 +1,13 @@
 use crate::fetch::Cursor;
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+use gix_packetline::async_io::StreamingPeekableIter;
+#[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
+use gix_packetline::blocking_io::StreamingPeekableIter;
 
-fn mock_reader(path: &str) -> gix_packetline::StreamingPeekableIter<Cursor> {
+fn mock_reader(path: &str) -> StreamingPeekableIter<Cursor> {
     use crate::fixture_bytes;
     let buf = fixture_bytes(path);
-    gix_packetline::StreamingPeekableIter::new(Cursor::new(buf), &[gix_packetline::PacketLineRef::Flush], false)
+    StreamingPeekableIter::new(Cursor::new(buf), &[gix_packetline::PacketLineRef::Flush], false)
 }
 
 fn id(hex: &str) -> gix_hash::ObjectId {
