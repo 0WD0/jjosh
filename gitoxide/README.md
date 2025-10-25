@@ -203,7 +203,7 @@ cave resolve -x gitoxide
 `cargo` is the Rust package manager which can easily be obtained through [rustup]. With it, you can build your own binary
 effortlessly and for your particular CPU for additional performance gains.
 
-The minimum supported Rust version is [documented in the CI configuration](https://github.com/GitoxideLabs/gitoxide/blob/main/.github/workflows/msrv.yml#L23),
+The minimum supported Rust version is [documented in the Cargo package](https://github.com/GitoxideLabs/gitoxide/blob/main/gix/Cargo.toml#L12-L14),
 the latest stable one will work as well.
 
 There are various build configurations, all of them are [documented here](https://docs.rs/crate/gitoxide/latest). The documentation should also be useful
