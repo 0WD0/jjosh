@@ -2126,7 +2126,6 @@ dependencies = [
  "gix-testtools",
  "gix-trace",
  "gix-validate",
- "home",
  "serial_test",
  "thiserror 2.0.17",
  "windows 0.62.1",
@@ -2739,15 +2738,6 @@ name = "hermit-abi"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
-
-[[package]]
-name = "home"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
-dependencies = [
- "windows-sys 0.59.0",
-]
 
 [[package]]
 name = "http"
