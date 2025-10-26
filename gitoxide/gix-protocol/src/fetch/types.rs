@@ -39,10 +39,7 @@ pub struct Context<'a, T> {
 
 #[cfg(feature = "fetch")]
 mod with_fetch {
-    use crate::{
-        fetch,
-        fetch::{negotiate, refmap},
-    };
+    use crate::fetch::{self, negotiate, refmap};
 
     /// For use in [`fetch`](crate::fetch()).
     pub struct NegotiateContext<'a, 'b, 'c, Objects, Alternates, AlternatesOut, AlternatesErr, Find>
