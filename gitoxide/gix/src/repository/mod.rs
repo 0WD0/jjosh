@@ -19,8 +19,9 @@ pub enum Kind {
 
 #[cfg(any(feature = "attributes", feature = "excludes"))]
 pub mod attributes;
+///
 #[cfg(feature = "blame")]
-mod blame;
+pub mod blame;
 mod cache;
 #[cfg(feature = "worktree-mutation")]
 mod checkout;
@@ -102,6 +103,8 @@ pub mod blame_file {
     pub enum Error {
         #[error(transparent)]
         CommitGraphIfEnabled(#[from] super::commit_graph_if_enabled::Error),
+        #[error(transparent)]
+        DiffAlgorithm(#[from] crate::config::diff::algorithm::Error),
         #[error(transparent)]
         DiffResourceCache(#[from] super::diff_resource_cache::Error),
         #[error(transparent)]

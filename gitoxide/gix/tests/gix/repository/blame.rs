@@ -17,7 +17,7 @@ fn simple() -> crate::Result {
 fn with_options() -> crate::Result {
     let repo = crate::named_repo("make_blame_repo.sh")?;
 
-    let options = gix::blame::Options {
+    let options = gix::repository::blame::Options {
         ranges: gix::blame::BlameRanges::from_one_based_inclusive_range(1..=2)?,
         ..Default::default()
     };
