@@ -202,7 +202,7 @@ impl std::io::BufRead for Fixture<'_> {
 }
 
 #[cfg(feature = "blocking-client")]
-impl gix_transport::client::ReadlineBufRead for Fixture<'_> {
+impl gix_transport::client::blocking_io::ReadlineBufRead for Fixture<'_> {
     fn readline(
         &mut self,
     ) -> Option<std::io::Result<Result<gix_packetline::PacketLineRef<'_>, gix_packetline::decode::Error>>> {
@@ -266,7 +266,7 @@ impl futures_io::AsyncBufRead for Fixture<'_> {
 
 #[cfg(feature = "async-client")]
 #[async_trait::async_trait(?Send)]
-impl gix_transport::client::ReadlineBufRead for Fixture<'_> {
+impl gix_transport::client::async_io::ReadlineBufRead for Fixture<'_> {
     async fn readline(
         &mut self,
     ) -> Option<std::io::Result<Result<gix_packetline::PacketLineRef<'_>, gix_packetline::decode::Error>>> {

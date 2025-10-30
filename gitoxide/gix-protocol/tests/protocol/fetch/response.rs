@@ -215,6 +215,10 @@ mod v2 {
             self,
             response::{Acknowledgement, ShallowUpdate},
         };
+        #[cfg(feature = "async-client")]
+        use gix_transport::client::async_io::HandleProgress;
+        #[cfg(feature = "blocking-client")]
+        use gix_transport::client::blocking_io::HandleProgress;
         use gix_transport::Protocol;
 
         use crate::fetch::response::{id, mock_reader};
@@ -320,7 +324,7 @@ mod v2 {
             reader.set_progress_handler(Some(Box::new(|is_err: bool, _data: &[u8]| {
                 assert!(!is_err, "fixture does not have an error");
                 ProgressAction::Continue
-            }) as gix_transport::client::HandleProgress));
+            }) as HandleProgress));
             let bytes_read = reader.read_to_end(&mut buf).await?;
             assert_eq!(bytes_read, 1643, "should be able to read the whole pack");
             assert_eq!(&buf[..4], b"PACK");
@@ -376,7 +380,7 @@ mod v2 {
             reader.set_progress_handler(Some(Box::new(|a: bool, b: &[u8]| {
                 gix_protocol::RemoteProgress::translate_to_progress(a, b, &mut gix_features::progress::Discard);
                 ProgressAction::Continue
-            }) as gix_transport::client::HandleProgress));
+            }) as HandleProgress));
             let bytes_read = reader.read_to_end(&mut buf).await?;
             assert_eq!(bytes_read, 5360, "should be able to read the whole pack");
             Ok(())

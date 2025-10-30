@@ -25,7 +25,7 @@ impl crate::IsSpuriousError for Error {
                     return err.is_spurious();
                 }
                 #[cfg(feature = "http-client-reqwest")]
-                if let Some(err) = source.downcast_ref::<crate::client::http::reqwest::remote::Error>() {
+                if let Some(err) = source.downcast_ref::<crate::client::blocking_io::http::reqwest::remote::Error>() {
                     return err.is_spurious();
                 }
                 false

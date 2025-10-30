@@ -1,7 +1,11 @@
 use gix_features::progress::Progress;
-use gix_transport::{client, Service};
+use gix_transport::Service;
 use maybe_async::maybe_async;
 
+#[cfg(feature = "async-client")]
+use crate::transport::client::async_io::Transport;
+#[cfg(feature = "blocking-client")]
+use crate::transport::client::blocking_io::Transport;
 use crate::{
     credentials,
     handshake::{Error, Outcome},
@@ -21,7 +25,7 @@ pub async fn upload_pack<AuthFn, T>(
 ) -> Result<Outcome, Error>
 where
     AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
-    T: client::Transport,
+    T: Transport,
 {
     crate::handshake(transport, Service::UploadPack, authenticate, extra_parameters, progress).await
 }

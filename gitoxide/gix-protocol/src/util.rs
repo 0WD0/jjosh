@@ -8,13 +8,16 @@ pub fn agent(name: impl Into<String>) -> String {
 }
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod with_transport {
-    use gix_transport::client::Transport;
+    #[cfg(feature = "async-client")]
+    use gix_transport::client::async_io::Transport;
+    #[cfg(feature = "blocking-client")]
+    use gix_transport::client::blocking_io::Transport;
 
     /// Send a message to indicate the remote side that there is nothing more to expect from us, indicating a graceful shutdown.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
     #[maybe_async::maybe_async]
     pub async fn indicate_end_of_interaction(
-        mut transport: impl gix_transport::client::Transport,
+        mut transport: impl Transport,
         trace: bool,
     ) -> Result<(), gix_transport::client::Error> {
         // An empty request marks the (early) end of the interaction. Only relevant in stateful transports though.

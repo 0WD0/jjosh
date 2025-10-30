@@ -23,7 +23,10 @@ mod impls {
     use bstr::BStr;
     use gix_transport::{
         client,
-        client::{Error, MessageKind, RequestWriter, SetServiceResponse, WriteMode},
+        client::{
+            blocking_io::{RequestWriter, SetServiceResponse},
+            Error, MessageKind, WriteMode,
+        },
         Protocol, Service,
     };
 
@@ -54,7 +57,7 @@ mod impls {
         }
     }
 
-    impl<T: client::Transport> client::Transport for Transport<T> {
+    impl<T: client::blocking_io::Transport> client::blocking_io::Transport for Transport<T> {
         fn handshake<'a>(
             &mut self,
             service: Service,
@@ -81,12 +84,16 @@ mod impls {
     use async_trait::async_trait;
     use bstr::BStr;
     use gix_transport::{
-        client,
-        client::{Error, MessageKind, RequestWriter, SetServiceResponse, WriteMode},
+        client::{
+            self,
+            async_io::{RequestWriter, SetServiceResponse},
+            Error, MessageKind, WriteMode,
+        },
         Protocol, Service,
     };
 
     use super::Transport;
+
     impl<T: client::TransportWithoutIO + Send> client::TransportWithoutIO for Transport<T> {
         fn set_identity(&mut self, identity: client::Account) -> Result<(), Error> {
             self.inner.set_identity(identity)
@@ -113,7 +120,7 @@ mod impls {
     }
 
     #[async_trait(?Send)]
-    impl<T: client::Transport + Send> client::Transport for Transport<T> {
+    impl<T: client::async_io::Transport + Send> client::async_io::Transport for Transport<T> {
         async fn handshake<'a>(
             &mut self,
             service: Service,

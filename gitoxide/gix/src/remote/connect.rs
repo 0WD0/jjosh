@@ -2,11 +2,15 @@
 
 use std::borrow::Cow;
 
-use gix_protocol::transport::client::Transport;
+#[cfg(feature = "async-network-client")]
+use gix_transport::client::async_io::{connect, Transport};
+#[cfg(feature = "blocking-network-client")]
+use gix_transport::client::blocking_io::{connect, Transport};
 
 use crate::{config::tree::Protocol, remote::Connection, Remote};
 
 mod error {
+    use super::connect;
     use crate::{bstr::BString, config, remote};
 
     /// The error returned by [connect()][crate::Remote::connect()].
@@ -24,7 +28,7 @@ mod error {
         #[error("Protocol {scheme:?} of url {url:?} is denied per configuration")]
         ProtocolDenied { url: BString, scheme: gix_url::Scheme },
         #[error(transparent)]
-        Connect(#[from] gix_protocol::transport::client::connect::Error),
+        Connect(#[from] connect::Error),
         #[error("The {} url was missing - don't know where to establish a connection to", direction.as_str())]
         MissingUrl { direction: remote::Direction },
         #[error("The given protocol version was invalid. Choose between 1 and 2")]
@@ -86,9 +90,9 @@ impl<'repo> Remote<'repo> {
         let (url, version) = self.sanitized_url_and_version(direction)?;
         #[cfg(feature = "blocking-network-client")]
         let scheme_is_ssh = url.scheme == gix_url::Scheme::Ssh;
-        let transport = gix_protocol::transport::connect(
+        let transport = connect::connect(
             url,
-            gix_protocol::transport::client::connect::Options {
+            connect::Options {
                 version,
                 #[cfg(feature = "blocking-network-client")]
                 ssh: scheme_is_ssh

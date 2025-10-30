@@ -48,9 +48,9 @@ impl crate::Repository {
                         sync::{Arc, Mutex},
                     };
 
-                    use gix_transport::client::{
-                        http,
-                        http::options::{ProxyAuthMethod, SslVersion, SslVersionRangeInclusive},
+                    use gix_transport::client::blocking_io::http::{
+                        self,
+                        options::{ProxyAuthMethod, SslVersion, SslVersionRangeInclusive},
                     };
 
                     use crate::{
@@ -430,7 +430,8 @@ impl crate::Repository {
                             .transpose()
                             .with_leniency(lenient)
                             .map_err(config::transport::http::Error::from)?;
-                        let backend = gix_protocol::transport::client::http::curl::Options { schannel_check_revoke };
+                        let backend =
+                            gix_protocol::transport::client::blocking_io::http::curl::Options { schannel_check_revoke };
                         opts.backend =
                             Some(Arc::new(Mutex::new(backend)) as Arc<Mutex<dyn Any + Send + Sync + 'static>>);
                     }

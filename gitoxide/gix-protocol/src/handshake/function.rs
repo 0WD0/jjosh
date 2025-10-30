@@ -1,8 +1,12 @@
 use gix_features::{progress, progress::Progress};
-use gix_transport::{client, client::SetServiceResponse, Service};
+use gix_transport::{client, Service};
 use maybe_async::maybe_async;
 
 use super::{Error, Outcome};
+#[cfg(feature = "async-client")]
+use crate::transport::client::async_io::{SetServiceResponse, Transport};
+#[cfg(feature = "blocking-client")]
+use crate::transport::client::blocking_io::{SetServiceResponse, Transport};
 use crate::{credentials, handshake::refs};
 
 /// Perform a handshake with the server on the other side of `transport`, with `authenticate` being used if authentication
@@ -20,7 +24,7 @@ pub async fn handshake<AuthFn, T>(
 ) -> Result<Outcome, Error>
 where
     AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
-    T: client::Transport,
+    T: Transport,
 {
     let _span = gix_features::trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
     let (server_protocol_version, refs, capabilities) = {

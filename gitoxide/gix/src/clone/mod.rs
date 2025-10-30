@@ -1,12 +1,17 @@
 #![allow(clippy::result_large_err)]
 use crate::{bstr::BString, remote};
 
+#[cfg(feature = "async-network-client")]
+use gix_transport::client::async_io::Transport;
+#[cfg(feature = "blocking-network-client")]
+use gix_transport::client::blocking_io::Transport;
+
 type ConfigureRemoteFn =
     Box<dyn FnMut(crate::Remote<'_>) -> Result<crate::Remote<'_>, Box<dyn std::error::Error + Send + Sync>>>;
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
 type ConfigureConnectionFn = Box<
     dyn FnMut(
-        &mut remote::Connection<'_, '_, Box<dyn gix_protocol::transport::client::Transport + Send>>,
+        &mut remote::Connection<'_, '_, Box<dyn Transport + Send>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
 >;
 
@@ -137,6 +142,7 @@ pub struct PrepareCheckout {
 // once async and clone are a thing.
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
 mod access_feat {
+    use super::Transport;
     use crate::clone::PrepareFetch;
 
     /// Builder
@@ -148,7 +154,7 @@ mod access_feat {
         pub fn configure_connection(
             mut self,
             f: impl FnMut(
-                    &mut crate::remote::Connection<'_, '_, Box<dyn gix_protocol::transport::client::Transport + Send>>,
+                    &mut crate::remote::Connection<'_, '_, Box<dyn Transport + Send>>,
                 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
                 + 'static,
         ) -> Self {

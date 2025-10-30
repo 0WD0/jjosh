@@ -1,5 +1,6 @@
-//! An implementation of the `git` transport layer, abstracting over all of its [versions][Protocol], providing
-//! [`connect()`] to establish a connection given a repository URL.
+//! An implementation of the `git` transport layer, abstracting over all of its [versions][Protocol].
+//!
+//! Use `client::blocking_io::connect()` or `client::async_io::connect()` to establish a connection.
 //!
 //! All git transports are supported, including `ssh`, `git`, `http` and `https`, as well as local repository paths.
 //! ## Feature Flags
@@ -83,10 +84,3 @@ pub use traits::IsSpuriousError;
 
 ///
 pub mod client;
-
-#[doc(inline)]
-#[cfg(any(feature = "blocking-client", all(feature = "async-client", feature = "async-std")))]
-pub use client::connect;
-
-#[cfg(all(feature = "async-client", feature = "blocking-client"))]
-compile_error!("Cannot set both 'blocking-client' and 'async-client' features as they are mutually exclusive");

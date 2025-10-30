@@ -9,9 +9,13 @@ use bstr::ByteSlice;
 #[cfg(feature = "async-client")]
 use futures_lite::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
 use gix_packetline::read::ProgressAction;
+#[cfg(feature = "async-client")]
+use gix_transport::client::async_io::{Transport, TransportV2Ext};
+#[cfg(feature = "blocking-client")]
+use gix_transport::client::blocking_io::{Transport, TransportV2Ext};
 use gix_transport::{
     client,
-    client::{git, Transport, TransportV2Ext, TransportWithoutIO},
+    client::{git, TransportWithoutIO},
     Protocol, Service,
 };
 

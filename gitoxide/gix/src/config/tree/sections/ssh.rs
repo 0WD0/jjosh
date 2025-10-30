@@ -23,9 +23,11 @@ mod variant {
         pub fn try_into_variant(
             &'static self,
             value: Cow<'_, BStr>,
-        ) -> Result<Option<gix_protocol::transport::client::ssh::ProgramKind>, config::key::GenericErrorWithValue>
-        {
-            use gix_protocol::transport::client::ssh::ProgramKind;
+        ) -> Result<
+            Option<gix_protocol::transport::client::blocking_io::ssh::ProgramKind>,
+            config::key::GenericErrorWithValue,
+        > {
+            use gix_protocol::transport::client::blocking_io::ssh::ProgramKind;
 
             use crate::bstr::ByteSlice;
             Ok(Some(match value.as_ref().as_bytes() {

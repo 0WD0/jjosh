@@ -1,5 +1,10 @@
 use std::str::FromStr;
 
+#[cfg(feature = "async-client")]
+use gix::protocol::transport::client::async_io as io_mode;
+#[cfg(feature = "blocking-client")]
+use gix::protocol::transport::client::blocking_io as io_mode;
+
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
 pub enum Protocol {
     V1,
@@ -39,17 +44,14 @@ mod impls {
 #[gix::protocol::maybe_async::maybe_async]
 pub async fn connect<Url, E>(
     url: Url,
-    options: gix::protocol::transport::client::connect::Options,
-) -> Result<
-    gix::protocol::SendFlushOnDrop<Box<dyn gix::protocol::transport::client::Transport + Send>>,
-    gix::protocol::transport::client::connect::Error,
->
+    options: io_mode::connect::Options,
+) -> Result<gix::protocol::SendFlushOnDrop<Box<dyn io_mode::Transport + Send>>, io_mode::connect::Error>
 where
     Url: TryInto<gix::url::Url, Error = E>,
     gix::url::parse::Error: From<E>,
 {
     Ok(gix::protocol::SendFlushOnDrop::new(
-        gix::protocol::transport::connect(url, options).await?,
+        io_mode::connect::connect(url, options).await?,
         false,
     ))
 }

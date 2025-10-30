@@ -2,7 +2,7 @@ pub use crate::client::non_io_types::connect::{Error, Options};
 
 #[cfg(feature = "async-std")]
 pub(crate) mod function {
-    use crate::client::{git, non_io_types::connect::Error};
+    use crate::client::{async_io::Transport, git, non_io_types::connect::Error};
 
     /// A general purpose connector connecting to a repository identified by the given `url`.
     ///
@@ -10,10 +10,7 @@ pub(crate) mod function {
     /// [git daemons][crate::client::git::connect()] only at the moment.
     ///
     /// Use `options` to further control specifics of the transport resulting from the connection.
-    pub async fn connect<Url, E>(
-        url: Url,
-        options: super::Options,
-    ) -> Result<Box<dyn crate::client::Transport + Send>, Error>
+    pub async fn connect<Url, E>(url: Url, options: super::Options) -> Result<Box<dyn Transport + Send>, Error>
     where
         Url: TryInto<gix_url::Url, Error = E>,
         gix_url::parse::Error: From<E>,
@@ -44,3 +41,6 @@ pub(crate) mod function {
         })
     }
 }
+
+#[cfg(feature = "async-std")]
+pub use function::connect;

@@ -47,10 +47,14 @@ pub(crate) mod function {
 
     use bstr::BString;
     use gix_features::progress::Progress;
-    use gix_transport::client::{Capabilities, Transport, TransportV2Ext};
+    use gix_transport::client::Capabilities;
     use maybe_async::maybe_async;
 
     use super::{Action, Error};
+    #[cfg(feature = "async-client")]
+    use crate::transport::client::async_io::{Transport, TransportV2Ext};
+    #[cfg(feature = "blocking-client")]
+    use crate::transport::client::blocking_io::{Transport, TransportV2Ext};
     use crate::{
         handshake::{refs::from_v2_refs, Ref},
         indicate_end_of_interaction, Command,

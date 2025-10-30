@@ -3,7 +3,7 @@
     feature = "blocking-http-transport-curl"
 ))]
 mod http {
-    use gix_transport::client::http::options::{
+    use gix_transport::client::blocking_io::http::options::{
         FollowRedirects, HttpVersion, ProxyAuthMethod, SslVersion, SslVersionRangeInclusive,
     };
 
@@ -13,12 +13,12 @@ mod http {
         repo: &gix::Repository,
         remote_name: Option<&str>,
         url: &str,
-    ) -> gix_transport::client::http::Options {
+    ) -> gix_transport::client::blocking_io::http::Options {
         let opts = repo
             .transport_options(url, remote_name.map(Into::into))
             .expect("valid configuration")
             .expect("configuration available for http");
-        opts.downcast_ref::<gix_transport::client::http::Options>()
+        opts.downcast_ref::<gix_transport::client::blocking_io::http::Options>()
             .expect("http options have been created")
             .to_owned()
     }
@@ -26,7 +26,7 @@ mod http {
     #[test]
     fn remote_overrides() {
         let repo = repo("http-remote-override");
-        let gix_transport::client::http::Options {
+        let gix_transport::client::blocking_io::http::Options {
             proxy,
             proxy_auth_method,
             follow_redirects,
@@ -41,7 +41,7 @@ mod http {
     #[test]
     fn simple_configuration() {
         let repo = repo("http-config");
-        let gix_transport::client::http::Options {
+        let gix_transport::client::blocking_io::http::Options {
             extra_headers,
             follow_redirects,
             low_speed_limit_bytes_per_second,
@@ -91,7 +91,7 @@ mod http {
                 .as_ref()
                 .map(|b| b.lock().expect("not poisoned"))
                 .expect("backend is set for curl due to specific options");
-            match backend.downcast_ref::<gix_protocol::transport::client::http::curl::Options>() {
+            match backend.downcast_ref::<gix_protocol::transport::client::blocking_io::http::curl::Options>() {
                 Some(opts) => {
                     assert_eq!(opts.schannel_check_revoke, Some(true));
                 }

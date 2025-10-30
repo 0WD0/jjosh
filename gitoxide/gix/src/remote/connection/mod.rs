@@ -1,3 +1,8 @@
+#[cfg(feature = "async-network-client")]
+use gix_transport::client::async_io::Transport;
+#[cfg(feature = "blocking-network-client")]
+use gix_transport::client::blocking_io::Transport;
+
 use crate::Remote;
 
 /// A function that performs a given credential action, trying to obtain credentials for an operation that needs it.
@@ -9,7 +14,7 @@ pub type AuthenticateFn<'a> = Box<dyn FnMut(gix_credentials::helper::Action) -> 
 /// much like a remote procedure call.
 pub struct Connection<'a, 'repo, T>
 where
-    T: gix_transport::client::Transport,
+    T: Transport,
 {
     pub(crate) remote: &'a Remote<'repo>,
     pub(crate) authenticate: Option<AuthenticateFn<'a>>,

@@ -4,6 +4,10 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+#[cfg(feature = "async-client")]
+use gix::protocol::transport::client::async_io::connect;
+#[cfg(feature = "blocking-client")]
+use gix::protocol::transport::client::blocking_io::connect;
 use gix::{config::tree::Key, protocol::maybe_async, remote::fetch::Error, DynNestedProgress};
 pub use gix::{
     hash::ObjectId,
@@ -47,7 +51,7 @@ where
 {
     let mut transport = net::connect(
         url,
-        gix::protocol::transport::client::connect::Options {
+        connect::Options {
             version: protocol.unwrap_or_default().into(),
             ..Default::default()
         },

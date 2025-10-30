@@ -1,5 +1,6 @@
 use std::io;
 
+use crate::transport::client::async_io::ExtendedBufRead;
 use gix_transport::{client, Protocol};
 
 use crate::fetch::{
@@ -10,7 +11,7 @@ use crate::fetch::{
 
 async fn parse_v2_section<T>(
     line: &mut String,
-    reader: &mut (impl client::ExtendedBufRead<'_> + Unpin),
+    reader: &mut (impl ExtendedBufRead<'_> + Unpin),
     res: &mut Vec<T>,
     parse: impl Fn(&str) -> Result<T, response::Error>,
 ) -> Result<bool, response::Error> {
@@ -44,7 +45,7 @@ impl Response {
     /// that `git` has to use to predict how many acks are supposed to be read. We also genuinely hope that this covers it all….
     pub async fn from_line_reader(
         version: Protocol,
-        reader: &mut (impl client::ExtendedBufRead<'_> + Unpin),
+        reader: &mut (impl ExtendedBufRead<'_> + Unpin),
         client_expects_pack: bool,
         wants_to_negotiate: bool,
     ) -> Result<Response, response::Error> {

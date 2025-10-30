@@ -7,7 +7,10 @@ mod fetch_fn {
         fetch::{Arguments, Response},
         indicate_end_of_interaction, Command,
     };
-    use gix_transport::client;
+    #[cfg(feature = "async-client")]
+    use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
+    #[cfg(feature = "blocking-client")]
+    use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
     use maybe_async::maybe_async;
 
     use super::{Action, Delegate};
@@ -67,7 +70,7 @@ mod fetch_fn {
     where
         F: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
         D: Delegate,
-        T: client::Transport,
+        T: Transport,
         P: NestedProgress + 'static,
         P::SubProgress: 'static,
     {
@@ -171,10 +174,8 @@ mod fetch_fn {
         Ok(())
     }
 
-    fn setup_remote_progress<P>(
-        progress: &mut P,
-        reader: &mut Box<dyn gix_transport::client::ExtendedBufRead<'_> + Unpin + '_>,
-    ) where
+    fn setup_remote_progress<'a, P>(progress: &mut P, reader: &mut Box<dyn ExtendedBufRead<'a> + Unpin + 'a>)
+    where
         P: NestedProgress,
         P::SubProgress: 'static,
     {
@@ -184,7 +185,7 @@ mod fetch_fn {
                 gix_protocol::RemoteProgress::translate_to_progress(is_err, data, &mut remote_progress);
                 gix_transport::packetline::read::ProgressAction::Continue
             }
-        }) as gix_transport::client::HandleProgress<'_>));
+        }) as HandleProgress<'a>));
     }
 }
 pub use fetch_fn::{legacy_fetch as fetch, FetchConnection};

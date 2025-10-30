@@ -125,10 +125,10 @@ mod key_impls {
             value: std::borrow::Cow<'_, crate::bstr::BStr>,
             boolean: impl FnOnce() -> Result<Option<bool>, gix_config::value::Error>,
         ) -> Result<
-            crate::protocol::transport::client::http::options::FollowRedirects,
+            crate::protocol::transport::client::blocking_io::http::options::FollowRedirects,
             crate::config::key::GenericErrorWithValue,
         > {
-            use crate::{bstr::ByteSlice, protocol::transport::client::http::options::FollowRedirects};
+            use crate::{bstr::ByteSlice, protocol::transport::client::blocking_io::http::options::FollowRedirects};
             Ok(if value.as_ref().as_bytes() == b"initial" {
                 FollowRedirects::Initial
             } else if let Some(value) = boolean().map_err(|err| {
@@ -172,10 +172,10 @@ mod key_impls {
             &'static self,
             value: std::borrow::Cow<'_, crate::bstr::BStr>,
         ) -> Result<
-            gix_protocol::transport::client::http::options::HttpVersion,
+            gix_protocol::transport::client::blocking_io::http::options::HttpVersion,
             crate::config::key::GenericErrorWithValue,
         > {
-            use gix_protocol::transport::client::http::options::HttpVersion;
+            use gix_protocol::transport::client::blocking_io::http::options::HttpVersion;
 
             use crate::bstr::ByteSlice;
             Ok(match value.as_ref().as_bytes() {
@@ -200,10 +200,10 @@ mod key_impls {
             &'static self,
             value: std::borrow::Cow<'_, crate::bstr::BStr>,
         ) -> Result<
-            gix_protocol::transport::client::http::options::ProxyAuthMethod,
+            gix_protocol::transport::client::blocking_io::http::options::ProxyAuthMethod,
             crate::config::key::GenericErrorWithValue,
         > {
-            use gix_protocol::transport::client::http::options::ProxyAuthMethod;
+            use gix_protocol::transport::client::blocking_io::http::options::ProxyAuthMethod;
 
             use crate::bstr::ByteSlice;
             Ok(match value.as_ref().as_bytes() {
@@ -230,9 +230,11 @@ mod key_impls {
         pub fn try_into_ssl_version(
             &'static self,
             value: std::borrow::Cow<'_, crate::bstr::BStr>,
-        ) -> Result<gix_protocol::transport::client::http::options::SslVersion, crate::config::ssl_version::Error>
-        {
-            use gix_protocol::transport::client::http::options::SslVersion::*;
+        ) -> Result<
+            gix_protocol::transport::client::blocking_io::http::options::SslVersion,
+            crate::config::ssl_version::Error,
+        > {
+            use gix_protocol::transport::client::blocking_io::http::options::SslVersion::*;
 
             use crate::bstr::ByteSlice;
             Ok(match value.as_ref().as_bytes() {
