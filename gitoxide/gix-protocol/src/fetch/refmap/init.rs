@@ -2,7 +2,6 @@ use std::{borrow::Cow, collections::HashSet};
 
 use bstr::{BString, ByteSlice, ByteVec};
 use gix_features::progress::Progress;
-use gix_refspec::RefSpec;
 use gix_transport::client::Capabilities;
 
 #[cfg(feature = "async-client")]
@@ -67,6 +66,25 @@ impl Options {
             extra_refspecs,
         }
     }
+
+    fn push_prefix_arguments(&self, arguments: &mut Vec<BString>) {
+        if !self.prefix_from_spec_as_filter_on_remote {
+            return;
+        }
+
+        let mut seen = HashSet::new();
+        for spec in &self.all_refspecs {
+            let spec = spec.to_ref();
+            if seen.insert(spec.instruction()) {
+                let mut prefixes = Vec::with_capacity(1);
+                spec.expand_prefixes(&mut prefixes);
+                for mut prefix in prefixes {
+                    prefix.insert_str(0, "ref-prefix ");
+                    arguments.push(prefix);
+                }
+            }
+        }
+    }
 }
 
 impl RefMap {
@@ -82,12 +100,7 @@ impl RefMap {
         transport: &mut T,
         user_agent: (&'static str, Option<Cow<'static, str>>),
         trace_packetlines: bool,
-        Options {
-            fetch_refspecs,
-            prefix_from_spec_as_filter_on_remote,
-            extra_refspecs,
-            all_refspecs,
-        }: Options,
+        options: Options,
     ) -> Result<Self, Error>
     where
         T: Transport,
@@ -100,20 +113,7 @@ impl RefMap {
                     transport,
                     &handshake.capabilities,
                     |_capabilities, arguments| {
-                        if prefix_from_spec_as_filter_on_remote {
-                            let mut seen = HashSet::new();
-                            for spec in &all_refspecs {
-                                let spec = spec.to_ref();
-                                if seen.insert(spec.instruction()) {
-                                    let mut prefixes = Vec::with_capacity(1);
-                                    spec.expand_prefixes(&mut prefixes);
-                                    for mut prefix in prefixes {
-                                        prefix.insert_str(0, "ref-prefix ");
-                                        arguments.push(prefix);
-                                    }
-                                }
-                            }
-                        }
+                        options.push_prefix_arguments(arguments);
                         Ok(crate::ls_refs::Action::Continue)
                     },
                     &mut progress,
@@ -124,22 +124,17 @@ impl RefMap {
             }
         };
 
-        Self::from_refs(
-            remote_refs,
-            &handshake.capabilities,
-            fetch_refspecs,
-            all_refspecs,
-            extra_refspecs,
-        )
+        Self::from_refs(remote_refs, &handshake.capabilities, options)
     }
 
-    fn from_refs(
-        remote_refs: Vec<Ref>,
-        capabilities: &Capabilities,
-        fetch_refspecs: Vec<RefSpec>,
-        all_refspecs: Vec<RefSpec>,
-        extra_refspecs: Vec<RefSpec>,
-    ) -> Result<Self, Error> {
+    fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, options: Options) -> Result<RefMap, Error> {
+        let Options {
+            fetch_refspecs,
+            extra_refspecs,
+            all_refspecs,
+            ..
+        } = options;
+
         let num_explicit_specs = fetch_refspecs.len();
         let group = gix_refspec::MatchGroup::from_fetch_specs(all_refspecs.iter().map(gix_refspec::RefSpec::to_ref));
         let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1); // OK to hardcode Sha1, it's not supposed to match, ever.
