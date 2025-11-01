@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 use bstr::{BString, ByteSlice, ByteVec};
 use gix_features::progress::Progress;
@@ -11,11 +11,10 @@ use crate::transport::client::async_io::Transport;
 use crate::transport::client::blocking_io::Transport;
 use crate::{
     fetch::{
-        self,
         refmap::{Mapping, Source, SpecIndex},
         RefMap,
     },
-    handshake::Ref,
+    handshake::{Outcome, Ref},
 };
 
 /// The error returned by [`RefMap::new()`].
@@ -55,9 +54,6 @@ impl RefMap {
     /// Create a new instance by obtaining all references on the remote that have been filtered through our remote's
     /// for _fetching_.
     ///
-    /// A [context](fetch::Context) is provided to bundle what would be additional parameters,
-    /// and [options](Options) are used to further configure the call.
-    ///
     /// * `progress` is used if `ls-refs` is invoked on the remote. Always the case when V2 is used.
     /// * `fetch_refspecs` are all explicit refspecs to identify references on the remote that you are interested in.
     ///    Note that these are copied to [`RefMap::refspecs`] for convenience, as `RefMap::mappings` refer to them by index.
@@ -66,12 +62,10 @@ impl RefMap {
     pub async fn new<T>(
         mut progress: impl Progress,
         fetch_refspecs: &[gix_refspec::RefSpec],
-        fetch::Context {
-            handshake,
-            transport,
-            user_agent,
-            trace_packetlines,
-        }: fetch::Context<'_, T>,
+        handshake: &mut Outcome,
+        transport: &mut T,
+        user_agent: (&'static str, Option<Cow<'static, str>>),
+        trace_packetlines: bool,
         Options {
             prefix_from_spec_as_filter_on_remote,
             extra_refspecs,

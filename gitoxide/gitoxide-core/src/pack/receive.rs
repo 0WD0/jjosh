@@ -85,12 +85,10 @@ where
     let refmap = gix::protocol::fetch::RefMap::new(
         &mut progress,
         &fetch_refspecs,
-        gix::protocol::fetch::Context {
-            handshake: &mut handshake,
-            transport: &mut transport.inner,
-            user_agent: user_agent.clone(),
-            trace_packetlines,
-        },
+        &mut handshake,
+        &mut transport.inner,
+        user_agent.clone(),
+        trace_packetlines,
         gix::protocol::fetch::refmap::init::Options::default(),
     )
     .await?;

@@ -153,12 +153,10 @@ where
         let refmap = gix_protocol::fetch::RefMap::new(
             progress,
             &self.remote.fetch_specs,
-            gix_protocol::fetch::Context {
-                handshake: &mut handshake,
-                transport: &mut self.transport.inner,
-                user_agent: self.remote.repo.config.user_agent_tuple(),
-                trace_packetlines: self.trace,
-            },
+            &mut handshake,
+            &mut self.transport.inner,
+            self.remote.repo.config.user_agent_tuple(),
+            self.trace,
             gix_protocol::fetch::refmap::init::Options {
                 prefix_from_spec_as_filter_on_remote,
                 extra_refspecs,
