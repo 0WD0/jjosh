@@ -150,20 +150,32 @@ where
             &mut progress,
         )
         .await?;
-        let refmap = gix_protocol::fetch::RefMap::new(
-            progress,
-            &mut handshake,
-            &mut self.transport.inner,
-            self.remote.repo.config.user_agent_tuple(),
-            self.trace,
-            gix_protocol::fetch::refmap::init::Options::new(
-                self.remote.fetch_specs.clone(),
-                prefix_from_spec_as_filter_on_remote,
-                extra_refspecs,
-            ),
-        )
-        .await?;
-        self.handshake = Some(handshake);
-        Ok(refmap)
+
+        let fetch_opts = gix_protocol::fetch::refmap::init::Options::new(
+            self.remote.fetch_specs.clone(),
+            prefix_from_spec_as_filter_on_remote,
+            extra_refspecs,
+        );
+
+        Ok(match handshake.refs.take() {
+            Some(refs) => {
+                let refmap = fetch::RefMap::from_refs(refs, &handshake.capabilities, fetch_opts)?;
+                self.handshake = Some(handshake);
+                refmap
+            }
+            None => {
+                let refmap = gix_protocol::fetch::RefMap::new(
+                    progress,
+                    &handshake.capabilities,
+                    &mut self.transport.inner,
+                    self.remote.repo.config.user_agent_tuple(),
+                    self.trace,
+                    fetch_opts,
+                )
+                .await?;
+                self.handshake = Some(handshake);
+                refmap
+            }
+        })
     }
 }

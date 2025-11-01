@@ -82,15 +82,22 @@ where
         })
         .collect::<Result<_, _>>()?;
     let user_agent = ("agent", Some(agent.clone().into()));
-    let refmap = gix::protocol::fetch::RefMap::new(
-        &mut progress,
-        &mut handshake,
-        &mut transport.inner,
-        user_agent.clone(),
-        trace_packetlines,
-        gix::protocol::fetch::refmap::init::Options::fetch(fetch_refspecs.clone()),
-    )
-    .await?;
+
+    let fetch_opts = gix::protocol::fetch::refmap::init::Options::fetch(fetch_refspecs.clone());
+    let refmap = match handshake.refs.take() {
+        Some(refs) => gix::protocol::fetch::RefMap::from_refs(refs, &handshake.capabilities, fetch_opts)?,
+        None => {
+            gix::protocol::fetch::RefMap::new(
+                &mut progress,
+                &handshake.capabilities,
+                &mut transport.inner,
+                user_agent.clone(),
+                trace_packetlines,
+                fetch_opts,
+            )
+            .await?
+        }
+    };
 
     if refmap.mappings.is_empty() && !refmap.remote_refs.is_empty() {
         return Err(Error::NoMapping {

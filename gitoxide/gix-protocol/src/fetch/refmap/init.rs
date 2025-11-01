@@ -13,7 +13,7 @@ use crate::{
         refmap::{Mapping, Source, SpecIndex},
         RefMap,
     },
-    handshake::{Outcome, Ref},
+    handshake::Ref,
 };
 
 /// The error returned by [`RefMap::new()`].
@@ -96,7 +96,7 @@ impl RefMap {
     #[maybe_async::maybe_async]
     pub async fn new<T>(
         mut progress: impl Progress,
-        handshake: &mut Outcome,
+        capabilities: &Capabilities,
         transport: &mut T,
         user_agent: (&'static str, Option<Cow<'static, str>>),
         trace_packetlines: bool,
@@ -106,28 +106,24 @@ impl RefMap {
         T: Transport,
     {
         let _span = gix_trace::coarse!("gix_protocol::fetch::RefMap::new()");
-        let remote_refs = match handshake.refs.take() {
-            Some(refs) => refs,
-            None => {
-                crate::ls_refs(
-                    transport,
-                    &handshake.capabilities,
-                    |_capabilities, arguments| {
-                        options.push_prefix_arguments(arguments);
-                        Ok(crate::ls_refs::Action::Continue)
-                    },
-                    &mut progress,
-                    trace_packetlines,
-                    user_agent,
-                )
-                .await?
-            }
-        };
+        let remote_refs = crate::ls_refs(
+            transport,
+            capabilities,
+            |_capabilities, arguments| {
+                options.push_prefix_arguments(arguments);
+                Ok(crate::ls_refs::Action::Continue)
+            },
+            &mut progress,
+            trace_packetlines,
+            user_agent,
+        )
+        .await?;
 
-        Self::from_refs(remote_refs, &handshake.capabilities, options)
+        Self::from_refs(remote_refs, capabilities, options)
     }
 
-    fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, options: Options) -> Result<RefMap, Error> {
+    /// Create a ref-map from already obtained `remote_refs`.
+    pub fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, options: Options) -> Result<RefMap, Error> {
         let Options {
             fetch_refspecs,
             extra_refspecs,
