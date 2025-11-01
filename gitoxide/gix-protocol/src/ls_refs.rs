@@ -68,17 +68,15 @@ pub(crate) mod function {
     pub async fn ls_refs(
         mut transport: impl Transport,
         capabilities: &Capabilities,
-        prepare_ls_refs: impl FnOnce(
-            &Capabilities,
-            &mut Vec<BString>,
-            &mut Vec<(&str, Option<Cow<'static, str>>)>,
-        ) -> std::io::Result<Action>,
+        prepare_ls_refs: impl FnOnce(&Capabilities, &mut Vec<BString>) -> std::io::Result<Action>,
         progress: &mut impl Progress,
         trace: bool,
+        agent: (&'static str, Option<Cow<'static, str>>),
     ) -> Result<Vec<Ref>, Error> {
         let _span = gix_features::trace::detail!("gix_protocol::ls_refs()", capabilities = ?capabilities);
         let ls_refs = Command::LsRefs;
         let mut ls_features = ls_refs.default_features(gix_transport::Protocol::V2, capabilities);
+        ls_features.push(agent);
         let mut ls_args = ls_refs.initial_v2_arguments(&ls_features);
         if capabilities
             .capability("ls-refs")
@@ -87,7 +85,7 @@ pub(crate) mod function {
         {
             ls_args.push("unborn".into());
         }
-        let refs = match prepare_ls_refs(capabilities, &mut ls_args, &mut ls_features) {
+        let refs = match prepare_ls_refs(capabilities, &mut ls_args) {
             Ok(Action::Skip) => Vec::new(),
             Ok(Action::Continue) => {
                 ls_refs.validate_argument_prefixes(

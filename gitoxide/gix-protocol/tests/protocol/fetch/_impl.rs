@@ -94,13 +94,10 @@ mod fetch_fn {
                 gix_protocol::ls_refs(
                     &mut transport,
                     &capabilities,
-                    |a, b, c| {
-                        let res = delegate.prepare_ls_refs(a, b, c);
-                        c.push(("agent", Some(Cow::Owned(agent.clone()))));
-                        res
-                    },
+                    |a, b| delegate.prepare_ls_refs(a, b),
                     &mut progress,
                     trace,
+                    ("agent", Some(Cow::Owned(agent.clone()))),
                 )
                 .await?
             }
@@ -240,7 +237,6 @@ mod delegate {
             &mut self,
             _server: &Capabilities,
             _arguments: &mut Vec<BString>,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
         ) -> std::io::Result<ls_refs::Action> {
             Ok(ls_refs::Action::Continue)
         }
@@ -310,9 +306,8 @@ mod delegate {
             &mut self,
             _server: &Capabilities,
             _arguments: &mut Vec<BString>,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
         ) -> io::Result<ls_refs::Action> {
-            self.deref_mut().prepare_ls_refs(_server, _arguments, _features)
+            self.deref_mut().prepare_ls_refs(_server, _arguments)
         }
 
         fn prepare_fetch(
@@ -344,9 +339,8 @@ mod delegate {
             &mut self,
             _server: &Capabilities,
             _arguments: &mut Vec<BString>,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
         ) -> io::Result<ls_refs::Action> {
-            self.deref_mut().prepare_ls_refs(_server, _arguments, _features)
+            self.deref_mut().prepare_ls_refs(_server, _arguments)
         }
 
         fn prepare_fetch(

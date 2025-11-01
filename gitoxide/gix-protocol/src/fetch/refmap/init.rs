@@ -92,8 +92,7 @@ impl RefMap {
                 crate::ls_refs(
                     transport,
                     &handshake.capabilities,
-                    |_capabilities, arguments, features| {
-                        features.push(user_agent);
+                    |_capabilities, arguments| {
                         if prefix_from_spec_as_filter_on_remote {
                             let mut seen = HashSet::new();
                             for spec in &all_refspecs {
@@ -112,6 +111,7 @@ impl RefMap {
                     },
                     &mut progress,
                     trace_packetlines,
+                    user_agent,
                 )
                 .await?
             }
