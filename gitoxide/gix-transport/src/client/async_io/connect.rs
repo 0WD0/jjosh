@@ -2,7 +2,7 @@ pub use crate::client::non_io_types::connect::{Error, Options};
 
 #[cfg(feature = "async-std")]
 pub(crate) mod function {
-    use crate::client::{async_io::Transport, git, non_io_types::connect::Error};
+    use crate::client::{async_io::Transport, git::async_io::Connection, non_io_types::connect::Error};
 
     /// A general purpose connector connecting to a repository identified by the given `url`.
     ///
@@ -26,7 +26,7 @@ pub(crate) mod function {
                 }
                 let path = std::mem::take(&mut url.path);
                 Box::new(
-                    git::Connection::new_tcp(
+                    Connection::new_tcp(
                         url.host().expect("host is present in url"),
                         url.port,
                         path,

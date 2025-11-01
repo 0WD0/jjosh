@@ -2,6 +2,10 @@ use bstr::ByteSlice;
 use gix_transport::Protocol;
 
 use crate::fetch;
+#[cfg(feature = "async-client")]
+use gix_transport::client::git::async_io::Connection;
+#[cfg(feature = "blocking-client")]
+use gix_transport::client::git::blocking_io::Connection;
 
 fn arguments_v1(features: impl IntoIterator<Item = &'static str>) -> fetch::Arguments {
     fetch::Arguments::new(Protocol::V1, features.into_iter().map(|n| (n, None)).collect(), false)
@@ -140,12 +144,9 @@ mod impls {
     }
 }
 
-fn transport(
-    out: &mut Vec<u8>,
-    stateful: bool,
-) -> Transport<gix_transport::client::git::Connection<&'static [u8], &mut Vec<u8>>> {
+fn transport(out: &mut Vec<u8>, stateful: bool) -> Transport<Connection<&'static [u8], &mut Vec<u8>>> {
     Transport {
-        inner: gix_transport::client::git::Connection::new(
+        inner: Connection::new(
             &[],
             out,
             Protocol::V1, // does not matter

@@ -167,7 +167,7 @@ impl Capabilities {
 
 #[cfg(feature = "blocking-client")]
 ///
-pub mod recv {
+pub mod blocking_recv {
     use std::io;
 
     use bstr::ByteVec;
@@ -178,7 +178,7 @@ pub mod recv {
         Protocol,
     };
 
-    /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
+    /// Success outcome of [`Outcome::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
         /// The [`Capabilities`] the remote advertised.
         pub capabilities: Capabilities,
@@ -191,7 +191,7 @@ pub mod recv {
         pub protocol: Protocol,
     }
 
-    impl Capabilities {
+    impl Outcome<'_> {
         /// Read the capabilities and version advertisement from the given packetline reader.
         ///
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
@@ -253,10 +253,10 @@ pub mod recv {
     }
 }
 
-#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+#[cfg(feature = "async-client")]
 #[allow(missing_docs)]
 ///
-pub mod recv {
+pub mod async_recv {
     use bstr::ByteVec;
     use futures_io::AsyncRead;
 
@@ -266,7 +266,7 @@ pub mod recv {
         Protocol,
     };
 
-    /// Success outcome of [`Capabilities::from_lines_with_version_detection`].
+    /// Success outcome of [`Outcome::from_lines_with_version_detection`].
     pub struct Outcome<'a> {
         /// The [`Capabilities`] the remote advertised.
         pub capabilities: Capabilities,
@@ -279,7 +279,7 @@ pub mod recv {
         pub protocol: Protocol,
     }
 
-    impl Capabilities {
+    impl Outcome<'_> {
         /// Read the capabilities and version advertisement from the given packetline reader.
         ///
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs

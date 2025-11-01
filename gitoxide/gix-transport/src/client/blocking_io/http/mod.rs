@@ -19,7 +19,8 @@ use crate::{
             http::options::{HttpVersion, SslVersionRangeInclusive},
             ExtendedBufRead, HandleProgress, RequestWriter, SetServiceResponse,
         },
-        capabilities, Capabilities, MessageKind,
+        capabilities::blocking_recv::Outcome,
+        MessageKind,
     },
     packetline::{blocking_io::StreamingPeekableIter, PacketLineRef},
     Protocol, Service,
@@ -402,11 +403,11 @@ impl<H: Http> blocking_io::Transport for Transport<H> {
             line_reader.as_read().read_to_end(&mut Vec::new())?;
         }
 
-        let capabilities::recv::Outcome {
+        let Outcome {
             capabilities,
             refs,
             protocol: actual_protocol,
-        } = Capabilities::from_lines_with_version_detection(line_reader)?;
+        } = Outcome::from_lines_with_version_detection(line_reader)?;
         self.actual_version = actual_protocol;
         self.service = Some(service);
         Ok(SetServiceResponse {

@@ -1,5 +1,5 @@
 ///
-#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+#[cfg(feature = "async-client")]
 pub mod async_io;
 
 mod traits;
