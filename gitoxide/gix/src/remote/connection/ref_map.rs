@@ -156,11 +156,11 @@ where
             &mut self.transport.inner,
             self.remote.repo.config.user_agent_tuple(),
             self.trace,
-            gix_protocol::fetch::refmap::init::Options {
-                fetch_refspecs: self.remote.fetch_specs.clone(),
+            gix_protocol::fetch::refmap::init::Options::new(
+                self.remote.fetch_specs.clone(),
                 prefix_from_spec_as_filter_on_remote,
                 extra_refspecs,
-            },
+            ),
         )
         .await?;
         self.handshake = Some(handshake);

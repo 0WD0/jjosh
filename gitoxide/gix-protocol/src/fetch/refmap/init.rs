@@ -34,23 +34,37 @@ pub enum Error {
 pub struct Options {
     /// All explicit refspecs to identify references on the remote that you are interested in.
     /// Note that these are copied to [`RefMap::refspecs`] for convenience, as `RefMap::mappings` refer to them by index.
-    pub fetch_refspecs: Vec<gix_refspec::RefSpec>,
+    fetch_refspecs: Vec<gix_refspec::RefSpec>,
     /// Use a two-component prefix derived from the ref-spec's source, like `refs/heads/`  to let the server pre-filter refs
     /// with great potential for savings in traffic and local CPU time. Defaults to `true`.
-    pub prefix_from_spec_as_filter_on_remote: bool,
+    prefix_from_spec_as_filter_on_remote: bool,
     /// A list of refspecs to use as implicit refspecs which won't be saved or otherwise be part of the remote in question.
     ///
     /// This is useful for handling `remote.<name>.tagOpt` for example.
-    pub extra_refspecs: Vec<gix_refspec::RefSpec>,
+    extra_refspecs: Vec<gix_refspec::RefSpec>,
+    all_refspecs: Vec<gix_refspec::RefSpec>,
 }
 
 impl Options {
     /// Create options to fetch the given `fetch_refspecs`.
     pub fn fetch(fetch_refspecs: Vec<gix_refspec::RefSpec>) -> Self {
-        Options {
-            fetch_refspecs,
-            prefix_from_spec_as_filter_on_remote: true,
-            extra_refspecs: Vec::new(),
+        Self::new(fetch_refspecs, true, Vec::new())
+    }
+
+    /// Specify all options for fetching.
+    pub fn new(
+        fetch_refspecs: Vec<gix_refspec::RefSpec>,
+        prefix_from_spec_as_filter_on_remote: bool,
+        extra_refspecs: Vec<gix_refspec::RefSpec>,
+    ) -> Self {
+        let mut all_refspecs = fetch_refspecs.clone();
+        all_refspecs.extend(extra_refspecs.iter().cloned());
+
+        Self {
+            all_refspecs,
+            fetch_refspecs: fetch_refspecs.clone(),
+            prefix_from_spec_as_filter_on_remote,
+            extra_refspecs,
         }
     }
 }
@@ -72,17 +86,13 @@ impl RefMap {
             fetch_refspecs,
             prefix_from_spec_as_filter_on_remote,
             extra_refspecs,
+            all_refspecs,
         }: Options,
     ) -> Result<Self, Error>
     where
         T: Transport,
     {
         let _span = gix_trace::coarse!("gix_protocol::fetch::RefMap::new()");
-        let all_refspecs = {
-            let mut s: Vec<_> = fetch_refspecs.to_vec();
-            s.extend(extra_refspecs.clone());
-            s
-        };
         let remote_refs = match handshake.refs.take() {
             Some(refs) => refs,
             None => {
