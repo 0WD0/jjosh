@@ -1,5 +1,10 @@
 # Must be sourced into the main journey test
 
+
+function remove-thread-id {
+  sed -E 's/ \([0-9]+\)//'
+}
+
 if test "$kind" = "max" || test "$kind" = "max-pure"; then
 title "Porcelain ${kind}"
 (
@@ -8,21 +13,24 @@ title "Porcelain ${kind}"
     (with "the --quiet option set"
       it "fails as expected" && {
         WITH_SNAPSHOT="$snapshot/expected-failure" \
-        expect_run_sh 101 "$exe -q panic"
+        SNAPSHOT_FILTER=remove-thread-id \
+        expect_run_sh 0 "$exe -q panic"
       }
     )
 
     (with "NO --quiet option set"
       it "fails as expected" && {
         WITH_SNAPSHOT="$snapshot/expected-failure-in-thread" \
-        expect_run_sh 101 "$exe panic"
+        SNAPSHOT_FILTER=remove-thread-id \
+        expect_run_sh 0 "$exe panic"
       }
     )
     (not_on_ci # due to different TTY settings, the output differs, it's OK for now
       (with "progress option set"
         it "fails as expected" && {
           WITH_SNAPSHOT="$snapshot/expected-failure-in-thread-with-progress" \
-          expect_run_sh 101 "$exe --progress panic"
+        SNAPSHOT_FILTER=remove-thread-id \
+          expect_run_sh 0 "$exe --progress panic"
         }
       )
     )
