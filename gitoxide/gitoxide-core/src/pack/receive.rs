@@ -84,12 +84,11 @@ where
     let user_agent = ("agent", Some(agent.clone().into()));
     let refmap = gix::protocol::fetch::RefMap::new(
         &mut progress,
-        &fetch_refspecs,
         &mut handshake,
         &mut transport.inner,
         user_agent.clone(),
         trace_packetlines,
-        gix::protocol::fetch::refmap::init::Options::default(),
+        gix::protocol::fetch::refmap::init::Options::fetch(fetch_refspecs.clone()),
     )
     .await?;
 

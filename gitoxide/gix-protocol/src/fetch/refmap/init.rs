@@ -32,6 +32,9 @@ pub enum Error {
 /// For use in [`RefMap::new()`].
 #[derive(Debug, Clone)]
 pub struct Options {
+    /// All explicit refspecs to identify references on the remote that you are interested in.
+    /// Note that these are copied to [`RefMap::refspecs`] for convenience, as `RefMap::mappings` refer to them by index.
+    pub fetch_refspecs: Vec<gix_refspec::RefSpec>,
     /// Use a two-component prefix derived from the ref-spec's source, like `refs/heads/`  to let the server pre-filter refs
     /// with great potential for savings in traffic and local CPU time. Defaults to `true`.
     pub prefix_from_spec_as_filter_on_remote: bool,
@@ -41,9 +44,11 @@ pub struct Options {
     pub extra_refspecs: Vec<gix_refspec::RefSpec>,
 }
 
-impl Default for Options {
-    fn default() -> Self {
+impl Options {
+    /// Create options to fetch the given `fetch_refspecs`.
+    pub fn fetch(fetch_refspecs: Vec<gix_refspec::RefSpec>) -> Self {
         Options {
+            fetch_refspecs,
             prefix_from_spec_as_filter_on_remote: true,
             extra_refspecs: Vec::new(),
         }
@@ -55,18 +60,16 @@ impl RefMap {
     /// for _fetching_.
     ///
     /// * `progress` is used if `ls-refs` is invoked on the remote. Always the case when V2 is used.
-    /// * `fetch_refspecs` are all explicit refspecs to identify references on the remote that you are interested in.
-    ///    Note that these are copied to [`RefMap::refspecs`] for convenience, as `RefMap::mappings` refer to them by index.
     #[allow(clippy::result_large_err)]
     #[maybe_async::maybe_async]
     pub async fn new<T>(
         mut progress: impl Progress,
-        fetch_refspecs: &[gix_refspec::RefSpec],
         handshake: &mut Outcome,
         transport: &mut T,
         user_agent: (&'static str, Option<Cow<'static, str>>),
         trace_packetlines: bool,
         Options {
+            fetch_refspecs,
             prefix_from_spec_as_filter_on_remote,
             extra_refspecs,
         }: Options,
@@ -123,7 +126,7 @@ impl RefMap {
     fn from_refs(
         remote_refs: Vec<Ref>,
         capabilities: &Capabilities,
-        fetch_refspecs: &[RefSpec],
+        fetch_refspecs: Vec<RefSpec>,
         all_refspecs: Vec<RefSpec>,
         extra_refspecs: Vec<RefSpec>,
     ) -> Result<Self, Error> {
@@ -179,7 +182,7 @@ impl RefMap {
 
         Ok(Self {
             mappings,
-            refspecs: fetch_refspecs.to_vec(),
+            refspecs: fetch_refspecs,
             extra_refspecs,
             fixes,
             remote_refs,
