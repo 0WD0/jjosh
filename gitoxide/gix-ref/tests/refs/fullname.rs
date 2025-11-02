@@ -118,6 +118,25 @@ fn shorten_and_category() {
 }
 
 #[test]
+fn to_full_name() -> gix_testtools::Result {
+    assert_eq!(
+        Category::LocalBranch.to_full_name("refs/heads/full")?.as_bstr(),
+        "refs/heads/full",
+        "prefixes aren't duplicated"
+    );
+
+    assert_eq!(
+        Category::LocalBranch
+            .to_full_name("refs/remotes/origin/other")?
+            .as_bstr(),
+        "refs/heads/refs/remotes/origin/other",
+        "full names with a different category will be prefixed, to support 'main-worktree' special cases"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn prefix_with_namespace_and_stripping() {
     let ns = gix_ref::namespace::expand("foo").unwrap();
     let mut name: gix_ref::FullName = "refs/heads/main".try_into().unwrap();
