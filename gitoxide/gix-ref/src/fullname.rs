@@ -1,7 +1,6 @@
+use crate::{bstr::ByteVec, name::is_pseudo_ref, Category, FullName, FullNameRef, Namespace, PartialNameRef};
 use gix_object::bstr::{BStr, BString, ByteSlice};
 use std::{borrow::Borrow, path::Path};
-
-use crate::{bstr::ByteVec, name::is_pseudo_ref, Category, FullName, FullNameRef, Namespace, PartialNameRef};
 
 impl TryFrom<&str> for FullName {
     type Error = gix_validate::reference::name::Error;
@@ -165,6 +164,8 @@ impl FullNameRef {
 impl Category<'_> {
     /// As the inverse of [`FullNameRef::category_and_short_name()`], use the prefix of this category alongside
     /// the `short_name` to create a valid fully qualified [reference name](FullName).
+    ///
+    /// If `short_name` already contains the prefix that it would receive (and is thus a full name), no duplication will occur.
     pub fn to_full_name<'a>(&self, short_name: impl Into<&'a BStr>) -> Result<FullName, crate::name::Error> {
         let mut out: BString = self.prefix().into();
         let short_name = short_name.into();
@@ -185,8 +186,12 @@ impl Category<'_> {
             | Category::PseudoRef
             | Category::MainPseudoRef => short_name,
         };
-        out.extend_from_slice(partial_name);
-        FullName::try_from(out)
+        if out.is_empty() || !partial_name.starts_with(&out) {
+            out.extend_from_slice(partial_name);
+            FullName::try_from(out)
+        } else {
+            FullName::try_from(partial_name.as_bstr())
+        }
     }
 }
 
