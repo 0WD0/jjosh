@@ -18,6 +18,7 @@ doctest = false
 gix-revision = { version = "^0.36.0", path = "../gix-revision", default-features = false }
 gix-validate = { version = "^0.10.1", path = "../gix-validate" }
 gix-hash = { version = "^0.20.0", path = "../gix-hash" }
+gix-glob = { version = "^0.22.1", path = "../gix-glob" }
 
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 thiserror = "2.0.17"

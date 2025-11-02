@@ -6,6 +6,7 @@ use gix_hash::ObjectId;
 use crate::{match_group::Item, RefSpecRef};
 
 /// A type keeping enough information about a ref-spec to be able to efficiently match it against multiple matcher items.
+#[derive(Debug)]
 pub struct Matcher<'a> {
     pub(crate) lhs: Option<Needle<'a>>,
     pub(crate) rhs: Option<Needle<'a>>,
@@ -46,6 +47,7 @@ pub(crate) enum Needle<'a> {
     FullName(&'a BStr),
     PartialName(&'a BStr),
     Glob { name: &'a BStr, asterisk_pos: usize },
+    Pattern(&'a BStr),
     Object(ObjectId),
 }
 
@@ -168,9 +170,15 @@ impl<'a> From<&'a BStr> for Needle<'a> {
 
 impl<'a> From<RefSpecRef<'a>> for Matcher<'a> {
     fn from(v: RefSpecRef<'a>) -> Self {
-        Matcher {
+        let mut m = Matcher {
             lhs: v.src.map(Into::into),
             rhs: v.dst.map(Into::into),
+        };
+        if m.rhs.is_none() {
+            if let Some(src) = v.src {
+                m.lhs = Some(Needle::Pattern(src))
+            }
         }
+        m
     }
 }
