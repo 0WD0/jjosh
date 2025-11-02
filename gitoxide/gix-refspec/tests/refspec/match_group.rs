@@ -189,37 +189,36 @@ mod complex_globs {
     use bstr::BString;
     use gix_hash::ObjectId;
     use gix_refspec::{parse::Operation, MatchGroup};
-    use std::borrow::Cow;
 
     #[test]
     fn one_sided_complex_glob_patterns_can_be_parsed() {
         // The key change is that complex glob patterns with multiple asterisks
         // can now be parsed for one-sided refspecs
-        let spec1 = gix_refspec::parse("refs/*/foo/*".into(), Operation::Fetch);
-        assert!(spec1.is_ok(), "Should parse complex glob pattern for one-sided refspec");
+        let spec = gix_refspec::parse("refs/*/foo/*".into(), Operation::Fetch);
+        assert!(spec.is_ok(), "Should parse complex glob pattern for one-sided refspec");
 
-        let spec2 = gix_refspec::parse("refs/*/*/bar".into(), Operation::Fetch);
+        let spec = gix_refspec::parse("refs/*/*/bar".into(), Operation::Fetch);
         assert!(
-            spec2.is_ok(),
+            spec.is_ok(),
             "Should parse complex glob pattern with multiple asterisks"
         );
 
-        let spec3 = gix_refspec::parse("refs/heads/*/release/*".into(), Operation::Fetch);
-        assert!(spec3.is_ok(), "Should parse complex glob pattern");
+        let spec = gix_refspec::parse("refs/heads/[a-z.]/release/*".into(), Operation::Fetch);
+        assert!(spec.is_ok(), "Should parse complex glob pattern");
 
         // Two-sided refspecs with multiple asterisks should still fail
-        let spec4 = gix_refspec::parse("refs/*/foo/*:refs/remotes/*".into(), Operation::Fetch);
-        assert!(spec4.is_err(), "Two-sided refspecs with multiple asterisks should fail");
+        let spec = gix_refspec::parse("refs/*/foo/*:refs/remotes/*".into(), Operation::Fetch);
+        assert!(spec.is_err(), "Two-sided refspecs with multiple asterisks should fail");
     }
 
     #[test]
     fn one_sided_simple_glob_patterns_match() {
         // Test that simple glob patterns (one asterisk) work correctly with matching
         let refs = vec![
-            create_ref("refs/heads/feature/foo", "1111111111111111111111111111111111111111"),
-            create_ref("refs/heads/bugfix/bar", "2222222222222222222222222222222222222222"),
-            create_ref("refs/tags/v1.0", "3333333333333333333333333333333333333333"),
-            create_ref("refs/pull/123", "4444444444444444444444444444444444444444"),
+            new_ref("refs/heads/feature/foo", "1111111111111111111111111111111111111111"),
+            new_ref("refs/heads/bugfix/bar", "2222222222222222222222222222222222222222"),
+            new_ref("refs/tags/v1.0", "3333333333333333333333333333333333333333"),
+            new_ref("refs/pull/123", "4444444444444444444444444444444444444444"),
         ];
         let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
 
@@ -227,27 +226,61 @@ mod complex_globs {
         let spec = gix_refspec::parse("refs/heads/*".into(), Operation::Fetch).unwrap();
         let group = MatchGroup::from_fetch_specs([spec]);
         let outcome = group.match_lhs(items.iter().copied());
-        let mappings = outcome.mappings;
 
-        assert_eq!(mappings.len(), 2, "Should match two refs under refs/heads/");
+        insta::assert_debug_snapshot!(outcome.mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    0,
+                ),
+                lhs: FullName(
+                    "refs/heads/feature/foo",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+            Mapping {
+                item_index: Some(
+                    1,
+                ),
+                lhs: FullName(
+                    "refs/heads/bugfix/bar",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
 
         // Test: refs/tags/* should match all refs under refs/tags/
-        let items2: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
-        let spec2 = gix_refspec::parse("refs/tags/*".into(), Operation::Fetch).unwrap();
-        let group2 = MatchGroup::from_fetch_specs([spec2]);
-        let outcome2 = group2.match_lhs(items2.iter().copied());
-        let mappings2 = outcome2.mappings;
+        let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
+        let spec = gix_refspec::parse("refs/tags/v[0.9]*".into(), Operation::Fetch).unwrap();
+        let group = MatchGroup::from_fetch_specs([spec]);
+        let outcome = group.match_lhs(items.iter().copied());
 
-        assert_eq!(mappings2.len(), 1, "Should match one ref under refs/tags/");
+        insta::assert_debug_snapshot!(outcome.mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    2,
+                ),
+                lhs: FullName(
+                    "refs/tags/v1.0",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
     }
 
     #[test]
     fn one_sided_glob_with_suffix_matches() {
         // Test that glob patterns with suffix work correctly
         let refs = vec![
-            create_ref("refs/heads/feature", "1111111111111111111111111111111111111111"),
-            create_ref("refs/heads/feat", "2222222222222222222222222222222222222222"),
-            create_ref("refs/heads/main", "3333333333333333333333333333333333333333"),
+            new_ref("refs/heads/feature", "1111111111111111111111111111111111111111"),
+            new_ref("refs/heads/feat", "2222222222222222222222222222222222222222"),
+            new_ref("refs/heads/main", "3333333333333333333333333333333333333333"),
         ];
         let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
 
@@ -257,11 +290,33 @@ mod complex_globs {
         let outcome = group.match_lhs(items.iter().copied());
         let mappings = outcome.mappings;
 
-        assert_eq!(mappings.len(), 2, "Should match two refs starting with feat");
+        insta::assert_debug_snapshot!(mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    0,
+                ),
+                lhs: FullName(
+                    "refs/heads/feature",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+            Mapping {
+                item_index: Some(
+                    1,
+                ),
+                lhs: FullName(
+                    "refs/heads/feat",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
     }
 
-    // Helper function to create a ref
-    fn create_ref(name: &str, id_hex: &str) -> Ref {
+    fn new_ref(name: &str, id_hex: &str) -> Ref {
         Ref {
             name: name.into(),
             target: ObjectId::from_hex(id_hex.as_bytes()).unwrap(),
