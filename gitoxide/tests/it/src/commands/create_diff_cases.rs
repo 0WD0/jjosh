@@ -35,12 +35,12 @@ pub(super) mod function {
 
                 match parts[..] {
                     [before, after, ..] => (before, after),
-                    _ => todo!(),
+                    _ => unreachable!(),
                 }
             })
             .collect();
 
-        let repo = gix::open(worktree_dir)?;
+        let repo = gix::open_opts(worktree_dir, gix::open::Options::isolated())?;
 
         let asset_dir = asset_dir.unwrap_or("assets".into());
         let assets = destination_dir.join(asset_dir.to_os_str()?);
@@ -51,7 +51,6 @@ pub(super) mod function {
         }
 
         let mut buf = Vec::new();
-
         let script_name = "make_diff_for_sliders_repo.sh";
 
         let mut blocks: Vec<String> = vec![format!(
@@ -64,13 +63,13 @@ mkdir -p {asset_dir}
 "#
         )];
 
-        for (before, after) in sliders.iter() {
-            let revspec = repo.rev_parse(*before)?;
+        for (before, after) in sliders.iter().copied() {
+            let revspec = repo.rev_parse(before)?;
             let old_blob_id = revspec
                 .single()
                 .context(format!("rev-spec '{before}' must resolve to a single object"))?;
 
-            let revspec = repo.rev_parse(*after)?;
+            let revspec = repo.rev_parse(after)?;
             let new_blob_id = revspec
                 .single()
                 .context(format!("rev-spec '{after}' must resolve to a single object"))?;
