@@ -186,9 +186,9 @@ mod multiple {
 }
 
 mod complex_globs {
-    use gix_refspec::{parse::Operation, MatchGroup};
-    use gix_hash::ObjectId;
     use bstr::BString;
+    use gix_hash::ObjectId;
+    use gix_refspec::{parse::Operation, MatchGroup};
     use std::borrow::Cow;
 
     #[test]
@@ -197,18 +197,21 @@ mod complex_globs {
         // can now be parsed for one-sided refspecs
         let spec1 = gix_refspec::parse("refs/*/foo/*".into(), Operation::Fetch);
         assert!(spec1.is_ok(), "Should parse complex glob pattern for one-sided refspec");
-        
+
         let spec2 = gix_refspec::parse("refs/*/*/bar".into(), Operation::Fetch);
-        assert!(spec2.is_ok(), "Should parse complex glob pattern with multiple asterisks");
-        
+        assert!(
+            spec2.is_ok(),
+            "Should parse complex glob pattern with multiple asterisks"
+        );
+
         let spec3 = gix_refspec::parse("refs/heads/*/release/*".into(), Operation::Fetch);
         assert!(spec3.is_ok(), "Should parse complex glob pattern");
-        
+
         // Two-sided refspecs with multiple asterisks should still fail
         let spec4 = gix_refspec::parse("refs/*/foo/*:refs/remotes/*".into(), Operation::Fetch);
         assert!(spec4.is_err(), "Two-sided refspecs with multiple asterisks should fail");
     }
-    
+
     #[test]
     fn one_sided_simple_glob_patterns_match() {
         // Test that simple glob patterns (one asterisk) work correctly with matching
@@ -219,25 +222,25 @@ mod complex_globs {
             create_ref("refs/pull/123", "4444444444444444444444444444444444444444"),
         ];
         let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
-        
+
         // Test: refs/heads/* should match all refs under refs/heads/
         let spec = gix_refspec::parse("refs/heads/*".into(), Operation::Fetch).unwrap();
         let group = MatchGroup::from_fetch_specs([spec]);
         let outcome = group.match_lhs(items.iter().copied());
         let mappings = outcome.mappings;
-        
+
         assert_eq!(mappings.len(), 2, "Should match two refs under refs/heads/");
-        
+
         // Test: refs/tags/* should match all refs under refs/tags/
         let items2: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
         let spec2 = gix_refspec::parse("refs/tags/*".into(), Operation::Fetch).unwrap();
         let group2 = MatchGroup::from_fetch_specs([spec2]);
         let outcome2 = group2.match_lhs(items2.iter().copied());
         let mappings2 = outcome2.mappings;
-        
+
         assert_eq!(mappings2.len(), 1, "Should match one ref under refs/tags/");
     }
-    
+
     #[test]
     fn one_sided_glob_with_suffix_matches() {
         // Test that glob patterns with suffix work correctly
@@ -247,16 +250,16 @@ mod complex_globs {
             create_ref("refs/heads/main", "3333333333333333333333333333333333333333"),
         ];
         let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
-        
+
         // Test: refs/heads/feat* should match refs/heads/feature and refs/heads/feat
         let spec = gix_refspec::parse("refs/heads/feat*".into(), Operation::Fetch).unwrap();
         let group = MatchGroup::from_fetch_specs([spec]);
         let outcome = group.match_lhs(items.iter().copied());
         let mappings = outcome.mappings;
-        
+
         assert_eq!(mappings.len(), 2, "Should match two refs starting with feat");
     }
-    
+
     // Helper function to create a ref
     fn create_ref(name: &str, id_hex: &str) -> Ref {
         Ref {
@@ -265,14 +268,14 @@ mod complex_globs {
             object: None,
         }
     }
-    
+
     #[derive(Debug, Clone)]
     struct Ref {
         name: BString,
         target: ObjectId,
         object: Option<ObjectId>,
     }
-    
+
     impl Ref {
         fn to_item(&self) -> gix_refspec::match_group::Item<'_> {
             gix_refspec::match_group::Item {

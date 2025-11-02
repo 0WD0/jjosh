@@ -151,7 +151,11 @@ pub(crate) mod function {
         spec.len() >= gix_hash::Kind::shortest().len_in_hex() && spec.iter().all(u8::is_ascii_hexdigit)
     }
 
-    fn validated(spec: Option<&BStr>, allow_revspecs: bool, is_one_sided: bool) -> Result<(Option<&BStr>, bool), Error> {
+    fn validated(
+        spec: Option<&BStr>,
+        allow_revspecs: bool,
+        is_one_sided: bool,
+    ) -> Result<(Option<&BStr>, bool), Error> {
         match spec {
             Some(spec) => {
                 let glob_count = spec.iter().filter(|b| **b == b'*').take(2).count();

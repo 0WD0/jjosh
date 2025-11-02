@@ -31,7 +31,7 @@ fn complex_patterns_with_more_than_one_asterisk() {
     for op in [Operation::Fetch, Operation::Push] {
         assert!(try_parse("a/*/c/*", op).is_ok());
     }
-    
+
     // For two-sided refspecs, complex patterns should still fail
     for op in [Operation::Fetch, Operation::Push] {
         for spec in ["a/*/c/*:x/*/y/*", "a**:**b", "+:**/"] {
@@ -41,7 +41,7 @@ fn complex_patterns_with_more_than_one_asterisk() {
             ));
         }
     }
-    
+
     // Negative specs with multiple patterns still fail
     assert!(matches!(
         try_parse("^*/*", Operation::Fetch).unwrap_err(),
@@ -61,7 +61,7 @@ fn both_sides_need_pattern_if_one_uses_it() {
             );
         }
     }
-    
+
     // One-sided refspecs with patterns are now allowed
     for op in [Operation::Fetch, Operation::Push] {
         assert!(try_parse("refs/*/a", op).is_ok());

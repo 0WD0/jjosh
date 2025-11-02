@@ -180,18 +180,16 @@ fn complex_glob_patterns_are_allowed_in_one_sided_refspecs() {
     // Complex patterns with multiple asterisks should work for one-sided refspecs
     assert_parse(
         "refs/*/foo/*",
-        Instruction::Fetch(Fetch::Only {
-            src: b("refs/*/foo/*"),
-        }),
+        Instruction::Fetch(Fetch::Only { src: b("refs/*/foo/*") }),
     );
-    
+
     assert_parse(
         "+refs/heads/*/release/*",
         Instruction::Fetch(Fetch::Only {
             src: b("refs/heads/*/release/*"),
         }),
     );
-    
+
     // Even more complex patterns
     assert_parse(
         "refs/*/*/branch",
