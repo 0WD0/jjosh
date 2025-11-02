@@ -104,6 +104,13 @@ impl<'a> Needle<'a> {
                 let end = item.full_ref_name.len() - tail.len();
                 Match::GlobRange(*asterisk_pos..end)
             }
+            Needle::Pattern(pattern) => {
+                if gix_glob::wildmatch(pattern, item.full_ref_name, gix_glob::wildmatch::Mode::empty()) {
+                    Match::Normal
+                } else {
+                    Match::None
+                }
+            }
             Needle::Object(id) => {
                 if *id == item.target {
                     return Match::Normal;
@@ -139,7 +146,11 @@ impl<'a> Needle<'a> {
                 name.insert_str(0, "refs/heads/");
                 Cow::Owned(name.into())
             }
+            (Needle::Pattern(name), None) => Cow::Borrowed(name),
             (Needle::Glob { .. }, None) => unreachable!("BUG: no range provided for glob pattern"),
+            (Needle::Pattern(_), Some(_)) => {
+                unreachable!("BUG: range provided for pattern, but patterns don't use ranges")
+            }
             (_, Some(_)) => {
                 unreachable!("BUG: range provided even though needle wasn't a glob. Globs are symmetric.")
             }
@@ -176,9 +187,23 @@ impl<'a> From<RefSpecRef<'a>> for Matcher<'a> {
         };
         if m.rhs.is_none() {
             if let Some(src) = v.src {
-                m.lhs = Some(Needle::Pattern(src))
+                // Only use Pattern for complex globs (multiple asterisks or other glob features)
+                // Simple single-asterisk globs can use the more efficient Needle::Glob
+                if is_complex_pattern(src) {
+                    m.lhs = Some(Needle::Pattern(src));
+                }
             }
         }
         m
     }
+}
+
+/// Check if a pattern is complex enough to require wildmatch instead of simple glob matching
+fn is_complex_pattern(pattern: &BStr) -> bool {
+    let asterisk_count = pattern.iter().filter(|&&b| b == b'*').count();
+    if asterisk_count > 1 {
+        return true;
+    }
+    // Check for other glob features: ?, [, ], \
+    pattern.iter().any(|&b| b == b'?' || b == b'[' || b == b']' || b == b'\\')
 }

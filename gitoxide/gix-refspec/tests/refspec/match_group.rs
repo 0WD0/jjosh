@@ -254,7 +254,7 @@ mod complex_globs {
 
         // Test: refs/tags/* should match all refs under refs/tags/
         let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
-        let spec = gix_refspec::parse("refs/tags/v[0.9]*".into(), Operation::Fetch).unwrap();
+        let spec = gix_refspec::parse("refs/tags/v[0-9]*".into(), Operation::Fetch).unwrap();
         let group = MatchGroup::from_fetch_specs([spec]);
         let outcome = group.match_lhs(items.iter().copied());
 
