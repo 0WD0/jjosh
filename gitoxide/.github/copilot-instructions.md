@@ -13,11 +13,10 @@ This repository contains `gitoxide` - a pure Rust implementation of Git. This do
 
 ### Test-First Development
 - Protect against regression and make implementing features easy
-- Use containers to test elaborate user interactions
 - Keep it practical - the Rust compiler handles mundane things
 - Use git itself as reference implementation; run same tests against git where feasible
-- Never use `.unwrap()`, not even in tests. Use `quick_error!()` or `Box<dyn std::error::Error>` instead
-- Use `.expect("why")` with context explaining why expectations should hold
+- Never use `.unwrap()` in production code, avoid it in tests in favor of `.expect()` or `?`. Use `gix_testtools::Result` most of the time.
+- Use `.expect("why")` with context explaining why expectations should hold, but only if it's relevant to the test.
 
 ### Error Handling
 - Handle all errors, never `unwrap()`
@@ -38,20 +37,13 @@ Follow "purposeful conventional commits" style:
 
 ### Code Style
 - Follow existing patterns in the codebase
-- Use `gix_hash::ObjectId` and `gix_hash::oid` to prepare for SHA256 support
-- No `.unwrap()` - use `.expect("context")` with clear reasoning
+- No `.unwrap()` - use `.expect("context")` if you are sure this can't fail.
 - Prefer references in plumbing crates to avoid expensive clones
 - Use `gix_features::threading::*` for interior mutability primitives
 
-### Async Usage
-- Provide async clients as opt-in using feature toggles
-- Server-side: support async out of the box with conditional compilation
-- Use `blocking` to make `Read` and `Iterator` async when needed
-- Long-running operations support interruption via `gix_features::interrupt`
-
 ### Path Handling
 - Paths are byte-oriented in git (even on Windows via MSYS2 abstraction)
-- Use `os_str_bytes` to convert git paths to `OsStr`/`Path` or use custom types
+- Use `gix::path::*` utilities to convert git paths (`BString`) to `OsStr`/`Path` or use custom types
 
 ## Building and Testing
 
@@ -77,23 +69,13 @@ Follow "purposeful conventional commits" style:
 - **Plumbing crates**: Low-level, take references, expose mutable parts as arguments
 - **Porcelain (gix)**: High-level, convenient, may clone Repository for user convenience
 - Platforms: cheap to create, keep reference to Repository
-- Caches: more expensive, clone Repository or free of lifetimes
+- Caches: more expensive, clone `Repository` or free of lifetimes
 
 ### Options vs Context
 - Use `Options` for branching behavior configuration (can be defaulted)
 - Use `Context` for data required for operation (cannot be defaulted)
 
-### Default Trait Implementations
-- Can change only if effect is contained within caller's process
-- Changing default file version is a breaking change
-
 ## Crate Organization
-
-### Stability Tiers
-1. **Production Grade** (Tier 1-2): `gix-lock`, `gix-tempfile`
-2. **Stabilization Candidates**: Feature-complete, need more use before 1.0
-3. **Initial Development**: Usable but possibly incomplete
-4. **Very Early/Idea**: Minimal implementation or placeholders
 
 ### Common Crates
 - `gix`: Main library entrypoint (porcelain)
@@ -111,7 +93,7 @@ Follow "purposeful conventional commits" style:
 ## CI and Releases
 - Ubuntu-latest git version is the compatibility target
 - `cargo smart-release` for releases (driven by commit messages)
-- Split breaking changes into separate commits per affected crate
+- Split breaking changes into separate commits per affected crate if one commit-message wouldn't be suitable for all changed crates.
 - First commit: breaking change only; second commit: adaptations
 
 ## When Suggesting Changes
