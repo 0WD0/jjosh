@@ -105,7 +105,11 @@ impl<'a> Needle<'a> {
                 Match::GlobRange(*asterisk_pos..end)
             }
             Needle::Pattern(pattern) => {
-                if gix_glob::wildmatch(pattern, item.full_ref_name, gix_glob::wildmatch::Mode::empty()) {
+                if gix_glob::wildmatch(
+                    pattern,
+                    item.full_ref_name,
+                    gix_glob::wildmatch::Mode::NO_MATCH_SLASH_LITERAL,
+                ) {
                     Match::Normal
                 } else {
                     Match::None
@@ -187,9 +191,7 @@ impl<'a> From<RefSpecRef<'a>> for Matcher<'a> {
         };
         if m.rhs.is_none() {
             if let Some(src) = v.src {
-                // Only use Pattern for complex globs (multiple asterisks or other glob features)
-                // Simple single-asterisk globs can use the more efficient Needle::Glob
-                if is_complex_pattern(src) {
+                if must_use_pattern_matching(src) {
                     m.lhs = Some(Needle::Pattern(src));
                 }
             }
@@ -199,11 +201,12 @@ impl<'a> From<RefSpecRef<'a>> for Matcher<'a> {
 }
 
 /// Check if a pattern is complex enough to require wildmatch instead of simple glob matching
-fn is_complex_pattern(pattern: &BStr) -> bool {
+fn must_use_pattern_matching(pattern: &BStr) -> bool {
     let asterisk_count = pattern.iter().filter(|&&b| b == b'*').count();
     if asterisk_count > 1 {
         return true;
     }
-    // Check for other glob features: ?, [, ], \
-    pattern.iter().any(|&b| b == b'?' || b == b'[' || b == b']' || b == b'\\')
+    pattern
+        .iter()
+        .any(|&b| b == b'?' || b == b'[' || b == b']' || b == b'\\')
 }

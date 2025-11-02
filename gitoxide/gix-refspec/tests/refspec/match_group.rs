@@ -214,7 +214,7 @@ mod complex_globs {
     #[test]
     fn one_sided_simple_glob_patterns_match() {
         // Test that simple glob patterns (one asterisk) work correctly with matching
-        let refs = vec![
+        let refs = [
             new_ref("refs/heads/feature/foo", "1111111111111111111111111111111111111111"),
             new_ref("refs/heads/bugfix/bar", "2222222222222222222222222222222222222222"),
             new_ref("refs/tags/v1.0", "3333333333333333333333333333333333333333"),
@@ -277,7 +277,7 @@ mod complex_globs {
     #[test]
     fn one_sided_glob_with_suffix_matches() {
         // Test that glob patterns with suffix work correctly
-        let refs = vec![
+        let refs = [
             new_ref("refs/heads/feature", "1111111111111111111111111111111111111111"),
             new_ref("refs/heads/feat", "2222222222222222222222222222222222222222"),
             new_ref("refs/heads/main", "3333333333333333333333333333333333333333"),
