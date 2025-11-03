@@ -42,7 +42,7 @@ impl Time {
 
     fn format_inner(&self, format: Format) -> String {
         match format {
-            Format::Custom(CustomFormat(format)) => self.to_time().strftime(format).to_string(),
+            Format::Custom(CustomFormat(format)) => self.to_zoned().strftime(format).to_string(),
             Format::Unix => self.seconds.to_string(),
             Format::Raw => self.to_string(),
         }
@@ -50,7 +50,8 @@ impl Time {
 }
 
 impl Time {
-    fn to_time(self) -> jiff::Zoned {
+    /// Produce a `Zoned` time for complex time computations and limitless formatting.
+    pub fn to_zoned(self) -> jiff::Zoned {
         let offset = jiff::tz::Offset::from_seconds(self.offset).expect("valid offset");
         jiff::Timestamp::from_second(self.seconds)
             .expect("always valid unix time")
