@@ -180,7 +180,7 @@ mod trace_path {
                         out,
                         "{}| {} | {} {} {} ➡ {}",
                         self.diff.unwrap_or_default().format(max_diff_lines),
-                        self.commit_time.format(gix::date::time::format::SHORT),
+                        self.commit_time.format_or_raw(gix::date::time::format::SHORT),
                         id.shorten_or_id(),
                         self.mode.as_str(),
                         path_by_id[&source_id],
@@ -192,7 +192,7 @@ mod trace_path {
                         out,
                         "{}| {} | {} {} {}",
                         self.diff.unwrap_or_default().format(max_diff_lines),
-                        self.commit_time.format(gix::date::time::format::SHORT),
+                        self.commit_time.format_or_raw(gix::date::time::format::SHORT),
                         id.shorten_or_id(),
                         self.mode.as_str(),
                         path_by_id[&self.file_id]

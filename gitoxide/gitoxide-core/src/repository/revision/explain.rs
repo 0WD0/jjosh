@@ -88,7 +88,7 @@ impl delegate::Revision for Explain<'_> {
             ReflogLookup::Date(time) => writeln!(
                 self.out,
                 "Find entry closest to time {} in reflog of '{}' reference",
-                time.format(gix::date::time::format::ISO8601),
+                time.format_or_raw(gix::date::time::format::ISO8601),
                 ref_name
             )
             .ok(),

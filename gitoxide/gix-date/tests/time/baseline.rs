@@ -66,15 +66,17 @@ fn parse_compare_format() {
                 "{pattern:?} disagrees with baseline seconds since epoch: {actual:?}"
             );
             if let Some(format_name) = format_name {
-                let reformatted = t.format(match format_name.as_str() {
-                    "RFC2822" => Format::Custom(format::RFC2822),
-                    "ISO8601" => Format::Custom(format::ISO8601),
-                    "ISO8601_STRICT" => Format::Custom(format::ISO8601_STRICT),
-                    "GITOXIDE" => Format::Custom(format::GITOXIDE),
-                    "UNIX" => Format::Unix,
-                    "RAW" => Format::Raw,
-                    unknown => unreachable!("All formats should be well-known and implemented: {unknown:?}"),
-                });
+                let reformatted = t
+                    .format(match format_name.as_str() {
+                        "RFC2822" => Format::Custom(format::RFC2822),
+                        "ISO8601" => Format::Custom(format::ISO8601),
+                        "ISO8601_STRICT" => Format::Custom(format::ISO8601_STRICT),
+                        "GITOXIDE" => Format::Custom(format::GITOXIDE),
+                        "UNIX" => Format::Unix,
+                        "RAW" => Format::Raw,
+                        unknown => unreachable!("All formats should be well-known and implemented: {unknown:?}"),
+                    })
+                    .expect("valid input time");
                 assert_eq!(
                     reformatted, *pattern,
                     "{reformatted:?} disagrees with baseline pattern: {pattern:?}"
