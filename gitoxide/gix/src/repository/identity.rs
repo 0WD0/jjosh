@@ -140,7 +140,7 @@ impl Personas {
                         .and_then(|date| gix_date::parse(date, Some(SystemTime::now())).ok())
                 })
                 .or_else(|| Some(gix_date::Time::now_local_or_utc()))
-                .map(|time| time.format_or_raw(gix_date::time::Format::Raw))
+                .map(|time| time.format_or_unix(gix_date::time::Format::Raw))
         };
 
         let fallback = (
