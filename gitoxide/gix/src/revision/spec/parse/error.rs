@@ -44,7 +44,7 @@ impl std::fmt::Display for CandidateInfo {
                     "commit {} {title:?}",
                     gix_date::parse_header(date)
                         .unwrap_or_default()
-                        .format_or_raw(gix_date::time::format::SHORT)
+                        .format_or_unix(gix_date::time::format::SHORT)
                 )
             }
         }
