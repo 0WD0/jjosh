@@ -66,15 +66,21 @@ fn git_rfc2822() -> gix_testtools::Result {
 
 #[test]
 fn default() -> gix_testtools::Result {
-    assert_eq!(
-        time().format(gix_date::time::format::GITOXIDE)?,
-        "Fri Nov 30 1973 00:03:09 +0230"
-    );
-    assert_eq!(
-        time_dec1().format(gix_date::time::format::GITOXIDE)?,
-        "Sat Dec 01 1973 00:03:09 +0230"
-    );
+    assert_eq!(time().format(format::GITOXIDE)?, "Fri Nov 30 1973 00:03:09 +0230");
+    assert_eq!(time_dec1().format(format::GITOXIDE)?, "Sat Dec 01 1973 00:03:09 +0230");
     Ok(())
+}
+
+#[test]
+fn format_or_unix() {
+    assert_eq!(
+        Time {
+            seconds: 42,
+            offset: 7200 * 60
+        }
+        .format_or_unix(format::GITOXIDE),
+        "42"
+    );
 }
 
 #[test]

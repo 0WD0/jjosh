@@ -42,10 +42,11 @@ impl Time {
         self.format_inner(format.into())
     }
 
-    /// Like [`Self::format()`], but on time conversion error, produce the [RAW] format instead to make it
-    /// infallible.
-    pub fn format_or_raw(&self, format: impl Into<Format>) -> String {
-        self.format_inner(format.into()).unwrap_or_else(|_| self.to_string())
+    /// Like [`Self::format()`], but on time conversion error, produce the [UNIX] format instead
+    /// to make it infallible.
+    pub fn format_or_unix(&self, format: impl Into<Format>) -> String {
+        self.format_inner(format.into())
+            .unwrap_or_else(|_| self.seconds.to_string())
     }
 
     fn format_inner(&self, format: Format) -> Result<String, jiff::Error> {
