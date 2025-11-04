@@ -92,7 +92,7 @@ where
         mut self,
         progress: impl Progress,
         options: Options,
-    ) -> Result<(fetch::RefMap, gix_protocol::handshake::Outcome), Error> {
+    ) -> Result<(fetch::RefMap, gix_protocol::Handshake), Error> {
         let refmap = self.ref_map_by_ref(progress, options).await?;
         let handshake = self
             .handshake

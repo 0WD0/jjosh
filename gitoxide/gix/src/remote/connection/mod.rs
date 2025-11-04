@@ -20,7 +20,7 @@ where
     pub(crate) authenticate: Option<AuthenticateFn<'a>>,
     pub(crate) transport_options: Option<Box<dyn std::any::Any>>,
     pub(crate) transport: gix_protocol::SendFlushOnDrop<T>,
-    pub(crate) handshake: Option<gix_protocol::handshake::Outcome>,
+    pub(crate) handshake: Option<gix_protocol::Handshake>,
     pub(crate) trace: bool,
 }
 
