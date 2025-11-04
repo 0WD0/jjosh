@@ -9,9 +9,8 @@ use crate::{
     client::{
         self,
         async_io::{RequestWriter, SetServiceResponse},
-        capabilities,
+        capabilities::async_recv::Handshake,
         git::{self, ConnectionState},
-        Capabilities,
     },
     packetline::{
         async_io::{StreamingPeekableIter, Writer},
@@ -97,11 +96,11 @@ where
             line_writer.flush().await?;
         }
 
-        let capabilities::recv::Outcome {
+        let Handshake {
             capabilities,
             refs,
             protocol: actual_protocol,
-        } = Capabilities::from_lines_with_version_detection(&mut self.line_provider).await?;
+        } = Handshake::from_lines_with_version_detection(&mut self.line_provider).await?;
         Ok(SetServiceResponse {
             actual_protocol,
             capabilities,
@@ -164,9 +163,12 @@ mod async_net {
 
     use async_std::net::TcpStream;
 
-    use crate::client::{git, Error};
+    use crate::client::{
+        git::{async_io::Connection, ConnectMode},
+        Error,
+    };
 
-    impl git::Connection<TcpStream, TcpStream> {
+    impl Connection<TcpStream, TcpStream> {
         /// Create a new TCP connection using the `git` protocol of `desired_version`, and make a connection to `host`
         /// at `port` for accessing the repository at `path` on the server side.
         /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
@@ -176,20 +178,20 @@ mod async_net {
             path: bstr::BString,
             desired_version: crate::Protocol,
             trace: bool,
-        ) -> Result<git::Connection<TcpStream, TcpStream>, Error> {
+        ) -> Result<Self, Error> {
             let read = async_std::io::timeout(
                 Duration::from_secs(5),
                 TcpStream::connect(&(host, port.unwrap_or(9418))),
             )
             .await?;
             let write = read.clone();
-            Ok(git::Connection::new(
+            Ok(Self::new(
                 read,
                 write,
                 desired_version,
                 path,
                 None::<(String, _)>,
-                git::ConnectMode::Daemon,
+                ConnectMode::Daemon,
                 trace,
             ))
         }

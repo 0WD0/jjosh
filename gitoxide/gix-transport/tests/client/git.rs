@@ -10,9 +10,15 @@ use bstr::ByteSlice;
 use futures_lite::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
 use gix_packetline::read::ProgressAction;
 #[cfg(feature = "async-client")]
-use gix_transport::client::async_io::{Transport, TransportV2Ext};
+use gix_transport::client::{
+    async_io::{Transport, TransportV2Ext},
+    git::async_io::Connection,
+};
 #[cfg(feature = "blocking-client")]
-use gix_transport::client::blocking_io::{Transport, TransportV2Ext};
+use gix_transport::client::{
+    blocking_io::{Transport, TransportV2Ext},
+    git::blocking_io::Connection,
+};
 use gix_transport::{
     client,
     client::{git, TransportWithoutIO},
@@ -25,7 +31,7 @@ use crate::fixture_bytes;
 async fn handshake_v1_and_request() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
-    let c = git::Connection::new(
+    let c = Connection::new(
         server_response.as_slice(),
         &mut out,
         Protocol::V1,
@@ -157,7 +163,7 @@ async fn handshake_v1_and_request() -> crate::Result {
 async fn push_v1_simulated() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/push.response");
-    let mut c = git::Connection::new(
+    let mut c = Connection::new(
         server_response.as_slice(),
         &mut out,
         Protocol::V1,
@@ -223,7 +229,7 @@ async fn push_v1_simulated() -> crate::Result {
 async fn handshake_v1_process_mode() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
-    let mut c = git::Connection::new(
+    let mut c = Connection::new(
         server_response.as_slice(),
         &mut out,
         Protocol::V1,
@@ -246,7 +252,7 @@ async fn handshake_v1_process_mode() -> crate::Result {
 async fn handshake_v2_downgrade_to_v1() -> crate::Result {
     let mut out = Vec::new();
     let input = fixture_bytes("v1/clone.response");
-    let mut c = git::Connection::new(
+    let mut c = Connection::new(
         input.as_slice(),
         &mut out,
         Protocol::V2,
@@ -293,7 +299,7 @@ async fn handshake_v2_and_request() -> crate::Result {
 async fn handshake_v2_and_request_inner() -> crate::Result {
     let mut out = Vec::new();
     let input = fixture_bytes("v2/clone.response");
-    let mut c = git::Connection::new(
+    let mut c = Connection::new(
         input.as_slice(),
         &mut out,
         Protocol::V2,

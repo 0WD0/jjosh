@@ -161,12 +161,10 @@ mod message {
     }
 }
 
-#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-pub(crate) mod async_io;
-#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-pub use async_io::Connection;
+///
+#[cfg(feature = "async-client")]
+pub mod async_io;
 
+///
 #[cfg(feature = "blocking-client")]
-pub(crate) mod blocking_io;
-#[cfg(feature = "blocking-client")]
-pub use blocking_io::{connect, Connection};
+pub mod blocking_io;
