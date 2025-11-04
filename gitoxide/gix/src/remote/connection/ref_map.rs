@@ -151,31 +151,26 @@ where
         )
         .await?;
 
-        let fetch_opts = gix_protocol::fetch::refmap::init::Options::new(
-            self.remote.fetch_specs.clone(),
-            prefix_from_spec_as_filter_on_remote,
+        let context = gix_protocol::fetch::refmap::init::Context {
+            fetch_refspecs: self.remote.fetch_specs.clone(),
             extra_refspecs,
-        );
-
-        Ok(match handshake.refs.take() {
-            Some(refs) => {
-                let refmap = fetch::RefMap::from_refs(refs, &handshake.capabilities, fetch_opts)?;
-                self.handshake = Some(handshake);
-                refmap
-            }
+        };
+        let ref_map = match handshake.refs.take() {
+            Some(refs) => fetch::RefMap::from_refs(refs, &handshake.capabilities, context)?,
             None => {
-                let refmap = gix_protocol::fetch::RefMap::new(
+                gix_protocol::fetch::RefMap::fetch(
                     progress,
                     &handshake.capabilities,
                     &mut self.transport.inner,
                     self.remote.repo.config.user_agent_tuple(),
                     self.trace,
-                    fetch_opts,
+                    prefix_from_spec_as_filter_on_remote,
+                    context,
                 )
-                .await?;
-                self.handshake = Some(handshake);
-                refmap
+                .await?
             }
-        })
+        };
+        self.handshake = Some(handshake);
+        Ok(ref_map)
     }
 }

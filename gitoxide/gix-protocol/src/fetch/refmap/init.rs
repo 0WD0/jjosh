@@ -16,7 +16,7 @@ use crate::{
     handshake::Ref,
 };
 
-/// The error returned by [`RefMap::new()`].
+/// The error returned by [`RefMap::fetch()`].
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
@@ -28,89 +28,60 @@ pub enum Error {
     ListRefs(#[from] crate::ls_refs::Error),
 }
 
-/// For use in [`RefMap::new()`].
+/// For use in [`RefMap::fetch()`].
 #[derive(Debug, Clone)]
-pub struct Options {
+pub struct Context {
     /// All explicit refspecs to identify references on the remote that you are interested in.
     /// Note that these are copied to [`RefMap::refspecs`] for convenience, as `RefMap::mappings` refer to them by index.
-    fetch_refspecs: Vec<gix_refspec::RefSpec>,
-    /// Use a two-component prefix derived from the ref-spec's source, like `refs/heads/`  to let the server pre-filter refs
-    /// with great potential for savings in traffic and local CPU time. Defaults to `true`.
-    prefix_from_spec_as_filter_on_remote: bool,
+    pub fetch_refspecs: Vec<gix_refspec::RefSpec>,
     /// A list of refspecs to use as implicit refspecs which won't be saved or otherwise be part of the remote in question.
     ///
     /// This is useful for handling `remote.<name>.tagOpt` for example.
-    extra_refspecs: Vec<gix_refspec::RefSpec>,
-    all_refspecs: Vec<gix_refspec::RefSpec>,
+    pub extra_refspecs: Vec<gix_refspec::RefSpec>,
 }
 
-impl Options {
-    /// Create options to fetch the given `fetch_refspecs`.
-    pub fn fetch(fetch_refspecs: Vec<gix_refspec::RefSpec>) -> Self {
-        Self::new(fetch_refspecs, true, Vec::new())
-    }
-
-    /// Specify all options for fetching.
-    pub fn new(
-        fetch_refspecs: Vec<gix_refspec::RefSpec>,
-        prefix_from_spec_as_filter_on_remote: bool,
-        extra_refspecs: Vec<gix_refspec::RefSpec>,
-    ) -> Self {
-        let mut all_refspecs = fetch_refspecs.clone();
-        all_refspecs.extend(extra_refspecs.iter().cloned());
-
-        Self {
-            all_refspecs,
-            fetch_refspecs: fetch_refspecs.clone(),
-            prefix_from_spec_as_filter_on_remote,
-            extra_refspecs,
-        }
-    }
-
-    fn push_prefix_arguments(&self, arguments: &mut Vec<BString>) {
-        if !self.prefix_from_spec_as_filter_on_remote {
-            return;
-        }
-
-        let mut seen = HashSet::new();
-        for spec in &self.all_refspecs {
-            let spec = spec.to_ref();
-            if seen.insert(spec.instruction()) {
-                let mut prefixes = Vec::with_capacity(1);
-                spec.expand_prefixes(&mut prefixes);
-                for mut prefix in prefixes {
-                    prefix.insert_str(0, "ref-prefix ");
-                    arguments.push(prefix);
-                }
-            }
-        }
+impl Context {
+    fn aggregate_refspecs(&self) -> Vec<gix_refspec::RefSpec> {
+        let mut all_refspecs = self.fetch_refspecs.clone();
+        all_refspecs.extend(self.extra_refspecs.iter().cloned());
+        all_refspecs
     }
 }
 
 impl RefMap {
-    /// Create a new instance by obtaining all references on the remote that have been filtered through our remote's
+    /// Create a new instance by obtaining all references on the remote that have been filtered through our remote's specs
     /// for _fetching_.
     ///
     /// * `progress` is used if `ls-refs` is invoked on the remote. Always the case when V2 is used.
+    /// * `capabilities` are the capabilities of the server, obtained by a [handshake](crate::handshake()).
+    /// * `transport` is a way to communicate with the server to obtain the reference listing.
+    /// * `user_agent` is passed to the server.
+    /// * `trace_packetlines` traces all packet lines if `true`, for debugging primarily.
+    /// * `prefix_from_spec_as_filter_on_remote`
+    ///     - Use a two-component prefix derived from the ref-spec's source, like `refs/heads/`  to let the server pre-filter refs
+    ///       with great potential for savings in traffic and local CPU time.
+    /// * `context` to provide more [configuration](Context).
     #[allow(clippy::result_large_err)]
     #[maybe_async::maybe_async]
-    pub async fn new<T>(
+    pub async fn fetch<T>(
         mut progress: impl Progress,
         capabilities: &Capabilities,
         transport: &mut T,
         user_agent: (&'static str, Option<Cow<'static, str>>),
         trace_packetlines: bool,
-        options: Options,
+        prefix_from_spec_as_filter_on_remote: bool,
+        context: Context,
     ) -> Result<Self, Error>
     where
         T: Transport,
     {
         let _span = gix_trace::coarse!("gix_protocol::fetch::RefMap::new()");
+        let all_refspecs = context.aggregate_refspecs();
         let remote_refs = crate::ls_refs(
             transport,
             capabilities,
             |_capabilities, arguments| {
-                options.push_prefix_arguments(arguments);
+                push_prefix_arguments(prefix_from_spec_as_filter_on_remote, arguments, &all_refspecs);
                 Ok(crate::ls_refs::Action::Continue)
             },
             &mut progress,
@@ -119,18 +90,16 @@ impl RefMap {
         )
         .await?;
 
-        Self::from_refs(remote_refs, capabilities, options)
+        Self::from_refs(remote_refs, capabilities, context)
     }
 
-    /// Create a ref-map from already obtained `remote_refs`.
-    pub fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, options: Options) -> Result<RefMap, Error> {
-        let Options {
+    /// Create a ref-map from already obtained `remote_refs`. Use `context` to pass in refspecs.
+    pub fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, context: Context) -> Result<RefMap, Error> {
+        let all_refspecs = context.aggregate_refspecs();
+        let Context {
             fetch_refspecs,
             extra_refspecs,
-            all_refspecs,
-            ..
-        } = options;
-
+        } = context;
         let num_explicit_specs = fetch_refspecs.len();
         let group = gix_refspec::MatchGroup::from_fetch_specs(all_refspecs.iter().map(gix_refspec::RefSpec::to_ref));
         let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1); // OK to hardcode Sha1, it's not supposed to match, ever.
@@ -189,5 +158,28 @@ impl RefMap {
             remote_refs,
             object_hash,
         })
+    }
+}
+
+fn push_prefix_arguments(
+    prefix_from_spec_as_filter_on_remote: bool,
+    arguments: &mut Vec<BString>,
+    all_refspecs: &[gix_refspec::RefSpec],
+) {
+    if !prefix_from_spec_as_filter_on_remote {
+        return;
+    }
+
+    let mut seen = HashSet::new();
+    for spec in all_refspecs {
+        let spec = spec.to_ref();
+        if seen.insert(spec.instruction()) {
+            let mut prefixes = Vec::with_capacity(1);
+            spec.expand_prefixes(&mut prefixes);
+            for mut prefix in prefixes {
+                prefix.insert_str(0, "ref-prefix ");
+                arguments.push(prefix);
+            }
+        }
     }
 }

@@ -60,9 +60,10 @@ pub(crate) mod function {
         indicate_end_of_interaction, Command,
     };
 
-    /// Invoke an ls-refs V2 command on `transport`, which requires a prior handshake that yielded
-    /// server `capabilities`. `prepare_ls_refs(capabilities, arguments, features)` can be used to alter the _ls-refs_. `progress` is used to provide feedback.
-    /// Note that `prepare_ls_refs()` is expected to add the `(agent, Some(name))` to the list of `features`.
+    /// Invoke a ls-refs V2 command on `transport`, which requires a prior handshake that yielded
+    /// server `capabilities`. `prepare_ls_refs(capabilities, arguments)` can be used to alter the _ls-refs_.
+    /// `progress` is used to provide feedback.
+    /// The `agent` information will be added to the features sent to the server.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
     #[maybe_async]
     pub async fn ls_refs(
