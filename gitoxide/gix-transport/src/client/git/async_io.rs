@@ -9,7 +9,7 @@ use crate::{
     client::{
         self,
         async_io::{RequestWriter, SetServiceResponse},
-        capabilities::async_recv::Outcome,
+        capabilities::async_recv::Handshake,
         git::{self, ConnectionState},
     },
     packetline::{
@@ -96,11 +96,11 @@ where
             line_writer.flush().await?;
         }
 
-        let Outcome {
+        let Handshake {
             capabilities,
             refs,
             protocol: actual_protocol,
-        } = Outcome::from_lines_with_version_detection(&mut self.line_provider).await?;
+        } = Handshake::from_lines_with_version_detection(&mut self.line_provider).await?;
         Ok(SetServiceResponse {
             actual_protocol,
             capabilities,

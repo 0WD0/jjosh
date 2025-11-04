@@ -4,9 +4,9 @@ use gix_packetline::async_io::{encode, StreamingPeekableIter};
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
 use gix_packetline::blocking_io::{encode, StreamingPeekableIter};
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-use gix_transport::client::capabilities::async_recv::Outcome;
+use gix_transport::client::capabilities::async_recv::Handshake;
 #[cfg(all(feature = "blocking-client", not(feature = "async-client")))]
-use gix_transport::client::capabilities::blocking_recv::Outcome;
+use gix_transport::client::capabilities::blocking_recv::Handshake;
 use gix_transport::client::Capabilities;
 
 #[test]
@@ -63,7 +63,7 @@ async fn from_lines_with_version_detection_v0() -> crate::Result {
     let mut buf = Vec::<u8>::new();
     encode::flush_to_write(&mut buf).await?;
     let mut stream = StreamingPeekableIter::new(buf.as_slice(), &[gix_packetline::PacketLineRef::Flush], false);
-    let caps = Outcome::from_lines_with_version_detection(&mut stream)
+    let caps = Handshake::from_lines_with_version_detection(&mut stream)
         .await
         .expect("we can parse V0 as very special case, useful for testing stateful connections in other crates")
         .capabilities;

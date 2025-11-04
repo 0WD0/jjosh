@@ -165,8 +165,8 @@ impl Capabilities {
     }
 }
 
-#[cfg(feature = "blocking-client")]
 ///
+#[cfg(feature = "blocking-client")]
 pub mod blocking_recv {
     use std::io;
 
@@ -178,8 +178,8 @@ pub mod blocking_recv {
         Protocol,
     };
 
-    /// Success outcome of [`Outcome::from_lines_with_version_detection`].
-    pub struct Outcome<'a> {
+    /// The information provided by the server upon first connection.
+    pub struct Handshake<'a> {
         /// The [`Capabilities`] the remote advertised.
         pub capabilities: Capabilities,
         /// The remote refs as a [`io::BufRead`].
@@ -191,14 +191,14 @@ pub mod blocking_recv {
         pub protocol: Protocol,
     }
 
-    impl Outcome<'_> {
+    impl Handshake<'_> {
         /// Read the capabilities and version advertisement from the given packetline reader.
         ///
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
-        /// advertisement will also be included in the [`Outcome`].
+        /// advertisement will also be included in the [`Handshake`].
         pub fn from_lines_with_version_detection<T: io::Read>(
             rd: &mut StreamingPeekableIter<T>,
-        ) -> Result<Outcome<'_>, client::Error> {
+        ) -> Result<Handshake<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.
             // We are sure this can't clash with binary data when sent due to the way the PACK
@@ -214,13 +214,13 @@ pub mod blocking_recv {
                         Protocol::V1 => {
                             let (capabilities, delimiter_position) = Capabilities::from_bytes(line.0)?;
                             rd.peek_buffer_replace_and_truncate(delimiter_position, b'\n');
-                            Outcome {
+                            Handshake {
                                 capabilities,
                                 refs: Some(Box::new(rd.as_read())),
                                 protocol: Protocol::V1,
                             }
                         }
-                        Protocol::V2 => Outcome {
+                        Protocol::V2 => Handshake {
                             capabilities: {
                                 let mut rd = rd.as_read();
                                 let mut buf = Vec::new();
@@ -243,7 +243,7 @@ pub mod blocking_recv {
                         },
                     }
                 }
-                None => Outcome {
+                None => Handshake {
                     capabilities: Capabilities::default(),
                     refs: Some(Box::new(rd.as_read())),
                     protocol: Protocol::V0,
@@ -253,9 +253,9 @@ pub mod blocking_recv {
     }
 }
 
+///
 #[cfg(feature = "async-client")]
 #[allow(missing_docs)]
-///
 pub mod async_recv {
     use bstr::ByteVec;
     use futures_io::AsyncRead;
@@ -266,8 +266,8 @@ pub mod async_recv {
         Protocol,
     };
 
-    /// Success outcome of [`Outcome::from_lines_with_version_detection`].
-    pub struct Outcome<'a> {
+    /// The information provided by the server upon first connection.
+    pub struct Handshake<'a> {
         /// The [`Capabilities`] the remote advertised.
         pub capabilities: Capabilities,
         /// The remote refs as an [`AsyncBufRead`].
@@ -279,14 +279,14 @@ pub mod async_recv {
         pub protocol: Protocol,
     }
 
-    impl Outcome<'_> {
+    impl Handshake<'_> {
         /// Read the capabilities and version advertisement from the given packetline reader.
         ///
         /// If [`Protocol::V1`] was requested, or the remote decided to downgrade, the remote refs
-        /// advertisement will also be included in the [`Outcome`].
+        /// advertisement will also be included in the [`Handshake`].
         pub async fn from_lines_with_version_detection<T: AsyncRead + Unpin>(
             rd: &mut StreamingPeekableIter<T>,
-        ) -> Result<Outcome<'_>, client::Error> {
+        ) -> Result<Handshake<'_>, client::Error> {
             // NOTE that this is vitally important - it is turned on and stays on for all following requests so
             // we automatically abort if the server sends an ERR line anywhere.
             // We are sure this can't clash with binary data when sent due to the way the PACK
@@ -302,13 +302,13 @@ pub mod async_recv {
                         Protocol::V1 => {
                             let (capabilities, delimiter_position) = Capabilities::from_bytes(line.0)?;
                             rd.peek_buffer_replace_and_truncate(delimiter_position, b'\n');
-                            Outcome {
+                            Handshake {
                                 capabilities,
                                 refs: Some(Box::new(rd.as_read())),
                                 protocol: Protocol::V1,
                             }
                         }
-                        Protocol::V2 => Outcome {
+                        Protocol::V2 => Handshake {
                             capabilities: {
                                 let mut rd = rd.as_read();
                                 let mut buf = Vec::new();
@@ -331,7 +331,7 @@ pub mod async_recv {
                         },
                     }
                 }
-                None => Outcome {
+                None => Handshake {
                     capabilities: Capabilities::default(),
                     refs: Some(Box::new(rd.as_read())),
                     protocol: Protocol::V0,

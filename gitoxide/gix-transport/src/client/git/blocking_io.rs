@@ -6,7 +6,7 @@ use crate::{
     client::{
         self,
         blocking_io::{RequestWriter, SetServiceResponse},
-        capabilities::blocking_recv::Outcome,
+        capabilities::blocking_recv::Handshake,
         git::{self, ConnectionState},
     },
     packetline::{
@@ -91,11 +91,11 @@ where
             line_writer.flush()?;
         }
 
-        let Outcome {
+        let Handshake {
             capabilities,
             refs,
             protocol: actual_protocol,
-        } = Outcome::from_lines_with_version_detection(&mut self.line_provider)?;
+        } = Handshake::from_lines_with_version_detection(&mut self.line_provider)?;
         Ok(SetServiceResponse {
             actual_protocol,
             capabilities,
