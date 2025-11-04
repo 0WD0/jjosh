@@ -61,6 +61,8 @@ pub mod handshake;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 #[cfg(feature = "handshake")]
 pub use handshake::function::handshake;
+#[cfg(feature = "handshake")]
+pub use handshake::hero::Handshake;
 
 ///
 pub mod ls_refs;

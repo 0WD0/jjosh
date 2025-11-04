@@ -18,8 +18,6 @@ doctest = false
 default = []
 
 ## If set, blocking implementations of the typical git transports become available in `crate::client::blocking_io`
-##
-## If used in conjunction with an async implementation, this one takes precedence.
 blocking-client = ["gix-packetline/blocking-io"]
 ## Implies `blocking-client`, and adds support for the http and https transports.
 http-client = [

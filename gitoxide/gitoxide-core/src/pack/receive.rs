@@ -4,6 +4,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
+use crate::{net, pack::receive::protocol::fetch::negotiate, OutputFormat};
 #[cfg(feature = "async-client")]
 use gix::protocol::transport::client::async_io::connect;
 #[cfg(feature = "blocking-client")]
@@ -22,8 +23,6 @@ pub use gix::{
     },
     NestedProgress, Progress,
 };
-
-use crate::{net, pack::receive::protocol::fetch::negotiate, OutputFormat};
 
 pub const PROGRESS_RANGE: std::ops::RangeInclusive<u8> = 1..=3;
 pub struct Context<W> {
@@ -65,7 +64,7 @@ where
     .is_some();
 
     let agent = gix::protocol::agent(gix::env::agent());
-    let mut handshake = gix::protocol::fetch::handshake(
+    let mut handshake: gix::protocol::Handshake = gix::protocol::fetch::handshake(
         &mut transport.inner,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],
@@ -82,18 +81,21 @@ where
         })
         .collect::<Result<_, _>>()?;
     let user_agent = ("agent", Some(agent.clone().into()));
-    let refmap = gix::protocol::fetch::RefMap::new(
-        &mut progress,
-        &fetch_refspecs,
-        gix::protocol::fetch::Context {
-            handshake: &mut handshake,
-            transport: &mut transport.inner,
-            user_agent: user_agent.clone(),
+
+    let context = gix::protocol::fetch::refmap::init::Context {
+        fetch_refspecs: fetch_refspecs.clone(),
+        extra_refspecs: vec![],
+    };
+    let refmap = handshake
+        .fetch_or_extract_refmap(
+            &mut progress,
+            &mut transport.inner,
+            user_agent.clone(),
             trace_packetlines,
-        },
-        gix::protocol::fetch::refmap::init::Options::default(),
-    )
-    .await?;
+            true,
+            context,
+        )
+        .await?;
 
     if refmap.mappings.is_empty() && !refmap.remote_refs.is_empty() {
         return Err(Error::NoMapping {

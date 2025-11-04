@@ -5,7 +5,7 @@
 ///
 /// * [handshake](handshake())
 /// * **ls-refs**
-///     * [get available refs by refspecs](RefMap::new())
+///     * [get available refs by refspecs](RefMap::fetch())
 /// * **fetch pack**
 ///     * `negotiate` until a pack can be received (TBD)
 /// * [officially terminate the connection](crate::indicate_end_of_interaction())

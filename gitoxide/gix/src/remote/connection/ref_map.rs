@@ -92,7 +92,7 @@ where
         mut self,
         progress: impl Progress,
         options: Options,
-    ) -> Result<(fetch::RefMap, gix_protocol::handshake::Outcome), Error> {
+    ) -> Result<(fetch::RefMap, gix_protocol::Handshake), Error> {
         let refmap = self.ref_map_by_ref(progress, options).await?;
         let handshake = self
             .handshake
@@ -143,29 +143,29 @@ where
         if let Some(config) = self.transport_options.as_ref() {
             self.transport.inner.configure(&**config)?;
         }
-        let mut handshake = gix_protocol::fetch::handshake(
+        let mut handshake: gix_protocol::Handshake = gix_protocol::fetch::handshake(
             &mut self.transport.inner,
             authenticate,
             handshake_parameters,
             &mut progress,
         )
         .await?;
-        let refmap = gix_protocol::fetch::RefMap::new(
-            progress,
-            &self.remote.fetch_specs,
-            gix_protocol::fetch::Context {
-                handshake: &mut handshake,
-                transport: &mut self.transport.inner,
-                user_agent: self.remote.repo.config.user_agent_tuple(),
-                trace_packetlines: self.trace,
-            },
-            gix_protocol::fetch::refmap::init::Options {
+
+        let context = fetch::refmap::init::Context {
+            fetch_refspecs: self.remote.fetch_specs.clone(),
+            extra_refspecs,
+        };
+        let ref_map = handshake
+            .fetch_or_extract_refmap(
+                progress,
+                &mut self.transport.inner,
+                self.remote.repo.config.user_agent_tuple(),
+                self.trace,
                 prefix_from_spec_as_filter_on_remote,
-                extra_refspecs,
-            },
-        )
-        .await?;
+                context,
+            )
+            .await?;
         self.handshake = Some(handshake);
-        Ok(refmap)
+        Ok(ref_map)
     }
 }
