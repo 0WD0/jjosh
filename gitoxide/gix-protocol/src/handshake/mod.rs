@@ -50,20 +50,24 @@ pub enum Ref {
     },
 }
 
-/// The result of the [`handshake()`][super::handshake()] function.
-#[derive(Default, Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg(feature = "handshake")]
-pub struct Outcome {
-    /// The protocol version the server responded with. It might have downgraded the desired version.
-    pub server_protocol_version: gix_transport::Protocol,
-    /// The references reported as part of the `Protocol::V1` handshake, or `None` otherwise as V2 requires a separate request.
-    pub refs: Option<Vec<Ref>>,
-    /// Shallow updates as part of the `Protocol::V1`, to shallow a particular object.
-    /// Note that unshallowing isn't supported here.
-    pub v1_shallow_updates: Option<Vec<crate::fetch::response::ShallowUpdate>>,
-    /// The server capabilities.
-    pub capabilities: gix_transport::client::Capabilities,
+pub(crate) mod hero {
+    use crate::handshake::Ref;
+
+    /// The result of the [`handshake()`](crate::handshake()) function.
+    #[derive(Default, Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Handshake {
+        /// The protocol version the server responded with. It might have downgraded the desired version.
+        pub server_protocol_version: gix_transport::Protocol,
+        /// The references reported as part of the `Protocol::V1` handshake, or `None` otherwise as V2 requires a separate request.
+        pub refs: Option<Vec<Ref>>,
+        /// Shallow updates as part of the `Protocol::V1`, to shallow a particular object.
+        /// Note that unshallowing isn't supported here.
+        pub v1_shallow_updates: Option<Vec<crate::fetch::response::ShallowUpdate>>,
+        /// The server capabilities.
+        pub capabilities: gix_transport::client::Capabilities,
+    }
 }
 
 #[cfg(feature = "handshake")]

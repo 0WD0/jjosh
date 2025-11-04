@@ -74,7 +74,7 @@ mod fetch_fn {
         P: NestedProgress + 'static,
         P::SubProgress: 'static,
     {
-        let gix_protocol::handshake::Outcome {
+        let gix_protocol::Handshake {
             server_protocol_version: protocol_version,
             refs,
             v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,

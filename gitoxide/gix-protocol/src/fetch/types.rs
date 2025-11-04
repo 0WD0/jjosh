@@ -24,7 +24,7 @@ pub struct Context<'a, T> {
     /// The outcome of the handshake performed with the remote.
     ///
     /// Note that it's mutable as depending on the protocol, it may contain refs that have been sent unconditionally.
-    pub handshake: &'a mut crate::handshake::Outcome,
+    pub handshake: &'a mut crate::Handshake,
     /// The transport to use when making an `ls-refs` or `fetch` call.
     ///
     /// This is always done if the underlying protocol is V2, which is implied by the absence of refs in the `handshake` outcome.

@@ -185,7 +185,7 @@ impl Response {
     }
 
     /// Append the given `updates` which may have been obtained from a
-    /// (handshake::Outcome)[crate::handshake::Outcome::v1_shallow_updates].
+    /// (handshake::Outcome)[crate::handshake::Handshake::v1_shallow_updates].
     ///
     /// In V2, these are received as part of the pack, but V1 sends them early, so we
     /// offer to re-integrate them here.

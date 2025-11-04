@@ -6,10 +6,7 @@ use maybe_async::maybe_async;
 use crate::transport::client::async_io::Transport;
 #[cfg(feature = "blocking-client")]
 use crate::transport::client::blocking_io::Transport;
-use crate::{
-    credentials,
-    handshake::{Error, Outcome},
-};
+use crate::{credentials, handshake::Error, Handshake};
 
 /// Perform a handshake with the server on the other side of `transport`, with `authenticate` being used if authentication
 /// turns out to be required. `extra_parameters` are the parameters `(name, optional value)` to add to the handshake,
@@ -22,7 +19,7 @@ pub async fn upload_pack<AuthFn, T>(
     authenticate: AuthFn,
     extra_parameters: Vec<(String, Option<String>)>,
     progress: &mut impl Progress,
-) -> Result<Outcome, Error>
+) -> Result<Handshake, Error>
 where
     AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
     T: Transport,
