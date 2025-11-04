@@ -1125,17 +1125,17 @@ mod remote {
 
         assert_eq!(
             Remote::FETCH
-                .try_into_refspec(bcow("*/*/*"), gix_refspec::parse::Operation::Fetch)
+                .try_into_refspec(bcow("*/*/*:refs/heads/*"), gix_refspec::parse::Operation::Fetch)
                 .unwrap_err()
                 .to_string(),
-            "The refspec at \"remote.<name>.fetch=*/*/*\" could not be parsed"
+            "The refspec at \"remote.<name>.fetch=*/*/*:refs/heads/*\" could not be parsed"
         );
         assert_eq!(
             Remote::PUSH
-                .try_into_refspec(bcow("*/*/*"), gix_refspec::parse::Operation::Push)
+                .try_into_refspec(bcow("*/*/*:refs/heads/*"), gix_refspec::parse::Operation::Push)
                 .unwrap_err()
                 .to_string(),
-            "The refspec at \"remote.<name>.push=*/*/*\" could not be parsed"
+            "The refspec at \"remote.<name>.push=*/*/*:refs/heads/*\" could not be parsed"
         );
     }
 }

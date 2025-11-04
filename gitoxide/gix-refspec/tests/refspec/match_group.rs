@@ -184,3 +184,160 @@ mod multiple {
         );
     }
 }
+
+mod complex_globs {
+    use bstr::BString;
+    use gix_hash::ObjectId;
+    use gix_refspec::{parse::Operation, MatchGroup};
+
+    #[test]
+    fn one_sided_complex_glob_patterns_can_be_parsed() {
+        // The key change is that complex glob patterns with multiple asterisks
+        // can now be parsed for one-sided refspecs
+        let spec = gix_refspec::parse("refs/*/foo/*".into(), Operation::Fetch);
+        assert!(spec.is_ok(), "Should parse complex glob pattern for one-sided refspec");
+
+        let spec = gix_refspec::parse("refs/*/*/bar".into(), Operation::Fetch);
+        assert!(
+            spec.is_ok(),
+            "Should parse complex glob pattern with multiple asterisks"
+        );
+
+        let spec = gix_refspec::parse("refs/heads/[a-z.]/release/*".into(), Operation::Fetch);
+        assert!(spec.is_ok(), "Should parse complex glob pattern");
+
+        // Two-sided refspecs with multiple asterisks should still fail
+        let spec = gix_refspec::parse("refs/*/foo/*:refs/remotes/*".into(), Operation::Fetch);
+        assert!(spec.is_err(), "Two-sided refspecs with multiple asterisks should fail");
+    }
+
+    #[test]
+    fn one_sided_simple_glob_patterns_match() {
+        // Test that simple glob patterns (one asterisk) work correctly with matching
+        let refs = [
+            new_ref("refs/heads/feature/foo", "1111111111111111111111111111111111111111"),
+            new_ref("refs/heads/bugfix/bar", "2222222222222222222222222222222222222222"),
+            new_ref("refs/tags/v1.0", "3333333333333333333333333333333333333333"),
+            new_ref("refs/pull/123", "4444444444444444444444444444444444444444"),
+        ];
+        let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
+
+        // Test: refs/heads/* should match all refs under refs/heads/
+        let spec = gix_refspec::parse("refs/heads/*".into(), Operation::Fetch).unwrap();
+        let group = MatchGroup::from_fetch_specs([spec]);
+        let outcome = group.match_lhs(items.iter().copied());
+
+        insta::assert_debug_snapshot!(outcome.mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    0,
+                ),
+                lhs: FullName(
+                    "refs/heads/feature/foo",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+            Mapping {
+                item_index: Some(
+                    1,
+                ),
+                lhs: FullName(
+                    "refs/heads/bugfix/bar",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
+
+        // Test: refs/tags/* should match all refs under refs/tags/
+        let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
+        let spec = gix_refspec::parse("refs/tags/v[0-9]*".into(), Operation::Fetch).unwrap();
+        let group = MatchGroup::from_fetch_specs([spec]);
+        let outcome = group.match_lhs(items.iter().copied());
+
+        insta::assert_debug_snapshot!(outcome.mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    2,
+                ),
+                lhs: FullName(
+                    "refs/tags/v1.0",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
+    }
+
+    #[test]
+    fn one_sided_glob_with_suffix_matches() {
+        // Test that glob patterns with suffix work correctly
+        let refs = [
+            new_ref("refs/heads/feature", "1111111111111111111111111111111111111111"),
+            new_ref("refs/heads/feat", "2222222222222222222222222222222222222222"),
+            new_ref("refs/heads/main", "3333333333333333333333333333333333333333"),
+        ];
+        let items: Vec<_> = refs.iter().map(|r| r.to_item()).collect();
+
+        // Test: refs/heads/feat* should match refs/heads/feature and refs/heads/feat
+        let spec = gix_refspec::parse("refs/heads/feat*".into(), Operation::Fetch).unwrap();
+        let group = MatchGroup::from_fetch_specs([spec]);
+        let outcome = group.match_lhs(items.iter().copied());
+        let mappings = outcome.mappings;
+
+        insta::assert_debug_snapshot!(mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    0,
+                ),
+                lhs: FullName(
+                    "refs/heads/feature",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+            Mapping {
+                item_index: Some(
+                    1,
+                ),
+                lhs: FullName(
+                    "refs/heads/feat",
+                ),
+                rhs: None,
+                spec_index: 0,
+            },
+        ]
+        "#);
+    }
+
+    fn new_ref(name: &str, id_hex: &str) -> Ref {
+        Ref {
+            name: name.into(),
+            target: ObjectId::from_hex(id_hex.as_bytes()).unwrap(),
+            object: None,
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct Ref {
+        name: BString,
+        target: ObjectId,
+        object: Option<ObjectId>,
+    }
+
+    impl Ref {
+        fn to_item(&self) -> gix_refspec::match_group::Item<'_> {
+            gix_refspec::match_group::Item {
+                full_ref_name: self.name.as_ref(),
+                target: &self.target,
+                object: self.object.as_deref(),
+            }
+        }
+    }
+}

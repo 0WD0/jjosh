@@ -2252,10 +2252,12 @@ name = "gix-refspec"
 version = "0.32.0"
 dependencies = [
  "bstr",
+ "gix-glob",
  "gix-hash",
  "gix-revision",
  "gix-testtools",
  "gix-validate",
+ "insta",
  "smallvec",
  "thiserror 2.0.17",
 ]

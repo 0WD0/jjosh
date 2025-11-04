@@ -6,6 +6,7 @@ use gix_hash::ObjectId;
 use crate::{match_group::Item, RefSpecRef};
 
 /// A type keeping enough information about a ref-spec to be able to efficiently match it against multiple matcher items.
+#[derive(Debug)]
 pub struct Matcher<'a> {
     pub(crate) lhs: Option<Needle<'a>>,
     pub(crate) rhs: Option<Needle<'a>>,
@@ -46,6 +47,7 @@ pub(crate) enum Needle<'a> {
     FullName(&'a BStr),
     PartialName(&'a BStr),
     Glob { name: &'a BStr, asterisk_pos: usize },
+    Pattern(&'a BStr),
     Object(ObjectId),
 }
 
@@ -102,6 +104,17 @@ impl<'a> Needle<'a> {
                 let end = item.full_ref_name.len() - tail.len();
                 Match::GlobRange(*asterisk_pos..end)
             }
+            Needle::Pattern(pattern) => {
+                if gix_glob::wildmatch(
+                    pattern,
+                    item.full_ref_name,
+                    gix_glob::wildmatch::Mode::NO_MATCH_SLASH_LITERAL,
+                ) {
+                    Match::Normal
+                } else {
+                    Match::None
+                }
+            }
             Needle::Object(id) => {
                 if *id == item.target {
                     return Match::Normal;
@@ -137,7 +150,11 @@ impl<'a> Needle<'a> {
                 name.insert_str(0, "refs/heads/");
                 Cow::Owned(name.into())
             }
+            (Needle::Pattern(name), None) => Cow::Borrowed(name),
             (Needle::Glob { .. }, None) => unreachable!("BUG: no range provided for glob pattern"),
+            (Needle::Pattern(_), Some(_)) => {
+                unreachable!("BUG: range provided for pattern, but patterns don't use ranges")
+            }
             (_, Some(_)) => {
                 unreachable!("BUG: range provided even though needle wasn't a glob. Globs are symmetric.")
             }
@@ -168,9 +185,28 @@ impl<'a> From<&'a BStr> for Needle<'a> {
 
 impl<'a> From<RefSpecRef<'a>> for Matcher<'a> {
     fn from(v: RefSpecRef<'a>) -> Self {
-        Matcher {
+        let mut m = Matcher {
             lhs: v.src.map(Into::into),
             rhs: v.dst.map(Into::into),
+        };
+        if m.rhs.is_none() {
+            if let Some(src) = v.src {
+                if must_use_pattern_matching(src) {
+                    m.lhs = Some(Needle::Pattern(src));
+                }
+            }
         }
+        m
     }
+}
+
+/// Check if a pattern is complex enough to require wildmatch instead of simple glob matching
+fn must_use_pattern_matching(pattern: &BStr) -> bool {
+    let asterisk_count = pattern.iter().filter(|&&b| b == b'*').count();
+    if asterisk_count > 1 {
+        return true;
+    }
+    pattern
+        .iter()
+        .any(|&b| b == b'?' || b == b'[' || b == b']' || b == b'\\')
 }
