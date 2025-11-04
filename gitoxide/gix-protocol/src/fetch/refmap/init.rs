@@ -94,6 +94,7 @@ impl RefMap {
     }
 
     /// Create a ref-map from already obtained `remote_refs`. Use `context` to pass in refspecs.
+    /// `capabilities` are used to determine the object format.
     pub fn from_refs(remote_refs: Vec<Ref>, capabilities: &Capabilities, context: Context) -> Result<RefMap, Error> {
         let all_refspecs = context.aggregate_refspecs();
         let Context {
