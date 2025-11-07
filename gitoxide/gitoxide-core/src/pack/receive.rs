@@ -64,7 +64,7 @@ where
     .is_some();
 
     let agent = gix::protocol::agent(gix::env::agent());
-    let mut handshake: gix::protocol::Handshake = gix::protocol::fetch::handshake(
+    let mut handshake = gix::protocol::handshake(
         &mut transport.inner,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],

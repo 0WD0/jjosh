@@ -34,13 +34,6 @@ pub mod response;
 #[cfg(feature = "fetch")]
 pub(crate) mod function;
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-#[cfg(feature = "handshake")]
-mod handshake;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-#[cfg(feature = "handshake")]
-pub use handshake::upload_pack as handshake;
-
 #[cfg(feature = "fetch")]
 pub mod negotiate;
 

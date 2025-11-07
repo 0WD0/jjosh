@@ -18,7 +18,6 @@ use crate::{credentials, handshake::refs};
 #[maybe_async]
 pub async fn handshake<AuthFn, T>(
     mut transport: T,
-    service: Service,
     mut authenticate: AuthFn,
     extra_parameters: Vec<(String, Option<String>)>,
     progress: &mut impl Progress,
@@ -27,6 +26,7 @@ where
     AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
     T: Transport,
 {
+    let service = Service::UploadPack;
     let _span = gix_features::trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
     let (server_protocol_version, refs, capabilities) = {
         progress.init(None, progress::steps());

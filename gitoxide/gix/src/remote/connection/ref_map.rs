@@ -143,7 +143,7 @@ where
         if let Some(config) = self.transport_options.as_ref() {
             self.transport.inner.configure(&**config)?;
         }
-        let mut handshake: gix_protocol::Handshake = gix_protocol::fetch::handshake(
+        let mut handshake = gix_protocol::handshake(
             &mut self.transport.inner,
             authenticate,
             handshake_parameters,
