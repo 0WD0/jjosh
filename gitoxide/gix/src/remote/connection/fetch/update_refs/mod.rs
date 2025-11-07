@@ -76,6 +76,7 @@ pub(crate) fn update(
     let mut updates = Vec::new();
     let mut edit_indices_to_validate = Vec::new();
 
+    let mut checked_out_branches = worktree_branches(repo)?;
     let implicit_tag_refspec = fetch_tags
         .to_refspec()
         .filter(|_| matches!(fetch_tags, crate::remote::fetch::Tags::Included));
@@ -110,7 +111,6 @@ pub(crate) fn update(
                 continue;
             }
         }
-        let mut checked_out_branches = worktree_branches(repo)?;
         let (mode, edit_index, type_change) = match local {
             Some(name) => {
                 let (mode, reflog_message, name, previous_value) = match repo.try_find_reference(name)? {
