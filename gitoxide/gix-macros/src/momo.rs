@@ -184,13 +184,13 @@ fn convert(
             let pat_ident = match &mut *pat_type.pat {
                 Pat::Ident(pat_ident) if pat_ident.by_ref.is_none() && pat_ident.subpat.is_none() => pat_ident,
                 _ => {
-                    pat_type.pat = Box::new(Pat::Ident(PatIdent {
+                    *pat_type.pat = Pat::Ident(PatIdent {
                         ident: Ident::new(&format!("arg_{i}_gen_by_momo_"), proc_macro2::Span::call_site()),
                         attrs: Default::default(),
                         by_ref: None,
                         mutability: None,
                         subpat: None,
-                    }));
+                    });
 
                     if let Pat::Ident(pat_ident) = &mut *pat_type.pat {
                         pat_ident
