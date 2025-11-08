@@ -350,8 +350,14 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
             "in our case prunable repos have no worktree base"
         );
 
+        assert_eq!(
+            main_repo.worktree_proxy_by_id(actual.id()).expect("exists").git_dir(),
+            actual.git_dir(),
+            "we can basically get the same proxy by its ID explicitly"
+        );
+
         let repo = if base.is_dir() {
-            let repo = actual.into_repo().unwrap();
+            let repo = actual.clone().into_repo().unwrap();
             assert_eq!(
                 &gix::open(base).unwrap(),
                 &repo,
@@ -366,7 +372,7 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
                 ),
                 "missing bases are detected"
             );
-            actual.into_repo_with_possibly_inaccessible_worktree().unwrap()
+            actual.clone().into_repo_with_possibly_inaccessible_worktree().unwrap()
         };
         let worktree = repo.worktree().expect("linked worktrees have at least a base path");
         assert!(!worktree.is_main());
@@ -377,6 +383,20 @@ fn run_assertions(main_repo: gix::Repository, should_be_bare: bool) {
             repo.main_repo().unwrap(),
             main_repo,
             "main repo from worktree repo is the actual main repo"
+        );
+
+        let proxy_by_id = repo
+            .worktree_proxy_by_id(actual.id())
+            .expect("can get the proxy from a linked repo as well");
+        assert_ne!(
+            proxy_by_id.git_dir(),
+            actual.git_dir(),
+            "The git directories might not look the same…"
+        );
+        assert_eq!(
+            gix_path::realpath(proxy_by_id.git_dir()).ok(),
+            gix_path::realpath(actual.git_dir()).ok(),
+            "…but they are the same effectively"
         );
     }
 }

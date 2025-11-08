@@ -1,3 +1,4 @@
+use crate::bstr::BStr;
 use crate::{worktree, Worktree};
 
 /// Interact with individual worktrees and their information.
@@ -20,15 +21,20 @@ impl crate::Repository {
         for entry in iter {
             let entry = entry?;
             let worktree_git_dir = entry.path();
-            if worktree_git_dir.join("gitdir").is_file() {
-                res.push(worktree::Proxy {
-                    parent: self,
-                    git_dir: worktree_git_dir,
-                });
-            }
+            res.extend(worktree::Proxy::new_if_gitdir_file_exists(self, worktree_git_dir));
         }
         res.sort_by(|a, b| a.git_dir.cmp(&b.git_dir));
         Ok(res)
+    }
+
+    /// Return the worktree that [is identified](Worktree::id) by the given `id`, if it exists at
+    /// `.git/worktrees/<id>` and its `gitdir` file exists.
+    /// Return `None` otherwise.
+    pub fn worktree_proxy_by_id<'a>(&self, id: impl Into<&'a BStr>) -> Option<worktree::Proxy<'_>> {
+        worktree::Proxy::new_if_gitdir_file_exists(
+            self,
+            self.common_dir().join("worktrees").join(gix_path::from_bstr(id.into())),
+        )
     }
 
     /// Return the repository owning the main worktree, typically from a linked worktree.
