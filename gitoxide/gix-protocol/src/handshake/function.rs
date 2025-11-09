@@ -14,10 +14,12 @@ use crate::{credentials, handshake::refs};
 /// turns out to be required. `extra_parameters` are the parameters `(name, optional value)` to add to the handshake,
 /// each time it is performed in case authentication is required.
 /// `progress` is used to inform about what's currently happening.
+/// The `service` tells the server whether to be in 'send' or 'receive' mode.
 #[allow(clippy::result_large_err)]
 #[maybe_async]
 pub async fn handshake<AuthFn, T>(
     mut transport: T,
+    service: Service,
     mut authenticate: AuthFn,
     extra_parameters: Vec<(String, Option<String>)>,
     progress: &mut impl Progress,
@@ -26,7 +28,6 @@ where
     AuthFn: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
     T: Transport,
 {
-    let service = Service::UploadPack;
     let _span = gix_features::trace::detail!("gix_protocol::handshake()", service = ?service, extra_parameters = ?extra_parameters);
     let (server_protocol_version, refs, capabilities) = {
         progress.init(None, progress::steps());

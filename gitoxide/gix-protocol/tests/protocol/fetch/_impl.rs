@@ -81,6 +81,7 @@ mod fetch_fn {
             capabilities,
         } = gix_protocol::handshake(
             &mut transport,
+            gix_transport::Service::UploadPack,
             authenticate,
             delegate.handshake_extra_parameters(),
             &mut progress,

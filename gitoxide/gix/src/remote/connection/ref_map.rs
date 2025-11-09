@@ -145,6 +145,7 @@ where
         }
         let mut handshake = gix_protocol::handshake(
             &mut self.transport.inner,
+            gix_transport::Service::UploadPack,
             authenticate,
             handshake_parameters,
             &mut progress,

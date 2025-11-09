@@ -66,6 +66,7 @@ where
     let agent = gix::protocol::agent(gix::env::agent());
     let mut handshake = gix::protocol::handshake(
         &mut transport.inner,
+        transport::Service::UploadPack,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],
         &mut progress,
