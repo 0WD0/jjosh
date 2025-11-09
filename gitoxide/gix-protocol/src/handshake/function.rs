@@ -14,6 +14,7 @@ use crate::{credentials, handshake::refs};
 /// turns out to be required. `extra_parameters` are the parameters `(name, optional value)` to add to the handshake,
 /// each time it is performed in case authentication is required.
 /// `progress` is used to inform about what's currently happening.
+/// The `service` tells the server whether to be in 'send' or 'receive' mode.
 #[allow(clippy::result_large_err)]
 #[maybe_async]
 pub async fn handshake<AuthFn, T>(

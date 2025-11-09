@@ -123,7 +123,7 @@ mod error {
 
     use crate::{credentials, handshake::refs};
 
-    /// The error returned by [`handshake()`][crate::fetch::handshake()].
+    /// The error returned by [`handshake()`][crate::handshake()].
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {

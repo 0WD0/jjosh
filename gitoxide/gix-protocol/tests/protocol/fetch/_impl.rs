@@ -79,8 +79,9 @@ mod fetch_fn {
             refs,
             v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
             capabilities,
-        } = gix_protocol::fetch::handshake(
+        } = gix_protocol::handshake(
             &mut transport,
+            gix_transport::Service::UploadPack,
             authenticate,
             delegate.handshake_extra_parameters(),
             &mut progress,
