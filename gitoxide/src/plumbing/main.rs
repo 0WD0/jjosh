@@ -658,7 +658,7 @@ pub fn main() -> Result<()> {
         }
         Subcommands::ConfigTree => show_progress(),
         Subcommands::Credential(cmd) => core::repository::credential(
-            repository(Mode::StrictWithGitInstallConfig)?,
+            repository(Mode::StrictWithGitInstallConfig).ok(),
             match cmd {
                 credential::Subcommands::Fill => gix::credentials::program::main::Action::Get,
                 credential::Subcommands::Approve => gix::credentials::program::main::Action::Store,
