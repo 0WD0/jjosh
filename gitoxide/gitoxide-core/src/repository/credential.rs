@@ -33,10 +33,10 @@ pub fn function(repo: Option<gix::Repository>, action: gix::credentials::program
                     gix::config::credential_helpers(
                         gix::url::parse(url.as_ref())?,
                         &config,
-                        false,
-                        |_| true,
+                        false,    /* lenient config */
+                        |_| true, /* section filter */
                         environment,
-                        false,
+                        false, /* use http path (override, uses configuration now)*/
                     )?
                 }
             };
