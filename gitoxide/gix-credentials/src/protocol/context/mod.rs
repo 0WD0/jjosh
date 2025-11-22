@@ -101,7 +101,12 @@ mod mutate {
             self.username = url.user().map(ToOwned::to_owned);
             self.password = url.password().map(ToOwned::to_owned);
             self.host = url.host().map(ToOwned::to_owned).map(|mut host| {
-                if let Some(port) = url.port {
+                let port = url.port.filter(|port| {
+                    url.scheme
+                        .default_port()
+                        .is_none_or(|default_port| *port != default_port)
+                });
+                if let Some(port) = port {
                     use std::fmt::Write;
                     write!(host, ":{port}").expect("infallible");
                 }
