@@ -371,6 +371,95 @@ pub(crate) mod apply {
         Ok(())
     }
 
+    #[serial]
+    #[test]
+    fn large_file_with_cat_filter_does_not_hang() -> crate::Result {
+        // This test reproduces issue #2080 where using `cat` as a filter with a large file
+        // causes a deadlock. The pipe buffer is typically 64KB on Linux, so we use files
+        // larger than that to ensure the buffer fills up.
+
+        // Typical pipe buffer sizes on Unix systems
+        const PIPE_BUFFER_SIZE: usize = 64 * 1024; // 64KB
+
+        let mut state = gix_filter::driver::State::default();
+
+        // Create a driver that uses `cat` command (which echoes input to output immediately)
+        let driver = Driver {
+            name: "cat".into(),
+            clean: Some("cat".into()),
+            smudge: Some("cat".into()),
+            process: None,
+            required: false,
+        };
+
+        // Test with multiple sizes to ensure robustness
+        for size in [
+            PIPE_BUFFER_SIZE,
+            2 * PIPE_BUFFER_SIZE,
+            8 * PIPE_BUFFER_SIZE,
+            16 * PIPE_BUFFER_SIZE,
+        ] {
+            let input = vec![b'a'; size];
+
+            // Apply the filter - this should not hang
+            let mut filtered = state
+                .apply(
+                    &driver,
+                    &mut input.as_slice(),
+                    driver::Operation::Smudge,
+                    context_from_path("large-file.txt"),
+                )?
+                .expect("filter present");
+
+            let mut output = Vec::new();
+            filtered.read_to_end(&mut output)?;
+
+            assert_eq!(
+                input.len(),
+                output.len(),
+                "cat should pass through all data unchanged for {size} bytes"
+            );
+            assert_eq!(input, output, "cat should not modify the data");
+        }
+        Ok(())
+    }
+
+    #[serial]
+    #[test]
+    fn large_file_with_cat_filter_early_drop() -> crate::Result {
+        // Test that dropping the reader early doesn't cause issues (thread cleanup)
+        let mut state = gix_filter::driver::State::default();
+
+        let driver = Driver {
+            name: "cat".into(),
+            clean: Some("cat".into()),
+            smudge: Some("cat".into()),
+            process: None,
+            required: false,
+        };
+
+        let input = vec![b'x'; 256 * 1024];
+
+        // Apply the filter but only read a small amount
+        let mut filtered = state
+            .apply(
+                &driver,
+                &mut input.as_slice(),
+                driver::Operation::Clean,
+                context_from_path("early-drop.txt"),
+            )?
+            .expect("filter present");
+
+        let mut output = vec![0u8; 100];
+        filtered.read_exact(&mut output)?;
+        assert_eq!(output, vec![b'x'; 100], "should read first 100 bytes");
+
+        // Drop the reader early - the thread should still clean up properly
+        drop(filtered);
+
+        Ok(())
+    }
+
     pub(crate) fn extract_delayed_key(res: Option<apply::MaybeDelayed<'_>>) -> driver::Key {
         match res {
             Some(apply::MaybeDelayed::Immediate(_)) | None => {
