@@ -19,7 +19,7 @@ pub enum Error {
     Url {
         url: String,
         kind: UrlKind,
-        source: crate::simple_url::ParseError,
+        source: crate::simple_url::UrlParseError,
     },
 
     #[error("The host portion of the following URL is too long ({} bytes, {len} bytes total): {truncated_url:?}", truncated_url.len())]
@@ -99,24 +99,20 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url, Error
         });
     }
     let (input, url) = input_to_utf8_and_url(input, UrlKind::Url)?;
-    let scheme = url.scheme().into();
+    let scheme = Scheme::from(url.scheme.as_str());
 
-    if matches!(scheme, Scheme::Git | Scheme::Ssh) && url.path().is_empty() {
+    if matches!(scheme, Scheme::Git | Scheme::Ssh) && url.path.is_empty() {
         return Err(Error::MissingRepositoryPath {
             url: input.into(),
             kind: UrlKind::Url,
         });
     }
 
-    if url.cannot_be_a_base() {
-        return Err(Error::RelativeUrl { url: input.to_owned() });
-    }
-
     // Normalize empty path to "/" for http/https URLs only
-    let path = if url.path().is_empty() && matches!(scheme, Scheme::Http | Scheme::Https) {
+    let path = if url.path.is_empty() && matches!(scheme, Scheme::Http | Scheme::Https) {
         "/".into()
     } else {
-        url.path().into()
+        url.path.into()
     };
 
     Ok(crate::Url {
@@ -124,11 +120,11 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url, Error
         scheme,
         user: url_user(&url, UrlKind::Url)?,
         password: url
-            .password()
+            .password
             .map(|s| percent_decoded_utf8(s, UrlKind::Url))
             .transpose()?,
-        host: url.host_str().map(Into::into),
-        port: url.port(),
+        host: url.host,
+        port: url.port,
         path,
     })
 }
@@ -172,23 +168,23 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
 
     Ok(crate::Url {
         serialize_alternative_form: true,
-        scheme: url.scheme().into(),
+        scheme: Scheme::from(url.scheme.as_str()),
         user: url_user(&url, UrlKind::Scp)?,
         password: url
-            .password()
+            .password
             .map(|s| percent_decoded_utf8(s, UrlKind::Scp))
             .transpose()?,
-        host: url.host_str().map(Into::into),
-        port: url.port(),
+        host: url.host,
+        port: url.port,
         path: path.into(),
     })
 }
 
 fn url_user(url: &crate::simple_url::ParsedUrl<'_>, kind: UrlKind) -> Result<Option<String>, Error> {
-    if url.username().is_empty() && url.password().is_none() {
+    if url.username.is_empty() && url.password.is_none() {
         Ok(None)
     } else {
-        Ok(Some(percent_decoded_utf8(url.username(), kind)?))
+        Ok(Some(percent_decoded_utf8(url.username, kind)?))
     }
 }
 
@@ -285,7 +281,9 @@ fn input_to_utf8_and_url(input: &BStr, kind: UrlKind) -> Result<(&str, crate::si
             // If the parser rejected it as RelativeUrlWithoutBase, map to Error::RelativeUrl
             // to match the expected error type for malformed URLs like "invalid:://"
             match source {
-                crate::simple_url::ParseError::RelativeUrlWithoutBase => Error::RelativeUrl { url: input.to_owned() },
+                crate::simple_url::UrlParseError::RelativeUrlWithoutBase => {
+                    Error::RelativeUrl { url: input.to_owned() }
+                }
                 _ => Error::Url {
                     url: input.to_owned(),
                     kind,
