@@ -141,13 +141,9 @@ mod windows {
 
     #[test]
     fn url_from_absolute_path() -> crate::Result {
+        // Test with a Windows path directly instead of using url::Url::from_directory_path
         assert_url(
-            url::Url::from_directory_path(r"c:\users\1")
-                .expect("valid")
-                .to_file_path()
-                .expect("valid path")
-                .to_string_lossy()
-                .as_ref(),
+            r"C:\users\1\",
             url_alternate(Scheme::File, None, None, None, br"C:\users\1\"),
         )?;
         // A special hack to support URLs on windows that are prefixed with `/` even though absolute.
@@ -189,13 +185,9 @@ mod unix {
 
     #[test]
     fn url_from_absolute_path() -> crate::Result {
+        // Test with a simple file path instead of using url::Url::from_directory_path
         assert_url_roundtrip(
-            url::Url::from_directory_path("/users/foo")
-                .expect("valid")
-                .to_file_path()
-                .expect("valid path")
-                .to_string_lossy()
-                .as_ref(),
+            "/users/foo/",
             url_alternate(Scheme::File, None, None, None, b"/users/foo/"),
         )
     }

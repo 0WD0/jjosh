@@ -22,6 +22,9 @@ mod impls;
 ///
 pub mod parse;
 
+/// Minimal URL parser to replace the `url` crate dependency
+mod simple_url;
+
 /// Parse the given `bytes` as a [git url](Url).
 ///
 /// # Note
