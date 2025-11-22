@@ -77,7 +77,7 @@ impl State {
     ///
     /// ### Deviation
     ///
-    /// If a long running process returns the 'abort' status after receiving the data, it will be removed similarly to how `git` does it.
+    /// If a long-running process returns the 'abort' status after receiving the data, it will be removed similarly to how `git` does it.
     /// However, if it returns an unsuccessful error status later, it will not be removed, but reports the error only.
     /// If any other non-'error' status is received, the process will be stopped. But that doesn't happen if such a status is received
     /// after reading the filtered result.
@@ -97,9 +97,9 @@ impl State {
         }
     }
 
-    /// Like [`apply()]`[Self::apply()], but use `delay` to determine if the filter result may be delayed or not.
+    /// Like [`apply()`](Self::apply()), but use `delay` to determine if the filter result may be delayed or not.
     ///
-    /// Poll [`list_delayed_paths()`][Self::list_delayed_paths()] until it is empty and query the available paths again.
+    /// Poll [`list_delayed_paths()`](Self::list_delayed_paths()) until it is empty and query the available paths again.
     /// Note that even though it's possible, the API assumes that commands aren't mixed when delays are allowed.
     pub fn apply_delayed<'a>(
         &'a mut self,
@@ -123,7 +123,7 @@ impl State {
                 std::io::copy(src, &mut input_data)?;
 
                 let stdin = child.stdin.take().expect("configured");
-                let write_thread = WriterThread::spawn(input_data, stdin)?;
+                let write_thread = WriterThread::write_all_in_background(input_data, stdin)?;
 
                 Ok(Some(MaybeDelayed::Immediate(Box::new(ReadFilterOutput {
                     inner: child.stdout.take(),
@@ -223,9 +223,10 @@ struct WriterThread {
 
 impl WriterThread {
     /// Spawn a thread that will write all data from `data` to `stdin`.
-    fn spawn(data: Vec<u8>, mut stdin: std::process::ChildStdin) -> std::io::Result<Self> {
+    fn write_all_in_background(data: Vec<u8>, mut stdin: std::process::ChildStdin) -> std::io::Result<Self> {
         let handle = std::thread::Builder::new()
             .name("gix-filter-stdin-writer".into())
+            .stack_size(128 * 1024)
             .spawn(move || {
                 use std::io::Write;
                 stdin.write_all(&data)?;
@@ -239,31 +240,25 @@ impl WriterThread {
 
     /// Wait for the writer thread to complete and return any error that occurred.
     fn join(&mut self) -> std::io::Result<()> {
-        if let Some(handle) = self.handle.take() {
-            match handle.join() {
-                Ok(result) => result,
-                Err(panic_info) => {
-                    let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
-                        format!("Writer thread panicked: {s}")
-                    } else if let Some(s) = panic_info.downcast_ref::<&str>() {
-                        format!("Writer thread panicked: {s}")
-                    } else {
-                        "Writer thread panicked while writing to filter stdin".to_string()
-                    };
-                    Err(std::io::Error::other(msg))
-                }
-            }
-        } else {
-            Ok(())
-        }
+        let Some(handle) = self.handle.take() else {
+            return Ok(());
+        };
+        handle.join().map_err(|panic_info| {
+            let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                format!("Writer thread panicked: {s}")
+            } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                format!("Writer thread panicked: {s}")
+            } else {
+                "Writer thread panicked while writing to filter stdin".to_string()
+            };
+            std::io::Error::other(msg)
+        })?
     }
 }
 
 impl Drop for WriterThread {
     fn drop(&mut self) {
-        // Best effort join on drop. If the thread panicked or failed, log it for debugging.
-        // We can't propagate errors from Drop, so we only log them. Thread panics during Drop
-        // are unusual but can occur if the filter process closes stdin unexpectedly.
+        // Best effort join on drop.
         if let Err(_err) = self.join() {
             gix_trace::debug!(err = %_err, "Failed to join writer thread during drop");
         }
@@ -295,11 +290,13 @@ impl std::io::Read for ReadFilterOutput {
                 let num_read = match inner.read(buf) {
                     Ok(n) => n,
                     Err(e) => {
-                        // On read error, ensure we join the writer thread before propagating the error
+                        // On read error, ensure we join the writer thread before propagating the error.
+                        // This is expected to finish with failure as well as it should fail to write
+                        // to the process which now fails to produce output (that we try to read).
                         if let Some(mut write_thread) = self.write_thread.take() {
                             // Try to join but prioritize the original read error
                             if let Err(_thread_err) = write_thread.join() {
-                                gix_trace::debug!(thread_err = %_thread_err, read_err = %e, "Writer thread error during failed read");
+                                gix_trace::debug!(thread_err = %_thread_err, read_err = %e, "write to stdin error during failed read");
                             }
                         }
                         return Err(e);
@@ -310,6 +307,7 @@ impl std::io::Read for ReadFilterOutput {
                     self.inner.take();
 
                     // Join the writer thread first to ensure all data has been written
+                    // and that resources are freed now.
                     if let Some(mut write_thread) = self.write_thread.take() {
                         write_thread.join()?;
                     }
