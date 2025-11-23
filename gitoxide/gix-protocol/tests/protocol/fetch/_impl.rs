@@ -95,7 +95,8 @@ mod fetch_fn {
                 gix_protocol::ls_refs(
                     &mut transport,
                     &capabilities,
-                    |a, _b| delegate.prepare_ls_refs(a),
+                    |a| delegate.prepare_ls_refs(a),
+                    Vec::new(),
                     &mut progress,
                     trace,
                     ("agent", Some(Cow::Owned(agent.clone()))),
@@ -327,10 +328,7 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(
-            &mut self,
-            _server: &Capabilities,
-        ) -> io::Result<ls_refs::Action> {
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::Action> {
             self.deref_mut().prepare_ls_refs(_server)
         }
 
