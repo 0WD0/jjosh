@@ -95,7 +95,7 @@ mod fetch_fn {
                 gix_protocol::ls_refs(
                     &mut transport,
                     &capabilities,
-                    |a, b| delegate.prepare_ls_refs(a, b),
+                    |a, _b| delegate.prepare_ls_refs(a),
                     &mut progress,
                     trace,
                     ("agent", Some(Cow::Owned(agent.clone()))),
@@ -195,7 +195,6 @@ mod delegate {
         ops::{Deref, DerefMut},
     };
 
-    use bstr::BString;
     use gix_protocol::{
         fetch::{Arguments, Response},
         handshake::Ref,
@@ -234,11 +233,7 @@ mod delegate {
         /// If the delegate returns [`ls_refs::Action::Skip`], no `ls-refs` command is sent to the server.
         ///
         /// Note that this is called only if we are using protocol version 2.
-        fn prepare_ls_refs(
-            &mut self,
-            _server: &Capabilities,
-            _arguments: &mut Vec<BString>,
-        ) -> std::io::Result<ls_refs::Action> {
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<ls_refs::Action> {
             Ok(ls_refs::Action::Continue)
         }
 
@@ -303,12 +298,8 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(
-            &mut self,
-            _server: &Capabilities,
-            _arguments: &mut Vec<BString>,
-        ) -> io::Result<ls_refs::Action> {
-            self.deref_mut().prepare_ls_refs(_server, _arguments)
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::Action> {
+            self.deref_mut().prepare_ls_refs(_server)
         }
 
         fn prepare_fetch(
@@ -339,9 +330,8 @@ mod delegate {
         fn prepare_ls_refs(
             &mut self,
             _server: &Capabilities,
-            _arguments: &mut Vec<BString>,
         ) -> io::Result<ls_refs::Action> {
-            self.deref_mut().prepare_ls_refs(_server, _arguments)
+            self.deref_mut().prepare_ls_refs(_server)
         }
 
         fn prepare_fetch(

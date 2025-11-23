@@ -105,7 +105,6 @@ impl DelegateBlocking for CloneRefInWantDelegate {
     fn prepare_ls_refs(
         &mut self,
         _server: &Capabilities,
-        _arguments: &mut Vec<BString>,
     ) -> io::Result<ls_refs::Action> {
         Ok(ls_refs::Action::Skip)
     }
@@ -148,7 +147,6 @@ impl DelegateBlocking for LsRemoteDelegate {
     fn prepare_ls_refs(
         &mut self,
         _server: &Capabilities,
-        _arguments: &mut Vec<BString>,
     ) -> std::io::Result<ls_refs::Action> {
         match self.abort_with.take() {
             Some(err) => Err(err),
