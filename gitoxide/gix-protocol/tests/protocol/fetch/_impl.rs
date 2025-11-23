@@ -1,3 +1,15 @@
+/// What to do after preparing ls-refs.
+#[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
+pub enum RefsAction {
+    /// Continue by sending a 'ls-refs' command.
+    Continue,
+    /// Skip 'ls-refs' entirely.
+    ///
+    /// This is useful if the `ref-in-want` capability is taken advantage of. When fetching, one
+    /// must then send `want-ref`s during the negotiation phase.
+    Skip,
+}
+
 mod fetch_fn {
     use std::borrow::Cow;
 
@@ -13,7 +25,7 @@ mod fetch_fn {
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
     use maybe_async::maybe_async;
 
-    use super::{Action, Delegate};
+    use super::{Action, Delegate, RefsAction};
     use crate::fetch::Error;
 
     /// A way to indicate how to treat the connection underlying the transport, potentially allowing to reuse it.
@@ -91,18 +103,24 @@ mod fetch_fn {
         let agent = gix_protocol::agent(agent);
         let refs = match refs {
             Some(refs) => refs,
-            None => {
-                gix_protocol::ls_refs(
-                    &mut transport,
-                    &capabilities,
-                    |a| delegate.prepare_ls_refs(a),
-                    Vec::new(),
-                    &mut progress,
-                    trace,
-                    ("agent", Some(Cow::Owned(agent.clone()))),
-                )
-                .await?
-            }
+            None => match delegate.action() {
+                Ok(RefsAction::Skip) => Vec::new(),
+                Ok(RefsAction::Continue) => {
+                    gix_protocol::ls_refs(
+                        &mut transport,
+                        &capabilities,
+                        Vec::new(),
+                        &mut progress,
+                        trace,
+                        ("agent", Some(Cow::Owned(agent.clone()))),
+                    )
+                    .await?
+                }
+                Err(err) => {
+                    indicate_end_of_interaction(transport, trace).await?;
+                    return Err(err.into());
+                }
+            },
         };
 
         let fetch = Command::Fetch;
@@ -199,9 +217,10 @@ mod delegate {
     use gix_protocol::{
         fetch::{Arguments, Response},
         handshake::Ref,
-        ls_refs::{self, RefsAction},
     };
     use gix_transport::client::Capabilities;
+
+    use super::RefsAction;
 
     /// Defines what to do next after certain [`Delegate`] operations.
     #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
@@ -231,10 +250,10 @@ mod delegate {
         /// Note that some arguments are preset based on typical use, and `features` are preset to maximize options.
         /// The `server` capabilities can be used to see which additional capabilities the server supports as per the handshake which happened prior.
         ///
-        /// If the delegate returns [`ls_refs::Action::Skip`], no `ls-refs` command is sent to the server.
+        /// If the delegate returns [`RefsAction::Skip`], no `ls-refs` command is sent to the server.
         ///
         /// Note that this is called only if we are using protocol version 2.
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<RefsAction> {
+        fn action(&mut self) -> std::io::Result<RefsAction> {
             Ok(RefsAction::Continue)
         }
 
@@ -299,8 +318,8 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<RefsAction> {
-            self.deref_mut().prepare_ls_refs(_server)
+        fn action(&mut self) -> io::Result<RefsAction> {
+            self.deref_mut().action()
         }
 
         fn prepare_fetch(
@@ -328,8 +347,8 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<RefsAction> {
-            self.deref_mut().prepare_ls_refs(_server)
+        fn action(&mut self) -> io::Result<RefsAction> {
+            self.deref_mut().action()
         }
 
         fn prepare_fetch(
