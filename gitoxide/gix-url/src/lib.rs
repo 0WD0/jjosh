@@ -380,6 +380,9 @@ impl Url {
 
         out.write_all(self.scheme.as_str().as_bytes())?;
         out.write_all(b"://")?;
+
+        let needs_brackets = self.port.is_some() && self.host.as_ref().is_some_and(|h| Self::is_ipv6(h));
+
         match (&self.user, &self.host) {
             (Some(user), Some(host)) => {
                 out.write_all(percent_encode(user).as_bytes())?;
@@ -388,10 +391,22 @@ impl Url {
                     out.write_all(percent_encode(password).as_bytes())?;
                 }
                 out.write_all(b"@")?;
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, Some(host)) => {
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, None) => {}
             (Some(_user), None) => {
@@ -403,11 +418,22 @@ impl Url {
         if let Some(port) = &self.port {
             write!(out, ":{port}")?;
         }
+        // For SSH and Git URLs, add leading '/' if path doesn't start with '/'
+        // This handles paths like "~repo" which serialize as "/~repo" in URL form
+        if matches!(self.scheme, Scheme::Ssh | Scheme::Git) && !self.path.starts_with(b"/") {
+            out.write_all(b"/")?;
+        }
         out.write_all(&self.path)?;
         Ok(())
     }
 
+    fn is_ipv6(host: &str) -> bool {
+        host.contains(':') && !host.starts_with('[')
+    }
+
     fn write_alternative_form_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        let needs_brackets = self.host.as_ref().is_some_and(|h| Self::is_ipv6(h));
+
         match (&self.user, &self.host) {
             (Some(user), Some(host)) => {
                 out.write_all(user.as_bytes())?;
@@ -416,10 +442,22 @@ impl Url {
                     "BUG: cannot serialize password in alternative form"
                 );
                 out.write_all(b"@")?;
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, Some(host)) => {
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, None) => {}
             (Some(_user), None) => {
