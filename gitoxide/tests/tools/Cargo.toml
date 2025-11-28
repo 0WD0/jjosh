@@ -31,10 +31,10 @@ gix-worktree = { version = "^0.44.0", path = "../../gix-worktree" }
 gix-fs = { version = "^0.17.0", path = "../../gix-fs" }
 gix-tempfile = { version = "^19.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
-winnow = { version = "0.7.12", features = ["simd"] }
+winnow = { version = "0.7.14", features = ["simd"] }
 fastrand = "2.0.0"
 bstr = { version = "1.12.0", default-features = false }
-crc = "3.3.0"
+crc = "3.4.0"
 tempfile = "3.23.0"
 fs_extra = "1.2.0"
 parking_lot = { version = "0.12.4" }
