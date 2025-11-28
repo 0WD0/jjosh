@@ -58,7 +58,7 @@ gix-fsck = { version = "^0.14.0", path = "../gix-fsck" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 anyhow = "1.0.100"
 thiserror = "2.0.17"
-bytesize = "2.1.0"
+bytesize = "2.3.1"
 tempfile = "3.23.0"
 
 # for async-client
