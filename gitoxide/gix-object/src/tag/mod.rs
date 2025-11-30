@@ -1,6 +1,6 @@
-use winnow::prelude::*;
-
+use crate::parse::parse_signature;
 use crate::TagRef;
+use winnow::prelude::*;
 
 mod decode;
 
@@ -24,8 +24,17 @@ impl<'a> TagRef<'a> {
         gix_hash::ObjectId::from_hex(self.target).expect("prior validation")
     }
 
+    /// Return the tagger, if present.
+    pub fn tagger(&self) -> Result<Option<gix_actor::SignatureRef<'a>>, crate::decode::Error> {
+        Ok(self
+            .tagger
+            .map(parse_signature)
+            .transpose()?
+            .map(|signature| signature.trim()))
+    }
+
     /// Copy all data into a fully-owned instance.
-    pub fn into_owned(self) -> crate::Tag {
-        self.into()
+    pub fn into_owned(self) -> Result<crate::Tag, crate::decode::Error> {
+        self.try_into()
     }
 }

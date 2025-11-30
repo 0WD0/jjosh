@@ -126,7 +126,8 @@ pub mod describe {
                         let (prio, tag_time) = match target_id {
                             Some(target_id) if peeled_id != *target_id => {
                                 let tag = repo.find_object(target_id).ok()?.try_into_tag().ok()?;
-                                (1, tag.tagger().ok()??.seconds())
+                                let tag_time = tag.tagger().ok().and_then(|s| s.map(|s| s.seconds())).unwrap_or(0);
+                                (1, tag_time)
                             }
                             _ => (0, 0),
                         };

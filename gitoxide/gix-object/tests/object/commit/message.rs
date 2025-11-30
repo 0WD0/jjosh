@@ -237,20 +237,22 @@ mod summary {
             email: "email".into(),
             time: "0 0000",
         };
+        let commit = CommitRef {
+            tree: "tree".into(),
+            parents: Default::default(),
+            author: "name <email> 0 0000".as_bytes().as_bstr(),
+            committer: "name <email> 0 0000".as_bytes().as_bstr(),
+            encoding: None,
+            message: input.as_bstr(),
+            extra_headers: vec![],
+        };
         assert_eq!(
-            CommitRef {
-                tree: "tree".into(),
-                parents: Default::default(),
-                author: actor,
-                committer: actor,
-                encoding: None,
-                message: input.as_bstr(),
-                extra_headers: vec![]
-            }
-            .message_summary(),
+            commit.message_summary(),
             summary,
             "both versions create the same result"
         );
+        assert_eq!(commit.author().unwrap(), actor);
+        assert_eq!(commit.committer().unwrap(), actor);
         summary
     }
 

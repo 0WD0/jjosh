@@ -40,9 +40,9 @@ pub fn commit<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
             .context(StrContext::Expected(
                 "zero or more 'parent <40 lowercase hex char>'".into(),
             )),
-        (|i: &mut _| parse::header_field(i, b"author", parse::signature))
+        (|i: &mut _| parse::header_field(i, b"author", parse::signature_and_consumed).map(|(_signature, raw)| raw))
             .context(StrContext::Expected("author <signature>".into())),
-        (|i: &mut _| parse::header_field(i, b"committer", parse::signature))
+        (|i: &mut _| parse::header_field(i, b"committer", parse::signature_and_consumed).map(|(_signature, raw)| raw))
             .context(StrContext::Expected("committer <signature>".into())),
         opt(|i: &mut _| parse::header_field(i, b"encoding", take_till(0.., NL)))
             .context(StrContext::Expected("encoding <encoding>".into())),
