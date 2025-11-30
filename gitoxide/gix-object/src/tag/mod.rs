@@ -1,6 +1,6 @@
-use winnow::prelude::*;
-
+use crate::parse::parse_signature;
 use crate::TagRef;
+use winnow::prelude::*;
 
 mod decode;
 
@@ -26,17 +26,15 @@ impl<'a> TagRef<'a> {
 
     /// Return the tagger, if present.
     pub fn tagger(&self) -> Result<Option<gix_actor::SignatureRef<'a>>, crate::decode::Error> {
-        self.tagger
-            .map(|raw| {
-                gix_actor::SignatureRef::from_bytes::<crate::decode::ParseError>(raw.as_ref())
-                    .map_err(|err| crate::decode::Error::with_err(err, raw.as_ref()))
-                    .map(|signature| signature.trim())
-            })
-            .transpose()
+        Ok(self
+            .tagger
+            .map(parse_signature)
+            .transpose()?
+            .map(|signature| signature.trim()))
     }
 
     /// Copy all data into a fully-owned instance.
     pub fn into_owned(self) -> Result<crate::Tag, crate::decode::Error> {
-        crate::Tag::try_from(self)
+        self.try_into()
     }
 }

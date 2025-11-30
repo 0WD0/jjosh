@@ -3,6 +3,7 @@ use std::ops::Range;
 use bstr::{BStr, BString, ByteSlice};
 use winnow::prelude::*;
 
+use crate::parse::parse_signature;
 use crate::{Commit, CommitRef, TagRef};
 
 /// The well-known field name for gpg signatures.
@@ -74,11 +75,6 @@ impl<'a> CommitRef<'a> {
 
 /// Access
 impl<'a> CommitRef<'a> {
-    fn parse_signature(raw: &'a BStr) -> Result<gix_actor::SignatureRef<'a>, crate::decode::Error> {
-        gix_actor::SignatureRef::from_bytes::<crate::decode::ParseError>(raw.as_ref())
-            .map_err(|err| crate::decode::Error::with_err(err, raw.as_ref()))
-    }
-
     /// Return the `tree` fields hash digest.
     pub fn tree(&self) -> gix_hash::ObjectId {
         gix_hash::ObjectId::from_hex(self.tree).expect("prior validation of tree hash during parsing")
@@ -100,14 +96,14 @@ impl<'a> CommitRef<'a> {
     ///
     /// This is different from the `author` field which may contain whitespace.
     pub fn author(&self) -> Result<gix_actor::SignatureRef<'a>, crate::decode::Error> {
-        Self::parse_signature(self.author).map(|signature| signature.trim())
+        parse_signature(self.author).map(|signature| signature.trim())
     }
 
     /// Return the committer, with whitespace trimmed.
     ///
     /// This is different from the `committer` field which may contain whitespace.
     pub fn committer(&self) -> Result<gix_actor::SignatureRef<'a>, crate::decode::Error> {
-        Self::parse_signature(self.committer).map(|signature| signature.trim())
+        parse_signature(self.committer).map(|signature| signature.trim())
     }
 
     /// Returns a partially parsed message from which more information can be derived.
@@ -117,7 +113,7 @@ impl<'a> CommitRef<'a> {
 
     /// Returns the time at which this commit was created, or a default time if it could not be parsed.
     pub fn time(&self) -> Result<gix_date::Time, crate::decode::Error> {
-        Self::parse_signature(self.committer).map(|signature| signature.time().unwrap_or_default())
+        parse_signature(self.committer).map(|signature| signature.time().unwrap_or_default())
     }
 }
 
@@ -125,12 +121,12 @@ impl<'a> CommitRef<'a> {
 impl CommitRef<'_> {
     /// Copy all fields of this instance into a fully owned commit, consuming this instance.
     pub fn into_owned(self) -> Result<Commit, crate::decode::Error> {
-        Commit::try_from(self)
+        self.try_into()
     }
 
     /// Copy all fields of this instance into a fully owned commit, internally cloning this instance.
     pub fn to_owned(self) -> Result<Commit, crate::decode::Error> {
-        Commit::try_from(self.clone())
+        self.try_into()
     }
 }
 

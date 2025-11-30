@@ -153,7 +153,7 @@ mod method {
     use gix_object::CommitRef;
     use pretty_assertions::assert_eq;
 
-    use crate::{fixture_name, hex_to_id};
+    use crate::{fixture_name, hex_to_id, signature};
 
     #[test]
     fn tree() -> crate::Result {
@@ -161,6 +161,15 @@ mod method {
         let commit = CommitRef::from_bytes(&fixture)?;
         assert_eq!(commit.tree(), hex_to_id("1b2dfb4ac5e42080b682fc676e9738c94ce6d54d"));
         assert_eq!(commit.tree, "1b2dfb4ac5e42080b682fc676e9738c94ce6d54d");
+        Ok(())
+    }
+
+    #[test]
+    fn author_and_committer_trims_signature() -> crate::Result {
+        let backing = fixture_name("commit", "email-with-space.txt");
+        let commit = CommitRef::from_bytes(&backing)?;
+        std::assert_eq!(commit.author()?, signature("1592437401 +0800"));
+        std::assert_eq!(commit.committer()?, signature("1592437401 +0800"));
         Ok(())
     }
 }

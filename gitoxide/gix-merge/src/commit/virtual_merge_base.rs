@@ -30,8 +30,6 @@ pub enum Error {
 }
 
 pub(super) mod function {
-    use std::convert::TryFrom;
-
     use gix_object::FindExt;
 
     use super::Error;
@@ -133,7 +131,7 @@ pub(super) mod function {
     ) -> Result<gix_hash::ObjectId, Error> {
         let mut buf = Vec::new();
         let commit_ref = objects.find_commit(&parent_a, &mut buf)?;
-        let mut commit = gix_object::Commit::try_from(commit_ref)?;
+        let mut commit = commit_ref.to_owned()?;
         commit.parents = vec![parent_a, parent_b].into();
         commit.tree = tree_id;
         objects.write(&commit).map_err(Error::WriteObject)

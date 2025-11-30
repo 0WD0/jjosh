@@ -19,13 +19,8 @@ pub fn git_tag<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
             .context(StrContext::Expected("type <object kind>".into())),
         (|i: &mut _| parse::header_field(i, b"tag", take_while(1.., |b| b != NL[0])))
             .context(StrContext::Expected("tag <version>".into())),
-        opt(|i: &mut _| {
-            parse::header_field(i, b"tagger", parse::signature_with_raw).map(|(signature, raw)| {
-                let _ = signature;
-                raw
-            })
-        })
-        .context(StrContext::Expected("tagger <signature>".into())),
+        opt(|i: &mut _| parse::header_field(i, b"tagger", parse::signature_and_consumed).map(|(_signature, raw)| raw))
+            .context(StrContext::Expected("tagger <signature>".into())),
         terminated(message, eof),
     )
         .map(|(target, kind, tag_version, tagger, (message, pgp_signature))| TagRef {

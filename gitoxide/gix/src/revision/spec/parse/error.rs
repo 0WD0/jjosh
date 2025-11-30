@@ -98,7 +98,13 @@ impl Error {
                                 let commit = obj.to_commit_ref();
                                 let date = match commit.committer() {
                                     Ok(signature) => signature.time.trim().to_owned(),
-                                    Err(_) => String::from_utf8_lossy(commit.committer.as_ref()).into_owned(),
+                                    Err(_) => {
+                                        let committer = commit.committer;
+                                        let manually_parsed_best_effort = committer
+                                            .rfind_byte(b'>')
+                                            .map(|pos| committer[pos + 1..].trim().as_bstr().to_string());
+                                        manually_parsed_best_effort.unwrap_or_default()
+                                    }
                                 };
                                 CandidateInfo::Commit {
                                     date,

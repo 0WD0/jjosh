@@ -7,14 +7,14 @@ mod method {
     use gix_object::TagRef;
     use pretty_assertions::assert_eq;
 
-    use crate::{fixture_name, hex_to_id};
+    use crate::{fixture_name, hex_to_id, signature};
 
     #[test]
     fn target() -> crate::Result {
         let fixture = fixture_name("tag", "signed.txt");
-        let tag = TagRef::from_bytes(&fixture)?;
-        assert_eq!(tag.target(), hex_to_id("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec"));
-        assert_eq!(tag.target, "ffa700b4aca13b80cb6b98a078e7c96804f8e0ec".as_bytes());
+        let tag_ref = TagRef::from_bytes(&fixture)?;
+        assert_eq!(tag_ref.target(), hex_to_id("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec"));
+        assert_eq!(tag_ref.target, "ffa700b4aca13b80cb6b98a078e7c96804f8e0ec".as_bytes());
 
         let gix_object::Tag {
             target,
@@ -23,14 +23,22 @@ mod method {
             tagger,
             message,
             pgp_signature,
-        } = tag.into_owned()?;
-        assert_eq!(target.to_string(), tag.target);
-        assert_eq!(target_kind, tag.target_kind);
-        assert_eq!(name, tag.name);
-        let parsed = tag.tagger()?.map(Into::into);
-        assert_eq!(tagger, parsed);
-        assert_eq!(message, tag.message);
-        assert_eq!(pgp_signature.as_ref().map(|s| s.as_bstr()), tag.pgp_signature);
+        } = tag_ref.into_owned()?;
+        assert_eq!(target.to_string(), tag_ref.target);
+        assert_eq!(target_kind, tag_ref.target_kind);
+        assert_eq!(name, tag_ref.name);
+        let expected_tagger = tag_ref.tagger()?.map(Into::into);
+        assert_eq!(tagger, expected_tagger);
+        assert_eq!(message, tag_ref.message);
+        assert_eq!(pgp_signature.as_ref().map(|s| s.as_bstr()), tag_ref.pgp_signature);
+        Ok(())
+    }
+
+    #[test]
+    fn tagger_trims_signature() -> crate::Result {
+        let fixture = fixture_name("tag", "tagger-with-whitespace.txt");
+        let tag = TagRef::from_bytes(&fixture)?;
+        std::assert_eq!(tag.tagger()?, Some(signature("1592381636 +0800")));
         Ok(())
     }
 }
@@ -155,7 +163,7 @@ fn invalid() {
 mod from_bytes {
     use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 
-    use crate::{fixture_name, signature, tag::tag_fixture};
+    use crate::{fixture_name, tag::tag_fixture};
 
     #[test]
     fn signed() -> crate::Result {
@@ -278,14 +286,6 @@ KLMHist5yj0sw1E4hDTyQa0=
                 pgp_signature: None
             }
         );
-        Ok(())
-    }
-
-    #[test]
-    fn tagger_method_returns_signature() -> crate::Result {
-        let fixture = fixture_name("tag", "empty.txt");
-        let tag = TagRef::from_bytes(&fixture)?;
-        assert_eq!(tag.tagger()?, Some(signature("1592381636 +0800")));
         Ok(())
     }
 }

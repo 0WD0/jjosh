@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 use crate::{
     commit::{LONG_MESSAGE, MERGE_TAG, SIGNATURE},
-    fixture_name, hex_to_id, linus_signature, signature,
+    fixture_name, hex_to_id, linus_signature,
 };
 
 #[test]
@@ -26,12 +26,14 @@ fn invalid_timestsamp() {
 }
 
 #[test]
-fn invalid_email_of_committer() {
+fn invalid_email_of_committer() -> crate::Result {
     let actor = gix_actor::SignatureRef {
         name: b"Gregor Hartmann".as_bstr(),
         email: b"gh <Gregor Hartmann<gh@openoffice.org".as_bstr(),
         time: "1282910542 +0200",
     };
+
+    let mut buf = vec![];
     let backing = fixture_name("commit", "invalid-actor.txt");
     let commit = CommitRef::from_bytes(&backing).expect("ignore strangely formed actor format");
     assert_eq!(
@@ -46,8 +48,17 @@ fn invalid_email_of_committer() {
             extra_headers: vec![]
         }
     );
-    assert_eq!(commit.author().unwrap(), actor);
-    assert_eq!(commit.committer().unwrap(), actor);
+    assert_eq!(commit.author()?, actor);
+    assert_eq!(commit.committer()?, actor);
+
+    commit.write_to(&mut buf).expect("we can write invalid actors back");
+    assert_eq!(
+        CommitRef::from_bytes(&buf).expect("this is the same commit and it can be parsed"),
+        commit,
+        "round-tripping works"
+    );
+
+    Ok(())
 }
 
 #[test]
@@ -123,8 +134,8 @@ fn mergetag() -> crate::Result {
     assert_eq!(commit, expected);
     assert_eq!(commit.extra_headers().find_all("mergetag").count(), 1);
     assert_eq!(commit.extra_headers().mergetags().count(), 1);
-    assert_eq!(commit.author().unwrap(), linus_signature("1591996221 -0700"));
-    assert_eq!(commit.committer().unwrap(), linus_signature("1591996221 -0700"));
+    assert_eq!(commit.author()?, linus_signature("1591996221 -0700"));
+    assert_eq!(commit.committer()?, linus_signature("1591996221 -0700"));
     Ok(())
 }
 
@@ -244,8 +255,8 @@ Signed-off-by: Kim Altintop <kim@eagain.st>"
             extra_headers: vec![(b"gpgsig".as_bstr(), b"-----BEGIN PGP SIGNATURE-----\n\niHUEABYIAB0WIQSuZwcGWSQItmusNgR5URpSUCnwXQUCYT7xpAAKCRB5URpSUCnw\nXWB3AP9q323HlxnI8MyqszNOeYDwa7Y3yEZaUM2y/IRjz+z4YQEAq0yr1Syt3mrK\nOSFCqL2vDm3uStP+vF31f6FnzayhNg0=\n=Mhpp\n-----END PGP SIGNATURE-----\n".as_bstr().into())]
         }
     );
-    assert_eq!(commit.author().unwrap(), kim);
-    assert_eq!(commit.committer().unwrap(), kim);
+    assert_eq!(commit.author()?, kim);
+    assert_eq!(commit.committer()?, kim);
     let message = commit.message();
     assert_eq!(message.title, "test: use gitoxide for link-git-protocol tests");
     assert_eq!(
@@ -357,14 +368,5 @@ fn bogus_multi_gpgsig_header() -> crate::Result {
         hex_to_id("5f549aa2f78314ac37bbd436c8f80aea4c752e07"),
         "round-tripping works despite the strangeness"
     );
-    Ok(())
-}
-
-#[test]
-fn author_method_returns_trimmed_signature() -> crate::Result {
-    let backing = fixture_name("commit", "unsigned.txt");
-    let commit = CommitRef::from_bytes(&backing)?;
-    assert_eq!(commit.author().unwrap(), signature("1592437401 +0800"));
-    assert_eq!(commit.committer().unwrap(), signature("1592437401 +0800"));
     Ok(())
 }

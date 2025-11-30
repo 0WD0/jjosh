@@ -72,7 +72,7 @@ pub(crate) fn signature<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrC
     gix_actor::signature::decode(i)
 }
 
-pub(crate) fn signature_with_raw<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
+pub(crate) fn signature_and_consumed<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
     i: &mut &'a [u8],
 ) -> ModalResult<(gix_actor::SignatureRef<'a>, &'a BStr), E> {
     let original = *i;
@@ -80,4 +80,9 @@ pub(crate) fn signature_with_raw<'a, E: ParserError<&'a [u8]> + AddContext<&'a [
         let consumed = original.len() - i.len();
         (signature, original[..consumed].as_bstr())
     })
+}
+
+pub(crate) fn parse_signature(raw: &BStr) -> Result<gix_actor::SignatureRef<'_>, crate::decode::Error> {
+    gix_actor::SignatureRef::from_bytes::<crate::decode::ParseError>(raw.as_ref())
+        .map_err(|err| crate::decode::Error::with_err(err, raw.as_ref()))
 }
