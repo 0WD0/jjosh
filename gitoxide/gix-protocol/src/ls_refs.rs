@@ -31,7 +31,7 @@ pub use error::Error;
 
 /// What to do after preparing ls-refs in [`ls_refs()`][crate::ls_refs()].
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
-pub enum Action {
+pub enum RefsAction {
     /// Continue by sending a 'ls-refs' command.
     Continue,
     /// Skip 'ls-refs' entirely.
@@ -50,7 +50,7 @@ pub(crate) mod function {
     use gix_transport::client::Capabilities;
     use maybe_async::maybe_async;
 
-    use super::{Action, Error};
+    use super::{Error, RefsAction};
     #[cfg(feature = "async-client")]
     use crate::transport::client::async_io::{Transport, TransportV2Ext};
     #[cfg(feature = "blocking-client")]
@@ -70,7 +70,7 @@ pub(crate) mod function {
     pub async fn ls_refs(
         mut transport: impl Transport,
         capabilities: &Capabilities,
-        prepare_ls_refs: impl FnOnce(&Capabilities) -> std::io::Result<Action>,
+        prepare_ls_refs: impl FnOnce(&Capabilities) -> std::io::Result<RefsAction>,
         extra_args: Vec<BString>,
         progress: &mut impl Progress,
         trace: bool,
@@ -91,8 +91,8 @@ pub(crate) mod function {
 
         ls_args.extend(extra_args);
         let refs = match prepare_ls_refs(capabilities) {
-            Ok(Action::Skip) => Vec::new(),
-            Ok(Action::Continue) => {
+            Ok(RefsAction::Skip) => Vec::new(),
+            Ok(RefsAction::Continue) => {
                 ls_refs.validate_argument_prefixes(
                     gix_transport::Protocol::V2,
                     capabilities,

@@ -102,8 +102,8 @@ pub struct CloneRefInWantDelegate {
 }
 
 impl DelegateBlocking for CloneRefInWantDelegate {
-    fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::Action> {
-        Ok(ls_refs::Action::Skip)
+    fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::RefsAction> {
+        Ok(ls_refs::RefsAction::Skip)
     }
 
     fn prepare_fetch(
@@ -141,10 +141,10 @@ impl DelegateBlocking for LsRemoteDelegate {
     fn handshake_extra_parameters(&self) -> Vec<(String, Option<String>)> {
         vec![("value-only".into(), None), ("key".into(), Some("value".into()))]
     }
-    fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<ls_refs::Action> {
+    fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<ls_refs::RefsAction> {
         match self.abort_with.take() {
             Some(err) => Err(err),
-            None => Ok(ls_refs::Action::Continue),
+            None => Ok(ls_refs::RefsAction::Continue),
         }
     }
     fn prepare_fetch(

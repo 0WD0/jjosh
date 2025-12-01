@@ -234,8 +234,8 @@ mod delegate {
         /// If the delegate returns [`ls_refs::Action::Skip`], no `ls-refs` command is sent to the server.
         ///
         /// Note that this is called only if we are using protocol version 2.
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<ls_refs::Action> {
-            Ok(ls_refs::Action::Continue)
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> std::io::Result<ls_refs::RefsAction> {
+            Ok(ls_refs::RefsAction::Continue)
         }
 
         /// Called before invoking the 'fetch' interaction with `features` pre-filled for typical use
@@ -299,7 +299,7 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::Action> {
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::RefsAction> {
             self.deref_mut().prepare_ls_refs(_server)
         }
 
@@ -328,7 +328,7 @@ mod delegate {
             self.deref().handshake_extra_parameters()
         }
 
-        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::Action> {
+        fn prepare_ls_refs(&mut self, _server: &Capabilities) -> io::Result<ls_refs::RefsAction> {
             self.deref_mut().prepare_ls_refs(_server)
         }
 
