@@ -2,6 +2,7 @@ use gix_diff::blob::intern::TokenSource;
 use gix_diff::blob::unified_diff::ContextSize;
 use gix_diff::blob::{Algorithm, UnifiedDiff};
 use gix_testtools::bstr::{BString, ByteVec};
+use pretty_assertions::StrComparison;
 
 #[test]
 fn baseline() -> gix_testtools::Result {
@@ -10,7 +11,8 @@ fn baseline() -> gix_testtools::Result {
 
     let dir = std::fs::read_dir(&worktree_path)?;
 
-    let mut count = 0;
+    let mut diffs = Vec::new();
+
     for entry in dir {
         let entry = entry?;
         let file_name = entry.file_name().into_string().expect("to be string");
@@ -18,7 +20,6 @@ fn baseline() -> gix_testtools::Result {
         if !file_name.ends_with(".baseline") {
             continue;
         }
-        count += 1;
 
         let parts: Vec<_> = file_name.split('.').collect();
         let [name, algorithm, ..] = parts[..] else {
@@ -53,7 +54,7 @@ fn baseline() -> gix_testtools::Result {
             ),
         )?;
 
-        let baseline_path = worktree_path.join(file_name);
+        let baseline_path = worktree_path.join(&file_name);
         let baseline = std::fs::read(baseline_path)?;
         let baseline = baseline::Baseline::new(&baseline);
 
@@ -80,12 +81,38 @@ fn baseline() -> gix_testtools::Result {
             })
             .to_string();
 
-        pretty_assertions::assert_eq!(actual, baseline);
+        let actual_matches_baseline = actual == baseline;
+        diffs.push((actual, baseline, actual_matches_baseline, file_name));
     }
 
-    if count == 0 {
+    if diffs.is_empty() {
         eprintln!("Slider baseline isn't setup - look at ./gix-diff/tests/README.md for instructions");
     }
+
+    let total_diffs = diffs.len();
+    let matching_diffs = diffs
+        .iter()
+        .filter(|(_, _, actual_matches_baseline, _)| *actual_matches_baseline)
+        .count();
+
+    assert!(
+        matching_diffs == total_diffs,
+        "assertion failed: total diffs {} == matching diffs {}\n\n{}",
+        total_diffs,
+        matching_diffs,
+        {
+            let first_non_matching_diff = diffs
+                .iter()
+                .find(|(_, _, actual_matches_baseline, _)| !actual_matches_baseline)
+                .expect("at least one non-matching diff to be there");
+
+            format!(
+                "affected baseline: `{}`\n\n{}",
+                first_non_matching_diff.3,
+                StrComparison::new(&first_non_matching_diff.0, &first_non_matching_diff.1)
+            )
+        }
+    );
 
     Ok(())
 }
