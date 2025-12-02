@@ -15,7 +15,7 @@ tests_windows=()
 for path in "repo" "re:po" "re/po"; do
   # normal urls
   for protocol in "ssh+git" "git+ssh" "git" "ssh"; do
-    for host in "host" "user@host" "user_name@host" "user@[::1]" "user@::1"; do
+    for host in "host" "user@host" "user_name@host" "user.name@host" "user@[::1]" "user@::1"; do
       for port_separator in "" ":"; do
         tests+=("$protocol://$host$port_separator/$path")
 

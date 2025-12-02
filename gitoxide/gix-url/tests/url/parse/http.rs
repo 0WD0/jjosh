@@ -94,3 +94,27 @@ fn http_missing_path() -> crate::Result {
     assert_url("http://host.xz", url(Scheme::Http, None, "host.xz", None, b"/"))?;
     Ok(())
 }
+
+#[test]
+fn username_with_dot_is_not_percent_encoded() -> crate::Result {
+    assert_url_roundtrip(
+        "http://user.name@example.com/repo",
+        url(Scheme::Http, "user.name", "example.com", None, b"/repo"),
+    )
+}
+
+#[test]
+fn password_with_dot_is_not_percent_encoded() -> crate::Result {
+    assert_url_roundtrip(
+        "http://user:pass.word@example.com/repo",
+        url_with_pass(Scheme::Http, "user", "pass.word", "example.com", None, b"/repo"),
+    )
+}
+
+#[test]
+fn username_and_password_with_dots_are_not_percent_encoded() -> crate::Result {
+    assert_url_roundtrip(
+        "http://user.name:pass.word@example.com/repo",
+        url_with_pass(Scheme::Http, "user.name", "pass.word", "example.com", None, b"/repo"),
+    )
+}

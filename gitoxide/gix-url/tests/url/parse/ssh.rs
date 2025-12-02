@@ -56,6 +56,14 @@ fn with_user_and_without_port() -> crate::Result {
 }
 
 #[test]
+fn username_with_dot_is_not_percent_encoded() -> crate::Result {
+    assert_url_roundtrip(
+        "ssh://user.name@host.xz/.git",
+        url(Scheme::Ssh, "user.name", "host.xz", None, b"/.git"),
+    )
+}
+
+#[test]
 fn with_user_and_port_and_absolute_path() -> crate::Result {
     assert_url_roundtrip(
         "ssh://user@host.xz:42/.git",
