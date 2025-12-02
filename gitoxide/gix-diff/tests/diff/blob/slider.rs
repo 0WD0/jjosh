@@ -95,11 +95,13 @@ fn baseline() -> gix_testtools::Result {
         .filter(|(_, _, actual_matches_baseline, _)| *actual_matches_baseline)
         .count();
 
-    assert!(
-        matching_diffs == total_diffs,
-        "assertion failed: total diffs {} == matching diffs {}\n\n{}",
-        total_diffs,
+    assert_eq!(
         matching_diffs,
+        total_diffs,
+        "matching diffs {} == total diffs {} [{:.2} %]\n\n{}",
+        matching_diffs,
+        total_diffs,
+        ((matching_diffs as f32) / (total_diffs as f32) * 100.0),
         {
             let first_non_matching_diff = diffs
                 .iter()
