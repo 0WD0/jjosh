@@ -43,7 +43,7 @@ pub mod snapshot;
 /// something that should be very rare but is possible, we decided to not expose this fallibility in the API.
 /// Hence, the user may separately check for the correctness of `time`, which we replace with [`gix_date::Time::default()`]
 /// in case of parse errors.
-#[derive(Default, Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Clone, Debug, Eq, PartialEq, std::hash::Hash)]
 pub struct Snapshot {
     /// Sorted by `old_email`
     entries_by_old_email: Vec<snapshot::EmailEntry>,
