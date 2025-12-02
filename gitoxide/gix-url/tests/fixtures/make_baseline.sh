@@ -15,7 +15,7 @@ tests_windows=()
 for path in "repo" "re:po" "re/po"; do
   # normal urls
   for protocol in "ssh+git" "git+ssh" "git" "ssh"; do
-    for host in "host" "user@host" "user_name@host" "user@[::1]" "user@::1"; do
+    for host in "host" "user@host" "user_name@host" "user.name@host" "user@[::1]" "user@::1"; do
       for port_separator in "" ":"; do
         tests+=("$protocol://$host$port_separator/$path")
 
@@ -51,12 +51,6 @@ done
 # These two test cases are from git's test suite as well.
 tests_windows+=("file://c:/repo")
 tests_windows+=("c:repo")
-
-# Test URLs with dots in usernames (gitbutler issue #11419)
-# Dots should not be percent-encoded in userinfo
-tests+=("ssh://user.name@host/repo")
-tests+=("git://user.name@host/repo")
-tests+=("user.name@host:repo")
 
 tests_unix+=("${tests[@]}")
 tests_windows+=("${tests[@]}")

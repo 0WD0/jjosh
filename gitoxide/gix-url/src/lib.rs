@@ -328,39 +328,6 @@ impl Url {
     }
 }
 
-/// Characters that must be percent-encoded in the userinfo component of a URL.
-///
-/// According to RFC 3986, userinfo can contain:
-/// - unreserved characters: `A-Z a-z 0-9 - . _ ~`
-/// - percent-encoded characters
-/// - sub-delims: `! $ & ' ( ) * + , ; =`
-/// - `:`
-///
-/// This encode set encodes everything else, particularly `@` (userinfo delimiter),
-/// `/` `?` `#` (path/query/fragment delimiters), and various other special characters.
-const USERINFO_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'#')
-    .add(b'%')
-    .add(b'/')
-    .add(b'<')
-    .add(b'>')
-    .add(b'?')
-    .add(b'@')
-    .add(b'[')
-    .add(b'\\')
-    .add(b']')
-    .add(b'^')
-    .add(b'`')
-    .add(b'{')
-    .add(b'|')
-    .add(b'}');
-
-fn percent_encode(s: &str) -> Cow<'_, str> {
-    percent_encoding::utf8_percent_encode(s, USERINFO_ENCODE_SET).into()
-}
-
 /// Serialization
 impl Url {
     /// Write this URL losslessly to `out`, ready to be parsed again.
@@ -379,6 +346,38 @@ impl Url {
     }
 
     fn write_canonical_form_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        fn percent_encode(s: &str) -> Cow<'_, str> {
+            /// Characters that must be percent-encoded in the userinfo component of a URL.
+            ///
+            /// According to RFC 3986, userinfo can contain:
+            /// - unreserved characters: `A-Z a-z 0-9 - . _ ~`
+            /// - percent-encoded characters
+            /// - sub-delims: `! $ & ' ( ) * + , ; =`
+            /// - `:`
+            ///
+            /// This encode-set encodes everything else, particularly `@` (userinfo delimiter),
+            /// `/` `?` `#` (path/query/fragment delimiters), and various other special characters.
+            const USERINFO_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+                .add(b' ')
+                .add(b'"')
+                .add(b'#')
+                .add(b'%')
+                .add(b'/')
+                .add(b'<')
+                .add(b'>')
+                .add(b'?')
+                .add(b'@')
+                .add(b'[')
+                .add(b'\\')
+                .add(b']')
+                .add(b'^')
+                .add(b'`')
+                .add(b'{')
+                .add(b'|')
+                .add(b'}');
+            percent_encoding::utf8_percent_encode(s, USERINFO_ENCODE_SET).into()
+        }
+
         out.write_all(self.scheme.as_str().as_bytes())?;
         out.write_all(b"://")?;
         match (&self.user, &self.host) {
