@@ -52,6 +52,12 @@ done
 tests_windows+=("file://c:/repo")
 tests_windows+=("c:repo")
 
+# Test URLs with dots in usernames (gitbutler issue #11419)
+# Dots should not be percent-encoded in userinfo
+tests+=("ssh://user.name@host/repo")
+tests+=("git://user.name@host/repo")
+tests+=("user.name@host:repo")
+
 tests_unix+=("${tests[@]}")
 tests_windows+=("${tests[@]}")
 

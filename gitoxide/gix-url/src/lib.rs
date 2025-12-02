@@ -328,8 +328,37 @@ impl Url {
     }
 }
 
+/// Characters that must be percent-encoded in the userinfo component of a URL.
+///
+/// According to RFC 3986, userinfo can contain:
+/// - unreserved characters: `A-Z a-z 0-9 - . _ ~`
+/// - percent-encoded characters
+/// - sub-delims: `! $ & ' ( ) * + , ; =`
+/// - `:`
+///
+/// This encode set encodes everything else, particularly `@` (userinfo delimiter),
+/// `/` `?` `#` (path/query/fragment delimiters), and various other special characters.
+const USERINFO_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'/')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'@')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
+
 fn percent_encode(s: &str) -> Cow<'_, str> {
-    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).into()
+    percent_encoding::utf8_percent_encode(s, USERINFO_ENCODE_SET).into()
 }
 
 /// Serialization
