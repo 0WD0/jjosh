@@ -64,16 +64,12 @@ impl<'a> ParsedUrl<'a> {
         };
 
         // Parse authority: [user[:password]@]host[:port]
-        let (username, password, host, port) = if let Some(at_pos) = authority.rfind('@') {
+        let (username, password, host, port) = if let Some((user_info, host_port)) = authority.rsplit_once('@') {
             // Has user info
-            let user_info = &authority[..at_pos];
-            let host_port = &authority[at_pos + 1..];
-
-            let (user, pass) = if let Some(colon_pos) = user_info.find(':') {
-                let pass_str = &user_info[colon_pos + 1..];
+            let (user, pass) = if let Some((user, pass_str)) = user_info.split_once(':') {
                 // Treat empty password as None
                 let pass = if pass_str.is_empty() { None } else { Some(pass_str) };
-                (&user_info[..colon_pos], pass)
+                (user, pass)
             } else {
                 (user_info, None)
             };
@@ -115,18 +111,25 @@ impl<'a> ParsedUrl<'a> {
         // Handle IPv6 addresses: [::1] or [::1]:port
         if host_port.starts_with('[') {
             if let Some(bracket_end) = host_port.find(']') {
-                // IPv6 addresses are case-insensitive, normalize to lowercase
-                let host = Some(host_port[..=bracket_end].to_ascii_lowercase());
                 let remaining = &host_port[bracket_end + 1..];
 
                 if remaining.is_empty() {
+                    // IPv6 addresses are case-insensitive, normalize to lowercase
+                    let host = Some(host_port[..=bracket_end].to_ascii_lowercase());
                     return Ok((host, None));
                 } else if let Some(port_str) = remaining.strip_prefix(':') {
+                    if port_str.is_empty() {
+                        // Empty port like "[::1]:" - preserve the trailing colon for Git compatibility
+                        let host = Some(host_port.to_ascii_lowercase());
+                        return Ok((host, None));
+                    }
                     let port = port_str.parse::<u16>().map_err(|_| UrlParseError::InvalidPort)?;
                     // Validate port is in valid range (1-65535, port 0 is invalid)
                     if port == 0 {
                         return Err(UrlParseError::InvalidPort);
                     }
+                    // IPv6 addresses are case-insensitive, normalize to lowercase
+                    let host = Some(host_port[..=bracket_end].to_ascii_lowercase());
                     return Ok((host, Some(port)));
                 } else {
                     return Err(UrlParseError::InvalidDomainCharacter);
@@ -137,27 +140,38 @@ impl<'a> ParsedUrl<'a> {
         }
 
         // Handle regular host:port
-        // Use rfind to handle IPv6 addresses without brackets (edge case)
-        if let Some(colon_pos) = host_port.rfind(':') {
+        // Use rfind to find the last colon
+        if let Some((before_last_colon, after_last_colon)) = host_port.rsplit_once(':') {
             // Check if this looks like a port (all digits after colon)
-            let potential_port = &host_port[colon_pos + 1..];
-            if potential_port.is_empty() {
-                // Empty port like "host:" - strip the trailing colon
-                let host_str = &host_port[..colon_pos];
-                return Ok((Some(Self::normalize_hostname(host_str)?), None));
-            } else if potential_port.chars().all(|c| c.is_ascii_digit()) {
-                let host_str = &host_port[..colon_pos];
-                let host = Self::normalize_hostname(host_str)?;
-                let port = potential_port.parse::<u16>().map_err(|_| UrlParseError::InvalidPort)?;
-                // Validate port is in valid range (1-65535, port 0 is invalid)
-                if port == 0 {
-                    return Err(UrlParseError::InvalidPort);
+            // But avoid treating IPv6 addresses as host:port
+            // IPv6 addresses have colons in the part before the last colon (e.g., "::1" has "::" before the last ":")
+            let has_colon_before_last = before_last_colon.contains(':');
+            let is_all_digits_after =
+                !after_last_colon.is_empty() && after_last_colon.chars().all(|c| c.is_ascii_digit());
+
+            // Treat as port separator only if:
+            // 1. There's no colon before the last colon (normal host:port)
+            // 2. OR it's explicitly empty (host: with trailing colon)
+            if !has_colon_before_last {
+                if after_last_colon.is_empty() {
+                    // Empty port like "host:" - store host with trailing colon
+                    // This is needed for Git compatibility where "host:" != "host"
+                    return Ok((Some(Self::normalize_hostname(host_port)?), None));
+                } else if is_all_digits_after {
+                    let host = Self::normalize_hostname(before_last_colon)?;
+                    let port = after_last_colon
+                        .parse::<u16>()
+                        .map_err(|_| UrlParseError::InvalidPort)?;
+                    // Validate port is in valid range (1-65535, port 0 is invalid)
+                    if port == 0 {
+                        return Err(UrlParseError::InvalidPort);
+                    }
+                    return Ok((Some(host), Some(port)));
                 }
-                return Ok((Some(host), Some(port)));
             }
         }
 
-        // No port, just host
+        // No port, just host (including bare IPv6 addresses)
         Ok((Some(Self::normalize_hostname(host_port)?), None))
     }
 

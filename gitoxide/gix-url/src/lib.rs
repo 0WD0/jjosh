@@ -113,16 +113,38 @@ pub struct Url {
     /// The URL scheme.
     pub scheme: Scheme,
     /// The user to impersonate on the remote.
+    ///
+    /// Stored in decoded form: percent-encoded characters are decoded during parsing.
+    /// Re-encoded during canonical serialization, but written as-is in alternative form.
     pub user: Option<String>,
     /// The password associated with a user.
+    ///
+    /// Stored in decoded form: percent-encoded characters are decoded during parsing.
+    /// Re-encoded during canonical serialization. Cannot be serialized in alternative form (will panic in debug builds).
     pub password: Option<String>,
     /// The host to which to connect. Localhost is implied if `None`.
+    ///
+    /// IPv6 addresses are stored *without* brackets for SSH schemes, but *with* brackets for other schemes.
+    /// Brackets are automatically added during serialization when needed (e.g., when a port is specified with an IPv6 host).
     pub host: Option<String>,
     /// When serializing, use the alternative forms as it was parsed as such.
+    ///
+    /// Alternative forms include SCP-like syntax (`user@host:path`) and bare file paths.
+    /// When `true`, password and port cannot be serialized (will panic in debug builds).
     pub serialize_alternative_form: bool,
     /// The port to use when connecting to a host. If `None`, standard ports depending on `scheme` will be used.
     pub port: Option<u16>,
     /// The path portion of the URL, usually the location of the git repository.
+    ///
+    /// Unlike `user` and `password`, paths are stored and serialized in their original form
+    /// without percent-decoding or re-encoding (e.g., `%20` remains `%20`, not converted to space).
+    ///
+    /// Path normalization during parsing:
+    /// - SSH/Git schemes: Leading `/~` is stripped (e.g., `/~repo` becomes `~repo`)
+    /// - SSH/Git schemes: Empty paths are rejected as errors
+    /// - HTTP/HTTPS schemes: Empty paths are normalized to `/`
+    ///
+    /// During serialization, SSH/Git URLs prepend `/` to paths not starting with `/`.
     ///
     /// # Security Warning
     ///
@@ -380,6 +402,9 @@ impl Url {
 
         out.write_all(self.scheme.as_str().as_bytes())?;
         out.write_all(b"://")?;
+
+        let needs_brackets = self.port.is_some() && self.host_needs_brackets();
+
         match (&self.user, &self.host) {
             (Some(user), Some(host)) => {
                 out.write_all(percent_encode(user).as_bytes())?;
@@ -388,10 +413,22 @@ impl Url {
                     out.write_all(percent_encode(password).as_bytes())?;
                 }
                 out.write_all(b"@")?;
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, Some(host)) => {
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, None) => {}
             (Some(_user), None) => {
@@ -403,23 +440,45 @@ impl Url {
         if let Some(port) = &self.port {
             write!(out, ":{port}")?;
         }
+        // For SSH and Git URLs, add leading '/' if path doesn't start with '/'
+        // This handles paths like "~repo" which serialize as "/~repo" in URL form
+        if matches!(self.scheme, Scheme::Ssh | Scheme::Git) && !self.path.starts_with(b"/") {
+            out.write_all(b"/")?;
+        }
         out.write_all(&self.path)?;
         Ok(())
     }
 
+    fn host_needs_brackets(&self) -> bool {
+        fn is_ipv6(h: &str) -> bool {
+            h.contains(':') && !h.starts_with('[')
+        }
+        self.host.as_ref().is_some_and(|h| is_ipv6(h))
+    }
+
     fn write_alternative_form_to(&self, out: &mut dyn std::io::Write) -> std::io::Result<()> {
+        let needs_brackets = self.host_needs_brackets();
+
         match (&self.user, &self.host) {
             (Some(user), Some(host)) => {
                 out.write_all(user.as_bytes())?;
-                assert!(
-                    self.password.is_none(),
-                    "BUG: cannot serialize password in alternative form"
-                );
                 out.write_all(b"@")?;
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, Some(host)) => {
+                if needs_brackets {
+                    out.write_all(b"[")?;
+                }
                 out.write_all(host.as_bytes())?;
+                if needs_brackets {
+                    out.write_all(b"]")?;
+                }
             }
             (None, None) => {}
             (Some(_user), None) => {
@@ -428,7 +487,6 @@ impl Url {
                 ));
             }
         }
-        assert!(self.port.is_none(), "BUG: cannot serialize port in alternative form");
         if self.scheme == Scheme::Ssh {
             out.write_all(b":")?;
         }
