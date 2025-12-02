@@ -64,16 +64,12 @@ impl<'a> ParsedUrl<'a> {
         };
 
         // Parse authority: [user[:password]@]host[:port]
-        let (username, password, host, port) = if let Some(at_pos) = authority.rfind('@') {
+        let (username, password, host, port) = if let Some((user_info, host_port)) = authority.rsplit_once('@') {
             // Has user info
-            let user_info = &authority[..at_pos];
-            let host_port = &authority[at_pos + 1..];
-
-            let (user, pass) = if let Some(colon_pos) = user_info.find(':') {
-                let pass_str = &user_info[colon_pos + 1..];
+            let (user, pass) = if let Some((user, pass_str)) = user_info.split_once(':') {
                 // Treat empty password as None
                 let pass = if pass_str.is_empty() { None } else { Some(pass_str) };
-                (&user_info[..colon_pos], pass)
+                (user, pass)
             } else {
                 (user_info, None)
             };
@@ -145,10 +141,7 @@ impl<'a> ParsedUrl<'a> {
 
         // Handle regular host:port
         // Use rfind to find the last colon
-        if let Some(colon_pos) = host_port.rfind(':') {
-            let before_last_colon = &host_port[..colon_pos];
-            let after_last_colon = &host_port[colon_pos + 1..];
-
+        if let Some((before_last_colon, after_last_colon)) = host_port.rsplit_once(':') {
             // Check if this looks like a port (all digits after colon)
             // But avoid treating IPv6 addresses as host:port
             // IPv6 addresses have colons in the part before the last colon (e.g., "::1" has "::" before the last ":")

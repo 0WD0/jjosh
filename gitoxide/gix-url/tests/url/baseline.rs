@@ -43,10 +43,7 @@ fn parse_and_compare_baseline_urls() {
     println!(
         "\nBaseline tests: {passed}/{total} passed, {failed} failed, {expected_failures} expected failures (skipped)"
     );
-
-    if failed > 0 {
-        panic!("{failed} baseline test(s) failed");
-    }
+    assert_eq!(failed, 0, "{failed} baseline test(s) failed");
 }
 
 fn assert_urls_equal(expected: &baseline::GitDiagUrl<'_>, actual: &gix_url::Url) {

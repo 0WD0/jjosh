@@ -145,32 +145,29 @@ pub(crate) fn url(input: &BStr, protocol_end: usize) -> Result<crate::Url, Error
     // For SSH URLs, strip brackets from IPv6 addresses
     let host = if scheme == Scheme::Ssh {
         url.host.map(|mut h| {
-            // Check if we have bracketed IPv6 with trailing colon: "[::1]:"
-            if h.starts_with('[') {
-                if h.ends_with("]:") {
-                    // "[::1]:" -> "::1"  (strip brackets and colon)
-                    h = h[1..h.len() - 2].to_string();
-                } else if h.ends_with(']') {
-                    // "[::1]" -> "::1"  (just strip brackets)
-                    h = h[1..h.len() - 1].to_string();
+            // Bracketed IPv6 forms
+            if let Some(h2) = h.strip_prefix('[') {
+                if let Some(inner) = h2.strip_suffix("]:") {
+                    // "[::1]:" → "::1"
+                    h = inner.to_string();
+                } else if let Some(inner) = h2.strip_suffix(']') {
+                    // "[::1]" → "::1"
+                    h = inner.to_string();
                 }
             } else {
-                // For non-bracketed hosts, only strip trailing colon if it's not part of IPv6
-                // Count colons: if there's only one colon and it's at the end, strip it
-                // Otherwise (multiple colons or colon not at end), keep it
-                let colon_count = h.chars().filter(|&c| c == ':').count();
-                if colon_count == 1 && h.ends_with(':') {
-                    // Regular host with empty port "host:" -> "host"
-                    h = h[..h.len() - 1].to_string();
+                // Non-bracketed host: strip a single trailing colon
+                let colon_count = h.chars().filter(|&c| c == ':').take(2).count();
+                if colon_count == 1 {
+                    if let Some(inner) = h.strip_suffix(':') {
+                        h = inner.to_string();
+                    }
                 }
-                // For bare IPv6 with trailing colon "::1:", keep it as is (colon_count > 1)
             }
             h
         })
     } else {
         url.host
     };
-
     Ok(crate::Url {
         serialize_alternative_form: false,
         scheme,
@@ -232,8 +229,8 @@ pub(crate) fn scp(input: &BStr, colon: usize) -> Result<crate::Url, Error> {
 
     // For SCP-like SSH URLs, strip brackets from IPv6 addresses
     let host = url.host.map(|h| {
-        if h.starts_with('[') && h.ends_with(']') {
-            h[1..h.len() - 1].to_string()
+        if let Some(h) = h.strip_prefix("[").and_then(|h| h.strip_suffix("]")) {
+            h.to_string()
         } else {
             h
         }
