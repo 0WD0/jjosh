@@ -4,9 +4,6 @@ use bstr::BStr;
 
 use crate::Path;
 
-/// The prefix used to mark a path as optional in Git configuration files.
-const OPTIONAL_PREFIX: &[u8] = b":(optional)";
-
 ///
 pub mod interpolate {
     use std::path::PathBuf;
@@ -111,7 +108,9 @@ impl AsRef<BStr> for Path<'_> {
 
 impl<'a> From<Cow<'a, BStr>> for Path<'a> {
     fn from(value: Cow<'a, BStr>) -> Self {
-        // Check if the value starts with ":(optional)" prefix
+        /// The prefix used to mark a path as optional in Git configuration files.
+        const OPTIONAL_PREFIX: &[u8] = b":(optional)";
+
         if value.starts_with(OPTIONAL_PREFIX) {
             // Strip the prefix while preserving the Cow variant for efficiency:
             // - Borrowed data remains borrowed (no allocation)
@@ -125,27 +124,18 @@ impl<'a> From<Cow<'a, BStr>> for Path<'a> {
             };
             Path {
                 value: stripped,
-                optional: true,
+                is_optional: true,
             }
         } else {
             Path {
                 value,
-                optional: false,
+                is_optional: false,
             }
         }
     }
 }
 
 impl<'a> Path<'a> {
-    /// Returns `true` if this path was prefixed with `:(optional)`.
-    ///
-    /// Optional paths indicate that it's acceptable if the file doesn't exist.
-    /// This is typically used for configuration like `blame.ignorerevsfile` where
-    /// the file might not exist in all repositories.
-    pub fn is_optional(&self) -> bool {
-        self.optional
-    }
-
     /// Interpolates this path into a path usable on the file system.
     ///
     /// If this path starts with `~/` or `~user/` or `%(prefix)/`
@@ -158,8 +148,8 @@ impl<'a> Path<'a> {
     ///    This location is not known at compile time and therefore need to be
     ///    optionally provided by the caller through `git_install_dir`.
     ///
-    /// Any other, non-empty path value is returned unchanged and error is returned in case of an empty path value or if required input
-    /// wasn't provided.
+    /// Any other, non-empty path value is returned unchanged and error is returned in case of an empty path value or if the required
+    /// input wasn't provided.
     pub fn interpolate(
         self,
         interpolate::Context {
