@@ -33,6 +33,33 @@ fn commit_auto_rollback() -> crate::Result {
     Ok(())
 }
 
+mod trusted_path {
+    use crate::util::named_repo;
+
+    #[test]
+    fn optional_is_respected() -> crate::Result {
+        let mut repo: gix::Repository = named_repo("make_basic_repo.sh")?;
+        repo.config_snapshot_mut().set_raw_value(&"my.path", "does-not-exist")?;
+
+        let actual = repo
+            .config_snapshot()
+            .trusted_path("my.path")
+            .transpose()?
+            .expect("is set");
+        assert_eq!(
+            actual.as_ref(),
+            "does-not-exist",
+            "the path isn't evaluated by default, and may not exist"
+        );
+
+        repo.config_snapshot_mut()
+            .set_raw_value(&"my.path", ":(optional)does-not-exist")?;
+        let actual = repo.config_snapshot().trusted_path("my.path").transpose()?;
+        assert_eq!(actual, None, "non-existing paths aren't returned to the caller");
+        Ok(())
+    }
+}
+
 #[test]
 fn snapshot_mut_commit_and_forget() -> crate::Result {
     let mut repo: gix::Repository = named_repo("make_basic_repo.sh")?;
