@@ -108,7 +108,30 @@ impl AsRef<BStr> for Path<'_> {
 
 impl<'a> From<Cow<'a, BStr>> for Path<'a> {
     fn from(value: Cow<'a, BStr>) -> Self {
-        Path { value }
+        /// The prefix used to mark a path as optional in Git configuration files.
+        const OPTIONAL_PREFIX: &[u8] = b":(optional)";
+
+        if value.starts_with(OPTIONAL_PREFIX) {
+            // Strip the prefix while preserving the Cow variant for efficiency:
+            // - Borrowed data remains borrowed (no allocation)
+            // - Owned data is modified in-place using drain (no extra allocation)
+            let stripped = match value {
+                Cow::Borrowed(b) => Cow::Borrowed(&b[OPTIONAL_PREFIX.len()..]),
+                Cow::Owned(mut b) => {
+                    b.drain(..OPTIONAL_PREFIX.len());
+                    Cow::Owned(b)
+                }
+            };
+            Path {
+                value: stripped,
+                is_optional: true,
+            }
+        } else {
+            Path {
+                value,
+                is_optional: false,
+            }
+        }
     }
 }
 
@@ -125,8 +148,8 @@ impl<'a> Path<'a> {
     ///    This location is not known at compile time and therefore need to be
     ///    optionally provided by the caller through `git_install_dir`.
     ///
-    /// Any other, non-empty path value is returned unchanged and error is returned in case of an empty path value or if required input
-    /// wasn't provided.
+    /// Any other, non-empty path value is returned unchanged and error is returned in case of an empty path value or if the required
+    /// input wasn't provided.
     pub fn interpolate(
         self,
         interpolate::Context {

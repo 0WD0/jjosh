@@ -544,7 +544,19 @@ pub(crate) fn trusted_file_path<'config>(
     let install_dir = crate::path::install_dir().ok();
     let home = home_dir(environment);
     let ctx = config::cache::interpolate_context(install_dir.as_deref(), home.as_deref());
-    Some(path.interpolate(ctx))
+
+    let is_optional = path.is_optional;
+    let res = path.interpolate(ctx);
+    if is_optional {
+        if let Ok(path) = &res {
+            // As opposed to Git, for a lack of the right error variant, we ignore everything that can't
+            // be stat'ed, instead of just checking if it doesn't exist via error code.
+            if path.metadata().is_err() {
+                return None;
+            }
+        }
+    }
+    Some(res)
 }
 
 pub(crate) fn home_dir(environment: crate::open::permissions::Environment) -> Option<PathBuf> {

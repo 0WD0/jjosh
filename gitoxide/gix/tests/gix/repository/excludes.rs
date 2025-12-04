@@ -27,3 +27,19 @@ fn empty_core_excludes() -> crate::Result {
         .expect("empty paths are now just skipped");
     Ok(())
 }
+
+#[test]
+fn missing_core_excludes_is_ignored() -> crate::Result {
+    let mut repo = named_subrepo_opts(
+        "make_basic_repo.sh",
+        "empty-core-excludes",
+        gix::open::Options::default().strict_config(true),
+    )?;
+    repo.config_snapshot_mut()
+        .set_value(&gix::config::tree::Core::EXCLUDES_FILE, "definitely-missing")?;
+
+    let index = repo.index_or_empty()?;
+    repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)
+        .expect("the call works as missing excludes files are ignored");
+    Ok(())
+}
