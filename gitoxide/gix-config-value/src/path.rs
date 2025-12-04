@@ -4,6 +4,9 @@ use bstr::BStr;
 
 use crate::Path;
 
+/// The prefix used to mark a path as optional in Git configuration files.
+const OPTIONAL_PREFIX: &[u8] = b":(optional)";
+
 ///
 pub mod interpolate {
     use std::path::PathBuf;
@@ -108,11 +111,41 @@ impl AsRef<BStr> for Path<'_> {
 
 impl<'a> From<Cow<'a, BStr>> for Path<'a> {
     fn from(value: Cow<'a, BStr>) -> Self {
-        Path { value }
+        // Check if the value starts with ":(optional)" prefix
+        if value.starts_with(OPTIONAL_PREFIX) {
+            // Strip the prefix while preserving the Cow variant for efficiency:
+            // - Borrowed data remains borrowed (no allocation)
+            // - Owned data is modified in-place using drain (no extra allocation)
+            let stripped = match value {
+                Cow::Borrowed(b) => Cow::Borrowed(&b[OPTIONAL_PREFIX.len()..]),
+                Cow::Owned(mut b) => {
+                    b.drain(..OPTIONAL_PREFIX.len());
+                    Cow::Owned(b)
+                }
+            };
+            Path {
+                value: stripped,
+                optional: true,
+            }
+        } else {
+            Path {
+                value,
+                optional: false,
+            }
+        }
     }
 }
 
 impl<'a> Path<'a> {
+    /// Returns `true` if this path was prefixed with `:(optional)`.
+    ///
+    /// Optional paths indicate that it's acceptable if the file doesn't exist.
+    /// This is typically used for configuration like `blame.ignorerevsfile` where
+    /// the file might not exist in all repositories.
+    pub fn is_optional(&self) -> bool {
+        self.optional
+    }
+
     /// Interpolates this path into a path usable on the file system.
     ///
     /// If this path starts with `~/` or `~user/` or `%(prefix)/`

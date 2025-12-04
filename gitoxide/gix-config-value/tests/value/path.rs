@@ -127,3 +127,117 @@ mod interpolate {
         std::env::current_dir().unwrap().join(name).into()
     }
 }
+
+mod optional_prefix {
+    use std::borrow::Cow;
+
+    use bstr::ByteSlice;
+    use crate::{b, cow_str};
+
+    #[test]
+    fn path_without_optional_prefix_is_not_optional() {
+        let path = gix_config_value::Path::from(Cow::Borrowed(b("/some/path")));
+        assert!(!path.is_optional(), "path without prefix should not be optional");
+        assert_eq!(path.value.as_ref(), b"/some/path");
+    }
+
+    #[test]
+    fn path_with_optional_prefix_is_optional() {
+        let path = gix_config_value::Path::from(cow_str(":(optional)/some/path"));
+        assert!(path.is_optional(), "path with :(optional) prefix should be optional");
+        assert_eq!(path.value.as_ref(), b"/some/path", "prefix should be stripped");
+    }
+
+    #[test]
+    fn optional_prefix_with_relative_path() {
+        let path = gix_config_value::Path::from(cow_str(":(optional)relative/path"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"relative/path");
+    }
+
+    #[test]
+    fn optional_prefix_with_tilde_expansion() {
+        let path = gix_config_value::Path::from(cow_str(":(optional)~/config/file"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"~/config/file", "tilde should be preserved for interpolation");
+    }
+
+    #[test]
+    fn optional_prefix_with_prefix_substitution() {
+        let path = gix_config_value::Path::from(cow_str(":(optional)%(prefix)/share/git"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"%(prefix)/share/git", "prefix should be preserved for interpolation");
+    }
+
+    #[test]
+    fn optional_prefix_with_windows_path() {
+        let path = gix_config_value::Path::from(cow_str(r":(optional)C:\Users\file"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), br"C:\Users\file");
+    }
+
+    #[test]
+    fn optional_prefix_followed_by_empty_path() {
+        let path = gix_config_value::Path::from(cow_str(":(optional)"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"", "empty path after prefix is valid");
+    }
+
+    #[test]
+    fn partial_optional_string_is_not_treated_as_prefix() {
+        let path = gix_config_value::Path::from(cow_str(":(opt)ional/path"));
+        assert!(!path.is_optional(), "incomplete prefix should not be treated as optional marker");
+        assert_eq!(path.value.as_ref(), b":(opt)ional/path");
+    }
+
+    #[test]
+    fn optional_prefix_case_sensitive() {
+        let path = gix_config_value::Path::from(cow_str(":(OPTIONAL)/some/path"));
+        assert!(!path.is_optional(), "prefix should be case-sensitive");
+        assert_eq!(path.value.as_ref(), b":(OPTIONAL)/some/path");
+    }
+
+    #[test]
+    fn optional_prefix_with_spaces() {
+        let path = gix_config_value::Path::from(cow_str(":(optional) /path/with/space"));
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b" /path/with/space", "space after prefix should be preserved");
+    }
+
+    #[test]
+    fn interpolate_preserves_optional_flag() -> crate::Result {
+        use gix_config_value::path;
+        
+        let path = gix_config_value::Path::from(cow_str(":(optional)/absolute/path"));
+        assert!(path.is_optional());
+        
+        let interpolated = path.interpolate(path::interpolate::Context::default())?;
+        assert_eq!(interpolated.as_ref(), std::path::Path::new("/absolute/path"));
+        
+        Ok(())
+    }
+
+    #[test]
+    fn borrowed_path_stays_borrowed_after_prefix_stripping() {
+        // Verify that we don't unnecessarily allocate when stripping the prefix from borrowed data
+        let borrowed_input: &[u8] = b":(optional)/some/path";
+        let path = gix_config_value::Path::from(Cow::Borrowed(borrowed_input.as_bstr()));
+        
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"/some/path");
+        // Verify it's still borrowed (no unnecessary allocation)
+        assert!(matches!(path.value, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn owned_path_stays_owned_after_prefix_stripping() {
+        // Verify that owned data remains owned after prefix stripping (but efficiently)
+        let owned_input = bstr::BString::from(":(optional)/some/path");
+        let path = gix_config_value::Path::from(Cow::Owned(owned_input));
+        
+        assert!(path.is_optional());
+        assert_eq!(path.value.as_ref(), b"/some/path");
+        // Verify it's still owned
+        assert!(matches!(path.value, Cow::Owned(_)));
+    }
+}
