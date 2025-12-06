@@ -73,14 +73,15 @@ impl Capabilities {
             .and_then(|file| {
                 let old_mode = file.metadata()?.mode();
                 let is_executable = old_mode & 0o100 == 0o100;
-                Ok(is_executable && {
-                    let new_mode = old_mode ^ 0o100;
-                    match file.set_permissions(PermissionsExt::from_mode(new_mode)) {
-                        Ok(()) => new_mode == file.metadata()?.mode(),
+                let exe_bit_flip_works_in_filesystem = {
+                    let toggled_exe_bit = old_mode ^ 0o100;
+                    match file.set_permissions(PermissionsExt::from_mode(toggled_exe_bit)) {
+                        Ok(()) => toggled_exe_bit == file.metadata()?.mode(),
                         Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => false,
                         Err(err) => return Err(err),
                     }
-                })
+                };
+                Ok(is_executable && exe_bit_flip_works_in_filesystem)
             });
         std::fs::remove_file(test_path)?;
         res
