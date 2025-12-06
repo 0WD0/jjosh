@@ -57,9 +57,12 @@ impl Capabilities {
 
     #[cfg(unix)]
     fn probe_file_mode(root: &Path) -> std::io::Result<bool> {
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-        // test it exactly as we typically create executable files, not using chmod.
+        // First check that we can create an executable file, then check that we
+        // can change the executable bit.
+        // The equivalent test by git itself is here:
+        // https://github.com/git/git/blob/f0ef5b6d9bcc258e4cbef93839d1b7465d5212b9/setup.c#L2367-L2379
         let rand = fastrand::usize(..);
         let test_path = root.join(format!("_test_executable_bit{rand}"));
         let res = std::fs::OpenOptions::new()
@@ -67,7 +70,19 @@ impl Capabilities {
             .write(true)
             .mode(0o777)
             .open(&test_path)
-            .and_then(|f| f.metadata().map(|m| m.mode() & 0o100 == 0o100));
+            .and_then(|file| {
+                let old_mode = file.metadata()?.mode();
+                let is_executable = old_mode & 0o100 == 0o100;
+                let exe_bit_flip_works_in_filesystem = {
+                    let toggled_exe_bit = old_mode ^ 0o100;
+                    match file.set_permissions(PermissionsExt::from_mode(toggled_exe_bit)) {
+                        Ok(()) => toggled_exe_bit == file.metadata()?.mode(),
+                        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => false,
+                        Err(err) => return Err(err),
+                    }
+                };
+                Ok(is_executable && exe_bit_flip_works_in_filesystem)
+            });
         std::fs::remove_file(test_path)?;
         res
     }
