@@ -214,14 +214,7 @@ mod baseline {
                         hunk_lines.push(b'\n');
                     }
                     b'\\' => {
-                        if line == "\\ No newline at end of file".as_bytes() {
-                            // Do nothing.
-                        } else {
-                            unreachable!(
-                                "BUG: expecting unified diff format, found line: `{}`",
-                                line.to_str_lossy()
-                            )
-                        }
+                        assert_eq!(line, "\\ No newline at end of file".as_bytes());
                     }
                     _ => unreachable!(
                         "BUG: expecting unified diff format, found line: `{}`",
