@@ -292,11 +292,12 @@ mktest!(
     3
 );
 
-/// As of 2024-09-24, these tests are expected to fail.
+/// As of 2024-09-24, the Myers-related test was expected to fail. Both tests were initially
+/// written when diffing was done by `imara-diff` 0.1. After updating to `imara-diff` 0.2 on
+/// 2025-12-07, the Myers-related test started passing.
 ///
 /// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
 #[test]
-#[should_panic = "empty-lines-myers"]
 fn diff_disparity() {
     for case in ["empty-lines-myers", "empty-lines-histogram"] {
         let Fixture {

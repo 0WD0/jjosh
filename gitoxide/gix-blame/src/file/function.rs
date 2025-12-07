@@ -1,6 +1,9 @@
-use std::{num::NonZeroU32, ops::Range};
+use std::num::NonZeroU32;
 
-use gix_diff::{blob::intern::TokenSource, tree::Visit};
+use gix_diff::{
+    blob::{intern::TokenSource, v2::Hunk},
+    tree::Visit,
+};
 use gix_hash::ObjectId;
 use gix_object::{
     bstr::{BStr, BString},
@@ -758,59 +761,6 @@ fn blob_changes(
     diff_algorithm: gix_diff::blob::Algorithm,
     stats: &mut Statistics,
 ) -> Result<Vec<Change>, Error> {
-    /// Record all [`Change`]s to learn about additions, deletions and unchanged portions of a *Source File*.
-    struct ChangeRecorder {
-        last_seen_after_end: u32,
-        hunks: Vec<Change>,
-        total_number_of_lines: u32,
-    }
-
-    impl ChangeRecorder {
-        /// `total_number_of_lines` is used to fill in the last unchanged hunk if needed
-        /// so that the entire file is represented by [`Change`].
-        fn new(total_number_of_lines: u32) -> Self {
-            ChangeRecorder {
-                last_seen_after_end: 0,
-                hunks: Vec::new(),
-                total_number_of_lines,
-            }
-        }
-    }
-
-    impl gix_diff::blob::Sink for ChangeRecorder {
-        type Out = Vec<Change>;
-
-        fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
-            // This checks for unchanged hunks.
-            if after.start > self.last_seen_after_end {
-                self.hunks
-                    .push(Change::Unchanged(self.last_seen_after_end..after.start));
-            }
-
-            match (!before.is_empty(), !after.is_empty()) {
-                (_, true) => {
-                    self.hunks.push(Change::AddedOrReplaced(
-                        after.start..after.end,
-                        before.end - before.start,
-                    ));
-                }
-                (true, false) => {
-                    self.hunks.push(Change::Deleted(after.start, before.end - before.start));
-                }
-                (false, false) => unreachable!("BUG: imara-diff provided a non-change"),
-            }
-            self.last_seen_after_end = after.end;
-        }
-
-        fn finish(mut self) -> Self::Out {
-            if self.total_number_of_lines > self.last_seen_after_end {
-                self.hunks
-                    .push(Change::Unchanged(self.last_seen_after_end..self.total_number_of_lines));
-            }
-            self.hunks
-        }
-    }
-
     resource_cache.set_resource(
         previous_oid,
         gix_object::tree::EntryKind::Blob,
@@ -827,16 +777,49 @@ fn blob_changes(
     )?;
 
     let outcome = resource_cache.prepare_diff()?;
-    let input = gix_diff::blob::intern::InternedInput::new(
-        tokens_for_diffing(outcome.old.data.as_slice().unwrap_or_default()),
-        tokens_for_diffing(outcome.new.data.as_slice().unwrap_or_default()),
+    let input = gix_diff::blob::v2::InternedInput::new(
+        outcome.old.data.as_slice().unwrap_or_default(),
+        outcome.new.data.as_slice().unwrap_or_default(),
     );
-    let number_of_lines_in_destination = input.after.len();
-    let change_recorder = ChangeRecorder::new(number_of_lines_in_destination as u32);
 
-    let res = gix_diff::blob::diff(diff_algorithm, &input, change_recorder);
+    let diff_algorithm: gix_diff::blob::v2::Algorithm = match diff_algorithm {
+        gix_diff::blob::Algorithm::Histogram => gix_diff::blob::v2::Algorithm::Histogram,
+        gix_diff::blob::Algorithm::Myers => gix_diff::blob::v2::Algorithm::Myers,
+        gix_diff::blob::Algorithm::MyersMinimal => gix_diff::blob::v2::Algorithm::MyersMinimal,
+    };
+    let mut diff = gix_diff::blob::v2::Diff::compute(diff_algorithm, &input);
+    diff.postprocess_lines(&input);
+
+    let changes = diff
+        .hunks()
+        .fold((Vec::new(), 0), |(mut hunks, mut last_seen_after_end), hunk| {
+            let Hunk { before, after } = hunk;
+
+            // This checks for unchanged hunks.
+            if after.start > last_seen_after_end {
+                hunks.push(Change::Unchanged(last_seen_after_end..after.start));
+            }
+
+            match (!before.is_empty(), !after.is_empty()) {
+                (_, true) => {
+                    hunks.push(Change::AddedOrReplaced(
+                        after.start..after.end,
+                        before.end - before.start,
+                    ));
+                }
+                (true, false) => {
+                    hunks.push(Change::Deleted(after.start, before.end - before.start));
+                }
+                (false, false) => unreachable!("BUG: imara-diff provided a non-change"),
+            }
+
+            last_seen_after_end = after.end;
+
+            (hunks, last_seen_after_end)
+        });
+
     stats.blobs_diffed += 1;
-    Ok(res)
+    Ok(changes.0)
 }
 
 fn find_path_entry_in_commit(
