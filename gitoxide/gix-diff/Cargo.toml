@@ -15,7 +15,7 @@ autotests = false
 [features]
 default = ["blob", "index"]
 ## Enable diffing of blobs using imara-diff.
-blob = ["dep:imara-diff", "dep:gix-filter", "dep:gix-worktree", "dep:gix-path", "dep:gix-fs", "dep:gix-command", "dep:gix-tempfile", "dep:gix-trace", "dep:gix-traverse"]
+blob = ["dep:imara-diff", "dep:imara-diff-v0_2", "dep:gix-filter", "dep:gix-worktree", "dep:gix-path", "dep:gix-fs", "dep:gix-command", "dep:gix-tempfile", "dep:gix-trace", "dep:gix-traverse"]
 ## Enable diffing of two indices, which also allows for a generic rewrite tracking implementation.
 index = ["dep:gix-index", "dep:gix-pathspec", "dep:gix-attributes"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
@@ -43,6 +43,7 @@ gix-traverse = { version = "^0.49.0", path = "../gix-traverse", optional = true 
 
 thiserror = "2.0.17"
 imara-diff = { version = "0.1.8", optional = true }
+imara-diff-v0_2 = { version = "0.2.0", optional = true, package = "imara-diff" }
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 getrandom = { version = "0.2.8", optional = true, default-features = false, features = ["js"] }
 bstr = { version = "1.12.0", default-features = false }
