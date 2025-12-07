@@ -1612,7 +1612,8 @@ dependencies = [
  "gix-trace",
  "gix-traverse",
  "gix-worktree",
- "imara-diff",
+ "imara-diff 0.1.8",
+ "imara-diff 0.2.0",
  "serde",
  "thiserror 2.0.17",
 ]
@@ -1904,7 +1905,7 @@ dependencies = [
  "gix-trace",
  "gix-utils",
  "gix-worktree",
- "imara-diff",
+ "imara-diff 0.1.8",
  "pretty_assertions",
  "serde",
  "termtree",
@@ -2913,6 +2914,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17d34b7d42178945f775e84bc4c36dde7c1c6cdfea656d3354d009056f2bb3d2"
 dependencies = [
  "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "imara-diff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f01d462f766df78ab820dd06f5eb700233c51f0f4c2e846520eaf4ba6aa5c5c"
+dependencies = [
+ "hashbrown 0.15.5",
+ "memchr",
 ]
 
 [[package]]

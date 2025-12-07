@@ -5,6 +5,42 @@ use std::{collections::HashMap, path::PathBuf};
 use bstr::BString;
 pub use imara_diff::*;
 
+/// Re-export imara-diff v0.2 types for use with slider heuristics.
+///
+/// This module provides access to the v0.2 API of imara-diff, which includes
+/// support for Git's slider heuristics to produce more intuitive diffs.
+#[cfg(feature = "blob-experimental")]
+pub use imara_diff_v2 as v2;
+
+/// Compute a diff with Git's slider heuristics to produce more intuitive diffs.
+///
+/// This function uses `imara-diff` v0.2 which provides the [`v2::Diff`] structure
+/// that supports postprocessing with slider heuristics. The slider heuristics move
+/// diff hunks to more intuitive locations based on indentation and other factors,
+/// resulting in diffs that are more readable and match Git's output more closely.
+///
+/// # Examples
+///
+/// ```
+/// use gix_diff::blob::{diff_with_slider_heuristics, v2::{Algorithm, InternedInput}};
+///
+/// let before = "fn foo() {\n    let x = 1;\n}\n";
+/// let after = "fn foo() {\n    let x = 2;\n}\n";
+///
+/// let input = InternedInput::new(before, after);
+/// let diff = diff_with_slider_heuristics(Algorithm::Histogram, &input);
+///
+/// // The diff now has slider heuristics applied
+/// assert_eq!(diff.count_removals(), 1);
+/// assert_eq!(diff.count_additions(), 1);
+/// ```
+#[cfg(feature = "blob-experimental")]
+pub fn diff_with_slider_heuristics<T: AsRef<[u8]>>(algorithm: v2::Algorithm, input: &v2::InternedInput<T>) -> v2::Diff {
+    let mut diff = v2::Diff::compute(algorithm, input);
+    diff.postprocess_lines(input);
+    diff
+}
+
 ///
 pub mod pipeline;
 
