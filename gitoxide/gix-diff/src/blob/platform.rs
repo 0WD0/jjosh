@@ -243,8 +243,8 @@ pub mod prepare_diff {
             /// Use it in [`Platform::prepare_diff_command`](super::Platform::prepare_diff_command()) to easily prepare a compatible invocation.
             command: &'a BStr,
         },
-        /// One of the involved resources, [`old`](Outcome::old) or [`new`](Outcome::new), were binary and thus no diff
-        /// cannot be performed.
+        /// One of the involved resources, [`old`](Outcome::old) or [`new`](Outcome::new), was binary and thus no diff
+        /// can be performed.
         SourceOrDestinationIsBinary,
     }
 
