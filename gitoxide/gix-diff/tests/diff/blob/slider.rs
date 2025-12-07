@@ -213,7 +213,13 @@ mod baseline {
                         hunk_lines.extend_from_slice(line);
                         hunk_lines.push(b'\n');
                     }
-                    _ => unreachable!("BUG: expecting unified diff format"),
+                    b'\\' => {
+                        assert_eq!(line, "\\ No newline at end of file".as_bytes());
+                    }
+                    _ => unreachable!(
+                        "BUG: expecting unified diff format, found line: `{}`",
+                        line.to_str_lossy()
+                    ),
                 }
 
                 match self.lines.peek() {

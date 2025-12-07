@@ -159,7 +159,7 @@ pub enum Subcommands {
     /// platforms (at least Windows) do not have such permissions, but Git still represents them.
     ///
     /// This currently only checks files name with an `.sh` suffix, and only operates on the
-    /// current repository. Its main use is checking that fixture scripts are have correct modes.
+    /// current repository. Its main use is checking that fixture scripts have correct modes.
     #[clap(visible_alias = "cm")]
     CheckMode {},
     /// Print environment variables as `NAME=value` lines.
