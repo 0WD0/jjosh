@@ -9,7 +9,7 @@ use crate::{
     handshake::Ref,
 };
 
-/// The error returned by [`crate::Handshake::fetch_or_extract_refmap()`].
+/// The error returned by [`crate::Handshake::prepare_lsrefs_or_extract_refmap()`].
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {

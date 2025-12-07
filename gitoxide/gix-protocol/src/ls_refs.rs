@@ -48,6 +48,9 @@ pub(crate) mod function {
     };
 
     /// A command to list references from a remote Git repository.
+    ///
+    /// It acts as a utility to separate the invocation into the shared blocking portion,
+    /// and the one that performs IO either blocking or `async`.
     pub struct LsRefsCommand<'a> {
         pub(crate) capabilities: &'a Capabilities,
         features: Vec<(&'static str, Option<Cow<'static, str>>)>,
@@ -62,8 +65,6 @@ pub(crate) mod function {
             capabilities: &'a Capabilities,
             agent: (&'static str, Option<Cow<'static, str>>),
         ) -> Self {
-            let _span =
-                gix_features::trace::detail!("gix_protocol::LsRefsCommand::new()", capabilities = ?capabilities);
             let ls_refs = Command::LsRefs;
             let mut features = ls_refs.default_features(gix_transport::Protocol::V2, capabilities);
             features.push(agent);
@@ -109,6 +110,7 @@ pub(crate) mod function {
             progress: &mut impl Progress,
             trace: bool,
         ) -> Result<Vec<Ref>, Error> {
+            let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke_async()");
             Command::LsRefs.validate_argument_prefixes(
                 gix_transport::Protocol::V2,
                 self.capabilities,
@@ -144,6 +146,7 @@ pub(crate) mod function {
             progress: &mut impl Progress,
             trace: bool,
         ) -> Result<Vec<Ref>, Error> {
+            let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke_blocking()");
             Command::LsRefs.validate_argument_prefixes(
                 gix_transport::Protocol::V2,
                 self.capabilities,

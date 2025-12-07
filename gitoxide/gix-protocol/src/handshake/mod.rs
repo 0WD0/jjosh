@@ -80,15 +80,15 @@ pub(crate) mod hero {
         use std::borrow::Cow;
 
         /// Intermediate state while potentially fetching a refmap after the handshake.
-        pub enum FetchRefMap<'a> {
-            /// We already got a refmap to use from the handshake.
-            Map(RefMap),
-            /// We need to invoke another command to get the refmap.
-            Command(crate::LsRefsCommand<'a>, crate::fetch::refmap::init::Context),
+        pub enum ObtainRefMap<'a> {
+            /// We already got a refmap to use from the V1 handshake, which always sends them.
+            Existing(RefMap),
+            /// We need to invoke another `ls-refs` command to retrieve the refmap as part of the V2 protocol.
+            LsRefsCommand(crate::LsRefsCommand<'a>, crate::fetch::refmap::init::Context),
         }
 
-        impl FetchRefMap<'_> {
-            /// Fetch the refmap, either by returning the existing one or invoking the command.
+        impl ObtainRefMap<'_> {
+            /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "async-client")]
             #[allow(clippy::result_large_err)]
             pub async fn fetch_async(
@@ -96,18 +96,19 @@ pub(crate) mod hero {
                 mut progress: impl Progress,
                 transport: &mut impl async_io::Transport,
                 trace_packetlines: bool,
-            ) -> Result<crate::fetch::RefMap, crate::fetch::refmap::init::Error> {
+            ) -> Result<RefMap, crate::fetch::refmap::init::Error> {
                 let (cmd, cx) = match self {
-                    FetchRefMap::Map(map) => return Ok(map),
-                    FetchRefMap::Command(cmd, cx) => (cmd, cx),
+                    ObtainRefMap::Existing(map) => return Ok(map),
+                    ObtainRefMap::LsRefsCommand(cmd, cx) => (cmd, cx),
                 };
 
+                let _span = gix_trace::coarse!("gix_protocol::handshake::ObtainRefMap::fetch_async()");
                 let capabilities = cmd.capabilities;
                 let remote_refs = cmd.invoke_async(transport, &mut progress, trace_packetlines).await?;
                 RefMap::from_refs(remote_refs, capabilities, cx)
             }
 
-            /// Fetch the refmap, either by returning the existing one or invoking the command.
+            /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "blocking-client")]
             #[allow(clippy::result_large_err)]
             pub fn fetch_blocking(
@@ -115,12 +116,13 @@ pub(crate) mod hero {
                 mut progress: impl Progress,
                 transport: &mut impl blocking_io::Transport,
                 trace_packetlines: bool,
-            ) -> Result<crate::fetch::RefMap, crate::fetch::refmap::init::Error> {
+            ) -> Result<RefMap, crate::fetch::refmap::init::Error> {
                 let (cmd, cx) = match self {
-                    FetchRefMap::Map(map) => return Ok(map),
-                    FetchRefMap::Command(cmd, cx) => (cmd, cx),
+                    ObtainRefMap::Existing(map) => return Ok(map),
+                    ObtainRefMap::LsRefsCommand(cmd, cx) => (cmd, cx),
                 };
 
+                let _span = gix_trace::coarse!("gix_protocol::handshake::ObtainRefMap::fetch_blocking()");
                 let capabilities = cmd.capabilities;
                 let remote_refs = cmd.invoke_blocking(transport, &mut progress, trace_packetlines)?;
                 RefMap::from_refs(remote_refs, capabilities, cx)
@@ -128,26 +130,25 @@ pub(crate) mod hero {
         }
 
         impl Handshake {
-            /// Prepare fetching a [refmap](crate::fetch::RefMap) if not present in the handshake.
+            /// Prepare fetching a [refmap](RefMap) if not present in the handshake.
             #[allow(clippy::result_large_err)]
-            pub fn fetch_or_extract_refmap(
+            pub fn prepare_lsrefs_or_extract_refmap(
                 &mut self,
                 user_agent: (&'static str, Option<Cow<'static, str>>),
                 prefix_from_spec_as_filter_on_remote: bool,
                 refmap_context: crate::fetch::refmap::init::Context,
-            ) -> Result<FetchRefMap<'_>, crate::fetch::refmap::init::Error> {
+            ) -> Result<ObtainRefMap<'_>, crate::fetch::refmap::init::Error> {
                 if let Some(refs) = self.refs.take() {
-                    return Ok(FetchRefMap::Map(crate::fetch::RefMap::from_refs(
+                    return Ok(ObtainRefMap::Existing(RefMap::from_refs(
                         refs,
                         &self.capabilities,
                         refmap_context,
                     )?));
                 }
 
-                let _span = gix_trace::coarse!("gix_protocol::handshake::fetch_or_extract_refmap()");
                 let all_refspecs = refmap_context.aggregate_refspecs();
                 let prefix_refspecs = prefix_from_spec_as_filter_on_remote.then_some(&all_refspecs[..]);
-                Ok(FetchRefMap::Command(
+                Ok(ObtainRefMap::LsRefsCommand(
                     crate::LsRefsCommand::new(prefix_refspecs, &self.capabilities, user_agent),
                     refmap_context,
                 ))

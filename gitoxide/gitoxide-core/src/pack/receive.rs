@@ -88,7 +88,7 @@ where
         extra_refspecs: vec![],
     };
 
-    let fetch_refmap = handshake.fetch_or_extract_refmap(user_agent.clone(), true, context)?;
+    let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(user_agent.clone(), true, context)?;
 
     #[cfg(feature = "async-client")]
     let refmap = fetch_refmap

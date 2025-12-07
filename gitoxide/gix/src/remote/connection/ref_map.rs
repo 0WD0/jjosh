@@ -157,7 +157,7 @@ where
             extra_refspecs,
         };
 
-        let fetch_refmap = handshake.fetch_or_extract_refmap(
+        let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(
             self.remote.repo.config.user_agent_tuple(),
             prefix_from_spec_as_filter_on_remote,
             context,
