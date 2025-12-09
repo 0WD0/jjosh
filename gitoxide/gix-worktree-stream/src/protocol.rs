@@ -111,6 +111,7 @@ fn byte_to_mode(b: u8) -> gix_object::tree::EntryMode {
 fn hash_to_byte(h: gix_hash::Kind) -> u8 {
     match h {
         gix_hash::Kind::Sha1 => 0,
+        _ => unreachable!("BUG: not implemented for hash kind {h}"),
     }
 }
 
