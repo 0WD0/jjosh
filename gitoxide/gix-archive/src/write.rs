@@ -34,21 +34,20 @@ where
 
         impl<W: std::io::Write> State<W> {
             pub fn new(format: Format, mtime: gix_date::SecondsSinceUnixEpoch, out: W) -> Result<Self, Error> {
-                Ok(match format {
+                match format {
                     Format::InternalTransientNonPersistable => unreachable!("handled earlier"),
-                    Format::Zip { .. } => return Err(Error::ZipWithoutSeek),
-                    #[cfg(feature = "tar")]
+                    Format::Zip { .. } => Err(Error::ZipWithoutSeek),
                     Format::Tar => {
                         #[cfg(feature = "tar")]
                         {
-                            State::Tar((
+                            Ok(State::Tar((
                                 {
                                     let mut ar = tar::Builder::new(out);
                                     ar.mode(tar::HeaderMode::Deterministic);
                                     ar
                                 },
                                 Vec::with_capacity(64 * 1024),
-                            ))
+                            )))
                         }
                         #[cfg(not(feature = "tar"))]
                         {
@@ -58,7 +57,7 @@ where
                     Format::TarGz { compression_level } => {
                         #[cfg(feature = "tar_gz")]
                         {
-                            State::TarGz((
+                            Ok(State::TarGz((
                                 {
                                     let gz = flate2::GzBuilder::new().mtime(mtime as u32).write(
                                         out,
@@ -72,14 +71,18 @@ where
                                     ar
                                 },
                                 Vec::with_capacity(64 * 1024),
-                            ))
+                            )))
                         }
                         #[cfg(not(feature = "tar_gz"))]
                         {
-                            Err(Error::SupportNotCompiledIn { wanted: Format::TarGz })
+                            Err(Error::SupportNotCompiledIn {
+                                wanted: Format::TarGz {
+                                    compression_level: None,
+                                },
+                            })
                         }
                     }
-                })
+                }
             }
         }
 
