@@ -247,7 +247,7 @@ fn tar_entry_type(mode: gix_object::tree::EntryMode) -> tar::EntryType {
     }
 }
 
-#[cfg(any(feature = "tar", feature = "tar_gz"))]
+#[cfg(any(feature = "tar", feature = "tar_gz", feature = "zip"))]
 fn add_prefix<'a>(relative_path: &'a bstr::BStr, prefix: Option<&bstr::BString>) -> std::borrow::Cow<'a, bstr::BStr> {
     use std::borrow::Cow;
     match prefix {
