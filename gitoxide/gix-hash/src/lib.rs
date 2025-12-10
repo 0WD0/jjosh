@@ -52,6 +52,7 @@ const SIZE_OF_SHA1_DIGEST: usize = 20;
 /// Denotes the kind of function to produce a [`ObjectId`].
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Kind {
     /// The Sha1 hash with 160 bits.
     #[default]
