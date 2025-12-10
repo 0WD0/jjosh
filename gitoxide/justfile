@@ -70,6 +70,7 @@ check:
     cargo check -p gix-pack --no-default-features --features streaming-input
     cargo check -p gix-hash --all-features
     cargo check -p gix-hash
+    cargo check -p gix-hash --features sha256
     cargo check -p gix-object --all-features
     cargo check -p gix-object --features verbose-object-parsing-errors
     cargo check -p gix-attributes --features serde
@@ -155,6 +156,7 @@ unit-tests:
     cargo nextest run -p gix-status-tests --features gix-features-parallel --no-fail-fast
     cargo nextest run -p gix-worktree-state-tests --features gix-features-parallel --no-fail-fast
     cargo nextest run -p gix-worktree-tests --features gix-features-parallel --no-fail-fast
+    cargo nextest run -p gix-hash --features sha256 --no-fail-fast
     cargo nextest run -p gix-object --no-fail-fast
     cargo nextest run -p gix-object --features verbose-object-parsing-errors --no-fail-fast
     cargo nextest run -p gix-tempfile --features signals --no-fail-fast
