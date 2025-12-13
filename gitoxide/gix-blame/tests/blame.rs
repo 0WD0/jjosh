@@ -292,13 +292,27 @@ mktest!(
     3
 );
 
-/// As of 2024-09-24, the Myers-related test was expected to fail. Both tests were initially
-/// written when diffing was done by `imara-diff` 0.1. After updating to `imara-diff` 0.2 on
-/// 2025-12-07, the Myers-related test started passing.
+/// As of 2024-09-24, the Myers-related test is expected to fail. Both tests use `imara-diff` 0.1
+/// under the hood.
 ///
 /// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
 #[test]
-fn diff_disparity() {
+#[should_panic = "empty-lines-myers"]
+#[cfg(not(feature = "blob-experimental"))]
+fn diff_disparity_imara_diff_v1() {
+    diff_disparity_base()
+}
+
+/// As of 2025-12-07, both tests are expected to pass. They use `imara-diff` 0.2 under the hood.
+///
+/// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
+#[test]
+#[cfg(feature = "blob-experimental")]
+fn diff_disparity_imara_diff_v2() {
+    diff_disparity_base()
+}
+
+fn diff_disparity_base() {
     for case in ["empty-lines-myers", "empty-lines-histogram"] {
         let Fixture {
             odb,
