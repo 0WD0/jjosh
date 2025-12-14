@@ -300,7 +300,7 @@ mktest!(
 #[should_panic = "empty-lines-myers"]
 #[cfg(not(feature = "blob-experimental"))]
 fn diff_disparity_imara_diff_v1() {
-    diff_disparity_base()
+    diff_disparity_base();
 }
 
 /// As of 2025-12-07, both tests are expected to pass. They use `imara-diff` 0.2 under the hood.
@@ -309,7 +309,7 @@ fn diff_disparity_imara_diff_v1() {
 #[test]
 #[cfg(feature = "blob-experimental")]
 fn diff_disparity_imara_diff_v2() {
-    diff_disparity_base()
+    diff_disparity_base();
 }
 
 fn diff_disparity_base() {
