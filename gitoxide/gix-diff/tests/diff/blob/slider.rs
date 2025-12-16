@@ -1,10 +1,13 @@
+use gix_diff::blob::Algorithm;
 use gix_object::bstr::ByteSlice;
 use gix_testtools::bstr::{BString, ByteVec};
 use pretty_assertions::StrComparison;
+use std::ffi::OsStr;
+use std::path::Path;
 
 #[test]
 fn baseline_v1() -> gix_testtools::Result {
-    use gix_diff::blob::{unified_diff::ContextSize, Algorithm, UnifiedDiff};
+    use gix_diff::blob::{unified_diff::ContextSize, UnifiedDiff};
 
     let worktree_path = gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_sliders_repo.sh")?;
     let asset_dir = worktree_path.join("assets");
@@ -15,29 +18,9 @@ fn baseline_v1() -> gix_testtools::Result {
 
     for entry in dir {
         let entry = entry?;
-        let file_name = entry.file_name().into_string().expect("to be string");
-
-        if !file_name.ends_with(".baseline") {
+        let Some((file_name, algorithm, old_data, new_data)) = parse_dir_entry(&asset_dir, &entry.file_name()) else {
             continue;
-        }
-
-        let parts: Vec<_> = file_name.split('.').collect();
-        let [name, algorithm, ..] = parts[..] else {
-            unreachable!()
         };
-        let algorithm = match algorithm {
-            "myers" => Algorithm::Myers,
-            "histogram" => Algorithm::Histogram,
-            _ => unreachable!(),
-        };
-
-        let parts: Vec<_> = name.split('-').collect();
-        let [old_blob_id, new_blob_id] = parts[..] else {
-            unreachable!();
-        };
-
-        let old_data = std::fs::read(asset_dir.join(format!("{old_blob_id}.blob")))?;
-        let new_data = std::fs::read(asset_dir.join(format!("{new_blob_id}.blob")))?;
 
         let interner = gix_diff::blob::intern::InternedInput::new(
             tokens_for_diffing(old_data.as_slice()),
@@ -70,17 +53,7 @@ fn baseline_v1() -> gix_testtools::Result {
             })
             .to_string();
 
-        let baseline = baseline
-            .fold(BString::default(), |mut acc, diff_hunk| {
-                acc.push_str(diff_hunk.header.to_string().as_str());
-                acc.push(b'\n');
-
-                acc.extend_from_slice(&diff_hunk.lines);
-
-                acc
-            })
-            .to_string();
-
+        let baseline = baseline.fold_to_unidiff().to_string();
         let actual_matches_baseline = actual == baseline;
         diffs.push((actual, baseline, actual_matches_baseline, file_name));
     }
@@ -89,32 +62,7 @@ fn baseline_v1() -> gix_testtools::Result {
         eprintln!("Slider baseline isn't setup - look at ./gix-diff/tests/README.md for instructions");
     }
 
-    let total_diffs = diffs.len();
-    let matching_diffs = diffs
-        .iter()
-        .filter(|(_, _, actual_matches_baseline, _)| *actual_matches_baseline)
-        .count();
-
-    assert_eq!(
-        matching_diffs,
-        total_diffs,
-        "matching diffs {} == total diffs {} [{:.2} %]\n\n{}",
-        matching_diffs,
-        total_diffs,
-        ((matching_diffs as f32) / (total_diffs as f32) * 100.0),
-        {
-            let first_non_matching_diff = diffs
-                .iter()
-                .find(|(_, _, actual_matches_baseline, _)| !actual_matches_baseline)
-                .expect("at least one non-matching diff to be there");
-
-            format!(
-                "affected baseline: `{}`\n\n{}",
-                first_non_matching_diff.3,
-                StrComparison::new(&first_non_matching_diff.0, &first_non_matching_diff.1)
-            )
-        }
-    );
+    assert_diffs(&diffs);
 
     Ok(())
 }
@@ -136,31 +84,16 @@ fn baseline_v2() -> gix_testtools::Result {
 
     for entry in dir {
         let entry = entry?;
-        let file_name = entry.file_name().into_string().expect("to be string");
-
-        if !file_name.ends_with(".baseline") {
+        let Some((file_name, algorithm, old_data, new_data)) = parse_dir_entry(&asset_dir, &entry.file_name()) else {
             continue;
-        }
-
-        let parts: Vec<_> = file_name.split('.').collect();
-        let [name, algorithm, ..] = parts[..] else {
-            unreachable!()
         };
-        let algorithm = match algorithm {
-            "myers" => Algorithm::Myers,
-            "histogram" => Algorithm::Histogram,
-            _ => unreachable!(),
-        };
-
-        let parts: Vec<_> = name.split('-').collect();
-        let [old_blob_id, new_blob_id] = parts[..] else {
-            unreachable!();
-        };
-
-        let old_data = std::fs::read(asset_dir.join(format!("{old_blob_id}.blob")))?;
-        let new_data = std::fs::read(asset_dir.join(format!("{new_blob_id}.blob")))?;
 
         let input = InternedInput::new(old_data.to_str().unwrap(), new_data.to_str().unwrap());
+        let algorithm = match algorithm {
+            gix_diff::blob::Algorithm::Myers => Algorithm::Myers,
+            gix_diff::blob::Algorithm::Histogram => Algorithm::Histogram,
+            gix_diff::blob::Algorithm::MyersMinimal => Algorithm::MyersMinimal,
+        };
 
         let mut diff = Diff::compute(algorithm, &input);
         diff.postprocess_lines(&input);
@@ -177,16 +110,7 @@ fn baseline_v2() -> gix_testtools::Result {
         let baseline = std::fs::read(baseline_path)?;
         let baseline = baseline::Baseline::new(&baseline);
 
-        let baseline = baseline
-            .fold(BString::default(), |mut acc, diff_hunk| {
-                acc.push_str(diff_hunk.header.to_string().as_str());
-                acc.push(b'\n');
-
-                acc.extend_from_slice(&diff_hunk.lines);
-
-                acc
-            })
-            .to_string();
+        let baseline = baseline.fold_to_unidiff().to_string();
 
         let actual_matches_baseline = actual == baseline;
         diffs.push((actual, baseline, actual_matches_baseline, file_name));
@@ -196,6 +120,38 @@ fn baseline_v2() -> gix_testtools::Result {
         eprintln!("Slider baseline isn't setup - look at ./gix-diff/tests/README.md for instructions");
     }
 
+    assert_diffs(&diffs);
+    Ok(())
+}
+
+fn parse_dir_entry(asset_dir: &Path, file_name: &OsStr) -> Option<(String, Algorithm, Vec<u8>, Vec<u8>)> {
+    let file_name = file_name.to_str().expect("ascii filename").to_owned();
+
+    if !file_name.ends_with(".baseline") {
+        return None;
+    }
+
+    let parts: Vec<_> = file_name.split('.').collect();
+    let [name, algorithm, ..] = parts[..] else {
+        unreachable!("BUG: Need file named '<name>.<algorithm>'")
+    };
+    let algorithm = match algorithm {
+        "myers" => Algorithm::Myers,
+        "histogram" => Algorithm::Histogram,
+        other => unreachable!("'{other}' is not a supported algorithm"),
+    };
+
+    let parts: Vec<_> = name.split('-').collect();
+    let [old_blob_id, new_blob_id] = parts[..] else {
+        unreachable!("BUG: name part of filename must be <old_blob_id>-<new_blob_id>");
+    };
+
+    let old_data = std::fs::read(asset_dir.join(format!("{old_blob_id}.blob"))).unwrap();
+    let new_data = std::fs::read(asset_dir.join(format!("{new_blob_id}.blob"))).unwrap();
+    (file_name, algorithm, old_data, new_data).into()
+}
+
+fn assert_diffs(diffs: &[(String, String, bool, String)]) {
     let total_diffs = diffs.len();
     let matching_diffs = diffs
         .iter()
@@ -222,12 +178,10 @@ fn baseline_v2() -> gix_testtools::Result {
             )
         }
     );
-
-    Ok(())
 }
 
 mod baseline {
-    use gix_object::bstr::ByteSlice;
+    use gix_object::bstr::{ByteSlice, ByteVec};
     use std::iter::Peekable;
 
     use gix_diff::blob::unified_diff::{ConsumeHunk, HunkHeader};
@@ -293,6 +247,20 @@ mod baseline {
             let mut lines = content.lines().peekable();
             skip_header(&mut lines);
             Baseline { lines }
+        }
+    }
+
+    impl Baseline<'_> {
+        /// Fold all [`DiffHunk`]s we produce into a unified_diff string
+        pub fn fold_to_unidiff(self) -> BString {
+            self.fold(BString::default(), |mut acc, diff_hunk| {
+                acc.push_str(diff_hunk.header.to_string().as_str());
+                acc.push(b'\n');
+
+                acc.extend_from_slice(&diff_hunk.lines);
+
+                acc
+            })
         }
     }
 
