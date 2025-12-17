@@ -1,9 +1,6 @@
-use gix_diff::blob::Algorithm;
 use gix_object::bstr::ByteSlice;
 use gix_testtools::bstr::{BString, ByteVec};
 use pretty_assertions::StrComparison;
-use std::ffi::OsStr;
-use std::path::Path;
 
 #[test]
 fn baseline_v1() -> gix_testtools::Result {
@@ -18,7 +15,13 @@ fn baseline_v1() -> gix_testtools::Result {
 
     for entry in dir {
         let entry = entry?;
-        let Some((file_name, algorithm, old_data, new_data)) = parse_dir_entry(&asset_dir, &entry.file_name()) else {
+        let Some(baseline::DirEntry {
+            file_name,
+            algorithm,
+            old_data,
+            new_data,
+        }) = baseline::parse_dir_entry(&asset_dir, &entry.file_name())?
+        else {
             continue;
         };
 
@@ -84,11 +87,20 @@ fn baseline_v2() -> gix_testtools::Result {
 
     for entry in dir {
         let entry = entry?;
-        let Some((file_name, algorithm, old_data, new_data)) = parse_dir_entry(&asset_dir, &entry.file_name()) else {
+        let Some(baseline::DirEntry {
+            file_name,
+            algorithm,
+            old_data,
+            new_data,
+        }) = baseline::parse_dir_entry(&asset_dir, &entry.file_name())?
+        else {
             continue;
         };
 
-        let input = InternedInput::new(old_data.to_str().unwrap(), new_data.to_str().unwrap());
+        let input = InternedInput::new(
+            old_data.to_str().expect("BUG: we don't have non-ascii here"),
+            new_data.to_str().expect("BUG: we don't have non-ascii here"),
+        );
         let algorithm = match algorithm {
             gix_diff::blob::Algorithm::Myers => Algorithm::Myers,
             gix_diff::blob::Algorithm::Histogram => Algorithm::Histogram,
@@ -124,33 +136,6 @@ fn baseline_v2() -> gix_testtools::Result {
     Ok(())
 }
 
-fn parse_dir_entry(asset_dir: &Path, file_name: &OsStr) -> Option<(String, Algorithm, Vec<u8>, Vec<u8>)> {
-    let file_name = file_name.to_str().expect("ascii filename").to_owned();
-
-    if !file_name.ends_with(".baseline") {
-        return None;
-    }
-
-    let parts: Vec<_> = file_name.split('.').collect();
-    let [name, algorithm, ..] = parts[..] else {
-        unreachable!("BUG: Need file named '<name>.<algorithm>'")
-    };
-    let algorithm = match algorithm {
-        "myers" => Algorithm::Myers,
-        "histogram" => Algorithm::Histogram,
-        other => unreachable!("'{other}' is not a supported algorithm"),
-    };
-
-    let parts: Vec<_> = name.split('-').collect();
-    let [old_blob_id, new_blob_id] = parts[..] else {
-        unreachable!("BUG: name part of filename must be <old_blob_id>-<new_blob_id>");
-    };
-
-    let old_data = std::fs::read(asset_dir.join(format!("{old_blob_id}.blob"))).unwrap();
-    let new_data = std::fs::read(asset_dir.join(format!("{new_blob_id}.blob"))).unwrap();
-    (file_name, algorithm, old_data, new_data).into()
-}
-
 fn assert_diffs(diffs: &[(String, String, bool, String)]) {
     let total_diffs = diffs.len();
     let matching_diffs = diffs
@@ -181,11 +166,13 @@ fn assert_diffs(diffs: &[(String, String, bool, String)]) {
 }
 
 mod baseline {
-    use gix_object::bstr::{ByteSlice, ByteVec};
-    use std::iter::Peekable;
-
     use gix_diff::blob::unified_diff::{ConsumeHunk, HunkHeader};
+    use gix_diff::blob::Algorithm;
     use gix_object::bstr::{self, BString};
+    use gix_object::bstr::{ByteSlice, ByteVec};
+    use std::ffi::OsStr;
+    use std::iter::Peekable;
+    use std::path::Path;
 
     static START_OF_HEADER: &[u8; 4] = b"@@ -";
 
@@ -251,7 +238,7 @@ mod baseline {
     }
 
     impl Baseline<'_> {
-        /// Fold all [`DiffHunk`]s we produce into a unified_diff string
+        /// Converts all baseline [`DiffHunk`]s into a single unified diff format string.
         pub fn fold_to_unidiff(self) -> BString {
             self.fold(BString::default(), |mut acc, diff_hunk| {
                 acc.push_str(diff_hunk.header.to_string().as_str());
@@ -355,5 +342,46 @@ mod baseline {
             .expect("to be a valid UTF-8 string")
             .parse::<u32>()
             .expect("to be a number")
+    }
+
+    pub struct DirEntry {
+        pub file_name: String,
+        pub algorithm: Algorithm,
+        pub old_data: Vec<u8>,
+        pub new_data: Vec<u8>,
+    }
+
+    /// Returns `None` if the file isn't a baseline entry.
+    pub fn parse_dir_entry(asset_dir: &Path, file_name: &OsStr) -> std::io::Result<Option<DirEntry>> {
+        let file_name = file_name.to_str().expect("ascii filename").to_owned();
+
+        if !file_name.ends_with(".baseline") {
+            return Ok(None);
+        }
+
+        let parts: Vec<_> = file_name.split('.').collect();
+        let [name, algorithm, ..] = parts[..] else {
+            unreachable!("BUG: Need file named '<name>.<algorithm>'")
+        };
+        let algorithm = match algorithm {
+            "myers" => Algorithm::Myers,
+            "histogram" => Algorithm::Histogram,
+            other => unreachable!("BUG: '{other}' is not a supported algorithm"),
+        };
+
+        let parts: Vec<_> = name.split('-').collect();
+        let [old_blob_id, new_blob_id] = parts[..] else {
+            unreachable!("BUG: name part of filename must be '<old_blob_id>-<new_blob_id>'");
+        };
+
+        let old_data = std::fs::read(asset_dir.join(format!("{old_blob_id}.blob")))?;
+        let new_data = std::fs::read(asset_dir.join(format!("{new_blob_id}.blob")))?;
+        Ok(DirEntry {
+            file_name,
+            algorithm,
+            old_data,
+            new_data,
+        }
+        .into())
     }
 }
