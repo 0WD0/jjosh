@@ -303,7 +303,7 @@ fn diff_disparity_imara_diff_v1() {
     diff_disparity_base();
 }
 
-/// As of 2025-12-07, both tests are expected to pass. They use `imara-diff` 0.2 under the hood.
+/// As of 2025-12-07, both algorithms are expected to pass. They use `imara-diff` 0.2 under the hood.
 ///
 /// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
 #[test]
