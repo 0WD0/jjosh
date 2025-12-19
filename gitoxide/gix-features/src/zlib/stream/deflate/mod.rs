@@ -66,8 +66,6 @@ impl Compress {
             FlushCompress::Finish => zlib_rs::DeflateFlush::Finish,
         };
         let status = self.0.compress(input, output, flush)?;
-        // Note: zlib_rs::deflate::deflate is a safe function (unlike inflate which is unsafe)
-        // because deflate doesn't have the same safety concerns as inflate regarding output buffer handling
         match status {
             zlib_rs::Status::Ok => Ok(Status::Ok),
             zlib_rs::Status::BufError => Ok(Status::BufError),
@@ -78,7 +76,6 @@ impl Compress {
 
 /// The error produced by [`Compress::compress()`].
 #[derive(Debug, thiserror::Error)]
-#[error("{msg}")]
 #[allow(missing_docs)]
 pub enum CompressError {
     #[error("stream error")]
