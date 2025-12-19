@@ -1,12 +1,7 @@
-use std::ffi::c_int;
+use zlib_rs::InflateError;
 
 /// A type to hold all state needed for decompressing a ZLIB encoded stream.
-pub struct Decompress(zlib_rs::c_api::z_stream);
-
-// SAFETY: The z_stream contains raw pointers but they are only used through safe zlib-rs APIs
-// and the state is fully owned by this struct, making it safe to send across threads.
-unsafe impl Send for Decompress {}
-unsafe impl Sync for Decompress {}
+pub struct Decompress(zlib_rs::Inflate);
 
 impl Default for Decompress {
     fn default() -> Self {
@@ -17,28 +12,23 @@ impl Default for Decompress {
 impl Decompress {
     /// The amount of bytes consumed from the input so far.
     pub fn total_in(&self) -> u64 {
-        self.0.total_in as _
+        self.0.total_in()
     }
 
     /// The amount of decompressed bytes that have been written to the output thus far.
     pub fn total_out(&self) -> u64 {
-        self.0.total_out as _
+        self.0.total_out()
     }
 
     /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
     pub fn new() -> Self {
-        let mut stream = zlib_rs::c_api::z_stream::default();
-        let config = zlib_rs::inflate::InflateConfig::default();
-        zlib_rs::inflate::init(&mut stream, config);
-        Self(stream)
+        let inner = zlib_rs::Inflate::new(true, zlib_rs::MAX_WBITS as u8);
+        Self(inner)
     }
 
     /// Reset the state to allow handling a new stream.
     pub fn reset(&mut self) {
-        // SAFETY: Converting from z_stream to InflateStream is safe here as we maintain ownership
-        if let Some(stream) = unsafe { zlib_rs::inflate::InflateStream::from_stream_mut(&mut self.0) } {
-            zlib_rs::inflate::reset(stream);
-        }
+        self.0.reset(true);
     }
 
     /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
@@ -48,43 +38,17 @@ impl Decompress {
         output: &mut [u8],
         flush: FlushDecompress,
     ) -> Result<Status, DecompressError> {
-        self.0.avail_in = input.len() as _;
-        self.0.avail_out = output.len() as _;
-
-        self.0.next_in = input.as_ptr();
-        self.0.next_out = output.as_mut_ptr();
-
-        // SAFETY: We're converting from the C-compatible z_stream to the typed InflateStream.
-        // This is safe because we initialized the stream with `inflate::init` and maintain ownership.
-        let stream = unsafe { zlib_rs::inflate::InflateStream::from_stream_mut(&mut self.0) }
-            .ok_or(DecompressError::StreamError)?;
-        
         let inflate_flush = match flush {
             FlushDecompress::None => zlib_rs::InflateFlush::NoFlush,
             FlushDecompress::Sync => zlib_rs::InflateFlush::SyncFlush,
             FlushDecompress::Finish => zlib_rs::InflateFlush::Finish,
         };
-        
-        // SAFETY: The zlib_rs::inflate::inflate function is marked unsafe because it operates on
-        // raw pointers internally. However, we've properly set up the stream with valid input/output
-        // buffers and the actual decompression is done in safe Rust code within zlib-rs.
-        match unsafe { zlib_rs::inflate::inflate(stream, inflate_flush) } {
-            zlib_rs::ReturnCode::Ok => Ok(Status::Ok),
-            zlib_rs::ReturnCode::BufError => Ok(Status::BufError),
-            zlib_rs::ReturnCode::StreamEnd => Ok(Status::StreamEnd),
-            zlib_rs::ReturnCode::StreamError => Err(DecompressError::StreamError),
-            zlib_rs::ReturnCode::DataError => Err(DecompressError::DataError),
-            zlib_rs::ReturnCode::MemError => Err(DecompressError::InsufficientMemory),
-            err => Err(DecompressError::Unknown { err: err as c_int }),
-        }
-    }
-}
 
-impl Drop for Decompress {
-    fn drop(&mut self) {
-        // SAFETY: Converting from z_stream to InflateStream is safe here as we maintain ownership
-        if let Some(stream) = unsafe { zlib_rs::inflate::InflateStream::from_stream_mut(&mut self.0) } {
-            zlib_rs::inflate::end(stream);
+        let status = self.0.decompress(input, output, inflate_flush)?;
+        match status {
+            zlib_rs::Status::Ok => Ok(Status::Ok),
+            zlib_rs::Status::BufError => Ok(Status::BufError),
+            zlib_rs::Status::StreamEnd => Ok(Status::StreamEnd),
         }
     }
 }
@@ -99,8 +63,19 @@ pub enum DecompressError {
     InsufficientMemory,
     #[error("Invalid input data")]
     DataError,
-    #[error("An unknown error occurred: {err}")]
-    Unknown { err: c_int },
+    #[error("Decompressing this input requires a dictionary")]
+    NeedDict,
+}
+
+impl From<zlib_rs::InflateError> for DecompressError {
+    fn from(value: InflateError) -> Self {
+        match value {
+            InflateError::NeedDict { .. } => DecompressError::NeedDict,
+            InflateError::StreamError => DecompressError::StreamError,
+            InflateError::DataError => DecompressError::DataError,
+            InflateError::MemError => DecompressError::InsufficientMemory,
+        }
+    }
 }
 
 /// The status returned by [`Decompress::decompress()`].

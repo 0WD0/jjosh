@@ -1,5 +1,5 @@
 use crate::zlib::Status;
-use std::ffi::c_int;
+use zlib_rs::DeflateError;
 
 const BUF_SIZE: usize = 4096 * 8;
 
@@ -26,12 +26,7 @@ where
 }
 
 /// Hold all state needed for compressing data.
-pub struct Compress(zlib_rs::c_api::z_stream);
-
-// SAFETY: The z_stream contains raw pointers but they are only used through safe zlib-rs APIs
-// and the state is fully owned by this struct, making it safe to send across threads.
-unsafe impl Send for Compress {}
-unsafe impl Sync for Compress {}
+pub struct Compress(zlib_rs::Deflate);
 
 impl Default for Compress {
     fn default() -> Self {
@@ -42,72 +37,41 @@ impl Default for Compress {
 impl Compress {
     /// The number of bytes that were read from the input.
     pub fn total_in(&self) -> u64 {
-        self.0.total_in as _
+        self.0.total_in()
     }
 
     /// The number of compressed bytes that were written to the output.
     pub fn total_out(&self) -> u64 {
-        self.0.total_out as _
+        self.0.total_out()
     }
 
     /// Create a new instance - this allocates so should be done with care.
     pub fn new() -> Self {
-        let mut stream = zlib_rs::c_api::z_stream::default();
-        let config = zlib_rs::deflate::DeflateConfig {
-            level: 1, // Z_BEST_SPEED
-            ..Default::default()
-        };
-        zlib_rs::deflate::init(&mut stream, config);
-        Self(stream)
+        let inner = zlib_rs::Deflate::new(zlib_rs::c_api::Z_BEST_SPEED, true, zlib_rs::MAX_WBITS as u8);
+        Self(inner)
     }
 
     /// Prepare the instance for a new stream.
     pub fn reset(&mut self) {
-        // SAFETY: Converting from z_stream to DeflateStream is safe here as we maintain ownership
-        if let Some(stream) = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) } {
-            zlib_rs::deflate::reset(stream);
-        }
+        self.0.reset();
     }
 
     /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
     pub fn compress(&mut self, input: &[u8], output: &mut [u8], flush: FlushCompress) -> Result<Status, CompressError> {
-        self.0.avail_in = input.len() as _;
-        self.0.avail_out = output.len() as _;
-
-        self.0.next_in = input.as_ptr();
-        self.0.next_out = output.as_mut_ptr();
-
-        // SAFETY: We're converting from the C-compatible z_stream to the typed DeflateStream.
-        // This is safe because we initialized the stream with `deflate::init` and maintain ownership.
-        let stream = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) }
-            .ok_or(CompressError::StreamError)?;
-        
-        let deflate_flush = match flush {
+        let flush = match flush {
             FlushCompress::None => zlib_rs::DeflateFlush::NoFlush,
             FlushCompress::Partial => zlib_rs::DeflateFlush::PartialFlush,
             FlushCompress::Sync => zlib_rs::DeflateFlush::SyncFlush,
             FlushCompress::Full => zlib_rs::DeflateFlush::FullFlush,
             FlushCompress::Finish => zlib_rs::DeflateFlush::Finish,
         };
-        
+        let status = self.0.compress(input, output, flush)?;
         // Note: zlib_rs::deflate::deflate is a safe function (unlike inflate which is unsafe)
         // because deflate doesn't have the same safety concerns as inflate regarding output buffer handling
-        match zlib_rs::deflate::deflate(stream, deflate_flush) {
-            zlib_rs::ReturnCode::Ok => Ok(Status::Ok),
-            zlib_rs::ReturnCode::BufError => Ok(Status::BufError),
-            zlib_rs::ReturnCode::StreamEnd => Ok(Status::StreamEnd),
-            zlib_rs::ReturnCode::StreamError => Err(CompressError::StreamError),
-            zlib_rs::ReturnCode::MemError => Err(CompressError::InsufficientMemory),
-            err => Err(CompressError::Unknown { err: err as c_int }),
-        }
-    }
-}
-
-impl Drop for Compress {
-    fn drop(&mut self) {
-        // SAFETY: Converting from z_stream to DeflateStream is safe here as we maintain ownership
-        if let Some(stream) = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) } {
-            let _ = zlib_rs::deflate::end(stream);
+        match status {
+            zlib_rs::Status::Ok => Ok(Status::Ok),
+            zlib_rs::Status::BufError => Ok(Status::BufError),
+            zlib_rs::Status::StreamEnd => Ok(Status::StreamEnd),
         }
     }
 }
@@ -119,10 +83,20 @@ impl Drop for Compress {
 pub enum CompressError {
     #[error("stream error")]
     StreamError,
+    #[error("The input is not a valid deflate stream.")]
+    DataError,
     #[error("Not enough memory")]
     InsufficientMemory,
-    #[error("An unknown error occurred: {err}")]
-    Unknown { err: c_int },
+}
+
+impl From<zlib_rs::DeflateError> for CompressError {
+    fn from(value: zlib_rs::DeflateError) -> Self {
+        match value {
+            DeflateError::StreamError => CompressError::StreamError,
+            DeflateError::DataError => CompressError::DataError,
+            DeflateError::MemError => CompressError::InsufficientMemory,
+        }
+    }
 }
 
 /// Values which indicate the form of flushing to be used when compressing
