@@ -194,22 +194,25 @@ mod from_tree {
                         "prefix/symlink-to-a"
                     ]
                 );
-                
-                // Find the symlink entry
+
+                // assertions for the symlink entry.
                 let ar = rawzip::ZipArchive::from_slice(buf.as_slice())?;
                 let mut found_link = false;
                 for entry_result in ar.entries() {
                     let entry = entry_result?;
                     if String::from_utf8_lossy(entry.file_path().as_ref()) == "prefix/symlink-to-a" {
-                        assert!(!entry.is_dir());
                         let mode = entry.mode();
                         assert!(mode.is_symlink(), "symlinks are supported as well, but only on Unix");
                         assert_eq!(mode.value(), 0o120644, "the mode specifies what it should be");
+
                         let wayfinder = entry.wayfinder();
                         let zip_entry = ar.get_entry(wayfinder)?;
-                        // For symlinks stored with Store compression, the data is uncompressed
                         let data = zip_entry.data();
-                        assert_eq!(data.as_bstr(), "a");
+                        assert_eq!(
+                            data.as_bstr(),
+                            "a",
+                            "For symlinks stored with Store compression, the data is uncompressed"
+                        );
                         found_link = true;
                         break;
                     }

@@ -166,25 +166,26 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
     compression_level: Option<i64>,
     tree_prefix: Option<&bstr::BString>,
 ) -> Result<(), Error> {
+    use bstr::ByteSlice;
     let path = add_prefix(entry.relative_path(), tree_prefix).into_owned();
     let unix_permissions = if entry.mode.is_executable() { 0o755 } else { 0o644 };
-    
+    let path = path.to_str().map_err(|_| {
+        Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Invalid UTF-8 in entry path: {path}"),
+        ))
+    })?;
+
     match entry.mode.kind() {
         gix_object::tree::EntryKind::Blob | gix_object::tree::EntryKind::BlobExecutable => {
-            use bstr::ByteSlice;
             let file_builder = ar
-                .new_file(path.to_str().map_err(|_| {
-                    Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Invalid UTF-8 in file path",
-                    ))
-                })?)
+                .new_file(path)
                 .compression_method(rawzip::CompressionMethod::Deflate)
                 .last_modified(mtime)
                 .unix_permissions(unix_permissions);
-            
+
             let (mut zip_entry, config) = file_builder.start().map_err(std::io::Error::other)?;
-            
+
             // Use flate2 for compression. Level 9 is the maximum compression level for deflate.
             let encoder = flate2::write::DeflateEncoder::new(
                 &mut zip_entry,
@@ -200,42 +201,30 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
             zip_entry.finish(descriptor).map_err(std::io::Error::other)?;
         }
         gix_object::tree::EntryKind::Tree | gix_object::tree::EntryKind::Commit => {
-            use bstr::ByteSlice;
             // rawzip requires directory paths to end with '/'
-            let mut dir_path = path.to_str().map_err(|_| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Invalid UTF-8 in directory path",
-                ))
-            })?.to_string();
+            let mut dir_path = path.to_owned();
             if !dir_path.ends_with('/') {
                 dir_path.push('/');
             }
             ar.new_dir(&dir_path)
-            .last_modified(mtime)
-            .unix_permissions(unix_permissions)
-            .create()
-            .map_err(std::io::Error::other)?;
+                .last_modified(mtime)
+                .unix_permissions(unix_permissions)
+                .create()
+                .map_err(std::io::Error::other)?;
         }
         gix_object::tree::EntryKind::Link => {
-            use bstr::ByteSlice;
             buf.clear();
             std::io::copy(&mut entry, buf)?;
-            
+
             // For symlinks, we need to create a file with symlink permissions
-            let symlink_path = path.to_str().map_err(|_| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Invalid UTF-8 in symlink path",
-                ))
-            })?;
+            let symlink_path = path;
             let target = buf.as_bstr().to_str().map_err(|_| {
                 Error::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Invalid UTF-8 in symlink target",
                 ))
             })?;
-            
+
             let (mut zip_entry, config) = ar
                 .new_file(symlink_path)
                 .compression_method(rawzip::CompressionMethod::Store)
@@ -243,7 +232,7 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
                 .unix_permissions(0o120644) // Symlink mode
                 .start()
                 .map_err(std::io::Error::other)?;
-            
+
             let mut writer = config.wrap(&mut zip_entry);
             writer.write_all(target.as_bytes())?;
             let (_, descriptor) = writer.finish().map_err(std::io::Error::other)?;
