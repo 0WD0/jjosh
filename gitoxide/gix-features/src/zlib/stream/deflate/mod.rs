@@ -26,10 +26,12 @@ where
 }
 
 /// Hold all state needed for compressing data.
-pub struct Compress(libz_rs_sys::z_stream);
+pub struct Compress(zlib_rs::c_api::z_stream);
 
-unsafe impl Sync for Compress {}
+// SAFETY: The z_stream contains raw pointers but they are only used through safe zlib-rs APIs
+// and the state is fully owned by this struct, making it safe to send across threads.
 unsafe impl Send for Compress {}
+unsafe impl Sync for Compress {}
 
 impl Default for Compress {
     fn default() -> Self {
@@ -50,23 +52,21 @@ impl Compress {
 
     /// Create a new instance - this allocates so should be done with care.
     pub fn new() -> Self {
-        let mut this = libz_rs_sys::z_stream::default();
-
-        unsafe {
-            libz_rs_sys::deflateInit_(
-                &mut this,
-                libz_rs_sys::Z_BEST_SPEED,
-                libz_rs_sys::zlibVersion(),
-                core::mem::size_of::<libz_rs_sys::z_stream>() as core::ffi::c_int,
-            );
-        }
-
-        Self(this)
+        let mut stream = zlib_rs::c_api::z_stream::default();
+        let config = zlib_rs::deflate::DeflateConfig {
+            level: 1, // Z_BEST_SPEED
+            ..Default::default()
+        };
+        zlib_rs::deflate::init(&mut stream, config);
+        Self(stream)
     }
 
     /// Prepare the instance for a new stream.
     pub fn reset(&mut self) {
-        unsafe { libz_rs_sys::deflateReset(&mut self.0) };
+        // SAFETY: Converting from z_stream to DeflateStream is safe here as we maintain ownership
+        if let Some(stream) = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) } {
+            zlib_rs::deflate::reset(stream);
+        }
     }
 
     /// Compress `input` and write compressed bytes to `output`, with `flush` controlling additional characteristics.
@@ -77,21 +77,38 @@ impl Compress {
         self.0.next_in = input.as_ptr();
         self.0.next_out = output.as_mut_ptr();
 
-        match unsafe { libz_rs_sys::deflate(&mut self.0, flush as _) } {
-            libz_rs_sys::Z_OK => Ok(Status::Ok),
-            libz_rs_sys::Z_BUF_ERROR => Ok(Status::BufError),
-            libz_rs_sys::Z_STREAM_END => Ok(Status::StreamEnd),
-
-            libz_rs_sys::Z_STREAM_ERROR => Err(CompressError::StreamError),
-            libz_rs_sys::Z_MEM_ERROR => Err(CompressError::InsufficientMemory),
-            err => Err(CompressError::Unknown { err }),
+        // SAFETY: We're converting from the C-compatible z_stream to the typed DeflateStream.
+        // This is safe because we initialized the stream with `deflate::init` and maintain ownership.
+        let stream = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) }
+            .ok_or(CompressError::StreamError)?;
+        
+        let deflate_flush = match flush {
+            FlushCompress::None => zlib_rs::DeflateFlush::NoFlush,
+            FlushCompress::Partial => zlib_rs::DeflateFlush::PartialFlush,
+            FlushCompress::Sync => zlib_rs::DeflateFlush::SyncFlush,
+            FlushCompress::Full => zlib_rs::DeflateFlush::FullFlush,
+            FlushCompress::Finish => zlib_rs::DeflateFlush::Finish,
+        };
+        
+        // Note: zlib_rs::deflate::deflate is a safe function (unlike inflate which is unsafe)
+        // because deflate doesn't have the same safety concerns as inflate regarding output buffer handling
+        match zlib_rs::deflate::deflate(stream, deflate_flush) {
+            zlib_rs::ReturnCode::Ok => Ok(Status::Ok),
+            zlib_rs::ReturnCode::BufError => Ok(Status::BufError),
+            zlib_rs::ReturnCode::StreamEnd => Ok(Status::StreamEnd),
+            zlib_rs::ReturnCode::StreamError => Err(CompressError::StreamError),
+            zlib_rs::ReturnCode::MemError => Err(CompressError::InsufficientMemory),
+            err => Err(CompressError::Unknown { err: err as c_int }),
         }
     }
 }
 
 impl Drop for Compress {
     fn drop(&mut self) {
-        unsafe { libz_rs_sys::deflateEnd(&mut self.0) };
+        // SAFETY: Converting from z_stream to DeflateStream is safe here as we maintain ownership
+        if let Some(stream) = unsafe { zlib_rs::deflate::DeflateStream::from_stream_mut(&mut self.0) } {
+            let _ = zlib_rs::deflate::end(stream);
+        }
     }
 }
 
@@ -117,7 +134,7 @@ pub enum FlushCompress {
     /// A typical parameter for passing to compression/decompression functions,
     /// this indicates that the underlying stream to decide how much data to
     /// accumulate before producing output in order to maximize compression.
-    None = libz_rs_sys::Z_NO_FLUSH as isize,
+    None = 0,
 
     /// All pending output is flushed to the output buffer, but the output is
     /// not aligned to a byte boundary.
@@ -127,7 +144,7 @@ pub enum FlushCompress {
     /// with an empty fixed codes block that is 10 bits long, and it assures
     /// that enough bytes are output in order for the decompressor to finish the
     /// block before the empty fixed code block.
-    Partial = libz_rs_sys::Z_PARTIAL_FLUSH as isize,
+    Partial = 1,
 
     /// All pending output is flushed to the output buffer and the output is
     /// aligned on a byte boundary so that the decompressor can get all input
@@ -136,20 +153,20 @@ pub enum FlushCompress {
     /// Flushing may degrade compression for some compression algorithms and so
     /// it should only be used when necessary. This will complete the current
     /// deflate block and follow it with an empty stored block.
-    Sync = libz_rs_sys::Z_SYNC_FLUSH as isize,
+    Sync = 2,
 
     /// All output is flushed as with `Flush::Sync` and the compression state is
     /// reset so decompression can restart from this point if previous
     /// compressed data has been damaged or if random access is desired.
     ///
     /// Using this option too often can seriously degrade compression.
-    Full = libz_rs_sys::Z_FULL_FLUSH as isize,
+    Full = 3,
 
     /// Pending input is processed and pending output is flushed.
     ///
     /// The return value may indicate that the stream is not yet done and more
     /// data has yet to be processed.
-    Finish = libz_rs_sys::Z_FINISH as isize,
+    Finish = 4,
 }
 
 mod impls {

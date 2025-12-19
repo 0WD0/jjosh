@@ -1691,12 +1691,12 @@ dependencies = [
  "gix-trace",
  "gix-utils",
  "libc",
- "libz-rs-sys",
  "once_cell",
  "parking_lot",
  "prodash",
  "thiserror 2.0.17",
  "walkdir",
+ "zlib-rs",
 ]
 
 [[package]]
