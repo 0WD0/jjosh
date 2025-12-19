@@ -172,7 +172,7 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
     let path = path.to_str().map_err(|_| {
         Error::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Invalid UTF-8 in entry path: {path}"),
+            format!("Invalid UTF-8 in entry path: {path:?}"),
         ))
     })?;
 
@@ -221,7 +221,10 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
             let target = buf.as_bstr().to_str().map_err(|_| {
                 Error::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "Invalid UTF-8 in symlink target",
+                    format!(
+                        "Invalid UTF-8 in symlink target for entry '{symlink_path}': {:?}",
+                        buf.as_bstr()
+                    ),
                 ))
             })?;
 
