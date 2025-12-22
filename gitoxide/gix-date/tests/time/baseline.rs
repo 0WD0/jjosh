@@ -69,12 +69,7 @@ fn parse_compare_format() {
         },
     ) in BASELINE.iter()
     {
-        // Use fixed_now() for relative dates, current time for absolute dates
-        let now = if is_relative_date(pattern) {
-            Some(fixed_now())
-        } else {
-            Some(SystemTime::now())
-        };
+        let now = is_relative_date(pattern).then(fixed_now);
         let res = gix_date::parse(pattern.as_str(), now);
         assert_eq!(
             res.is_ok(),
