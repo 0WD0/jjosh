@@ -5,13 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.55.0 (2025-11-22)
+## 0.56.0 (2025-12-22)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 5 commits contributed to the release.
+ - 17 commits contributed to the release.
+ - 29 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -22,6 +23,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Merge pull request #2288 from cruessler/update-imara-diff ([`a046e26`](https://github.com/GitoxideLabs/gitoxide/commit/a046e263d6d09d510814cfa1cb573842d534feec))
+    - Address copilot review ([`5130610`](https://github.com/GitoxideLabs/gitoxide/commit/5130610a2b2482b6dd394a9d4b6954bd624e4160))
+    - Refactor ([`1e3efab`](https://github.com/GitoxideLabs/gitoxide/commit/1e3efab583f97586fb5277d114013fd55e208af8))
+    - Re-add slider test v1 to compare both versions ([`c0be918`](https://github.com/GitoxideLabs/gitoxide/commit/c0be918b0f3791798a8c307cd6dd75f6117bcdd9))
+    - Update to `imara-diff` 0.2 in diff slider test ([`618c37a`](https://github.com/GitoxideLabs/gitoxide/commit/618c37aec275ef00821f988f70af551fa1c1c294))
+    - Merge pull request #2286 from GitoxideLabs/copilot/add-imara-diff-v0-2 ([`111b625`](https://github.com/GitoxideLabs/gitoxide/commit/111b625494f5d7e4f66df216866308205a883c56))
+    - Refactor ([`4d3a6b1`](https://github.com/GitoxideLabs/gitoxide/commit/4d3a6b1f2b3d5a0e53a430e38f3b659dee73e604))
+    - Add imara-diff v0.2 support with slider heuristics ([`8228fc0`](https://github.com/GitoxideLabs/gitoxide/commit/8228fc094fb035a7a474748cf0997ff98b492500))
+    - Merge pull request #2285 from cruessler/account-for-no-newline-at-end-of-file ([`33e808c`](https://github.com/GitoxideLabs/gitoxide/commit/33e808c6a4bda9c267fd45b15b4013f9a23f1112))
+    - Simplify by using assert_eq! ([`3a607a7`](https://github.com/GitoxideLabs/gitoxide/commit/3a607a7e03edc3deba373a5a10c81d601c0e9db9))
+    - Account for "\ No newline at end of file" ([`cb66d19`](https://github.com/GitoxideLabs/gitoxide/commit/cb66d197fb1bc75813ce1079d43e3870dffa055c))
+    - Fix two comments ([`3e40438`](https://github.com/GitoxideLabs/gitoxide/commit/3e40438f9412b7c532633777d9e484b926bd7f8f))
+    - Merge pull request #2276 from cruessler/run-tests-in-parallel ([`de2c6fc`](https://github.com/GitoxideLabs/gitoxide/commit/de2c6fc01f3b81205e66a6c3f74839ed4fdf40b8))
+    - Use assert_eq! and add percentage ([`c60267a`](https://github.com/GitoxideLabs/gitoxide/commit/c60267a6efaba7bcb8c89c9c710f3d7369624692))
+    - Report number of non-matching diffs ([`614d93d`](https://github.com/GitoxideLabs/gitoxide/commit/614d93dc0047614b59179c6458e782bc00c42043))
+    - Merge pull request #2275 from GitoxideLabs/dependabot/cargo/cargo-92eaa62a2e ([`93dd630`](https://github.com/GitoxideLabs/gitoxide/commit/93dd630ca6a2a4622ca74d7eaff42ece2750b6c5))
+    - Bump the cargo group across 1 directory with 14 updates ([`703644c`](https://github.com/GitoxideLabs/gitoxide/commit/703644c8821aae161592d19495d3b3162133324f))
+</details>
+
+## 0.55.0 (2025-11-22)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 6 commits contributed to the release.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.11.0, gix-actor v0.36.0, gix-path v0.10.22, gix-object v0.52.0, gix-packetline v0.20.0, gix-filter v0.22.0, gix-revwalk v0.23.0, gix-traverse v0.49.0, gix-worktree-stream v0.24.0, gix-archive v0.24.0, gix-index v0.43.0, gix-worktree v0.44.0, gix-diff v0.55.0, gix-blame v0.5.0, gix-ref v0.55.0, gix-config v0.48.0, gix-url v0.33.2, gix-credentials v0.32.0, gix-discover v0.43.0, gix-dir v0.17.0, gix-mailmap v0.28.0, gix-revision v0.37.0, gix-merge v0.8.0, gix-negotiate v0.23.0, gix-pack v0.62.0, gix-odb v0.72.0, gix-refspec v0.33.0, gix-transport v0.50.0, gix-protocol v0.53.0, gix-status v0.22.0, gix-submodule v0.22.0, gix-worktree-state v0.22.0, gix v0.75.0, gix-fsck v0.14.0, gitoxide-core v0.50.0, gitoxide v0.47.0, safety bump 32 crates ([`82ff92f`](https://github.com/GitoxideLabs/gitoxide/commit/82ff92fa943bad88dc7d5bfa100404de477a3608))
     - Merge pull request #2197 from cruessler/add-tests-for-slider-problem ([`ab44f45`](https://github.com/GitoxideLabs/gitoxide/commit/ab44f45f1c80120b2203b72827f7bb45e185d559))
     - Refactor ([`fb2ee84`](https://github.com/GitoxideLabs/gitoxide/commit/fb2ee849673e8d5353098a86991c0b3dc7177851))
     - Improve test instructions to be more foolproof ([`9a9bd29`](https://github.com/GitoxideLabs/gitoxide/commit/9a9bd293e966ed0b8095bbe8b3bcea15ff39d89e))
