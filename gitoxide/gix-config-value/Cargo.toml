@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-config-value"
-version = "0.15.3"
+version = "0.16.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project providing git-config value parsing"

@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.48.0 (2025-12-22)
+
+## 0.47.0 (2025-11-22)
+
+### New Features
+
+ - <csr-id-924cd62f7ef74f479114c80cee0db0ba5f522579/> allow credential fill with `gix credential fill` to run without a repo
+
+### Other
+
+ - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
+   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
+   
+   This fixes the docs.rs build
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 5 commits contributed to the release.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2198](https://github.com/GitoxideLabs/gitoxide/issues/2198)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2198](https://github.com/GitoxideLabs/gitoxide/issues/2198)**
+    - Allow credential fill with `gix credential fill` to run without a repo ([`924cd62`](https://github.com/GitoxideLabs/gitoxide/commit/924cd62f7ef74f479114c80cee0db0ba5f522579))
+ * **Uncategorized**
+    - Merge pull request #2254 from ralphmodales/credential-fill-fix ([`dba337d`](https://github.com/GitoxideLabs/gitoxide/commit/dba337da2430190b2151a2814fcccc09fd9f1d50))
+    - Merge pull request #2204 from cruessler/improve-blame-ranges ([`663b41e`](https://github.com/GitoxideLabs/gitoxide/commit/663b41eb65f0fffbc8397e91ce5107382b08b441))
+    - Merge pull request #2230 from yuki0iq/doc_auto_cfg ([`fbf9c39`](https://github.com/GitoxideLabs/gitoxide/commit/fbf9c39c3ccd5e7879a2d7918aa157f7923cb8a5))
+    - Remove `doc_auto_cfg` feature to fix docs.rs documentation. ([`6f469a6`](https://github.com/GitoxideLabs/gitoxide/commit/6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b))
+</details>
+
+## 0.46.0 (2025-10-22)
+
+### New Features
+
+ - <csr-id-aacc326a198e4c78dd546018eebaff192ff5223d/> add a `gix commit sign` prototype
+ - <csr-id-58b5060958e0090773bb15ffb3679d99704b70a0/> add first debug version of `gix branch list`
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 14 commits contributed to the release over the course of 60 calendar days.
+ - 99 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2208 from cruessler/add-commit-signing ([`8699d0f`](https://github.com/GitoxideLabs/gitoxide/commit/8699d0f010458155f7f5e19c8018ea5e58079963))
+    - Refactor ([`82f788e`](https://github.com/GitoxideLabs/gitoxide/commit/82f788e17aa3a4ad4bf21cc4293ec4f621f227ce))
+    - Add a `gix commit sign` prototype ([`aacc326`](https://github.com/GitoxideLabs/gitoxide/commit/aacc326a198e4c78dd546018eebaff192ff5223d))
+    - Merge pull request #2217 from GitoxideLabs/copilot/update-msrv-to-rust-1-82 ([`4da2927`](https://github.com/GitoxideLabs/gitoxide/commit/4da2927629c7ec95b96d62a387c61097e3fc71fa))
+    - Update MSRV to 1.82 and replace once_cell with std equivalents ([`6cc8464`](https://github.com/GitoxideLabs/gitoxide/commit/6cc84641cb7be6f70468a90efaafcf142a6b8c4b))
+    - Adapt to change in `gix-blame` ([`a721e74`](https://github.com/GitoxideLabs/gitoxide/commit/a721e7428ba4fd145e14c4576d49b9ff5a1a9816))
+    - Adapt to change in `gix-blame` ([`268dac4`](https://github.com/GitoxideLabs/gitoxide/commit/268dac4a18c8be8bacd89e1890d870253b0e1400))
+    - Merge pull request #2142 from cruessler/add-branch-list ([`525873f`](https://github.com/GitoxideLabs/gitoxide/commit/525873fafacf339dd781df0d812df02942c220fd))
+    - Fix copy-paste doc comment ([`04650a7`](https://github.com/GitoxideLabs/gitoxide/commit/04650a7786f5fb0ea4f4454d08ca16ab6cef3b74))
+    - Move --all to 'branch list' ([`6651548`](https://github.com/GitoxideLabs/gitoxide/commit/6651548f6e426d79f834c5948e3d7877784dfc77))
+    - Refactor ([`e537611`](https://github.com/GitoxideLabs/gitoxide/commit/e53761181b05f90f59b33906da033096b57a50d8))
+    - Add first debug version of `gix branch list` ([`58b5060`](https://github.com/GitoxideLabs/gitoxide/commit/58b5060958e0090773bb15ffb3679d99704b70a0))
+    - Merge pull request #2106 from cruessler/add-open-with-environment-overrides ([`c149116`](https://github.com/GitoxideLabs/gitoxide/commit/c1491167c2ea8f8a34bb2e30f9e632f790f0fcd8))
+    - Fail `gix tag list` when JSON is requested ([`fb2766b`](https://github.com/GitoxideLabs/gitoxide/commit/fb2766bd006ba1a276dfd5554cf0cdc3b7043ee7))
+</details>
+
 ## 0.45.0 (2025-07-15)
 
 ### New Features
