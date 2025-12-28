@@ -119,4 +119,27 @@ mod write_to {
         assert_eq!(Time::MAX.to_str(&mut buf), expected);
         Ok(())
     }
+
+    /// This test verifies that issue #2305 is fixed: writing non-UTF8 bytes
+    /// should not be allowed to create invalid strings via as_str().
+    /// This reproduces the exact PoC from the issue.
+    #[test]
+    fn issue_2305_cannot_write_non_utf8_bytes() {
+        use std::io::Write;
+        
+        let mut buf = TimeBuf::default();
+        // This is the exact PoC from issue #2305
+        // Try to write invalid UTF-8 byte (0xff is not valid UTF-8 on its own)
+        let result = buf.write(&[0xff]);
+        
+        // After the fix, this should fail with an error
+        assert!(
+            result.is_err(),
+            "Writing non-UTF8 bytes should fail to prevent unsafe as_str() usage"
+        );
+        
+        // Verify we can still write valid UTF-8
+        assert!(buf.write(b"test").is_ok());
+        assert_eq!(buf.as_str(), "test");
+    }
 }
