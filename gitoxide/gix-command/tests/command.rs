@@ -563,6 +563,39 @@ mod spawn {
         }
 
         #[test]
+        fn force_shell_builtin() -> crate::Result {
+            let out = gix_command::prepare("echo").with_shell().spawn()?.wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "\n");
+            Ok(())
+        }
+
+        #[test]
+        fn force_shell_builtin_with_single_extra_arg() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .with_shell()
+                .arg("1")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "1");
+            Ok(())
+        }
+
+        #[test]
+        fn force_shell_builtin_with_multiple_extra_args() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .with_shell()
+                .arg("%s")
+                .arg("arg")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "arg");
+            Ok(())
+        }
+
+        #[test]
         fn sh_shell_specific_script_code() -> crate::Result {
             assert!(gix_command::prepare(":;:;:")
                 .command_may_be_shell_script()
