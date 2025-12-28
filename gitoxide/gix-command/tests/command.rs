@@ -537,6 +537,17 @@ mod spawn {
         }
 
         #[test]
+        fn shell_builtin_or_command_in_path() -> crate::Result {
+            let out = gix_command::prepare("echo")
+                .command_may_be_shell_script()
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "\n");
+            Ok(())
+        }
+
+        #[test]
         fn shell_builtin_or_command_in_path_with_single_extra_arg() -> crate::Result {
             let out = gix_command::prepare("printf")
                 .command_may_be_shell_script()
