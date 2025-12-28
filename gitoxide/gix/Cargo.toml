@@ -147,6 +147,9 @@ merge = ["tree-editor", "blob-diff", "dep:gix-merge", "attributes"]
 ## Add blame command similar to `git blame`.
 blame = ["dep:gix-blame", "blob-diff"]
 
+## Use the v0.2 branch of `imara-diff` in `gix-diff` and `gix-blame`, to allow trying the new diff algorithm.
+blame-experimental = ["dep:gix-blame", "gix-blame/blob-experimental"]
+
 ## Make it possible to turn a tree into a stream of bytes, which can be decoded to entries and turned into various other formats.
 worktree-stream = ["gix-worktree-stream", "attributes"]
 
