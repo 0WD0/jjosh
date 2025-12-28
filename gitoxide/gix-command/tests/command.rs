@@ -517,6 +517,7 @@ mod spawn {
 
         #[test]
         fn command_in_path_with_args() -> crate::Result {
+            // `ls` is occasionaly a builtin, as in busybox ash, but it is usually external.
             assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "attrib.exe /d" })
                 .command_may_be_shell_script()
                 .spawn()?
@@ -536,7 +537,7 @@ mod spawn {
         }
 
         #[test]
-        fn sh_shell_specific_script_code_with_single_extra_arg() -> crate::Result {
+        fn shell_builtin_or_command_in_path_with_single_extra_arg() -> crate::Result {
             let out = gix_command::prepare("printf")
                 .command_may_be_shell_script()
                 .arg("1")
@@ -548,7 +549,7 @@ mod spawn {
         }
 
         #[test]
-        fn sh_shell_specific_script_code_with_multiple_extra_args() -> crate::Result {
+        fn shell_builtin_or_command_in_path_with_multiple_extra_args() -> crate::Result {
             let out = gix_command::prepare("printf")
                 .command_may_be_shell_script()
                 .arg("%s")
