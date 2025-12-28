@@ -527,16 +527,6 @@ mod spawn {
         }
 
         #[test]
-        fn sh_shell_specific_script_code() -> crate::Result {
-            assert!(gix_command::prepare(":;:;:")
-                .command_may_be_shell_script()
-                .spawn()?
-                .wait()?
-                .success());
-            Ok(())
-        }
-
-        #[test]
         fn shell_builtin_or_command_in_path() -> crate::Result {
             let out = gix_command::prepare("echo")
                 .command_may_be_shell_script()
@@ -569,6 +559,16 @@ mod spawn {
                 .wait_with_output()?;
             assert!(out.status.success());
             assert_eq!(out.stdout.as_bstr(), "arg");
+            Ok(())
+        }
+
+        #[test]
+        fn sh_shell_specific_script_code() -> crate::Result {
+            assert!(gix_command::prepare(":;:;:")
+                .command_may_be_shell_script()
+                .spawn()?
+                .wait()?
+                .success());
             Ok(())
         }
     }
