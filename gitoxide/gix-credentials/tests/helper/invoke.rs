@@ -1,6 +1,7 @@
 use bstr::{BString, ByteVec};
 use gix_credentials::{helper, protocol::Context, Program};
 use gix_testtools::fixture_path;
+use std::{borrow::Cow, path::Path};
 
 #[test]
 fn get() {
@@ -129,10 +130,17 @@ mod program {
 }
 
 pub fn script_helper(name: &str) -> Program {
-    let mut script = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(
-        gix_path::realpath(fixture_path(format!("{name}.sh"))).unwrap(),
-    ))
-    .into_owned();
-    script.insert_str(0, "sh ");
+    fn to_arg<'a>(path: impl Into<Cow<'a, Path>>) -> BString {
+        let utf8_encoded = gix_path::into_bstr(path);
+        let slash_separated = gix_path::to_unix_separators_on_windows(utf8_encoded);
+        gix_quote::single(slash_separated.as_ref())
+    }
+
+    let shell = gix_path::env::shell();
+    let fixture = gix_path::realpath(fixture_path(format!("{name}.sh"))).unwrap();
+
+    let mut script = to_arg(Path::new(shell));
+    script.push_char(' ');
+    script.push_str(to_arg(fixture));
     Program::from_kind(gix_credentials::program::Kind::ExternalShellScript(script))
 }
