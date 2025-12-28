@@ -498,7 +498,7 @@ mod spawn {
 
     #[test]
     fn direct_command_execution_searches_in_path() -> crate::Result {
-        assert!(gix_command::prepare(if cfg!(unix) { "ls" } else { "dir.exe" })
+        assert!(gix_command::prepare(if cfg!(unix) { "ls" } else { "attrib.exe" })
             .spawn()?
             .wait()?
             .success());
@@ -517,7 +517,7 @@ mod spawn {
 
         #[test]
         fn command_in_path_with_args() -> crate::Result {
-            assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "dir.exe -a" })
+            assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "attrib.exe /d" })
                 .command_may_be_shell_script()
                 .spawn()?
                 .wait()?
