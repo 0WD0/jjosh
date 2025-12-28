@@ -526,6 +526,7 @@ mod spawn {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[test]
         fn shell_builtin_or_command_in_path() -> crate::Result {
             let out = gix_command::prepare("echo")
@@ -537,6 +538,7 @@ mod spawn {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[test]
         fn shell_builtin_or_command_in_path_with_single_extra_arg() -> crate::Result {
             let out = gix_command::prepare("printf")
@@ -549,6 +551,7 @@ mod spawn {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[test]
         fn shell_builtin_or_command_in_path_with_multiple_extra_args() -> crate::Result {
             let out = gix_command::prepare("printf")
