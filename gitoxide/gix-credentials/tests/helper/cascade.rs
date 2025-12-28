@@ -1,13 +1,12 @@
 mod invoke {
-    use bstr::{ByteSlice, ByteVec};
+    use bstr::ByteSlice;
     use gix_credentials::{
         helper::{Action, Cascade},
-        program, protocol,
+        protocol,
         protocol::Context,
         Program,
     };
     use gix_sec::identity::Account;
-    use gix_testtools::fixture_path;
 
     #[test]
     fn credentials_are_filled_in_one_by_one_and_stop_when_complete() {
@@ -179,9 +178,6 @@ mod invoke {
     }
 
     fn fixtures<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<Program> {
-        names
-            .into_iter()
-            .map(super::super::invoke::script_helper)
-            .collect()
+        names.into_iter().map(crate::helper::script_helper).collect()
     }
 }
