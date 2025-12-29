@@ -63,9 +63,6 @@ lean = ["fast", "tracing", "pretty-cli", "http-client-curl", "gitoxide-core-tool
 ## Optimized for size, no parallelism thus much slower, progress line rendering.
 small = ["pretty-cli", "prodash-render-line", "is-terminal"]
 
-## An experimental use of the v0.2 branch of `imara-diff` in `gix-diff` and `gix-blame`, to allow trying the new diff algorithm.
-blame-experimental = ["gitoxide-core/blame-experimental"]
-
 ## Like lean, but uses Rusts async implementations for networking.
 ##
 ## This build is more of a demonstration showing how async can work with `gitoxide`, which generally is blocking. This also means that the selection of async transports
@@ -150,6 +147,11 @@ http-client-reqwest = ["gix/blocking-http-transport-reqwest-rust-tls"]
 #!
 ## Use async client networking.
 gitoxide-core-async-client = ["gitoxide-core/async-client", "futures-lite"]
+
+#! ### Experimental Features
+#!
+## An experimental use of the v0.2 branch of `imara-diff` in `gix-diff` and `gix-blame`, to allow trying the new diff algorithm.
+blame-experimental = ["gitoxide-core/blame-experimental"]
 
 [dependencies]
 anyhow = "1.0.98"
