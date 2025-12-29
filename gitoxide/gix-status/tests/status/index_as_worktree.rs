@@ -1128,3 +1128,31 @@ fn racy_git() {
 fn default_pathspec() -> gix_pathspec::Search {
     gix_pathspec::Search::from_specs(to_pathspecs(&[]), None, std::path::Path::new("")).expect("empty is always valid")
 }
+
+#[test]
+fn symlink_to_nested_path() {
+    // Reproduce issue from https://github.com/gitui-org/gitui/issues/2820
+    // Tests handling of symlinks pointing to nested directories with modifications
+    let expected_outcome = fixture(
+        "status_symlink_submodule",
+        &[(
+            BStr::new(b"some/path/bar"),
+            0,
+            Change::Modification {
+                executable_bit_changed: false,
+                content_change: Some(()),
+                set_entry_stat_size_zero: false,
+            }
+            .into(),
+        )],
+    );
+    assert_eq!(
+        expected_outcome,
+        Outcome {
+            entries_to_process: 2,
+            entries_processed: 2,
+            symlink_metadata_calls: 2,
+            ..Default::default()
+        }
+    );
+}

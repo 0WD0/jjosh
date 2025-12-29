@@ -570,8 +570,9 @@ where
         let out = if is_symlink && self.core_symlinks {
             // conversion to bstr can never fail because symlinks are only used
             // on unix (by git) so no reason to use the try version here
-            let symlink_path =
-                gix_path::to_unix_separators_on_windows(gix_path::into_bstr(std::fs::read_link(self.path).unwrap()));
+            let symlink_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(
+                std::fs::read_link(self.path).map_err(gix_hash::io::Error::from)?,
+            ));
             self.buf.extend_from_slice(&symlink_path);
             self.worktree_bytes.fetch_add(self.buf.len() as u64, Ordering::Relaxed);
             Stream {
