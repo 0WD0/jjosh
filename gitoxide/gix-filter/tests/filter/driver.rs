@@ -460,7 +460,7 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    pub(crate) fn extract_delayed_key(res: Option<apply::MaybeDelayed<'_>>) -> driver::Key {
+    fn extract_delayed_key(res: Option<apply::MaybeDelayed<'_>>) -> driver::Key {
         match res {
             Some(apply::MaybeDelayed::Immediate(_)) | None => {
                 unreachable!("must use process that supports delaying")
@@ -468,6 +468,7 @@ pub(crate) mod apply {
             Some(apply::MaybeDelayed::Delayed(key)) => key,
         }
     }
+
     fn context_from_path(path: &str) -> apply::Context<'_, '_> {
         apply::Context {
             rela_path: path.into(),
