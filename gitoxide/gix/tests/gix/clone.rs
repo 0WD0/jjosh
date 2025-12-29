@@ -106,11 +106,7 @@ mod blocking_io {
         let refspec_str = refspecs[0].to_str().expect("valid utf8");
         assert_eq!(
             refspec_str,
-            if cfg!(windows) {
-                "+refs/heads/master:refs/remotes/origin/master"
-            } else {
-                "+refs/heads/main:refs/remotes/origin/main"
-            },
+            "+refs/heads/main:refs/remotes/origin/main",
             "shallow clone refspec should not use wildcard and should be the main branch: {refspec_str}"
         );
 
