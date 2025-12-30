@@ -493,7 +493,7 @@ pub(crate) mod apply {
                     .map(BStr::new)
                     .map(gix_quote::single)
             });
-            CAT.as_deref().map(BStr::new).unwrap_or_else(|| b"cat.exe".into())
+            CAT.as_deref().map_or_else(|| b"cat.exe".into(), BStr::new)
         } else {
             b"cat".into()
         }
