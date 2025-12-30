@@ -59,9 +59,9 @@ mod shutdown {
 }
 
 pub(crate) mod apply {
-    use std::io::Read;
+    use std::{io::Read, sync::LazyLock};
 
-    use bstr::ByteSlice;
+    use bstr::{BStr, BString, ByteSlice};
     use gix_filter::{
         driver,
         driver::{apply, apply::Delay, Operation},
@@ -386,8 +386,8 @@ pub(crate) mod apply {
         // Create a driver that uses `cat` command (which echoes input to output immediately)
         let driver = Driver {
             name: "cat".into(),
-            clean: Some("cat".into()),
-            smudge: Some("cat".into()),
+            clean: Some(cat_invocation().to_owned()),
+            smudge: Some(cat_invocation().to_owned()),
             process: None,
             required: false,
         };
@@ -432,8 +432,8 @@ pub(crate) mod apply {
 
         let driver = Driver {
             name: "cat".into(),
-            clean: Some("cat".into()),
-            smudge: Some("cat".into()),
+            clean: Some(cat_invocation().to_owned()),
+            smudge: Some(cat_invocation().to_owned()),
             process: None,
             required: false,
         };
@@ -475,6 +475,27 @@ pub(crate) mod apply {
             ref_name: None,
             treeish: None,
             blob: None,
+        }
+    }
+
+    fn cat_invocation() -> &'static BStr {
+        if cfg!(windows) {
+            static CAT: LazyLock<Option<BString>> = LazyLock::new(|| {
+                gix_command::prepare("command -v cat | cygpath --mixed --file -")
+                    .with_shell()
+                    .spawn()
+                    .ok()?
+                    .wait_with_output()
+                    .ok()
+                    .filter(|output| output.status.success())?
+                    .stdout
+                    .strip_suffix(b"\n")
+                    .map(BStr::new)
+                    .map(gix_quote::single)
+            });
+            CAT.as_deref().map(BStr::new).unwrap_or_else(|| b"cat.exe".into())
+        } else {
+            b"cat".into()
         }
     }
 }
