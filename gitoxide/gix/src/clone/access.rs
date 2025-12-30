@@ -48,6 +48,11 @@ impl PrepareFetch {
     ///
     /// Note that `name` should be a partial name like `main` or `feat/one`, but can be a full ref name.
     /// If a branch on the remote matches, it will automatically be retrieved even without a refspec.
+    ///
+    /// # Panics
+    ///
+    /// Calling this method with a valid refspec that is not a branch name, like an object-id as hex-hash,
+    /// currently causes subsequent calls to [`PrepareFetch::fetch_only`] or [`PrepareFetch::fetch_then_checkout`] to panic.
     pub fn with_ref_name<'a, Name, E>(mut self, name: Option<Name>) -> Result<Self, E>
     where
         Name: TryInto<&'a gix_ref::PartialNameRef, Error = E>,
