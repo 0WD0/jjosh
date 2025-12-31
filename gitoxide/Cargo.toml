@@ -156,9 +156,9 @@ blame-experimental = ["gitoxide-core/blame-experimental"]
 [dependencies]
 anyhow = "1.0.98"
 
-gitoxide-core = { version = "^0.51.0", path = "gitoxide-core" }
-gix-features = { version = "^0.45.0", path = "gix-features" }
-gix = { version = "^0.76.0", path = "gix", default-features = false }
+gitoxide-core = { version = "^0.52.0", path = "gitoxide-core" }
+gix-features = { version = "^0.45.1", path = "gix-features" }
+gix = { version = "^0.77.0", path = "gix", default-features = false }
 
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
 clap_complete = "4.5.55"
