@@ -76,6 +76,8 @@ pub mod open {
         OpenRepository(#[from] crate::open::Error),
         #[error(transparent)]
         PathConfiguration(#[from] gix_submodule::config::path::Error),
+        #[error(transparent)]
+        WorktreeDirInaccessible(#[from] std::io::Error),
     }
 }
 

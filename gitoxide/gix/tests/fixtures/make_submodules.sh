@@ -63,6 +63,22 @@ git init submodule-head-changed-and-modified
   )
 )
 
+git init submodule-head-changed-and-modified-with-untracked-in-nested-dir
+(cd submodule-head-changed-and-modified-with-untracked-in-nested-dir
+  git submodule add ../module1 m1
+  git commit -m "add submodule"
+
+  mkdir -p a/b
+  touch a/b/untracked
+
+  (cd m1
+    git checkout @~1
+    echo change >> this
+  )
+)
+
+ln -s submodule-head-changed-and-modified-with-untracked-in-nested-dir/a/b link-to-dir-in-changed-parent-repo
+
 git init modified-untracked-and-submodule-head-changed-and-modified
 (cd modified-untracked-and-submodule-head-changed-and-modified
   git submodule add ../module1 m1

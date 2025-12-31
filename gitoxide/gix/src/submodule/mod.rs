@@ -224,12 +224,12 @@ impl Submodule<'_> {
     ///
     /// Also note that the returned path may not actually exist.
     pub fn git_dir_try_old_form(&self) -> Result<PathBuf, config::path::Error> {
-        let worktree_git = self.work_dir()?.join(gix_discover::DOT_GIT_DIR);
-        Ok(if worktree_git.is_dir() {
-            worktree_git
+        let worktree_gitdir_or_modules_gitdir = if self.worktree_gitdir()?.is_dir() {
+            self.worktree_gitdir()?
         } else {
             self.git_dir()
-        })
+        };
+        Ok(worktree_gitdir_or_modules_gitdir)
     }
 
     /// Query various parts of the submodule and assemble it into state information.
@@ -237,7 +237,7 @@ impl Submodule<'_> {
     pub fn state(&self) -> Result<State, config::path::Error> {
         let maybe_old_path = self.git_dir_try_old_form()?;
         let git_dir = self.git_dir();
-        let worktree_git = self.work_dir()?.join(gix_discover::DOT_GIT_DIR);
+        let worktree_git = self.worktree_gitdir()?;
         let superproject_configuration = self
             .state
             .repo
@@ -268,10 +268,26 @@ impl Submodule<'_> {
     /// which may differ compared to the superproject's index or `HEAD` commit.
     pub fn open(&self) -> Result<Option<Repository>, open::Error> {
         match crate::open_opts(self.git_dir_try_old_form()?, self.state.repo.options.clone()) {
-            Ok(repo) => Ok(Some(repo)),
+            Ok(mut repo) => {
+                if repo.workdir().is_none() {
+                    let wd = self.work_dir()?;
+                    // We should always have a workdir, as bare submodules don't exist.
+                    // However, it's possible for no workdir to be accessible if there is a symlink in the way.
+                    // Just setting it by hand fixes this issue effectively, even though the question remains
+                    // if this should work automatically.
+                    // For now, let's *not* use the `self.worktree_git()` directory which has its own edge-cases,
+                    // while the current solution yields the cleanest paths (i.e. it keeps relative ones).
+                    repo.set_workdir(Some(wd))?;
+                }
+                Ok(Some(repo))
+            }
             Err(crate::open::Error::NotARepository { .. }) => Ok(None),
             Err(err) => Err(err.into()),
         }
+    }
+
+    fn worktree_gitdir(&self) -> Result<PathBuf, config::path::Error> {
+        Ok(self.work_dir()?.join(gix_discover::DOT_GIT_DIR))
     }
 }
 
