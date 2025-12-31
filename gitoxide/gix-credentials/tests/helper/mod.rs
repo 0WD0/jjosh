@@ -39,3 +39,24 @@ mod invoke_outcome_to_helper_result {
         assert!(matches!(err, protocol::Error::Quit));
     }
 }
+
+use bstr::{BString, ByteVec};
+use gix_credentials::Program;
+use gix_testtools::fixture_path;
+use std::{borrow::Cow, path::Path};
+
+pub fn script_helper(name: &str) -> Program {
+    fn to_arg<'a>(path: impl Into<Cow<'a, Path>>) -> BString {
+        let utf8_encoded = gix_path::into_bstr(path);
+        let slash_separated = gix_path::to_unix_separators_on_windows(utf8_encoded);
+        gix_quote::single(slash_separated.as_ref())
+    }
+
+    let shell = gix_path::env::shell();
+    let fixture = gix_path::realpath(fixture_path(format!("{name}.sh"))).unwrap();
+
+    let mut script = to_arg(Path::new(shell));
+    script.push_char(' ');
+    script.push_str(to_arg(fixture));
+    Program::from_kind(gix_credentials::program::Kind::ExternalShellScript(script))
+}

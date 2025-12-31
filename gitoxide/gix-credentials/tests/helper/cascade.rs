@@ -1,13 +1,12 @@
 mod invoke {
-    use bstr::{ByteSlice, ByteVec};
+    use bstr::ByteSlice;
     use gix_credentials::{
         helper::{Action, Cascade},
-        program, protocol,
+        protocol,
         protocol::Context,
         Program,
     };
     use gix_sec::identity::Account;
-    use gix_testtools::fixture_path;
 
     #[test]
     fn credentials_are_filled_in_one_by_one_and_stop_when_complete() {
@@ -179,14 +178,6 @@ mod invoke {
     }
 
     fn fixtures<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<Program> {
-        names
-            .into_iter()
-            .map(|name| gix_path::realpath(fixture_path(format!("{name}.sh"))).unwrap())
-            .map(|path| {
-                let mut script = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path)).into_owned();
-                script.insert_str(0, "sh ");
-                Program::from_kind(program::Kind::ExternalShellScript(script))
-            })
-            .collect()
+        names.into_iter().map(crate::helper::script_helper).collect()
     }
 }

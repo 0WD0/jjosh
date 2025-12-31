@@ -59,9 +59,9 @@ mod shutdown {
 }
 
 pub(crate) mod apply {
-    use std::io::Read;
+    use std::{io::Read, sync::LazyLock};
 
-    use bstr::ByteSlice;
+    use bstr::{BStr, BString, ByteSlice};
     use gix_filter::{
         driver,
         driver::{apply, apply::Delay, Operation},
@@ -386,8 +386,8 @@ pub(crate) mod apply {
         // Create a driver that uses `cat` command (which echoes input to output immediately)
         let driver = Driver {
             name: "cat".into(),
-            clean: Some("cat".into()),
-            smudge: Some("cat".into()),
+            clean: Some(cat_invocation().to_owned()),
+            smudge: Some(cat_invocation().to_owned()),
             process: None,
             required: false,
         };
@@ -432,8 +432,8 @@ pub(crate) mod apply {
 
         let driver = Driver {
             name: "cat".into(),
-            clean: Some("cat".into()),
-            smudge: Some("cat".into()),
+            clean: Some(cat_invocation().to_owned()),
+            smudge: Some(cat_invocation().to_owned()),
             process: None,
             required: false,
         };
@@ -460,7 +460,7 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    pub(crate) fn extract_delayed_key(res: Option<apply::MaybeDelayed<'_>>) -> driver::Key {
+    fn extract_delayed_key(res: Option<apply::MaybeDelayed<'_>>) -> driver::Key {
         match res {
             Some(apply::MaybeDelayed::Immediate(_)) | None => {
                 unreachable!("must use process that supports delaying")
@@ -468,12 +468,34 @@ pub(crate) mod apply {
             Some(apply::MaybeDelayed::Delayed(key)) => key,
         }
     }
+
     fn context_from_path(path: &str) -> apply::Context<'_, '_> {
         apply::Context {
             rela_path: path.into(),
             ref_name: None,
             treeish: None,
             blob: None,
+        }
+    }
+
+    fn cat_invocation() -> &'static BStr {
+        if cfg!(windows) {
+            static CAT: LazyLock<Option<BString>> = LazyLock::new(|| {
+                gix_command::prepare("command -v cat | cygpath --mixed --file -")
+                    .with_shell()
+                    .spawn()
+                    .ok()?
+                    .wait_with_output()
+                    .ok()
+                    .filter(|output| output.status.success())?
+                    .stdout
+                    .strip_suffix(b"\n")
+                    .map(BStr::new)
+                    .map(gix_quote::single)
+            });
+            CAT.as_deref().map_or_else(|| b"cat.exe".into(), BStr::new)
+        } else {
+            b"cat".into()
         }
     }
 }

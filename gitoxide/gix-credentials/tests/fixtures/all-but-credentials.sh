@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 echo protocol=ftp
 echo host=example.com:8080

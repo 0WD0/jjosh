@@ -32,6 +32,8 @@ smallvec = "1.15.1"
 
 
 [dev-dependencies]
-serial_test = { version = "3.1.0", default-features = false }
+gix-quote = { path = "../gix-quote" }
 gix-testtools = { path = "../tests/tools" }
 gix-worktree = { path = "../gix-worktree", default-features = false, features = ["attributes"] }
+
+serial_test = { version = "3.1.0", default-features = false }

@@ -1,6 +1,7 @@
-use bstr::{BString, ByteVec};
-use gix_credentials::{helper, protocol::Context, Program};
-use gix_testtools::fixture_path;
+use bstr::BString;
+use gix_credentials::{helper, protocol::Context};
+
+use crate::helper::script_helper;
 
 #[test]
 fn get() {
@@ -47,7 +48,7 @@ fn store_and_reject() {
 mod program {
     use gix_credentials::{helper, program::Kind, Program};
 
-    use crate::helper::invoke::script_helper;
+    use crate::helper::script_helper;
 
     #[test]
     fn builtin() {
@@ -126,13 +127,4 @@ mod program {
         );
         Ok(())
     }
-}
-
-pub fn script_helper(name: &str) -> Program {
-    let mut script = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(
-        gix_path::realpath(fixture_path(format!("{name}.sh"))).unwrap(),
-    ))
-    .into_owned();
-    script.insert_str(0, "sh ");
-    Program::from_kind(gix_credentials::program::Kind::ExternalShellScript(script))
 }

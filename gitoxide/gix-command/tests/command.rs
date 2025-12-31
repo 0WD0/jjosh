@@ -498,7 +498,7 @@ mod spawn {
 
     #[test]
     fn direct_command_execution_searches_in_path() -> crate::Result {
-        assert!(gix_command::prepare(if cfg!(unix) { "ls" } else { "dir.exe" })
+        assert!(gix_command::prepare(if cfg!(unix) { "ls" } else { "attrib.exe" })
             .spawn()?
             .wait()?
             .success());
@@ -517,11 +517,84 @@ mod spawn {
 
         #[test]
         fn command_in_path_with_args() -> crate::Result {
-            assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "dir.exe -a" })
+            // `ls` is occasionaly a builtin, as in busybox ash, but it is usually external.
+            assert!(gix_command::prepare(if cfg!(unix) { "ls -l" } else { "attrib.exe /d" })
                 .command_may_be_shell_script()
                 .spawn()?
                 .wait()?
                 .success());
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn shell_builtin_or_command_in_path() -> crate::Result {
+            let out = gix_command::prepare("echo")
+                .command_may_be_shell_script()
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "\n");
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn shell_builtin_or_command_in_path_with_single_extra_arg() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .command_may_be_shell_script()
+                .arg("1")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "1");
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn shell_builtin_or_command_in_path_with_multiple_extra_args() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .command_may_be_shell_script()
+                .arg("%s")
+                .arg("arg")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "arg");
+            Ok(())
+        }
+
+        #[test]
+        fn force_shell_builtin() -> crate::Result {
+            let out = gix_command::prepare("echo").with_shell().spawn()?.wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "\n");
+            Ok(())
+        }
+
+        #[test]
+        fn force_shell_builtin_with_single_extra_arg() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .with_shell()
+                .arg("1")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "1");
+            Ok(())
+        }
+
+        #[test]
+        fn force_shell_builtin_with_multiple_extra_args() -> crate::Result {
+            let out = gix_command::prepare("printf")
+                .with_shell()
+                .arg("%s")
+                .arg("arg")
+                .spawn()?
+                .wait_with_output()?;
+            assert!(out.status.success());
+            assert_eq!(out.stdout.as_bstr(), "arg");
             Ok(())
         }
 
@@ -537,7 +610,7 @@ mod spawn {
 
         #[test]
         fn sh_shell_specific_script_code_with_single_extra_arg() -> crate::Result {
-            let out = gix_command::prepare("printf")
+            let out = gix_command::prepare(":;printf")
                 .command_may_be_shell_script()
                 .arg("1")
                 .spawn()?
@@ -549,7 +622,7 @@ mod spawn {
 
         #[test]
         fn sh_shell_specific_script_code_with_multiple_extra_args() -> crate::Result {
-            let out = gix_command::prepare("printf")
+            let out = gix_command::prepare(":;printf")
                 .command_may_be_shell_script()
                 .arg("%s")
                 .arg("arg")
