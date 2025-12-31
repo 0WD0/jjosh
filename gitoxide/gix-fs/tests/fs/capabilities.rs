@@ -1,7 +1,8 @@
 #[test]
 fn probe() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::File::create(dir.path().join("config")).unwrap();
+    let config_path = dir.path().join("config");
+    std::fs::File::create(&config_path).unwrap();
     let caps = gix_fs::Capabilities::probe(dir.path());
 
     let entries: Vec<_> = std::fs::read_dir(dir.path())
@@ -19,6 +20,14 @@ fn probe() {
         assert!(caps.symlink, "Unix should always be able to create symlinks");
         assert!(caps.executable_bit, "Unix should always honor executable bits");
     }
+
+    let actual = gix_fs::Capabilities::probe_dir(dir.path());
+    assert_eq!(actual, caps, "Both probes arrive at the same result");
+
+    std::fs::remove_file(config_path).expect("to be present");
+
+    let actual = gix_fs::Capabilities::probe_dir(dir.path());
+    assert_eq!(actual, caps, "Even if config file doesn't exist, it works");
 }
 
 #[test]

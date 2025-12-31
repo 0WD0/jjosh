@@ -204,6 +204,11 @@ pub fn into(
     }
 
     let caps = {
+        let (mut config_file, config_path) = {
+            let mut cursor = PathCursor(&mut dot_git);
+            let config_path = cursor.at("config");
+            (fs::File::create(config_path)?, config_path.to_owned())
+        };
         let mut config = gix_config::File::default();
         let caps = {
             let caps = fs_capabilities.unwrap_or_else(|| gix_fs::Capabilities::probe(&dot_git));
@@ -218,12 +223,12 @@ pub fn into(
             core.push(key("precomposeunicode"), Some(bool(caps.precompose_unicode).into()));
             caps
         };
-        let mut cursor = PathCursor(&mut dot_git);
-        let config_path = cursor.at("config");
-        std::fs::write(config_path, config.to_bstring()).map_err(|err| Error::IoWrite {
-            source: err,
-            path: config_path.to_owned(),
-        })?;
+        config_file
+            .write_all(&config.to_bstring())
+            .map_err(|err| Error::IoWrite {
+                source: err,
+                path: config_path,
+            })?;
         caps
     };
 
