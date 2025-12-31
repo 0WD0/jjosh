@@ -39,19 +39,33 @@ impl Default for Capabilities {
     }
 }
 
+enum Dir {
+    IsGit,
+    IsArbitrary,
+}
+
 impl Capabilities {
-    /// try to determine all values in this context by probing them in the given `git_dir`, which
+    /// Try to determine all values in this context by probing them in the given `git_dir`, which
     /// should be on the file system the git repository is located on.
     /// `git_dir` is a typical git repository, expected to be populated with the typical files like `config`.
     ///
     /// All errors are ignored and interpreted on top of the default for the platform the binary is compiled for.
     pub fn probe(git_dir: &Path) -> Self {
+        Self::probe_inner(git_dir, Dir::IsGit)
+    }
+
+    /// Just like [`Self::probe()`], but doesn't expect any git-specific files like `.git/config` to exist.
+    pub fn probe_dir(dir: &Path) -> Self {
+        Self::probe_inner(dir, Dir::IsArbitrary)
+    }
+
+    fn probe_inner(dir: &Path, mode: Dir) -> Self {
         let ctx = Capabilities::default();
         Capabilities {
-            symlink: Self::probe_symlink(git_dir).unwrap_or(ctx.symlink),
-            ignore_case: Self::probe_ignore_case(git_dir).unwrap_or(ctx.ignore_case),
-            precompose_unicode: Self::probe_precompose_unicode(git_dir).unwrap_or(ctx.precompose_unicode),
-            executable_bit: Self::probe_file_mode(git_dir).unwrap_or(ctx.executable_bit),
+            symlink: Self::probe_symlink(dir).unwrap_or(ctx.symlink),
+            ignore_case: Self::probe_ignore_case(dir, mode).unwrap_or(ctx.ignore_case),
+            precompose_unicode: Self::probe_precompose_unicode(dir).unwrap_or(ctx.precompose_unicode),
+            executable_bit: Self::probe_file_mode(dir).unwrap_or(ctx.executable_bit),
         }
     }
 
@@ -92,10 +106,36 @@ impl Capabilities {
         Ok(false)
     }
 
-    fn probe_ignore_case(git_dir: &Path) -> std::io::Result<bool> {
+    fn probe_ignore_case(git_dir: &Path, mode: Dir) -> std::io::Result<bool> {
         std::fs::metadata(git_dir.join("cOnFiG")).map(|_| true).or_else(|err| {
             if err.kind() == std::io::ErrorKind::NotFound {
-                Ok(false)
+                if matches!(mode, Dir::IsGit) || git_dir.join("config").exists() {
+                    return Ok(false);
+                }
+
+                use std::io::ErrorKind;
+                let (mut lower, mut mixed) = (None, None);
+
+                let res = (|| {
+                    let first = git_dir.join("config");
+                    let second = git_dir.join("cOnFiG");
+                    std::fs::OpenOptions::new().create_new(true).write(true).open(&first)?;
+                    lower = Some(first);
+
+                    match std::fs::OpenOptions::new().create_new(true).write(true).open(&second) {
+                        Ok(_) => {
+                            mixed = Some(second);
+                            Ok(false)
+                        }
+                        Err(err) if err.kind() == ErrorKind::AlreadyExists => Ok(true),
+                        Err(err) => Err(err),
+                    }
+                })();
+
+                for file_to_remove in lower.into_iter().chain(mixed) {
+                    std::fs::remove_file(file_to_remove).ok();
+                }
+                res
             } else {
                 Err(err)
             }
