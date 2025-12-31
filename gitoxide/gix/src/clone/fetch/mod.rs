@@ -118,44 +118,56 @@ impl PrepareFetch {
             if let Some(ref_name) = &self.ref_name {
                 Some(Category::LocalBranch.to_full_name(ref_name.as_ref().as_bstr())?)
             } else {
-                // For shallow clones without a specified ref, we need to determine the default branch.
-                // We'll connect to get HEAD information. For Protocol V2, we need to explicitly list refs.
+                // For shallow clones without a specified ref, we need to determine the ref to clone.
+                // Just fetch HEAD for that.
+                let prev_tags = std::mem::replace(&mut remote.fetch_tags, remote::fetch::Tags::None);
                 let mut connection = remote.connect(remote::Direction::Fetch).await?;
                 if let Some(f) = self.configure_connection.as_mut() {
                     f(&mut connection).map_err(Error::RemoteConnection)?;
                 }
+                let refmap = connection
+                    .ref_map_by_ref(
+                        &mut progress,
+                        remote::ref_map::Options {
+                            extra_refspecs: vec![gix_refspec::parse(
+                                "HEAD".into(),
+                                gix_refspec::parse::Operation::Fetch,
+                            )
+                            .expect("valid")
+                            .to_owned()],
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
 
-                // Perform handshake and try to get HEAD from it (works for Protocol V1)
-                let _ = connection.ref_map_by_ref(&mut progress, Default::default()).await?;
-
-                let target = if let Some(handshake) = &connection.handshake {
-                    // Protocol V1: refs are in handshake
-                    handshake.refs.as_ref().and_then(|refs| {
-                        refs.iter().find_map(|r| match r {
-                            gix_protocol::handshake::Ref::Symbolic {
-                                full_ref_name, target, ..
-                            } if full_ref_name == "HEAD" => gix_ref::FullName::try_from(target).ok(),
-                            _ => None,
-                        })
+                // Find HEAD in the remote refs (works for both Protocol V1 and V2)
+                let target = refmap
+                    .remote_refs
+                    .iter()
+                    .find_map(|r| match r {
+                        gix_protocol::handshake::Ref::Symbolic {
+                            full_ref_name, target, ..
+                        }
+                        | gix_protocol::handshake::Ref::Unborn {
+                            full_ref_name, target, ..
+                        } if full_ref_name == "HEAD" => gix_ref::FullName::try_from(target)
+                            .map_err(|err| Error::InvalidHeadRef {
+                                head_ref_name: target.clone(),
+                                source: err,
+                            })
+                            .into(),
+                        _ => None,
                     })
-                } else {
-                    None
-                };
+                    .transpose()?;
 
-                // For Protocol V2 or if we couldn't determine HEAD, use the configured default branch
-                let fallback_branch = target
-                    .or_else(|| {
-                        repo.config
-                            .resolved
-                            .string(crate::config::tree::Init::DEFAULT_BRANCH)
-                            .and_then(|name| Category::LocalBranch.to_full_name(name.as_bstr()).ok())
-                    })
-                    .unwrap_or_else(|| gix_ref::FullName::try_from("refs/heads/main").expect("known to be valid"));
+                let target = target.ok_or_else(|| Error::RefNameMissing {
+                    wanted: "HEAD".try_into().expect("valid partial name"),
+                })?;
 
-                // Drop the connection explicitly to release the borrow on remote
                 drop(connection);
+                remote.fetch_tags = prev_tags;
 
-                Some(fallback_branch)
+                Some(target)
             }
         } else {
             None
