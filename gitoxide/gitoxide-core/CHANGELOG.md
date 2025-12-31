@@ -5,6 +5,209 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.52.0 (2025-12-31)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release over the course of 9 calendar days.
+ - 9 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2307 from cruessler/add-feature-flag-to-binary ([`d602d7e`](https://github.com/GitoxideLabs/gitoxide/commit/d602d7e836071f1e9e3af44c33f01522dde5c417))
+    - Refactor ([`d532bbf`](https://github.com/GitoxideLabs/gitoxide/commit/d532bbffab880ef253207a5e68a2ad39e7d1c9ac))
+    - Add feature flag `blame-experimental` to `gix` ([`826effb`](https://github.com/GitoxideLabs/gitoxide/commit/826effb563e369f57b22a8418be2e9ea58fc4844))
+    - Merge pull request #2299 from GitoxideLabs/report ([`d6c5b9d`](https://github.com/GitoxideLabs/gitoxide/commit/d6c5b9d7843c24663ffcf20bd756ea3eb747ca0a))
+</details>
+
+## 0.51.0 (2025-12-22)
+
+### Refactor (BREAKING)
+
+ - <csr-id-ab3cce472efc4f6469d99a0d3a425d58ac2140b9/> split async and blocking implementations for Handshake::fetch_or_extract_refmap()
+ - <csr-id-c26efb9e733cb33a38ef885eded915e17e61bd9c/> split Handshake::fetch_or_extract_refmap()
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 9 commits contributed to the release.
+ - 29 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.11.1, gix-actor v0.36.1, gix-trace v0.1.16, gix-features v0.45.0, gix-hash v0.21.0, gix-hashtable v0.11.0, gix-object v0.53.0, gix-glob v0.23.0, gix-attributes v0.29.0, gix-filter v0.23.0, gix-fs v0.18.0, gix-commitgraph v0.31.0, gix-revwalk v0.24.0, gix-traverse v0.50.0, gix-worktree-stream v0.25.0, gix-archive v0.25.0, gix-tempfile v20.0.0, gix-lock v20.0.0, gix-index v0.44.0, gix-config-value v0.16.0, gix-pathspec v0.14.0, gix-ignore v0.18.0, gix-worktree v0.45.0, gix-diff v0.56.0, gix-blame v0.6.0, gix-ref v0.56.0, gix-config v0.49.0, gix-prompt v0.12.0, gix-url v0.34.0, gix-credentials v0.33.0, gix-discover v0.44.0, gix-dir v0.18.0, gix-mailmap v0.28.1, gix-revision v0.38.0, gix-merge v0.9.0, gix-negotiate v0.24.0, gix-pack v0.63.0, gix-odb v0.73.0, gix-refspec v0.34.0, gix-shallow v0.7.0, gix-transport v0.51.0, gix-protocol v0.54.0, gix-status v0.23.0, gix-submodule v0.23.0, gix-worktree-state v0.23.0, gix v0.76.0, gix-fsck v0.15.0, gitoxide-core v0.51.0, gitoxide v0.48.0, safety bump 43 crates ([`21fecdf`](https://github.com/GitoxideLabs/gitoxide/commit/21fecdf928336ac5fa3dd1402f92e8200d8aff62))
+    - Merge pull request #2274 from djc/simplify-ls-refs ([`eab774c`](https://github.com/GitoxideLabs/gitoxide/commit/eab774c3bbc5fc0b4b81877892f12d4491f17565))
+    - Refactor ([`9d936fb`](https://github.com/GitoxideLabs/gitoxide/commit/9d936fbb357877c13c0737bd84715e189a3d9dea))
+    - Split async and blocking implementations for Handshake::fetch_or_extract_refmap() ([`ab3cce4`](https://github.com/GitoxideLabs/gitoxide/commit/ab3cce472efc4f6469d99a0d3a425d58ac2140b9))
+    - Split Handshake::fetch_or_extract_refmap() ([`c26efb9`](https://github.com/GitoxideLabs/gitoxide/commit/c26efb9e733cb33a38ef885eded915e17e61bd9c))
+    - Merge pull request #2277 from GitoxideLabs/dependabot/cargo/cargo-83105039d9 ([`f8435ea`](https://github.com/GitoxideLabs/gitoxide/commit/f8435ea4d12ea453ec750ce003ee70a040836feb))
+    - Bump the cargo group with 7 updates ([`6bf895c`](https://github.com/GitoxideLabs/gitoxide/commit/6bf895c586bb557763c2335a48e56521b163a513))
+    - Merge pull request #2275 from GitoxideLabs/dependabot/cargo/cargo-92eaa62a2e ([`93dd630`](https://github.com/GitoxideLabs/gitoxide/commit/93dd630ca6a2a4622ca74d7eaff42ece2750b6c5))
+    - Bump the cargo group across 1 directory with 14 updates ([`703644c`](https://github.com/GitoxideLabs/gitoxide/commit/703644c8821aae161592d19495d3b3162133324f))
+</details>
+
+## 0.50.0 (2025-11-22)
+
+### New Features
+
+ - <csr-id-924cd62f7ef74f479114c80cee0db0ba5f522579/> allow credential fill with `gix credential fill` to run without a repo
+ - <csr-id-aeee98234002f0cf79bd3629ada5d3ec3d7b86cd/> add `Handshake::ref_map()` to produce a ref-map from a V1 or V2 handshake.
+ - <csr-id-0ed01645e2284f86e1afaf1486f08cad3243ed76/> add `Repository::set_workdir()`.
+   Force this repository instance to use the given worktree directory.
+
+### Other
+
+ - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
+   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
+   
+   This fixes the docs.rs build
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-c2050d0ec74e2c2d1d70b68e57bbb79e196796b9/> make gix-transport I/O mode features additive
+
+### Refactor (BREAKING)
+
+ - <csr-id-36c2be80e61a7a0ef637a5385e1960de13261984/> simplify gix-protocol handshake API by avoiding duplicates that remove the `server` parameter.
+ - <csr-id-19a005135b91641a19a3a70fd714985ce1203333/> hoist handshake ref handling out of transport code
+ - <csr-id-37ab03687a940c89131141b882e5ef1a7fef85be/> store fetch refspecs in Options
+ - <csr-id-f05dfab881481de5de1d23e3266cad9c069f59c5/> flatten RefMap::new() arguments
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 28 commits contributed to the release.
+ - 9 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2198](https://github.com/GitoxideLabs/gitoxide/issues/2198)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2198](https://github.com/GitoxideLabs/gitoxide/issues/2198)**
+    - Allow credential fill with `gix credential fill` to run without a repo ([`924cd62`](https://github.com/GitoxideLabs/gitoxide/commit/924cd62f7ef74f479114c80cee0db0ba5f522579))
+ * **Uncategorized**
+    - Release gix-date v0.11.0, gix-actor v0.36.0, gix-path v0.10.22, gix-object v0.52.0, gix-packetline v0.20.0, gix-filter v0.22.0, gix-revwalk v0.23.0, gix-traverse v0.49.0, gix-worktree-stream v0.24.0, gix-archive v0.24.0, gix-index v0.43.0, gix-worktree v0.44.0, gix-diff v0.55.0, gix-blame v0.5.0, gix-ref v0.55.0, gix-config v0.48.0, gix-url v0.33.2, gix-credentials v0.32.0, gix-discover v0.43.0, gix-dir v0.17.0, gix-mailmap v0.28.0, gix-revision v0.37.0, gix-merge v0.8.0, gix-negotiate v0.23.0, gix-pack v0.62.0, gix-odb v0.72.0, gix-refspec v0.33.0, gix-transport v0.50.0, gix-protocol v0.53.0, gix-status v0.22.0, gix-submodule v0.22.0, gix-worktree-state v0.22.0, gix v0.75.0, gix-fsck v0.14.0, gitoxide-core v0.50.0, gitoxide v0.47.0, safety bump 32 crates ([`82ff92f`](https://github.com/GitoxideLabs/gitoxide/commit/82ff92fa943bad88dc7d5bfa100404de477a3608))
+    - Merge branch 'copilot/fix-issue-2258' ([`b20d9e9`](https://github.com/GitoxideLabs/gitoxide/commit/b20d9e94ab000edccf8802f67b8097c9a30db9cb))
+    - Fix dead code warnings in gix and gitoxide-core ([`b170451`](https://github.com/GitoxideLabs/gitoxide/commit/b170451e6404d4837ab214605375b067479a1542))
+    - Merge pull request #2254 from ralphmodales/credential-fill-fix ([`dba337d`](https://github.com/GitoxideLabs/gitoxide/commit/dba337da2430190b2151a2814fcccc09fd9f1d50))
+    - Refactor ([`41b4a8f`](https://github.com/GitoxideLabs/gitoxide/commit/41b4a8f74a2310d5c8c02918dc6e842e33eac0e5))
+    - Merge pull request #2250 from djc/rm-handshake-layers ([`3c2b422`](https://github.com/GitoxideLabs/gitoxide/commit/3c2b422db647b91b584913b8109b1a6c225d1dd7))
+    - Bring the `service` parameter back to not hardcode the handshake for fetches. ([`c9a97db`](https://github.com/GitoxideLabs/gitoxide/commit/c9a97dbe35d1447319fd953062c465cd1c45d9b6))
+    - Simplify gix-protocol handshake API by avoiding duplicates that remove the `server` parameter. ([`36c2be8`](https://github.com/GitoxideLabs/gitoxide/commit/36c2be80e61a7a0ef637a5385e1960de13261984))
+    - Merge pull request #2242 from djc/ls-refs ([`0ac3080`](https://github.com/GitoxideLabs/gitoxide/commit/0ac3080d00d753429845e994c19b6baa9bccae21))
+    - Add `Handshake::ref_map()` to produce a ref-map from a V1 or V2 handshake. ([`aeee982`](https://github.com/GitoxideLabs/gitoxide/commit/aeee98234002f0cf79bd3629ada5d3ec3d7b86cd))
+    - Refactor ([`48fdf5d`](https://github.com/GitoxideLabs/gitoxide/commit/48fdf5d9d32f45811eba9600f2a3f154c69ce5a9))
+    - Hoist handshake ref handling out of transport code ([`19a0051`](https://github.com/GitoxideLabs/gitoxide/commit/19a005135b91641a19a3a70fd714985ce1203333))
+    - Store fetch refspecs in Options ([`37ab036`](https://github.com/GitoxideLabs/gitoxide/commit/37ab03687a940c89131141b882e5ef1a7fef85be))
+    - Flatten RefMap::new() arguments ([`f05dfab`](https://github.com/GitoxideLabs/gitoxide/commit/f05dfab881481de5de1d23e3266cad9c069f59c5))
+    - Merge pull request #2248 from GitoxideLabs/improvements ([`c400dd3`](https://github.com/GitoxideLabs/gitoxide/commit/c400dd34e29ae3be922e55a282645e9767d36a22))
+    - Adapt to changes in `gix-date` ([`2bcac0c`](https://github.com/GitoxideLabs/gitoxide/commit/2bcac0c1115e77c5e20692e7cf0dcb1bbb87149c))
+    - Merge pull request #2247 from GitoxideLabs/improvements ([`3087b76`](https://github.com/GitoxideLabs/gitoxide/commit/3087b76b2f2f5a4df2d16a9d2cf9721b470b3fba))
+    - Adapt to changes in `gix-date` ([`d5e194d`](https://github.com/GitoxideLabs/gitoxide/commit/d5e194d0ab0e58b02d159b4f48c4e2edd946f355))
+    - Merge pull request #2229 from GitoxideLabs/copilot/fix-refspec-for-shallow-clone ([`bc62b1e`](https://github.com/GitoxideLabs/gitoxide/commit/bc62b1ec3c1cb7e75755abfe1a2b3e8615bdfca4))
+    - Refactor ([`c331afc`](https://github.com/GitoxideLabs/gitoxide/commit/c331afc01388a37b66eaeb39c302742b3187de27))
+    - Add `Repository::set_workdir()`. ([`0ed0164`](https://github.com/GitoxideLabs/gitoxide/commit/0ed01645e2284f86e1afaf1486f08cad3243ed76))
+    - Merge pull request #2236 from djc/additive-transport ([`6e89afa`](https://github.com/GitoxideLabs/gitoxide/commit/6e89afacbf1fc8392ce52d5b87f7e85c9bab17a1))
+    - Make gix-transport I/O mode features additive ([`c2050d0`](https://github.com/GitoxideLabs/gitoxide/commit/c2050d0ec74e2c2d1d70b68e57bbb79e196796b9))
+    - Merge pull request #2230 from yuki0iq/doc_auto_cfg ([`fbf9c39`](https://github.com/GitoxideLabs/gitoxide/commit/fbf9c39c3ccd5e7879a2d7918aa157f7923cb8a5))
+    - Release gix-date v0.10.7, gix-actor v0.35.6, gix-trace v0.1.15, gix-features v0.44.1, gix-hash v0.20.1, gix-object v0.51.1, gix-glob v0.22.1, gix-attributes v0.28.1, gix-packetline-blocking v0.19.3, gix-commitgraph v0.30.1, gix-archive v0.23.1, gix-tempfile v19.0.1, gix-index v0.42.1, gix-config-value v0.15.3, gix-ignore v0.17.1, gix-worktree v0.43.1, gix-diff v0.54.1, gix-ref v0.54.1, gix-sec v0.12.2, gix-config v0.47.1, gix-url v0.33.1, gix-credentials v0.31.1, gix-mailmap v0.27.4, gix-revision v0.36.1, gix-pack v0.61.1, gix-odb v0.71.1, gix-packetline v0.19.3, gix-transport v0.49.1, gix-protocol v0.52.1, gix-status v0.21.1, gix v0.74.1 ([`bdcce5f`](https://github.com/GitoxideLabs/gitoxide/commit/bdcce5f2c6723ebe489dbe936a4656859ce1c2a5))
+    - Remove `doc_auto_cfg` feature to fix docs.rs documentation. ([`6f469a6`](https://github.com/GitoxideLabs/gitoxide/commit/6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b))
+    - Merge pull request #2224 from GitoxideLabs/report ([`3313233`](https://github.com/GitoxideLabs/gitoxide/commit/3313233aa4e7009aed0ddf644f4271fd2a98e8d4))
+</details>
+
+## 0.49.0 (2025-10-22)
+
+### New Features
+
+ - <csr-id-aacc326a198e4c78dd546018eebaff192ff5223d/> add a `gix commit sign` prototype
+ - <csr-id-58b5060958e0090773bb15ffb3679d99704b70a0/> add first debug version of `gix branch list`
+
+### Bug Fixes
+
+ - <csr-id-030e040b6819d2628011520c207313cdc16f262d/> credential fill to allow protocol+host without URL
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 37 commits contributed to the release over the course of 99 calendar days.
+ - 99 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 2 times to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.10.6, gix-utils v0.3.1, gix-actor v0.35.5, gix-trace v0.1.14, gix-validate v0.10.1, gix-path v0.10.21, gix-features v0.44.0, gix-hash v0.20.0, gix-hashtable v0.10.0, gix-object v0.51.0, gix-glob v0.22.0, gix-quote v0.6.1, gix-attributes v0.28.0, gix-command v0.6.3, gix-packetline-blocking v0.19.2, gix-filter v0.21.0, gix-fs v0.17.0, gix-chunk v0.4.12, gix-commitgraph v0.30.0, gix-revwalk v0.22.0, gix-traverse v0.48.0, gix-worktree-stream v0.23.0, gix-archive v0.23.0, gix-bitmap v0.2.15, gix-tempfile v19.0.0, gix-lock v19.0.0, gix-index v0.42.0, gix-config-value v0.15.2, gix-pathspec v0.13.0, gix-ignore v0.17.0, gix-worktree v0.43.0, gix-diff v0.54.0, gix-blame v0.4.0, gix-ref v0.54.0, gix-sec v0.12.1, gix-config v0.47.0, gix-prompt v0.11.2, gix-url v0.33.0, gix-credentials v0.31.0, gix-discover v0.42.0, gix-dir v0.16.0, gix-mailmap v0.27.3, gix-revision v0.36.0, gix-merge v0.7.0, gix-negotiate v0.22.0, gix-pack v0.61.0, gix-odb v0.71.0, gix-refspec v0.32.0, gix-shallow v0.6.0, gix-packetline v0.19.2, gix-transport v0.49.0, gix-protocol v0.52.0, gix-status v0.21.0, gix-submodule v0.21.0, gix-worktree-state v0.21.0, gix v0.74.0, gix-fsck v0.13.0, gitoxide-core v0.49.0, gitoxide v0.46.0, safety bump 42 crates ([`89fb308`](https://github.com/GitoxideLabs/gitoxide/commit/89fb308f1283b404b55916304f7d161fbf13fe10))
+    - Merge pull request #2208 from cruessler/add-commit-signing ([`8699d0f`](https://github.com/GitoxideLabs/gitoxide/commit/8699d0f010458155f7f5e19c8018ea5e58079963))
+    - Refactor ([`82f788e`](https://github.com/GitoxideLabs/gitoxide/commit/82f788e17aa3a4ad4bf21cc4293ec4f621f227ce))
+    - Add a `gix commit sign` prototype ([`aacc326`](https://github.com/GitoxideLabs/gitoxide/commit/aacc326a198e4c78dd546018eebaff192ff5223d))
+    - Merge pull request #2203 from GitoxideLabs/improvements ([`c295db0`](https://github.com/GitoxideLabs/gitoxide/commit/c295db098db9576e12318e7c73864cf270297b1d))
+    - Thanks clippy ([`0b2ffed`](https://github.com/GitoxideLabs/gitoxide/commit/0b2ffede177c6c826d3bca294d1edc937bb9b593))
+    - Merge pull request #2202 from GitoxideLabs/dependabot/cargo/cargo-4a7155215a ([`9365cc3`](https://github.com/GitoxideLabs/gitoxide/commit/9365cc3ae8ad92ba2703170ac2f9a1e4df2ac3be))
+    - Keep showing debug representation of paths in gitoxide-core ([`6f19267`](https://github.com/GitoxideLabs/gitoxide/commit/6f19267a030d4484818dcd0ebe032aeae973e08e))
+    - Thanks clippy ([`f4c37c0`](https://github.com/GitoxideLabs/gitoxide/commit/f4c37c00036b0a14d7d2aba633206e208ca0a32f))
+    - Bump the cargo group across 1 directory with 64 updates ([`838ff95`](https://github.com/GitoxideLabs/gitoxide/commit/838ff95cca60c453bd97bd458ce31b384d00347e))
+    - Merge pull request #2191 from GitoxideLabs/copilot/fix-b53588ea-1fea-485f-82a8-505a9101514e ([`033ce8e`](https://github.com/GitoxideLabs/gitoxide/commit/033ce8ef027a7c071809c6de80c2e8569282709e))
+    - Refactor ([`2cc63ca`](https://github.com/GitoxideLabs/gitoxide/commit/2cc63ca95d6592292f6ae135c62904c1ae9ffb49))
+    - Credential fill to allow protocol+host without URL ([`030e040`](https://github.com/GitoxideLabs/gitoxide/commit/030e040b6819d2628011520c207313cdc16f262d))
+    - Merge pull request #2171 from cruessler/deprecate-in-place-methods-on-head ([`81c0c16`](https://github.com/GitoxideLabs/gitoxide/commit/81c0c1612ddc280edd6e3ceb7f0d7e239516d963))
+    - Adapt to changes in `gix` ([`1536fd8`](https://github.com/GitoxideLabs/gitoxide/commit/1536fd8651fa9477a17da62e442191ac100e396e))
+    - Merge pull request #2145 from GitoxideLabs/dependabot/cargo/cargo-2a6d70b8ef ([`8d8dba2`](https://github.com/GitoxideLabs/gitoxide/commit/8d8dba212f62820c98601ab2d7e0f6daa0fd21b0))
+    - Bump the cargo group with 3 updates ([`074ca1e`](https://github.com/GitoxideLabs/gitoxide/commit/074ca1ef986622b09db011fd65e7f885429f70fb))
+    - Merge pull request #2142 from cruessler/add-branch-list ([`525873f`](https://github.com/GitoxideLabs/gitoxide/commit/525873fafacf339dd781df0d812df02942c220fd))
+    - Move --all to 'branch list' ([`6651548`](https://github.com/GitoxideLabs/gitoxide/commit/6651548f6e426d79f834c5948e3d7877784dfc77))
+    - Merge pull request #2144 from GitoxideLabs/dependabot/cargo/cargo-2dc5bac7e8 ([`cd148cf`](https://github.com/GitoxideLabs/gitoxide/commit/cd148cf8e6551d7127c4b15bba894c9e0a36fe43))
+    - Bump tracing-subscriber from 0.3.19 to 0.3.20 in the cargo group ([`2e25488`](https://github.com/GitoxideLabs/gitoxide/commit/2e254889ff0a79ff82b8cf6f7ae2063092820692))
+    - Merge pull request #2102 from cruessler/split-unified-diff ([`f7f087c`](https://github.com/GitoxideLabs/gitoxide/commit/f7f087cb7b2d239688203f58d166fde42d4bde8c))
+    - Refactor ([`91a611f`](https://github.com/GitoxideLabs/gitoxide/commit/91a611fbdb4005546eca814e4b62267798919994))
+    - Refactor ([`e537611`](https://github.com/GitoxideLabs/gitoxide/commit/e53761181b05f90f59b33906da033096b57a50d8))
+    - Add first debug version of `gix branch list` ([`58b5060`](https://github.com/GitoxideLabs/gitoxide/commit/58b5060958e0090773bb15ffb3679d99704b70a0))
+    - Merge pull request #2106 from cruessler/add-open-with-environment-overrides ([`c149116`](https://github.com/GitoxideLabs/gitoxide/commit/c1491167c2ea8f8a34bb2e30f9e632f790f0fcd8))
+    - Fail `gix tag list` when JSON is requested ([`fb2766b`](https://github.com/GitoxideLabs/gitoxide/commit/fb2766bd006ba1a276dfd5554cf0cdc3b7043ee7))
+    - Merge pull request #2119 from GitoxideLabs/improvements ([`f3be6e3`](https://github.com/GitoxideLabs/gitoxide/commit/f3be6e380450d6b1e178d2fda0446674429bdfe6))
+    - Adapt to changes in `gix-status` ([`5da38e5`](https://github.com/GitoxideLabs/gitoxide/commit/5da38e5a473979965b622869c4676f0f21bed58b))
+    - Merge pull request #2098 from dscho/fix-parsing-of-legacy-git.git-commit ([`ef73c6b`](https://github.com/GitoxideLabs/gitoxide/commit/ef73c6b6631a3308b7bf5d15b69f4f14767a23d5))
+    - Remove unused struct. ([`191067e`](https://github.com/GitoxideLabs/gitoxide/commit/191067ea5781f1f92b4ef3bc710832cb9391be4f))
+    - Merge pull request #2090 from GitoxideLabs/dependabot/cargo/cargo-f147714000 ([`473fe52`](https://github.com/GitoxideLabs/gitoxide/commit/473fe522e84569f77bf38294a412f0d13fa54d63))
+    - Bump the cargo group with 41 updates ([`428412c`](https://github.com/GitoxideLabs/gitoxide/commit/428412c9ff05caabb4f8714d5de769603e18a8f9))
+    - Merge pull request #2086 from cruessler/add-default-sorting-to-tag-list ([`1bccbfe`](https://github.com/GitoxideLabs/gitoxide/commit/1bccbfe8464fdbc1ea6cb4bb87096ea18686e8c1))
+    - Refactor ([`2961f60`](https://github.com/GitoxideLabs/gitoxide/commit/2961f602d1bf7de00634fb6915e81d7e0a922e5d))
+    - Sort tags as versions by default ([`7d619bb`](https://github.com/GitoxideLabs/gitoxide/commit/7d619bb616443c366129b9c1076b04ca8a5db35a))
+    - Merge pull request #2075 from GitoxideLabs/improvements ([`784c046`](https://github.com/GitoxideLabs/gitoxide/commit/784c0465bf87011fe7dbf71a590d3f9e6c8696a8))
+</details>
+
 ## 0.48.0 (2025-07-15)
 
 ### New Features
@@ -23,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 26 commits contributed to the release over the course of 79 calendar days.
+ - 27 commits contributed to the release over the course of 79 calendar days.
  - 79 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -41,6 +244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.10.3, gix-actor v0.35.2, gix-trace v0.1.13, gix-path v0.10.19, gix-features v0.43.0, gix-hash v0.19.0, gix-hashtable v0.9.0, gix-object v0.50.0, gix-glob v0.21.0, gix-attributes v0.27.0, gix-command v0.6.2, gix-packetline-blocking v0.19.1, gix-filter v0.20.0, gix-fs v0.16.0, gix-commitgraph v0.29.0, gix-revwalk v0.21.0, gix-traverse v0.47.0, gix-worktree-stream v0.22.0, gix-archive v0.22.0, gix-tempfile v18.0.0, gix-lock v18.0.0, gix-index v0.41.0, gix-config-value v0.15.1, gix-pathspec v0.12.0, gix-ignore v0.16.0, gix-worktree v0.42.0, gix-diff v0.53.0, gix-blame v0.3.0, gix-ref v0.53.0, gix-sec v0.12.0, gix-config v0.46.0, gix-prompt v0.11.1, gix-url v0.32.0, gix-credentials v0.30.0, gix-discover v0.41.0, gix-dir v0.15.0, gix-mailmap v0.27.2, gix-revision v0.35.0, gix-merge v0.6.0, gix-negotiate v0.21.0, gix-pack v0.60.0, gix-odb v0.70.0, gix-refspec v0.31.0, gix-shallow v0.5.0, gix-packetline v0.19.1, gix-transport v0.48.0, gix-protocol v0.51.0, gix-status v0.20.0, gix-submodule v0.20.0, gix-worktree-state v0.20.0, gix v0.73.0, gix-fsck v0.12.0, gitoxide-core v0.48.0, gitoxide v0.45.0, safety bump 43 crates ([`5a919c4`](https://github.com/GitoxideLabs/gitoxide/commit/5a919c48393020d47c7034946108577dd213b80a))
     - Update changelogs prior to release ([`65037b5`](https://github.com/GitoxideLabs/gitoxide/commit/65037b56918b90ac07454a815b0ed136df2fca3b))
     - `gix submodule list` now prints the submodule path in debug mode ([`a8b5751`](https://github.com/GitoxideLabs/gitoxide/commit/a8b5751369234b29199f035b98d4fb36183fced7))
     - Merge pull request #2073 from cruessler/add-tag-list ([`c7af04d`](https://github.com/GitoxideLabs/gitoxide/commit/c7af04db9b6bb1204e0f4c436d1db8f48a491e86))

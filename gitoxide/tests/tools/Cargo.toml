@@ -26,9 +26,9 @@ xz = ["dep:xz2"]
 
 [dependencies]
 gix-lock = { version = "^20.0.0", path = "../../gix-lock" }
-gix-discover = { version = "^0.44.0", path = "../../gix-discover" }
-gix-worktree = { version = "^0.45.0", path = "../../gix-worktree" }
-gix-fs = { version = "^0.18.0", path = "../../gix-fs" }
+gix-discover = { version = "^0.45.0", path = "../../gix-discover" }
+gix-worktree = { version = "^0.46.0", path = "../../gix-worktree" }
+gix-fs = { version = "^0.18.1", path = "../../gix-fs" }
 gix-tempfile = { version = "^20.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
 winnow = { version = "0.7.14", features = ["simd"] }
