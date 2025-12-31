@@ -13,7 +13,7 @@ The following steps are written for the standard "Issue Advisory With Patch" pat
 
 ## Phase One: Initial Triage and Assessment
 
-This phase begins when a potential vulnerability is reported to us. Usually this is either by a member of the GitoxideLabs org itself via a draft GitHub Security Advisory, by anyone by Private Vulnerability Reporting (PVR) on GitHub or by email, as outlined in `SECURITY.md`. However, this also applies if a vulnerability is communicated in some other way, such as by being publicly disclosed. (Immediate public disclosure is plausible even if the reporter values coordinated disclosure, because a bug that the reporter believes is not a vulnerability, or whose security implications are unknown to the reporter, might be reported initially in a GitHub issue or other public post.)
+This phase begins when a potential vulnerability is reported to us. Usually this is either by a member of the GitoxideLabs org itself via a draft GitHub Security Advisory, by anyone by Private Vulnerability Reporting (PVR) on GitHub or by email, as outlined in [`SECURITY.md`](https://github.com/GitoxideLabs/gitoxide/blob/main/SECURITY.md). However, this also applies if a vulnerability is communicated in some other way, such as by being publicly disclosed. (Immediate public disclosure is plausible even if the reporter values coordinated disclosure, because a bug that the reporter believes is not a vulnerability, or whose security implications are unknown to the reporter, might be reported initially in a GitHub issue or other public post.)
 
 1. **Acknowledge the Report**: Aim to provide an initial response to the reporter within 72 hours, acknowledging receipt of the report.
 
@@ -27,10 +27,10 @@ This phase begins when a potential vulnerability is reported to us. Usually this
 
 4. **Initiate Advisory**:
 
-   - If the report was submitted by email, create a new draft GitHub Security Advisory for the vulnerability.
+   - If the report was submitted by email, [create a new draft GitHub Security Advisory](https://github.com/GitoxideLabs/gitoxide/security/advisories/new) for the vulnerability.
    - Alternatively, we can request that the reporter create the draft advisory via Private Vulnerability Reporting, unless they express a preference for us to manage it.
 
-5. **Triage Severity**: Perform an initial severity assessment. Determine the potential impact on confidentiality, integrity, and availability, and either calculate a CVSS score or validate/adjust the score suggested by the reporter.
+5. **Triage Severity**: Perform an initial severity assessment. Determine the potential impact on confidentiality, integrity, and availability, and either calculate a [CVSS score](https://www.first.org/cvss/) or validate/adjust the score suggested by the reporter.
 
 6. **Choose Disclosure Strategy**: Based on the assessment, decide which disclosure path to follow. While "Issue Advisory With Patch" is the default, choose "Issue Advisory Early" if it is determined that we should publish an advisory before a fix is ready. Reasons for this include, but are not limited to:
 
@@ -59,12 +59,12 @@ Once a vulnerability is validated, a deeper investigation is required to underst
 3. **Analyze for Broader Implications**:
 
    - Investigate if the vulnerability is similar to previously discovered issues in Gitoxide. If so, determine if this is a new, independent flaw or the result of an incomplete fix.
-   - Research if the vulnerability is similar to known issues in other Git implementations, especially Git itself or Git for Windows.
+   - Research if the vulnerability is similar to known issues in other Git implementations, especially [Git itself](https://git-scm.com/) or [Git for Windows](https://gitforwindows.org/).
    - Consider if the vulnerability stems from a flaw in widely accepted semantics of Git repositories or common implementation patterns. If feasible, and on a best-effort basis, check experimentally if other Git implementations are affected.
 
 4. **Coordinate with External Parties (if necessary)**:
 
-   - **Other Git Projects**: If the vulnerability is confirmed or likely to affect other Git implementations, triage whether coordination is needed. For vulnerabilities in Git itself (including Git for Windows), the git-security mailing list is the correct communication channel. We will investigate if this list is also appropriate for broader coordination and update this IRP accordingly.
+   - **Other Git Projects**: If the vulnerability is confirmed or likely to affect other Git implementations, triage whether coordination is needed. For vulnerabilities in Git itself (including Git for Windows), [the git-security mailing list](https://git-scm.com/community#git-security) is the correct communication channel. We will investigate if this list is also appropriate for broader coordination and update this IRP accordingly.
 
    - **Consumers**: For severe vulnerabilities, consider if direct coordination with critical applications or libraries that use Gitoxide is warranted. This is expected to be rare.
 
@@ -73,7 +73,7 @@ Once a vulnerability is validated, a deeper investigation is required to underst
 5. **Update Advisory and Request CVE**:
 
    - Update the draft GitHub Security Advisory with all relevant findings, analysis, and references.
-   - Once the nature of the vulnerability is understood, request a CVE identifier through the GitHub advisory interface.
+   - Once the nature of the vulnerability is understood, [request a CVE identifier](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories#cve-identification-numbers) through the [GitHub advisory interface](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/publishing-a-repository-security-advisory#requesting-a-cve-identification-number-optional).
    - *Note for "Issue Advisory Early": When following this strategy, we publish the initial public advisory once we fully understand the vulnerability, usually around the same time as we request the CVE. We may then update it with further findings to ensure it remains as useful as possible, and to maintain transparency.*
 
 ## Phase Three: Remediation and Disclosure
@@ -90,11 +90,11 @@ This phase covers developing and releasing a fix.
 
 5. **Publish and Release**:
 
-   - Publish the GitHub Security Advisory (GHSA).
+   - [Publish](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/publishing-a-repository-security-advisory#publishing-a-security-advisory) the GitHub Security Advisory (GHSA).
    - Simultaneously, release new versions of all affected crates and any other crates whose dependencies need to be bumped.
    - *Note for "Issue Advisory Early": This step becomes **updating the existing public advisory** with details about the fix, along with the release of the new crate versions.*
 
-6. **Create RUSTSEC Advisory**: Author one or more advisories for the `rustsec/advisory-db` repository. The content should be consistent with the GHSA. Open a pull request to submit them.
+6. **Create RUSTSEC Advisory**: Author one or more advisories for the [`rustsec/advisory-db`](https://github.com/rustsec/advisory-db) repository. The content should be consistent with the GHSA. Open a [pull request](https://github.com/RustSec/advisory-db/blob/main/CONTRIBUTING.md) to submit them.
 
    - *Note for "Issue Advisory Early": A preliminary RUSTSEC advisory should be published along with the public GHSA or immediately thereafter, and likewise updated later with information about the fix.*
 
@@ -104,7 +104,7 @@ After the fix is public, monitor its rollout and ensure information is accurate.
 
 1. **Monitor for Breakages**: Keep an eye on user reports (e.g., GitHub issues) to see if the fix has introduced any breaking changes.
 
-2. **Verify Public Advisories**: A few days after publication, check the global GHSA in the GitHub Advisory Database and the published RUSTSEC advisory. Ensure their content and formatting are correct and consistent with the original repository advisory.
+2. **Verify Public Advisories**: A few days after publication, check the global GHSA in the [GitHub Advisory Database](https://github.com/advisories) and the published [RUSTSEC](https://rustsec.org/advisories/) advisory. Ensure their content and formatting are correct and consistent with the original repository advisory.
 
 3. **Update Advisories**: Update all advisories as needed with any new information, such as adding the CVE number if it was not available at the time of initial publication.
 
