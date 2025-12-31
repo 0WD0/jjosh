@@ -194,6 +194,8 @@ impl ObjectId {
     pub fn from_bytes_or_panic(bytes: &[u8]) -> Self {
         match bytes.len() {
             SIZE_OF_SHA1_DIGEST => Self::Sha1(bytes.try_into().expect("prior length validation")),
+            #[cfg(feature = "sha256")]
+            SIZE_OF_SHA256_DIGEST => Self::Sha256(bytes.try_into().expect("prior length validation")),
             other => panic!("BUG: unsupported hash len: {other}"),
         }
     }

@@ -53,10 +53,9 @@ pub(super) mod _impl {
         /// Finalize the hash and produce an object id.
         ///
         /// Returns [`Error`] if a collision attack is detected.
-        ///
-        /// TODO: Since SHA256 has an infallible `finalize`, it might be worth investigating
-        /// turning the return type into `Result<crate::ObjectId, Infallible>` when this crate is
-        /// compiled with SHA256 support only.
+        // TODO: Since SHA-256 has an infallible `finalize`, it might be worth investigating
+        //       turning the return type into `Result<crate::ObjectId, Infallible>` when this crate is
+        //       compiled with SHA-256 support only.
         #[inline]
         pub fn try_finalize(self) -> Result<crate::ObjectId, Error> {
             match self {
@@ -65,8 +64,9 @@ pub(super) mod _impl {
                     CollisionResult::Mitigated(_) => {
                         // SAFETY: `CollisionResult::Mitigated` is only
                         // returned when `safe_hash()` is on. `Hasher`’s field
-                        // is private, and we only construct it in the
-                        // `Default` instance, which turns `safe_hash()` off.
+                        // is private, and we only construct the SHA-1 variant
+                        // via `Hasher::new_sha1()` (and thus through `hasher()`),
+                        // which configures the builder with `safe_hash(false)`.
                         //
                         // As of Rust 1.84.1, the compiler can’t figure out
                         // this function cannot panic without this.

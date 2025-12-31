@@ -43,15 +43,23 @@ mod cmp_oid {
     #[test]
     #[cfg(all(feature = "sha1", feature = "sha256"))]
     fn it_detects_inequality_sha1_and_sha256() {
-        let prefix_sha1 = gix_hash::Prefix::new(&hex_to_id("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 7).unwrap();
+        let len = 7;
+        let prefix_sha1 = gix_hash::Prefix::new(&hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), len).unwrap();
         let prefix_sha256 = gix_hash::Prefix::new(
             &hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            7,
+            len,
         )
         .unwrap();
-        assert_eq!(prefix_sha256.cmp(&prefix_sha1), Ordering::Greater);
-        assert_eq!(prefix_sha1.to_string(), "bbbbbbb");
-        assert_eq!(prefix_sha256.to_string(), "aaaaaaa");
+        assert_eq!(
+            prefix_sha256.cmp(&prefix_sha1),
+            Ordering::Greater,
+            "prefixes of larger hashes are always larger"
+        );
+        assert_eq!(
+            prefix_sha1.to_string(),
+            prefix_sha256.to_string(),
+            "even though they look the same"
+        );
     }
 
     #[test]
@@ -72,10 +80,17 @@ mod cmp_oid {
         let id = hex_to_id("a920bbb055e1efb9080592a409d3975738b6efb338b6efb338b6efb338b6efb3");
         let prefix = gix_hash::Prefix::new(&id, 6).unwrap();
         assert_eq!(prefix.cmp_oid(&id), Ordering::Equal);
+
+        let sha1 = hex_to_id("a920bbffffffffffffffffffffffffffffffffff");
         assert_eq!(
-            prefix.cmp_oid(&hex_to_id("a920bbffffffffffffffffffffffffffffffffff")),
-            Ordering::Equal
+            prefix.cmp_oid(&sha1),
+            Ordering::Equal,
+            "cmp_oid specifies that it only looks at the prefix, ignoring everything past that.\
+            This is why it compares against a sha1 as well, which shouldn't matter in practice."
         );
+
+        let sha256 = hex_to_id("a920bbffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        assert_eq!(prefix.cmp_oid(&sha256), Ordering::Equal);
         assert_eq!(prefix.to_string(), "a920bb");
     }
 }
@@ -183,8 +198,7 @@ mod try_from {
     }
 
     #[test]
-    #[cfg(all(feature = "sha256", feature = "sha1"))]
-    fn id_too_long() {
+    fn id_always_too_long() {
         let input = "abcdefabcdefabcdefabcdefabcdefabcdefabcd123123123123123123123123123123";
         let expected = Error::TooLong { hex_len: 70 };
         let actual = Prefix::try_from(input).unwrap_err();
@@ -257,8 +271,7 @@ mod from_hex_nonempty {
     }
 
     #[test]
-    #[cfg(all(feature = "sha256", feature = "sha1"))]
-    fn id_too_long() {
+    fn id_always_too_long() {
         let input = "abcdefabcdefabcdefabcdefabcdefabcdefabcd123123123123123123123123123123";
         let expected = Error::TooLong { hex_len: 70 };
         let actual = Prefix::from_hex_nonempty(input).unwrap_err();

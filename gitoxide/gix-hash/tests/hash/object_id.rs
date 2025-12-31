@@ -1,3 +1,5 @@
+use gix_hash::{Kind, ObjectId};
+
 mod from_hex {
 
     mod valid {
@@ -42,6 +44,21 @@ mod from_hex {
     }
 }
 
+#[test]
+#[cfg(feature = "sha1")]
+fn from_bytes_or_panic_sha1() {
+    let expected = ObjectId::null(Kind::Sha1);
+    assert_eq!(ObjectId::from_bytes_or_panic(expected.as_bytes()), expected);
+}
+
+#[test]
+#[cfg(feature = "sha256")]
+fn from_bytes_or_panic_sha256() {
+    let expected = ObjectId::null(Kind::Sha256);
+    assert_eq!(ObjectId::from_bytes_or_panic(expected.as_bytes()), expected);
+}
+
+#[cfg(feature = "sha1")]
 mod sha1 {
     use std::str::FromStr as _;
 
@@ -55,10 +72,9 @@ mod sha1 {
 
     #[test]
     fn empty_blob() {
-        assert_eq!(
-            ObjectId::empty_blob(Kind::Sha1),
-            hash_contents(b"blob 0\0").expect("empty blob to not collide"),
-        );
+        let actual = ObjectId::empty_blob(Kind::Sha1);
+        assert_eq!(actual, hash_contents(b"blob 0\0").expect("empty blob to not collide"),);
+        assert_eq!(format!("{actual:?}"), "Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391)");
     }
 
     #[test]
@@ -118,5 +134,34 @@ mod sha1 {
             panic!("expected Shambles input to collide");
         };
         assert_eq!(digest, expected);
+    }
+}
+
+#[cfg(feature = "sha256")]
+mod sha256 {
+    use gix_hash::{hasher, Kind, ObjectId};
+
+    fn hash_contents(s: &[u8]) -> Result<ObjectId, hasher::Error> {
+        let mut hasher = hasher(Kind::Sha256);
+        hasher.update(s);
+        hasher.try_finalize()
+    }
+
+    #[test]
+    fn empty_blob() {
+        let actual = ObjectId::empty_blob(Kind::Sha256);
+        assert_eq!(actual, hash_contents(b"blob 0\0").expect("empty blob to not collide"),);
+        assert_eq!(
+            format!("{actual:?}"),
+            "Sha256(473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813)"
+        );
+    }
+
+    #[test]
+    fn empty_tree() {
+        assert_eq!(
+            ObjectId::empty_tree(Kind::Sha256),
+            hash_contents(b"tree 0\0").expect("empty tree to not collide"),
+        );
     }
 }

@@ -23,9 +23,9 @@ impl FromStr for Kind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "sha1" | "SHA1" => Kind::Sha1,
+            "sha1" | "SHA1" | "SHA-1" => Kind::Sha1,
             #[cfg(feature = "sha256")]
-            "sha256" | "SHA256" => Kind::Sha256,
+            "sha256" | "SHA256" | "SHA-256" => Kind::Sha256,
             other => return Err(other.into()),
         })
     }
@@ -34,9 +34,9 @@ impl FromStr for Kind {
 impl std::fmt::Display for Kind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Kind::Sha1 => f.write_str("SHA1"),
+            Kind::Sha1 => f.write_str("sha1"),
             #[cfg(feature = "sha256")]
-            Kind::Sha256 => f.write_str("SHA256"),
+            Kind::Sha256 => f.write_str("sha256"),
         }
     }
 }
@@ -101,8 +101,8 @@ impl Kind {
     }
 
     /// Returns the kind of hash that would fit the given `hex_len`, or `None` if there is no fitting hash.
-    /// Note that `0` as `hex_len` up to 40 always yields `SHA1` while anything in the range 41..64
-    /// always yields `SHA256` if it is enabled.
+    /// Note that `0` as `hex_len` up to 40 always yields SHA-1 while anything in the range 41..64
+    /// always yields SHA-256 if it is enabled.
     #[inline]
     pub const fn from_hex_len(hex_len: usize) -> Option<Self> {
         Some(match hex_len {

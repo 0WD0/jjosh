@@ -99,8 +99,8 @@ impl oid {
         }
     }
 
-    /// Create an `oid` from the input `value` slice without performing any safety check.
-    /// Use only once sure that `value` is a hash of valid length.
+    /// Create an `oid` from the input `value` slice without performing any length check.
+    /// Use only once you are sure that `value` is a hash of valid length, or panics will occur on most uses.
     pub fn from_bytes_unchecked(value: &[u8]) -> &Self {
         Self::from_bytes(value)
     }
@@ -154,12 +154,15 @@ impl oid {
 
     /// Write ourselves to the `out` in hexadecimal notation, returning the hex-string ready for display.
     ///
-    /// **Panics** if the buffer isn't big enough to hold twice as many bytes as the current binary size.
+    /// # Panics
+    ///
+    /// If the buffer isn't big enough to hold twice as many bytes as the current binary size.
     #[inline]
     #[must_use]
     pub fn hex_to_buf<'a>(&self, buf: &'a mut [u8]) -> &'a mut str {
         let num_hex_bytes = self.bytes.len() * 2;
-        faster_hex::hex_encode(&self.bytes, &mut buf[..num_hex_bytes]).expect("to count correctly")
+        faster_hex::hex_encode(&self.bytes, &mut buf[..num_hex_bytes])
+            .expect("buffer size must be at least twice the hash digest size in bytes")
     }
 
     /// Write ourselves to `out` in hexadecimal notation.
@@ -202,7 +205,7 @@ impl oid {
     }
 }
 
-/// Methods for creating special SHA1 and SHA256 `oid`s
+/// Methods for creating special-case `oid`s (null, empty blob, empty tree)
 impl oid {
     /// Returns a SHA1 digest with all bytes being initialized to zero.
     #[inline]
