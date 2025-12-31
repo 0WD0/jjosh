@@ -43,33 +43,12 @@ impl TimeBuf {
     }
 }
 
-impl std::io::Write for TimeBuf {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // Validate that the bytes being written are valid UTF-8 to maintain
-        // the safety invariant of as_str(), which uses unsafe UTF-8 conversion.
-        // This prevents issue #2305 where non-UTF8 bytes could create invalid strings.
-        std::str::from_utf8(buf).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Invalid UTF-8 sequence: {e}"),
-            )
-        })?;
-        self.buf.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.buf.flush()
-    }
-}
-
 impl Time {
     /// Serialize this instance into `buf`, exactly as it would appear in the header of a Git commit,
     /// and return `buf` as `&str` for easy consumption.
     pub fn to_str<'a>(&self, buf: &'a mut TimeBuf) -> &'a str {
         buf.clear();
-        self.write_to(buf)
-            // SAFETY: write_to() only writes ASCII characters (digits, spaces, +/- signs),
-            // which are always valid UTF-8, so UTF-8 validation in TimeBuf::write() will never fail.
+        self.write_to(&mut buf.buf)
             .expect("write to memory of just the right size cannot fail");
         buf.as_str()
     }
