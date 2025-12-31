@@ -109,13 +109,15 @@ mod write_to {
 
     #[test]
     fn max() -> gix_testtools::Result {
-        let mut buf = TimeBuf::default();
+        let mut buf = Vec::new();
         Time::MAX.write_to(&mut buf)?;
         assert_eq!(Time::MAX.size(), 25, "The largest possible serialized size");
 
         let expected = "9223372036854775807 +9959";
-        assert_eq!(buf.as_str(), expected);
-        assert_eq!(buf.as_str().len(), Time::MAX.size());
+        assert_eq!(buf.as_bstr(), expected);
+        assert_eq!(buf.len(), Time::MAX.size());
+
+        let mut buf = TimeBuf::default();
         assert_eq!(Time::MAX.to_str(&mut buf), expected);
         Ok(())
     }
