@@ -6,7 +6,7 @@ The tool invocation `ein tool estimate-hours` now rates the project cost at **10
 
 My timetracker reveals that I **spent 892h on open source work** (which is 57%OTYB) which is (still) dominated by `gitoxide` and which is supported [_via GitHub sponsors_](https://github.com/sponsors/Byron) at 619h. **1020h were for commercial work and consulting** (which is 217%OTYB). The **total of 1912 hours worked** boils down to **5.2 hours of work per day (36.8h per week)**, which is 94%OTYB.
 
-My open-source work is still financially sustainable even without income through commercial work, which is something I am most grateful for. 
+My open-source work is still financially sustainable even without income through commercial work, which is something I am most grateful for.
 
 Thus far, **I have spent the last 1719 days to getting `gitoxide` off the ground**, and it's still quite far from even reaching parity with `git2` despite making great strides. Even though feature-wise it's getting closer, it's still unclear how to get everything to stability while also making the API easy-to-use, yet powerful enough to squeeze out every last bit of performance.
 
@@ -28,17 +28,17 @@ A smaller but no less important feature that powers all of that is the new tree-
 
 #### `gix clean` with precious files
 
-Definitely my personal favorite and a tool I use often if `gix clean` with its awareness of [precious files](https://github.com/GitoxideLabs/gitoxide/discussions/1308). These files are not to be tracked, but also not disposable, and a great way to keep your editor-configuration safe. 
+Definitely my personal favorite and a tool I use often if `gix clean` with its awareness of [precious files](https://github.com/GitoxideLabs/gitoxide/discussions/1308). These files are not to be tracked, but also not disposable, and a great way to keep your editor-configuration safe.
 
 It's powered by the new `gix-dirwalk` crate which helps to classify entire directories, and is the basis for `gix status` and future `gix add` as well.
 
-#### `gix status` (*nearly there*) 
+#### `gix status` (*nearly there*)
 
 It has been such a long time in the making, and despite best attempts (i.e. my really trying a week before the year's end), it's still not quite there. But what's there is very promising as it seems to be 1.85 faster than Git on the WebKit repository already. Git is very optimised, but it's not as parallel as it could be which is where `gitoxide` has its major gains. The directory walk to find untracked files and the index-refresh are run in parallel, something that ultimately is faster even though Git would otherwise be a bit faster if run sequentially.
 
 As a special feature, `gitoxide` implements the `status` query as iterator which *moves the work out of the consuming thread*, something that will further accelerate real-world applications without any added complexity on their side.
 
-Of course, the complexity has to go somewhere and `status` as it's implemented now is a multi-layered monster of what seems like essential complexity. 
+Of course, the complexity has to go somewhere and `status` as it's implemented now is a multi-layered monster of what seems like essential complexity.
 
 #### A very first `gix blame`
 
@@ -51,7 +51,7 @@ It's well worth mentioning that I think that `gix blame` has to the potential to
 #### Ephemeral objects and API improvements
 
 Often it's useful to just *try* something without leaving any trace of it. This could, for example, be answering if something would merge cleanly or not.
-Now it's possible to turn on [in-memory objects](https://docs.rs/gix/0.69.1/gix/struct.Repository.html#method.with_object_memory) so all new objects are kept in memory instead of ending up as garbage on disk. 
+Now it's possible to turn on [in-memory objects](https://docs.rs/gix/0.69.1/gix/struct.Repository.html#method.with_object_memory) so all new objects are kept in memory instead of ending up as garbage on disk.
 
 On top of that, various convenience methods have been added to make the API around these parts as easy to use as they are in `git2`.
 
@@ -63,7 +63,7 @@ I sure learned a lot while working with him even though I still wouldn't claim t
 
 #### Release Notifications
 
-It was also him who added countless other improvements, among which also is *release notifications*. Just subscribe to [this discussion](https://github.com/GitoxideLabs/gitoxide/discussions/1693) to be informed only about `gitoxide` releases, something that typically happens once a month. 
+It was also him who added countless other improvements, among which also is *release notifications*. Just subscribe to [this discussion](https://github.com/GitoxideLabs/gitoxide/discussions/1693) to be informed only about `gitoxide` releases, something that typically happens once a month.
 
 ### A word of Gratitude
 
@@ -75,9 +75,9 @@ Some shoutouts shall follow.
 
 #### At your service, GitButler!
 
-When GitButler got in touch, judging by my initial response, I must have *felt* that this could be a life-changing event. And even that might have been an understatement. 
+When GitButler got in touch, judging by my initial response, I must have *felt* that this could be a life-changing event. And even that might have been an understatement.
 
-After all it's not just helping to make [GitButler](https://gitbutler.com) the best Git client and developer tool. It's also feeling like being a part of the global Git community, with a massive opportunity [to meet all the people](https://merge.berlin), just before getting [to speak on GitMerge](https://www.youtube.com/watch?v=r1LwDYtghPM) about `gitoxide`. 
+After all it's not just helping to make [GitButler](https://gitbutler.com) the best Git client and developer tool. It's also feeling like being a part of the global Git community, with a massive opportunity [to meet all the people](https://merge.berlin), just before getting [to speak on GitMerge](https://www.youtube.com/watch?v=r1LwDYtghPM) about `gitoxide`.
 
 And if this was just the warmup, I can't even imagine how 2025 is going to be. Let's find out!
 
@@ -107,7 +107,7 @@ I will do my best to do well by you and truly make `gitoxide` the project that m
 
 It's taking me years to finish the integration work and implement all features needed to fully replace `git2` in `cargo`, and yet the `cargo` team stays onboard with this work!
 
-Thanks so much, but… `gix status` is now unstoppably coming, and soon I will get to continue the integration. 
+Thanks so much, but… `gix status` is now unstoppably coming, and soon I will get to continue the integration.
 2025 - the year it continues!
 
 #### Thanks Everyone

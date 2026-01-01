@@ -50,7 +50,9 @@ jobs:
           rustup toolchain install "$MSRV" nightly --profile minimal --no-self-update
       - name: Downgrade locked dependencies to lowest allowed versions
         run: |
-          # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is available.
+          # TODO(msrv): Use `cargo update --minimal-versions` when `--minimal-versions` is
+          # available. See https://github.com/rust-lang/cargo/issues/5657 on that feature,
+          # and https://github.com/GitoxideLabs/gitoxide/issues/1119 on its use here.
           cargo +nightly update -Zminimal-versions
       - name: Run some `cargo build` commands on `gix`
         run: just check-rust-version "$MSRV"
@@ -130,7 +132,8 @@ jobs:
           # to the log are synchronized so fragments of separate log entries aren't interleaved,
           # even in concurrent runs. This wrapper knows what executable it is wrapping because,
           # when deployed, this wrapper (or a symlink) replaces that executable, which will itself
-          # have been moved aside by being renamed with a `.orig` suffix, so this can call it.
+          # have been moved aside by being renamed with a `.orig` suffix, so this can call it. (The
+          # lockfile name GUID is just to avoid unintentional collision with unrelated lockfiles.)
           cat >/usr/local/bin/wrapper1 <<'EOF'
           #!/bin/sh
           set -e
