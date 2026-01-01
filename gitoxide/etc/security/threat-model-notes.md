@@ -88,6 +88,6 @@ In some use cases, an application's own containing directory is an untrusted sea
 
 ### Being investigated: Can we select CodeQL queries to reflect these subtleties?
 
-In CodeQL, a combination of queries, including all those from "remote only" and a hand-picked selection of those from from "remote and local" could be used.
+In CodeQL, a combination of queries, including all those from "remote only" and a hand-picked selection of those from "remote and local" could be used.
 
 (This is separate from the goal of accurately *stating* in a threat modeling document what the threat model is. But hopefully either one, if done, would help figure out how to do the other.)
