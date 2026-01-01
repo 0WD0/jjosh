@@ -27,9 +27,8 @@ Another big thanks goes to all the contributors which by now do most of the work
 
 #### Thanks, GitHub!
 
-GitHub ran a security centric program that `gitoxide` could participate in, as represented by no other than [Eliah Kagan](https://github.com/EliahKagan) who couldn't be more suited for this task.
+GitHub provides useful resources and advice, and we've had the opportunity to learn from their experts, which [Eliah Kagan](https://github.com/EliahKagan) has found to be especially helpful. This will continue to lead to further improvements in the coming months.
 
-The opportunity came with a sponsorship and generous Azure credits. Now I hope to one day use them for something meaningful 😅.
 GitHub also provides Copilot for free, which is incredibly useful to me, so special-thanks for that!
 
 #### Thanks, Meta!
