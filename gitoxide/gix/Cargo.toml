@@ -350,7 +350,7 @@ gix-features = { version = "^0.45.1", path = "../gix-features", features = [
 gix-trace = { version = "^0.1.16", path = "../gix-trace" }
 
 gix-glob = { version = "^0.23.0", path = "../gix-glob" }
-gix-credentials = { version = "^0.34.0", path = "../gix-credentials", optional = true }
+gix-credentials = { version = "^0.34.1", path = "../gix-credentials", optional = true }
 gix-prompt = { version = "^0.12.0", path = "../gix-prompt", optional = true }
 gix-index = { version = "^0.45.0", path = "../gix-index", optional = true }
 gix-attributes = { version = "^0.29.0", path = "../gix-attributes", optional = true }
@@ -364,7 +364,7 @@ gix-submodule = { version = "^0.24.0", path = "../gix-submodule", optional = tru
 gix-status = { version = "^0.24.0", path = "../gix-status", optional = true, features = [
     "worktree-rewrites",
 ] }
-gix-command = { version = "^0.6.3", path = "../gix-command", optional = true }
+gix-command = { version = "^0.6.4", path = "../gix-command", optional = true }
 
 gix-worktree-stream = { version = "^0.26.0", path = "../gix-worktree-stream", optional = true }
 gix-archive = { version = "^0.26.0", path = "../gix-archive", default-features = false, optional = true }
@@ -372,7 +372,7 @@ gix-blame = { version = "^0.7.0", path = "../gix-blame", optional = true }
 
 # For communication with remotes
 gix-protocol = { version = "^0.55.0", path = "../gix-protocol" }
-gix-transport = { version = "^0.52.0", path = "../gix-transport", optional = true }
+gix-transport = { version = "^0.52.1", path = "../gix-transport", optional = true }
 
 # Just to get the progress-tree feature
 prodash = { version = "30.0.1", optional = true, features = ["progress-tree"] }

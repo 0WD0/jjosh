@@ -5,13 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.34.1 (2026-01-02)
+
+A maintenance release without user-facing changes.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 7 commits contributed to the release over the course of 1 calendar day.
+ - 1 day passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)**
+    - Update changelogs prior to `gix-transport` release ([`ae8c9d3`](https://github.com/GitoxideLabs/gitoxide/commit/ae8c9d3ff56a38f2cd92c6f5afa9e93434939fe0))
+ * **Uncategorized**
+    - Merge pull request #2324 from EliahKagan/run-ci/cred-test-sh ([`0b1a7b7`](https://github.com/GitoxideLabs/gitoxide/commit/0b1a7b7914fe2bffdea2fd8628cabb7a6edbe262))
+    - Adjust misleading `gix-credentials` shell script fixture shebangs ([`e7f5910`](https://github.com/GitoxideLabs/gitoxide/commit/e7f5910a7b90eb89f22325d0e87fd8669cf8e8ec))
+    - Refactor now that `script_helper()` is shared ([`ca3225b`](https://github.com/GitoxideLabs/gitoxide/commit/ca3225bf8029bc7eac5f25386bd02cd6f6b45b7d))
+    - Fix gix-credentials tests in helper::cascade when sh is not in path ([`0ceff02`](https://github.com/GitoxideLabs/gitoxide/commit/0ceff025a70cb136f2e65f2b394fa4da1cffccdf))
+    - Fix gix-credentials tests in helper::invoke when sh is not in path ([`8b8fa0f`](https://github.com/GitoxideLabs/gitoxide/commit/8b8fa0fdf687318820c7824949c2004a6a8eb635))
+    - Merge pull request #2322 from GitoxideLabs/report ([`211b4fb`](https://github.com/GitoxideLabs/gitoxide/commit/211b4fb5a31792eda91191789f3656c217960986))
+</details>
+
 ## 0.34.0 (2025-12-31)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release over the course of 9 calendar days.
+ - 2 commits contributed to the release over the course of 9 calendar days.
  - 9 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.12.0, gix-actor v0.37.0, gix-features v0.45.1, gix-hash v0.21.1, gix-object v0.54.0, gix-filter v0.24.0, gix-fs v0.18.1, gix-revwalk v0.25.0, gix-traverse v0.51.0, gix-worktree-stream v0.26.0, gix-archive v0.26.0, gix-index v0.45.0, gix-worktree v0.46.0, gix-diff v0.57.0, gix-blame v0.7.0, gix-ref v0.57.0, gix-config v0.50.0, gix-credentials v0.34.0, gix-discover v0.45.0, gix-dir v0.19.0, gix-mailmap v0.29.0, gix-revision v0.39.0, gix-merge v0.10.0, gix-negotiate v0.25.0, gix-pack v0.64.0, gix-odb v0.74.0, gix-refspec v0.35.0, gix-transport v0.52.0, gix-protocol v0.55.0, gix-status v0.24.0, gix-submodule v0.24.0, gix-worktree-state v0.24.0, gix v0.77.0, gix-fsck v0.16.0, gitoxide-core v0.52.0, gitoxide v0.49.0, safety bump 32 crates ([`115e208`](https://github.com/GitoxideLabs/gitoxide/commit/115e208b7bc7a96024e64ea872f2731b5125a6e0))
     - Merge pull request #2299 from GitoxideLabs/report ([`d6c5b9d`](https://github.com/GitoxideLabs/gitoxide/commit/d6c5b9d7843c24663ffcf20bd756ea3eb747ca0a))
 </details>
 

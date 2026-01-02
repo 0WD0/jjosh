@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "gix-command"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "bstr",
  "gix-path",
@@ -1563,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "gix-credentials"
-version = "0.34.0"
+version = "0.34.1"
 dependencies = [
  "bstr",
  "document-features",
@@ -2383,7 +2383,7 @@ dependencies = [
 
 [[package]]
 name = "gix-transport"
-version = "0.52.0"
+version = "0.52.1"
 dependencies = [
  "async-std",
  "async-trait",
