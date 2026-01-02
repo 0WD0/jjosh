@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.34.1 (2026-01-02)
 
 A maintenance release without user-facing changes.
 
@@ -13,10 +13,10 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 6 commits contributed to the release over the course of 1 calendar day.
+ - 7 commits contributed to the release over the course of 1 calendar day.
  - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
+ - 1 unique issue was worked on: [#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)
 
 ### Commit Details
 
@@ -24,6 +24,8 @@ A maintenance release without user-facing changes.
 
 <details><summary>view details</summary>
 
+ * **[#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)**
+    - Update changelogs prior to `gix-transport` release ([`ae8c9d3`](https://github.com/GitoxideLabs/gitoxide/commit/ae8c9d3ff56a38f2cd92c6f5afa9e93434939fe0))
  * **Uncategorized**
     - Merge pull request #2324 from EliahKagan/run-ci/cred-test-sh ([`0b1a7b7`](https://github.com/GitoxideLabs/gitoxide/commit/0b1a7b7914fe2bffdea2fd8628cabb7a6edbe262))
     - Adjust misleading `gix-credentials` shell script fixture shebangs ([`e7f5910`](https://github.com/GitoxideLabs/gitoxide/commit/e7f5910a7b90eb89f22325d0e87fd8669cf8e8ec))

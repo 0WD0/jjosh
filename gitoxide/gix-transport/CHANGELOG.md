@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.52.1 (2026-01-02)
 
 Update to the latest version of `reqwest` for improved dependencies.
 
@@ -13,10 +13,10 @@ Update to the latest version of `reqwest` for improved dependencies.
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 1 calendar day.
+ - 4 commits contributed to the release over the course of 1 calendar day.
  - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
- - 0 issues like '(#ID)' were seen in commit messages
+ - 1 unique issue was worked on: [#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)
 
 ### Commit Details
 
@@ -24,6 +24,8 @@ Update to the latest version of `reqwest` for improved dependencies.
 
 <details><summary>view details</summary>
 
+ * **[#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)**
+    - Update changelogs prior to `gix-transport` release ([`ae8c9d3`](https://github.com/GitoxideLabs/gitoxide/commit/ae8c9d3ff56a38f2cd92c6f5afa9e93434939fe0))
  * **Uncategorized**
     - Merge pull request #2328 from NobodyXu/patch-1 ([`5de660e`](https://github.com/GitoxideLabs/gitoxide/commit/5de660e0779b51288c443d6d44a5ae89519b499c))
     - Bump reqwest to 0.13.1 ([`c8196c6`](https://github.com/GitoxideLabs/gitoxide/commit/c8196c6f7f55328b2518e94c982a93f620515211))
