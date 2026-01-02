@@ -9,10 +9,8 @@
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
 #![deny(missing_docs, rust_2018_idioms, unsafe_code)]
 
-// Remove this once other hashes (e.g., SHA256, and potentially others)
-// are supported, and this crate can build without [`ObjectId::Sha1`].
-#[cfg(not(feature = "sha1"))]
-compile_error!("Please set the `sha1` feature flag");
+#[cfg(all(not(feature = "sha1"), not(feature = "sha256")))]
+compile_error!("Please set either the `sha1` or the `sha256` feature flag");
 
 #[path = "oid.rs"]
 mod borrowed;
@@ -47,8 +45,10 @@ pub struct Prefix {
 }
 
 /// The size of a SHA1 hash digest in bytes.
+#[cfg(feature = "sha1")]
 const SIZE_OF_SHA1_DIGEST: usize = 20;
 /// The size of a SHA1 hash digest in hex.
+#[cfg(feature = "sha1")]
 const SIZE_OF_SHA1_HEX_DIGEST: usize = 2 * SIZE_OF_SHA1_DIGEST;
 
 /// The size of a SHA256 hash digest in bytes.
@@ -58,8 +58,10 @@ const SIZE_OF_SHA256_DIGEST: usize = 32;
 #[cfg(feature = "sha256")]
 const SIZE_OF_SHA256_HEX_DIGEST: usize = 2 * SIZE_OF_SHA256_DIGEST;
 
+#[cfg(feature = "sha1")]
 const EMPTY_BLOB_SHA1: &[u8; SIZE_OF_SHA1_DIGEST] =
     b"\xe6\x9d\xe2\x9b\xb2\xd1\xd6\x43\x4b\x8b\x29\xae\x77\x5a\xd8\xc2\xe4\x8c\x53\x91";
+#[cfg(feature = "sha1")]
 const EMPTY_TREE_SHA1: &[u8; SIZE_OF_SHA1_DIGEST] =
     b"\x4b\x82\x5d\xc6\x42\xcb\x6e\xb9\xa0\x60\xe5\x4b\xf8\xd6\x92\x88\xfb\xee\x49\x04";
 
@@ -74,9 +76,11 @@ const EMPTY_TREE_SHA256: &[u8; SIZE_OF_SHA256_DIGEST] = b"\x6e\xf1\x9b\x41\x22\x
 #[non_exhaustive]
 pub enum Kind {
     /// The SHA1 hash with 160 bits.
-    #[default]
+    #[cfg_attr(feature = "sha1", default)]
+    #[cfg(feature = "sha1")]
     Sha1 = 1,
     /// The SHA256 hash with 256 bits.
+    #[cfg_attr(all(not(feature = "sha1"), feature = "sha256"), default)]
     #[cfg(feature = "sha256")]
     Sha256 = 2,
 }

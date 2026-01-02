@@ -114,6 +114,7 @@ pub(super) mod _impl {
         /// Create a new hash writer which hashes all bytes written to `inner` with a hash of `kind`.
         pub fn new(inner: T, object_hash: crate::Kind) -> Self {
             match object_hash {
+                #[cfg(feature = "sha1")]
                 crate::Kind::Sha1 => Write {
                     inner,
                     hash: crate::hasher(object_hash),

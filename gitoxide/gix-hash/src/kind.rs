@@ -1,6 +1,9 @@
 use std::str::FromStr;
 
-use crate::{oid, Kind, ObjectId, SIZE_OF_SHA1_DIGEST, SIZE_OF_SHA1_HEX_DIGEST};
+use crate::{oid, Kind, ObjectId};
+
+#[cfg(feature = "sha1")]
+use crate::{SIZE_OF_SHA1_DIGEST, SIZE_OF_SHA1_HEX_DIGEST};
 
 #[cfg(feature = "sha256")]
 use crate::{SIZE_OF_SHA256_DIGEST, SIZE_OF_SHA256_HEX_DIGEST};
@@ -10,6 +13,7 @@ impl TryFrom<u8> for Kind {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
+            #[cfg(feature = "sha1")]
             1 => Kind::Sha1,
             #[cfg(feature = "sha256")]
             2 => Kind::Sha256,
@@ -23,6 +27,7 @@ impl FromStr for Kind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
+            #[cfg(feature = "sha1")]
             "sha1" | "SHA1" | "SHA-1" => Kind::Sha1,
             #[cfg(feature = "sha256")]
             "sha256" | "SHA256" | "SHA-256" => Kind::Sha256,
@@ -34,6 +39,7 @@ impl FromStr for Kind {
 impl std::fmt::Display for Kind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => f.write_str("sha1"),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => f.write_str("sha256"),
@@ -84,6 +90,7 @@ impl Kind {
     #[inline]
     pub const fn len_in_hex(&self) -> usize {
         match self {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => SIZE_OF_SHA1_HEX_DIGEST,
             #[cfg(feature = "sha256")]
             Kind::Sha256 => SIZE_OF_SHA256_HEX_DIGEST,
@@ -94,6 +101,7 @@ impl Kind {
     #[inline]
     pub const fn len_in_bytes(&self) -> usize {
         match self {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => SIZE_OF_SHA1_DIGEST,
             #[cfg(feature = "sha256")]
             Kind::Sha256 => SIZE_OF_SHA256_DIGEST,
@@ -106,6 +114,7 @@ impl Kind {
     #[inline]
     pub const fn from_hex_len(hex_len: usize) -> Option<Self> {
         Some(match hex_len {
+            #[cfg(feature = "sha1")]
             0..=SIZE_OF_SHA1_HEX_DIGEST => Kind::Sha1,
             #[cfg(feature = "sha256")]
             0..=SIZE_OF_SHA256_HEX_DIGEST => Kind::Sha256,
@@ -124,6 +133,7 @@ impl Kind {
     #[inline]
     pub(crate) fn from_len_in_bytes(bytes: usize) -> Self {
         match bytes {
+            #[cfg(feature = "sha1")]
             SIZE_OF_SHA1_DIGEST => Kind::Sha1,
             #[cfg(feature = "sha256")]
             SIZE_OF_SHA256_DIGEST => Kind::Sha256,
@@ -135,6 +145,7 @@ impl Kind {
     #[inline]
     pub fn null_ref(&self) -> &'static oid {
         match self {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => oid::null_sha1(),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => oid::null_sha256(),
@@ -145,6 +156,7 @@ impl Kind {
     #[inline]
     pub const fn null(&self) -> ObjectId {
         match self {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => ObjectId::null_sha1(),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => ObjectId::null_sha256(),
