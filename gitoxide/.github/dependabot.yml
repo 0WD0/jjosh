@@ -37,7 +37,7 @@ updates:
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
-      interval: weekly
+      interval: monthly
     commit-message:
       # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
       prefix: ''
