@@ -6,8 +6,6 @@ on:
       - main
       - 'run-ci/**'
       - '**/run-ci/**'
-    tags-ignore:
-      - '*'
   pull_request:
     branches:
       - main
