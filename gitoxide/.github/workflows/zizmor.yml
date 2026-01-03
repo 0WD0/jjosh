@@ -2,9 +2,14 @@ name: GitHub Actions Security Analysis with zizmor 🌈
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+      - 'run-ci/**'
+      - '**/run-ci/**'
   pull_request:
-    branches: ["**"]
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions: {}  # Expanded in the `zizmor` job.
 
