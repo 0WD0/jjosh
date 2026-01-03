@@ -554,5 +554,10 @@ jobs:
           pacboy: cc:p
           path-type: inherit
       - name: 'Installation from crates.io: gitoxide'
-        run: cargo +${{ matrix.rust }} install --target ${{ matrix.target }} --no-default-features --features max-pure --target-dir install-artifacts --debug --force gitoxide
+        env:
+          RUST: ${{ matrix.rust }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo +"$RUST" install --target "$TARGET" --no-default-features \
+            --features max-pure --target-dir install-artifacts --debug --force gitoxide
         shell: msys2 {0}

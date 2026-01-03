@@ -252,9 +252,14 @@ jobs:
       - name: Test (nextest)
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
-        run: cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
+          TEST_ARGS: ${{ matrix.test-args }}
+        run: |
+          cargo nextest run --workspace --no-fail-fast -- \
+            $TEST_ARGS  # Word splitting intended.
       - name: Check that tracked archives are up to date
-        run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
+        run: |
+          # If this fails, the fix is usually to commit a regenerated archive.
+          git diff --exit-code
       - name: Remove Git for Windows directories from PATH
         if: startsWith(matrix.os, 'windows')
         run: |
@@ -271,7 +276,11 @@ jobs:
         run: if ($null -eq $Env:EXEPATH) { exit 0 } else { exit 1 }
       - name: Retest gix-path without `git` in `PATH` (nextest)
         if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run -p gix-path --no-fail-fast -- ${{ matrix.test-args }}
+        env:
+          TEST_ARGS: ${{ matrix.test-args }}
+        run: |
+          cargo nextest run -p gix-path --no-fail-fast -- \
+            $TEST_ARGS  # Word splitting intended.
 
   test-fixtures-windows:
     strategy:
@@ -301,8 +310,10 @@ jobs:
         id: nextest
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
+          TEST_ARGS: ${{ matrix.test-args }}
         run: |
-          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- ${{ matrix.test-args }}
+          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- \
+            $TEST_ARGS  # Word splitting intended.
         continue-on-error: true
       - name: Check for errors
         run: |
@@ -345,6 +356,8 @@ jobs:
 
     steps:
       - name: Prerequisites
+        env:
+          RUNNER_ARCH: ${{ matrix.runner-arch }}
         run: |
           prerequisites=(
             build-essential
@@ -354,11 +367,11 @@ jobs:
             git
             jq
             libssl-dev
-            libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
+            "libstdc++6:$RUNNER_ARCH"  # To support external 64-bit Node.js for actions.
             pkgconf
             python3-minimal
           )
-          dpkg --add-architecture ${{ matrix.runner-arch }}
+          dpkg --add-architecture "$RUNNER_ARCH"
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash  # This step needs `bash`, and the default in container jobs is `sh`.
@@ -366,10 +379,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust via Rustup
+        env:
+          HOST_TRIPLE: ${{ matrix.host-triple }}
         run: |
           # Specify toolchain to avoid possible misdetection based on the 64-bit running kernel.
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-            sh -s -- -y --default-host ${{ matrix.host-triple }} --profile minimal
+            sh -s -- -y --default-host "$HOST_TRIPLE" --profile minimal
       - name: Add Rust tools to path
         run: echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -557,7 +572,7 @@ jobs:
       - name: List workflows to be scanned
         run: |
           shopt -s extglob
-          printf '%s\n' ${{ env.GLOB }}
+          printf '%s\n' $GLOB  # Pathname expansion in $GLOB intended.
       - name: Scan workflows
         run: |
           shopt -s extglob
@@ -565,7 +580,7 @@ jobs:
             | select(.uses == "actions/checkout@*" and .with.["persist-credentials"]? != false)
             | {"file": filename, "line": line, "name": (.name // .uses)}
             | .file + ":" + (.line | tostring) + ": " + .name
-          ' -- ${{ env.GLOB }} >query-output.txt
+          ' -- $GLOB >query-output.txt  # Pathname expansion in $GLOB intended.
           cat query-output.txt
           test -z "$(<query-output.txt)"  # Report failure if we found anything.
 
