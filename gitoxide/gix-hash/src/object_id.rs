@@ -4,7 +4,10 @@ use std::{
     ops::Deref,
 };
 
-use crate::{borrowed::oid, Kind, EMPTY_BLOB_SHA1, EMPTY_TREE_SHA1, SIZE_OF_SHA1_DIGEST};
+use crate::{borrowed::oid, Kind};
+
+#[cfg(feature = "sha1")]
+use crate::{EMPTY_BLOB_SHA1, EMPTY_TREE_SHA1, SIZE_OF_SHA1_DIGEST};
 
 #[cfg(feature = "sha256")]
 use crate::{EMPTY_BLOB_SHA256, EMPTY_TREE_SHA256, SIZE_OF_SHA256_DIGEST};
@@ -15,6 +18,7 @@ use crate::{EMPTY_BLOB_SHA256, EMPTY_TREE_SHA256, SIZE_OF_SHA256_DIGEST};
 #[non_exhaustive]
 pub enum ObjectId {
     /// A SHA1 hash digest
+    #[cfg(feature = "sha1")]
     Sha1([u8; SIZE_OF_SHA1_DIGEST]),
     /// A SHA256 hash digest
     #[cfg(feature = "sha256")]
@@ -38,7 +42,10 @@ impl Hash for ObjectId {
 pub mod decode {
     use std::str::FromStr;
 
-    use crate::{object_id::ObjectId, SIZE_OF_SHA1_DIGEST, SIZE_OF_SHA1_HEX_DIGEST};
+    use crate::object_id::ObjectId;
+
+    #[cfg(feature = "sha1")]
+    use crate::{SIZE_OF_SHA1_DIGEST, SIZE_OF_SHA1_HEX_DIGEST};
 
     #[cfg(feature = "sha256")]
     use crate::{SIZE_OF_SHA256_DIGEST, SIZE_OF_SHA256_HEX_DIGEST};
@@ -62,6 +69,7 @@ pub mod decode {
         /// Such a buffer can be obtained using [`oid::write_hex_to(buffer)`][super::oid::write_hex_to()]
         pub fn from_hex(buffer: &[u8]) -> Result<ObjectId, Error> {
             match buffer.len() {
+                #[cfg(feature = "sha1")]
                 SIZE_OF_SHA1_HEX_DIGEST => Ok({
                     ObjectId::Sha1({
                         let mut buf = [0; SIZE_OF_SHA1_DIGEST];
@@ -107,6 +115,7 @@ impl ObjectId {
     #[inline]
     pub fn kind(&self) -> Kind {
         match self {
+            #[cfg(feature = "sha1")]
             ObjectId::Sha1(_) => Kind::Sha1,
             #[cfg(feature = "sha256")]
             ObjectId::Sha256(_) => Kind::Sha256,
@@ -116,6 +125,7 @@ impl ObjectId {
     #[inline]
     pub fn as_slice(&self) -> &[u8] {
         match self {
+            #[cfg(feature = "sha1")]
             Self::Sha1(b) => b.as_ref(),
             #[cfg(feature = "sha256")]
             Self::Sha256(b) => b.as_ref(),
@@ -125,6 +135,7 @@ impl ObjectId {
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         match self {
+            #[cfg(feature = "sha1")]
             Self::Sha1(b) => b.as_mut(),
             #[cfg(feature = "sha256")]
             Self::Sha256(b) => b.as_mut(),
@@ -135,6 +146,7 @@ impl ObjectId {
     #[inline]
     pub const fn empty_blob(hash: Kind) -> ObjectId {
         match hash {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => ObjectId::Sha1(*EMPTY_BLOB_SHA1),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => ObjectId::Sha256(*EMPTY_BLOB_SHA256),
@@ -145,6 +157,7 @@ impl ObjectId {
     #[inline]
     pub const fn empty_tree(hash: Kind) -> ObjectId {
         match hash {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => ObjectId::Sha1(*EMPTY_TREE_SHA1),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => ObjectId::Sha256(*EMPTY_TREE_SHA256),
@@ -156,6 +169,7 @@ impl ObjectId {
     #[doc(alias = "zero", alias = "git2")]
     pub const fn null(kind: Kind) -> ObjectId {
         match kind {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => Self::null_sha1(),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => Self::null_sha256(),
@@ -167,6 +181,7 @@ impl ObjectId {
     #[doc(alias = "is_zero", alias = "git2")]
     pub fn is_null(&self) -> bool {
         match self {
+            #[cfg(feature = "sha1")]
             ObjectId::Sha1(digest) => &digest[..] == oid::null_sha1().as_bytes(),
             #[cfg(feature = "sha256")]
             ObjectId::Sha256(digest) => &digest[..] == oid::null_sha256().as_bytes(),
@@ -193,6 +208,7 @@ impl ObjectId {
     /// Use `Self::try_from(bytes)` for a fallible version.
     pub fn from_bytes_or_panic(bytes: &[u8]) -> Self {
         match bytes.len() {
+            #[cfg(feature = "sha1")]
             SIZE_OF_SHA1_DIGEST => Self::Sha1(bytes.try_into().expect("prior length validation")),
             #[cfg(feature = "sha256")]
             SIZE_OF_SHA256_DIGEST => Self::Sha256(bytes.try_into().expect("prior length validation")),
@@ -205,6 +221,7 @@ impl ObjectId {
 impl ObjectId {
     /// Instantiate an `ObjectId` from a 20 bytes SHA1 digest.
     #[inline]
+    #[cfg(feature = "sha1")]
     fn new_sha1(id: [u8; SIZE_OF_SHA1_DIGEST]) -> Self {
         ObjectId::Sha1(id)
     }
@@ -220,6 +237,7 @@ impl ObjectId {
     ///
     /// Panics if the slice doesn't have a length of 20.
     #[inline]
+    #[cfg(feature = "sha1")]
     pub(crate) fn from_20_bytes(b: &[u8]) -> ObjectId {
         let mut id = [0; SIZE_OF_SHA1_DIGEST];
         id.copy_from_slice(b);
@@ -239,6 +257,7 @@ impl ObjectId {
 
     /// Returns an `ObjectId` representing a SHA1 whose memory is zeroed.
     #[inline]
+    #[cfg(feature = "sha1")]
     pub(crate) const fn null_sha1() -> ObjectId {
         ObjectId::Sha1([0u8; SIZE_OF_SHA1_DIGEST])
     }
@@ -254,6 +273,7 @@ impl ObjectId {
 impl std::fmt::Debug for ObjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "sha1")]
             ObjectId::Sha1(_hash) => f.write_str("Sha1(")?,
             #[cfg(feature = "sha256")]
             ObjectId::Sha256(_) => f.write_str("Sha256(")?,
@@ -265,6 +285,7 @@ impl std::fmt::Debug for ObjectId {
     }
 }
 
+#[cfg(feature = "sha1")]
 impl From<[u8; SIZE_OF_SHA1_DIGEST]> for ObjectId {
     fn from(v: [u8; SIZE_OF_SHA1_DIGEST]) -> Self {
         Self::new_sha1(v)
@@ -281,6 +302,7 @@ impl From<[u8; SIZE_OF_SHA256_DIGEST]> for ObjectId {
 impl From<&oid> for ObjectId {
     fn from(v: &oid) -> Self {
         match v.kind() {
+            #[cfg(feature = "sha1")]
             Kind::Sha1 => ObjectId::from_20_bytes(v.as_bytes()),
             #[cfg(feature = "sha256")]
             Kind::Sha256 => ObjectId::from_32_bytes(v.as_bytes()),

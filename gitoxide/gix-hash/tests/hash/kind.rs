@@ -90,7 +90,6 @@ fn longest_sha1() {
     assert_eq!(longest, Kind::Sha1);
 }
 
-// TODO: make sure to test all permutations once `sha1` is fully optional
 #[test]
 #[cfg(all(not(feature = "sha1"), feature = "sha256"))]
 fn longest_sha256() {

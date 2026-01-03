@@ -7,7 +7,11 @@ pub enum Error {
 }
 
 pub(super) mod _impl {
+    #[cfg(feature = "sha1")]
     use sha1_checked::{CollisionResult, Digest};
+
+    #[cfg(all(not(feature = "sha1"), feature = "sha256"))]
+    use sha2::Digest;
 
     use crate::hasher::Error;
 
@@ -17,6 +21,7 @@ pub(super) mod _impl {
         /// An implementation of the SHA1 hash.
         ///
         /// We use [`sha1_checked`] to implement the same collision detection algorithm as Git.
+        #[cfg(feature = "sha1")]
         Sha1(sha1_checked::Sha1),
         /// An implementation of the SHA256 hash.
         #[cfg(feature = "sha256")]
@@ -25,6 +30,7 @@ pub(super) mod _impl {
 
     impl Hasher {
         /// Let's not make this public to force people to go through [`hasher()`].
+        #[cfg(feature = "sha1")]
         fn new_sha1() -> Self {
             // This matches the configuration used by Git, which only uses
             // the collision detection to bail out, rather than computing
@@ -44,6 +50,7 @@ pub(super) mod _impl {
         /// Digest the given `bytes`.
         pub fn update(&mut self, bytes: &[u8]) {
             match self {
+                #[cfg(feature = "sha1")]
                 Hasher::Sha1(sha1) => sha1.update(bytes),
                 #[cfg(feature = "sha256")]
                 Hasher::Sha256(sha256) => sha256.update(bytes),
@@ -59,6 +66,7 @@ pub(super) mod _impl {
         #[inline]
         pub fn try_finalize(self) -> Result<crate::ObjectId, Error> {
             match self {
+                #[cfg(feature = "sha1")]
                 Hasher::Sha1(sha1) => match sha1.try_finalize() {
                     CollisionResult::Ok(digest) => Ok(crate::ObjectId::Sha1(digest.into())),
                     CollisionResult::Mitigated(_) => {
@@ -89,6 +97,7 @@ pub(super) mod _impl {
     #[inline]
     pub fn hasher(kind: crate::Kind) -> Hasher {
         match kind {
+            #[cfg(feature = "sha1")]
             crate::Kind::Sha1 => Hasher::new_sha1(),
             #[cfg(feature = "sha256")]
             crate::Kind::Sha256 => Hasher::new_sha256(),
