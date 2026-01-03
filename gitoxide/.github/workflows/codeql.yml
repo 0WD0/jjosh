@@ -24,6 +24,8 @@ on:
     - cron: '32 3 * * 6'
   workflow_dispatch:
 
+permissions: {}  # Expanded in the `analyze` job.
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -37,10 +39,12 @@ jobs:
       # required for all workflows
       security-events: write
 
-      # required to fetch internal or private CodeQL packs
+      # Required to fetch internal or private CodeQL packs, but we don't use any such packs.
       # packages: read
 
-      # only required for workflows in private repositories
+      # Not needed in public repos. Although supporting private forks can be useful, such as for
+      # testing vulnerability fixes in a private reupload, other steps would have to be taken to
+      # run CodeQL in a private repository, so enabling these wouldn't be enough "out of the box."
       # actions: read
       # contents: read
 
