@@ -248,10 +248,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends xz-utils liblz4-tool musl-tools
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
+        env:
+          RUST: ${{ matrix.rust }}
+        run: |
+          rustup update "$RUST"
+          rustup default "$RUST"
+          rustup target add "$TARGET"
 
       - name: Use Cross
         if: matrix.os == 'ubuntu-latest'
@@ -539,24 +541,25 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    env:
+      RUST: ${{ matrix.rust }}
+      TARGET: ${{ matrix.target }}
+
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
+        run: |
+          rustup update "$RUST"
+          rustup default "$RUST"
+          rustup target add "$TARGET"
       - uses: msys2/setup-msys2@4f806de0a5a7294ffabaff804b38a9b435a73bda # v2.30.0
         with:
           msystem: MINGW${{ startsWith(matrix.target, 'i686-') && '32' || '64' }}
           pacboy: cc:p
           path-type: inherit
       - name: 'Installation from crates.io: gitoxide'
-        env:
-          RUST: ${{ matrix.rust }}
-          TARGET: ${{ matrix.target }}
         run: |
           cargo +"$RUST" install --target "$TARGET" --no-default-features \
             --features max-pure --target-dir install-artifacts --debug --force gitoxide
