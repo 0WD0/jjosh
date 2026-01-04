@@ -16,12 +16,11 @@ on:
       - Makefile
   workflow_dispatch:
 
+permissions: {}  # The fuzzing actions don't use our github.token at all.
+
 jobs:
   Fuzzing:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: none  # The fuzzing actions don't use our github.token at all.
 
     steps:
       - name: Build Fuzzers
