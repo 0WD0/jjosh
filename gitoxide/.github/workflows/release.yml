@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release create`.
 
 #    env:
 #      # Set to force version number, e.g., when no tag exists.
@@ -219,7 +219,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release upload`.
 
     env:
       RUST_BACKTRACE: '1'  # Emit backtraces on panics.
@@ -314,7 +314,7 @@ jobs:
         feature: [ small, lean, max, max-pure ]
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release upload`.
 
     env:
       BASH_ENV: ./helpers.sh
@@ -376,7 +376,7 @@ jobs:
     needs: [ create-release, build-release, build-macos-universal2-release ]
 
     permissions:
-      contents: write
+      contents: write  # Allows use of `gh release` for `upload`, `delete-asset`, and `edit`.
 
     env:
       REPOSITORY: ${{ github.repository }}
@@ -446,7 +446,7 @@ jobs:
 
     permissions:
       contents: write  # Needed to distinguish unpublished (still draft) from missing releases.
-      discussions: write
+      discussions: write  # For adding a comment in the announcement discussion.
 
     env:
       REPOSITORY: ${{ github.repository }}

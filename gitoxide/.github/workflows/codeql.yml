@@ -37,7 +37,7 @@ jobs:
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
     permissions:
       # required for all workflows
-      security-events: write
+      security-events: write  # Required for uploading SARIF to view in the Security tab.
 
       # Required to fetch internal or private CodeQL packs, but we don't use any such packs.
       # packages: read

@@ -17,7 +17,7 @@ jobs:
   zizmor:
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
+      security-events: write  # Required for uploading SARIF to view in the Security tab.
       contents: read  # Not needed in public repos. (Kept for private forks/reuploads.)
       actions: read  # Not needed in public repos. (Kept for private forks/reuploads.)
     steps:
