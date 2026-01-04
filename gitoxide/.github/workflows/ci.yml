@@ -249,22 +249,12 @@ jobs:
       - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
-      # FIXME: This "Test (nextest)" duplication is temporary for testing and must be refactored.
       - name: Test (nextest)
         if: startsWith(matrix.os, 'windows')
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
-          TEST_ARGS: ${{ matrix.test-args }}
-        run: |
-          cargo nextest run --workspace --no-fail-fast -- (-split $Env:TEST_ARGS)
-      - name: Test (nextest)
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        env:
-          GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
-          TEST_ARGS: ${{ matrix.test-args }}
-        run: |
-          cargo nextest run --workspace --no-fail-fast -- \
-            $TEST_ARGS  # Word splitting intended.
+        run: |  # zizmor: ignore[template-injection]
+          cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
       - name: Check that tracked archives are up to date
         run: |
           # If this fails, the fix is usually to commit a regenerated archive.
