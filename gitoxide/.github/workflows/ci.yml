@@ -6,8 +6,6 @@ on:
       - main
       - 'run-ci/**'
       - '**/run-ci/**'
-    tags-ignore:
-      - '*'
   pull_request:
     branches:
       - main
@@ -37,10 +35,10 @@ jobs:
         shell: bash  # Use `bash` even in the Windows job.
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
       - name: Read the MSRV
         run: |
           msrv="$(just msrv)"
@@ -63,10 +61,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
       - name: Ensure we start out clean
         run: git diff --exit-code
       - name: Regenerate the MSRV badge
@@ -80,7 +78,7 @@ jobs:
     container: debian:stable-slim
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - name: Prerequisites
@@ -186,19 +184,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Setup dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends liblzma-dev
-      - uses: extractions/setup-just@v3
-      - uses: taiki-e/install-action@v2
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
+      - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
       - name: test
@@ -210,14 +208,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
       - name: Run journey tests
         run: just ci-journey-tests
 
@@ -238,25 +236,29 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo check default features
         if: startsWith(matrix.os, 'windows')
         run: cargo check --workspace --bins --examples
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
       - name: Test (nextest)
+        if: startsWith(matrix.os, 'windows')
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
-        run: cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
+        run: |  # zizmor: ignore[template-injection]
+          cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
       - name: Check that tracked archives are up to date
-        run: git diff --exit-code  # If this fails, the fix is usually to commit a regenerated archive.
+        run: |
+          # If this fails, the fix is usually to commit a regenerated archive.
+          git diff --exit-code
       - name: Remove Git for Windows directories from PATH
         if: startsWith(matrix.os, 'windows')
         run: |
@@ -273,7 +275,10 @@ jobs:
         run: if ($null -eq $Env:EXEPATH) { exit 0 } else { exit 1 }
       - name: Retest gix-path without `git` in `PATH` (nextest)
         if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run -p gix-path --no-fail-fast -- ${{ matrix.test-args }}
+        env:
+          TEST_ARGS: ${{ matrix.test-args }}
+        run: |
+          cargo nextest run -p gix-path --no-fail-fast -- (-split $Env:TEST_ARGS)
 
   test-fixtures-windows:
     strategy:
@@ -289,22 +294,24 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
       - name: Test (nextest)
         id: nextest
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
+          TEST_ARGS: ${{ matrix.test-args }}
         run: |
-          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- ${{ matrix.test-args }}
+          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- `
+            (-split $Env:TEST_ARGS)
         continue-on-error: true
       - name: Check for errors
         run: |
@@ -330,23 +337,25 @@ jobs:
   test-32bit:
     strategy:
       matrix:
-        container-arch: [ i386, arm32v7 ]
+        container-architecture: [ i386, arm32v7 ]
         include:
-          - container-arch: i386
-            runner-arch: amd64
+          - container-architecture: i386
+            runner-architecture: amd64
             runner-os: ubuntu-latest
             host-triple: i686-unknown-linux-gnu
-          - container-arch: arm32v7
-            runner-arch: arm64
+          - container-architecture: arm32v7
+            runner-architecture: arm64
             runner-os: ubuntu-24.04-arm
             host-triple: armv7-unknown-linux-gnueabihf
 
     runs-on: ${{ matrix.runner-os }}
 
-    container: ${{ matrix.container-arch }}/debian:bookworm-slim
+    container: ${{ matrix.container-architecture }}/debian:bookworm-slim
 
     steps:
       - name: Prerequisites
+        env:
+          RUNNER_ARCHITECTURE: ${{ matrix.runner-architecture }}
         run: |
           prerequisites=(
             build-essential
@@ -356,28 +365,30 @@ jobs:
             git
             jq
             libssl-dev
-            libstdc++6:${{ matrix.runner-arch }}  # To support external 64-bit Node.js for actions.
+            "libstdc++6:$RUNNER_ARCHITECTURE"  # To support external 64-bit Node.js for actions.
             pkgconf
             python3-minimal
           )
-          dpkg --add-architecture ${{ matrix.runner-arch }}
+          dpkg --add-architecture "$RUNNER_ARCHITECTURE"
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash  # This step needs `bash`, and the default in container jobs is `sh`.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - name: Install Rust via Rustup
+        env:
+          HOST_TRIPLE: ${{ matrix.host-triple }}
         run: |
           # Specify toolchain to avoid possible misdetection based on the 64-bit running kernel.
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-            sh -s -- -y --default-host ${{ matrix.host-triple }} --profile minimal
+            sh -s -- -y --default-host "$HOST_TRIPLE" --profile minimal
       - name: Add Rust tools to path
         run: echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
       - name: Make `system` scope nonempty for "GitInstallation" tests
@@ -394,16 +405,16 @@ jobs:
       TARGET: i686-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.TARGET }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344 # v2.65.12
         with:
           tool: nextest
       - name: Test data structure sizes (nextest)
@@ -415,14 +426,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: clippy,rustfmt
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3.0.0
       - name: Run cargo clippy
         run: just clippy -D warnings -A unknown-lints --no-deps
       - name: Run cargo doc
@@ -447,10 +458,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14
         with:
           command: check advisories
           arguments: --workspace --all-features
@@ -459,10 +470,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14
         with:
           command: check bans licenses sources
           arguments: --workspace --all-features
@@ -480,7 +491,7 @@ jobs:
       TARGET: ${{ matrix.target }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - name: Install Rust
@@ -488,7 +499,7 @@ jobs:
           rustup update stable
           rustup default stable
           rustup target add "$TARGET"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: 'WASI only: crates without feature toggle'
@@ -552,14 +563,14 @@ jobs:
       GLOB: .github/workflows/*.@(yaml|yml)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
           sparse-checkout: '.github/workflows'
       - name: List workflows to be scanned
         run: |
           shopt -s extglob
-          printf '%s\n' ${{ env.GLOB }}
+          printf '%s\n' $GLOB  # Pathname expansion in $GLOB intended.
       - name: Scan workflows
         run: |
           shopt -s extglob
@@ -567,7 +578,7 @@ jobs:
             | select(.uses == "actions/checkout@*" and .with.["persist-credentials"]? != false)
             | {"file": filename, "line": line, "name": (.name // .uses)}
             | .file + ":" + (.line | tostring) + ": " + .name
-          ' -- ${{ env.GLOB }} >query-output.txt
+          ' -- $GLOB >query-output.txt  # Pathname expansion in $GLOB intended.
           cat query-output.txt
           test -z "$(<query-output.txt)"  # Report failure if we found anything.
 
@@ -593,7 +604,7 @@ jobs:
         run: |
           relative_workflow_with_ref="${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}"
           echo "WORKFLOW_PATH=${relative_workflow_with_ref%@*}" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
           sparse-checkout: ${{ env.WORKFLOW_PATH }}

@@ -33,14 +33,18 @@ updates:
         exclude-patterns:
           - expectrl
           - imara-diff
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: '/'
     schedule:
-      interval: weekly
+      interval: monthly
     commit-message:
       # Avoid non-"purposeful" prefix due to Dependabot misdetecting style (see `DEVELOPMENT.md`).
       prefix: ''
     groups:
       github-actions:
         patterns: ['*']
+    cooldown:
+      default-days: 7

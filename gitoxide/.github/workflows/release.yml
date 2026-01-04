@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release create`.
 
 #    env:
 #      # Set to force version number, e.g., when no tag exists.
@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
@@ -219,7 +219,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release upload`.
 
     env:
       RUST_BACKTRACE: '1'  # Emit backtraces on panics.
@@ -235,7 +235,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
 
@@ -314,7 +314,7 @@ jobs:
         feature: [ small, lean, max, max-pure ]
 
     permissions:
-      contents: write
+      contents: write  # Allows the use of `gh release upload`.
 
     env:
       BASH_ENV: ./helpers.sh
@@ -376,7 +376,7 @@ jobs:
     needs: [ create-release, build-release, build-macos-universal2-release ]
 
     permissions:
-      contents: write
+      contents: write  # Allows use of `gh release` for `upload`, `delete-asset`, and `edit`.
 
     env:
       REPOSITORY: ${{ github.repository }}
@@ -446,7 +446,7 @@ jobs:
 
     permissions:
       contents: write  # Needed to distinguish unpublished (still draft) from missing releases.
-      discussions: write
+      discussions: write  # For adding a comment in the announcement discussion.
 
     env:
       REPOSITORY: ${{ github.repository }}
@@ -540,7 +540,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
       - name: Install Rust
@@ -548,11 +548,16 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           targets: ${{ matrix.target }}
-      - uses: msys2/setup-msys2@v2
+      - uses: msys2/setup-msys2@4f806de0a5a7294ffabaff804b38a9b435a73bda # v2.30.0
         with:
           msystem: MINGW${{ startsWith(matrix.target, 'i686-') && '32' || '64' }}
           pacboy: cc:p
           path-type: inherit
       - name: 'Installation from crates.io: gitoxide'
-        run: cargo +${{ matrix.rust }} install --target ${{ matrix.target }} --no-default-features --features max-pure --target-dir install-artifacts --debug --force gitoxide
+        env:
+          RUST: ${{ matrix.rust }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo +"$RUST" install --target "$TARGET" --no-default-features \
+            --features max-pure --target-dir install-artifacts --debug --force gitoxide
         shell: msys2 {0}
