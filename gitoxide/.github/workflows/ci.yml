@@ -339,25 +339,25 @@ jobs:
   test-32bit:
     strategy:
       matrix:
-        container-arch: [ i386, arm32v7 ]
+        container-architecture: [ i386, arm32v7 ]
         include:
-          - container-arch: i386
-            runner-arch: amd64
+          - container-architecture: i386
+            runner-architecture: amd64
             runner-os: ubuntu-latest
             host-triple: i686-unknown-linux-gnu
-          - container-arch: arm32v7
-            runner-arch: arm64
+          - container-architecture: arm32v7
+            runner-architecture: arm64
             runner-os: ubuntu-24.04-arm
             host-triple: armv7-unknown-linux-gnueabihf
 
     runs-on: ${{ matrix.runner-os }}
 
-    container: ${{ matrix.container-arch }}/debian:bookworm-slim
+    container: ${{ matrix.container-architecture }}/debian:bookworm-slim
 
     steps:
       - name: Prerequisites
         env:
-          RUNNER_ARCH: ${{ matrix.runner-arch }}
+          RUNNER_ARCHITECTURE: ${{ matrix.runner-architecture }}
         run: |
           prerequisites=(
             build-essential
@@ -367,11 +367,11 @@ jobs:
             git
             jq
             libssl-dev
-            "libstdc++6:$RUNNER_ARCH"  # To support external 64-bit Node.js for actions.
+            "libstdc++6:$RUNNER_ARCHITECTURE"  # To support external 64-bit Node.js for actions.
             pkgconf
             python3-minimal
           )
-          dpkg --add-architecture "$RUNNER_ARCH"
+          dpkg --add-architecture "$RUNNER_ARCHITECTURE"
           apt-get update
           apt-get install --no-install-recommends -y -- "${prerequisites[@]}"
         shell: bash  # This step needs `bash`, and the default in container jobs is `sh`.
