@@ -260,7 +260,6 @@ jobs:
         with:
           tool: nextest
       - name: Test (nextest)
-        if: startsWith(matrix.os, 'windows')
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
         run: |  # zizmor: ignore[template-injection]
