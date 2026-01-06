@@ -20,18 +20,18 @@ doctest = false
 worktree-rewrites = ["dep:gix-dir", "dep:gix-diff"]
 
 [dependencies]
-gix-index = { version = "^0.45.0", path = "../gix-index" }
-gix-fs = { version = "^0.18.1", path = "../gix-fs" }
-gix-hash = { version = "^0.21.1", path = "../gix-hash" }
-gix-object = { version = "^0.54.0", path = "../gix-object" }
+gix-index = { version = "^0.45.1", path = "../gix-index" }
+gix-fs = { version = "^0.18.2", path = "../gix-fs" }
+gix-hash = { version = "^0.21.2", path = "../gix-hash" }
+gix-object = { version = "^0.54.1", path = "../gix-object" }
 gix-path = { version = "^0.10.22", path = "../gix-path" }
-gix-features = { version = "^0.45.1", path = "../gix-features", features = ["progress"] }
-gix-filter = { version = "^0.24.0", path = "../gix-filter" }
+gix-features = { version = "^0.45.2", path = "../gix-features", features = ["progress"] }
+gix-filter = { version = "^0.24.1", path = "../gix-filter" }
 gix-worktree = { version = "^0.46.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
 gix-pathspec = { version = "^0.14.0", path = "../gix-pathspec" }
 
 gix-dir = { version = "^0.19.0", path = "../gix-dir", optional = true }
-gix-diff = { version = "^0.57.0", path = "../gix-diff", default-features = false, features = ["blob"], optional = true }
+gix-diff = { version = "^0.57.1", path = "../gix-diff", default-features = false, features = ["blob"], optional = true }
 
 thiserror = "2.0.17"
 filetime = "0.2.15"

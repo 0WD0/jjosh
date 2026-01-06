@@ -21,14 +21,14 @@ test = true
 serde = ["dep:serde", "gix-hash/serde", "gix-actor/serde", "gix-object/serde"]
 
 [dependencies]
-gix-features = { version = "^0.45.1", path = "../gix-features", features = ["walkdir"] }
-gix-fs = { version = "^0.18.1", path = "../gix-fs" }
+gix-features = { version = "^0.45.2", path = "../gix-features", features = ["walkdir"] }
+gix-fs = { version = "^0.18.2", path = "../gix-fs" }
 gix-path = { version = "^0.10.22", path = "../gix-path" }
-gix-hash = { version = "^0.21.1", path = "../gix-hash" }
-gix-object = { version = "^0.54.0", path = "../gix-object" }
+gix-hash = { version = "^0.21.2", path = "../gix-hash" }
+gix-object = { version = "^0.54.1", path = "../gix-object" }
 gix-utils = { version = "^0.3.1", path = "../gix-utils" }
 gix-validate = { version = "^0.10.1", path = "../gix-validate" }
-gix-actor = { version = "^0.37.0", path = "../gix-actor" }
+gix-actor = { version = "^0.37.1", path = "../gix-actor" }
 gix-lock = { version = "^20.0.0", path = "../gix-lock" }
 gix-tempfile = { version = "^20.0.0", default-features = false, path = "../gix-tempfile" }
 
