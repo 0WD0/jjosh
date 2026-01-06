@@ -345,7 +345,8 @@ impl File {
                 let base_entry = cursor;
                 debug_assert!(!base_entry.header.is_delta());
                 object_kind = base_entry.header.as_kind();
-                self.decompress_entry_from_data_offset(base_entry.data_offset, inflate, out)?;
+                let out_base = &mut out[..out_size - total_delta_data_size];
+                self.decompress_entry_from_data_offset(base_entry.data_offset, inflate, out_base)?;
             }
 
             (first_buffer_size, second_buffer_end)
