@@ -68,19 +68,19 @@ path = "tests/async-protocol.rs"
 required-features = ["async-client"]
 
 [dependencies]
-gix-features = { version = "^0.45.1", path = "../gix-features", features = [
+gix-features = { version = "^0.45.2", path = "../gix-features", features = [
     "progress",
 ] }
 gix-transport = { version = "^0.52.1", path = "../gix-transport" }
-gix-hash = { version = "^0.21.1", path = "../gix-hash" }
+gix-hash = { version = "^0.21.2", path = "../gix-hash" }
 gix-shallow = { version = "^0.7.0", path = "../gix-shallow" }
-gix-date = { version = "^0.12.0", path = "../gix-date" }
+gix-date = { version = "^0.12.1", path = "../gix-date" }
 gix-utils = { version = "^0.3.1", path = "../gix-utils" }
 gix-ref = { version = "^0.57.0", path = "../gix-ref" }
 
-gix-trace = { version = "^0.1.16", path = "../gix-trace", optional = true }
+gix-trace = { version = "^0.1.17", path = "../gix-trace", optional = true }
 gix-negotiate = { version = "^0.25.0", path = "../gix-negotiate", optional = true }
-gix-object = { version = "^0.54.0", path = "../gix-object", optional = true }
+gix-object = { version = "^0.54.1", path = "../gix-object", optional = true }
 gix-revwalk = { version = "^0.25.0", path = "../gix-revwalk", optional = true }
 gix-credentials = { version = "^0.34.1", path = "../gix-credentials", optional = true }
 gix-refspec = { version = "^0.35.0", path = "../gix-refspec", optional = true }

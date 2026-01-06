@@ -19,7 +19,7 @@ autotests = false
 serde = ["dep:serde", "bstr/serde", "gix-sec/serde", "gix-ref/serde", "gix-glob/serde", "gix-config-value/serde"]
 
 [dependencies]
-gix-features = { version = "^0.45.1", path = "../gix-features" }
+gix-features = { version = "^0.45.2", path = "../gix-features" }
 gix-config-value = { version = "^0.16.0", path = "../gix-config-value" }
 gix-path = { version = "^0.10.22", path = "../gix-path" }
 gix-sec = { version = "^0.12.2", path = "../gix-sec" }

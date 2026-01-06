@@ -1392,7 +1392,7 @@ dependencies = [
 
 [[package]]
 name = "gix-actor"
-version = "0.37.0"
+version = "0.37.1"
 dependencies = [
  "bstr",
  "document-features",
@@ -1490,7 +1490,7 @@ dependencies = [
 
 [[package]]
 name = "gix-command"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "bstr",
  "gix-path",
@@ -1586,7 +1586,7 @@ dependencies = [
 
 [[package]]
 name = "gix-date"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "bstr",
  "document-features",
@@ -1602,7 +1602,7 @@ dependencies = [
 
 [[package]]
 name = "gix-diff"
-version = "0.57.0"
+version = "0.57.1"
 dependencies = [
  "bstr",
  "document-features",
@@ -1687,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "gix-features"
-version = "0.45.1"
+version = "0.45.2"
 dependencies = [
  "bstr",
  "bytes",
@@ -1713,7 +1713,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-filter"
-version = "0.24.0"
+version = "0.24.1"
 dependencies = [
  "bstr",
  "encoding_rs",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "gix-fs"
-version = "0.18.1"
+version = "0.18.2"
 dependencies = [
  "bstr",
  "crossbeam-channel",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "gix-hash"
-version = "0.21.1"
+version = "0.21.2"
 dependencies = [
  "document-features",
  "faster-hex",
@@ -1813,7 +1813,7 @@ dependencies = [
 
 [[package]]
 name = "gix-index"
-version = "0.45.0"
+version = "0.45.1"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -1860,7 +1860,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-lock"
-version = "20.0.0"
+version = "20.0.1"
 dependencies = [
  "gix-tempfile",
  "gix-utils",
@@ -1944,7 +1944,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-object"
-version = "0.54.0"
+version = "0.54.1"
 dependencies = [
  "bstr",
  "criterion",
@@ -2009,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "gix-pack"
-version = "0.64.0"
+version = "0.64.1"
 dependencies = [
  "clru",
  "document-features",
@@ -2336,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "gix-tempfile"
-version = "20.0.0"
+version = "20.0.1"
 dependencies = [
  "dashmap",
  "document-features",
@@ -2378,7 +2378,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-trace"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "document-features",
  "tracing-core",
@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "gix-traverse"
-version = "0.51.0"
+version = "0.51.1"
 dependencies = [
  "bitflags 2.10.0",
  "gix-commitgraph",

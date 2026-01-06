@@ -20,7 +20,7 @@ test = false
 serde = ["dep:serde", "gix-hash/serde"]
 
 [dependencies]
-gix-hash = { version = "^0.21.0", path = "../gix-hash" }
+gix-hash = { version = "^0.21.2", path = "../gix-hash" }
 gix-lock = { version = "^20.0.0", path = "../gix-lock" }
 
 thiserror = "2.0.17"
