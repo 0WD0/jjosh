@@ -1066,6 +1066,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "exn"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad13781b9dd97d4489a74e38bb913254d2877840b0b8dece279193761f1d50f"
+
+[[package]]
 name = "expectrl"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1745,6 +1751,13 @@ dependencies = [
  "serial_test",
  "tempfile",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "gix-error"
+version = "0.0.0"
+dependencies = [
+ "exn",
 ]
 
 [[package]]
