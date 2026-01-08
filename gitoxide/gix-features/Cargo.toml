@@ -101,7 +101,7 @@ walkdir = { version = "2.3.2", optional = true } # used when parallel is off
 crc32fast = { version = "1.5.0", optional = true }
 
 # progress
-prodash = { version = "30.0.1", optional = true }
+prodash = { version = "31.0.0", optional = true }
 bytesize = { version = "2.3.1", optional = true }
 
 # pipe
