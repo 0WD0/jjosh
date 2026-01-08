@@ -434,12 +434,12 @@ where
                                 .to_str()
                                 .map_err(|_| Error::Time {
                                     input: nav.into(),
-                                    source: None,
+                                    tmp_source: None,
                                 })
                                 .and_then(|date| {
                                     gix_date::parse(date, None).map_err(|err| Error::Time {
                                         input: nav.into(),
-                                        source: err.into(),
+                                        tmp_source: Some(err),
                                     })
                                 })?;
                             delegate::ReflogLookup::Date(time)
@@ -461,12 +461,12 @@ where
                     .to_str()
                     .map_err(|_| Error::Time {
                         input: nav.into(),
-                        source: None,
+                        tmp_source: None,
                     })
                     .and_then(|date| {
                         gix_date::parse(date, Some(SystemTime::now())).map_err(|err| Error::Time {
                             input: nav.into(),
-                            source: err.into(),
+                            tmp_source: err.into(),
                         })
                     })?;
                 delegate

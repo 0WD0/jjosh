@@ -1658,6 +1658,7 @@ version = "0.12.1"
 dependencies = [
  "bstr",
  "document-features",
+ "gix-error",
  "gix-hash",
  "gix-testtools",
  "itoa",
@@ -1665,7 +1666,6 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "smallvec",
- "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1757,6 +1757,7 @@ dependencies = [
 name = "gix-error"
 version = "0.0.0"
 dependencies = [
+ "bstr",
  "exn",
 ]
 
@@ -2295,6 +2296,7 @@ dependencies = [
  "document-features",
  "gix-commitgraph",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-hashtable",
  "gix-object",

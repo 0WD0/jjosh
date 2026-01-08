@@ -1,6 +1,6 @@
-use bstr::BString;
-
 use crate::spec;
+use bstr::BString;
+use gix_error::Exn;
 
 /// The error returned by [`spec::parse()`][crate::spec::parse()].
 #[derive(Debug, thiserror::Error)]
@@ -19,7 +19,8 @@ pub enum Error {
     #[error("Could not parse time {:?} for revlog lookup.", .input)]
     Time {
         input: BString,
-        source: Option<gix_date::parse::Error>,
+        // Should be turned into_inner or `gix-revision` must be converted, so `source` can be used.
+        tmp_source: Option<Exn<gix_date::Error>>,
     },
     #[error("Sibling branches like 'upstream' or 'push' require a branch name with remote configuration, got {:?}", .name)]
     SiblingBranchNeedsBranchName { name: BString },

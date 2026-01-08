@@ -63,7 +63,7 @@ fn git_rfc2822() {
 }
 
 #[test]
-fn raw() -> gix_testtools::Result {
+fn raw() -> gix_error::Result<(), gix_date::Error> {
     assert_eq!(
         gix_date::parse("1660874655 +0800", None)?,
         Time {
@@ -177,10 +177,10 @@ fn git_default() {
 
 #[test]
 fn invalid_dates_can_be_produced_without_current_time() {
-    assert!(matches!(
-        gix_date::parse("foobar", None).unwrap_err(),
-        gix_date::parse::Error::InvalidDateString { input } if input == "foobar"
-    ));
+    assert_eq!(
+        gix_date::parse("foobar", None).unwrap_err().to_string(),
+        "Unknown date format: foobar"
+    );
 }
 
 /// Tests for compact ISO8601 formats (YYYYMMDDTHHMMSS variants)

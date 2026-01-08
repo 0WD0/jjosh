@@ -15,5 +15,6 @@ rust-version = "1.82"
 doctest = false
 
 [dependencies]
-exn = "0.2.1"
+bstr = { version = "1.12.0", default-features = false }
+exn = { version = "0.2.1", default-features = false }
 

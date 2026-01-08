@@ -430,12 +430,12 @@ mod time {
             &self,
             value: Cow<'_, BStr>,
             now: Option<std::time::SystemTime>,
-        ) -> Result<gix_date::Time, gix_date::parse::Error> {
+        ) -> Result<gix_date::Time, gix_date::Error> {
             gix_date::parse(
                 value
                     .as_ref()
                     .to_str()
-                    .map_err(|_| gix_date::parse::Error::InvalidDateString {
+                    .map_err(|_| gix_date::Error::InvalidDateString {
                         input: value.to_string(),
                     })?,
                 now,
