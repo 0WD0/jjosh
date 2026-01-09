@@ -61,3 +61,10 @@ fn invalid_port_format() {
     );
     assert_eq!(url.port, None);
 }
+
+#[test]
+fn host_with_space() {
+    assert_matches!(parse("http://has a space"), Err(Url { .. }));
+    assert_matches!(parse("http://has a space/path"), Err(Url { .. }));
+    assert_matches!(parse("https://example.com with space/path"), Err(Url { .. }));
+}

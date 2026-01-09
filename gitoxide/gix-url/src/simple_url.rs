@@ -185,10 +185,11 @@ impl<'a> ParsedUrl<'a> {
 
     /// Validate and possibly normalize a hostname
     /// Valid DNS hostnames are normalized to lowercase
-    /// Invalid strings (like injection attempts) are preserved as-is but ? is rejected
+    /// Hostnames containing ? or whitespace characters are rejected with an error
     fn normalize_hostname(host: &str) -> Result<String, UrlParseError> {
-        // Reject ? character which git's url parser rejects
-        if host.contains('?') {
+        // Reject invalid characters: ?, space, tab, newline, etc.
+        // These characters are forbidden in URLs per RFC 3986
+        if host.chars().any(|c| c == '?' || c.is_whitespace()) {
             return Err(UrlParseError::InvalidDomainCharacter);
         }
 
@@ -260,5 +261,22 @@ mod tests {
         assert_eq!(url.host.as_deref(), Some("[::1]"));
         assert_eq!(url.port, Some(8080));
         assert_eq!(url.path, "/path");
+    }
+
+    #[test]
+    fn test_url_with_space_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has a space").is_err());
+        assert!(ParsedUrl::parse("http://has a space/path").is_err());
+        assert!(ParsedUrl::parse("https://example.com with space/path").is_err());
+    }
+
+    #[test]
+    fn test_url_with_tab_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has\ta\ttab").is_err());
+    }
+
+    #[test]
+    fn test_url_with_newline_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has\na\nnewline").is_err());
     }
 }
