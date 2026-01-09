@@ -4,10 +4,10 @@ use percent_encoding::percent_decode_str;
 /// This is a replacement for the `url` crate dependency.
 #[derive(Debug)]
 pub(crate) struct ParsedUrl {
-    pub scheme: String, // Owned to allow normalization to lowercase
-    pub username: String, // Owned to allow percent-decoding
+    pub scheme: String,           // Owned to allow normalization to lowercase
+    pub username: String,         // Owned to allow percent-decoding
     pub password: Option<String>, // Owned to allow percent-decoding
-    pub host: Option<String>, // Owned to allow normalization to lowercase
+    pub host: Option<String>,     // Owned to allow normalization to lowercase
     pub port: Option<u16>,
     pub path: String, // Owned to allow percent-decoding
 }
@@ -84,10 +84,10 @@ impl ParsedUrl {
             // Has user info
             let (user, pass) = if let Some((user_str, pass_str)) = user_info.split_once(':') {
                 // Treat empty password as None
-                let pass = if pass_str.is_empty() { 
-                    None 
-                } else { 
-                    Some(percent_decode(pass_str)?) 
+                let pass = if pass_str.is_empty() {
+                    None
+                } else {
+                    Some(percent_decode(pass_str)?)
                 };
                 (percent_decode(user_str)?, pass)
             } else {

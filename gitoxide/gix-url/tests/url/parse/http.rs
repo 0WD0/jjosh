@@ -150,9 +150,6 @@ fn percent_encoded_path() -> crate::Result {
 #[test]
 fn percent_encoded_international_path() -> crate::Result {
     let url = gix_url::parse("https://example.com/caf%C3%A9".into())?;
-    assert_eq!(
-        url.path, "/café",
-        "international characters are decoded in path"
-    );
+    assert_eq!(url.path, "/café", "international characters are decoded in path");
     Ok(())
 }
