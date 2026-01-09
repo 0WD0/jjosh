@@ -2515,7 +2515,6 @@ dependencies = [
  "assert_matches",
  "bstr",
  "document-features",
- "gix-features",
  "gix-path",
  "gix-testtools",
  "percent-encoding",

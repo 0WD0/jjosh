@@ -57,7 +57,12 @@ impl<'a> ParsedUrl<'a> {
         let path_start = after_scheme.find('/').unwrap_or(after_scheme.len());
         let authority = &after_scheme[..path_start];
         let path = if path_start < after_scheme.len() {
-            &after_scheme[path_start..]
+            let path = &after_scheme[path_start..];
+            // Validate path doesn't contain whitespace (per RFC 3986)
+            if path.chars().any(char::is_whitespace) {
+                return Err(UrlParseError::InvalidDomainCharacter);
+            }
+            path
         } else {
             // No path specified - leave empty (caller can default to / if needed)
             ""
@@ -67,12 +72,21 @@ impl<'a> ParsedUrl<'a> {
         let (username, password, host, port) = if let Some((user_info, host_port)) = authority.rsplit_once('@') {
             // Has user info
             let (user, pass) = if let Some((user, pass_str)) = user_info.split_once(':') {
+                // Validate password doesn't contain whitespace (if non-empty)
+                if pass_str.chars().any(char::is_whitespace) {
+                    return Err(UrlParseError::InvalidDomainCharacter);
+                }
                 // Treat empty password as None
                 let pass = if pass_str.is_empty() { None } else { Some(pass_str) };
                 (user, pass)
             } else {
                 (user_info, None)
             };
+
+            // Validate username doesn't contain whitespace
+            if user.chars().any(char::is_whitespace) {
+                return Err(UrlParseError::InvalidDomainCharacter);
+            }
 
             let (h, p) = Self::parse_host_port(host_port)?;
             // If we have user info, we must have a host
