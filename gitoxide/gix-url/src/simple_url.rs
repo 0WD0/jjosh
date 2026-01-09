@@ -185,10 +185,11 @@ impl<'a> ParsedUrl<'a> {
 
     /// Validate and possibly normalize a hostname
     /// Valid DNS hostnames are normalized to lowercase
-    /// Invalid strings (like injection attempts) are preserved as-is but ? is rejected
+    /// Hostnames containing ? or whitespace characters are rejected with an error
     fn normalize_hostname(host: &str) -> Result<String, UrlParseError> {
-        // Reject ? character which git's url parser rejects
-        if host.contains('?') {
+        // Reject invalid characters: ?, space, tab, newline, etc.
+        // These characters are forbidden in URLs per RFC 3986
+        if host.chars().any(|c| c == '?' || c.is_whitespace()) {
             return Err(UrlParseError::InvalidDomainCharacter);
         }
 
@@ -207,7 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_url() {
+    fn simple_url() {
         let url = ParsedUrl::parse("http://example.com/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.host.as_deref(), Some("example.com"));
@@ -218,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_url_with_port() {
+    fn url_with_port() {
         let url = ParsedUrl::parse("http://example.com:8080/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.host.as_deref(), Some("example.com"));
@@ -227,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_url_with_user() {
+    fn url_with_user() {
         let url = ParsedUrl::parse("http://user@example.com/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.username, "user");
@@ -236,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn test_url_with_user_and_password() {
+    fn url_with_user_and_password() {
         let url = ParsedUrl::parse("http://user:pass@example.com/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.username, "user");
@@ -246,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn test_url_with_ipv6() {
+    fn url_with_ipv6() {
         let url = ParsedUrl::parse("http://[::1]/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.host.as_deref(), Some("[::1]"));
@@ -254,11 +255,28 @@ mod tests {
     }
 
     #[test]
-    fn test_url_with_ipv6_and_port() {
+    fn url_with_ipv6_and_port() {
         let url = ParsedUrl::parse("http://[::1]:8080/path").unwrap();
         assert_eq!(url.scheme, "http");
         assert_eq!(url.host.as_deref(), Some("[::1]"));
         assert_eq!(url.port, Some(8080));
         assert_eq!(url.path, "/path");
+    }
+
+    #[test]
+    fn url_with_space_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has a space").is_err());
+        assert!(ParsedUrl::parse("http://has a space/path").is_err());
+        assert!(ParsedUrl::parse("https://example.com with space/path").is_err());
+    }
+
+    #[test]
+    fn url_with_tab_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has\ta\ttab").is_err());
+    }
+
+    #[test]
+    fn url_with_newline_in_host_is_rejected() {
+        assert!(ParsedUrl::parse("http://has\na\nnewline").is_err());
     }
 }
