@@ -57,12 +57,12 @@ impl<'a> ParsedUrl<'a> {
         let path_start = after_scheme.find('/').unwrap_or(after_scheme.len());
         let authority = &after_scheme[..path_start];
         let path = if path_start < after_scheme.len() {
-            let p = &after_scheme[path_start..];
+            let path = &after_scheme[path_start..];
             // Validate path doesn't contain whitespace (per RFC 3986)
-            if p.chars().any(char::is_whitespace) {
+            if path.chars().any(char::is_whitespace) {
                 return Err(UrlParseError::InvalidDomainCharacter);
             }
-            p
+            path
         } else {
             // No path specified - leave empty (caller can default to / if needed)
             ""
