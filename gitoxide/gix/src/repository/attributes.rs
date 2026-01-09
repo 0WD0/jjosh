@@ -23,7 +23,7 @@ impl Repository {
     /// This takes into consideration all the usual repository configuration, namely:
     ///
     /// * `$XDG_CONFIG_HOME/…/ignore|attributes` if `core.excludesFile|attributesFile` is *not* set, otherwise use the configured file.
-    /// * `$GIT_DIR/info/exclude|attributes` if present.
+    /// * `$GIT_COMMON_DIR/info/exclude|attributes` if present.
     #[cfg(feature = "attributes")]
     pub fn attributes(
         &self,
@@ -38,13 +38,13 @@ impl Repository {
             gix_glob::pattern::Case::Sensitive
         };
         let (attributes, mut buf) = self.config.assemble_attribute_globals(
-            self.git_dir(),
+            self.common_dir(),
             attributes_source,
             self.options.permissions.attributes,
         )?;
         let ignore =
             self.config
-                .assemble_exclude_globals(self.git_dir(), exclude_overrides, ignore_source, &mut buf)?;
+                .assemble_exclude_globals(self.common_dir(), exclude_overrides, ignore_source, &mut buf)?;
         let state = gix_worktree::stack::State::AttributesAndIgnoreStack { attributes, ignore };
         let attribute_list = state.id_mappings_from_index(index, index.path_backing(), case);
         Ok(AttributeStack::new(
@@ -73,7 +73,7 @@ impl Repository {
             gix_glob::pattern::Case::Sensitive
         };
         let (attributes, buf) = self.config.assemble_attribute_globals(
-            self.git_dir(),
+            self.common_dir(),
             attributes_source,
             self.options.permissions.attributes,
         )?;
@@ -101,7 +101,7 @@ impl Repository {
     /// This takes into consideration all the usual repository configuration, namely:
     ///
     /// * `$XDG_CONFIG_HOME/…/ignore` if `core.excludesFile` is *not* set, otherwise use the configured file.
-    /// * `$GIT_DIR/info/exclude` if present.
+    /// * `$GIT_COMMON_DIR/info/exclude` if present.
     ///
     /// When only excludes are desired, this is the most efficient way to obtain them. Otherwise use
     /// [`Repository::attributes()`] for accessing both attributes and excludes.
@@ -121,7 +121,7 @@ impl Repository {
         let mut buf = Vec::with_capacity(512);
         let ignore = self
             .config
-            .assemble_exclude_globals(self.git_dir(), overrides, source, &mut buf)?;
+            .assemble_exclude_globals(self.common_dir(), overrides, source, &mut buf)?;
         let state = gix_worktree::stack::State::IgnoreStack(ignore);
         let attribute_list = state.id_mappings_from_index(index, index.path_backing(), case);
         Ok(AttributeStack::new(

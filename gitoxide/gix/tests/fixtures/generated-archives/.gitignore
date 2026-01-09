@@ -9,3 +9,4 @@
 /make_diff_repos.tar
 /make_submodule_with_worktree.tar
 /repo_with_untracked_files.tar
+/make_worktree_repo_with_info_exclude.tar

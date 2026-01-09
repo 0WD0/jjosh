@@ -7,7 +7,7 @@ fn empty_core_excludes() -> crate::Result {
     let repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "empty-core-excludes",
-        gix::open::Options::default().strict_config(true),
+        gix::open::Options::isolated().strict_config(true),
     )?;
     let index = repo.index_or_empty()?;
     match repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped) {
@@ -33,7 +33,7 @@ fn missing_core_excludes_is_ignored() -> crate::Result {
     let mut repo = named_subrepo_opts(
         "make_basic_repo.sh",
         "empty-core-excludes",
-        gix::open::Options::default().strict_config(true),
+        gix::open::Options::isolated().strict_config(true),
     )?;
     repo.config_snapshot_mut()
         .set_value(&gix::config::tree::Core::EXCLUDES_FILE, "definitely-missing")?;
@@ -41,5 +41,21 @@ fn missing_core_excludes_is_ignored() -> crate::Result {
     let index = repo.index_or_empty()?;
     repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)
         .expect("the call works as missing excludes files are ignored");
+    Ok(())
+}
+
+#[test]
+fn worktree_info_exclude_from_common_dir() -> crate::Result {
+    let repo = named_subrepo_opts(
+        "make_worktree_repo_with_info_exclude.sh",
+        "worktree",
+        gix::open::Options::isolated().strict_config(true),
+    )?;
+    let index = repo.index_or_empty()?;
+    let mut excludes = repo.excludes(&index, None, Source::WorktreeThenIdMappingIfNotSkipped)?;
+    assert!(
+        excludes.at_path("ignored-file", None)?.is_excluded(),
+        "file matching pattern in <common_dir>/info/exclude should be excluded in worktree"
+    );
     Ok(())
 }
