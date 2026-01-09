@@ -26,8 +26,8 @@
 /// ```
 /// use std::fs;
 ///
-/// use exn::bail;
-/// # fn wrapper() -> exn::Result<(), impl exn::Error> {
+/// use gix_error::bail;
+/// # fn wrapper() -> Result<(), gix_error::Exn<std::io::Error>> {
 /// match fs::read_to_string("/path/to/file") {
 ///     Ok(content) => println!("file contents: {content}"),
 ///     Err(err) => bail!(err),
@@ -61,7 +61,7 @@ macro_rules! bail {
 /// use std::error::Error;
 /// use std::fmt;
 ///
-/// use exn::ensure;
+/// use gix_error::ensure;
 ///
 /// #[derive(Debug)]
 /// struct PermissionDenied(User, Resource);

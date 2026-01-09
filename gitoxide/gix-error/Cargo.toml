@@ -11,10 +11,9 @@ edition = "2021"
 include = ["src/**/*", "LICENSE-*"]
 rust-version = "1.82"
 
-[lib]
-doctest = false
-
 [dependencies]
-bstr = { version = "1.12.0", default-features = false }
-exn = { version = "0.2.1", default-features = false }
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+insta = "1.46.0"
 

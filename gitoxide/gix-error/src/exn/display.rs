@@ -14,10 +14,9 @@
 
 use std::fmt;
 
-use crate::Error;
-use crate::Exn;
+use crate::exn::Exn;
 
-impl<E: Error> fmt::Display for Exn<E> {
+impl<E: std::error::Error + Send + Sync + 'static> fmt::Display for Exn<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_error())
     }

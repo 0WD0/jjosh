@@ -1,9 +1,30 @@
 //! Common error types and utilities for error handling.
+//!
+//! # Usage
+//!
+//! * When there is **no callee error** to track, use *simple* `std::error::Error` implementations directly,
+//!   via `Result<_, Simple>`.
+//! * When there **is callee error to track** *in a `gix-plumbing`*, use `Result<_, Exn<Simple>>`.
+//!      - Remember that `Exn<Simple>` does not implement `std::error::Error` so it's not easy to use outside `gix-` crates.
+//! * When there **is callee error to track** *in a `gix`*, convert both `std::error::Error` and `Exn<E>` into [`Error`]
+//!
 #![deny(missing_docs, unsafe_code)]
 /// A result type to hide the [Exn] error wrapper.
-pub use exn::Result;
-pub use exn::ResultExt;
-pub use exn::{bail, ensure, Exn};
+mod exn;
+
+pub use exn::{ErrorExt, Exn, OptionExt, ResultExt};
+
+/// An error type that wraps an inner type-erased boxed `std::error::Error` or an `Exn` frame.
+pub struct Error {
+    #[expect(dead_code)]
+    inner: Inner,
+}
+
+#[expect(dead_code)]
+enum Inner {
+    Boxed(Box<dyn std::error::Error + Send + Sync>),
+    Exn(Box<exn::Frame>),
+}
 
 mod parse {
     use bstr::BString;

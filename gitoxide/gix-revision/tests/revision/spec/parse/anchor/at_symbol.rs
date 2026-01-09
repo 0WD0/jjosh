@@ -75,7 +75,7 @@ fn reflog_by_unix_timestamp_for_current_branch() {
 #[test]
 fn reflog_by_date_with_date_parse_failure() {
     let err = try_parse("@{foo}").unwrap_err();
-    assert!(matches!(err, spec::parse::Error::Time {input, tmp_source} if input == "foo" && tmp_source.is_some()));
+    assert!(matches!(err, spec::parse::Error::Time {input, source} if input == "foo" && source.is_some()));
 }
 
 #[test]

@@ -9,7 +9,7 @@ use crate::{
     time::format::{DEFAULT, GITOXIDE, ISO8601, ISO8601_STRICT, SHORT},
     Error, OffsetInSeconds, SecondsSinceUnixEpoch, Time,
 };
-use gix_error::{Result, ResultExt};
+use gix_error::{Exn, ResultExt};
 
 /// Parse `input` as any time that Git can parse when inputting a date.
 ///
@@ -72,7 +72,7 @@ use gix_error::{Result, ResultExt};
 /// If `now` is October 27, 2023 at 10:00:00 UTC:
 ///     *   `2 minutes ago` (October 27, 2023 at 09:58:00 UTC)
 ///     *   `3 hours ago` (October 27, 2023 at 07:00:00 UTC)
-pub fn parse(input: &str, now: Option<SystemTime>) -> Result<Time, Error> {
+pub fn parse(input: &str, now: Option<SystemTime>) -> Result<Time, Exn<Error>> {
     Ok(if let Ok(val) = Date::strptime(SHORT.0, input) {
         let val = val
             .to_zoned(TimeZone::UTC)

@@ -1,10 +1,10 @@
 use std::{str::FromStr, time::SystemTime};
 
 use crate::Error;
-use gix_error::{ensure, ParseError, Result, ResultExt};
+use gix_error::{ensure, Exn, ParseError, ResultExt};
 use jiff::{tz::TimeZone, Span, Timestamp, Zoned};
 
-fn parse_inner(input: &str) -> Option<Result<Span, Error>> {
+fn parse_inner(input: &str) -> Option<Result<Span, Exn<Error>>> {
     let mut split = input.split_whitespace();
     let units = i64::from_str(split.next()?).ok()?;
     let period = split.next()?;
@@ -14,8 +14,8 @@ fn parse_inner(input: &str) -> Option<Result<Span, Error>> {
     span(period, units)
 }
 
-pub fn parse(input: &str, now: Option<SystemTime>) -> Option<Result<Zoned, Error>> {
-    parse_inner(input).map(|result| -> Result<Zoned, Error> {
+pub fn parse(input: &str, now: Option<SystemTime>) -> Option<Result<Zoned, Exn<Error>>> {
+    parse_inner(input).map(|result| -> Result<Zoned, Exn<Error>> {
         let span = result?;
         // This was an error case in a previous version of this code, where
         // it would fail when converting from a negative signed integer
@@ -36,7 +36,7 @@ pub fn parse(input: &str, now: Option<SystemTime>) -> Option<Result<Zoned, Error
     })
 }
 
-fn span(period: &str, units: i64) -> Option<Result<Span, Error>> {
+fn span(period: &str, units: i64) -> Option<Result<Span, Exn<Error>>> {
     let period = period.strip_suffix('s').unwrap_or(period);
     let result = match period {
         "second" => Span::new().try_seconds(units),
