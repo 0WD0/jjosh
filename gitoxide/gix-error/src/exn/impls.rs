@@ -12,20 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::error::Error;
 use std::fmt;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::panic::Location;
 
-/// An exception type that can hold an error tree and additional context.
-///
-/// While an error chain, a list, is automatically created when [raise](Exn::raise)
-/// and friends are invoked, one can also use [`Exn::from_iter`] to create an error
-/// that has multiple causes.
-pub struct Exn<E: std::error::Error + Send + Sync + 'static> {
-    // trade one more indirection for less stack size
-    frame: Box<Frame>,
-    phantom: PhantomData<E>,
-}
+use crate::Exn;
 
 impl<E: std::error::Error + Send + Sync + 'static> From<E> for Exn<E> {
     #[track_caller]
@@ -42,31 +36,17 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
     ///
     /// See also [`ErrorExt::raise`](crate::ErrorExt) for a fluent way to convert an error into an `Exn` instance.
     ///
+    /// Note that **sources of `error` are degenerated to their string representation** and all type information is erased.
+    ///
     /// [source chain of the error]: std::error::Error::source
     #[track_caller]
     pub fn new(error: E) -> Self {
-        struct SourceError(String);
-
-        impl fmt::Debug for SourceError {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                fmt::Debug::fmt(&self.0, f)
-            }
-        }
-
-        impl fmt::Display for SourceError {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                fmt::Display::fmt(&self.0, f)
-            }
-        }
-
-        impl std::error::Error for SourceError {}
-
-        fn walk(error: &dyn std::error::Error, location: &'static Location<'static>) -> Vec<Frame> {
+        fn walk_sources(error: &dyn std::error::Error, location: &'static Location<'static>) -> Vec<Frame> {
             if let Some(source) = error.source() {
                 let children = vec![Frame {
-                    error: Box::new(SourceError(source.to_string())),
+                    error: Box::new(SourceError::new(source)),
                     location,
-                    children: walk(source, location),
+                    children: walk_sources(source, location),
                 }];
                 children
             } else {
@@ -75,7 +55,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
         }
 
         let location = Location::caller();
-        let children = walk(&error, location);
+        let children = walk_sources(&error, location);
         let frame = Frame {
             error: Box::new(error),
             location,
@@ -89,6 +69,8 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
     }
 
     /// Create a new exception with the given error and children.
+    ///
+    /// It's no error if `children` is empty.
     #[track_caller]
     pub fn from_iter<T, I>(children: I, err: E) -> Self
     where
@@ -112,6 +94,46 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
         new_exn
     }
 
+    /// Use the current exception the head of a chain, adding `errors` to its children.
+    #[track_caller]
+    pub fn chain_iter<T, I>(mut self, errors: I) -> Exn<E>
+    where
+        T: std::error::Error + Send + Sync + 'static,
+        I: IntoIterator,
+        I::Item: Into<Exn<T>>,
+    {
+        for err in errors {
+            let err = err.into();
+            self.frame.children.push(*err.frame);
+        }
+        self
+    }
+
+    /// Drain all sources of this error as untyped [`Exn`].
+    ///
+    /// This is useful if one wants to re-organise errors, and the error layout is well known.
+    pub fn drain_children(&mut self) -> impl Iterator<Item = Exn> + '_ {
+        self.frame.children.drain(..).map(Exn::from)
+    }
+
+    /// Use the current exception the head of a chain, adding all `err` to its children.
+    #[track_caller]
+    pub fn chain<T: std::error::Error + Send + Sync + 'static>(mut self, err: impl Into<Exn<T>>) -> Exn<E> {
+        let err = err.into();
+        self.frame.children.push(*err.frame);
+        self
+    }
+
+    /// Erase the type of this instance and turn it into a bare `Exn`.
+    pub fn erased(mut self) -> Exn {
+        let error = SourceError::new(self.as_frame().as_error());
+        self.frame.error = Box::new(error);
+        Exn {
+            frame: self.frame,
+            phantom: Default::default(),
+        }
+    }
+
     /// Return the current exception.
     pub fn as_error(&self) -> &E {
         self.frame
@@ -130,9 +152,110 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
         }
     }
 
+    /// Turn ourselves into a type that implements [`std::error::Error`].
+    pub fn into_error(self) -> crate::Error {
+        self.into()
+    }
+
     /// Return the underlying exception frame.
     pub fn as_frame(&self) -> &Frame {
         &self.frame
+    }
+}
+
+impl<E> Deref for Exn<E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    type Target = E;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_error()
+    }
+}
+
+impl<E: std::error::Error + Send + Sync + 'static> fmt::Debug for Exn<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write_frame_recursive(f, self.as_frame(), "", ErrorMode::Display, TreeMode::Linearize)
+    }
+}
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write_frame_recursive(f, self, "", ErrorMode::Display, TreeMode::Linearize)
+    }
+}
+
+#[derive(Copy, Clone)]
+enum ErrorMode {
+    Display,
+    Debug,
+}
+
+#[derive(Copy, Clone)]
+enum TreeMode {
+    Linearize,
+    Verbatim,
+}
+
+fn write_frame_recursive(
+    f: &mut Formatter<'_>,
+    frame: &Frame,
+    prefix: &str,
+    err_mode: ErrorMode,
+    tree_mode: TreeMode,
+) -> fmt::Result {
+    match err_mode {
+        ErrorMode::Display => fmt::Display::fmt(frame.as_error(), f),
+        ErrorMode::Debug => {
+            write!(f, "{:?}", frame.as_error())
+        }
+    }?;
+    if !f.alternate() {
+        write_location(f, frame)?;
+    }
+
+    let children = frame.children();
+    let children_len = children.len();
+
+    for (cidx, child) in children.iter().enumerate() {
+        write!(f, "\n{prefix}|")?;
+        write!(f, "\n{prefix}└─ ")?;
+
+        let child_child_len = child.children().len();
+        let may_linerarize_chain =
+            matches!(tree_mode, TreeMode::Linearize) && children_len == 1 && child_child_len == 1;
+        if may_linerarize_chain {
+            write_frame_recursive(f, child, prefix, err_mode, tree_mode)?;
+        } else if cidx < children_len - 1 {
+            write_frame_recursive(f, child, &format!("{prefix}|   "), err_mode, tree_mode)?;
+        } else {
+            write_frame_recursive(f, child, &format!("{prefix}    "), err_mode, tree_mode)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_location(f: &mut Formatter<'_>, exn: &Frame) -> fmt::Result {
+    let location = exn.location();
+    write!(f, ", at {}:{}:{}", location.file(), location.line(), location.column())
+}
+
+impl<E: std::error::Error + Send + Sync + 'static> fmt::Display for Exn<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Display::fmt(&self.frame, f)
+    }
+}
+
+impl fmt::Display for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            // Avoid printing alternate versions of the debug info, keep it in one line, also print the tree.
+            write_frame_recursive(f, self, "", ErrorMode::Debug, TreeMode::Verbatim)
+        } else {
+            fmt::Display::fmt(self.as_error(), f)
+        }
     }
 }
 
@@ -148,7 +271,12 @@ pub struct Frame {
 
 impl Frame {
     /// Return the error as a reference to [`std::error::Error`].
-    pub fn as_error(&self) -> &dyn std::error::Error {
+    pub fn as_error(&self) -> &(dyn std::error::Error + 'static) {
+        &*self.error
+    }
+
+    /// Return the error as a reference to [`std::error::Error`].
+    pub fn as_error_send_sync(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
         &*self.error
     }
 
@@ -160,5 +288,168 @@ impl Frame {
     /// Return a slice of the children of the exception.
     pub fn children(&self) -> &[Frame] {
         &self.children
+    }
+}
+
+/// Navigation
+impl Frame {
+    /// Find the best possible cause:
+    ///
+    /// * in a linear chain of a single error each, it's the last-most child frame
+    /// * in trees, find the deepest-possible frame that has the most leafs as children
+    ///
+    /// Return `None` if there are no children.
+    pub fn probable_cause(&self) -> Option<&Frame> {
+        fn walk<'a>(frame: &'a Frame, depth: usize) -> (usize, usize, &'a Frame) {
+            if frame.children.is_empty() {
+                return (1, depth, frame);
+            }
+
+            let mut total_leafs = 0;
+            let mut best: Option<(usize, usize, &'a Frame)> = None;
+
+            for child in &frame.children {
+                let (leafs, d, f) = walk(child, depth + 1);
+                total_leafs += leafs;
+
+                match best {
+                    None => best = Some((leafs, d, f)),
+                    Some((bl, bd, _)) => {
+                        if leafs > bl || (leafs == bl && d > bd) {
+                            best = Some((leafs, d, f));
+                        }
+                    }
+                }
+            }
+
+            let self_candidate = (total_leafs, depth, frame);
+            match best {
+                None => self_candidate,
+                Some(best_child) => {
+                    if total_leafs > best_child.0 || (total_leafs == best_child.0 && depth > best_child.1) {
+                        self_candidate
+                    } else {
+                        best_child
+                    }
+                }
+            }
+        }
+
+        // Special case: a simple error just with children would render the same as a chain,
+        //               so pretend the last child is the cause.
+        if self.children().iter().all(|c| c.children().is_empty()) {
+            if let Some(last) = self.children().last() {
+                return Some(last);
+            }
+        }
+
+        let res = walk(self, 0).2;
+        if std::ptr::addr_eq(res, self) {
+            None
+        } else {
+            Some(res)
+        }
+    }
+}
+
+impl<E> From<Exn<E>> for Box<Frame>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn from(err: Exn<E>) -> Self {
+        err.frame
+    }
+}
+
+impl<E> From<Exn<E>> for Frame
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn from(err: Exn<E>) -> Self {
+        *err.frame
+    }
+}
+
+impl From<Frame> for Exn {
+    fn from(frame: Frame) -> Self {
+        Exn {
+            frame: Box::new(frame),
+            phantom: Default::default(),
+        }
+    }
+}
+
+/// A marker to show that type information is not available,
+/// while storing all extractable information about the erased type.
+/// It's the default type for [Exn].
+pub struct Untyped(SourceError);
+
+impl fmt::Display for Untyped {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Debug for Untyped {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl std::error::Error for Untyped {}
+
+/// An error that merely says that something is wrong.
+pub struct Something;
+
+impl fmt::Display for Something {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("Something went wrong")
+    }
+}
+
+impl fmt::Debug for Something {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        std::fmt::Display::fmt(&self, f)
+    }
+}
+
+impl std::error::Error for Something {}
+
+/// A way to keep all information of errors returned by `source()` chains.
+struct SourceError {
+    display: String,
+    alt_display: String,
+    debug: String,
+    alt_debug: String,
+}
+
+impl fmt::Debug for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let dbg = if f.alternate() { &self.alt_debug } else { &self.debug };
+        f.write_str(dbg)
+    }
+}
+
+impl fmt::Display for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ds = if f.alternate() {
+            &self.alt_display
+        } else {
+            &self.display
+        };
+        f.write_str(ds)
+    }
+}
+
+impl std::error::Error for SourceError {}
+
+impl SourceError {
+    fn new(err: &dyn Error) -> Self {
+        SourceError {
+            display: err.to_string(),
+            alt_display: format!("{err:#}"),
+            debug: format!("{err:?}"),
+            alt_debug: format!("{err:#?}"),
+        }
     }
 }
