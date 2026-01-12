@@ -258,7 +258,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        shell: bash
+        shell: bash  # Use `bash` on all OSes, for `set -e` behavior.
         run: |
           rustup update stable
           rustup default stable
@@ -274,6 +274,12 @@ jobs:
       - name: Test (nextest)
         env:
           GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI: '1'
+        # We deliberately let this step use different shells on different OSes, each the runner
+        # default: `bash` on Ubuntu and macOS, but `pwsh` on Windows. `bash` on Windows runners
+        # would use a modified ("Git Bash") environment that is in some ways nicer for our tests,
+        # due to being more in line with some Unix-oriented assumptions. So we need to verify that
+        # the test suite is compatible with being run even outside that environment, including that
+        # `gix-testtools` is still able to run fixture scripts with the `bash` shell as intended.
         run: |  # zizmor: ignore[template-injection]
           cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
       - name: Check that tracked archives are up to date
@@ -319,7 +325,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        shell: bash
+        shell: bash  # Use `bash` (not `pwsh`), for `set -e` behavior.
         run: |
           rustup update stable
           rustup default stable
@@ -434,7 +440,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        shell: bash
+        shell: bash  # Use `bash` (not `pwsh`), for `$` expansion and `set -e` behavior.
         run: |
           rustup update stable
           rustup default stable
