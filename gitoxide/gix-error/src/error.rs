@@ -5,17 +5,15 @@ use std::fmt::Formatter;
 impl Error {
     /// Return the error that is most likely the root cause, based on heuristics.
     /// Note that if there is nothing but this error, i.e. no source or children, this error is returned.
-    pub fn probable_cause(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+    pub fn probable_cause(&self) -> &(dyn std::error::Error + 'static) {
         let root = self.inner.as_frame();
-        root.probable_cause().unwrap_or(root).as_error_send_sync()
+        root.probable_cause().unwrap_or(root).as_error()
     }
 
-    //
-    // /// Return an iterator over all sources, i.e. the linear chain.
-    // pub fn iter_sources(&self) -> ErrorIter<'_> {
-    //     use std::error::Error;
-    //     ErrorIter { current: self.source() }
-    // }
+    /// Return an iterator over all errors in the tree in breadth-first order, starting with this one.
+    pub fn iter_frames(&self) -> impl Iterator<Item = &exn::Frame> + '_ {
+        self.inner.as_frame().iter()
+    }
 }
 
 pub(super) enum Inner {
@@ -63,7 +61,9 @@ impl std::error::Error for Error {
     /// Return the first source of an [Exn] error, or the source of a boxed error.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.inner {
-            Inner::ExnAsError(frame) | Inner::Exn(frame) => frame.children().first().map(exn::Frame::as_error),
+            Inner::ExnAsError(frame) | Inner::Exn(frame) => {
+                frame.children().first().map(exn::Frame::as_error_no_send_sync)
+            }
         }
     }
 }
@@ -78,19 +78,3 @@ where
         }
     }
 }
-
-// TODO: actually use frames, source doesn't really work.
-// #[derive(Clone, Copy)]
-// pub struct ErrorIter<'a> {
-//     current: Option<&'a (dyn std::error::Error + 'static)>,
-// }
-//
-// impl<'a> Iterator for ErrorIter<'a> {
-//     type Item = &'a (dyn std::error::Error + 'static);
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let current = self.current;
-//         self.current = self.current.and_then(std::error::Error::source);
-//         current
-//     }
-// }

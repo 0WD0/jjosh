@@ -21,14 +21,14 @@ use std::panic::Location;
 
 use crate::Exn;
 
-impl<E: std::error::Error + Send + Sync + 'static> From<E> for Exn<E> {
+impl<E: Error + Send + Sync + 'static> From<E> for Exn<E> {
     #[track_caller]
     fn from(error: E) -> Self {
         Exn::new(error)
     }
 }
 
-impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
+impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Create a new exception with the given error.
     ///
     /// This will automatically walk the [source chain of the error] and add them as children
@@ -38,10 +38,10 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
     ///
     /// Note that **sources of `error` are degenerated to their string representation** and all type information is erased.
     ///
-    /// [source chain of the error]: std::error::Error::source
+    /// [source chain of the error]: Error::source
     #[track_caller]
     pub fn new(error: E) -> Self {
-        fn walk_sources(error: &dyn std::error::Error, location: &'static Location<'static>) -> Vec<Frame> {
+        fn walk_sources(error: &dyn Error, location: &'static Location<'static>) -> Vec<Frame> {
             if let Some(source) = error.source() {
                 let children = vec![Frame {
                     error: Box::new(SourceError::new(source)),
@@ -74,7 +74,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn from_iter<T, I>(children: I, err: E) -> Self
     where
-        T: std::error::Error + Send + Sync + 'static,
+        T: Error + Send + Sync + 'static,
         I: IntoIterator,
         I::Item: Into<Exn<T>>,
     {
@@ -88,7 +88,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
 
     /// Raise a new exception; this will make the current exception a child of the new one.
     #[track_caller]
-    pub fn raise<T: std::error::Error + Send + Sync + 'static>(self, err: T) -> Exn<T> {
+    pub fn raise<T: Error + Send + Sync + 'static>(self, err: T) -> Exn<T> {
         let mut new_exn = Exn::new(err);
         new_exn.frame.children.push(*self.frame);
         new_exn
@@ -98,7 +98,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
     #[track_caller]
     pub fn chain_iter<T, I>(mut self, errors: I) -> Exn<E>
     where
-        T: std::error::Error + Send + Sync + 'static,
+        T: Error + Send + Sync + 'static,
         I: IntoIterator,
         I::Item: Into<Exn<T>>,
     {
@@ -118,16 +118,14 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
 
     /// Use the current exception the head of a chain, adding all `err` to its children.
     #[track_caller]
-    pub fn chain<T: std::error::Error + Send + Sync + 'static>(mut self, err: impl Into<Exn<T>>) -> Exn<E> {
+    pub fn chain<T: Error + Send + Sync + 'static>(mut self, err: impl Into<Exn<T>>) -> Exn<E> {
         let err = err.into();
         self.frame.children.push(*err.frame);
         self
     }
 
     /// Erase the type of this instance and turn it into a bare `Exn`.
-    pub fn erased(mut self) -> Exn {
-        let error = SourceError::new(self.as_frame().as_error());
-        self.frame.error = Box::new(error);
+    pub fn erased(self) -> Exn {
         Exn {
             frame: self.frame,
             phantom: Default::default(),
@@ -144,7 +142,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
 
     /// Discard all error context and return the underlying error.
     ///
-    /// This may be needed to obtain something that once again implements `std::error::Error`.
+    /// This may be needed to obtain something that once again implements `Error`.
     pub fn into_box(self) -> Box<E> {
         match self.frame.error.downcast() {
             Ok(err) => err,
@@ -152,7 +150,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
         }
     }
 
-    /// Turn ourselves into a type that implements [`std::error::Error`].
+    /// Turn ourselves into a type that implements [`Error`].
     pub fn into_error(self) -> crate::Error {
         self.into()
     }
@@ -165,7 +163,7 @@ impl<E: std::error::Error + Send + Sync + 'static> Exn<E> {
 
 impl<E> Deref for Exn<E>
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: Error + Send + Sync + 'static,
 {
     type Target = E;
 
@@ -174,7 +172,7 @@ where
     }
 }
 
-impl<E: std::error::Error + Send + Sync + 'static> fmt::Debug for Exn<E> {
+impl<E: Error + Send + Sync + 'static> fmt::Debug for Exn<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write_frame_recursive(f, self.as_frame(), "", ErrorMode::Display, TreeMode::Linearize)
     }
@@ -242,7 +240,7 @@ fn write_location(f: &mut Formatter<'_>, exn: &Frame) -> fmt::Result {
     write!(f, ", at {}:{}:{}", location.file(), location.line(), location.column())
 }
 
-impl<E: std::error::Error + Send + Sync + 'static> fmt::Display for Exn<E> {
+impl<E: Error + Send + Sync + 'static> fmt::Display for Exn<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         std::fmt::Display::fmt(&self.frame, f)
     }
@@ -262,7 +260,7 @@ impl fmt::Display for Frame {
 /// A frame in the exception tree.
 pub struct Frame {
     /// The error that occurred at this frame.
-    error: Box<dyn std::error::Error + Send + Sync + 'static>,
+    error: Box<dyn Error + Send + Sync + 'static>,
     /// The source code location where this exception frame was created.
     location: &'static Location<'static>,
     /// Child exception frames that provide additional context or source errors.
@@ -270,14 +268,14 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Return the error as a reference to [`std::error::Error`].
-    pub fn as_error(&self) -> &(dyn std::error::Error + 'static) {
+    /// Return the error as a reference to [`Error`].
+    pub fn as_error(&self) -> &(dyn Error + Send + Sync + 'static) {
         &*self.error
     }
 
-    /// Return the error as a reference to [`std::error::Error`].
-    pub fn as_error_send_sync(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
-        &*self.error
+    /// Try to downcast this error into the exact type T, or return `None`
+    pub fn downcast<T: Error + 'static>(&self) -> Option<&T> {
+        self.error.downcast_ref()
     }
 
     /// Return the source code location where this exception frame was created.
@@ -288,6 +286,13 @@ impl Frame {
     /// Return a slice of the children of the exception.
     pub fn children(&self) -> &[Frame] {
         &self.children
+    }
+}
+
+impl Frame {
+    /// Return the error as a reference to [`Error`].
+    pub(crate) fn as_error_no_send_sync(&self) -> &(dyn Error + 'static) {
+        &*self.error
     }
 }
 
@@ -350,11 +355,36 @@ impl Frame {
             Some(res)
         }
     }
+
+    /// Iterate over all frames in breadth-first order. The first frame is this instance,
+    /// followed by all of its children.
+    pub fn iter(&self) -> impl Iterator<Item = &Frame> + '_ {
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(self);
+        BreadthFirstFrames { queue }
+    }
+}
+
+/// Breadth-first iterator over `Frame`s.
+pub struct BreadthFirstFrames<'a> {
+    queue: std::collections::VecDeque<&'a Frame>,
+}
+
+impl<'a> Iterator for BreadthFirstFrames<'a> {
+    type Item = &'a Frame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let frame = self.queue.pop_front()?;
+        for child in frame.children() {
+            self.queue.push_back(child);
+        }
+        Some(frame)
+    }
 }
 
 impl<E> From<Exn<E>> for Box<Frame>
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: Error + Send + Sync + 'static,
 {
     fn from(err: Exn<E>) -> Self {
         err.frame
@@ -363,7 +393,7 @@ where
 
 impl<E> From<Exn<E>> for Frame
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: Error + Send + Sync + 'static,
 {
     fn from(err: Exn<E>) -> Self {
         *err.frame
@@ -382,7 +412,7 @@ impl From<Frame> for Exn {
 /// A marker to show that type information is not available,
 /// while storing all extractable information about the erased type.
 /// It's the default type for [Exn].
-pub struct Untyped(SourceError);
+pub struct Untyped(Box<dyn Error + Send + Sync + 'static>);
 
 impl fmt::Display for Untyped {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -396,7 +426,7 @@ impl fmt::Debug for Untyped {
     }
 }
 
-impl std::error::Error for Untyped {}
+impl Error for Untyped {}
 
 /// An error that merely says that something is wrong.
 pub struct Something;
@@ -413,7 +443,7 @@ impl fmt::Debug for Something {
     }
 }
 
-impl std::error::Error for Something {}
+impl Error for Something {}
 
 /// A way to keep all information of errors returned by `source()` chains.
 struct SourceError {
@@ -441,7 +471,7 @@ impl fmt::Display for SourceError {
     }
 }
 
-impl std::error::Error for SourceError {}
+impl Error for SourceError {}
 
 impl SourceError {
     fn new(err: &dyn Error) -> Self {

@@ -364,6 +364,22 @@ fn error_tree() {
         |
         └─ E7, at gix-error/tests/error/main.rs:22:30
     ");
+    insta::assert_debug_snapshot!(err.as_frame().iter().map(ToString::to_string).collect::<Vec<_>>(), @r#"
+    [
+        "E6",
+        "E5",
+        "E4",
+        "E8",
+        "E3",
+        "E10",
+        "E12",
+        "E2",
+        "E7",
+        "E1",
+        "E9",
+        "E11",
+    ]
+    "#);
 
     let new_e = Error("E-New").raise_iter(err.drain_children());
     insta::assert_debug_snapshot!(new_e, @r"
@@ -399,9 +415,9 @@ fn result_ext() {
     let result: Result<(), Error> = Err(Error("An error"));
     let result = result.or_raise(|| Error("Another error"));
     insta::assert_snapshot!(debug_string(result.unwrap_err()), @r"
-    Another error, at gix-error/tests/error/exn.rs:400:25
+    Another error, at gix-error/tests/error/exn.rs:416:25
     |
-    └─ An error, at gix-error/tests/error/exn.rs:400:25
+    └─ An error, at gix-error/tests/error/exn.rs:416:25
     ");
 }
 
@@ -409,7 +425,7 @@ fn result_ext() {
 fn option_ext() {
     let result: Option<()> = None;
     let result = result.ok_or_raise(|| Error("An error"));
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:411:25");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:427:25");
 }
 
 #[test]
@@ -420,7 +436,7 @@ fn from_error() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()),@"An error, at gix-error/tests/error/exn.rs:418:9");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()),@"An error, at gix-error/tests/error/exn.rs:434:9");
 }
 
 #[test]
@@ -440,7 +456,7 @@ fn bail() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:439:9");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:455:9");
 }
 
 #[test]
@@ -461,7 +477,7 @@ fn ensure_fail() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:459:9");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:475:9");
 }
 
 #[test]
