@@ -66,7 +66,7 @@ impl Index {
             .ok_or_else(|| message!("The offsets into the file couldn't be represented by usize"))?])
     }
 
-    /// Return the end offset lf the last chunk, which is the highest offset as well.
+    /// Return the end offset of the last chunk, which is the highest offset as well.
     /// It's definitely available as we have one or more chunks.
     pub fn highest_offset(&self) -> crate::file::Offset {
         self.chunks.last().expect("at least one chunk").offset.end

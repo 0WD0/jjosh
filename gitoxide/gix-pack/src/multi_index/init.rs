@@ -21,6 +21,8 @@ mod error {
         #[error("Unsupported hash kind: {kind})")]
         UnsupportedObjectHash { kind: u8 },
         #[error(transparent)]
+        ChunkFileQuery(#[from] gix_error::Message),
+        #[error(transparent)]
         ChunkFileDecode(#[from] gix_error::ParseError),
         #[error("The multi-pack fan doesn't have the correct size of 256 * 4 bytes")]
         MultiPackFanSize,
