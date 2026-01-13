@@ -3,12 +3,40 @@
 //! # Usage
 //!
 //! * When there is **no callee error** to track, use *simple* `std::error::Error` implementations directly,
-//!   via `Result<_, Simple>`.
-//! * When there **is callee error to track** *in a `gix-plumbing`*, use `Result<_, Exn<Simple>>`.
-//!      - Remember that `Exn<Simple>` does not implement `std::error::Error` so it's not easy to use outside `gix-` crates.
-//!      - Use the type-erased version in callbacks like [`Exn`] (without type arguments).
-//! * When there **is callee error to track** *in a `gix`*, convert both `std::error::Error` and `Exn<E>` into [`Error`]
+//!   e.g. `Result<_, Simple>`.
+//! * When there **is callee error to track** *in a `gix-plumbing`*, use e.g. `Result<_, Exn<Simple>>`.
+//!      - Remember that `Exn<T>` does not implement `std::error::Error` so it's not easy to use outside `gix-` crates.
+//!      - Use the type-erased version in callbacks like [`Exn`] (without type arguments), i.e. `Result<T, Exn>`.
+//! * When there **is callee error to track** *in the `gix` crate*, convert both `std::error::Error` and `Exn<E>` into [`Error`]
 //!
+//! # Standard Error Types
+//!
+//! These should always be used if they match the meaning of the error well enough instead of creating an own
+//! [`Error`](std::error::Error)-implementing type, and used with `Result|Option::or_raise(<StandardErrorType>)`.
+//!
+//! All these types implement [`Error`](std::error::Error).
+//!
+//! ## [`Message`]
+//!
+//! The baseline that provides a formatted message.
+//! Formatting can more easily be done with the [`message!`] macro as convenience, roughly equivalent to
+//! `Message(format!("…"))` or `format!("…").into()`.
+//!
+//! ## Specialised types
+//!
+//! - [`ParseError`]
+//!    - like [`Message`], but can optionally store the input that caused the failure.
+//!
+//! # [`Exn<ErrorType>`](Exn) and [`Exn`]
+//!
+//! The [`Exn`] type does not implement [`Error`](std::error::Error) itself, but is able to store causing errors
+//! via [`ResultExt::or_raise()`] (and friends) as well as location information of the creation site.
+//!
+//! While plumbing functions that need to track causes should always return a distinct type like [`Exn<Message>`](Exn),
+//! if that's not possible, use [`Exn::erased`] to let it return `Result<T, Exn>` instead, allowing any return type.
+//!
+//! A side effect of this is that any callee that causes errors needs to be annotated with
+//! `.or_raise(|| message!("context information"))` or `.or_raise_erased(|| message!("context information"))`.
 #![deny(missing_docs, unsafe_code)]
 /// A result type to hide the [Exn] error wrapper.
 mod exn;
