@@ -1548,7 +1548,7 @@ dependencies = [
 name = "gix-chunk"
 version = "0.4.12"
 dependencies = [
- "thiserror 2.0.17",
+ "gix-error",
 ]
 
 [[package]]
@@ -1571,6 +1571,7 @@ dependencies = [
  "document-features",
  "gix-chunk",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-testtools",
  "memmap2",
@@ -2086,6 +2087,7 @@ dependencies = [
  "document-features",
  "gix-chunk",
  "gix-diff",
+ "gix-error",
  "gix-features",
  "gix-hash",
  "gix-hashtable",

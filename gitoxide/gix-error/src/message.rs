@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 #[derive(Debug)]
 pub struct Message(
     /// The error message.
-    Cow<'static, str>,
+    pub(crate) Cow<'static, str>,
 );
 
 /// Lifecycle
@@ -23,3 +23,15 @@ impl Display for Message {
 }
 
 impl std::error::Error for Message {}
+
+impl From<String> for Message {
+    fn from(msg: String) -> Self {
+        Message::new(msg)
+    }
+}
+
+impl From<&'static str> for Message {
+    fn from(msg: &'static str) -> Self {
+        Message::new(msg)
+    }
+}

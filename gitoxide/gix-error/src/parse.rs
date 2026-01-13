@@ -1,3 +1,4 @@
+use crate::Message;
 use bstr::BString;
 use std::borrow::Cow;
 use std::fmt::{Debug, Display, Formatter};
@@ -42,3 +43,21 @@ impl Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl From<Message> for ParseError {
+    fn from(Message(msg): Message) -> Self {
+        ParseError::new(msg)
+    }
+}
+
+impl From<String> for ParseError {
+    fn from(msg: String) -> Self {
+        ParseError::new(msg)
+    }
+}
+
+impl From<&'static str> for ParseError {
+    fn from(msg: &'static str) -> Self {
+        ParseError::new(msg)
+    }
+}
