@@ -35,3 +35,8 @@ impl From<&'static str> for Message {
         Message::new(msg)
     }
 }
+
+/// Return a new statically allocated `message`.
+pub fn message(message: &'static str) -> Message {
+    Message::new(message)
+}
