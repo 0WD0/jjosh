@@ -527,7 +527,8 @@ pub mod validate {
 
     impl Validate for Time {
         fn validate(&self, value: &BStr) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-            gix_date::parse(value.to_str()?, std::time::SystemTime::now().into()).map_err(gix_error::Exn::into_box)?;
+            gix_date::parse(value.to_str()?, std::time::SystemTime::now().into())
+                .map_err(gix_error::Exn::into_inner)?;
             Ok(())
         }
     }

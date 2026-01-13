@@ -25,7 +25,7 @@ pub enum Error {
     #[error(transparent)]
     ReferenceName(#[from] gix_validate::reference::name::Error),
     #[error(transparent)]
-    RevSpec(#[from] Box<gix_revision::spec::parse::Error>),
+    RevSpec(#[from] gix_revision::spec::parse::Error),
 }
 
 /// Define how the parsed refspec should be used.
@@ -181,7 +181,7 @@ pub(crate) mod function {
                         .map_err(Error::from)
                         .or_else(|err| {
                             if allow_revspecs {
-                                gix_revision::spec::parse(spec, &mut super::revparse::Noop).map_err(Exn::into_box)?;
+                                gix_revision::spec::parse(spec, &mut super::revparse::Noop).map_err(Exn::into_inner)?;
                                 Ok(spec)
                             } else {
                                 Err(err)
