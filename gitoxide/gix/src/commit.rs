@@ -84,7 +84,7 @@ pub mod describe {
         #[error(transparent)]
         OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
         #[error(transparent)]
-        Describe(#[from] Box<gix_revision::describe::Error>),
+        Describe(#[from] gix_revision::describe::Error),
         #[error("Could not produce an unambiguous shortened id for formatting.")]
         ShortId(#[from] crate::id::shorten::Error),
         #[error(transparent)]
@@ -245,7 +245,7 @@ pub mod describe {
                     max_candidates: self.max_candidates,
                 },
             )
-            .map_err(Exn::into_box)?;
+            .map_err(Exn::into_inner)?;
 
             Ok(outcome.map(|outcome| Resolution {
                 outcome,

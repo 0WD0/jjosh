@@ -140,9 +140,10 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
             .expect("the owned frame always matches the compile-time error type")
     }
 
-    /// Discard all error context and return the underlying error.
+    /// Discard all error context and return the underlying error in a Box.
     ///
-    /// This may be needed to obtain something that once again implements `Error`.
+    /// This is useful to retain the allocation, as internally it's also stored in a box,
+    /// when comparing it to [`Self::into_inner()`].
     pub fn into_box(self) -> Box<E> {
         match self.frame.error.downcast() {
             Ok(err) => err,
@@ -150,7 +151,15 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
         }
     }
 
-    /// Turn ourselves into a type that implements [`Error`].
+    /// Discard all error context and return the underlying error.
+    ///
+    /// This may be needed to obtain something that once again implements `Error`.
+    /// Note that this destroys the internal Box and moves the value back onto the stack.
+    pub fn into_inner(self) -> E {
+        *self.into_box()
+    }
+
+    /// Turn ourselves into a top-level [Error] that implements [`std::error::Error`].
     pub fn into_error(self) -> crate::Error {
         self.into()
     }
