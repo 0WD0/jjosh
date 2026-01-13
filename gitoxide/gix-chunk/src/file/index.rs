@@ -63,7 +63,7 @@ impl Index {
     pub fn data_by_id<'a>(&self, data: &'a [u8], kind: Id) -> Result<&'a [u8], Message> {
         let offset = self.offset_by_id(kind)?;
         Ok(&data[crate::range::into_usize(offset)
-            .ok_or_else(|| message!("The offsets into the file couldn't be represented by usize"))?])
+            .ok_or_else(|| message("The offsets into the file couldn't be represented by usize"))?])
     }
 
     /// Return the end offset of the last chunk, which is the highest offset as well.

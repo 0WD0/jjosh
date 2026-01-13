@@ -34,5 +34,5 @@ pub enum Error {
     #[error("Failure to decode commit during traversal")]
     DecodeCommit(#[from] gix_object::decode::Error),
     #[error("Failed to get parent from commitgraph during traversal")]
-    GetParentFromCommitGraph(#[from] gix_commitgraph::file::commit::Error),
+    GetParentFromCommitGraph(#[from] gix_error::Message),
 }
