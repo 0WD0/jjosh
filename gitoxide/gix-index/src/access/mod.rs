@@ -149,6 +149,16 @@ impl State {
             let hash = AccelerateLookup::icase_hash(entry_path);
             out.icase_entries
                 .insert_unique(hash, entry, |e| AccelerateLookup::icase_hash(e.path(self)));
+            if entry_is_dir(entry) {
+                out.icase_dirs.insert_unique(
+                    hash,
+                    crate::DirEntry {
+                        entry,
+                        dir_end: entry.path.end,
+                    },
+                    |dir| AccelerateLookup::icase_hash(dir.path(self)),
+                );
+            }
 
             let mut last_pos = entry_path.len();
             while let Some(slash_idx) = entry_path[..last_pos].rfind_byte(b'/') {
@@ -206,7 +216,7 @@ impl State {
             .copied()
     }
 
-    /// Return the entry (at any stage) that is inside of `directory`, or `None`,
+    /// Return the entry (at any stage) that is inside `directory`, or `None`,
     /// using `lookup` for acceleration.
     /// Note that submodules are not detected as directories and the user should
     /// make another call to [`entry_by_path_icase()`](Self::entry_by_path_icase) to check for this
@@ -241,7 +251,23 @@ impl State {
     ///
     /// Note that this is a case-sensitive search.
     pub fn entry_closest_to_directory(&self, directory: &BStr) -> Option<&Entry> {
-        let idx = self.entry_index_by_path(directory).err()?;
+        self.entry_closest_to_directory_inner(directory, DirectoryEntry::Allow)
+    }
+
+    /// If `dirmode` is [`DirectoryEntry::Allow`] then allow returning the directory entry itself.
+    fn entry_closest_to_directory_inner(&self, directory: &BStr, dirmode: DirectoryEntry) -> Option<&Entry> {
+        let idx = match self.entry_index_by_path(directory) {
+            Ok(idx) => {
+                return match dirmode {
+                    DirectoryEntry::Allow => {
+                        let entry = &self.entries[idx];
+                        entry_is_dir(entry).then_some(entry)
+                    }
+                    DirectoryEntry::Deny => None,
+                };
+            }
+            Err(closest_idx) => closest_idx,
+        };
         for entry in &self.entries[idx..] {
             let path = entry.path(self);
             if path.get(..directory.len())? != directory {
@@ -259,7 +285,7 @@ impl State {
         None
     }
 
-    /// Check if `path` is a directory that contains entries in the index.
+    /// Check if `path` is a directory that contains entries in the index, or is a submodule.
     ///
     /// Returns `true` if there is at least one entry in the index whose path starts with `path/`,
     /// indicating that `path` is a directory containing indexed files.
@@ -269,10 +295,12 @@ impl State {
     ///
     /// Note that this is a case-sensitive search.
     pub fn path_is_directory(&self, path: &BStr) -> bool {
-        self.entry_closest_to_directory(path).is_some()
+        self.entry_closest_to_directory_inner(path, DirectoryEntry::Allow)
+            .is_some()
     }
 
-    /// Check if `path` is a directory that contains entries in the index, with optional case-insensitive matching.
+    /// Check if `path` is a directory that contains entries in the index or is a submodule,
+    /// with optional case-insensitive matching.
     ///
     /// Returns `true` if there is at least one entry in the index whose path starts with `path/`,
     /// indicating that `path` is a directory containing indexed files.
@@ -621,6 +649,15 @@ impl State {
     pub fn had_offset_table(&self) -> bool {
         self.offset_table_at_decode_time
     }
+}
+
+enum DirectoryEntry {
+    Allow,
+    Deny,
+}
+
+fn entry_is_dir(entry: &Entry) -> bool {
+    entry.mode.is_sparse() || entry.mode.is_submodule()
 }
 
 #[cfg(test)]
