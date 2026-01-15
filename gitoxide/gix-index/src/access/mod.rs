@@ -149,6 +149,16 @@ impl State {
             let hash = AccelerateLookup::icase_hash(entry_path);
             out.icase_entries
                 .insert_unique(hash, entry, |e| AccelerateLookup::icase_hash(e.path(self)));
+            if entry_is_dir(entry) {
+                out.icase_dirs.insert_unique(
+                    hash,
+                    crate::DirEntry {
+                        entry,
+                        dir_end: entry.path.end,
+                    },
+                    |dir| AccelerateLookup::icase_hash(dir.path(self)),
+                );
+            }
 
             let mut last_pos = entry_path.len();
             while let Some(slash_idx) = entry_path[..last_pos].rfind_byte(b'/') {
@@ -206,14 +216,11 @@ impl State {
             .copied()
     }
 
-    /// Return the entry (at any stage) that is inside of `directory`, or `None`,
-    /// using `lookup` for acceleration.
-    /// Note that submodules are not detected as directories and the user should
-    /// make another call to [`entry_by_path_icase()`](Self::entry_by_path_icase) to check for this
-    /// possibility. Doing so might also reveal a sparse directory.
+    /// Return the entry (at any stage) that is inside `directory`, or `None`,
+    /// or a directory itself like a submodule or sparse directory, using `lookup` for acceleration.
     ///
     /// If `ignore_case` is set, a case-insensitive (ASCII-folding only) search will be performed.
-    pub fn entry_closest_to_directory_icase<'a>(
+    pub fn entry_closest_to_directory_or_directory_icase<'a>(
         &'a self,
         directory: &BStr,
         ignore_case: bool,
@@ -234,14 +241,18 @@ impl State {
             .map(|dir| dir.entry)
     }
 
-    /// Return the entry (at any stage) that is inside of `directory`, or `None`.
-    /// Note that submodules are not detected as directories and the user should
-    /// make another call to [`entry_by_path_icase()`](Self::entry_by_path_icase) to check for this
-    /// possibility. Doing so might also reveal a sparse directory.
+    /// Return the entry (at any stage) that is inside `directory`, or `None`,
+    /// or that is a directory itself like a submodule or sparse directory.
     ///
-    /// Note that this is a case-sensitive search.
-    pub fn entry_closest_to_directory(&self, directory: &BStr) -> Option<&Entry> {
-        let idx = self.entry_index_by_path(directory).err()?;
+    /// Note that this is a *case-sensitive* search.
+    pub fn entry_closest_to_directory_or_directory(&self, directory: &BStr) -> Option<&Entry> {
+        let idx = match self.entry_index_by_path(directory) {
+            Ok(idx) => {
+                let entry = &self.entries[idx];
+                return entry_is_dir(entry).then_some(entry);
+            }
+            Err(closest_idx) => closest_idx,
+        };
         for entry in &self.entries[idx..] {
             let path = entry.path(self);
             if path.get(..directory.len())? != directory {
@@ -259,7 +270,7 @@ impl State {
         None
     }
 
-    /// Check if `path` is a directory that contains entries in the index.
+    /// Check if `path` is a directory that contains entries in the index, or is a submodule.
     ///
     /// Returns `true` if there is at least one entry in the index whose path starts with `path/`,
     /// indicating that `path` is a directory containing indexed files.
@@ -269,10 +280,11 @@ impl State {
     ///
     /// Note that this is a case-sensitive search.
     pub fn path_is_directory(&self, path: &BStr) -> bool {
-        self.entry_closest_to_directory(path).is_some()
+        self.entry_closest_to_directory_or_directory(path).is_some()
     }
 
-    /// Check if `path` is a directory that contains entries in the index, with optional case-insensitive matching.
+    /// Check if `path` is a directory that contains entries in the index or is a submodule,
+    /// with optional case-insensitive matching.
     ///
     /// Returns `true` if there is at least one entry in the index whose path starts with `path/`,
     /// indicating that `path` is a directory containing indexed files.
@@ -288,7 +300,7 @@ impl State {
         ignore_case: bool,
         lookup: &AccelerateLookup<'a>,
     ) -> bool {
-        self.entry_closest_to_directory_icase(path, ignore_case, lookup)
+        self.entry_closest_to_directory_or_directory_icase(path, ignore_case, lookup)
             .is_some()
     }
 
@@ -621,6 +633,10 @@ impl State {
     pub fn had_offset_table(&self) -> bool {
         self.offset_table_at_decode_time
     }
+}
+
+fn entry_is_dir(entry: &Entry) -> bool {
+    entry.mode.is_sparse() || entry.mode.is_submodule()
 }
 
 #[cfg(test)]
