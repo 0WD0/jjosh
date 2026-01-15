@@ -48,7 +48,7 @@ fn dirwalk_api_and_icase_support() {
             last_pos += 1;
 
             let entry = file
-                .entry_closest_to_directory(dir)
+                .entry_closest_to_directory_or_directory(dir)
                 .unwrap_or_else(|| panic!("didn't find {dir}"));
             assert!(
                 entry.path(&file).starts_with(dir),
@@ -57,7 +57,7 @@ fn dirwalk_api_and_icase_support() {
 
             let dir_upper: BString = dir.to_ascii_uppercase().into();
             let other_entry = file
-                .entry_closest_to_directory_icase(dir_upper.as_bstr(), true, &icase)
+                .entry_closest_to_directory_or_directory_icase(dir_upper.as_bstr(), true, &icase)
                 .unwrap_or_else(|| panic!("didn't find upper-cased {dir_upper}"));
             assert_eq!(other_entry, entry, "the first entry is always the same, no matter what kind of search is conducted (as there are no clashes/ambiguities here)");
         }
@@ -65,61 +65,62 @@ fn dirwalk_api_and_icase_support() {
 }
 
 #[test]
-fn entry_closest_to_directory_with_submodule() {
-    let file = Fixture::Generated("V2_all_file_kinds").open();
+fn entry_closest_to_directory_or_directory_with_submodule() {
+    let file = Fixture::Generated("v2_all_file_kinds").open();
 
     assert!(
-        file.entry_closest_to_directory("d".into()).is_some(),
+        file.entry_closest_to_directory_or_directory("d".into()).is_some(),
         "this is a directory"
     );
     assert!(
-        file.entry_closest_to_directory("sub".into()).is_some(),
+        file.entry_closest_to_directory_or_directory("sub".into()).is_some(),
         "this is a checked in repository, a directory itself"
     );
     assert!(
-        file.entry_closest_to_directory("sub-worktree".into()).is_some(),
+        file.entry_closest_to_directory_or_directory("sub-worktree".into())
+            .is_some(),
         "a submodule that is officially registered, absolutely the same as 'sub' in the index."
     );
     assert!(
-        file.entry_closest_to_directory("a".into()).is_none(),
+        file.entry_closest_to_directory_or_directory("a".into()).is_none(),
         "'a' is a file, and we ask for a directory"
     );
 }
 
 #[test]
-fn entry_closest_to_directory_icase_with_submodule() {
-    let file = Fixture::Generated("V2_all_file_kinds").open();
+fn entry_closest_to_directory_or_directory_icase_with_submodule() {
+    let file = Fixture::Generated("v2_all_file_kinds").open();
     let icase = file.prepare_icase_backing();
 
     assert!(
-        file.entry_closest_to_directory_icase("D".into(), true, &icase)
+        file.entry_closest_to_directory_or_directory_icase("D".into(), true, &icase)
             .is_some(),
         "this is a directory"
     );
     assert!(file
-        .entry_closest_to_directory_icase("D".into(), false, &icase)
+        .entry_closest_to_directory_or_directory_icase("D".into(), false, &icase)
         .is_none());
 
     assert!(
-        file.entry_closest_to_directory_icase("SuB".into(), true, &icase)
+        file.entry_closest_to_directory_or_directory_icase("SuB".into(), true, &icase)
             .is_some(),
         "this is a checked in repository, a directory itself"
     );
     assert!(file
-        .entry_closest_to_directory_icase("SuB".into(), false, &icase)
+        .entry_closest_to_directory_or_directory_icase("SuB".into(), false, &icase)
         .is_none());
 
     assert!(
-        file.entry_closest_to_directory_icase("SUB-worktree".into(), true, &icase)
+        file.entry_closest_to_directory_or_directory_icase("SUB-worktree".into(), true, &icase)
             .is_some(),
         "a submodule that is officially registered, absolutely the same as 'sub' in the index."
     );
     assert!(file
-        .entry_closest_to_directory_icase("SUB-worktree".into(), false, &icase)
+        .entry_closest_to_directory_or_directory_icase("SUB-worktree".into(), false, &icase)
         .is_none());
 
     assert!(
-        file.entry_closest_to_directory_icase("A".into(), true, &icase)
+        file.entry_closest_to_directory_or_directory_icase("A".into(), true, &icase)
             .is_none(),
         "'a' is a file, and we ask for a directory"
     );
@@ -146,7 +147,7 @@ fn ignorecase_clashes_and_order() {
             last_pos += 1;
 
             let entry = file
-                .entry_closest_to_directory(dir)
+                .entry_closest_to_directory_or_directory(dir)
                 .unwrap_or_else(|| panic!("didn't find {dir}"));
             assert!(
                 entry.path(&file).starts_with(dir),
@@ -171,16 +172,16 @@ fn ignorecase_clashes_and_order() {
     );
 
     assert!(
-        file.entry_closest_to_directory("d".into()).is_none(),
+        file.entry_closest_to_directory_or_directory("d".into()).is_none(),
         "this is a file, and this directory search isn't case-sensitive"
     );
-    let entry = file.entry_closest_to_directory("D".into());
+    let entry = file.entry_closest_to_directory_or_directory("D".into());
     assert_eq!(
         entry.map(|e| e.path(&file)).expect("present"),
         "D/B",
         "this is a directory, indeed, we find the first file in it"
     );
-    let entry_icase = file.entry_closest_to_directory_icase("d".into(), true, &icase);
+    let entry_icase = file.entry_closest_to_directory_or_directory_icase("d".into(), true, &icase);
     assert_eq!(
         entry_icase, entry,
         "case-insensitive searches don't confuse directories and files, so `d` finds `D`, the directory."
@@ -388,7 +389,7 @@ fn check_prefix(index: &gix_index::State, prefix: &str, expected: &[&str]) {
 
 #[test]
 fn path_is_directory_with_submodule() {
-    let file = Fixture::Generated("V2_all_file_kinds").open();
+    let file = Fixture::Generated("v2_all_file_kinds").open();
 
     assert!(file.path_is_directory("sub-worktree".into()), "a submodule worktree");
     assert!(file.path_is_directory("d".into()), "a single-letter directory");
@@ -491,7 +492,7 @@ fn path_is_directory_icase() {
 
 #[test]
 fn path_is_directory_icase_with_submodule() {
-    let file = Fixture::Generated("V2_all_file_kinds").open();
+    let file = Fixture::Generated("v2_all_file_kinds").open();
     let icase = file.prepare_icase_backing();
 
     assert!(
