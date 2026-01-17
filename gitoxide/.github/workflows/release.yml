@@ -29,7 +29,7 @@ defaults:
 jobs:
   # Create a draft release, initially with no binary assets attached.
   create-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     permissions:
       contents: write  # Allows the use of `gh release create`.
@@ -373,7 +373,7 @@ jobs:
 
   # Check for some problems, consolidate checksum files into one, and mark the release non-draft.
   publish-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     needs: [ create-release, build-release, build-macos-universal2-release ]
 
@@ -442,7 +442,7 @@ jobs:
 
   # Comment in a locked discussion that notifies about only `gitoxide` (e.g. not `gix-*`) releases.
   announce-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     needs: [ create-release, publish-release ]
 
