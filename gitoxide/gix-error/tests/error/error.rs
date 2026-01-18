@@ -69,7 +69,7 @@ fn from_exn_error_tree() {
             |
             └─ E7
     ");
-    insta::assert_debug_snapshot!(err.iter_frames().map(ToString::to_string).collect::<Vec<_>>(), @r#"
+    insta::assert_debug_snapshot!(err.sources().map(ToString::to_string).collect::<Vec<_>>(), @r#"
     [
         "topmost",
         "E6",

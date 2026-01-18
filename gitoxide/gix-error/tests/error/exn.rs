@@ -534,7 +534,6 @@ fn raise_chain_anyhow() {
                 └─ Message("E1c2-2")
     "#);
 
-    // TODO: this should print the complete error chain.
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(root))), @"
     root, at gix-error/tests/error/exn.rs:514
 
@@ -570,15 +569,14 @@ fn inverse_error_call_chain_anyhow() {
     └─ E5
     ");
 
-    // TODO: this should print the complete error chain.
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(e5))), @"
-    E1, at gix-error/tests/error/exn.rs:556
+    E1, at gix-error/tests/error/exn.rs:555
 
     Caused by:
-        0: E2, at gix-error/tests/error/exn.rs:557
-        1: E3, at gix-error/tests/error/exn.rs:558
-        2: E4, at gix-error/tests/error/exn.rs:559
-        3: E5, at gix-error/tests/error/exn.rs:560
+        0: E2, at gix-error/tests/error/exn.rs:556
+        1: E3, at gix-error/tests/error/exn.rs:557
+        2: E4, at gix-error/tests/error/exn.rs:558
+        3: E5, at gix-error/tests/error/exn.rs:559
     ");
 }
 
@@ -620,15 +618,15 @@ fn into_chain() {
     // By default, there is paths displayed, just like everywhere.
     insta::assert_debug_snapshot!(causes_display(&root, Style::Normal), @r#"
     [
-        "root, at gix-error/tests/error/exn.rs:596",
-        "E2, at gix-error/tests/error/exn.rs:595",
-        "E1, at gix-error/tests/error/exn.rs:592",
-        "E1-2, at gix-error/tests/error/exn.rs:593",
-        "E1-3, at gix-error/tests/error/exn.rs:594",
-        "E1c1-1, at gix-error/tests/error/exn.rs:593",
-        "E1c1-2, at gix-error/tests/error/exn.rs:593",
-        "E1c2-1, at gix-error/tests/error/exn.rs:594",
-        "E1c2-2, at gix-error/tests/error/exn.rs:594",
+        "root, at gix-error/tests/error/exn.rs:594",
+        "E2, at gix-error/tests/error/exn.rs:593",
+        "E1, at gix-error/tests/error/exn.rs:590",
+        "E1-2, at gix-error/tests/error/exn.rs:591",
+        "E1-3, at gix-error/tests/error/exn.rs:592",
+        "E1c1-1, at gix-error/tests/error/exn.rs:591",
+        "E1c1-2, at gix-error/tests/error/exn.rs:591",
+        "E1c2-1, at gix-error/tests/error/exn.rs:592",
+        "E1c2-2, at gix-error/tests/error/exn.rs:592",
     ]
     "#);
 
@@ -650,17 +648,17 @@ fn into_chain() {
     // This should look similar.
     #[cfg(feature = "anyhow")]
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(root))), @"
-    root, at gix-error/tests/error/exn.rs:596
+    root, at gix-error/tests/error/exn.rs:594
 
     Caused by:
-        0: E2, at gix-error/tests/error/exn.rs:595
-        1: E1, at gix-error/tests/error/exn.rs:592
-        2: E1-2, at gix-error/tests/error/exn.rs:593
-        3: E1-3, at gix-error/tests/error/exn.rs:594
-        4: E1c1-1, at gix-error/tests/error/exn.rs:593
-        5: E1c1-2, at gix-error/tests/error/exn.rs:593
-        6: E1c2-1, at gix-error/tests/error/exn.rs:594
-        7: E1c2-2, at gix-error/tests/error/exn.rs:594
+        0: E2, at gix-error/tests/error/exn.rs:593
+        1: E1, at gix-error/tests/error/exn.rs:590
+        2: E1-2, at gix-error/tests/error/exn.rs:591
+        3: E1-3, at gix-error/tests/error/exn.rs:592
+        4: E1c1-1, at gix-error/tests/error/exn.rs:591
+        5: E1c1-2, at gix-error/tests/error/exn.rs:591
+        6: E1c2-1, at gix-error/tests/error/exn.rs:592
+        7: E1c2-2, at gix-error/tests/error/exn.rs:592
     ");
 }
 

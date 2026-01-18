@@ -74,8 +74,16 @@ pub use exn::{ErrorExt, Exn, Frame, OptionExt, ResultExt, Something, Untyped};
 /// All `source()` values when created with [`Error::from_error()`] are turned into frames,
 /// but lose their type information completely.
 /// This is because they are only seen as reference and thus can't be stored.
+///
+/// # The `auto-chain-error` feature
+///
+/// If it's enabled, this type is merely a wrapper around [`ChainedError`]. This happens automatically
+/// so applications that require this don't have to go through an extra conversion.
 pub struct Error {
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     inner: error::Inner,
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    inner: ChainedError,
 }
 
 mod error;

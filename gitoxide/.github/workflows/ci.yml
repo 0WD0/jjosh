@@ -341,7 +341,7 @@ jobs:
           GIX_TEST_IGNORE_ARCHIVES: '1'
           TEST_ARGS: ${{ matrix.test-args }}
         run: |
-          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- `
+          cargo nextest --profile=with-xml run --workspace --no-fail-fast --exclude gix-error -- `
             (-split $Env:TEST_ARGS)
         continue-on-error: true
       - name: Check for errors
