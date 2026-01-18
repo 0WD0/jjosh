@@ -1576,7 +1576,6 @@ dependencies = [
  "gix-testtools",
  "memmap2",
  "serde",
- "thiserror 2.0.17",
 ]
 
 [[package]]
