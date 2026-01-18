@@ -37,7 +37,7 @@ impl<'repo> Delegate<'repo> {
             .filter_map(|(a, b)| a.take().filter(|candidates| candidates.len() > 1).zip(b))
             .map(|(candidates, prefix)| error::ambiguous(candidates, prefix, repo))
             .rev()
-            .map(|err| err.erased())
+            .map(|err| err.raise_erased())
             .collect();
 
         match (ambiguous_errors.pop(), ambiguous_errors.pop()) {
@@ -76,7 +76,7 @@ impl<'repo> Delegate<'repo> {
                         _ => {
                             let err =
                                 error::ambiguous(candidates, prefix.expect("set when obtaining candidates"), repo)
-                                    .erased();
+                                    .raise_erased();
                             return Err(err.into_error());
                         }
                     },
@@ -171,7 +171,7 @@ impl Delegate<'_> {
                     expected = kind,
                     oid = obj.id.attach(repo).shorten_or_id(),
                 )
-                .erased())
+                .raise_erased())
             }
         }
 

@@ -257,7 +257,7 @@ fn raise_iter() {
     |
     └─ Message("SE2")
     "#);
-    let _this_should_compile = Error("Top-untyped").raise_iter((1..5).map(|idx| message!("E{}", idx).erased()));
+    let _this_should_compile = Error("Top-untyped").raise_iter((1..5).map(|idx| message!("E{}", idx).raise_erased()));
 
     assert_eq!(
         e.into_error().probable_cause().to_string(),
