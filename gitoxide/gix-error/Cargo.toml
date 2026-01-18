@@ -18,7 +18,7 @@ rust-version = "1.82"
 ## [`into_box()`](crate::Exn::into_box()) or [`into_inner()`](crate::Exn::into_inner()).
 anyhow = ["dep:anyhow"]
 ## The [`Error`](crate::Error) type is always flattening the [`Exn`](crate::Exn) error tree
-## into a chain of errors, while keeping there locations and runtime type-information.
+## into a chain of errors, while keeping their locations and runtime type-information.
 auto-chain-error = []
 ## The opposite of `auto-chain-error` and implicitly enabled by default. Use it to override `auto-chain-error`.
 tree-error = []

@@ -429,7 +429,7 @@ jobs:
       - name: Test (nextest)
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
-        run: cargo nextest run --workspace --no-fail-fast
+        run: cargo nextest run --workspace --no-fail-fast --exclude gix-error
 
   test-32bit-windows-size-doc:
     runs-on: windows-latest

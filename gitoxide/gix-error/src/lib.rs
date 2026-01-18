@@ -79,6 +79,9 @@ pub use exn::{ErrorExt, Exn, Frame, OptionExt, ResultExt, Something, Untyped};
 ///
 /// If it's enabled, this type is merely a wrapper around [`ChainedError`]. This happens automatically
 /// so applications that require this don't have to go through an extra conversion.
+///
+/// When both the `tree-error` and `auto-chain-error` features are enabled, the `tree-error`
+/// behavior takes precedence and this type uses the tree-based representation.
 pub struct Error {
     #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     inner: error::Inner,

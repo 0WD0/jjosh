@@ -630,7 +630,7 @@ fn into_chain() {
     ]
     "#);
 
-    // But these can alos be turned off
+    // But these can also be turned off
     insta::assert_debug_snapshot!(causes_display(&root, Style::Alternate), @r#"
     [
         "root",
