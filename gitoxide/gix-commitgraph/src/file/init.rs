@@ -153,7 +153,7 @@ impl File {
         if oid_lookup_count != fan[255] {
             return Err(message!("Commit-graph {OID_FAN_CHUNK_ID:?} chunk contains {chunk1_commits} commits, but {OID_LOOKUP_CHUNK_ID:?} chunk contains {chunk2_commits} commits",
                 chunk1_commits = fan[255],
-                chunk2_commits= oid_lookup_count,
+                chunk2_commits = oid_lookup_count,
             ).raise());
         }
         if commit_data_count != fan[255] {

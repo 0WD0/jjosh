@@ -191,7 +191,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     }
 
     /// Iterate over all frames and find one that downcasts into error of type `T`.
-    /// Note that the search includes this instance as ell.
+    /// Note that the search includes this instance as well.
     pub fn downcast_any_ref<T: Error + 'static>(&self) -> Option<&T> {
         self.iter().find_map(|e| e.downcast())
     }

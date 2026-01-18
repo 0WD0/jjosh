@@ -33,7 +33,7 @@ impl Graph {
             let graph_file_path = commit_graphs_dir.join(format!("graph-{hash}.graph"));
             files.push(
                 File::at(&graph_file_path)
-                    .or_raise(|| message!("Could not open commit-graph file at '{}'", chain_file_path.display()))?,
+                    .or_raise(|| message!("Could not open commit-graph file at '{}'", graph_file_path.display()))?,
             );
         }
         Ok(Self::new(files)?)
