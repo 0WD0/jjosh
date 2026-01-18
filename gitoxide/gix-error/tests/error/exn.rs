@@ -185,7 +185,7 @@ fn raise_iter() {
         └─ E4-3, at gix-error/tests/error/exn.rs:123:47
     ");
 
-    let e = e.chain_iter((1..3).map(|idx| message!("SE{}", idx)));
+    let e = e.chain_all((1..3).map(|idx| message!("SE{}", idx)));
     insta::assert_debug_snapshot!(e, @r"
     Top
     |
@@ -364,7 +364,7 @@ fn error_tree() {
         |
         └─ E7, at gix-error/tests/error/main.rs:22:30
     ");
-    insta::assert_debug_snapshot!(err.as_frame().iter().map(ToString::to_string).collect::<Vec<_>>(), @r#"
+    insta::assert_debug_snapshot!(err.frame().iter().map(ToString::to_string).collect::<Vec<_>>(), @r#"
     [
         "E6",
         "E5",
