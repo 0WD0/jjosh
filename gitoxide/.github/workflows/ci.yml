@@ -592,7 +592,7 @@ jobs:
 
   # Check that all `actions/checkout` in CI jobs have `persist-credentials: false`.
   check-no-persist-credentials:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     env:
       GLOB: .github/workflows/*.@(yaml|yml)
@@ -621,7 +621,7 @@ jobs:
   # dependencies of the `tests-pass` job below, so that whenever a job is
   # added, a decision is made about whether it must pass for PRs to merge.
   check-blocking:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     env:
       # List all jobs that are intended NOT to block PR auto-merge here.
@@ -658,6 +658,8 @@ jobs:
   tests-pass:
     name: Tests pass
 
+    permissions: {}
+
     needs:
       - msrv
       - msrv-badge
@@ -675,7 +677,7 @@ jobs:
 
     if: always()  # Always run even if dependencies fail.
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     steps:
       - name: Fail if ANY dependency has failed or cancelled
