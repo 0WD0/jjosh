@@ -257,7 +257,7 @@ fn raise_iter() {
     |
     └─ Message("SE2")
     "#);
-    let _this_should_compile = Error("Top-untyped").raise_iter((1..5).map(|idx| message!("E{}", idx).erased()));
+    let _this_should_compile = Error("Top-untyped").raise_iter((1..5).map(|idx| message!("E{}", idx).raise_erased()));
 
     assert_eq!(
         e.into_error().probable_cause().to_string(),
@@ -483,4 +483,22 @@ fn ensure_fail() {
 #[test]
 fn result_ok() -> Result<(), Exn<Error>> {
     Ok(())
+}
+
+#[test]
+fn erased_into_inner() {
+    let e = Error("E1").raise().erased();
+    let _into_inner_works = e.into_inner();
+}
+
+#[test]
+fn erased_into_box() {
+    let e = Error("E1").raise().erased();
+    let _into_box_works = e.into_box();
+}
+
+#[test]
+fn erased_into_error() {
+    let e = Error("E1").raise().erased();
+    let _into_error_works = e.into_error();
 }

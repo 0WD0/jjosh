@@ -12,7 +12,7 @@ use gix_testtools::scripted_fixture_read_only;
 mod access;
 
 pub fn check_common(cg: &Graph, expected: &HashMap<String, RefInfo, impl BuildHasher>) {
-    cg.verify_integrity(|_| Ok::<_, std::convert::Infallible>(()))
+    cg.verify_integrity(|_| Ok::<_, gix_error::Message>(()))
         .expect("graph is valid");
     assert_eq!(
         usize::try_from(cg.num_commits()).expect("an architecture able to hold 32 bits of integer"),

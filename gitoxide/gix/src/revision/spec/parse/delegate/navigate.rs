@@ -25,7 +25,7 @@ impl delegate::Navigate for Delegate<'_> {
         let objs = match self.objs[self.idx].as_mut() {
             Some(objs) => objs,
             None => {
-                bail!(message!("Tried to navigate the commit-graph without providing an anchor first").erased())
+                bail!(message!("Tried to navigate the commit-graph without providing an anchor first").raise_erased())
             }
         };
         let repo = self.repo;
@@ -40,7 +40,7 @@ impl delegate::Navigate for Delegate<'_> {
                                 "Object {oid} was a {actual}, but needed it to be a {expected}",
                                 oid = id.attach(repo).shorten_or_id(),
                             )
-                            .erased()
+                            .raise_erased()
                         })
                     }) {
                         Ok(commit) => match commit.parent_ids().nth(num.saturating_sub(1)) {
@@ -53,7 +53,7 @@ impl delegate::Navigate for Delegate<'_> {
                                     desired = num,
                                     available = commit.parent_ids().count(),
                                 )
-                                .erased(),
+                                .raise_erased(),
                             )),
                         },
                         Err(err) => errors.push((*obj, err)),
@@ -81,7 +81,7 @@ impl delegate::Navigate for Delegate<'_> {
                                         .expect("cannot fail without sorting")
                                         .skip(1)
                                         .count()
-                                ).erased()
+                                ).raise_erased()
                         )),
                     }
                 }
@@ -106,7 +106,7 @@ impl delegate::Navigate for Delegate<'_> {
             PeelTo::ValidObject => {
                 for obj in objs.iter() {
                     if let Err(err) = repo.find_object(*obj) {
-                        errors.push((*obj, err.erased()));
+                        errors.push((*obj, err.raise_erased()));
                     }
                 }
             }
@@ -156,7 +156,7 @@ impl delegate::Navigate for Delegate<'_> {
                 for oid in objs.iter() {
                     match oid.attach(repo).object().and_then(Object::peel_tags_to_end) {
                         Ok(obj) => replacements.push((*oid, obj.id)),
-                        Err(err) => errors.push((*oid, err.erased())),
+                        Err(err) => errors.push((*oid, err.raise_erased())),
                     }
                 }
             }
@@ -184,7 +184,7 @@ impl delegate::Navigate for Delegate<'_> {
                 }
             }
             Err(err) => {
-                bail!(err.erased());
+                bail!(err.raise_erased());
             }
         };
 
@@ -204,11 +204,11 @@ impl delegate::Navigate for Delegate<'_> {
                             let mut matched = false;
                             let mut count = 0;
                             let commits = iter.map(|res| {
-                                res.map_err(|err| err.erased()).and_then(|commit| {
+                                res.map_err(|err| err.raise_erased()).and_then(|commit| {
                                     commit
                                         .id()
                                         .object()
-                                        .map_err(|err| err.erased())
+                                        .map_err(|err| err.raise_erased())
                                         .map(Object::into_commit)
                                 })
                             });
@@ -239,11 +239,11 @@ impl delegate::Navigate for Delegate<'_> {
                                             "text"
                                         }
                                     )
-                                    .erased(),
+                                    .raise_erased(),
                                 ));
                             }
                         }
-                        Err(err) => errors.push((*oid, err.erased())),
+                        Err(err) => errors.push((*oid, err.raise_erased())),
                     }
                 }
                 handle_errors_and_replacements(&mut self.delayed_errors, objs, errors, &mut replacements)
@@ -267,11 +267,11 @@ impl delegate::Navigate for Delegate<'_> {
                 let mut matched = false;
                 let mut count = 0;
                 let commits = iter.map(|res| {
-                    res.map_err(|err| err.erased()).and_then(|commit| {
+                    res.map_err(|err| err.raise_erased()).and_then(|commit| {
                         commit
                             .id()
                             .object()
-                            .map_err(|err| err.erased())
+                            .map_err(|err| err.raise_erased())
                             .map(Object::into_commit)
                     })
                 });
@@ -304,7 +304,7 @@ impl delegate::Navigate for Delegate<'_> {
                             "text"
                         }
                     )
-                    .erased())
+                    .raise_erased())
                 }
             }
         }
@@ -359,7 +359,7 @@ impl delegate::Navigate for Delegate<'_> {
                         .unwrap_or_default(),
                     desired_stage = stage as u8,
                 )
-                .erased())
+                .raise_erased())
             }
         }
     }
@@ -375,7 +375,7 @@ fn handle_errors_and_replacements(
         delayed_errors.extend(errors.into_iter().map(|(_, err)| err));
         Err(delayed_errors
             .pop()
-            .unwrap_or_else(|| message!("BUG: Somehow there was no error but one was expected").erased()))
+            .unwrap_or_else(|| message!("BUG: Somehow there was no error but one was expected").raise_erased()))
     } else {
         for (obj, err) in errors {
             if let Some(pos) = objs.iter().position(|o| o == &obj) {

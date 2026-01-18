@@ -26,7 +26,7 @@ fn fuzz(ctx: Ctx) -> Result<()> {
     _ = black_box(partial_name_ref.to_partial_path());
 
     let namespace = expand(partial_name_ref)?;
-    let mut full_name = full_name.prefix_namespace(&namespace);
+    let full_name = full_name.prefix_namespace(&namespace);
     _ = black_box(full_name.strip_namespace(&namespace));
 
     let partial_name: PartialName = BString::new(ctx.partial_name).try_into()?;

@@ -90,11 +90,11 @@ macro_rules! ensure {
 }
 
 /// Construct a [`Message`](crate::Message) from a string literal or format string.
+/// Note that it always runs `format!()`, use the [`message()`](crate::message()) function for literals instead.
 #[macro_export]
 macro_rules! message {
-    ($msg:literal $(,)?) => {
-        // Avoid allocations for string literals.
-        $crate::Message::new($msg)
+    ($message_with_format_args:literal $(,)?) => {
+        $crate::Message::new(format!($message_with_format_args))
     };
     ($fmt:expr, $($arg:tt)*) => {
         $crate::Message::new(format!($fmt, $($arg)*))

@@ -1527,6 +1527,7 @@ dependencies = [
  "gix-commitgraph",
  "gix-date",
  "gix-diff",
+ "gix-error",
  "gix-filter",
  "gix-fs",
  "gix-hash",
@@ -1576,7 +1577,6 @@ dependencies = [
  "gix-testtools",
  "memmap2",
  "serde",
- "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2313,6 +2313,7 @@ version = "0.25.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-hashtable",
  "gix-object",

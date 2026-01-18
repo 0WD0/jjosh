@@ -35,3 +35,10 @@ impl From<&'static str> for Message {
         Message::new(msg)
     }
 }
+
+/// Return a new statically allocated `message`.
+///
+/// Use the [message!-macro](crate::message!) for convenient `format!`-like behavior.
+pub fn message(message: &'static str) -> Message {
+    Message::new(message)
+}

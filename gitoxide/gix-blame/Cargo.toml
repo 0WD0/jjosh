@@ -16,6 +16,7 @@ rust-version = "1.82"
 blob-experimental = ["gix-diff/blob-experimental"]
 
 [dependencies]
+gix-error = { version = "0.0.0", path = "../gix-error" }
 gix-commitgraph = { version = "^0.31.0", path = "../gix-commitgraph" }
 gix-revwalk = { version = "^0.25.0", path = "../gix-revwalk" }
 gix-trace = { version = "^0.1.17", path = "../gix-trace" }

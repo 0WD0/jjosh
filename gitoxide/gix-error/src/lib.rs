@@ -62,7 +62,7 @@ pub struct Error {
 mod error;
 
 mod message;
-pub use message::Message;
+pub use message::{message, Message};
 
 mod parse;
 pub use parse::ParseError;

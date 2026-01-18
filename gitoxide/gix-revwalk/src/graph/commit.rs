@@ -148,7 +148,7 @@ pub mod iter_parents {
         #[error("An error occurred when parsing commit parents")]
         DecodeCommit(#[from] gix_object::decode::Error),
         #[error("An error occurred when parsing parents from the commit graph")]
-        DecodeCommitGraph(#[from] gix_commitgraph::file::commit::Error),
+        DecodeCommitGraph(#[from] gix_error::Message),
     }
 }
 
@@ -161,7 +161,7 @@ pub mod to_owned {
         #[error("A commit could not be decoded during traversal")]
         Decode(#[from] gix_object::decode::Error),
         #[error("Could not find commit position in graph when traversing parents")]
-        CommitGraphParent(#[from] gix_commitgraph::file::commit::Error),
+        CommitGraphParent(#[from] gix_error::Message),
         #[error("Commit-graph time could not be presented as signed integer: {actual}")]
         CommitGraphTime { actual: u64 },
     }

@@ -2,57 +2,14 @@
 use std::{
     cmp::{max, min},
     collections::BTreeMap,
-    path::PathBuf,
 };
+
+use gix_error::{message, ErrorExt, Exn, Message, ResultExt};
 
 use crate::{
-    file::{self, commit},
+    file::{self},
     Graph, Position, GENERATION_NUMBER_MAX,
 };
-
-/// The error used in [`verify_integrity()`][Graph::verify_integrity].
-#[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
-pub enum Error<E: std::error::Error + 'static> {
-    #[error("'{}' should have {expected} base graphs, but claims {actual} base graphs", .path.display())]
-    BaseGraphCount { actual: u8, expected: u8, path: PathBuf },
-    #[error("'{}' base graph at index {index} should have ID {expected} but is {actual}", .path.display())]
-    BaseGraphId {
-        actual: gix_hash::ObjectId,
-        expected: gix_hash::ObjectId,
-        index: u8,
-        path: PathBuf,
-    },
-    #[error(transparent)]
-    Commit(#[from] commit::Error),
-    #[error("{}: {err}", .path.display())]
-    File {
-        // Use zero-size error type. We will never return
-        // `graph::verify::Error::File(file::verify::Error::Processor(...))`, because we are the
-        // file's processor, and we convert`file::verify::Error::Processor<graph::verify::Error>`
-        // variants into direct `graph::verify::Error` values.
-        err: file::verify::Error<std::convert::Infallible>,
-        path: PathBuf,
-    },
-    #[error("Commit {id}'s generation should be {expected} but is {actual}")]
-    Generation {
-        actual: u32,
-        expected: u32,
-        id: gix_hash::ObjectId,
-    },
-    #[error(
-        "Commit {id} has parent position {parent_pos} that is out of range (should be in range 0-{max_valid_pos})"
-    )]
-    ParentOutOfRange {
-        id: gix_hash::ObjectId,
-        max_valid_pos: Position,
-        parent_pos: Position,
-    },
-    #[error("{0}")]
-    Processor(#[source] E),
-    #[error("Commit-graph should be composed of at most 256 files but actually contains {0} files")]
-    TooManyFiles(usize),
-}
 
 /// Statistics gathered while verifying the integrity of the graph as returned by [`Graph::verify_integrity()`].
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,13 +34,17 @@ impl Graph {
     pub fn verify_integrity<E>(
         &self,
         mut processor: impl FnMut(&file::Commit<'_>) -> Result<(), E>,
-    ) -> Result<Outcome, Error<E>>
+    ) -> Result<Outcome, Exn<Message>>
     where
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         if self.files.len() > 256 {
             // A file in a split chain can only have up to 255 base files.
-            return Err(Error::TooManyFiles(self.files.len()));
+            return Err(message!(
+                "Commit-graph should be composed of at most 256 files but actually contains {} files",
+                self.files.len()
+            )
+            .raise());
         }
 
         let mut stats = Outcome {
@@ -99,13 +60,13 @@ impl Graph {
         let mut file_start_pos = Position(0);
         for (file_index, file) in self.files.iter().enumerate() {
             if usize::from(file.base_graph_count()) != file_index {
-                return Err(Error::BaseGraphCount {
-                    actual: file.base_graph_count(),
-                    expected: file_index
-                        .try_into()
-                        .expect("files.len() check to protect against this"),
-                    path: file.path().to_owned(),
-                });
+                return Err(message!(
+                    "'{}' should have {} base graphs, but claims {} base graphs",
+                    file.path().display(),
+                    file_index,
+                    file.base_graph_count()
+                )
+                .raise());
             }
 
             for (base_graph_index, (expected, actual)) in self.files[..file_index]
@@ -115,14 +76,14 @@ impl Graph {
                 .enumerate()
             {
                 if actual != expected {
-                    return Err(Error::BaseGraphId {
-                        actual: actual.into(),
-                        expected: expected.into(),
-                        index: base_graph_index
-                            .try_into()
-                            .expect("files.len() check to protect against this"),
-                        path: file.path().to_owned(),
-                    });
+                    return Err(message!(
+                        "'{}' base graph at index {} should have ID {} but is {}",
+                        file.path().display(),
+                        base_graph_index,
+                        expected,
+                        actual
+                    )
+                    .raise());
                 }
             }
 
@@ -131,13 +92,14 @@ impl Graph {
                 .traverse(|commit| {
                     let mut max_parent_generation = 0u32;
                     for parent_pos in commit.iter_parents() {
-                        let parent_pos = parent_pos.map_err(Error::Commit)?;
+                        let parent_pos = parent_pos.map_err(|err| err.raise_erased())?;
                         if parent_pos >= next_file_start_pos {
-                            return Err(Error::ParentOutOfRange {
-                                parent_pos,
-                                id: commit.id().into(),
-                                max_valid_pos: Position(next_file_start_pos.0 - 1),
-                            });
+                            return Err(message!(
+                                "Commit {} has parent position {parent_pos} that is out of range (should be in range 0-{})",
+                                commit.id(),
+                                Position(next_file_start_pos.0 - 1)
+                            )
+                            .raise_erased());
                         }
                         let parent = self.commit_at(parent_pos);
                         max_parent_generation = max(max_parent_generation, parent.generation());
@@ -147,42 +109,19 @@ impl Graph {
                     // generation should be GENERATION_NUMBER_MAX too.
                     let expected_generation = min(max_parent_generation + 1, GENERATION_NUMBER_MAX);
                     if commit.generation() != expected_generation {
-                        return Err(Error::Generation {
-                            actual: commit.generation(),
-                            expected: expected_generation,
-                            id: commit.id().into(),
-                        });
+                        return Err(message!(
+                            "Commit {}'s generation should be {expected_generation} but is {}",
+                            commit.id(),
+                            commit.generation()
+                        )
+                        .raise_erased());
                     }
 
-                    processor(commit).map_err(Error::Processor)?;
+                    processor(commit).or_raise_erased(|| message!("processor failed on commit {id}", id = commit.id()))?;
 
                     Ok(())
                 })
-                .map_err(|err| Error::File {
-                    err: match err {
-                        file::verify::Error::Processor(e) => return e,
-                        file::verify::Error::RootTreeId { id, root_tree_id } => {
-                            file::verify::Error::RootTreeId { id, root_tree_id }
-                        }
-                        file::verify::Error::Checksum(err) => file::verify::Error::Checksum(err),
-                        file::verify::Error::Generation { generation, id } => {
-                            file::verify::Error::Generation { generation, id }
-                        }
-                        file::verify::Error::Filename(expected) => file::verify::Error::Filename(expected),
-                        file::verify::Error::Commit(err) => file::verify::Error::Commit(err),
-                        file::verify::Error::CommitId { id, pos } => file::verify::Error::CommitId { id, pos },
-                        file::verify::Error::CommitsOutOfOrder {
-                            id,
-                            pos,
-                            predecessor_id,
-                        } => file::verify::Error::CommitsOutOfOrder {
-                            id,
-                            pos,
-                            predecessor_id,
-                        },
-                    },
-                    path: file.path().to_owned(),
-                })?;
+                .map_err(|err| message!("{}: {}", file.path().display(), err).raise())?;
 
             max_generation = max(max_generation, file_stats.max_generation);
             stats.num_commits += file_stats.num_commits;

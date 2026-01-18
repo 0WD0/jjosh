@@ -5,52 +5,9 @@ use std::{
     path::Path,
 };
 
+use gix_error::{message, ErrorExt, Exn, Message, ResultExt};
+
 use crate::{file, File, GENERATION_NUMBER_INFINITY, GENERATION_NUMBER_MAX};
-
-/// The error used in [`File::traverse()`].
-#[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
-pub enum Error<E: std::error::Error + 'static> {
-    #[error(transparent)]
-    Commit(#[from] file::commit::Error),
-    #[error("commit at file position {pos} has invalid ID {id}")]
-    CommitId {
-        id: gix_hash::ObjectId,
-        pos: file::Position,
-    },
-    #[error("commit at file position {pos} with ID {id} is out of order relative to its predecessor with ID {predecessor_id}")]
-    CommitsOutOfOrder {
-        id: gix_hash::ObjectId,
-        pos: file::Position,
-        predecessor_id: gix_hash::ObjectId,
-    },
-    #[error("commit-graph filename should be {0}")]
-    Filename(String),
-    #[error("commit {id} has invalid generation {generation}")]
-    Generation { generation: u32, id: gix_hash::ObjectId },
-    #[error(transparent)]
-    Checksum(#[from] checksum::Error),
-    #[error("{0}")]
-    Processor(#[source] E),
-    #[error("commit {id} has invalid root tree ID {root_tree_id}")]
-    RootTreeId {
-        id: gix_hash::ObjectId,
-        root_tree_id: gix_hash::ObjectId,
-    },
-}
-
-///
-pub mod checksum {
-    /// The error used in [`super::File::verify_checksum()`].
-    #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
-    pub enum Error {
-        #[error("failed to hash commit graph file")]
-        Hasher(#[from] gix_hash::hasher::Error),
-        #[error(transparent)]
-        Verify(#[from] gix_hash::verify::Error),
-    }
-}
 
 /// The positive result of [`File::traverse()`] providing some statistical information.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,13 +35,12 @@ impl File {
     /// Traverse all [commits][file::Commit] stored in this file and call `processor(commit) -> Result<(), Error>` on it.
     ///
     /// If the `processor` fails, the iteration will be stopped and the entire call results in the respective error.
-    pub fn traverse<'a, E, Processor>(&'a self, mut processor: Processor) -> Result<Outcome, Error<E>>
+    pub fn traverse<'a, Processor>(&'a self, mut processor: Processor) -> Result<Outcome, Exn<Message>>
     where
-        E: std::error::Error + 'static,
-        Processor: FnMut(&file::Commit<'a>) -> Result<(), E>,
+        Processor: FnMut(&file::Commit<'a>) -> Result<(), Exn>,
     {
         self.verify_checksum()?;
-        verify_split_chain_filename_hash(&self.path, self.checksum()).map_err(Error::Filename)?;
+        verify_split_chain_filename_hash(&self.path, self.checksum())?;
 
         let null_id = self.object_hash().null_ref();
 
@@ -101,38 +57,38 @@ impl File {
         for commit in self.iter_commits() {
             if commit.id() <= prev_id {
                 if commit.id() == null_id {
-                    return Err(Error::CommitId {
-                        pos: commit.position(),
-                        id: commit.id().into(),
-                    });
+                    return Err(message!(
+                        "commit at file position {} has invalid ID {}",
+                        commit.position(),
+                        commit.id()
+                    )
+                    .raise());
                 }
-                return Err(Error::CommitsOutOfOrder {
-                    pos: commit.position(),
-                    id: commit.id().into(),
-                    predecessor_id: prev_id.into(),
-                });
+                return Err(message!(
+                    "commit at file position {} with ID {} is out of order relative to its predecessor with ID {}",
+                    commit.position(),
+                    commit.id(),
+                    prev_id
+                )
+                .raise());
             }
             if commit.root_tree_id() == null_id {
-                return Err(Error::RootTreeId {
-                    id: commit.id().into(),
-                    root_tree_id: commit.root_tree_id().into(),
-                });
+                return Err(message!(
+                    "commit {} has invalid root tree ID {}",
+                    commit.id(),
+                    commit.root_tree_id()
+                )
+                .raise());
             }
             if commit.generation() > GENERATION_NUMBER_MAX {
-                return Err(Error::Generation {
-                    generation: commit.generation(),
-                    id: commit.id().into(),
-                });
+                return Err(message!("commit {} has invalid generation {}", commit.id(), commit.generation()).raise());
             }
 
-            processor(&commit).map_err(Error::Processor)?;
+            processor(&commit).or_raise(|| message!("processor failed on commit {}", commit.id()))?;
 
             stats.max_generation = max(stats.max_generation, commit.generation());
             stats.min_generation = min(stats.min_generation, commit.generation());
-            let parent_count = commit
-                .iter_parents()
-                .try_fold(0u32, |acc, pos| pos.map(|_| acc + 1))
-                .map_err(Error::Commit)?;
+            let parent_count = commit.iter_parents().try_fold(0u32, |acc, pos| pos.map(|_| acc + 1))?;
             *stats.parent_counts.entry(parent_count).or_insert(0) += 1;
             prev_id = commit.id();
         }
@@ -147,8 +103,8 @@ impl File {
     /// Assure the [`checksum`][File::checksum()] matches the actual checksum over all content of this file, excluding the trailing
     /// checksum itself.
     ///
-    /// Return the actual checksum on success or [`checksum::Error`] if there is a mismatch.
-    pub fn verify_checksum(&self) -> Result<gix_hash::ObjectId, checksum::Error> {
+    /// Return the actual checksum on success or [`Exn<Message>`] if there is a mismatch.
+    pub fn verify_checksum(&self) -> Result<gix_hash::ObjectId, Exn<Message>> {
         // Even though we could use gix_hash::bytes_of_file(…), this would require extending our
         // Error type to support io::Error. As we only gain progress, there probably isn't much value
         // as these files are usually small enough to process them in less than a second, even for the large ones.
@@ -156,21 +112,23 @@ impl File {
         let data_len_without_trailer = self.data.len() - self.hash_len;
         let mut hasher = gix_hash::hasher(self.object_hash());
         hasher.update(&self.data[..data_len_without_trailer]);
-        let actual = hasher.try_finalize()?;
-        actual.verify(self.checksum())?;
+        let actual = hasher
+            .try_finalize()
+            .map_err(|e| message!("failed to hash commit graph file: {}", e).raise())?;
+        actual.verify(self.checksum()).map_err(|e| message!("{}", e).raise())?;
         Ok(actual)
     }
 }
 
 /// If the given path's filename matches "graph-{hash}.graph", check that `hash` matches the
 /// expected hash.
-fn verify_split_chain_filename_hash(path: &Path, expected: &gix_hash::oid) -> Result<(), String> {
+fn verify_split_chain_filename_hash(path: &Path, expected: &gix_hash::oid) -> Result<(), Exn<Message>> {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)
         .and_then(|filename| filename.strip_suffix(".graph"))
         .and_then(|stem| stem.strip_prefix("graph-"))
         .map_or(Ok(()), |hex| match gix_hash::ObjectId::from_hex(hex.as_bytes()) {
             Ok(actual) if actual == expected => Ok(()),
-            _ => Err(format!("graph-{}.graph", expected.to_hex())),
+            _ => Err(message!("commit-graph filename should be graph-{}.graph", expected.to_hex()).raise()),
         })
 }

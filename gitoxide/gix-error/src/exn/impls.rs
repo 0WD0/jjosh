@@ -126,8 +126,23 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
 
     /// Erase the type of this instance and turn it into a bare `Exn`.
     pub fn erased(self) -> Exn {
+        let untyped_frame = {
+            let Frame {
+                error,
+                location,
+                children,
+            } = *self.frame;
+            // Unfortunately, we have to double-box here.
+            // TODO: figure out tricks to make this unnecessary.
+            let error = Untyped(error);
+            Frame {
+                error: Box::new(error),
+                location,
+                children,
+            }
+        };
         Exn {
-            frame: self.frame,
+            frame: Box::new(untyped_frame),
             phantom: Default::default(),
         }
     }
@@ -167,6 +182,18 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Return the underlying exception frame.
     pub fn as_frame(&self) -> &Frame {
         &self.frame
+    }
+
+    /// Iterate over all frames in breadth-first order. The first frame is this instance,
+    /// followed by all of its children.
+    pub fn iter(&self) -> impl Iterator<Item = &Frame> {
+        self.as_frame().iter()
+    }
+
+    /// Iterate over all frames and find one that downcasts into error of type `T`.
+    /// Note that the search includes this instance as well.
+    pub fn downcast_any_ref<T: Error + 'static>(&self) -> Option<&T> {
+        self.iter().find_map(|e| e.downcast())
     }
 }
 

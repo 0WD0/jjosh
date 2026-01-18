@@ -28,7 +28,7 @@ pub trait ErrorExt: std::error::Error + Send + Sync + 'static {
 
     /// Raise this error as a new exception, with type erasure.
     #[track_caller]
-    fn erased(self) -> Exn
+    fn raise_erased(self) -> Exn
     where
         Self: Sized,
     {
