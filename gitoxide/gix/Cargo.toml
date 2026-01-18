@@ -24,7 +24,7 @@ required-features = ["blocking-network-client"]
 
 [features]
 
-default = ["max-performance-safe", "comfort", "basic", "extras"]
+default = ["max-performance-safe", "comfort", "basic", "extras", "auto-chain-error"]
 
 #! There are various categories of features which help to optimize performance and build times. `gix` comes with 'batteries included' and everything is
 #! enabled as long as it doesn't sacrifice compatibility. Most users will be fine with that but will pay with higher compile times than necessary as they
@@ -272,6 +272,12 @@ zlib-stock = ["gix-features/zlib"]
 #!
 #! The catch-all of feature toggles.
 
+## All [`gix::Error`](crate::Error) will produce error chains, which makes them work as expected in conjunction with `anyhow`.
+auto-chain-error = ["gix-error/auto-chain-error"]
+
+## The opposite of `auto-chain-error`. Use it to override `auto-chain-error`.
+tree-error = ["gix-error/tree-error"]
+
 ## Enable tracing using the `tracing` crate for coarse tracing.
 tracing = ["gix-features/tracing"]
 
@@ -407,7 +413,7 @@ document-features = { version = "0.2.0", optional = true }
 [dev-dependencies]
 # For additional features that aren't enabled by default due to MSRV
 gix = { path = ".", default-features = false, features = [
-    "need-more-recent-msrv",
+    "need-more-recent-msrv", "tree-error"
 ] }
 pretty_assertions = "1.4.0"
 gix-testtools = { path = "../tests/tools" }
