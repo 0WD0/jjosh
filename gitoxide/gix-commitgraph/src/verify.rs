@@ -88,40 +88,38 @@ impl Graph {
             }
 
             let next_file_start_pos = Position(file_start_pos.0 + file.num_commits());
-            let file_stats = file
-                .traverse(|commit| {
-                    let mut max_parent_generation = 0u32;
-                    for parent_pos in commit.iter_parents() {
-                        let parent_pos = parent_pos.map_err(|err| err.raise_erased())?;
-                        if parent_pos >= next_file_start_pos {
-                            return Err(message!(
-                                "Commit {} has parent position {parent_pos} that is out of range (should be in range 0-{})",
-                                commit.id(),
-                                Position(next_file_start_pos.0 - 1)
-                            )
-                            .raise_erased());
-                        }
-                        let parent = self.commit_at(parent_pos);
-                        max_parent_generation = max(max_parent_generation, parent.generation());
-                    }
-
-                    // If the max parent generation is GENERATION_NUMBER_MAX, then this commit's
-                    // generation should be GENERATION_NUMBER_MAX too.
-                    let expected_generation = min(max_parent_generation + 1, GENERATION_NUMBER_MAX);
-                    if commit.generation() != expected_generation {
+            let file_stats = file.traverse(|commit| {
+                let mut max_parent_generation = 0u32;
+                for parent_pos in commit.iter_parents() {
+                    let parent_pos = parent_pos.map_err(|err| err.raise_erased())?;
+                    if parent_pos >= next_file_start_pos {
                         return Err(message!(
-                            "Commit {}'s generation should be {expected_generation} but is {}",
+                            "Commit {} has parent position {parent_pos} that is out of range (should be in range 0-{})",
                             commit.id(),
-                            commit.generation()
+                            Position(next_file_start_pos.0 - 1)
                         )
                         .raise_erased());
                     }
+                    let parent = self.commit_at(parent_pos);
+                    max_parent_generation = max(max_parent_generation, parent.generation());
+                }
 
-                    processor(commit).or_raise_erased(|| message!("processor failed on commit {id}", id = commit.id()))?;
+                // If the max parent generation is GENERATION_NUMBER_MAX, then this commit's
+                // generation should be GENERATION_NUMBER_MAX too.
+                let expected_generation = min(max_parent_generation + 1, GENERATION_NUMBER_MAX);
+                if commit.generation() != expected_generation {
+                    return Err(message!(
+                        "Commit {}'s generation should be {expected_generation} but is {}",
+                        commit.id(),
+                        commit.generation()
+                    )
+                    .raise_erased());
+                }
 
-                    Ok(())
-                })
-                .map_err(|err| message!("{}: {}", file.path().display(), err).raise())?;
+                processor(commit).or_raise_erased(|| message!("processor failed on commit {id}", id = commit.id()))?;
+
+                Ok(())
+            })?;
 
             max_generation = max(max_generation, file_stats.max_generation);
             stats.num_commits += file_stats.num_commits;

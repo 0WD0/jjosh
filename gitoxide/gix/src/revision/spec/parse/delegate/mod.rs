@@ -42,14 +42,12 @@ impl<'repo> Delegate<'repo> {
 
         match (ambiguous_errors.pop(), ambiguous_errors.pop()) {
             (Some(one), None) => Some(one),
-            (Some(one), Some(two)) => {
-                Some(Exn::raise_all([one, two], message!("Both objects were ambiguous")).erased())
-            }
+            (Some(one), Some(two)) => Some(Exn::raise_all([one, two], message("Both objects were ambiguous")).erased()),
             _ => (!delayed_errors.is_empty()).then(|| {
                 if delayed_errors.len() == 1 {
                     delayed_errors.pop().expect("it's exactly one")
                 } else {
-                    Exn::raise_all(delayed_errors, message!("one or more delayed errors")).erased()
+                    Exn::raise_all(delayed_errors, message("one or more delayed errors")).erased()
                 }
             }),
         }
@@ -166,9 +164,8 @@ impl Delegate<'_> {
                 Ok(())
             } else {
                 Err(message!(
-                    "Object {oid} was a {actual}, but needed it to be a {expected}",
+                    "Object {oid} was a {actual}, but needed it to be a {kind}",
                     actual = obj.kind,
-                    expected = kind,
                     oid = obj.id.attach(repo).shorten_or_id(),
                 )
                 .raise_erased())

@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use bstr::ByteSlice;
 use gix_error::{message, ErrorExt, Exn, Message, ResultExt};
 
 use crate::{
@@ -142,11 +141,7 @@ impl File {
         }
 
         if base_graph_count > 0 && base_graphs_list_offset.is_none() {
-            return Err(message!(
-                "Chunk named {:?} was not found in chunk file index",
-                BASE_GRAPHS_LIST_CHUNK_ID.as_bstr()
-            )
-            .into());
+            return Err(message!("Chunk named {BASE_GRAPHS_LIST_CHUNK_ID:?} was not found in chunk file index").into());
         }
 
         let (fan, _) = read_fan(&data[fan_offset..]);

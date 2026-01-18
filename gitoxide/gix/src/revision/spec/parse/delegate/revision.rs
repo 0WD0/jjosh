@@ -18,7 +18,7 @@ impl delegate::Revision for Delegate<'_> {
     fn find_ref(&mut self, name: &BStr) -> Result<(), Exn> {
         self.unset_disambiguate_call();
         if self.has_delayed_err() && self.refs[self.idx].is_some() {
-            return Err(message!("Refusing call as there are delayed errors and a ref is available").raise_erased());
+            return Err(message("Refusing call as there are delayed errors and a ref is available").raise_erased());
         }
         match self.repo.refs.find(name) {
             Ok(r) => {
@@ -51,7 +51,7 @@ impl delegate::Revision for Delegate<'_> {
         .or_erased()?;
 
         match ok {
-            None => Err(message!("An object prefixed {} could not be found", prefix).raise_erased()),
+            None => Err(message!("An object prefixed {prefix} could not be found").raise_erased()),
             Some(Ok(_) | Err(())) => {
                 assert!(self.objs[self.idx].is_none(), "BUG: cannot set the same prefix twice");
                 let candidates = candidates.expect("set above");
@@ -111,7 +111,7 @@ impl delegate::Revision for Delegate<'_> {
                     *val = Some(r.clone().detach());
                     r
                 }
-                Ok(None) => return Err(message!("Unborn heads do not have a reflog yet").raise_erased()),
+                Ok(None) => return Err(message("Unborn heads do not have a reflog yet").raise_erased()),
                 Err(err) => return Err(err.raise_erased()),
             },
         };
@@ -134,7 +134,7 @@ impl delegate::Revision for Delegate<'_> {
                     {
                         Some(closest_line) => closest_line.new_oid,
                         None => match last {
-                            None => return Err(message!("Reflog does not contain any entries").raise_erased()),
+                            None => return Err(message("Reflog does not contain any entries").raise_erased()),
                             Some(id) => id,
                         },
                     };
@@ -184,7 +184,7 @@ impl delegate::Revision for Delegate<'_> {
                         .and_then(|from_to| from_to.find(" to ").map(|pos| &from_to[..pos]))
                         .map(|from_branch| (from_branch.into(), line.previous_oid))
                 })),
-                None => Err(message!(
+                None => Err(message(
                     "Reference HEAD does not have a reference log, cannot search prior checked out branch",
                 )
                 .raise()
@@ -234,7 +234,7 @@ impl delegate::Revision for Delegate<'_> {
                     r
                 }
                 Ok(None) => {
-                    return Err(message!("Unborn heads cannot have push or upstream tracking branches").raise_erased())
+                    return Err(message("Unborn heads cannot have push or upstream tracking branches").raise_erased())
                 }
                 Err(err) => {
                     return Err(err.raise_erased());
@@ -271,7 +271,7 @@ impl delegate::Revision for Delegate<'_> {
                 }
             },
         }
-        Err(message!("Couldn't find sibling of {kind:?}", kind = kind).raise_erased())
+        Err(message!("Couldn't find sibling of {kind:?}").raise_erased())
     }
 }
 

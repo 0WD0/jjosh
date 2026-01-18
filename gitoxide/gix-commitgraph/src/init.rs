@@ -57,9 +57,7 @@ impl Graph {
         let num_commits: u64 = files.iter().map(|f| u64::from(f.num_commits())).sum();
         if num_commits > u64::from(MAX_COMMITS) {
             return Err(message!(
-                "Commit-graph files contain {} commits altogether, but only {} commits are allowed",
-                num_commits,
-                MAX_COMMITS
+                "Commit-graph files contain {num_commits} commits altogether, but only {MAX_COMMITS} commits are allowed"
             ));
         }
 
