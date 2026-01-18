@@ -12,7 +12,7 @@ impl Error {
 
     /// Return an iterator over all errors in the tree in breadth-first order, starting with this one.
     pub fn iter_frames(&self) -> impl Iterator<Item = &exn::Frame> + '_ {
-        self.inner.frame().iter()
+        self.inner.frame().iter_frames()
     }
 }
 

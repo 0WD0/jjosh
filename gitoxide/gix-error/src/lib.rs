@@ -39,6 +39,25 @@
 //!
 //! A side effect of this is that any callee that causes errors needs to be annotated with
 //! `.or_raise(|| message!("context information"))` or `.or_raise_erased(|| message!("context information"))`.
+//!
+//! # Feature Flags
+#![cfg_attr(
+    all(doc, feature = "document-features"),
+    doc = ::document_features::document_features!()
+)]
+//! # Why not `anyhow`?
+//!
+//! `anyhow` is a proven and optimized library, and it would certainly suffice for an error-chain based approach
+//! where users are expected to downcast to concrete types.
+//!
+//! What's missing though is `track-caller` which will always capture the location of error instantiation, along with
+//! compatibility for error trees, which are happening when multiple calls are in flight during concurrency.
+//!
+//! Both libraries share the shortcoming of not being able to implement `std::error::Error` on their error type,
+//! and both provide workarounds.
+//!
+//! `exn` is much less optimized, but also costs only a `Box` on the stack,
+//! which in any case is a step up from `thiserror` which exposed a lot of heft to the stack.
 #![deny(missing_docs, unsafe_code)]
 /// A result type to hide the [Exn] error wrapper.
 mod exn;
@@ -61,8 +80,7 @@ pub struct Error {
 
 mod error;
 
-mod message;
-pub use message::{message, Message};
-
-mod parse;
-pub use parse::ParseError;
+/// Various kinds of concrete errors that implement [`std::error::Error`].
+mod concrete;
+pub use concrete::message::{message, Message};
+pub use concrete::parse::ParseError;

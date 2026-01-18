@@ -186,7 +186,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Iterate over all frames in breadth-first order. The first frame is this instance,
     /// followed by all of its children.
     pub fn iter(&self) -> impl Iterator<Item = &Frame> {
-        self.frame().iter()
+        self.frame().iter_frames()
     }
 
     /// Iterate over all frames and find one that downcasts into error of type `T`.
@@ -380,7 +380,7 @@ impl Frame {
 
     /// Iterate over all frames in breadth-first order. The first frame is this instance,
     /// followed by all of its children.
-    pub fn iter(&self) -> impl Iterator<Item = &Frame> + '_ {
+    pub fn iter_frames(&self) -> impl Iterator<Item = &Frame> + '_ {
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(self);
         BreadthFirstFrames { queue }
@@ -410,6 +410,17 @@ where
 {
     fn from(err: Exn<E>) -> Self {
         err.frame
+    }
+}
+
+#[cfg(feature = "anyhow")]
+impl<E> From<Exn<E>> for anyhow::Error
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn from(err: Exn<E>) -> Self {
+        // TODO: make this source-chain compatible.
+        anyhow::Error::from(err.into_box())
     }
 }
 

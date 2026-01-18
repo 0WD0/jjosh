@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{debug_string, new_tree_error, Error, ErrorWithSource};
-use gix_error::Exn;
 use gix_error::OptionExt;
 use gix_error::ResultExt;
 use gix_error::{message, ErrorExt};
+use gix_error::{Exn, Message};
 
 #[test]
 fn raise_chain() {
@@ -364,7 +364,7 @@ fn error_tree() {
         |
         └─ E7, at gix-error/tests/error/main.rs:22:30
     ");
-    insta::assert_debug_snapshot!(err.frame().iter().map(ToString::to_string).collect::<Vec<_>>(), @r#"
+    insta::assert_debug_snapshot!(err.frame().iter_frames().map(ToString::to_string).collect::<Vec<_>>(), @r#"
     [
         "E6",
         "E5",
@@ -501,4 +501,67 @@ fn erased_into_box() {
 fn erased_into_error() {
     let e = Error("E1").raise().erased();
     let _into_error_works = e.into_error();
+}
+
+#[cfg(feature = "anyhow")]
+#[test]
+fn raise_chain_anyhow() {
+    let e1 = Error("E1")
+        .raise()
+        .chain(Exn::raise_all([Error("E1c1-1"), Error("E1c1-2")], Error("E1-2")))
+        .chain(Exn::raise_all([Error("E1c2-1"), Error("E1c2-2")], Error("E1-3")));
+    let e2 = e1.raise(Error("E2"));
+    let root = e2.raise(Message::new("root"));
+
+    // It's a linked list as linked up with the first child, but also has multiple children.
+    insta::assert_snapshot!(format!("{root:#}"), @r#"
+    Message("root")
+    |
+    └─ Error("E2")
+        |
+        └─ Error("E1")
+            |
+            └─ Error("E1-2")
+            |   |
+            |   └─ Error("E1c1-1")
+            |   |
+            |   └─ Error("E1c1-2")
+            |
+            └─ Error("E1-3")
+                |
+                └─ Error("E1c2-1")
+                |
+                └─ Error("E1c2-2")
+    "#);
+
+    // TODO: this should print the complete error chain.
+    insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(root))), @"root");
+}
+
+#[cfg(feature = "anyhow")]
+#[test]
+fn inverse_error_call_chain_anyhow() {
+    let e1 = Error("E1").raise();
+    let e2 = e1.chain(Error("E2"));
+    let e3 = e2.chain(Error("E3"));
+    let e4 = e3.chain(Error("E4"));
+    let e5 = e4.chain(Error("E5"));
+    insta::assert_debug_snapshot!(e5, @"
+    E1
+    |
+    └─ E2
+    |
+    └─ E3
+    |
+    └─ E4
+    |
+    └─ E5
+    ");
+
+    // TODO: this should print the complete error chain.
+    insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(e5))), @"E1");
+}
+
+fn remove_stackstrace(s: String) -> String {
+    s.find("Stack backtrace:").map_or(s.clone(), |pos| s[..pos].into())
 }
