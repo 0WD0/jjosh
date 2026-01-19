@@ -3,14 +3,23 @@ use bstr::{BStr, ByteSlice};
 ///
 pub mod name {
     /// The error used in [name()](super::name()).
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("Submodule names cannot be empty")]
         Empty,
-        #[error("Submodules names must not contains '..'")]
         ParentComponent,
     }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Error::Empty => write!(f, "Submodule names cannot be empty"),
+                Error::ParentComponent => write!(f, "Submodules names must not contains '..'"),
+            }
+        }
+    }
+
+    impl std::error::Error for Error {}
 }
 
 /// Return the original `name` if it is valid, or the respective error indicating what was wrong with it.
