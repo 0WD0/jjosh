@@ -5,13 +5,35 @@ pub mod name {
     use std::convert::Infallible;
 
     /// The error used in [name()][super::name()] and [`name_partial()`][super::name_partial()]
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("A reference must be a valid tag name as well")]
-        Tag(#[from] crate::tag::name::Error),
-        #[error("Standalone references must be all uppercased, like 'HEAD'")]
+        Tag(crate::tag::name::Error),
         SomeLowercase,
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Error::Tag(err) => write!(f, "A reference must be a valid tag name as well: {err}"),
+                Error::SomeLowercase => write!(f, "Standalone references must be all uppercased, like 'HEAD'"),
+            }
+        }
+    }
+
+    impl std::error::Error for Error {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Error::Tag(err) => Some(err),
+                Error::SomeLowercase => None,
+            }
+        }
+    }
+
+    impl From<crate::tag::name::Error> for Error {
+        fn from(err: crate::tag::name::Error) -> Self {
+            Error::Tag(err)
+        }
     }
 
     impl From<Infallible> for Error {

@@ -5,32 +5,47 @@ pub mod name {
     use bstr::BString;
 
     /// The error returned by [`name()`][super::name()].
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("A ref must not contain invalid bytes or ascii control characters: {byte:?}")]
         InvalidByte { byte: BString },
-        #[error("A reference name must not start with a slash '/'")]
         StartsWithSlash,
-        #[error("Multiple slashes in a row are not allowed as they may change the reference's meaning")]
         RepeatedSlash,
-        #[error("A ref must not contain '..' as it may be mistaken for a range")]
         RepeatedDot,
-        #[error("A ref must not end with '.lock'")]
         LockFileSuffix,
-        #[error("A ref must not contain '@{{' which is a part of a ref-log")]
         ReflogPortion,
-        #[error("A ref must not contain '*' character")]
         Asterisk,
-        #[error("A ref must not start with a '.'")]
         StartsWithDot,
-        #[error("A ref must not end with a '.'")]
         EndsWithDot,
-        #[error("A ref must not end with a '/'")]
         EndsWithSlash,
-        #[error("A ref must not be empty")]
         Empty,
     }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Error::InvalidByte { byte } => write!(
+                    f,
+                    "A ref must not contain invalid bytes or ascii control characters: {byte:?}"
+                ),
+                Error::StartsWithSlash => write!(f, "A reference name must not start with a slash '/'"),
+                Error::RepeatedSlash => write!(
+                    f,
+                    "Multiple slashes in a row are not allowed as they may change the reference's meaning"
+                ),
+                Error::RepeatedDot => write!(f, "A ref must not contain '..' as it may be mistaken for a range"),
+                Error::LockFileSuffix => write!(f, "A ref must not end with '.lock'"),
+                Error::ReflogPortion => write!(f, "A ref must not contain '@{{' which is a part of a ref-log"),
+                Error::Asterisk => write!(f, "A ref must not contain '*' character"),
+                Error::StartsWithDot => write!(f, "A ref must not start with a '.'"),
+                Error::EndsWithDot => write!(f, "A ref must not end with a '.'"),
+                Error::EndsWithSlash => write!(f, "A ref must not end with a '/'"),
+                Error::Empty => write!(f, "A ref must not be empty"),
+            }
+        }
+    }
+
+    impl std::error::Error for Error {}
 }
 
 /// Assure the given `input` resemble a valid git tag name, which is returned unchanged on success.

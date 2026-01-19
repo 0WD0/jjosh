@@ -16,7 +16,6 @@ doctest = false
 test = true
 
 [dependencies]
-thiserror = "2.0.17"
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
