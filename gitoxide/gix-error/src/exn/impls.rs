@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::panic::Location;
 
-use crate::Exn;
+use crate::{write_location, ChainedError, Exn};
 
 impl<E: Error + Send + Sync + 'static> From<E> for Exn<E> {
     #[track_caller]
@@ -178,6 +179,14 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
         self.into()
     }
 
+    /// Convert this error tree into a chain of errors, breadth first, which flattens the tree
+    /// but retains all type dynamic type information.
+    ///
+    /// This is useful for inter-op with `anyhow`.
+    pub fn into_chain(self) -> crate::ChainedError {
+        self.into()
+    }
+
     /// Return the underlying exception frame.
     pub fn frame(&self) -> &Frame {
         &self.frame
@@ -186,7 +195,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Iterate over all frames in breadth-first order. The first frame is this instance,
     /// followed by all of its children.
     pub fn iter(&self) -> impl Iterator<Item = &Frame> {
-        self.frame().iter()
+        self.frame().iter_frames()
     }
 
     /// Iterate over all frames and find one that downcasts into error of type `T`.
@@ -245,7 +254,7 @@ fn write_frame_recursive(
         }
     }?;
     if !f.alternate() {
-        write_location(f, frame)?;
+        write_location(f, frame.location)?;
     }
 
     let children = frame.children();
@@ -267,11 +276,6 @@ fn write_frame_recursive(
     }
 
     Ok(())
-}
-
-fn write_location(f: &mut fmt::Formatter<'_>, exn: &Frame) -> fmt::Result {
-    let location = exn.location();
-    write!(f, ", at {}:{}:{}", location.file(), location.line(), location.column())
 }
 
 impl<E: Error + Send + Sync + 'static> fmt::Display for Exn<E> {
@@ -380,7 +384,7 @@ impl Frame {
 
     /// Iterate over all frames in breadth-first order. The first frame is this instance,
     /// followed by all of its children.
-    pub fn iter(&self) -> impl Iterator<Item = &Frame> + '_ {
+    pub fn iter_frames(&self) -> impl Iterator<Item = &Frame> + '_ {
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(self);
         BreadthFirstFrames { queue }
@@ -410,6 +414,16 @@ where
 {
     fn from(err: Exn<E>) -> Self {
         err.frame
+    }
+}
+
+#[cfg(feature = "anyhow")]
+impl<E> From<Exn<E>> for anyhow::Error
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn from(err: Exn<E>) -> Self {
+        anyhow::Error::from(err.into_chain())
     }
 }
 
@@ -504,4 +518,30 @@ impl SourceError {
             alt_debug: format!("{err:#?}"),
         }
     }
+}
+
+impl<E> From<Exn<E>> for ChainedError
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn from(mut err: Exn<E>) -> Self {
+        let stack: VecDeque<_> = err.frame.children.drain(..).collect();
+        let location = err.frame.location;
+        ChainedError {
+            err: err.into_box(),
+            location,
+            source: recurse_source_frames(stack),
+        }
+    }
+}
+
+fn recurse_source_frames(mut stack: VecDeque<Frame>) -> Option<Box<ChainedError>> {
+    let frame = stack.pop_front()?;
+    stack.extend(frame.children);
+    Box::new(ChainedError {
+        err: frame.error,
+        location: frame.location,
+        source: recurse_source_frames(stack),
+    })
+    .into()
 }

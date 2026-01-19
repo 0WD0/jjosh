@@ -1,46 +1,46 @@
-use crate::{debug_string, new_tree_error, Error as Simple, ErrorWithSource};
-use gix_error::{Error, ErrorExt};
+use crate::{debug_string, new_tree_error, ErrorWithSource};
+use gix_error::{message, Error, ErrorExt};
 use std::error::Error as _;
 
 #[test]
 fn from_exn_error() {
-    let err = Error::from(Simple("one").raise());
+    let err = Error::from(message("one").raise());
     assert_eq!(err.to_string(), "one");
-    insta::assert_snapshot!(debug_string(&err), @"one, at gix-error/tests/error/error.rs:7:41");
+    insta::assert_snapshot!(debug_string(&err), @"one, at gix-error/tests/error/error.rs:7");
     insta::assert_debug_snapshot!(err, @"one");
     assert_eq!(err.source().map(debug_string), None);
 }
 
 #[test]
 fn from_exn_error_tree() {
-    let err = Error::from(new_tree_error().raise(Simple("topmost")));
+    let err = Error::from(new_tree_error().raise(message("topmost")));
     assert_eq!(err.to_string(), "topmost");
-    insta::assert_snapshot!(debug_string(&err), @r"
-    topmost, at gix-error/tests/error/error.rs:16:44
+    insta::assert_snapshot!(debug_string(&err), @"
+    topmost, at gix-error/tests/error/error.rs:16
     |
-    └─ E6, at gix-error/tests/error/main.rs:25:9
+    └─ E6, at gix-error/tests/error/main.rs:25
         |
-        └─ E5, at gix-error/tests/error/main.rs:17:18
+        └─ E5, at gix-error/tests/error/main.rs:17
         |   |
-        |   └─ E3, at gix-error/tests/error/main.rs:9:21
+        |   └─ E3, at gix-error/tests/error/main.rs:9
         |   |   |
-        |   |   └─ E1, at gix-error/tests/error/main.rs:8:30
+        |   |   └─ E1, at gix-error/tests/error/main.rs:8
         |   |
-        |   └─ E10, at gix-error/tests/error/main.rs:12:22
+        |   └─ E10, at gix-error/tests/error/main.rs:12
         |   |   |
-        |   |   └─ E9, at gix-error/tests/error/main.rs:11:30
+        |   |   └─ E9, at gix-error/tests/error/main.rs:11
         |   |
-        |   └─ E12, at gix-error/tests/error/main.rs:15:23
+        |   └─ E12, at gix-error/tests/error/main.rs:15
         |       |
-        |       └─ E11, at gix-error/tests/error/main.rs:14:32
+        |       └─ E11, at gix-error/tests/error/main.rs:14
         |
-        └─ E4, at gix-error/tests/error/main.rs:20:21
+        └─ E4, at gix-error/tests/error/main.rs:20
         |   |
-        |   └─ E2, at gix-error/tests/error/main.rs:19:30
+        |   └─ E2, at gix-error/tests/error/main.rs:19
         |
-        └─ E8, at gix-error/tests/error/main.rs:23:21
+        └─ E8, at gix-error/tests/error/main.rs:23
             |
-            └─ E7, at gix-error/tests/error/main.rs:22:30
+            └─ E7, at gix-error/tests/error/main.rs:22
     ");
     insta::assert_debug_snapshot!(err, @r"
     topmost
@@ -69,7 +69,7 @@ fn from_exn_error_tree() {
             |
             └─ E7
     ");
-    insta::assert_debug_snapshot!(err.iter_frames().map(ToString::to_string).collect::<Vec<_>>(), @r#"
+    insta::assert_debug_snapshot!(err.sources().map(ToString::to_string).collect::<Vec<_>>(), @r#"
     [
         "topmost",
         "E6",
@@ -88,7 +88,7 @@ fn from_exn_error_tree() {
     "#);
     assert_eq!(
         err.source().map(debug_string).as_deref(),
-        Some(r#"Error("E6")"#),
+        Some(r#"Message("E6")"#),
         "The source is the first child"
     );
     assert_eq!(
@@ -100,11 +100,11 @@ fn from_exn_error_tree() {
 
 #[test]
 fn from_any_error() {
-    let err = Error::from_error(Simple("one"));
+    let err = Error::from_error(message("one"));
     assert_eq!(err.to_string(), "one");
-    assert_eq!(debug_string(&err), r#"Error("one")"#);
+    assert_eq!(debug_string(&err), r#"Message("one")"#);
     insta::assert_debug_snapshot!(err, @r#"
-    Error(
+    Message(
         "one",
     )
     "#);
@@ -114,20 +114,20 @@ fn from_any_error() {
 
 #[test]
 fn from_any_error_with_source() {
-    let err = Error::from_error(ErrorWithSource("main", Simple("one")));
+    let err = Error::from_error(ErrorWithSource("main", message("one")));
     assert_eq!(err.to_string(), "main", "display is the error itself");
-    assert_eq!(debug_string(&err), r#"ErrorWithSource("main", Error("one"))"#);
+    assert_eq!(debug_string(&err), r#"ErrorWithSource("main", Message("one"))"#);
     insta::assert_debug_snapshot!(err, @r#"
     ErrorWithSource(
         "main",
-        Error(
+        Message(
             "one",
         ),
     )
     "#);
     assert_eq!(
         err.source().map(debug_string).as_deref(),
-        Some(r#"Error("one")"#),
+        Some(r#"Message("one")"#),
         "The source is provided by the wrapped error"
     );
 }

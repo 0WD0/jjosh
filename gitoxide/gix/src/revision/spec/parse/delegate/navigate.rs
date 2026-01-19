@@ -25,7 +25,7 @@ impl delegate::Navigate for Delegate<'_> {
         let objs = match self.objs[self.idx].as_mut() {
             Some(objs) => objs,
             None => {
-                bail!(message!("Tried to navigate the commit-graph without providing an anchor first").raise_erased())
+                bail!(message("Tried to navigate the commit-graph without providing an anchor first").raise_erased())
             }
         };
         let repo = self.repo;
@@ -256,7 +256,7 @@ impl delegate::Navigate for Delegate<'_> {
                     .rev_walk(
                         references
                             .peeled()
-                            .or_raise_erased(|| message!("Couldn't configure iterator for peeling"))?
+                            .or_raise_erased(|| message("Couldn't configure iterator for peeling"))?
                             .filter_map(Result::ok)
                             .filter(|r| r.id().header().ok().is_some_and(|obj| obj.kind().is_commit()))
                             .filter_map(|r| r.detach().peeled),
@@ -375,7 +375,7 @@ fn handle_errors_and_replacements(
         delayed_errors.extend(errors.into_iter().map(|(_, err)| err));
         Err(delayed_errors
             .pop()
-            .unwrap_or_else(|| message!("BUG: Somehow there was no error but one was expected").raise_erased()))
+            .unwrap_or_else(|| message("BUG: Somehow there was no error but one was expected").raise_erased()))
     } else {
         for (obj, err) in errors {
             if let Some(pos) = objs.iter().position(|o| o == &obj) {

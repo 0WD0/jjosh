@@ -25,7 +25,6 @@ pub(crate) mod function {
     use crate::OutputFormat;
     use anyhow::Result;
     use gix::commitgraph::{verify::Outcome, Graph};
-    use gix::Exn;
 
     pub fn verify<W1, W2>(
         path: impl AsRef<Path>,
@@ -39,13 +38,13 @@ pub(crate) mod function {
         W1: io::Write,
         W2: io::Write,
     {
-        let g = Graph::at(path.as_ref()).map_err(Exn::into_error)?;
+        let g = Graph::at(path.as_ref())?;
 
         #[allow(clippy::unnecessary_wraps, unknown_lints)]
         fn noop_processor(_commit: &gix::commitgraph::file::Commit<'_>) -> std::result::Result<(), std::fmt::Error> {
             Ok(())
         }
-        let stats = g.verify_integrity(noop_processor).map_err(Exn::into_error)?;
+        let stats = g.verify_integrity(noop_processor)?;
 
         #[cfg_attr(not(feature = "serde"), allow(clippy::single_match))]
         match output_statistics {

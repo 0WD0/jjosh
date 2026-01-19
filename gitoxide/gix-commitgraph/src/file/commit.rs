@@ -162,7 +162,7 @@ impl Iterator for Parents<'_> {
                             self.next()
                         } else {
                             Some(Err(message!(
-                                "commit {0}'s extra edges overflows the commit-graph file's extra edges list",
+                                "commit {}'s extra edges overflows the commit-graph file's extra edges list",
                                 self.commit_data.id()
                             )))
                         }

@@ -280,8 +280,10 @@ jobs:
         # due to being more in line with some Unix-oriented assumptions. So we need to verify that
         # the test suite is compatible with being run even outside that environment, including that
         # `gix-testtools` is still able to run fixture scripts with the `bash` shell as intended.
+        # `gix-error` is excluded because it gets compiled with the wrong feature toggles here.
+        # It's tested individually.
         run: |  # zizmor: ignore[template-injection]
-          cargo nextest run --workspace --no-fail-fast -- ${{ matrix.test-args }}
+          cargo nextest run --workspace --no-fail-fast --exclude gix-error -- ${{ matrix.test-args }}
       - name: Check that tracked archives are up to date
         run: |
           # If this fails, the fix is usually to commit a regenerated archive.
@@ -341,7 +343,7 @@ jobs:
           GIX_TEST_IGNORE_ARCHIVES: '1'
           TEST_ARGS: ${{ matrix.test-args }}
         run: |
-          cargo nextest --profile=with-xml run --workspace --no-fail-fast -- `
+          cargo nextest --profile=with-xml run --workspace --no-fail-fast --exclude gix-error -- `
             (-split $Env:TEST_ARGS)
         continue-on-error: true
       - name: Check for errors
@@ -427,7 +429,7 @@ jobs:
       - name: Test (nextest)
         env:
           GIX_TEST_IGNORE_ARCHIVES: '1'
-        run: cargo nextest run --workspace --no-fail-fast
+        run: cargo nextest run --workspace --no-fail-fast --exclude gix-error
 
   test-32bit-windows-size-doc:
     runs-on: windows-latest

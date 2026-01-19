@@ -65,10 +65,9 @@ impl File {
                     .raise());
                 }
                 return Err(message!(
-                    "commit at file position {} with ID {} is out of order relative to its predecessor with ID {}",
+                    "commit at file position {} with ID {} is out of order relative to its predecessor with ID {prev_id}",
                     commit.position(),
-                    commit.id(),
-                    prev_id
+                    commit.id()
                 )
                 .raise());
             }
@@ -114,8 +113,8 @@ impl File {
         hasher.update(&self.data[..data_len_without_trailer]);
         let actual = hasher
             .try_finalize()
-            .map_err(|e| message!("failed to hash commit graph file: {}", e).raise())?;
-        actual.verify(self.checksum()).map_err(|e| message!("{}", e).raise())?;
+            .map_err(|e| message!("failed to hash commit graph file: {e}").raise())?;
+        actual.verify(self.checksum()).map_err(|e| message!("{e}").raise())?;
         Ok(actual)
     }
 }

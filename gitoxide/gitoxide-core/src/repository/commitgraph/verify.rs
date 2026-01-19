@@ -14,7 +14,6 @@ pub(crate) mod function {
 
     use crate::{repository::commitgraph::verify::Context, OutputFormat};
     use anyhow::Result;
-    use gix::Exn;
 
     pub fn verify<W1, W2>(
         repo: gix::Repository,
@@ -34,7 +33,7 @@ pub(crate) mod function {
         fn noop_processor(_commit: &gix::commitgraph::file::Commit<'_>) -> std::result::Result<(), std::fmt::Error> {
             Ok(())
         }
-        let stats = g.verify_integrity(noop_processor).map_err(Exn::into_error)?;
+        let stats = g.verify_integrity(noop_processor)?;
 
         #[cfg_attr(not(feature = "serde"), allow(clippy::single_match))]
         match output_statistics {

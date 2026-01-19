@@ -39,6 +39,25 @@
 //!
 //! A side effect of this is that any callee that causes errors needs to be annotated with
 //! `.or_raise(|| message!("context information"))` or `.or_raise_erased(|| message!("context information"))`.
+//!
+//! # Feature Flags
+#![cfg_attr(
+    all(doc, feature = "document-features"),
+    doc = ::document_features::document_features!()
+)]
+//! # Why not `anyhow`?
+//!
+//! `anyhow` is a proven and optimized library, and it would certainly suffice for an error-chain based approach
+//! where users are expected to downcast to concrete types.
+//!
+//! What's missing though is `track-caller` which will always capture the location of error instantiation, along with
+//! compatibility for error trees, which are happening when multiple calls are in flight during concurrency.
+//!
+//! Both libraries share the shortcoming of not being able to implement `std::error::Error` on their error type,
+//! and both provide workarounds.
+//!
+//! `exn` is much less optimized, but also costs only a `Box` on the stack,
+//! which in any case is a step up from `thiserror` which exposed a lot of heft to the stack.
 #![deny(missing_docs, unsafe_code)]
 /// A result type to hide the [Exn] error wrapper.
 mod exn;
@@ -55,14 +74,29 @@ pub use exn::{ErrorExt, Exn, Frame, OptionExt, ResultExt, Something, Untyped};
 /// All `source()` values when created with [`Error::from_error()`] are turned into frames,
 /// but lose their type information completely.
 /// This is because they are only seen as reference and thus can't be stored.
+///
+/// # The `auto-chain-error` feature
+///
+/// If it's enabled, this type is merely a wrapper around [`ChainedError`]. This happens automatically
+/// so applications that require this don't have to go through an extra conversion.
+///
+/// When both the `tree-error` and `auto-chain-error` features are enabled, the `tree-error`
+/// behavior takes precedence and this type uses the tree-based representation.
 pub struct Error {
+    #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
     inner: error::Inner,
+    #[cfg(all(feature = "auto-chain-error", not(feature = "tree-error")))]
+    inner: ChainedError,
 }
 
 mod error;
 
-mod message;
-pub use message::{message, Message};
+/// Various kinds of concrete errors that implement [`std::error::Error`].
+mod concrete;
+pub use concrete::chain::ChainedError;
+pub use concrete::message::{message, Message};
+pub use concrete::parse::ParseError;
 
-mod parse;
-pub use parse::ParseError;
+pub(crate) fn write_location(f: &mut std::fmt::Formatter<'_>, location: &std::panic::Location) -> std::fmt::Result {
+    write!(f, ", at {}:{}", location.file(), location.line())
+}
