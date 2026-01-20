@@ -52,7 +52,7 @@ mod error {
             match self {
                 Error::Intermediate { dir, kind } => write!(
                     f,
-                    "Intermediae failure creating {:?} with error: {:?}",
+                    "Intermediate failure creating {:?} with error: {:?}",
                     dir.display(),
                     kind
                 ),
