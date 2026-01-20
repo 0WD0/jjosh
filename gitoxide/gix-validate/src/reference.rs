@@ -2,37 +2,64 @@ use bstr::{BStr, BString, ByteSlice};
 
 ///
 pub mod name {
+    use bstr::BString;
     use std::convert::Infallible;
 
     /// The error used in [name()][super::name()] and [`name_partial()`][super::name_partial()]
     #[derive(Debug)]
     #[allow(missing_docs)]
+    #[non_exhaustive]
     pub enum Error {
-        Tag(crate::tag::name::Error),
+        InvalidByte { byte: BString },
+        StartsWithSlash,
+        RepeatedSlash,
+        RepeatedDot,
+        LockFileSuffix,
+        ReflogPortion,
+        Asterisk,
+        StartsWithDot,
+        EndsWithDot,
+        EndsWithSlash,
+        Empty,
         SomeLowercase,
     }
 
     impl std::fmt::Display for Error {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Error::Tag(err) => write!(f, "A reference must be a valid tag name as well: {err}"),
+                Error::InvalidByte { byte } => write!(f, "Reference name contains invalid byte: {byte:?}"),
+                Error::StartsWithSlash => write!(f, "Reference name cannot start with a slash"),
+                Error::RepeatedSlash => write!(f, "Reference name cannot contain repeated slashes"),
+                Error::RepeatedDot => write!(f, "Reference name cannot contain repeated dots"),
+                Error::LockFileSuffix => write!(f, "Reference name cannot end with '.lock'"),
+                Error::ReflogPortion => write!(f, "Reference name cannot contain '@{{'"),
+                Error::Asterisk => write!(f, "Reference name cannot contain '*'"),
+                Error::StartsWithDot => write!(f, "Reference name cannot start with a dot"),
+                Error::EndsWithDot => write!(f, "Reference name cannot end with a dot"),
+                Error::EndsWithSlash => write!(f, "Reference name cannot end with a slash"),
+                Error::Empty => write!(f, "Reference name cannot be empty"),
                 Error::SomeLowercase => write!(f, "Standalone references must be all uppercased, like 'HEAD'"),
             }
         }
     }
 
-    impl std::error::Error for Error {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            match self {
-                Error::Tag(err) => Some(err),
-                Error::SomeLowercase => None,
-            }
-        }
-    }
+    impl std::error::Error for Error {}
 
     impl From<crate::tag::name::Error> for Error {
         fn from(err: crate::tag::name::Error) -> Self {
-            Error::Tag(err)
+            match err {
+                crate::tag::name::Error::InvalidByte { byte } => Error::InvalidByte { byte },
+                crate::tag::name::Error::StartsWithSlash => Error::StartsWithSlash,
+                crate::tag::name::Error::RepeatedSlash => Error::RepeatedSlash,
+                crate::tag::name::Error::RepeatedDot => Error::RepeatedDot,
+                crate::tag::name::Error::LockFileSuffix => Error::LockFileSuffix,
+                crate::tag::name::Error::ReflogPortion => Error::ReflogPortion,
+                crate::tag::name::Error::Asterisk => Error::Asterisk,
+                crate::tag::name::Error::StartsWithDot => Error::StartsWithDot,
+                crate::tag::name::Error::EndsWithDot => Error::EndsWithDot,
+                crate::tag::name::Error::EndsWithSlash => Error::EndsWithSlash,
+                crate::tag::name::Error::Empty => Error::Empty,
+            }
         }
     }
 

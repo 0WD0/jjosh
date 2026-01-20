@@ -77,7 +77,7 @@ mod name_partial {
 
     mod invalid {
         use bstr::ByteSlice;
-        use gix_validate::{reference::name::Error as RefError, tag::name::Error as TagError};
+        use gix_validate::reference::name::Error as RefError;
 
         macro_rules! mktest {
             ($name:ident, $input:literal, $expected:pat) => {
@@ -91,21 +91,17 @@ mod name_partial {
             };
         }
 
-        mktest!(
-            refs_path_double_dot,
-            b"refs/../somewhere",
-            RefError::Tag(TagError::StartsWithDot)
-        );
+        mktest!(refs_path_double_dot, b"refs/../somewhere", RefError::StartsWithDot);
         mktests!(refs_path_double_dot_san, b"refs/../somewhere", "refs/-/somewhere");
         mktest!(
             refs_path_name_starts_with_dot,
             b".refs/somewhere",
-            RefError::Tag(TagError::StartsWithDot)
+            RefError::StartsWithDot
         );
         mktest!(
             refs_path_name_starts_with_multi_dot,
             b"..refs/somewhere",
-            RefError::Tag(TagError::RepeatedDot)
+            RefError::RepeatedDot
         );
         mktests!(
             refs_path_name_starts_with_multi_dot_san,
@@ -120,43 +116,31 @@ mod name_partial {
         mktest!(
             refs_path_component_is_singular_dot,
             b"refs/./still-inside-but-not-cool",
-            RefError::Tag(TagError::StartsWithDot)
+            RefError::StartsWithDot
         );
         mktests!(
             refs_path_component_is_singular_dot_san,
             b"refs/./still-inside-but-not-cool",
             "refs/-/still-inside-but-not-cool"
         );
-        mktest!(
-            any_path_starts_with_slash,
-            b"/etc/foo",
-            RefError::Tag(TagError::StartsWithSlash)
-        );
+        mktest!(any_path_starts_with_slash, b"/etc/foo", RefError::StartsWithSlash);
         mktests!(any_path_starts_with_slash_san, b"/etc/foo", "etc/foo");
-        mktest!(empty_path, b"", RefError::Tag(TagError::Empty));
+        mktest!(empty_path, b"", RefError::Empty);
         mktests!(empty_path_san, b"", "-");
-        mktest!(
-            refs_starts_with_slash,
-            b"/refs/heads/main",
-            RefError::Tag(TagError::StartsWithSlash)
-        );
+        mktest!(refs_starts_with_slash, b"/refs/heads/main", RefError::StartsWithSlash);
         mktests!(refs_starts_with_slash_san, b"/refs/heads/main", "refs/heads/main");
-        mktest!(
-            ends_with_slash,
-            b"refs/heads/main/",
-            RefError::Tag(TagError::EndsWithSlash)
-        );
+        mktest!(ends_with_slash, b"refs/heads/main/", RefError::EndsWithSlash);
         mktests!(ends_with_slash_san, b"refs/heads/main/", "refs/heads/main");
         mktest!(
             path_with_duplicate_slashes,
             b"refs//heads/main",
-            RefError::Tag(TagError::RepeatedSlash)
+            RefError::RepeatedSlash
         );
         mktests!(path_with_duplicate_slashes_san, b"refs//heads/main", "refs/heads/main");
         mktest!(
             path_with_spaces,
             b"refs/heads/name with spaces",
-            RefError::Tag(TagError::InvalidByte { .. })
+            RefError::InvalidByte { .. }
         );
         mktests!(
             path_with_spaces_san,
@@ -166,7 +150,7 @@ mod name_partial {
         mktest!(
             path_with_backslashes,
             br"refs\heads/name with spaces",
-            RefError::Tag(TagError::InvalidByte { .. })
+            RefError::InvalidByte { .. }
         );
         mktests!(
             path_with_backslashes_san,
@@ -246,7 +230,7 @@ mod name {
 
     mod invalid {
         use bstr::ByteSlice;
-        use gix_validate::{reference::name::Error as RefError, tag::name::Error as TagError};
+        use gix_validate::reference::name::Error as RefError;
 
         macro_rules! mktest {
             ($name:ident, $input:literal, $expected:pat) => {
@@ -260,18 +244,14 @@ mod name {
             };
         }
 
-        mktest!(
-            refs_path_double_dot,
-            b"refs/../somewhere",
-            RefError::Tag(TagError::StartsWithDot)
-        );
+        mktest!(refs_path_double_dot, b"refs/../somewhere", RefError::StartsWithDot);
         mktests!(refs_path_double_dot_san, b"refs/../somewhere", "refs/-/somewhere");
         mktest!(refs_name_special_case_upload_pack, b"(null)", RefError::SomeLowercase);
         mktests!(refs_name_special_case_upload_pack_san, b"(null)", "(null)");
         mktest!(
             refs_path_name_starts_with_dot,
             b".refs/somewhere",
-            RefError::Tag(TagError::StartsWithDot)
+            RefError::StartsWithDot
         );
         mktests!(
             refs_path_name_starts_with_dot_san,
@@ -282,7 +262,7 @@ mod name {
         mktest!(
             refs_path_name_starts_with_dot_in_name,
             b"refs/.somewhere",
-            RefError::Tag(TagError::StartsWithDot)
+            RefError::StartsWithDot
         );
         mktests!(
             refs_path_name_starts_with_dot_in_name_san,
@@ -292,7 +272,7 @@ mod name {
         mktest!(
             refs_path_name_ends_with_dot_in_name,
             b"refs/somewhere.",
-            RefError::Tag(TagError::EndsWithDot)
+            RefError::EndsWithDot
         );
         mktests!(
             refs_path_name_ends_with_dot_in_name_san,
@@ -302,7 +282,7 @@ mod name {
         mktest!(
             refs_path_component_is_singular_dot,
             b"refs/./still-inside-but-not-cool",
-            RefError::Tag(TagError::StartsWithDot)
+            RefError::StartsWithDot
         );
         mktests!(
             refs_path_component_is_singular_dot_an,
@@ -313,36 +293,20 @@ mod name {
         mktests!(capitalized_name_without_path_san, b"Main", "Main");
         mktest!(lowercase_name_without_path, b"main", RefError::SomeLowercase);
         mktests!(lowercase_name_without_path_san, b"main", "main");
-        mktest!(
-            any_path_starts_with_slash,
-            b"/etc/foo",
-            RefError::Tag(TagError::StartsWithSlash)
-        );
+        mktest!(any_path_starts_with_slash, b"/etc/foo", RefError::StartsWithSlash);
         mktests!(any_path_starts_with_slash_san, b"/etc/foo", "etc/foo");
-        mktest!(empty_path, b"", RefError::Tag(TagError::Empty));
+        mktest!(empty_path, b"", RefError::Empty);
         mktests!(empty_path_san, b"", "-");
-        mktest!(
-            refs_starts_with_slash,
-            b"/refs/heads/main",
-            RefError::Tag(TagError::StartsWithSlash)
-        );
+        mktest!(refs_starts_with_slash, b"/refs/heads/main", RefError::StartsWithSlash);
         mktests!(refs_starts_with_slash_san, b"/refs/heads/main", "refs/heads/main");
-        mktest!(
-            ends_with_slash,
-            b"refs/heads/main/",
-            RefError::Tag(TagError::EndsWithSlash)
-        );
+        mktest!(ends_with_slash, b"refs/heads/main/", RefError::EndsWithSlash);
         mktests!(ends_with_slash_san, b"refs/heads/main/", "refs/heads/main");
-        mktest!(
-            ends_with_slash_multiple,
-            b"refs/heads/main///",
-            RefError::Tag(TagError::EndsWithSlash)
-        );
+        mktest!(ends_with_slash_multiple, b"refs/heads/main///", RefError::EndsWithSlash);
         mktests!(ends_with_slash_multiple_san, b"refs/heads/main///", "refs/heads/main");
         mktest!(
             a_path_with_duplicate_slashes,
             b"refs//heads/main",
-            RefError::Tag(TagError::RepeatedSlash)
+            RefError::RepeatedSlash
         );
         mktests!(
             a_path_with_duplicate_slashes_san,

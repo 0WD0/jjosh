@@ -18,20 +18,14 @@ mod partialname {
 
         let err = PartialName::try_from("trailing-slash/").unwrap_err();
         assert!(
-            matches!(
-                err,
-                gix_validate::reference::name::Error::Tag(gix_validate::tag::name::Error::EndsWithSlash)
-            ),
+            matches!(err, gix_validate::reference::name::Error::EndsWithSlash),
             "thanks to this there is no worry about dealing with this case"
         );
 
         let pn = PartialName::try_from("prefix")?;
         let err = pn.join("/slash-in-name".into()).unwrap_err();
         assert!(
-            matches!(
-                err,
-                gix_validate::reference::name::Error::Tag(gix_validate::tag::name::Error::RepeatedSlash)
-            ),
+            matches!(err, gix_validate::reference::name::Error::RepeatedSlash),
             "validation post-join assures the returned type is valid"
         );
         Ok(())
