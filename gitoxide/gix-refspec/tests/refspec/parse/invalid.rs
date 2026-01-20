@@ -11,9 +11,7 @@ fn empty() {
 fn empty_component() {
     assert!(matches!(
         try_parse("refs/heads/test:refs/remotes//test", Operation::Fetch).unwrap_err(),
-        Error::ReferenceName(gix_validate::reference::name::Error::Tag(
-            gix_validate::tag::name::Error::RepeatedSlash
-        ))
+        Error::ReferenceName(gix_validate::reference::name::Error::RepeatedSlash)
     ));
 }
 
@@ -21,7 +19,7 @@ fn empty_component() {
 fn whitespace() {
     assert!(matches!(
         try_parse("refs/heads/test:refs/remotes/ /test", Operation::Fetch).unwrap_err(),
-        Error::ReferenceName(gix_validate::reference::name::Error::Tag(_))
+        Error::ReferenceName(gix_validate::reference::name::Error::InvalidByte { .. })
     ));
 }
 

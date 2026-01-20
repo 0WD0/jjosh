@@ -11,10 +11,7 @@ fn a_lock_file_would_not_be_a_valid_partial_name() {
     // doesn't really belong here but want to make sure refname validation works as expected.
     // let err: &gix_ref::PartialNameRef = "heads/hello.lock".try_into().expect_err("this should fail");
     let err = <&gix_ref::PartialNameRef as TryFrom<_>>::try_from("heads/hello.lock").expect_err("this should fail");
-    assert_eq!(
-        err.to_string(),
-        "A reference must be a valid tag name as well: A ref must not end with '.lock'"
-    );
+    assert_eq!(err.to_string(), "Reference name cannot end with '.lock'");
 }
 
 #[test]
