@@ -5,6 +5,413 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.0 (2026-01-22)
+
+## 0.10.22 (2025-11-22)
+
+### Bug Fixes
+
+ - <csr-id-77e485d80bd0db6cb8d44ae45044b1b5db0d9645/> use `std::env::home_dir()` and remove the `home` crate from dependencies.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2234](https://github.com/GitoxideLabs/gitoxide/issues/2234)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2234](https://github.com/GitoxideLabs/gitoxide/issues/2234)**
+    - Use `std::env::home_dir()` and remove the `home` crate from dependencies. ([`77e485d`](https://github.com/GitoxideLabs/gitoxide/commit/77e485d80bd0db6cb8d44ae45044b1b5db0d9645))
+ * **Uncategorized**
+    - Release gix-date v0.11.0, gix-actor v0.36.0, gix-path v0.10.22, gix-object v0.52.0, gix-packetline v0.20.0, gix-filter v0.22.0, gix-revwalk v0.23.0, gix-traverse v0.49.0, gix-worktree-stream v0.24.0, gix-archive v0.24.0, gix-index v0.43.0, gix-worktree v0.44.0, gix-diff v0.55.0, gix-blame v0.5.0, gix-ref v0.55.0, gix-config v0.48.0, gix-url v0.33.2, gix-credentials v0.32.0, gix-discover v0.43.0, gix-dir v0.17.0, gix-mailmap v0.28.0, gix-revision v0.37.0, gix-merge v0.8.0, gix-negotiate v0.23.0, gix-pack v0.62.0, gix-odb v0.72.0, gix-refspec v0.33.0, gix-transport v0.50.0, gix-protocol v0.53.0, gix-status v0.22.0, gix-submodule v0.22.0, gix-worktree-state v0.22.0, gix v0.75.0, gix-fsck v0.14.0, gitoxide-core v0.50.0, gitoxide v0.47.0, safety bump 32 crates ([`82ff92f`](https://github.com/GitoxideLabs/gitoxide/commit/82ff92fa943bad88dc7d5bfa100404de477a3608))
+    - Merge pull request #2235 from GitoxideLabs/home ([`cbb73ea`](https://github.com/GitoxideLabs/gitoxide/commit/cbb73ea906a753c4162dd3b0096eaf3e1acfd46f))
+    - Merge pull request #2224 from GitoxideLabs/report ([`3313233`](https://github.com/GitoxideLabs/gitoxide/commit/3313233aa4e7009aed0ddf644f4271fd2a98e8d4))
+</details>
+
+## 0.10.21 (2025-10-22)
+
+### New Features
+
+ - <csr-id-7e77d40fcae8dbca42459c42a1aacea2906a630c/> Extend `ALTERNATIVE_LOCATIONS` for per-user installations
+   When `git` is not found in a `PATH` search on Windows, common
+   locations where Git for Windows is often installed are checked.
+   But only systemwide installations had been checked before.
+   
+   This extends the locations examined to include the current user's
+   own program files directory. This directory, if present, is
+   expected to be the `Programs` subdirectory of the user's local
+   application data directory, typically:
+   
+       C:\Users\<user>\AppData\Local\Programs
+   
+   When Git for Windows is installed for a user rather than
+   systemwide, it is typically installed a `Git` subdirectory of that
+   `Programs` directory (much as it is typically installed in a `Git`
+   subdirectory of a directory such as `C:\Program Files` when
+   installed systemwide). This looks for a suitable Git for Windows
+   directory tree at such a location.
+   
+   It is possible for Git for Windows installations to be present both
+   in the current user's own program files directory and systemwide.
+   If that happens, such that both kinds of installations are able to
+   be found, then we choose the per-user installation.
+   
+   This is based on the idea that an individual user may choose to
+   install a newer or otherwise different version of Git for Windows,
+   or that a developer may even test out a custom build by manually
+   placing it in that directory. Because, in either case, the
+   architecture of the Git for Windows executable may differ from what
+   is currently installed systemwide or even from what is typically
+   preferred, we will attempt to use a per-user build of any of the
+   architectures Git for Windows has published, before then using the
+   systemwide installations as done before.
+   
+   Although the user program files directory is under the local rather
+   than roaming application data directory, and is thus not shared
+   across machines on a domain, it is possible that some techniques of
+   backing up and restoring data may restore a per-user installation
+   of Git for Windows that is for a different machine architecture
+   that cannot run, or that the user would not want to be used. In
+   that case, this enhancement may actually break something that was
+   working before.
+   
+   That seems fairly unlikely to occur, and it can be worked around by
+   making a `git` command available in a `PATH` search. Nonetheless,
+   if this is found to happen in practice, then further refinement of
+   the `ALTERNATIVE_LOCATIONS` enumeration order may be warranted.
+ - <csr-id-2d2c11b50edb429cb9da62dd185e50d47bc1afd2/> Extend `EXEPATH` optimization to support ARM64 Windows
+   On Windows, the `gix_path::env::system_prefix()` function has two
+   strategies. The first is an optimization that doesn't always work,
+   where the `EXEPATH` environment variable is consulted. In Git Bash,
+   this variable is usually available, pointing somewhere into the
+   Git for Windows installation. Most commonly, but in practice not
+   universally, it points to the top-level directory of the Git for
+   Windows installation. `system_prefix()` on Windows looks for a
+   subdirectory of this directory that is named for one of the MSYS2
+   environment https://www.msys2.org/docs/environments prefixes, of
+   those Git for Windows has builds for. (Otherwise, it falls back to
+   traversing to such a location upward from what `git --exec-path`
+   reveals, which is often slower as `git` must sometimes be run.)
+   
+   However, this `EXEPATH` optimization had only checked for the
+   `mingw64` and `mingw32` environment prefixes. This was ideal
+   before ARM64 builds of Git for Windows were released. But since
+   then, it is useful to allow the `clangarm64` environment prefix
+   as well, to allow the `EXEPATH` optimization to work on ARM64
+   builds of Git for Windows. This makes that change.
+
+### Bug Fixes
+
+ - <csr-id-9000a848cfd94fcb20f0c07b3c366fc55fa4eb3c/> Don't use `EXEPATH` unless it is absolute
+   The first of two strategies used by the `system_prefix()` function
+   on Windows is an optimization that looks for `clangarm64`,
+   `mingw64`, or `mingw32` subdirectories of a directory whose path is
+   given by the value of the `EXEPATH` environment variable. If
+   `EXEPATH` is absent, can't be interpreted as a path, or can be
+   interpreted as a path but does not point to a directory that can be
+   verified to contain such a subdirectory, then this optimization was
+   already being skipped and the more reliable but sometimes slower
+   `git --exec-path`-based method used.
+   
+   However, when `EXEPATH` contains a relative path, including in the
+   case where it is an empty string (which could be set by accident or
+   if it is being used with some meaning other than what we and Git
+   for Windows recognize), then it was still used, even though that
+   would not usually be correct and would sometimes not be safe.
+   
+   Although an attacker is not expected to be able to control the
+   value of `EXEPATH` (nor most environment variables), a value such
+   as an empty string would cause `clangarm64`, `mingw64`, and
+   `mingw32` subdirectories of the current directory to be used.
+   
+   A user might intentionally set `EXEPATH` to a relative path to
+   leverage the `EXEPATH` optimization of `system_prefix()` with that
+   path. But `EXEPATH` is a short variable name with many plausible
+   meanings that is not named with a distinctive prefix such `GIT_` or
+   `GIX_`. So it would not be a good tradeoff to continue recognizing
+   it for `system_prefix()` anytime it is non-absoliute.
+   
+   Thus, as a stability fix and possible security enhancement, this
+   adds a check that the value of `EXEPATH` is an absolute path before
+   proceeding with the `EXEPATH` optimization.
+ - <csr-id-5ac8cffb16bcbda3ff53513671d533b33bd35a4f/> Skip `EXEPATH` optimization if it finds no best path
+   The `EXEPATH` optimization for `gix_path::env::system_prefix()` on
+   Windows previously tried https://www.msys2.org/docs/environments
+   prefixes used by Git for Windows, returning a successful result on
+   the first subdirectory found. However, if `EXEPATH` points to a
+   directory that contains more than one such subdirectory, then the
+   subdirectory returned would not necessarily be the correct one.
+   
+   Getting more than one subdirectory is unlikely. It is expected that
+   at most one of `clangarm64`, `mingw64`, and `mingw32` will be
+   present. However, there are at least three ways it could happen:
+   
+   - `EXEPATH` has the intended meaning as the root of a Git for
+     Windows installation, but the directory it refers to contains
+     multiple directories left over from a previous installation. A
+     corresponding scenario applies to `ALTERNATIVE_LOCATIONS`, but
+     it is resolved by checking all the directories in a reasonable
+     order. Here, we are not checking the contents of the directories,
+     so no matter what order we look for them in, picking one when
+     there are others risks picking the wrong one.
+   
+   - `EXEPATH` has the intended meaning as the root of a Git for
+     Windows installation, but it is a custom installation produced
+     from local build or custom distribution rather than an official
+     build, and it contains multiple such directories because it
+     carries binaries built against more than one of the targets (even
+     if only one of them has `git` itself). A corresponding scenario
+     is fairly unlikely for `ALTERNATIVE_LOCATIONS`, because a custom
+     MSYS2 tree, even if created using the Git for Windows SDK, would
+     probably not be installed in one of the common Git for Windows
+     installation locations, without considering the effects of doing
+     so. In contrast, `EXEPATH` will often be set in a Git Bash
+     environment even in a highly customized Git for Windows tree.
+   
+   - `EXEPATH` has a different meaning from what is intended. For
+     example, the user might set it to the root of an ordinary MSYS2
+     installation. (Note that it is also likely to have various other
+     meanings even more different from these, but those won't likely
+     cause the `EXEPATH` optimization to be used when it shouldn't,
+     because most possible meanings of `EXEPATH` won't involve a
+     subdirectory of any of the names we look for.
+   
+   Instead of using the first existing subdirectory we fine, this
+   checks for all of them and requires that exactly one exist. If more
+   than one exist, then that is now treated the same as if none exist,
+   falling back to the `git --exec-path`-based strategy, which is
+   sometimes slower but more robust.
+ - <csr-id-1fa24cd9380cf063aa1a29e01136282ac3bc92c3/> Extend `ALTERNATIVE_LOCATIONS` for ARM64 Windows
+   `gix-path` looks for and runs an installed `git` executable, when
+   present, to discover information about how Git is set up. This
+   is used in several functions in `gix_path::env`, especially on
+   Windows, where if `git.exe` is not found in a `PATH` search, then
+   common installation locations for Git for Windows are checked.
+   
+   These locations on Windows are resolved based on information from
+   the current environment, since different systems have different
+   program files directories. This was implemented in #1456 (which
+   built on #1419). Although this was sufficient to find the most
+   common Git for Windows installation locations, it did not find
+   ARM64 builds of Git for Windows. Such builds place the non-shim
+   `git.exe` program in `(git root)\clangarm64\bin`, rather than in
+   `(git root)\mingw64\bin` or `(git root)\mingw32\bin`. At the time
+   of #1419 and #1456, no stable ARM64 builds of Git for Windows were
+   available. Since then, Git for Windows began releasing such builds.
+   
+   This modifies the alternative locations examined if `git.exe` is
+   not found in a `PATH` search on Windows so that, where `(git root)`
+   is in a 64-bit program files directory, we check for a
+   `(git root)\clangarm64\bin` directory, in addition to checking for
+   a `(git root)\mingw64\bin` directory as was already done.
+   
+   Although 64-bit and 32-bit program files directories are separate,
+   on ARM64 systems the 64-bit program files directory is used both
+   for ARM64 programs, which the system can run directly, and for
+   x86_64 programs, which the system must run through emulation.
+   
+   This checks both `clangarm64` and `mingw64`, where `mingw64` was
+   checked before. It does so in that order, because if both are
+   available, then we are probably on an ARM64 system, and the ARM64
+   build of Git for Windows should be preferred, both because it will
+   tend to perform better and because the user is likely to expect
+   that to be used. (An x86_64 build, especially if present directly
+   alongside an ARM64 build, may be left over from a previous version
+   of Git for Windows that didn't have ARM64 builds and that was only
+   incompletely uninstalled.)
+   
+   This checks both, in that order, on all systems where we had
+   checked `mingw64` before, even on x86_64 systems. This is because:
+   
+   - To limit production dependencies and code complexity, we have
+     been examining only environment variables (and information
+     available at build time) to ascertain which program files
+     directories exist and whether they are 64-bit or 32-bit program
+     files directories. At least for now, this preserves that general
+     approach, continuing not to explicitly call Windows API functions
+     or access the Windows registry, other than in tests.
+   
+   - But determining from environment variables whether the system is
+     ARM64 or x86_64 is less straightforward than determining the
+     program files directory locations, in one major case as well as
+     various edge cases.
+   
+   The reason it's less straightforward is that, if our parent process
+   (or other ancestor) passes down a sanitized environment while still
+   attempting to let the program files directories be found, then:
+   
+   - That process should make available all of the `ProgramFiles`,
+     `ProgramW6432`, `ProgramFiles(x86)`, and `ProgramFiles(ARM)`
+     variables that exist in its own environment.
+   
+     (This is because, on 64-bit Windows, the child `ProgramFiles` is
+     populated from the parent `ProgramW6432`, `ProgramFiles(x86)`, or
+     `ProgramFiles(ARM)`, depending on the architectures of the parent
+     and child, if the parent passes down the relevant variable.)
+   
+   - Even if the parent/ancestor is not designed with the WoW64 rules
+     in mind, it will likely pass down at least `ProgramFiles`.
+   
+     This will then be used as the child `ProgramFiles`, if whichever
+     of `ProgramFilesW6432`, `ProgramFiles(x86)`, or
+     `ProgramFiles(ARM)` is relevant is not passed down by the parent.
+   
+   - In contrast, the parent/ancestor may omit the variables
+     `PROCESSOR_ARCHITECTURE` and `PROCESSOR_ARCHITEW6432`, which are
+     not obviously needed for locating programs.
+   
+     In and of itself, this is not necessarily a problem, because on
+     ARM64 Windows, at least one of the two will still be set
+     automatically. (Even if the parent process runs us with an
+     explicitly empty environment, we will get one of these, on ARM64
+     Windows.)
+   
+     However, in this case, as in others, it will generally be set
+     according to our process architecture, rather than the system
+     architecture.
+   
+   - Thus, even if `PROCESSOR_ARCHITE*` variables are preserved or set
+     correctly, there are common cases where they are not sufficient.
+   
+     The main such case is when we are an x86_64 build, but the system
+     is ARM64, and Git for Windows is ARM64. `gix-path` is a library
+     crate, and it will sometimes to be used in an x86_64 program on
+     such a system.
+   
+     Also, if `gix-path` is used in an Arm64EC program, then even
+     though its code may be ARM64 with the `arm64ec-pc-windows-msvc`
+     Rust target, the program would still be treated as an x86_64
+     program in its interactions with the system and other programs,
+     including in how its environment variables' values are populated
+     and how their values are affected by WoW64.
+   
+     (`gix-path` may also be x86_64 code where the program is Arm64EC.
+     One way this happens is if `gix-path` is used in an x86_64 DLL,
+     and an Arm64EC program loads the DLL. Using x86_64 DLLs from
+     ARM64 code is one of the reasons a program may target Arm64EC.
+     In this case, the Rust target will be for x86_64, not ARM64 or
+     Arm64EC. So checking our own Rust build target can't fully check
+     if the program is Arm64EC.)
+   
+   - Although the `PROCESSOR_IDENTIFIER` variable is more reliable if
+     present--see actions/partner-runner-images#117 for an example of
+     where this is more reliable than `PROCESSOR_ARCHITECTURE`--it is
+     slightly more complex to parse. Much more importantly, unlike
+     `PROCESSOR_ARCHITE*`, the `PROCESSOR_IDENTIFIER` variable is not
+     set automatically in a child process whose parent/ancestor has
+     removed it. Whether or not a parent/ancestor passes down
+     `PROCESSOR_ARCHITE*` variables, it may still not choose to let
+     `PROCESSOR_IDENTIFIER` through, if it sanitizes the environment.
+   
+   - It would sometimes work to look for `ProgramFiles(ARM)`. This
+     environment variable, if present, gives the 32-bit ARM program
+     files directory location on an ARM64 Windows system. If set, then
+     the Windows system could be treated as ARM64. However, a
+     parent/ancestor process may omit this even when passing down
+     program files related environment variables, including
+     `ProgramFiles(x86)`. It may do so because the `ProgramFiles(ARM)`
+     environment variable is less well known. Or it may omit it
+     intentionally, if the parent process is only passing down
+     variables needed to find Git for Windows, for which one shouldn't
+     need to know the 32-bit ARM program files directory location,
+     since Git for Windows has never had 32-bit ARM builds.
+   
+     Relatedly, augmenting the search by checking the filesystem for a
+     sibling (or hard-coded) directory named `Program Files (ARM)`
+     should not be done, because this directory has no special meaning
+     outside of ARM64 Windows. It may therefore be left over from a
+     previous installation or migration, or even created by a local
+     user as in the CVE-2024-40644 scenario patched in #1456.
+   
+   (These complexities all relate to deciding whether and in what
+   order to search `bin` subdirectories of `clangarm64`, `mingw64`,
+   and `mingw32`. They would go away if we looked for the shim rather
+   than the non-shim executable. This is because the path from
+   `(git root)` to the shim does not contain a directory component
+   named after a build target. That simplification would carry its own
+   tradeoffs, and it is unclear if it ought to be done; it is not done
+   here.)
+ - <csr-id-b24783accba4bdd39c0821564060a3b4f3745903/> Use `nul` instead of `NUL` on Windows
+   `NULL_DEVICE` is `/dev/null` except on Windows, where there are
+   several possible choices. Previously we were using `NUL` because
+   the more modern full path `\\.\NUL` is not supported by `git`.
+   
+   However, `git` also rejects `NUL`, when capitalized, on some
+   Windows systems. This can be observed on Windows 11 ARM64 builds.
+   In contrast, the lower-case `nul`, which Windows itself treats the
+   same as `NUL`, is always accepted by Git for Windows.
+   
+   Although it's not readily apparent why Git for Windows accepts
+   `NUL` on some Windows operating systems and/or platforms and not
+   others, the preferential treatment of `nul` (not extending to
+   `NUL`) can be seen in a few places in the Git for Windows source
+   code, including in `mingw_access` (`strcmp` is case-sensitive):
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 40 commits contributed to the release over the course of 79 calendar days.
+ - 79 days passed between releases.
+ - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.10.6, gix-utils v0.3.1, gix-actor v0.35.5, gix-trace v0.1.14, gix-validate v0.10.1, gix-path v0.10.21, gix-features v0.44.0, gix-hash v0.20.0, gix-hashtable v0.10.0, gix-object v0.51.0, gix-glob v0.22.0, gix-quote v0.6.1, gix-attributes v0.28.0, gix-command v0.6.3, gix-packetline-blocking v0.19.2, gix-filter v0.21.0, gix-fs v0.17.0, gix-chunk v0.4.12, gix-commitgraph v0.30.0, gix-revwalk v0.22.0, gix-traverse v0.48.0, gix-worktree-stream v0.23.0, gix-archive v0.23.0, gix-bitmap v0.2.15, gix-tempfile v19.0.0, gix-lock v19.0.0, gix-index v0.42.0, gix-config-value v0.15.2, gix-pathspec v0.13.0, gix-ignore v0.17.0, gix-worktree v0.43.0, gix-diff v0.54.0, gix-blame v0.4.0, gix-ref v0.54.0, gix-sec v0.12.1, gix-config v0.47.0, gix-prompt v0.11.2, gix-url v0.33.0, gix-credentials v0.31.0, gix-discover v0.42.0, gix-dir v0.16.0, gix-mailmap v0.27.3, gix-revision v0.36.0, gix-merge v0.7.0, gix-negotiate v0.22.0, gix-pack v0.61.0, gix-odb v0.71.0, gix-refspec v0.32.0, gix-shallow v0.6.0, gix-packetline v0.19.2, gix-transport v0.49.0, gix-protocol v0.52.0, gix-status v0.21.0, gix-submodule v0.21.0, gix-worktree-state v0.21.0, gix v0.74.0, gix-fsck v0.13.0, gitoxide-core v0.49.0, gitoxide v0.46.0, safety bump 42 crates ([`89fb308`](https://github.com/GitoxideLabs/gitoxide/commit/89fb308f1283b404b55916304f7d161fbf13fe10))
+    - Merge pull request #2217 from GitoxideLabs/copilot/update-msrv-to-rust-1-82 ([`4da2927`](https://github.com/GitoxideLabs/gitoxide/commit/4da2927629c7ec95b96d62a387c61097e3fc71fa))
+    - Update MSRV to 1.82 and replace once_cell with std equivalents ([`6cc8464`](https://github.com/GitoxideLabs/gitoxide/commit/6cc84641cb7be6f70468a90efaafcf142a6b8c4b))
+    - Merge pull request #2202 from GitoxideLabs/dependabot/cargo/cargo-4a7155215a ([`9365cc3`](https://github.com/GitoxideLabs/gitoxide/commit/9365cc3ae8ad92ba2703170ac2f9a1e4df2ac3be))
+    - Bump the cargo group across 1 directory with 64 updates ([`838ff95`](https://github.com/GitoxideLabs/gitoxide/commit/838ff95cca60c453bd97bd458ce31b384d00347e))
+    - Merge pull request #2134 from EliahKagan/user-program-files ([`2fffc50`](https://github.com/GitoxideLabs/gitoxide/commit/2fffc50eea71fcdc5d203878415ff3464bfa305e))
+    - Extend `ALTERNATIVE_LOCATIONS` for per-user installations ([`7e77d40`](https://github.com/GitoxideLabs/gitoxide/commit/7e77d40fcae8dbca42459c42a1aacea2906a630c))
+    - Migrate remaining `known-folders` usage to `windows` ([`082e22e`](https://github.com/GitoxideLabs/gitoxide/commit/082e22e28cc9a810f7fc693a0f3f80def84c183f))
+    - Clarify safety at and around `SHGetKnownFolderPath` call ([`998fb48`](https://github.com/GitoxideLabs/gitoxide/commit/998fb48a45d835bb8c764fc169447058ed44ab70))
+    - Get `UserProgramFiles` with `KF_FLAG_DONT_VERIFY` for test ([`1c7a34e`](https://github.com/GitoxideLabs/gitoxide/commit/1c7a34ed914675f1d77df0c4ebbdc4909ceac2ad))
+    - Update alternative location unit tests for user program files ([`c9ff0ac`](https://github.com/GitoxideLabs/gitoxide/commit/c9ff0ac2abe03cb923f77a73cb51687ff7662e13))
+    - Fix user program files alternative locations expectations ([`cab4c85`](https://github.com/GitoxideLabs/gitoxide/commit/cab4c852821dd19334016972b36cb69439705189))
+    - Update alternative locations integration tests for user program files ([`9e71d55`](https://github.com/GitoxideLabs/gitoxide/commit/9e71d55fa31c573e9da262b17a9441a60d318ff8))
+    - Merge pull request #2133 from EliahKagan/program-files-next ([`e365244`](https://github.com/GitoxideLabs/gitoxide/commit/e3652443bad2463aa917766cb40f24ef9c842c9e))
+    - Add a "SAFETY:" comment in `PlatformBitness::current()` ([`1f3edb5`](https://github.com/GitoxideLabs/gitoxide/commit/1f3edb5bd628a95aecfa50767aa710ecd9002e71))
+    - Move the vacuous case outside the "ordinary" group ([`eec407f`](https://github.com/GitoxideLabs/gitoxide/commit/eec407f3ca4ad0a1de7cbef67284ae5965e903d6))
+    - Rename cases to clarify "ordinary" and "strange" ([`edc0f3c`](https://github.com/GitoxideLabs/gitoxide/commit/edc0f3c7fe95b3e12c03dd7436e4f0ef1c399f60))
+    - Divide up `locations_under_program_files_*` assertions ([`35beea1`](https://github.com/GitoxideLabs/gitoxide/commit/35beea110c353e4cb14944a0f6de429f6c2dcc21))
+    - Clarify which global program files paths are used and why ([`fd000f5`](https://github.com/GitoxideLabs/gitoxide/commit/fd000f5beb4665a6ad75568701a33a4a7a8896fc))
+    - Merge pull request #2115 from EliahKagan/run-ci/arm-windows ([`c2c8c2f`](https://github.com/GitoxideLabs/gitoxide/commit/c2c8c2fb13749b2f10d882cdbadafcb2e4c4dba3))
+    - Don't use `EXEPATH` unless it is absolute ([`9000a84`](https://github.com/GitoxideLabs/gitoxide/commit/9000a848cfd94fcb20f0c07b3c366fc55fa4eb3c))
+    - Test that relative `EXEPATH` doesn't trigger the optimization ([`f4bb773`](https://github.com/GitoxideLabs/gitoxide/commit/f4bb7734b89fe3aa1e99a4e1b89a273cd92fa2bd))
+    - Factor out shared code to a helper ([`84f9672`](https://github.com/GitoxideLabs/gitoxide/commit/84f9672cdd072adf6e3c248d4f068504efe66270))
+    - Test that empty `EXEPATH` doesn't trigger the optimization ([`24c11ac`](https://github.com/GitoxideLabs/gitoxide/commit/24c11ac666c8eac7da788065e6fa488b00ce1a90))
+    - Skip `EXEPATH` optimization if it finds no best path ([`5ac8cff`](https://github.com/GitoxideLabs/gitoxide/commit/5ac8cffb16bcbda3ff53513671d533b33bd35a4f))
+    - Extend `EXEPATH` optimization to support ARM64 Windows ([`2d2c11b`](https://github.com/GitoxideLabs/gitoxide/commit/2d2c11b50edb429cb9da62dd185e50d47bc1afd2))
+    - Refactor slices in test cases for readability ([`d5f4c9f`](https://github.com/GitoxideLabs/gitoxide/commit/d5f4c9fa90a539f5dc202df93333be2dde99c7e0))
+    - Test the `EXEPATH` optimization of `system_prefix()` ([`2b0639b`](https://github.com/GitoxideLabs/gitoxide/commit/2b0639bf5919381e0b0af2bff711c6ff910340d4))
+    - Extract `system_prefix()` Windows strategies to helpers ([`3b304fa`](https://github.com/GitoxideLabs/gitoxide/commit/3b304fa73097505e9114037f609df277d2cd29cf))
+    - Update outdated `expect()` message in test helper ([`571ca6e`](https://github.com/GitoxideLabs/gitoxide/commit/571ca6e70a80fd7cf8abc808caab217fcbd72d4c))
+    - Rename `PlatformArchitecture` helper `PlatformBitness` ([`5bf265b`](https://github.com/GitoxideLabs/gitoxide/commit/5bf265b39c911ef3881afe85eaa9d109940bf836))
+    - Further refactor `rules` loop in `locations_under_program_files` ([`2c6dcb2`](https://github.com/GitoxideLabs/gitoxide/commit/2c6dcb2042d4edbf7bbcb2b4e1dffd4b12031278))
+    - Clarify `rules` loop in `locations_under_program_files` ([`d06b89d`](https://github.com/GitoxideLabs/gitoxide/commit/d06b89d24b7464cfa1831d00afe4860d2abb45ed))
+    - Extend `ALTERNATIVE_LOCATIONS` for ARM64 Windows ([`1fa24cd`](https://github.com/GitoxideLabs/gitoxide/commit/1fa24cd9380cf063aa1a29e01136282ac3bc92c3))
+    - Tweak formatting to fix lint ([`4662233`](https://github.com/GitoxideLabs/gitoxide/commit/4662233dd7f6cbdebd2c16558b63219828752fa5))
+    - Update alternative locations unit tests for ARM64 ([`ff3df53`](https://github.com/GitoxideLabs/gitoxide/commit/ff3df532d7ab935326e85360fe131c5694704c39))
+    - Update alternative locations integration tests for ARM64 ([`e9770a7`](https://github.com/GitoxideLabs/gitoxide/commit/e9770a729993cfb947a88f0c82cf7f2b76555dc4))
+    - Copyedit `gix_path::env::git` comments ([`8d2c262`](https://github.com/GitoxideLabs/gitoxide/commit/8d2c26276c12b3a83086c0351e2dbf13e28035a1))
+    - Use `nul` instead of `NUL` on Windows ([`b24783a`](https://github.com/GitoxideLabs/gitoxide/commit/b24783accba4bdd39c0821564060a3b4f3745903))
+    - Merge pull request #2100 from GitoxideLabs/release ([`202bc6d`](https://github.com/GitoxideLabs/gitoxide/commit/202bc6da79854d1fb6bb32b9c6bb2a6f882c77f5))
+</details>
+
 ## 0.10.20 (2025-08-03)
 
 A maintenance release without user-facing changes.
@@ -13,7 +420,7 @@ A maintenance release without user-facing changes.
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release over the course of 19 calendar days.
+ - 5 commits contributed to the release over the course of 19 calendar days.
  - 19 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -25,6 +432,7 @@ A maintenance release without user-facing changes.
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-actor v0.35.3, gix-path v0.10.20, gix-features v0.43.1, gix-object v0.50.1 ([`d64f257`](https://github.com/GitoxideLabs/gitoxide/commit/d64f257951754ea70b0179b83f76de957b712211))
     - Prepare changelogs prior to release. ([`5e0122d`](https://github.com/GitoxideLabs/gitoxide/commit/5e0122df48392fb0ea6e16eb7b70d320b03244ca))
     - Merge pull request #2090 from GitoxideLabs/dependabot/cargo/cargo-f147714000 ([`473fe52`](https://github.com/GitoxideLabs/gitoxide/commit/473fe522e84569f77bf38294a412f0d13fa54d63))
     - Bump the cargo group with 41 updates ([`428412c`](https://github.com/GitoxideLabs/gitoxide/commit/428412c9ff05caabb4f8714d5de769603e18a8f9))
@@ -213,6 +621,18 @@ A maintenance release without user-facing changes.
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
