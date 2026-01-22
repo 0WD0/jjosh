@@ -1,3 +1,4 @@
+use gix_testtools::Creation;
 pub use gix_testtools::Result;
 
 mod index_as_worktree;
@@ -9,6 +10,16 @@ pub fn fixture_path(name: &str) -> std::path::PathBuf {
     let dir = gix_testtools::scripted_fixture_read_only_standalone(std::path::Path::new(name).with_extension("sh"))
         .expect("script works");
     dir
+}
+
+pub fn fixture_path_rw_slow(name: &str) -> gix_testtools::tempfile::TempDir {
+    let tmp = gix_testtools::scripted_fixture_writable_with_args_standalone_single_archive(
+        std::path::Path::new(name).with_extension("sh"),
+        None::<String>,
+        Creation::ExecuteScript,
+    )
+    .expect("script works");
+    tmp
 }
 
 fn hex_to_id(hex: &str) -> gix_hash::ObjectId {

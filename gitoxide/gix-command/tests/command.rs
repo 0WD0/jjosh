@@ -362,7 +362,7 @@ mod prepare {
         );
         assert_eq!(
             format!("{cmd:?}"),
-            quoted(&[*SH, "-c", r#"\'ls\' \"$@\""#, "--", "--foo=a b"]),
+            quoted(&[*SH, "-c", r#"'ls' \"$@\""#, "--", "--foo=a b"]),
             "looks strange thanks to debug printing, but is the right amount of quotes actually"
         );
     }
@@ -380,9 +380,9 @@ mod prepare {
             quoted(&[
                 *SH,
                 "-c",
-                r#"\'C:\\Users\\O\'\\\'\'Shaughnessy\\with space.exe\' \"$@\""#,
+                r#"'C:\\Users\\O'\\''Shaughnessy\\with space.exe' \"$@\""#,
                 "--",
-                r"--foo=\'a b\'"
+                r"--foo='a b'"
             ]),
             "again, a lot of extra backslashes, but it's correct outside of the debug formatting"
         );

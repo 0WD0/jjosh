@@ -330,7 +330,7 @@ pub fn scripted_fixture_writable(script_name: impl AsRef<Path>) -> Result<tempfi
 }
 
 /// Like [`scripted_fixture_writable`], but does not prefix the fixture directory with `tests`
-pub fn scripted_fixture_writable_standalone(script_name: &str) -> Result<tempfile::TempDir> {
+pub fn scripted_fixture_writable_standalone(script_name: impl AsRef<Path>) -> Result<tempfile::TempDir> {
     scripted_fixture_writable_with_args_standalone(script_name, None::<String>, Creation::CopyFromReadOnly)
 }
 
@@ -358,7 +358,7 @@ pub fn scripted_fixture_writable_with_args_single_archive(
 
 /// Like [`scripted_fixture_writable_with_args`], but does not prefix the fixture directory with `tests`
 pub fn scripted_fixture_writable_with_args_standalone(
-    script_name: &str,
+    script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {
@@ -369,7 +369,7 @@ pub fn scripted_fixture_writable_with_args_standalone(
 ///
 /// See [`scripted_fixture_read_only_with_args_single_archive()`] for important details on what `single_archive` means.
 pub fn scripted_fixture_writable_with_args_standalone_single_archive(
-    script_name: &str,
+    script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {

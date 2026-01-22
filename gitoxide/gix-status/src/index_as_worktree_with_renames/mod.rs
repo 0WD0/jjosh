@@ -411,19 +411,18 @@ pub(super) mod function {
     }
 
     mod rewrite {
-        use std::{io::Read, path::Path};
-
+        use crate::{
+            index_as_worktree::{Change, EntryStatus},
+            index_as_worktree_with_renames::{Entry, Error},
+        };
         use bstr::BStr;
         use gix_diff::{rewrites::tracker::ChangeKind, tree::visit::Relation};
         use gix_dir::entry::Kind;
         use gix_filter::pipeline::convert::ToGitOutcome;
         use gix_hash::oid;
         use gix_object::tree::EntryMode;
-
-        use crate::{
-            index_as_worktree::{Change, EntryStatus},
-            index_as_worktree_with_renames::{Entry, Error},
-        };
+        use std::io::ErrorKind;
+        use std::{io::Read, path::Path};
 
         #[derive(Clone)]
         pub enum ModificationOrDirwalkEntry<'index, T, U>
@@ -527,7 +526,23 @@ pub(super) mod function {
                         .map_err(Error::SetAttributeContext)?;
                     let rela_path = gix_path::from_bstr(rela_path);
                     let file_path = worktree_root.join(rela_path.as_ref());
-                    let file = std::fs::File::open(&file_path).map_err(Error::OpenWorktreeFile)?;
+                    let file = match std::fs::File::open(&file_path) {
+                        Ok(f) => f,
+                        Err(err)
+                            if matches!(
+                                err.kind(),
+                                ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Interrupted
+                            ) =>
+                        {
+                            gix_features::trace::debug!(
+                                ?file_path,
+                                ?err,
+                                "ignoring worktree file as it can't be read for hashing"
+                            );
+                            return Ok(object_hash.null());
+                        }
+                        Err(err) => return Err(Error::OpenWorktreeFile(err)),
+                    };
                     let out = filter.convert_to_git(
                         file,
                         rela_path.as_ref(),
