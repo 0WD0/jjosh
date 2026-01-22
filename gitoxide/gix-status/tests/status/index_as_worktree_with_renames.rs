@@ -8,7 +8,7 @@ use gix_status::{
 };
 use pretty_assertions::assert_eq;
 
-use crate::fixture_path;
+use crate::{fixture_path, fixture_path_rw_slow};
 
 #[test]
 fn changed_and_untracked_and_renamed() {
@@ -89,6 +89,7 @@ fn changed_and_untracked_and_renamed() {
         &expectations_with_dirwalk,
         Some(rewrites),
         Some(Default::default()),
+        Fixture::ReadOnly,
     );
     assert_eq!(
         out.rewrites,
@@ -111,6 +112,7 @@ fn nonfile_untracked_are_not_visible() {
         &[],
         None,
         Some(Default::default()),
+        Fixture::ReadOnly,
     );
 }
 
@@ -130,8 +132,10 @@ fn tracked_changed_to_non_file() {
         }],
         None,
         Some(Default::default()),
+        Fixture::ReadOnly,
     );
 }
+
 #[test]
 fn changed_and_untracked() {
     let out = fixture_filtered_detailed(
@@ -148,6 +152,7 @@ fn changed_and_untracked() {
         }],
         None,
         None,
+        Fixture::ReadOnly,
     );
     assert_eq!(out.tracked_file_modification.entries_processed, 4);
     assert_eq!(
@@ -183,6 +188,7 @@ fn changed_and_untracked() {
         &expectations_with_dirwalk,
         None,
         Some(gix_dir::walk::Options::default()),
+        Fixture::ReadOnly,
     );
 
     let dirwalk = out.dirwalk.expect("configured thus has output");
@@ -203,6 +209,7 @@ fn changed_and_untracked() {
         &expectations_with_dirwalk,
         Some(Default::default()),
         Some(gix_dir::walk::Options::default()),
+        Fixture::ReadOnly,
     );
 
     let rewrites = out.rewrites.expect("configured thus has output");
@@ -213,6 +220,40 @@ fn changed_and_untracked() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn unreadable_untracked() {
+    let expectations_with_dirwalk = [Expectation::DirwalkEntry {
+        rela_path: "unreadable",
+        status: gix_dir::entry::Status::Untracked,
+        disk_kind: Some(gix_dir::entry::Kind::File),
+    }];
+    let out = fixture_filtered_detailed(
+        "unreadable_untracked.sh",
+        "",
+        &[],
+        &expectations_with_dirwalk,
+        Some(Default::default()),
+        Some(gix_dir::walk::Options::default()),
+        Fixture::WritableExecuted,
+    );
+
+    let dirwalk = out.dirwalk.expect("configured thus has output");
+    assert_eq!(
+        dirwalk,
+        gix_dir::walk::Outcome {
+            read_dir_calls: 1,
+            returned_entries: 1,
+            seen_entries: 3,
+        }
+    );
+}
+
+enum Fixture {
+    ReadOnly,
+    WritableExecuted,
+}
+
 fn fixture_filtered_detailed(
     script: &str,
     subdir: &str,
@@ -220,6 +261,7 @@ fn fixture_filtered_detailed(
     expected: &[Expectation<'_>],
     rewrites: Option<gix_diff::Rewrites>,
     dirwalk: Option<gix_dir::walk::Options>,
+    fixture: Fixture,
 ) -> Outcome {
     fn cleanup(mut out: Outcome) -> Outcome {
         out.tracked_file_modification.worktree_bytes = 0;
@@ -229,7 +271,17 @@ fn fixture_filtered_detailed(
         out
     }
 
-    let worktree = fixture_path(script).join(subdir);
+    let (worktree, _tmp) = match fixture {
+        Fixture::ReadOnly => {
+            let dir = fixture_path(script).join(subdir);
+            (dir, None)
+        }
+        Fixture::WritableExecuted => {
+            let tmp = fixture_path_rw_slow(script);
+            let dir = tmp.path().join(subdir);
+            (dir, Some(tmp))
+        }
+    };
     let git_dir = worktree.join(".git");
     let index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default()).unwrap();
     let search = gix_pathspec::Search::from_specs(
