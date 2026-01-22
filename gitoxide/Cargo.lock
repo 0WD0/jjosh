@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "gitoxide"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "gitoxide-core"
-version = "0.52.0"
+version = "0.53.0"
 dependencies = [
  "anyhow",
  "async-io",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "gix"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "anyhow",
  "async-std",
@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "gix-actor"
-version = "0.37.1"
+version = "0.38.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "gix-archive"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1488,7 +1488,6 @@ dependencies = [
  "gix-testtools",
  "gix-worktree",
  "gix-worktree-stream",
- "jiff",
  "rawzip",
  "tar",
  "thiserror 2.0.17",
@@ -1496,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "gix-attributes"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1523,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "gix-blame"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
@@ -1548,14 +1547,14 @@ dependencies = [
 
 [[package]]
 name = "gix-chunk"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "gix-error",
 ]
 
 [[package]]
 name = "gix-command"
-version = "0.6.5"
+version = "0.7.0"
 dependencies = [
  "bstr",
  "gix-path",
@@ -1567,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "gix-commitgraph"
-version = "0.31.0"
+version = "0.32.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1582,7 +1581,7 @@ dependencies = [
 
 [[package]]
 name = "gix-config"
-version = "0.50.0"
+version = "0.51.0"
 dependencies = [
  "bstr",
  "criterion",
@@ -1618,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "gix-config-value"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -1631,7 +1630,7 @@ dependencies = [
 
 [[package]]
 name = "gix-credentials"
-version = "0.34.1"
+version = "0.35.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1651,7 +1650,7 @@ dependencies = [
 
 [[package]]
 name = "gix-date"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1667,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "gix-diff"
-version = "0.57.1"
+version = "0.58.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1713,7 +1712,7 @@ dependencies = [
 
 [[package]]
 name = "gix-dir"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "bstr",
  "gix-discover",
@@ -1733,13 +1732,12 @@ dependencies = [
 
 [[package]]
 name = "gix-discover"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "bstr",
  "defer",
  "dunce",
  "gix-fs",
- "gix-hash",
  "gix-path",
  "gix-ref",
  "gix-sec",
@@ -1763,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "gix-features"
-version = "0.45.2"
+version = "0.46.0"
 dependencies = [
  "bstr",
  "bytes",
@@ -1789,7 +1787,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-filter"
-version = "0.24.1"
+version = "0.25.0"
 dependencies = [
  "bstr",
  "encoding_rs",
@@ -1811,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "gix-fs"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "bstr",
  "crossbeam-channel",
@@ -1827,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "gix-fsck"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "gix-hash",
  "gix-hashtable",
@@ -1838,7 +1836,7 @@ dependencies = [
 
 [[package]]
 name = "gix-glob"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -1851,7 +1849,7 @@ dependencies = [
 
 [[package]]
 name = "gix-hash"
-version = "0.21.2"
+version = "0.22.0"
 dependencies = [
  "document-features",
  "faster-hex",
@@ -1865,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "gix-hashtable"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "gix-hash",
  "hashbrown 0.16.1",
@@ -1874,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "gix-ignore"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1889,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "gix-index"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -1936,7 +1934,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-lock"
-version = "20.0.1"
+version = "21.0.0"
 dependencies = [
  "gix-tempfile",
  "gix-utils",
@@ -1956,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "gix-mailmap"
-version = "0.29.0"
+version = "0.30.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1969,7 +1967,7 @@ dependencies = [
 
 [[package]]
 name = "gix-merge"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -1999,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "gix-negotiate"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "bitflags 2.10.0",
  "gix-commitgraph",
@@ -2020,7 +2018,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-object"
-version = "0.54.1"
+version = "0.55.0"
 dependencies = [
  "bstr",
  "criterion",
@@ -2046,11 +2044,10 @@ dependencies = [
 
 [[package]]
 name = "gix-odb"
-version = "0.74.0"
+version = "0.75.0"
 dependencies = [
  "arc-swap",
  "document-features",
- "gix-date",
  "gix-features",
  "gix-fs",
  "gix-hash",
@@ -2085,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "gix-pack"
-version = "0.64.1"
+version = "0.65.0"
 dependencies = [
  "clru",
  "document-features",
@@ -2126,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "gix-packetline"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "async-std",
  "bstr",
@@ -2146,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "gix-path"
-version = "0.10.22"
+version = "0.11.0"
 dependencies = [
  "bstr",
  "gix-testtools",
@@ -2160,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "gix-pathspec"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -2175,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "gix-prompt"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "expectrl",
  "gix-command",
@@ -2189,7 +2186,7 @@ dependencies = [
 
 [[package]]
 name = "gix-protocol"
-version = "0.55.0"
+version = "0.56.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2233,7 +2230,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-ref"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "document-features",
  "gix-actor",
@@ -2275,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "gix-refspec"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "bstr",
  "gix-error",
@@ -2291,7 +2288,7 @@ dependencies = [
 
 [[package]]
 name = "gix-revision"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "bitflags 2.10.0",
  "bstr",
@@ -2313,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "gix-revwalk"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "gix-commitgraph",
  "gix-date",
@@ -2328,7 +2325,7 @@ dependencies = [
 
 [[package]]
 name = "gix-sec"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "bitflags 2.10.0",
  "document-features",
@@ -2345,7 +2342,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-shallow"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "bstr",
  "gix-hash",
@@ -2356,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "gix-status"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "bstr",
  "document-features",
@@ -2401,7 +2398,7 @@ dependencies = [
 
 [[package]]
 name = "gix-submodule"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "bstr",
  "gix-config",
@@ -2416,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "gix-tempfile"
-version = "20.0.1"
+version = "21.0.0"
 dependencies = [
  "dashmap",
  "document-features",
@@ -2466,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "gix-transport"
-version = "0.52.1"
+version = "0.53.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2495,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "gix-traverse"
-version = "0.51.1"
+version = "0.52.0"
 dependencies = [
  "bitflags 2.10.0",
  "gix-commitgraph",
@@ -2528,7 +2525,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-url"
-version = "0.34.0"
+version = "0.35.0"
 dependencies = [
  "assert_matches",
  "bstr",
@@ -2551,7 +2548,7 @@ dependencies = [
 
 [[package]]
 name = "gix-validate"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "bstr",
  "gix-testtools",
@@ -2559,12 +2556,11 @@ dependencies = [
 
 [[package]]
 name = "gix-worktree"
-version = "0.46.0"
+version = "0.47.0"
 dependencies = [
  "bstr",
  "document-features",
  "gix-attributes",
- "gix-features",
  "gix-fs",
  "gix-glob",
  "gix-hash",
@@ -2578,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "gix-worktree-state"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "bstr",
  "gix-features",
@@ -2612,7 +2608,7 @@ dependencies = [
 
 [[package]]
 name = "gix-worktree-stream"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "gix-attributes",
  "gix-features",
