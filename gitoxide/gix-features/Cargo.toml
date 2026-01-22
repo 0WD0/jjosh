@@ -88,7 +88,7 @@ required-features = ["io-pipe"]
 gix-trace = { version = "^0.1.17", path = "../gix-trace" }
 
 # for walkdir
-gix-path = { version = "^0.10.21", path = "../gix-path", optional = true }
+gix-path = { version = "^0.10.22", path = "../gix-path", optional = true }
 gix-utils = { version = "^0.3.1", path = "../gix-utils", optional = true }
 
 # 'parallel' feature
