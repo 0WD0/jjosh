@@ -1,5 +1,7 @@
 use crate::bstr::BStr;
 use crate::{worktree, Worktree};
+#[cfg(feature = "worktree-archive")]
+use gix_error::ResultExt;
 
 /// Interact with individual worktrees and their information.
 impl crate::Repository {
@@ -131,7 +133,8 @@ impl crate::Repository {
             should_interrupt,
         };
         if options.format == gix_archive::Format::InternalTransientNonPersistable {
-            std::io::copy(&mut stream.into_read(), &mut out)?;
+            std::io::copy(&mut stream.into_read(), &mut out)
+                .or_raise(|| gix_error::message("Could not copy stream"))?;
             return Ok(());
         }
         gix_archive::write_stream_seek(

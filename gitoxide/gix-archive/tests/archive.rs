@@ -259,7 +259,8 @@ mod from_tree {
                         tree_prefix: Some("prefix/".into()),
                         modification_time: 1820000000, // needs to be within a certain bound to be a valid MSDos time!
                     },
-                )?;
+                )
+                .map_err(|e| e.into_error())?;
             } else {
                 gix_archive::write_stream(
                     &mut stream,
@@ -270,7 +271,8 @@ mod from_tree {
                         tree_prefix: Some("prefix/".into()),
                         modification_time: 120,
                     },
-                )?;
+                )
+                .map_err(|e| e.into_error())?;
             }
             assert!(
                 stream.next_entry().map_err(|e| e.into_error())?.is_none(),

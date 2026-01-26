@@ -1472,7 +1472,6 @@ dependencies = [
  "gix-worktree-stream",
  "rawzip",
  "tar",
- "thiserror 2.0.18",
 ]
 
 [[package]]

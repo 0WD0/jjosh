@@ -19,22 +19,7 @@
 use bstr::BString;
 
 /// The error returned by [`write_stream()`].
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    NextStreamEntry(#[from] gix_error::Error),
-    #[error("The internal format cannot be used as an archive, it's merely a debugging tool")]
-    InternalFormatMustNotPersist,
-    #[error("Support for the format '{wanted:?}' was not compiled in")]
-    SupportNotCompiledIn { wanted: Format },
-    #[error("Cannot create a zip archive if output stream does not support seek")]
-    ZipWithoutSeek,
-    #[error("Cannot use modification as it is not within the supported bounds")]
-    InvalidModificationTime(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-}
+pub type Error = gix_error::Exn<gix_error::Message>;
 
 /// The supported container formats for use in [`write_stream()`].
 #[derive(Default, PartialEq, Eq, Copy, Clone, Debug)]
