@@ -90,7 +90,7 @@ where
         }
 
         let mut state = State::new(opts.format, opts.modification_time, out)?;
-        while let Some(entry) = next_entry(stream)? {
+        while let Some(entry) = next_entry(stream).map_err(|e| e.into_error())? {
             match &mut state {
                 #[cfg(feature = "tar")]
                 State::Tar((ar, buf)) => {
@@ -141,7 +141,7 @@ where
         let mut ar = rawzip::ZipArchiveWriter::new(out);
         let mut buf = Vec::new();
         let mtime = rawzip::time::UtcDateTime::from_unix(opts.modification_time);
-        while let Some(entry) = next_entry(stream)? {
+        while let Some(entry) = next_entry(stream).map_err(|e| e.into_error())? {
             append_zip_entry(
                 &mut ar,
                 entry,

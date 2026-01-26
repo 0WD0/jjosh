@@ -273,7 +273,7 @@ mod from_tree {
                 )?;
             }
             assert!(
-                stream.next_entry()?.is_none(),
+                stream.next_entry().map_err(|e| e.into_error())?.is_none(),
                 "stream is exhausted, all written to buf"
             );
         }

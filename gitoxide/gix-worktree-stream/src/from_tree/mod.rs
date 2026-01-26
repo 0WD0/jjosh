@@ -2,6 +2,8 @@ use std::io::Write;
 
 use gix_object::{bstr::BStr, FindExt};
 
+use gix_error::{message, ResultExt};
+
 use crate::{entry, entry::Error, protocol, AdditionalEntry, SharedErrorSlot, Stream};
 
 /// Use `objects` to traverse `tree` and fetch the contained blobs to return as [`Stream`], which makes them queryable
@@ -63,7 +65,7 @@ where
                         *slot = Some(err);
                     } else {
                         drop(slot);
-                        write.channel.send(Err(std::io::Error::other(err))).ok();
+                        write.channel.send(Err(std::io::Error::other(err.into_error()))).ok();
                     }
                 }
             }
@@ -88,7 +90,9 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let mut buf = Vec::new();
-    let tree_iter = objects.find_tree_iter(tree.as_ref(), &mut buf)?;
+    let tree_iter = objects
+        .find_tree_iter(tree.as_ref(), &mut buf)
+        .or_raise(|| message("Could not find a tree to traverse"))?;
     if pipeline.driver_context_mut().treeish.is_none() {
         pipeline.driver_context_mut().treeish = Some(tree);
     }
@@ -102,10 +106,7 @@ where
         attrs,
         objects: objects.clone(),
         fetch_attributes: move |a: &BStr, b: gix_object::tree::EntryMode, c: &mut gix_attributes::search::Outcome| {
-            attributes(a, b, c).map_err(|err| Error::Attributes {
-                source: Box::new(err),
-                path: a.to_owned(),
-            })
+            attributes(a, b, c).or_raise(|| gix_error::message!("Could not query attributes for path \"{a}\""))
         },
         path_deque: Default::default(),
         path: Default::default(),
@@ -116,7 +117,8 @@ where
         gix_traverse::tree::breadthfirst::State::default(),
         &objects,
         &mut dlg,
-    )?;
+    )
+    .or_raise(|| message("Could not traverse tree"))?;
 
     for entry in additional_entries {
         protocol::write_entry_header_and_path(
@@ -125,17 +127,20 @@ where
             entry.mode,
             entry.source.len(),
             out,
-        )?;
+        )
+        .or_raise(|| message("Could not write entry header"))?;
         // pipe writer always writes all in one go.
         #[allow(clippy::unused_io_amount)]
         match entry.source {
             entry::Source::Memory(buf) => out.write(&buf).map(|_| ()),
             entry::Source::Null => out.write(&[]).map(|_| ()),
             entry::Source::Path(path) => {
-                let file = std::fs::File::open(path)?;
+                let file = std::fs::File::open(path)
+                    .or_raise(|| message("Could not open file for streaming"))?;
                 protocol::write_stream(&mut buf, file, out)
             }
-        }?;
+        }
+        .or_raise(|| message("Could not write entry data"))?;
     }
     Ok(())
 }

@@ -25,7 +25,7 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    NextStreamEntry(#[from] gix_worktree_stream::entry::Error),
+    NextStreamEntry(#[from] gix_error::Error),
     #[error("The internal format cannot be used as an archive, it's merely a debugging tool")]
     InternalFormatMustNotPersist,
     #[error("Support for the format '{wanted:?}' was not compiled in")]
