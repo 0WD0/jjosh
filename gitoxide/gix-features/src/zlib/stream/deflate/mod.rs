@@ -47,9 +47,9 @@ impl Compress {
 
     /// Create a new instance - this allocates so should be done with care.
     pub fn new() -> Self {
-        // Maximum value from the documentation for zlib_rs::Deflate::new.
-        let max_wbits: u8 = 15;
-        let inner = zlib_rs::Deflate::new(zlib_rs::DeflateConfig::best_speed().level, true, max_wbits);
+        let config = zlib_rs::DeflateConfig::best_speed();
+        let header = true;
+        let inner = zlib_rs::Deflate::new(config.level, header, config.window_bits as u8);
         Self(inner)
     }
 

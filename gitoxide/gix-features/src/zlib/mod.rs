@@ -22,9 +22,9 @@ impl Decompress {
 
     /// Create a new instance. Note that it allocates in various ways and thus should be re-used.
     pub fn new() -> Self {
-        // Maximum value from the documentation for zlib_rs::Inflate::new.
-        let max_wbits: u8 = 15;
-        let inner = zlib_rs::Inflate::new(true, max_wbits);
+        let config = zlib_rs::InflateConfig::default();
+        let header = true;
+        let inner = zlib_rs::Inflate::new(header, config.window_bits as u8);
         Self(inner)
     }
 
