@@ -1461,13 +1461,11 @@ dependencies = [
  "bstr",
  "document-features",
  "gix-date",
+ "gix-error",
  "gix-hash",
  "gix-testtools",
- "gix-utils",
- "itoa",
  "pretty_assertions",
  "serde",
- "thiserror 2.0.17",
  "winnow",
 ]
 
