@@ -129,9 +129,9 @@ pub(crate) mod write {
         }
     }
 
-    pub(crate) fn validated_token(name: &BStr) -> Result<&BStr, gix_error::ParseError> {
+    pub(crate) fn validated_token(name: &BStr) -> Result<&BStr, gix_error::ValidationError> {
         if name.find_byteset(b"<>\n").is_some() {
-            return Err(gix_error::ParseError::new_with_input(
+            return Err(gix_error::ValidationError::new_with_input(
                 "Signature name or email must not contain '<', '>' or \\n",
                 name,
             ));
