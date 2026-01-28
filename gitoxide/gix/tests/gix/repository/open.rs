@@ -75,6 +75,7 @@ fn non_bare_reftable() -> crate::Result {
         "Trying to do anything with head will fail as we don't support reftables yet"
     );
     assert!(!repo.is_bare());
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_ne!(
         repo.workdir(),
         None,
@@ -94,6 +95,7 @@ fn bare_repo_with_index() -> crate::Result {
         repo.is_bare(),
         "it's properly classified as it reads the configuration (and has no worktree)"
     );
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_eq!(repo.workdir(), None);
     Ok(())
 }
@@ -109,6 +111,7 @@ fn non_bare_turned_bare() -> crate::Result {
         repo.is_bare(),
         "the configuration dictates this, even though it looks like a main worktree"
     );
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_eq!(repo.workdir(), None);
     Ok(())
 }
@@ -136,6 +139,7 @@ fn worktree_of_bare_repo() -> crate::Result {
         repo.is_bare(),
         "this repository is bare per configuration, and the worktree is linked"
     );
+    assert_eq!(repo.kind(), gix::repository::Kind::LinkedWorkTree);
     Ok(())
 }
 
@@ -147,6 +151,7 @@ fn non_bare_non_git_repo_without_worktree() -> crate::Result {
         gix::open::Options::isolated(),
     )?;
     assert!(!repo.is_bare());
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_eq!(repo.workdir(), None, "it doesn't assume that workdir exists");
 
     let repo = gix::open_opts(
@@ -154,6 +159,7 @@ fn non_bare_non_git_repo_without_worktree() -> crate::Result {
         gix::open::Options::isolated(),
     )?;
     assert!(!repo.is_bare());
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_eq!(
         repo.workdir(),
         None,
@@ -170,6 +176,7 @@ fn none_bare_repo_without_index() -> crate::Result {
         gix::open::Options::isolated(),
     )?;
     assert!(!repo.is_bare(), "worktree isn't dependent on an index file");
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert!(repo.worktree().is_some());
     assert_eq!(
         repo.workdir_path(BString::from("this")).map(|p| p.is_file()),
@@ -197,6 +204,7 @@ fn none_bare_repo_without_index() -> crate::Result {
         !repo.is_bare(),
         "this is based on `core.bare`, not on the lack of worktree"
     );
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
 
     assert_eq!(
         repo.set_workdir(old.clone()).expect("does not fail as it exists"),
@@ -223,6 +231,7 @@ fn non_bare_split_worktree() -> crate::Result {
             !repo.is_bare(),
             "worktree is actually configured, and it's non-bare by configuration"
         );
+        assert_eq!(repo.kind(), gix::repository::Kind::Common);
         assert_eq!(
             repo.workdir().expect("worktree is configured").is_dir(),
             worktree_exists
@@ -270,6 +279,7 @@ fn bare_with_worktree_is_still_bare() -> crate::Result {
         repo.is_bare(),
         "the configuration file states that it's bare and we respect that"
     );
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
     assert_eq!(
         repo.workdir(),
         None,
@@ -290,6 +300,7 @@ mod missing_config_file {
             repo.is_bare(),
             "without config, we can't really know what the repo is actually but can guess by not having a worktree"
         );
+        assert_eq!(repo.kind(), gix::repository::Kind::Common);
         assert_eq!(repo.workdir(), None);
         assert!(repo.worktree().is_none());
         assert_eq!(
@@ -311,6 +322,7 @@ mod missing_config_file {
             !repo.is_bare(),
             "without config, we can't really know what the repo is actually but can guess as there is a worktree"
         );
+        assert_eq!(repo.kind(), gix::repository::Kind::Common);
         assert!(repo.workdir().is_some());
         assert!(repo.worktree().is_some());
         assert_eq!(
@@ -382,7 +394,7 @@ mod submodules {
                 submodule_m1_gitdir.clone(),
             ] {
                 let repo = discover_repo(discover_dir).unwrap();
-                // assert_eq!(repo.kind(), gix::Kind::Submodule);
+                assert_eq!(repo.kind(), gix::repository::Kind::Submodule);
                 assert_eq!(repo.workdir().expect("non-bare"), dir.join(&submodule_m1_workdir));
                 assert_eq!(repo.git_dir(), dir.join(&submodule_m1_gitdir));
 
