@@ -120,11 +120,21 @@ fn worktree_of_bare_repo() -> crate::Result {
         "worktree-of-bare-repo",
         gix::open::Options::isolated(),
     )?;
-    assert!(!repo.is_bare(), "even though the main worktree is bare, this isn't");
     assert_ne!(
         repo.workdir(),
         None,
         "we have opened the repo through a worktree, which is never bare"
+    );
+    assert!(
+        !repo
+            .worktree()
+            .expect("the worktree is available, it's linked")
+            .is_main(),
+        "linked worktrees can exist for any repository, even bare"
+    );
+    assert!(
+        repo.is_bare(),
+        "this repository is bare per configuration, and the worktree is linked"
     );
     Ok(())
 }
@@ -250,6 +260,22 @@ fn non_bare_split_worktree_invalid_worktree_path_empty() -> crate::Result {
             matches!(err, gix::open::Error::Config(gix::config::Error::PathInterpolation{..})),
             "DEVIATION: could not read path at core.worktree as empty is always invalid, git tries to use an empty path, even though it's better to reject it"
         );
+    Ok(())
+}
+
+#[test]
+fn bare_with_worktree_is_still_bare() -> crate::Result {
+    let repo = named_subrepo_opts("make_config_repos.sh", "bare-link", gix::open::Options::isolated())?;
+    assert!(
+        repo.is_bare(),
+        "the configuration file states that it's bare and we respect that"
+    );
+    assert_eq!(
+        repo.workdir(),
+        None,
+        "we aren't grabby and don't provide a worktree then"
+    );
+    assert!(repo.worktree().is_none(), "the same here: don't recognise a worktree");
     Ok(())
 }
 
