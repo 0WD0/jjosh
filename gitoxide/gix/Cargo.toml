@@ -201,6 +201,7 @@ blocking-http-transport-curl-openssl = [
     "gix-transport/http-client-curl-openssl",
 ]
 ## Stacks with `blocking-network-client` to provide support for HTTP/S using **reqwest**, and implies blocking networking as a whole, making the `https://` transport available.
+## Note that `reqwest`'s default features are not enabled, allowing custom configuration of e.g. the TLS backend by adding it as explicit dependency.
 blocking-http-transport-reqwest = [
     "blocking-network-client",
     "gix-transport/http-client-reqwest",
