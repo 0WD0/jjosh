@@ -1667,6 +1667,7 @@ name = "gix-diff"
 version = "0.58.0"
 dependencies = [
  "bstr",
+ "criterion",
  "document-features",
  "getrandom 0.2.16",
  "gix-attributes",
