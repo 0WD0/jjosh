@@ -1,5 +1,4 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use imara_diff::intern::{InternedInput, TokenSource};
 
 struct BenchmarkTokenSource {
     number_of_lines: u32,
@@ -51,7 +50,7 @@ impl Iterator for BenchmarkTokenizer {
     }
 }
 
-impl TokenSource for BenchmarkTokenSource {
+impl imara_diff::intern::TokenSource for BenchmarkTokenSource {
     type Token = String;
 
     type Tokenizer = BenchmarkTokenizer;
@@ -80,7 +79,7 @@ impl imara_diff_v2::TokenSource for BenchmarkTokenSource {
 }
 
 fn count_lines(c: &mut Criterion) {
-    let input = InternedInput::new(
+    let input = imara_diff::intern::InternedInput::new(
         BenchmarkTokenSource::new(10_000, 5),
         BenchmarkTokenSource::new(10_000, 6),
     );
