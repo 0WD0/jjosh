@@ -276,14 +276,16 @@ mod init {
             // Now that all hidden commits are painted, we no longer need special handling
             // during the main traversal. We can remove hidden commits from the main queues
             // and simply skip them during iteration.
-            // 
+            //
             // Note: We don't need the candidates buffer anymore since hidden commits are
             // pre-painted. But we keep it for compatibility with existing behavior and
             // in case interesting commits were already queued before hide() was called.
             self.state.candidates = Some(VecDeque::new());
 
             // Remove any hidden commits from the interesting queues
-            self.state.next.retain(|(id, _)| !self.state.seen.get(id).is_some_and(CommitState::is_hidden));
+            self.state
+                .next
+                .retain(|(id, _)| !self.state.seen.get(id).is_some_and(CommitState::is_hidden));
 
             Ok(self)
         }
