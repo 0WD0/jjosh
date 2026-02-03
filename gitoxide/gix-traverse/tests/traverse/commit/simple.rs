@@ -1,5 +1,5 @@
 use crate::hex_to_id;
-use crate::util::{commit_graph, git_graph, named_fixture, named_fixture_odb, parse_commit_names};
+use crate::util::{commit_graph, git_graph, git_graph_with_time, named_fixture, parse_commit_names};
 use gix_hash::ObjectId;
 use gix_traverse::commit::{simple::Sorting, Parents, Simple};
 
@@ -73,7 +73,7 @@ mod hide {
     fn disjoint_hidden_and_interesting() -> crate::Result {
         let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
 
-        insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
+        insta::assert_snapshot!(git_graph(&repo_dir)?, @"
         * e07cf1277ff7c43090f1acfc85a46039e7de1272  (HEAD -> disjoint) b3
         * 94cf3f3a4c782b672173423e7a4157a02957dd48  b2
         * 34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861  b1
@@ -91,7 +91,7 @@ mod hide {
         ];
 
         for sorting in all_sortings() {
-            let result = traverse_both([tip], &odb, sorting, Parents::All, hidden.clone())?;
+            let result = traverse_both([tip], &odb, sorting, Parents::All, hidden)?;
             assert_eq!(result, expected, "sorting = {sorting:?}");
         }
         Ok(())
@@ -99,26 +99,16 @@ mod hide {
 
     #[test]
     fn all_hidden() -> crate::Result {
-        let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
-
-        insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        * e07cf1277ff7c43090f1acfc85a46039e7de1272  (HEAD -> disjoint) b3
-        * 94cf3f3a4c782b672173423e7a4157a02957dd48  b2
-        * 34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861  b1
-        * b5665181bf4c338ab16b10da0524d81b96aff209  (main) a3
-        * f0230ce37b83d8e9f51ea6322ed7e8bd148d8e28  a2
-        * 674aca0765b935ac5e7f7e9ab83af7f79272b5b0  a1
-        ");
-
+        let (_repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
         let tips = [
             hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"), // b3
             hex_to_id("b5665181bf4c338ab16b10da0524d81b96aff209"), // a3
         ];
         // The start positions are also declared hidden, so nothing should be visible.
-        let hidden = tips.clone();
+        let hidden = tips;
 
         for sorting in all_sortings() {
-            let result = traverse_both(tips.clone(), &odb, sorting, Parents::All, hidden.clone())?;
+            let result = traverse_both(tips, &odb, sorting, Parents::All, hidden)?;
             assert!(result.is_empty(), "sorting = {sorting:?}");
         }
         Ok(())
@@ -168,7 +158,7 @@ mod hide {
         ];
 
         for sorting in all_sortings() {
-            let result = traverse_both([tip_merge], &odb, sorting, Parents::All, hidden_branches.clone())?;
+            let result = traverse_both([tip_merge], &odb, sorting, Parents::All, hidden_branches)?;
             assert_eq!(result, expected, "sorting = {sorting:?}");
         }
 
@@ -184,14 +174,21 @@ mod hide {
 }
 
 mod hide_with_graph_painting {
-    //! These tests verify th
+    //! These tests verify the behavior of graph painting with hidden commits, particularly
     //! the relative path lengths between interesting and hidden tips to shared ancestors.
     //!
     //! The implementation must ensure all commits reachable from hidden tips are properly
     //! excluded, regardless of traversal order.
 
     use super::*;
-    use crate::util::fixture;
+    use crate::util::{fixture, git_rev_list};
+
+    fn hidden_bug_repo(name: &str) -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+        let dir = fixture("make_repo_for_hidden_bug.sh")?;
+        let repo_path = dir.join(name);
+        let odb = gix_odb::at(repo_path.join(".git").join("objects"))?;
+        Ok((repo_path, odb))
+    }
 
     #[test]
     fn hidden_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
@@ -201,8 +198,8 @@ mod hide_with_graph_painting {
         //   H(hidden) --> X --> Y --> shared
         //
         // Expected: only A is returned (shared is reachable from H)
-        let dir = fixture("make_repo_for_hidden_bug.sh")?;
-        let repo_path = dir.join("long_hidden_path");
+        let (repo_path, odb) = hidden_bug_repo("long_hidden_path")?;
+
         insta::assert_snapshot!(git_graph(&repo_path)?, @"
         * b6cf469d740a02645b7b9f7cdb98977a6cd7e5ab  (HEAD -> main) A
         | * 2955979fbddb1bddb9e1b1ca993789cacf612b18  (hidden_branch) H
@@ -211,7 +208,6 @@ mod hide_with_graph_painting {
         |/  
         * f1543941113388f8a194164420fd7da96f73c2ce  shared
         ");
-        let odb = gix_odb::at(repo_path.join(".git").join("objects"))?;
 
         let commits = parse_commit_names(&repo_path)?;
         let tip_a = commits["A"];
@@ -230,14 +226,7 @@ mod hide_with_graph_painting {
         }
 
         // Verify against git
-        let output = std::process::Command::new("git")
-            .current_dir(&repo_path)
-            .args(["rev-list", "main", "--not", "hidden_branch"])
-            .output()?;
-        let git_output: Vec<_> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|s| hex_to_id(s.trim()))
-            .collect();
+        let git_output = git_rev_list(&repo_path, &["main", "--not", "hidden_branch"])?;
         assert_eq!(git_output, expected, "git rev-list should show only A");
 
         Ok(())
@@ -251,8 +240,8 @@ mod hide_with_graph_painting {
         //   H(hidden) --------->+
         //
         // Expected: A, B, C are returned (D is reachable from H)
-        let dir = fixture("make_repo_for_hidden_bug.sh")?;
-        let repo_path = dir.join("long_interesting_path");
+        let (repo_path, odb) = hidden_bug_repo("long_interesting_path")?;
+
         insta::assert_snapshot!(git_graph(&repo_path)?, @"
         * 8822f888affa916a2c945ef3b17447f29f8aabff  (HEAD -> main) A
         * 90f80e3c031e9149cfa631493663ffe52d645aab  B
@@ -261,7 +250,6 @@ mod hide_with_graph_painting {
         |/  
         * 359b53df58a6e26b95e276a9d1c9e2b33a3b50bf  D
         ");
-        let odb = gix_odb::at(repo_path.join(".git").join("objects"))?;
 
         let commits = parse_commit_names(&repo_path)?;
         let tip_a = commits["A"];
@@ -280,14 +268,7 @@ mod hide_with_graph_painting {
         }
 
         // Verify against git
-        let output = std::process::Command::new("git")
-            .current_dir(&repo_path)
-            .args(["rev-list", "main", "--not", "hidden_branch"])
-            .output()?;
-        let git_output: Vec<_> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|s| hex_to_id(s.trim()))
-            .collect();
+        let git_output = git_rev_list(&repo_path, &["main", "--not", "hidden_branch"])?;
         assert_eq!(git_output, expected, "git rev-list should show A, B, C");
 
         Ok(())
@@ -298,9 +279,30 @@ mod different_date_intermixed {
     use super::*;
     use gix_traverse::commit::simple::CommitTimeOrder;
 
+    fn intermixed_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+        named_fixture("make_repos.sh", "intermixed")
+    }
+
     #[test]
     fn head_breadth_first() -> crate::Result {
-        let odb = named_fixture_odb("make_repos.sh", "intermixed")?;
+        let (repo_dir, odb) = intermixed_repo()?;
+
+        // Timestamps show the intermixed ordering: b1 and b2 commits are interleaved
+        // with main branch commits by time.
+        insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+        *-.   58912d92944087dcb09dca79cdd2a937cc158bed 1112912413 (HEAD -> main) merge
+        |\ \  
+        | | * a9c28710e058af4e5163699960234adb9fb2abc7 1112912293 (branch2) b2c2
+        | | * b648f955b930ca95352fae6f22cb593ee0244b27 1112912173 b2c1
+        | * | 0f6632a5a7d81417488b86692b729e49c1b73056 1112912353 (branch1) b1c2
+        | * | 77fd3c6832c0cd542f7a39f3af9250c3268db979 1112912233 b1c1
+        | |/  
+        * / 2dce37be587e07caef8c4a5ab60b423b13a8536a 1112912413 c3
+        |/  
+        * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83 1112912113 c2
+        * 65d6af66f60b8e39fd1ba6a1423178831e764ec5 1112912053 c1
+        ");
+
         let tip = hex_to_id("58912d92944087dcb09dca79cdd2a937cc158bed"); // merge
 
         // This is very different from what git does as it keeps commits together,
@@ -323,7 +325,8 @@ mod different_date_intermixed {
 
     #[test]
     fn head_date_order() -> crate::Result {
-        let odb = named_fixture_odb("make_repos.sh", "intermixed")?;
+        let (_repo_dir, odb) = intermixed_repo()?;
+        // Graph with timestamps shown in `head_breadth_first`
         let tip = hex_to_id("58912d92944087dcb09dca79cdd2a937cc158bed"); // merge
 
         // NewestFirst - exactly what git shows
@@ -374,9 +377,31 @@ mod different_date {
     use super::*;
     use gix_traverse::commit::simple::CommitTimeOrder;
 
+    fn simple_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+        named_fixture("make_repos.sh", "simple")
+    }
+
     #[test]
     fn head_breadth_first() -> crate::Result {
-        let odb = named_fixture_odb("make_repos.sh", "simple")?;
+        let (repo_dir, odb) = simple_repo()?;
+
+        // Timestamps show branch1 commits are newer than branch2, with c5 being the newest.
+        insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+        *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4 1112912533 (HEAD -> main) merge
+        |\ \  
+        | | * 48e8dac19508f4238f06c8de2b10301ce64a641c 1112912353 (branch2) b2c2
+        | | * cb6a6befc0a852ac74d74e0354e0f004af29cb79 1112912293 b2c1
+        | * | 66a309480201c4157b0eae86da69f2d606aadbe7 1112912473 (branch1) b1c2
+        | * | 80947acb398362d8236fcb8bf0f8a9dac640583f 1112912413 b1c1
+        | |/  
+        * / 0edb95c0c0d9933d88f532ec08fcd405d0eee882 1112912533 c5
+        |/  
+        * 8cb5f13b66ce52a49399a2c49f537ee2b812369c 1112912233 c4
+        * 33aa07785dd667c0196064e3be3c51dd9b4744ef 1112912173 c3
+        * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83 1112912113 c2
+        * 65d6af66f60b8e39fd1ba6a1423178831e764ec5 1112912053 c1
+        ");
+
         let tip = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4"); // merge
 
         // This is very different from what git does as it keeps commits together,
@@ -401,7 +426,8 @@ mod different_date {
 
     #[test]
     fn head_date_order() -> crate::Result {
-        let odb = named_fixture_odb("make_repos.sh", "simple")?;
+        let (_repo_dir, odb) = simple_repo()?;
+        // Graph with timestamps shown in `head_breadth_first`
         let tip = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4"); // merge
 
         // NewestFirst - exactly what git shows
@@ -455,17 +481,33 @@ mod different_date {
 /// Same dates are somewhat special as they show how sorting-details on priority queues affects ordering
 mod same_date {
     use super::*;
-    use crate::util::fixture_odb;
+    use crate::util::fixture;
     use gix_hash::oid;
     use gix_traverse::commit::simple::CommitTimeOrder;
 
-    fn odb() -> crate::Result<gix_odb::Handle> {
-        fixture_odb("make_traversal_repo_for_commits_same_date.sh")
+    fn same_date_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+        let dir = fixture("make_traversal_repo_for_commits_same_date.sh")?;
+        let odb = gix_odb::at(dir.join(".git").join("objects"))?;
+        Ok((dir, odb))
     }
 
     #[test]
     fn c4_breadth_first() -> crate::Result {
-        let odb = odb()?;
+        let (repo_dir, odb) = same_date_repo()?;
+
+        insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
+        *   01ec18a3ebf2855708ad3c9d244306bc1fae3e9b  (HEAD -> main) m1b1
+        |\  
+        | * ce2e8ffaa9608a26f7b21afc1db89cadb54fd353  (branch1) b1c2
+        | * 9152eeee2328073cf23dcf8e90c949170b711659  b1c1
+        * | efd9a841189668f1bab5b8ebade9cd0a1b139a37  c5
+        |/  
+        * 9556057aee5abb06912922e9f26c46386a816822  c4
+        * 17d78c64cef6c33a10a604573fd2c429e477fd63  c3
+        * 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7  c2
+        * 134385f6d781b7e97062102c6a483440bfda2a03  c1
+        ");
+
         let tip = hex_to_id("9556057aee5abb06912922e9f26c46386a816822"); // c4
 
         let expected = [
@@ -482,7 +524,8 @@ mod same_date {
 
     #[test]
     fn head_breadth_first() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
 
         // We always take the first parent first, then the second, and so on.
@@ -506,7 +549,8 @@ mod same_date {
 
     #[test]
     fn head_date_order() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
 
         let expected = [
@@ -543,7 +587,8 @@ mod same_date {
 
     #[test]
     fn head_first_parent_only_breadth_first() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
 
         let expected = [
@@ -562,7 +607,8 @@ mod same_date {
 
     #[test]
     fn head_c4_breadth_first() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tips = [
             hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"), // m1b1
             hex_to_id("9556057aee5abb06912922e9f26c46386a816822"), // c4
@@ -590,7 +636,8 @@ mod same_date {
         // at least one of its ancestors, so this test is kind of dubious. But we do want
         // `Ancestors` to not eagerly blacklist all of a commit's ancestors when blacklisting that
         // one commit, and this test happens to check that.
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
         let filter_out = hex_to_id("9152eeee2328073cf23dcf8e90c949170b711659"); // b1c1
 
@@ -621,7 +668,8 @@ mod same_date {
     fn predicate_only_called_once_even_if_fork_point() -> crate::Result {
         // The `self.seen` check should come before the `self.predicate` check, as we don't know how
         // expensive calling `self.predicate` may be.
-        let odb = odb()?;
+        let (_repo_dir, odb) = same_date_repo()?;
+        // Graph shown in `c4_breadth_first`
         let tip = hex_to_id("01ec18a3ebf2855708ad3c9d244306bc1fae3e9b"); // m1b1
         let filter_out = hex_to_id("9556057aee5abb06912922e9f26c46386a816822"); // c4
 
@@ -658,19 +706,33 @@ mod same_date {
 /// Some dates adjusted to be a year apart, but still 'c1' and 'c2' with the same date.
 mod adjusted_dates {
     use super::*;
-    use crate::util::{fixture, fixture_odb, git_graph};
+    use crate::util::fixture;
     use gix_traverse::commit::simple::CommitTimeOrder;
 
-    fn odb() -> crate::Result<gix_odb::Handle> {
-        fixture_odb("make_traversal_repo_for_commits_with_dates.sh")
+    fn adjusted_dates_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
+        let dir = fixture("make_traversal_repo_for_commits_with_dates.sh")?;
+        let odb = gix_odb::at(dir.join(".git").join("objects"))?;
+        Ok((dir, odb))
     }
 
     #[test]
     fn head_breadth_first() -> crate::Result {
-        let odb = odb()?;
+        let (repo_dir, odb) = adjusted_dates_repo()?;
+
+        // Timestamps show b1c1 (978393600) is a year newer than c2 (946771200),
+        // explaining why date-order puts b1c1 before c2.
+        insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+        *   288e509293165cb5630d08f4185bdf2445bf6170 1009929600 (HEAD -> main) m1b1
+        |\  
+        | * bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac 978393600 (branch1) b1c1
+        * | 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7 946771200 c2
+        |/  
+        * 134385f6d781b7e97062102c6a483440bfda2a03 946771200 c1
+        ");
+
         let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
 
-        // Here `git` also shows `b1c1` first, making topo-order similar to date order for some reason,
+        // Git also shows `b1c1` first, making topo-order similar to date order,
         // even though c2 *is* the first parent.
         let expected = [
             tip,
@@ -686,18 +748,9 @@ mod adjusted_dates {
 
     #[test]
     fn head_date_order() -> crate::Result {
-        let dir = fixture("make_traversal_repo_for_commits_with_dates.sh")?;
-        let odb = gix_odb::at(dir.join(".git").join("objects"))?;
+        let (_repo_dir, odb) = adjusted_dates_repo()?;
+        // Graph with timestamps shown in `head_breadth_first`
         let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
-
-        insta::assert_snapshot!(git_graph(&dir)?, @r"
-        *   288e509293165cb5630d08f4185bdf2445bf6170  (HEAD -> main) m1b1
-        |\  
-        | * bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac  (branch1) b1c1
-        * | 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7  c2
-        |/  
-        * 134385f6d781b7e97062102c6a483440bfda2a03  c1
-        ");
 
         // NewestFirst
         let expected_newest = [
@@ -736,7 +789,8 @@ mod adjusted_dates {
 
     #[test]
     fn head_date_order_with_cutoff() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = adjusted_dates_repo()?;
+        // Graph shown in `head_breadth_first`
         let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
 
         let expected = [
@@ -762,7 +816,8 @@ mod adjusted_dates {
 
     #[test]
     fn head_date_order_with_cutoff_disabled() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = adjusted_dates_repo()?;
+        // Graph shown in `head_breadth_first`
         let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
         let very_early = 878393600; // an early date before any commit
 
@@ -809,7 +864,8 @@ mod adjusted_dates {
 
     #[test]
     fn date_order_with_cutoff_is_applied_to_starting_position() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = adjusted_dates_repo()?;
+        // Graph shown in `head_breadth_first`
         let tip = hex_to_id("9902e3c3e8f0c569b4ab295ddf473e6de763e1e7"); // c2
 
         for order in [CommitTimeOrder::NewestFirst, CommitTimeOrder::OldestFirst] {
@@ -831,7 +887,8 @@ mod adjusted_dates {
 
     #[test]
     fn head_date_order_first_parent_only() -> crate::Result {
-        let odb = odb()?;
+        let (_repo_dir, odb) = adjusted_dates_repo()?;
+        // Graph shown in `head_breadth_first`
         let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
 
         let expected = [

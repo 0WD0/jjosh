@@ -27,12 +27,6 @@ pub fn named_fixture(script_name: &str, repo_name: &str) -> Result<(PathBuf, gix
     Ok((repo_dir, odb))
 }
 
-/// Get an object database handle for a named sub-repository within a fixture.
-pub fn named_fixture_odb(script_name: &str, repo_name: &str) -> Result<gix_odb::Handle> {
-    let (_path, odb) = named_fixture(script_name, repo_name)?;
-    Ok(odb)
-}
-
 /// Load a commit graph if available for the given object store.
 pub fn commit_graph(store: &gix_odb::Store) -> Option<gix_commitgraph::Graph> {
     gix_commitgraph::at(store.path().join("info")).ok()
@@ -41,17 +35,25 @@ pub fn commit_graph(store: &gix_odb::Store) -> Option<gix_commitgraph::Graph> {
 /// Execute `git log --oneline --graph --decorate --all` in the given repository
 /// and return the output as a string. Useful for snapshot testing.
 pub fn git_graph(repo_dir: impl AsRef<std::path::Path>) -> Result<String> {
+    git_graph_internal(repo_dir, false)
+}
+
+/// Like `git_graph`, but includes commit timestamps (Unix epoch seconds).
+/// Use this for tests where commit ordering depends on time.
+pub fn git_graph_with_time(repo_dir: impl AsRef<std::path::Path>) -> Result<String> {
+    git_graph_internal(repo_dir, true)
+}
+
+fn git_graph_internal(repo_dir: impl AsRef<std::path::Path>, with_time: bool) -> Result<String> {
     use gix_object::bstr::{ByteSlice, ByteVec};
+    let format = if with_time {
+        "--pretty=format:%H %ct%d %s"
+    } else {
+        "--pretty=format:%H %d %s"
+    };
     let out = std::process::Command::new(gix_path::env::exe_invocation())
         .current_dir(repo_dir)
-        .args([
-            "log",
-            "--oneline",
-            "--graph",
-            "--decorate",
-            "--all",
-            "--pretty=format:%H %d %s",
-        ])
+        .args(["log", "--oneline", "--graph", "--decorate", "--all", format])
         .output()?;
     if !out.status.success() {
         return Err(format!("git log failed: {err}", err = out.stderr.to_str_lossy()).into());
@@ -74,4 +76,18 @@ pub fn parse_commit_names(repo_path: &std::path::Path) -> Result<std::collection
         }
     }
     Ok(commits)
+}
+
+/// Run `git rev-list` with the given arguments and return the resulting commit IDs.
+/// Useful for verifying traversal results against git's baseline behavior.
+pub fn git_rev_list(repo_path: &std::path::Path, args: &[&str]) -> Result<Vec<ObjectId>> {
+    let output = std::process::Command::new("git")
+        .current_dir(repo_path)
+        .arg("rev-list")
+        .args(args)
+        .output()?;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| hex_to_id(s.trim()))
+        .collect())
 }

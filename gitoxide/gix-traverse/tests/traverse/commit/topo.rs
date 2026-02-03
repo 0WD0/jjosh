@@ -124,7 +124,7 @@ mod basic {
 
         // Verify against baseline
         let baseline = read_baseline(&fixture_dir()?, "all-commits")?;
-        let expected_strs: Vec<_> = expected.iter().map(|id| id.to_string()).collect();
+        let expected_strs: Vec<_> = expected.iter().map(std::string::ToString::to_string).collect();
         assert_eq!(expected_strs, baseline, "Baseline must match the expectation");
 
         Ok(())
@@ -278,7 +278,7 @@ mod first_parent {
 
         // Verify against baseline
         let baseline = read_baseline(&fixture_dir()?, "first-parent")?;
-        let expected_strs: Vec<_> = expected.iter().map(|id| id.to_string()).collect();
+        let expected_strs: Vec<_> = expected.iter().map(std::string::ToString::to_string).collect();
         assert_eq!(expected_strs, baseline, "Baseline must match the expectation");
 
         Ok(())
@@ -359,7 +359,7 @@ mod date_order {
 
         // Verify against baseline
         let baseline = read_baseline(&fixture_dir()?, "date-order")?;
-        let expected_strs: Vec<_> = expected.iter().map(|id| id.to_string()).collect();
+        let expected_strs: Vec<_> = expected.iter().map(std::string::ToString::to_string).collect();
         assert_eq!(expected_strs, baseline, "Baseline must match the expectation");
 
         Ok(())
