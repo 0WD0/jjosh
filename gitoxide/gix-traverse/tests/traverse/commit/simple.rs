@@ -271,6 +271,143 @@ mod hide {
     }
 }
 
+mod hide_with_graph_painting {
+    //! These tests verify that the hide functionality works correctly regardless of
+    //! the relative path lengths between interesting and hidden tips to shared ancestors.
+    //!
+    //! The implementation must ensure all commits reachable from hidden tips are properly
+    //! excluded, regardless of traversal order.
+
+    use crate::hex_to_id;
+    use gix_traverse::commit::simple::{CommitTimeOrder, Sorting};
+    use gix_traverse::commit::{Parents, Simple};
+    use std::collections::HashMap;
+
+    /// Parse commit names to IDs from git log output
+    fn parse_commits(repo_path: &std::path::Path) -> crate::Result<HashMap<String, gix_hash::ObjectId>> {
+        let output = std::process::Command::new("git")
+            .current_dir(repo_path)
+            .args(["log", "--all", "--format=%H %s"])
+            .output()?;
+        let mut commits = HashMap::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.split_whitespace();
+            if let (Some(hash), Some(name)) = (parts.next(), parts.next()) {
+                commits.insert(name.to_string(), hex_to_id(hash));
+            }
+        }
+        Ok(commits)
+    }
+
+    fn all_sortings() -> impl Iterator<Item = Sorting> {
+        [
+            Sorting::BreadthFirst,
+            Sorting::ByCommitTime(CommitTimeOrder::NewestFirst),
+            Sorting::ByCommitTime(CommitTimeOrder::OldestFirst),
+        ]
+        .into_iter()
+    }
+
+    #[test]
+    fn hidden_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
+        // Graph:
+        //   A(tip) --> shared
+        //            /
+        //   H(hidden) --> X --> Y --> shared
+        //
+        // Expected: only A is returned (shared is reachable from H)
+        let dir = gix_testtools::scripted_fixture_read_only_standalone("make_repo_for_hidden_bug.sh")?;
+        let repo_path = dir.join("long_hidden_path");
+        let store = gix_odb::at(repo_path.join(".git").join("objects"))?;
+
+        let commits = parse_commits(&repo_path)?;
+        let tip_a = commits["A"];
+        let hidden_h = commits["H"];
+        let shared = commits["shared"];
+
+        // Expected: only A (shared is reachable from H)
+        let expected = vec![tip_a];
+
+        for sorting in all_sortings() {
+            let oids: Vec<_> = Simple::new(Some(tip_a), &store)
+                .sorting(sorting)?
+                .parents(Parents::All)
+                .hide(Some(hidden_h))?
+                .map(|res| res.map(|info| info.id))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            assert_eq!(
+                oids, expected,
+                "sorting = {sorting:?}: 'shared' ({shared}) should NOT be returned because it's \
+                 reachable from hidden tip H. Got: {oids:?}"
+            );
+        }
+
+        // Verify against git
+        let output = std::process::Command::new("git")
+            .current_dir(&repo_path)
+            .args(["rev-list", "main", "--not", "hidden_branch"])
+            .output()?;
+        let git_output: Vec<_> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| hex_to_id(s.trim()))
+            .collect();
+        assert_eq!(git_output, expected, "git rev-list should show only A");
+
+        Ok(())
+    }
+
+    #[test]
+    fn interesting_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
+        // Graph:
+        //   A(tip) --> B --> C --> D(shared)
+        //                        /
+        //   H(hidden) --------->+
+        //
+        // Expected: A, B, C are returned (D is reachable from H)
+        let dir = gix_testtools::scripted_fixture_read_only_standalone("make_repo_for_hidden_bug.sh")?;
+        let repo_path = dir.join("long_interesting_path");
+        let store = gix_odb::at(repo_path.join(".git").join("objects"))?;
+
+        let commits = parse_commits(&repo_path)?;
+        let tip_a = commits["A"];
+        let hidden_h = commits["H"];
+        let d = commits["D"];
+
+        // Expected: A, B, C (D is reachable from H)
+        let expected_commits = vec!["A", "B", "C"];
+        let expected: Vec<_> = expected_commits.iter().map(|name| commits[*name]).collect();
+
+        for sorting in all_sortings() {
+            let oids: Vec<_> = Simple::new(Some(tip_a), &store)
+                .sorting(sorting)?
+                .parents(Parents::All)
+                .hide(Some(hidden_h))?
+                .map(|res| res.map(|info| info.id))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            assert_eq!(
+                oids, expected,
+                "sorting = {sorting:?}: 'D' ({d}) should NOT be returned because it's \
+                 reachable from hidden tip H. Got: {oids:?}"
+            );
+        }
+
+        // Verify against git
+        let output = std::process::Command::new("git")
+            .current_dir(&repo_path)
+            .args(["rev-list", "main", "--not", "hidden_branch"])
+            .output()?;
+        let git_output: Vec<_> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| hex_to_id(s.trim()))
+            .collect();
+        assert_eq!(git_output, expected, "git rev-list should show A, B, C");
+
+        Ok(())
+    }
+}
+
 mod different_date_intermixed {
     use gix_traverse::commit::simple::{CommitTimeOrder, Sorting};
 
