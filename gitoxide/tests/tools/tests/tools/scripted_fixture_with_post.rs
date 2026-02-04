@@ -1,118 +1,80 @@
 use gix_testtools::{Creation, Result};
 
+const SCRIPT_NAME: &str = "make_basic.sh";
+
 #[test]
-fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
-    // First call should create the fixture
-    let dir = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |dir| {
-        std::fs::write(dir.join("test_file.txt"), "test content")?;
-        std::fs::create_dir(dir.join("subdir"))?;
-        std::fs::write(dir.join("subdir/nested.txt"), "nested content")?;
-        Ok(())
+fn scripted_fixture_read_only_with_post_returns_value() -> Result {
+    let (dir, value) = gix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 1, |fixture| {
+        let dir = fixture.path();
+        // The script should have already created these files
+        assert!(dir.join("script_file.txt").exists());
+        assert!(dir.join("subdir/nested.txt").exists());
+
+        // Return a computed value
+        Ok(std::fs::read_to_string(dir.join("script_file.txt"))?.len())
     })?;
 
-    // Verify the fixture was created correctly
+    // Verify the fixture path is valid
     assert!(dir.is_dir());
-    assert!(dir.join("test_file.txt").exists());
-    assert_eq!(std::fs::read_to_string(dir.join("test_file.txt"))?, "test content");
-    assert!(dir.join("subdir").is_dir());
-    assert!(dir.join("subdir/nested.txt").exists());
-    assert_eq!(
-        std::fs::read_to_string(dir.join("subdir/nested.txt"))?,
-        "nested content"
-    );
+    assert!(dir.join("script_file.txt").exists());
 
-    // Second call with same version should return cached result
-    let dir2 = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |_dir| {
-        // This closure should not be called because the fixture is cached
-        panic!("Closure should not be called for cached fixture");
-    })?;
-
-    // Both should point to the same directory
-    assert_eq!(dir, dir2);
+    // Verify the returned value (always available now since closure is always called)
+    assert_eq!(value, "created by script\n".len());
 
     Ok(())
 }
 
 #[test]
-fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
-    // Create fixture with version 1
-    let dir1 = gix_testtools::rust_fixture_read_only("test_fixture_version", 1, |dir| {
-        std::fs::write(dir.join("version.txt"), "v1")?;
-        Ok(())
-    })?;
+fn scripted_fixture_writable_with_post_returns_value() -> Result {
+    let (tmp, value) = gix_testtools::scripted_fixture_writable_with_args_with_post(
+        SCRIPT_NAME,
+        None::<String>,
+        Creation::ExecuteScript,
+        1,
+        |fixture| {
+            // Compute something from the fixture
+            Ok(std::fs::read_dir(fixture.path())?
+                .filter_map(std::result::Result::ok)
+                .count())
+        },
+    )?;
 
-    // Version 2 should create a new fixture in a different directory
-    let dir2 = gix_testtools::rust_fixture_read_only("test_fixture_version", 2, |dir| {
-        std::fs::write(dir.join("version.txt"), "v2")?;
-        Ok(())
-    })?;
+    // Verify the fixture is writable
+    std::fs::write(tmp.path().join("new_file.txt"), "test")?;
+    assert!(tmp.path().join("new_file.txt").exists());
 
-    // Directories should be different (different version subdirectories)
-    assert_ne!(dir1, dir2);
-
-    // Each should have its own content
-    assert_eq!(std::fs::read_to_string(dir1.join("version.txt"))?, "v1");
-    assert_eq!(std::fs::read_to_string(dir2.join("version.txt"))?, "v2");
+    // Verify the returned value (should have script_file.txt and subdir)
+    assert_eq!(value, 2);
 
     Ok(())
 }
 
 #[test]
-fn rust_fixture_writable() -> Result {
-    for creation in [Creation::CopyFromReadOnly, Creation::ExecuteScript] {
-        let tmp = gix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |dir| {
-            std::fs::write(dir.join("original.txt"), "original content")?;
-            Ok(())
-        })?;
-
-        // Verify the fixture was created
-        let original_path = tmp.path().join("original.txt");
-        assert!(original_path.exists());
-        assert_eq!(std::fs::read_to_string(&original_path)?, "original content");
-
-        // Verify we can write to the directory (it's writable)
-        let new_file = tmp.path().join("new_file.txt");
-        std::fs::write(&new_file, "new content")?;
-        assert!(new_file.exists());
-        assert_eq!(std::fs::read_to_string(&new_file)?, "new content");
+fn scripted_fixture_with_post_can_return_complex_types() -> Result {
+    #[derive(Debug, PartialEq)]
+    struct FixtureInfo {
+        file_count: usize,
+        has_subdir: bool,
     }
-    Ok(())
-}
 
-#[test]
-fn rust_fixture_closure_error_propagates() {
-    // Test that errors from the closure are properly propagated
-    let result = gix_testtools::rust_fixture_read_only("test_fixture_error", 1, |_dir| Err("intentional error".into()));
-
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("Rust fixture closure"),
-        "Error message should mention 'Rust fixture closure', got: {err_msg}"
-    );
-    assert!(
-        err_msg.contains("intentional error"),
-        "Error message should contain the original error, got: {err_msg}"
-    );
-}
-
-#[test]
-fn rust_fixture_standalone_uses_fixtures_directory() -> Result {
-    let dir = gix_testtools::rust_fixture_read_only_standalone("test_fixture_standalone", 1, |dir| {
-        std::fs::write(dir.join("standalone.txt"), "standalone")?;
-        Ok(())
+    // Use version 2 to force recreation (different from other tests using this script)
+    let (dir, info) = gix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 2, |fixture| {
+        let dir = fixture.path();
+        Ok(FixtureInfo {
+            file_count: std::fs::read_dir(dir)?.count(),
+            has_subdir: dir.join("subdir").is_dir(),
+        })
     })?;
 
-    // Standalone fixtures are stored in fixtures/generated-do-not-edit, not tests/fixtures/...
-    let dir_str = dir.to_string_lossy();
-    assert!(
-        dir_str.contains("fixtures") && dir_str.contains("generated-do-not-edit"),
-        "Standalone fixture should be in fixtures/generated-do-not-edit directory, got: {dir_str}"
-    );
-    assert!(
-        !dir_str.contains("tests/fixtures"),
-        "Standalone fixture should NOT be in tests/fixtures directory, got: {dir_str}"
+    assert!(dir.is_dir());
+    assert_eq!(
+        info,
+        FixtureInfo {
+            file_count: 2,
+            has_subdir: true
+        },
+        "info is always available since closure is always called"
     );
 
-    assert!(dir.join("standalone.txt").exists());
     Ok(())
 }

@@ -1,30 +1,37 @@
-use gix_testtools::{Creation, Result};
+use gix_testtools::{Creation, FixtureState, Result};
 
 #[test]
 fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
     // First call should create the fixture
-    let dir = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |dir| {
-        std::fs::write(dir.join("test_file.txt"), "test content")?;
-        std::fs::create_dir(dir.join("subdir"))?;
-        std::fs::write(dir.join("subdir/nested.txt"), "nested content")?;
-        Ok(())
+    let (dir, (a, b, c)) = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
+        let dir = fixture.path();
+        let a = dir.join("test_file.txt");
+        let b = dir.join("subdir");
+        let c = dir.join("subdir/nested.txt");
+        if fixture.is_uninitialized() {
+            std::fs::write(&a, "test content")?;
+            std::fs::create_dir(&b)?;
+            std::fs::write(&c, "nested content")?;
+        }
+        Ok((a, b, c))
     })?;
 
     // Verify the fixture was created correctly
     assert!(dir.is_dir());
-    assert!(dir.join("test_file.txt").exists());
-    assert_eq!(std::fs::read_to_string(dir.join("test_file.txt"))?, "test content");
-    assert!(dir.join("subdir").is_dir());
-    assert!(dir.join("subdir/nested.txt").exists());
-    assert_eq!(
-        std::fs::read_to_string(dir.join("subdir/nested.txt"))?,
-        "nested content"
-    );
+    assert!(a.exists());
+    assert_eq!(std::fs::read_to_string(&a)?, "test content");
+    assert!(b.is_dir());
+    assert!(c.exists());
+    assert_eq!(std::fs::read_to_string(&c)?, "nested content");
 
     // Second call with same version should return cached result
-    let dir2 = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |_dir| {
-        // This closure should not be called because the fixture is cached
-        panic!("Closure should not be called for cached fixture");
+    // The closure is still called but knows that it's fresh.
+    let (dir2, _) = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
+        assert!(
+            matches!(fixture, gix_testtools::FixtureState::Fresh(_)),
+            "Expected cached fixture on second call"
+        );
+        Ok(())
     })?;
 
     // Both should point to the same directory
@@ -36,19 +43,25 @@ fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
 #[test]
 fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
     // Create fixture with version 1
-    let dir1 = gix_testtools::rust_fixture_read_only("test_fixture_version", 1, |dir| {
-        std::fs::write(dir.join("version.txt"), "v1")?;
+    let (dir1, _) = gix_testtools::rust_fixture_read_only("test_fixture_version", 1, |fixture| {
+        if let FixtureState::Uninitialized(dir) = fixture {
+            std::fs::write(dir.join("version.txt"), "v1")?;
+        }
         Ok(())
     })?;
 
     // Version 2 should create a new fixture in a different directory
-    let dir2 = gix_testtools::rust_fixture_read_only("test_fixture_version", 2, |dir| {
-        std::fs::write(dir.join("version.txt"), "v2")?;
+    let (dir2, _) = gix_testtools::rust_fixture_read_only("test_fixture_version", 2, |fixture| {
+        if let FixtureState::Uninitialized(dir) = fixture {
+            std::fs::write(dir.join("version.txt"), "v2")?;
+        }
         Ok(())
     })?;
 
-    // Directories should be different (different version subdirectories)
-    assert_ne!(dir1, dir2);
+    assert_ne!(
+        dir1, dir2,
+        "Directories should be different (different version subdirectories)"
+    );
 
     // Each should have its own content
     assert_eq!(std::fs::read_to_string(dir1.join("version.txt"))?, "v1");
@@ -60,8 +73,10 @@ fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
 #[test]
 fn rust_fixture_writable() -> Result {
     for creation in [Creation::CopyFromReadOnly, Creation::ExecuteScript] {
-        let tmp = gix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |dir| {
-            std::fs::write(dir.join("original.txt"), "original content")?;
+        let (tmp, _) = gix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |fixture| {
+            if let FixtureState::Uninitialized(dir) = fixture {
+                std::fs::write(dir.join("original.txt"), "original content")?;
+            }
             Ok(())
         })?;
 
@@ -82,13 +97,11 @@ fn rust_fixture_writable() -> Result {
 #[test]
 fn rust_fixture_closure_error_propagates() {
     // Test that errors from the closure are properly propagated
-    let result = gix_testtools::rust_fixture_read_only("test_fixture_error", 1, |_dir| Err("intentional error".into()));
+    let res = gix_testtools::rust_fixture_read_only("test_fixture_error", 1, |_fixture| {
+        Err::<(), _>("intentional error".into())
+    });
 
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("Rust fixture closure"),
-        "Error message should mention 'Rust fixture closure', got: {err_msg}"
-    );
+    let err_msg = res.unwrap_err().to_string();
     assert!(
         err_msg.contains("intentional error"),
         "Error message should contain the original error, got: {err_msg}"
@@ -97,8 +110,10 @@ fn rust_fixture_closure_error_propagates() {
 
 #[test]
 fn rust_fixture_standalone_uses_fixtures_directory() -> Result {
-    let dir = gix_testtools::rust_fixture_read_only_standalone("test_fixture_standalone", 1, |dir| {
-        std::fs::write(dir.join("standalone.txt"), "standalone")?;
+    let (dir, _) = gix_testtools::rust_fixture_read_only_standalone("test_fixture_standalone", 1, |fixture| {
+        if let FixtureState::Uninitialized(dir) = fixture {
+            std::fs::write(dir.join("standalone.txt"), "standalone")?;
+        }
         Ok(())
     })?;
 
