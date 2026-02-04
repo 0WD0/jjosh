@@ -341,7 +341,14 @@ pub fn scripted_fixture_writable_with_args(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {
-    scripted_fixture_writable_with_args_inner(script_name, args, mode, DirectoryRoot::IntegrationTest, ArgsInHash::Yes)
+    scripted_fixture_writable_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        None,
+    )
 }
 
 /// Like [`scripted_fixture_writable()`], but passes `args` to `script_name` while providing control over
@@ -353,7 +360,14 @@ pub fn scripted_fixture_writable_with_args_single_archive(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {
-    scripted_fixture_writable_with_args_inner(script_name, args, mode, DirectoryRoot::IntegrationTest, ArgsInHash::No)
+    scripted_fixture_writable_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::No,
+        None,
+    )
 }
 
 /// Like [`scripted_fixture_writable_with_args`], but does not prefix the fixture directory with `tests`
@@ -362,7 +376,14 @@ pub fn scripted_fixture_writable_with_args_standalone(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {
-    scripted_fixture_writable_with_args_inner(script_name, args, mode, DirectoryRoot::StandaloneTest, ArgsInHash::Yes)
+    scripted_fixture_writable_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        None,
+    )
 }
 
 /// Like [`scripted_fixture_writable_with_args`], but does not prefix the fixture directory with `tests`
@@ -373,25 +394,44 @@ pub fn scripted_fixture_writable_with_args_standalone_single_archive(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
 ) -> Result<tempfile::TempDir> {
-    scripted_fixture_writable_with_args_inner(script_name, args, mode, DirectoryRoot::StandaloneTest, ArgsInHash::No)
+    scripted_fixture_writable_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::No,
+        None,
+    )
 }
 
-fn scripted_fixture_writable_with_args_inner(
+fn scripted_fixture_writable_with_args_inner<F>(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
     root: DirectoryRoot,
     args_in_hash: ArgsInHash,
-) -> Result<tempfile::TempDir> {
+    post_process: Option<F>,
+) -> Result<tempfile::TempDir>
+where
+    F: FnOnce(&Path) -> Result,
+{
     let dst = tempfile::TempDir::new()?;
     Ok(match mode {
         Creation::CopyFromReadOnly => {
-            let ro_dir = scripted_fixture_read_only_with_args_inner(script_name, args, None, root, args_in_hash)?;
+            let ro_dir =
+                scripted_fixture_read_only_with_args_inner(script_name, args, None, root, args_in_hash, post_process)?;
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
             dst
         }
         Creation::ExecuteScript => {
-            scripted_fixture_read_only_with_args_inner(script_name, args, dst.path().into(), root, args_in_hash)?;
+            scripted_fixture_read_only_with_args_inner(
+                script_name,
+                args,
+                dst.path().into(),
+                root,
+                args_in_hash,
+                post_process,
+            )?;
             dst
         }
     })
@@ -421,7 +461,14 @@ pub fn scripted_fixture_read_only_with_args(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<PathBuf> {
-    scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::IntegrationTest, ArgsInHash::Yes)
+    scripted_fixture_read_only_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        None,
+    )
 }
 
 /// Like `scripted_fixture_read_only()`], but passes `args` to `script_name`.
@@ -439,7 +486,14 @@ pub fn scripted_fixture_read_only_with_args_single_archive(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<PathBuf> {
-    scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::IntegrationTest, ArgsInHash::No)
+    scripted_fixture_read_only_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::No,
+        None,
+    )
 }
 
 /// Like [`scripted_fixture_read_only_with_args()`], but does not prefix the fixture directory with `tests`
@@ -447,7 +501,14 @@ pub fn scripted_fixture_read_only_with_args_standalone(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<PathBuf> {
-    scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::StandaloneTest, ArgsInHash::Yes)
+    scripted_fixture_read_only_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        None,
+    )
 }
 
 /// Like [`scripted_fixture_read_only_with_args_standalone()`], only has a single archive.
@@ -455,7 +516,212 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<PathBuf> {
-    scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::StandaloneTest, ArgsInHash::No)
+    scripted_fixture_read_only_with_args_inner::<fn(&Path) -> Result>(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::No,
+        None,
+    )
+}
+
+/// Like [`scripted_fixture_read_only`], but runs a Rust closure after the script completes.
+///
+/// The closure receives the fixture directory path and can perform additional modifications
+/// to the fixture that was created by the script.
+pub fn scripted_fixture_read_only_with_post(
+    script_name: impl AsRef<Path>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        None::<String>,
+        None,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_read_only_standalone`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_read_only_standalone_with_post(
+    script_name: impl AsRef<Path>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        None::<String>,
+        None,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_read_only_with_args`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_read_only_with_args_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_read_only_with_args_single_archive`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_read_only_with_args_single_archive_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::No,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_read_only_with_args_standalone`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_read_only_with_args_standalone_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_read_only_with_args_standalone_single_archive`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_read_only_with_args_standalone_single_archive_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner(
+        script_name,
+        args,
+        None,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::No,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable`], but runs a Rust closure after the script completes.
+///
+/// The closure receives the fixture directory path and can perform additional modifications
+/// to the fixture that was created by the script.
+pub fn scripted_fixture_writable_with_post(
+    script_name: impl AsRef<Path>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        None::<String>,
+        Creation::CopyFromReadOnly,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable_standalone`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_writable_standalone_with_post(
+    script_name: impl AsRef<Path>,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        None::<String>,
+        Creation::CopyFromReadOnly,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable_with_args`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_writable_with_args_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    mode: Creation,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable_with_args_single_archive`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_writable_with_args_single_archive_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    mode: Creation,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::IntegrationTest,
+        ArgsInHash::No,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable_with_args_standalone`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_writable_with_args_standalone_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    mode: Creation,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::Yes,
+        Some(post_process),
+    )
+}
+
+/// Like [`scripted_fixture_writable_with_args_standalone_single_archive`], but runs a Rust closure after the script completes.
+pub fn scripted_fixture_writable_with_args_standalone_single_archive_with_post(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    mode: Creation,
+    post_process: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    scripted_fixture_writable_with_args_inner(
+        script_name,
+        args,
+        mode,
+        DirectoryRoot::StandaloneTest,
+        ArgsInHash::No,
+        Some(post_process),
+    )
 }
 
 /// Execute a Rust closure in a directory, returning a read-only fixture path.
@@ -696,13 +962,17 @@ fn run_fixture_generator_with_marker_handling(
     Ok(())
 }
 
-fn scripted_fixture_read_only_with_args_inner(
+fn scripted_fixture_read_only_with_args_inner<F>(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     destination_dir: Option<&Path>,
     root: DirectoryRoot,
     args_in_hash: ArgsInHash,
-) -> Result<PathBuf> {
+    post_process: Option<F>,
+) -> Result<PathBuf>
+where
+    F: FnOnce(&Path) -> Result,
+{
     // Assure tempfiles get removed when aborting the test.
     gix_tempfile::signal::setup(
         gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
@@ -810,6 +1080,9 @@ fn scripted_fixture_read_only_with_args_inner(
                 eprintln!("stdout: {}", output.stdout.as_bstr());
                 eprintln!("stderr: {}", output.stderr.as_bstr());
                 return Err(format!("fixture script of {cmd:?} failed").into());
+            }
+            if let Some(f) = post_process {
+                f(script_result_directory)?;
             }
             Ok(())
         },
