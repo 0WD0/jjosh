@@ -619,18 +619,41 @@ fn rust_fixture_read_only_inner(
             )
         })
         .transpose()?;
+
+    run_fixture_generator_with_marker_handling(
+        &archive_file_path,
+        &script_result_directory,
+        script_identity,
+        force_run,
+        &format!("using Rust closure '{name}'"),
+        |script_result_directory| {
+            make_fixture(script_result_directory)
+                .map_err(|err| format!("Rust fixture closure '{name}' failed: {err}").into())
+        },
+    )?;
+    Ok(script_result_directory)
+}
+
+fn run_fixture_generator_with_marker_handling(
+    archive_file_path: &Path,
+    script_result_directory: &Path,
+    script_identity: u32,
+    force_run: bool,
+    description: &str,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result {
     let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
     if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
         if failure_marker.is_file() {
-            std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
+            std::fs::remove_dir_all(script_result_directory).map_err(|err| {
                 format!(
                     "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
                     script_result_directory = script_result_directory.display()
                 )
             })?;
         }
-        std::fs::create_dir_all(&script_result_directory)?;
-        match extract_archive(&archive_file_path, &script_result_directory, script_identity) {
+        std::fs::create_dir_all(script_result_directory)?;
+        match extract_archive(archive_file_path, script_result_directory, script_identity) {
             Ok((archive_id, platform)) => {
                 eprintln!(
                     "Extracted fixture from archive '{}' ({}, {:?})",
@@ -642,32 +665,33 @@ fn rust_fixture_read_only_inner(
             Err(err) => {
                 if err.kind() != std::io::ErrorKind::NotFound {
                     eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
-                    std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
+                    std::fs::remove_dir_all(script_result_directory).map_err(|err| {
                         format!(
                             "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
                             script_result_directory = script_result_directory.display()
                         )
                     })?;
-                    std::fs::create_dir_all(&script_result_directory)?;
-                } else if !is_excluded(&archive_file_path) {
+                    std::fs::create_dir_all(script_result_directory)?;
+                } else if !is_excluded(archive_file_path) {
                     eprintln!(
-                        "Archive at '{}' not found, creating fixture using Rust closure '{}'",
+                        "Archive at '{}' not found, creating fixture {}",
                         archive_file_path.display(),
-                        name
+                        description
                     );
                 }
-                if let Err(err) = make_fixture(&script_result_directory) {
+                if let Err(err) = make_fixture(script_result_directory) {
                     write_failure_marker(&failure_marker);
-                    return Err(format!("Rust fixture closure '{name}' failed: {err}").into());
+                    return Err(err);
                 }
-                create_archive_if_we_should(&script_result_directory, &archive_file_path, script_identity)
-                    .inspect_err(|_err| {
+                create_archive_if_we_should(script_result_directory, archive_file_path, script_identity).inspect_err(
+                    |_err| {
                         write_failure_marker(&failure_marker);
-                    })?;
+                    },
+                )?;
             }
         }
     }
-    Ok(script_result_directory)
+    Ok(())
 }
 
 fn scripted_fixture_read_only_with_args_inner(
@@ -756,77 +780,38 @@ fn scripted_fixture_read_only_with_args_inner(
             )
         })
         .transpose()?;
-    let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
-    if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
-        if failure_marker.is_file() {
-            std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
-                format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                        script_result_directory = script_result_directory.display())
-            })?;
-        }
-        std::fs::create_dir_all(&script_result_directory)?;
-        let script_identity_for_archive = match args_in_hash {
-            ArgsInHash::Yes => script_identity,
-            ArgsInHash::No => 0,
-        };
-        match extract_archive(
-            &archive_file_path,
-            &script_result_directory,
-            script_identity_for_archive,
-        ) {
-            Ok((archive_id, platform)) => {
-                eprintln!(
-                    "Extracted fixture from archive '{}' ({}, {:?})",
-                    archive_file_path.display(),
-                    archive_id,
-                    platform
-                );
-            }
-            Err(err) => {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
-                    std::fs::remove_dir_all(&script_result_directory)
-                        .map_err(|err| {
-                            format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                                    script_result_directory = script_result_directory.display())
-                        })?;
-                    std::fs::create_dir_all(&script_result_directory)?;
-                } else if !is_excluded(&archive_file_path) {
-                    eprintln!(
-                        "Archive at '{}' not found, creating fixture using script '{}'",
-                        archive_file_path.display(),
-                        script_location.display()
-                    );
+    let script_identity_for_archive = match args_in_hash {
+        ArgsInHash::Yes => script_identity,
+        ArgsInHash::No => 0,
+    };
+    let script_absolute_path = env::current_dir()?.join(&script_path);
+    run_fixture_generator_with_marker_handling(
+        &archive_file_path,
+        &script_result_directory,
+        script_identity_for_archive,
+        force_run,
+        &format!("using script '{}'", script_location.display()),
+        |script_result_directory| {
+            let mut cmd = std::process::Command::new(&script_absolute_path);
+            let output = match configure_command(&mut cmd, &args, script_result_directory).output() {
+                Ok(out) => out,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::PermissionDenied
+                        || err.raw_os_error() == Some(193) /* windows */ =>
+                {
+                    cmd = std::process::Command::new(bash_program());
+                    configure_command(cmd.arg(&script_absolute_path), &args, script_result_directory).output()?
                 }
-                let script_absolute_path = env::current_dir()?.join(script_path);
-                let mut cmd = std::process::Command::new(&script_absolute_path);
-                let output = match configure_command(&mut cmd, &args, &script_result_directory).output() {
-                    Ok(out) => out,
-                    Err(err)
-                    if err.kind() == std::io::ErrorKind::PermissionDenied || err.raw_os_error() == Some(193) /* windows */ =>
-                        {
-                            cmd = std::process::Command::new(bash_program());
-                            configure_command(cmd.arg(script_absolute_path), &args, &script_result_directory).output()?
-                        }
-                    Err(err) => return Err(err.into()),
-                };
-                if !output.status.success() {
-                    write_failure_marker(&failure_marker);
-                    eprintln!("stdout: {}", output.stdout.as_bstr());
-                    eprintln!("stderr: {}", output.stderr.as_bstr());
-                    return Err(format!("fixture script of {cmd:?} failed").into());
-                }
-                create_archive_if_we_should(
-                    &script_result_directory,
-                    &archive_file_path,
-                    script_identity_for_archive,
-                )
-                .inspect_err(|_err| {
-                    write_failure_marker(&failure_marker);
-                })?;
+                Err(err) => return Err(err.into()),
+            };
+            if !output.status.success() {
+                eprintln!("stdout: {}", output.stdout.as_bstr());
+                eprintln!("stderr: {}", output.stderr.as_bstr());
+                return Err(format!("fixture script of {cmd:?} failed").into());
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
     Ok(script_result_directory)
 }
 
