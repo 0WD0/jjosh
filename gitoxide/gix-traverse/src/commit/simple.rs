@@ -94,6 +94,8 @@ pub(super) struct State {
     ///
     /// As they may turn hidden later, we have to keep them until the conditions are met to return them.
     /// If `None`, there is nothing to do with hidden commits.
+    // TODO(perf): review this as we don't really need candidates anymore, given our current way of doing things.
+    //             However, maybe they can see use when getting an incremental traversal done.
     candidates: Option<Candidates>,
 }
 
@@ -213,10 +215,12 @@ mod init {
         /// by the traversal.
         ///
         /// This function fully traverses all hidden tips and their ancestors, marking them as hidden
-        /// before iteration begins. This "graph painting" approach ensures correct behavior regardless
-        /// of graph topology or traversal order, matching git's `rev-list --not` behavior.
+        /// before iteration begins. This approach ensures correct behavior regardless
+        /// of graph topology or traversal order, matching git's `rev-list --not` behavior,
+        /// at great cost to performance, unfortunately.
         ///
         /// Note that hidden objects are expected to exist.
+        // TODO(perf): make this hiding iterative to avoid traversing the entire graph, always.
         pub fn hide(mut self, tips: impl IntoIterator<Item = ObjectId>) -> Result<Self, Error> {
             // Collect hidden tips first
             let hidden_tips: Vec<ObjectId> = tips.into_iter().collect();
@@ -228,16 +232,16 @@ mod init {
             // This is "graph painting" - we paint all hidden commits upfront rather than
             // interleaving hidden and interesting traversals, which ensures correct behavior
             // regardless of graph topology or traversal order.
-            let mut hidden_queue: VecDeque<ObjectId> = VecDeque::new();
+            let mut queue: VecDeque<ObjectId> = VecDeque::new();
 
             for id_to_ignore in hidden_tips {
                 if self.state.seen.insert(id_to_ignore, CommitState::Hidden).is_none() {
-                    hidden_queue.push_back(id_to_ignore);
+                    queue.push_back(id_to_ignore);
                 }
             }
 
             // Process all hidden commits and their ancestors
-            while let Some(id) = hidden_queue.pop_front() {
+            while let Some(id) = queue.pop_front() {
                 match super::super::find(self.cache.as_ref(), &self.objects, &id, &mut self.state.buf) {
                     Ok(Either::CachedCommit(commit)) => {
                         if !collect_parents(&mut self.state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
@@ -245,13 +249,13 @@ mod init {
                             self.cache = None;
                             // Re-add to queue to retry without cache
                             if self.state.seen.get(&id).is_some_and(CommitState::is_hidden) {
-                                hidden_queue.push_back(id);
+                                queue.push_back(id);
                             }
                             continue;
                         }
                         for (parent_id, _commit_time) in self.state.parent_ids.drain(..) {
                             if self.state.seen.insert(parent_id, CommitState::Hidden).is_none() {
-                                hidden_queue.push_back(parent_id);
+                                queue.push_back(parent_id);
                             }
                         }
                     }
@@ -261,7 +265,7 @@ mod init {
                                 Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
                                 Ok(gix_object::commit::ref_iter::Token::Parent { id: parent_id }) => {
                                     if self.state.seen.insert(parent_id, CommitState::Hidden).is_none() {
-                                        hidden_queue.push_back(parent_id);
+                                        queue.push_back(parent_id);
                                     }
                                 }
                                 Ok(_unused_token) => break,
@@ -280,7 +284,7 @@ mod init {
             // Note: We don't need the candidates buffer anymore since hidden commits are
             // pre-painted. But we keep it for compatibility with existing behavior and
             // in case interesting commits were already queued before hide() was called.
-            self.state.candidates = Some(VecDeque::new());
+            self.state.candidates = None;
 
             // Remove any hidden commits from the interesting queues
             self.state
