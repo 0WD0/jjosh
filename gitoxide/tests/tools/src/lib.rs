@@ -453,19 +453,25 @@ fn scripted_fixture_writable_with_args_inner<F, T>(
     mode: Creation,
     root: DirectoryRoot,
     args_in_hash: ArgsInHash,
-    post_process: Option<(u32, F)>,
+    mut post_process: Option<(u32, F)>,
 ) -> Result<(tempfile::TempDir, Option<T>)>
 where
-    F: FnOnce(FixtureState<'_>) -> PostResult<T>,
+    F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     let dst = tempfile::TempDir::new()?;
     Ok(match mode {
         Creation::CopyFromReadOnly => {
             // Create the read-only fixture with post_process (modifications are cached)
-            let (ro_dir, post_result) =
-                scripted_fixture_read_only_with_args_inner(script_name, args, None, root, args_in_hash, post_process)?;
+            let (ro_dir, _res_ignored) = scripted_fixture_read_only_with_args_inner(
+                script_name,
+                args,
+                None,
+                root,
+                args_in_hash,
+                post_process.as_mut().map(|(v, f)| (*v, f)),
+            )?;
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
-            (dst, post_result)
+            (dst, _res_ignored)
         }
         Creation::ExecuteScript => {
             // Execute directly in the temp dir with post_process
@@ -475,7 +481,7 @@ where
                 dst.path().into(),
                 root,
                 args_in_hash,
-                post_process,
+                post_process.as_mut().map(|(v, f)| (*v, f)),
             )?;
             (dst, post_result)
         }
@@ -586,7 +592,7 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
 pub fn scripted_fixture_read_only_with_post<T>(
     script_name: impl AsRef<Path>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -605,7 +611,7 @@ pub fn scripted_fixture_read_only_with_post<T>(
 pub fn scripted_fixture_read_only_standalone_with_post<T>(
     script_name: impl AsRef<Path>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -625,7 +631,7 @@ pub fn scripted_fixture_read_only_with_args_with_post<T>(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -645,7 +651,7 @@ pub fn scripted_fixture_read_only_with_args_single_archive_with_post<T>(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -665,7 +671,7 @@ pub fn scripted_fixture_read_only_with_args_standalone_with_post<T>(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -685,7 +691,7 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive_with_post<
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(PathBuf, T)> {
     scripted_fixture_read_only_with_args_inner(
         script_name,
@@ -709,7 +715,7 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive_with_post<
 pub fn scripted_fixture_writable_with_post<T>(
     script_name: impl AsRef<Path>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -728,7 +734,7 @@ pub fn scripted_fixture_writable_with_post<T>(
 pub fn scripted_fixture_writable_standalone_with_post<T>(
     script_name: impl AsRef<Path>,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -749,7 +755,7 @@ pub fn scripted_fixture_writable_with_args_with_post<T>(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -770,7 +776,7 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post<T>(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -791,7 +797,7 @@ pub fn scripted_fixture_writable_with_args_standalone_with_post<T>(
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -812,7 +818,7 @@ pub fn scripted_fixture_writable_with_args_standalone_single_archive_with_post<T
     args: impl IntoIterator<Item = impl Into<String>>,
     mode: Creation,
     version: u32,
-    post_process: impl FnOnce(FixtureState<'_>) -> PostResult<T>,
+    post_process: impl FnMut(FixtureState<'_>) -> PostResult<T>,
 ) -> Result<(tempfile::TempDir, T)> {
     scripted_fixture_writable_with_args_inner(
         script_name,
@@ -883,10 +889,10 @@ where
 /// The closure is used to create a fixture in the given directory.
 /// The resulting directory is writable and will be automatically cleaned up when the returned
 /// [`tempfile::TempDir`] is dropped.
+/// It may be called multiple times, and the returned `T` will be primed on the final, writable location.
 ///
 /// `version` should be incremented when the closure's behavior changes to invalidate the cache.
 /// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
-/// `mode` controls how the writable directory is created (see [`Creation`]).
 ///
 /// ### Example
 ///
@@ -913,7 +919,7 @@ pub fn rust_fixture_writable<T, F>(
     make_fixture: F,
 ) -> Result<(tempfile::TempDir, T)>
 where
-    F: FnOnce(FixtureState<'_>) -> PostResult<T>,
+    F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::IntegrationTest)
 }
@@ -926,7 +932,7 @@ pub fn rust_fixture_writable_standalone<T, F>(
     make_fixture: F,
 ) -> Result<(tempfile::TempDir, T)>
 where
-    F: FnOnce(FixtureState<'_>) -> PostResult<T>,
+    F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::StandaloneTest)
 }
@@ -934,18 +940,19 @@ where
 fn rust_fixture_writable_inner<T, F>(
     name: &str,
     version: u32,
-    make_fixture: F,
+    mut make_fixture: F,
     mode: Creation,
     root: DirectoryRoot,
 ) -> Result<(tempfile::TempDir, T)>
 where
-    F: FnOnce(FixtureState<'_>) -> PostResult<T>,
+    F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     let dst = tempfile::TempDir::new()?;
     let res = match mode {
         Creation::CopyFromReadOnly => {
-            let (ro_dir, res) = rust_fixture_read_only_inner(name, version, make_fixture, None, root)?;
+            let (ro_dir, _res_ignored) = rust_fixture_read_only_inner(name, version, &mut make_fixture, None, root)?;
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
+            let res = make_fixture(FixtureState::Fresh(dst.path()))?;
             res
         }
         Creation::ExecuteScript => {
@@ -1112,7 +1119,7 @@ fn scripted_fixture_read_only_with_args_inner<F, T>(
     post_process: Option<(u32, F)>,
 ) -> Result<(PathBuf, Option<T>)>
 where
-    F: FnOnce(FixtureState<'_>) -> PostResult<T>,
+    F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     // Assure tempfiles get removed when aborting the test.
     gix_tempfile::signal::setup(
@@ -1214,7 +1221,7 @@ where
                     return Err(format!("fixture script of {cmd:?} failed").into());
                 }
             }
-            if let Some(f) = post_process_closure {
+            if let Some(mut f) = post_process_closure {
                 f(fixture_state).map(Some)
             } else {
                 Ok(None)
