@@ -460,9 +460,10 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
 
 /// Execute a Rust closure in a directory, returning a read-only fixture path.
 ///
-/// The closure is used to create a fixture in the given directory.
-/// `version` should be incremented when the closure's behavior changes to invalidate the cache.
-/// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+/// - `version` should be incremented when the closure's behavior changes to invalidate the cache.
+/// - `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+/// - `make_fixture(fixture_dir)` is the closure that creates the fixture, called with the directory to
+///    place the contents in.
 ///
 /// This is an alternative to script-based fixtures that allows creating fixtures in pure Rust,
 /// while still benefiting from the caching system.
