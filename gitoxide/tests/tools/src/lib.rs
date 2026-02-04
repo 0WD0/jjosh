@@ -458,6 +458,243 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
     scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::StandaloneTest, ArgsInHash::No)
 }
 
+/// Execute a Rust closure in a directory, returning a read-only fixture path.
+///
+/// The closure is used to create a fixture in the given directory.
+/// `version` should be incremented when the closure's behavior changes to invalidate the cache.
+/// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+///
+/// This is an alternative to script-based fixtures that allows creating fixtures in pure Rust,
+/// while still benefiting from the caching system.
+///
+/// ### Archive Creation
+///
+/// Just like script-based fixtures, the result is cached and compressed archives can be created.
+/// Increment the `version` number whenever the closure's behavior changes to force recreation.
+///
+/// #### Disable Archive Creation
+///
+/// Archives can be disabled by using `.gitignore` specifications,
+/// for example `generated-archives/rust-*.tar` or `generated-archives/rust-*.tar.xz`
+/// in the `tests/fixtures` directory.
+///
+/// ### Example
+///
+/// ```no_run
+/// use gix_testtools::Result;
+///
+/// #[test]
+/// fn test_with_rust_fixture() -> Result {
+///     let dir = gix_testtools::rust_fixture_read_only("my_fixture", 1, |dir| {
+///         std::fs::write(dir.join("file.txt"), "content")?;
+///         Ok(())
+///     })?;
+///     assert!(dir.join("file.txt").exists());
+///     Ok(())
+/// }
+/// ```
+pub fn rust_fixture_read_only(name: &str, version: u32, make_fixture: impl FnOnce(&Path) -> Result) -> Result<PathBuf> {
+    rust_fixture_read_only_inner(name, version, make_fixture, None, DirectoryRoot::IntegrationTest)
+}
+
+/// Like [`rust_fixture_read_only()`], but does not prefix the fixture directory with `tests`.
+pub fn rust_fixture_read_only_standalone(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    rust_fixture_read_only_inner(name, version, make_fixture, None, DirectoryRoot::StandaloneTest)
+}
+
+/// Execute a Rust closure in a directory, returning a writable temporary directory.
+///
+/// The closure is used to create a fixture in the given directory.
+/// The resulting directory is writable and will be automatically cleaned up when the returned
+/// [`tempfile::TempDir`] is dropped.
+///
+/// `version` should be incremented when the closure's behavior changes to invalidate the cache.
+/// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+/// `mode` controls how the writable directory is created (see [`Creation`]).
+///
+/// ### Example
+///
+/// ```no_run
+/// use gix_testtools::{Result, Creation};
+///
+/// #[test]
+/// fn test_with_writable_rust_fixture() -> Result {
+///     let dir = gix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |dir| {
+///         std::fs::write(dir.join("file.txt"), "content")?;
+///         Ok(())
+///     })?;
+///     // Can modify files in dir
+///     std::fs::write(dir.path().join("new_file.txt"), "new content")?;
+///     Ok(())
+/// }
+/// ```
+pub fn rust_fixture_writable(
+    name: &str,
+    version: u32,
+    mode: Creation,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::IntegrationTest)
+}
+
+/// Like [`rust_fixture_writable()`], but does not prefix the fixture directory with `tests`.
+pub fn rust_fixture_writable_standalone(
+    name: &str,
+    version: u32,
+    mode: Creation,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::StandaloneTest)
+}
+
+fn rust_fixture_writable_inner(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+    mode: Creation,
+    root: DirectoryRoot,
+) -> Result<tempfile::TempDir> {
+    let dst = tempfile::TempDir::new()?;
+    Ok(match mode {
+        Creation::CopyFromReadOnly => {
+            let ro_dir = rust_fixture_read_only_inner(name, version, make_fixture, None, root)?;
+            copy_recursively_into_existing_dir(ro_dir, dst.path())?;
+            dst
+        }
+        Creation::ExecuteScript => {
+            rust_fixture_read_only_inner(name, version, make_fixture, Some(dst.path()), root)?;
+            dst
+        }
+    })
+}
+
+fn rust_fixture_read_only_inner(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+    destination_dir: Option<&Path>,
+    root: DirectoryRoot,
+) -> Result<PathBuf> {
+    // Assure tempfiles get removed when aborting the test.
+    gix_tempfile::signal::setup(
+        gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
+    );
+
+    // For Rust fixtures, the identity is simply the provided version number.
+    // Users must increment this manually when the closure behavior changes.
+    let script_identity = version;
+    let archive_name = format!("rust-{name}");
+
+    let archive_file_path = fixture_path_inner(
+        Path::new("generated-archives").join(format!("{archive_name}.{}", tar_extension())),
+        root,
+    );
+    let (force_run, script_result_directory) = destination_dir.map_or_else(
+        || {
+            let dir = fixture_path_inner(
+                Path::new("generated-do-not-edit").join(&archive_name).join(format!(
+                    "{}-{}",
+                    script_identity,
+                    family_name()
+                )),
+                root,
+            );
+            (false, dir)
+        },
+        |d| (true, d.to_owned()),
+    );
+
+    // We may assume that destination_dir is already unique (i.e. temp-dir) - thus there is no need for a lock,
+    // and we can execute closures in parallel.
+    let _marker = destination_dir
+        .is_none()
+        .then(|| {
+            gix_lock::Marker::acquire_to_hold_resource(
+                &archive_name,
+                gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
+                None,
+            )
+        })
+        .transpose()?;
+
+    run_fixture_generator_with_marker_handling(
+        &archive_file_path,
+        &script_result_directory,
+        script_identity,
+        force_run,
+        &format!("using Rust closure '{name}'"),
+        |script_result_directory| {
+            make_fixture(script_result_directory)
+                .map_err(|err| format!("Rust fixture closure '{name}' failed: {err}").into())
+        },
+    )?;
+    Ok(script_result_directory)
+}
+
+fn run_fixture_generator_with_marker_handling(
+    archive_file_path: &Path,
+    script_result_directory: &Path,
+    script_identity: u32,
+    force_run: bool,
+    description: &str,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result {
+    let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
+    if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
+        if failure_marker.is_file() {
+            std::fs::remove_dir_all(script_result_directory).map_err(|err| {
+                format!(
+                    "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                    script_result_directory = script_result_directory.display()
+                )
+            })?;
+        }
+        std::fs::create_dir_all(script_result_directory)?;
+        match extract_archive(archive_file_path, script_result_directory, script_identity) {
+            Ok((archive_id, platform)) => {
+                eprintln!(
+                    "Extracted fixture from archive '{}' ({}, {:?})",
+                    archive_file_path.display(),
+                    archive_id,
+                    platform
+                );
+            }
+            Err(err) => {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
+                    std::fs::remove_dir_all(script_result_directory).map_err(|err| {
+                        format!(
+                            "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                            script_result_directory = script_result_directory.display()
+                        )
+                    })?;
+                    std::fs::create_dir_all(script_result_directory)?;
+                } else if !is_excluded(archive_file_path) {
+                    eprintln!(
+                        "Archive at '{}' not found, creating fixture {}",
+                        archive_file_path.display(),
+                        description
+                    );
+                }
+                if let Err(err) = make_fixture(script_result_directory) {
+                    write_failure_marker(&failure_marker);
+                    return Err(err);
+                }
+                create_archive_if_we_should(script_result_directory, archive_file_path, script_identity).inspect_err(
+                    |_err| {
+                        write_failure_marker(&failure_marker);
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scripted_fixture_read_only_with_args_inner(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
@@ -510,9 +747,9 @@ fn scripted_fixture_read_only_with_args_inner(
                 ArgsInHash::No => "".into(),
             };
             Path::new("generated-archives").join(format!(
-                "{}{suffix}.tar{}",
+                "{}{suffix}.{}",
                 script_basename.to_str().expect("valid UTF-8"),
-                if cfg!(feature = "xz") { ".xz" } else { "" }
+                tar_extension()
             ))
         },
         root,
@@ -544,77 +781,38 @@ fn scripted_fixture_read_only_with_args_inner(
             )
         })
         .transpose()?;
-    let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
-    if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
-        if failure_marker.is_file() {
-            std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
-                format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                        script_result_directory = script_result_directory.display())
-            })?;
-        }
-        std::fs::create_dir_all(&script_result_directory)?;
-        let script_identity_for_archive = match args_in_hash {
-            ArgsInHash::Yes => script_identity,
-            ArgsInHash::No => 0,
-        };
-        match extract_archive(
-            &archive_file_path,
-            &script_result_directory,
-            script_identity_for_archive,
-        ) {
-            Ok((archive_id, platform)) => {
-                eprintln!(
-                    "Extracted fixture from archive '{}' ({}, {:?})",
-                    archive_file_path.display(),
-                    archive_id,
-                    platform
-                );
-            }
-            Err(err) => {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
-                    std::fs::remove_dir_all(&script_result_directory)
-                        .map_err(|err| {
-                            format!("Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                                    script_result_directory = script_result_directory.display())
-                        })?;
-                    std::fs::create_dir_all(&script_result_directory)?;
-                } else if !is_excluded(&archive_file_path) {
-                    eprintln!(
-                        "Archive at '{}' not found, creating fixture using script '{}'",
-                        archive_file_path.display(),
-                        script_location.display()
-                    );
+    let script_identity_for_archive = match args_in_hash {
+        ArgsInHash::Yes => script_identity,
+        ArgsInHash::No => 0,
+    };
+    let script_absolute_path = env::current_dir()?.join(&script_path);
+    run_fixture_generator_with_marker_handling(
+        &archive_file_path,
+        &script_result_directory,
+        script_identity_for_archive,
+        force_run,
+        &format!("using script '{}'", script_location.display()),
+        |script_result_directory| {
+            let mut cmd = std::process::Command::new(&script_absolute_path);
+            let output = match configure_command(&mut cmd, &args, script_result_directory).output() {
+                Ok(out) => out,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::PermissionDenied
+                        || err.raw_os_error() == Some(193) /* windows */ =>
+                {
+                    cmd = std::process::Command::new(bash_program());
+                    configure_command(cmd.arg(&script_absolute_path), &args, script_result_directory).output()?
                 }
-                let script_absolute_path = env::current_dir()?.join(script_path);
-                let mut cmd = std::process::Command::new(&script_absolute_path);
-                let output = match configure_command(&mut cmd, &args, &script_result_directory).output() {
-                    Ok(out) => out,
-                    Err(err)
-                    if err.kind() == std::io::ErrorKind::PermissionDenied || err.raw_os_error() == Some(193) /* windows */ =>
-                        {
-                            cmd = std::process::Command::new(bash_program());
-                            configure_command(cmd.arg(script_absolute_path), &args, &script_result_directory).output()?
-                        }
-                    Err(err) => return Err(err.into()),
-                };
-                if !output.status.success() {
-                    write_failure_marker(&failure_marker);
-                    eprintln!("stdout: {}", output.stdout.as_bstr());
-                    eprintln!("stderr: {}", output.stderr.as_bstr());
-                    return Err(format!("fixture script of {cmd:?} failed").into());
-                }
-                create_archive_if_we_should(
-                    &script_result_directory,
-                    &archive_file_path,
-                    script_identity_for_archive,
-                )
-                .inspect_err(|_err| {
-                    write_failure_marker(&failure_marker);
-                })?;
+                Err(err) => return Err(err.into()),
+            };
+            if !output.status.success() {
+                eprintln!("stdout: {}", output.stdout.as_bstr());
+                eprintln!("stderr: {}", output.stderr.as_bstr());
+                return Err(format!("fixture script of {cmd:?} failed").into());
             }
-        }
-    }
+            Ok(())
+        },
+    )?;
     Ok(script_result_directory)
 }
 
@@ -1003,133 +1201,13 @@ pub fn umask() -> u32 {
     u32::from_str_radix(text, 8).expect("parses as octal number")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_version() {
-        assert_eq!(git_version_from_bytes(b"git version 2.37.2").unwrap(), (2, 37, 2));
-        assert_eq!(
-            git_version_from_bytes(b"git version 2.32.1 (Apple Git-133)").unwrap(),
-            (2, 32, 1)
-        );
-    }
-
-    #[test]
-    fn parse_version_with_trailing_newline() {
-        assert_eq!(git_version_from_bytes(b"git version 2.37.2\n").unwrap(), (2, 37, 2));
-    }
-
-    const SCOPE_ENV_VALUE: &str = "gitconfig";
-
-    fn populate_ad_hoc_config_files(dir: &Path) {
-        const CONFIG_DATA: &[u8] = b"[foo]\n\tbar = baz\n";
-
-        let paths: &[PathBuf] = if cfg!(windows) {
-            let unc_literal_nul = dir.canonicalize().expect("directory exists").join("nul");
-            &[dir.join(SCOPE_ENV_VALUE), dir.join("-"), unc_literal_nul]
-        } else {
-            &[dir.join(SCOPE_ENV_VALUE), dir.join("-"), dir.join(":")]
-        };
-        // Create the files.
-        for path in paths {
-            std::fs::write(path, CONFIG_DATA).expect("can write contents");
-        }
-        // Verify the files. This is mostly to show we really made a `\\?\...\nul` on Windows.
-        for path in paths {
-            let buf = std::fs::read(path).expect("the file really exists");
-            assert_eq!(buf, CONFIG_DATA, "{path:?} should be a config file");
-        }
-    }
-
-    #[test]
-    fn configure_command_clears_external_config() {
-        let temp = tempfile::TempDir::new().expect("can create temp dir");
-        populate_ad_hoc_config_files(temp.path());
-
-        let mut cmd = std::process::Command::new(GIT_PROGRAM);
-        cmd.env("GIT_CONFIG_SYSTEM", SCOPE_ENV_VALUE);
-        cmd.env("GIT_CONFIG_GLOBAL", SCOPE_ENV_VALUE);
-        configure_command(&mut cmd, ["config", "-l", "--show-origin"], temp.path());
-
-        let output = cmd.output().expect("can run git");
-        let lines: Vec<_> = output
-            .stdout
-            .to_str()
-            .expect("valid UTF-8")
-            .lines()
-            .filter(|line| !line.starts_with("command line:\t"))
-            .collect();
-        let status = output.status.code().expect("terminated normally");
-        assert_eq!(lines, Vec::<&str>::new(), "should be no config variables from files");
-        assert_eq!(status, 0, "reading the config should succeed");
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn bash_program_ok_for_platform() {
-        let path = bash_program();
-        assert!(path.is_absolute());
-
-        let for_version = std::process::Command::new(path)
-            .arg("--version")
-            .output()
-            .expect("can pass it `--version`");
-        assert!(for_version.status.success(), "passing `--version` succeeds");
-        let version_line = for_version
-            .stdout
-            .lines()
-            .nth(0)
-            .expect("`--version` output has first line");
-        assert!(
-            version_line.ends_with(b"-pc-msys)"), // On Windows, "-pc-linux-gnu)" would be WSL.
-            "it is an MSYS bash (such as Git Bash)"
-        );
-
-        let for_uname_os = std::process::Command::new(path)
-            .args(["-c", "uname -o"])
-            .output()
-            .expect("can tell it to run `uname -o`");
-        assert!(for_uname_os.status.success(), "telling it to run `uname -o` succeeds");
-        assert_eq!(
-            for_uname_os.stdout.trim_end(),
-            b"Msys",
-            "it runs commands in an MSYS environment"
-        );
-    }
-
-    #[test]
-    #[cfg(not(windows))]
-    fn bash_program_ok_for_platform() {
-        assert_eq!(bash_program(), Path::new("bash"));
-    }
-
-    #[test]
-    fn bash_program_unix_path() {
-        let path = bash_program()
-            .to_str()
-            .expect("This test depends on the bash path being valid Unicode");
-        assert!(
-            !path.contains('\\'),
-            "The path to bash should have no backslashes, barring very unusual environments"
-        );
-    }
-
-    fn is_rooted_relative(path: impl AsRef<Path>) -> bool {
-        let p = path.as_ref();
-        p.is_relative() && p.has_root()
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn unix_style_absolute_is_rooted_relative() {
-        assert!(is_rooted_relative("/bin/bash"), "can detect paths like /bin/bash");
-    }
-
-    #[test]
-    fn bash_program_absolute_or_unrooted() {
-        let bash = bash_program();
-        assert!(!is_rooted_relative(bash), "{bash:?}");
+fn tar_extension() -> &'static str {
+    if cfg!(feature = "xz") {
+        "tar.xz"
+    } else {
+        "tar"
     }
 }
+
+#[cfg(test)]
+mod tests;
