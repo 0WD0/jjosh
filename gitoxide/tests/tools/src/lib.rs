@@ -458,6 +458,223 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
     scripted_fixture_read_only_with_args_inner(script_name, args, None, DirectoryRoot::StandaloneTest, ArgsInHash::No)
 }
 
+/// Execute a Rust closure in a directory, returning a read-only fixture path.
+///
+/// The closure is used to create a fixture in the given directory.
+/// `version` should be incremented when the closure's behavior changes to invalidate the cache.
+/// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+///
+/// This is an alternative to script-based fixtures that allows creating fixtures in pure Rust,
+/// while still benefiting from the caching system.
+///
+/// ### Archive Creation
+///
+/// Just like script-based fixtures, the result is cached and compressed archives can be created.
+/// Increment the `version` number whenever the closure's behavior changes to force recreation.
+///
+/// #### Disable Archive Creation
+///
+/// Archives can be disabled by using `.gitignore` specifications,
+/// for example `generated-archives/rust-*.tar{.xz}` in the tests/fixtures directory.
+///
+/// ### Example
+///
+/// ```no_run
+/// use gix_testtools::Result;
+///
+/// #[test]
+/// fn test_with_rust_fixture() -> Result {
+///     let dir = gix_testtools::rust_fixture_read_only("my_fixture", 1, |dir| {
+///         std::fs::write(dir.join("file.txt"), "content")?;
+///         Ok(())
+///     })?;
+///     assert!(dir.join("file.txt").exists());
+///     Ok(())
+/// }
+/// ```
+pub fn rust_fixture_read_only(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    rust_fixture_read_only_inner(name, version, make_fixture, None, DirectoryRoot::IntegrationTest)
+}
+
+/// Like [`rust_fixture_read_only()`], but does not prefix the fixture directory with `tests`.
+pub fn rust_fixture_read_only_standalone(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<PathBuf> {
+    rust_fixture_read_only_inner(name, version, make_fixture, None, DirectoryRoot::StandaloneTest)
+}
+
+/// Execute a Rust closure in a directory, returning a writable temporary directory.
+///
+/// The closure is used to create a fixture in the given directory.
+/// The resulting directory is writable and will be automatically cleaned up when the returned
+/// [`tempfile::TempDir`] is dropped.
+///
+/// `version` should be incremented when the closure's behavior changes to invalidate the cache.
+/// `name` is used to identify this fixture for caching purposes and should be unique within the crate.
+/// `mode` controls how the writable directory is created (see [`Creation`]).
+///
+/// ### Example
+///
+/// ```no_run
+/// use gix_testtools::{Result, Creation};
+///
+/// #[test]
+/// fn test_with_writable_rust_fixture() -> Result {
+///     let dir = gix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |dir| {
+///         std::fs::write(dir.join("file.txt"), "content")?;
+///         Ok(())
+///     })?;
+///     // Can modify files in dir
+///     std::fs::write(dir.path().join("new_file.txt"), "new content")?;
+///     Ok(())
+/// }
+/// ```
+pub fn rust_fixture_writable(
+    name: &str,
+    version: u32,
+    mode: Creation,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::IntegrationTest)
+}
+
+/// Like [`rust_fixture_writable()`], but does not prefix the fixture directory with `tests`.
+pub fn rust_fixture_writable_standalone(
+    name: &str,
+    version: u32,
+    mode: Creation,
+    make_fixture: impl FnOnce(&Path) -> Result,
+) -> Result<tempfile::TempDir> {
+    rust_fixture_writable_inner(name, version, make_fixture, mode, DirectoryRoot::StandaloneTest)
+}
+
+fn rust_fixture_writable_inner(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+    mode: Creation,
+    root: DirectoryRoot,
+) -> Result<tempfile::TempDir> {
+    let dst = tempfile::TempDir::new()?;
+    Ok(match mode {
+        Creation::CopyFromReadOnly => {
+            let ro_dir = rust_fixture_read_only_inner(name, version, make_fixture, None, root)?;
+            copy_recursively_into_existing_dir(ro_dir, dst.path())?;
+            dst
+        }
+        Creation::ExecuteScript => {
+            rust_fixture_read_only_inner(name, version, make_fixture, Some(dst.path()), root)?;
+            dst
+        }
+    })
+}
+
+fn rust_fixture_read_only_inner(
+    name: &str,
+    version: u32,
+    make_fixture: impl FnOnce(&Path) -> Result,
+    destination_dir: Option<&Path>,
+    root: DirectoryRoot,
+) -> Result<PathBuf> {
+    // Assure tempfiles get removed when aborting the test.
+    gix_tempfile::signal::setup(
+        gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
+    );
+
+    // For Rust fixtures, the identity is simply the provided version number.
+    // Users must increment this manually when the closure behavior changes.
+    let script_identity = version;
+    let archive_name = format!("rust-{name}");
+
+    let archive_file_path = fixture_path_inner(
+        Path::new("generated-archives").join(format!(
+            "{archive_name}.tar{}",
+            if cfg!(feature = "xz") { ".xz" } else { "" }
+        )),
+        root,
+    );
+    let (force_run, script_result_directory) = destination_dir.map_or_else(
+        || {
+            let dir = fixture_path_inner(
+                Path::new("generated-do-not-edit")
+                    .join(&archive_name)
+                    .join(format!("{}-{}", script_identity, family_name())),
+                root,
+            );
+            (false, dir)
+        },
+        |d| (true, d.to_owned()),
+    );
+
+    // We may assume that destination_dir is already unique (i.e. temp-dir) - thus there is no need for a lock,
+    // and we can execute closures in parallel.
+    let _marker = destination_dir
+        .is_none()
+        .then(|| {
+            gix_lock::Marker::acquire_to_hold_resource(
+                &archive_name,
+                gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
+                None,
+            )
+        })
+        .transpose()?;
+    let failure_marker = script_result_directory.join("_invalid_state_due_to_script_failure_");
+    if force_run || !script_result_directory.is_dir() || failure_marker.is_file() {
+        if failure_marker.is_file() {
+            std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
+                format!(
+                    "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                    script_result_directory = script_result_directory.display()
+                )
+            })?;
+        }
+        std::fs::create_dir_all(&script_result_directory)?;
+        match extract_archive(&archive_file_path, &script_result_directory, script_identity) {
+            Ok((archive_id, platform)) => {
+                eprintln!(
+                    "Extracted fixture from archive '{}' ({}, {:?})",
+                    archive_file_path.display(),
+                    archive_id,
+                    platform
+                );
+            }
+            Err(err) => {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
+                    std::fs::remove_dir_all(&script_result_directory).map_err(|err| {
+                        format!(
+                            "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
+                            script_result_directory = script_result_directory.display()
+                        )
+                    })?;
+                    std::fs::create_dir_all(&script_result_directory)?;
+                } else if !is_excluded(&archive_file_path) {
+                    eprintln!(
+                        "Archive at '{}' not found, creating fixture using Rust closure '{}'",
+                        archive_file_path.display(),
+                        name
+                    );
+                }
+                if let Err(err) = make_fixture(&script_result_directory) {
+                    write_failure_marker(&failure_marker);
+                    return Err(format!("Rust fixture closure '{name}' failed: {err}").into());
+                }
+                create_archive_if_we_should(&script_result_directory, &archive_file_path, script_identity)
+                    .inspect_err(|_err| {
+                        write_failure_marker(&failure_marker);
+                    })?;
+            }
+        }
+    }
+    Ok(script_result_directory)
+}
+
 fn scripted_fixture_read_only_with_args_inner(
     script_name: impl AsRef<Path>,
     args: impl IntoIterator<Item = impl Into<String>>,
