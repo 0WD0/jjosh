@@ -475,7 +475,8 @@ pub fn scripted_fixture_read_only_with_args_standalone_single_archive(
 /// #### Disable Archive Creation
 ///
 /// Archives can be disabled by using `.gitignore` specifications,
-/// for example `generated-archives/rust-*.tar{.xz}` in the tests/fixtures directory.
+/// for example `generated-archives/rust-*.tar` or `generated-archives/rust-*.tar.xz`
+/// in the `tests/fixtures` directory.
 ///
 /// ### Example
 ///
