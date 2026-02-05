@@ -29,7 +29,7 @@ fn scripted_fixture_writable_with_post_returns_value() -> Result {
     let (tmp, value) = gix_testtools::scripted_fixture_writable_with_args_with_post(
         SCRIPT_NAME,
         None::<String>,
-        Creation::ExecuteScript,
+        Creation::Execute,
         1,
         |fixture| {
             // Compute something from the fixture

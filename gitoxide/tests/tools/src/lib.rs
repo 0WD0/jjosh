@@ -162,17 +162,18 @@ static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 pub static GIT_VERSION: LazyLock<(u8, u8, u8)> =
     LazyLock::new(|| parse_git_version().expect("git version to be parsable"));
 
-/// Define how [`scripted_fixture_writable_with_args()`] uses produces the writable copy.
+/// Define how [`scripted_fixture_writable_with_args()`] and [`rust_fixture_writable()`]
+/// produces the writable copy.
 pub enum Creation {
-    /// Run the script once and copy the data from its output to the writable location.
+    /// Run the code once and copy the data from its output to the writable location.
     /// This is fast but won't work if absolute paths are produced by the script.
     ///
     /// ### Limitation
     ///
     /// Cannot handle symlinks currently. Waiting for [this PR](https://github.com/webdesus/fs_extra/pull/70).
     CopyFromReadOnly,
-    /// Run the script in the writable location. That way, absolute paths match the location.
-    ExecuteScript,
+    /// Run the code in the writable location. That way, absolute paths match the location.
+    Execute,
 }
 
 /// Returns true if the given `major`, `minor` and `patch` is smaller than the actual git version on the system
@@ -473,7 +474,7 @@ where
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
             (dst, _res_ignored)
         }
-        Creation::ExecuteScript => {
+        Creation::Execute => {
             // Execute directly in the temp dir with post_process
             let (_, post_result) = scripted_fixture_read_only_with_args_inner(
                 script_name,
@@ -955,7 +956,7 @@ where
             let res = make_fixture(FixtureState::Fresh(dst.path()))?;
             res
         }
-        Creation::ExecuteScript => {
+        Creation::Execute => {
             let (_, res) = rust_fixture_read_only_inner(name, version, make_fixture, Some(dst.path()), root)?;
             res
         }

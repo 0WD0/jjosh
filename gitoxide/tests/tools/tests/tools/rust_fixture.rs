@@ -72,7 +72,7 @@ fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
 
 #[test]
 fn rust_fixture_writable() -> Result {
-    for creation in [Creation::CopyFromReadOnly, Creation::ExecuteScript] {
+    for creation in [Creation::CopyFromReadOnly, Creation::Execute] {
         let (tmp, _) = gix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |fixture| {
             if let FixtureState::Uninitialized(dir) = fixture {
                 std::fs::write(dir.join("original.txt"), "original content")?;
