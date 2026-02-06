@@ -51,6 +51,66 @@ impl ForksafeTempfile {
         self.persist_inner(path.as_ref())
     }
 
+    #[cfg(windows)]
+    fn persist_inner(mut self, path: &Path) -> Result<Option<std::fs::File>, (std::io::Error, Self)> {
+        /// Maximum number of attempts for Windows file locking issues.
+        /// Matches libgit2's default retry count.
+        const MAX_ATTEMPTS: usize = 10;
+        /// Delay between retry attempts in milliseconds.
+        /// Matches libgit2's retry delay.
+        const RETRY_DELAY_MS: u64 = 5;
+
+        fn should_retry(err: &std::io::Error) -> bool {
+            use std::io::ErrorKind;
+            // Access denied (ERROR_ACCESS_DENIED = 5) or sharing violation (ERROR_SHARING_VIOLATION = 32)
+            // are the common errors when external processes like antivirus or file watchers hold the file.
+            matches!(err.kind(), ErrorKind::PermissionDenied)
+                || err.raw_os_error() == Some(32) // ERROR_SHARING_VIOLATION
+        }
+
+        match self.inner {
+            TempfileOrTemppath::Tempfile(file) => {
+                let mut current_file = file;
+                for attempt in 0..MAX_ATTEMPTS {
+                    match current_file.persist(path) {
+                        Ok(file) => return Ok(Some(file)),
+                        Err(err) if attempt + 1 < MAX_ATTEMPTS && should_retry(&err.error) => {
+                            std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                            current_file = err.file;
+                        }
+                        Err(err) => {
+                            return Err((err.error, {
+                                self.inner = TempfileOrTemppath::Tempfile(err.file);
+                                self
+                            }))
+                        }
+                    }
+                }
+                unreachable!("loop always returns")
+            }
+            TempfileOrTemppath::Temppath(temppath) => {
+                let mut current_path = temppath;
+                for attempt in 0..MAX_ATTEMPTS {
+                    match current_path.persist(path) {
+                        Ok(_) => return Ok(None),
+                        Err(err) if attempt + 1 < MAX_ATTEMPTS && should_retry(&err.error) => {
+                            std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+                            current_path = err.path;
+                        }
+                        Err(err) => {
+                            return Err((err.error, {
+                                self.inner = TempfileOrTemppath::Temppath(err.path);
+                                self
+                            }))
+                        }
+                    }
+                }
+                unreachable!("loop always returns")
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
     fn persist_inner(mut self, path: &Path) -> Result<Option<std::fs::File>, (std::io::Error, Self)> {
         match self.inner {
             TempfileOrTemppath::Tempfile(file) => match file.persist(path) {
