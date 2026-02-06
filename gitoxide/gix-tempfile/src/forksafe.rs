@@ -64,8 +64,8 @@ impl ForksafeTempfile {
             use std::io::ErrorKind;
             // Access denied (ERROR_ACCESS_DENIED = 5) or sharing violation (ERROR_SHARING_VIOLATION = 32)
             // are the common errors when external processes like antivirus or file watchers hold the file.
-            matches!(err.kind(), ErrorKind::PermissionDenied)
-                || err.raw_os_error() == Some(32) // ERROR_SHARING_VIOLATION
+            matches!(err.kind(), ErrorKind::PermissionDenied) || err.raw_os_error() == Some(32)
+            // ERROR_SHARING_VIOLATION
         }
 
         match self.inner {
