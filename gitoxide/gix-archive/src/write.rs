@@ -1,6 +1,6 @@
-use gix_error::{message, ErrorExt};
 #[cfg(any(feature = "tar", feature = "tar_gz", feature = "zip"))]
 use gix_error::ResultExt;
+use gix_error::{message, ErrorExt};
 use gix_worktree_stream::{Entry, Stream};
 
 use crate::{Error, Format, Options};
@@ -42,7 +42,9 @@ where
             pub fn new(format: Format, mtime: gix_date::SecondsSinceUnixEpoch, out: W) -> Result<Self, Error> {
                 match format {
                     Format::InternalTransientNonPersistable => unreachable!("handled earlier"),
-                    Format::Zip { .. } => Err(message("Cannot create a zip archive if output stream does not support seek").raise()),
+                    Format::Zip { .. } => {
+                        Err(message("Cannot create a zip archive if output stream does not support seek").raise())
+                    }
                     Format::Tar => {
                         #[cfg(feature = "tar")]
                         {
@@ -81,9 +83,13 @@ where
                         }
                         #[cfg(not(feature = "tar_gz"))]
                         {
-                            Err(message!("Support for the format '{:?}' was not compiled in", Format::TarGz {
-                                compression_level: None,
-                            }).raise())
+                            Err(message!(
+                                "Support for the format '{:?}' was not compiled in",
+                                Format::TarGz {
+                                    compression_level: None,
+                                }
+                            )
+                            .raise())
                         }
                     }
                 }
@@ -206,7 +212,9 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
                 .finish()
                 .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not finish zip entry writer"))?;
-            encoder.finish().or_raise(|| message("Could not finish deflate encoder"))?;
+            encoder
+                .finish()
+                .or_raise(|| message("Could not finish deflate encoder"))?;
             zip_entry
                 .finish(descriptor)
                 .map_err(std::io::Error::other)
@@ -232,8 +240,11 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
             // For symlinks, we need to create a file with symlink permissions
             let symlink_path = path;
             let target = buf.as_bstr().to_str().map_err(|e| {
-                message!("Invalid UTF-8 in symlink target for entry '{symlink_path}': {:?}", buf.as_bstr())
-                    .raise_all(Some(e.raise()))
+                message!(
+                    "Invalid UTF-8 in symlink target for entry '{symlink_path}': {:?}",
+                    buf.as_bstr()
+                )
+                .raise_all(Some(e.raise()))
             })?;
 
             let (mut zip_entry, config) = ar

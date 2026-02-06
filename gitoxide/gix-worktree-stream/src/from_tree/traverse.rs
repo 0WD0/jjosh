@@ -96,9 +96,7 @@ where
                     self.out,
                 )
                 .or_raise(|| message("Could not write entry header"))?;
-                self.out
-                    .write(buf)
-                    .or_raise(|| message("Could not write entry data"))?;
+                self.out.write(buf).or_raise(|| message("Could not write entry data"))?;
             }
             ToWorktreeOutcome::Process(MaybeDelayed::Immediate(read)) => {
                 protocol::write_entry_header_and_path(self.path.as_ref(), entry.oid, entry.mode, None, self.out)

@@ -135,8 +135,7 @@ where
             entry::Source::Memory(buf) => out.write(&buf).map(|_| ()),
             entry::Source::Null => out.write(&[]).map(|_| ()),
             entry::Source::Path(path) => {
-                let file = std::fs::File::open(path)
-                    .or_raise(|| message("Could not open file for streaming"))?;
+                let file = std::fs::File::open(path).or_raise(|| message("Could not open file for streaming"))?;
                 protocol::write_stream(&mut buf, file, out)
             }
         }
