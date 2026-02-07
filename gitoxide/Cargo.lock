@@ -1498,8 +1498,8 @@ dependencies = [
 name = "gix-bitmap"
 version = "0.2.16"
 dependencies = [
+ "gix-error",
  "gix-testtools",
- "thiserror 2.0.18",
 ]
 
 [[package]]
