@@ -1461,6 +1461,7 @@ dependencies = [
  "flate2",
  "gix-attributes",
  "gix-date",
+ "gix-error",
  "gix-filter",
  "gix-hash",
  "gix-object",
@@ -1471,7 +1472,6 @@ dependencies = [
  "gix-worktree-stream",
  "rawzip",
  "tar",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2593,6 +2593,7 @@ name = "gix-worktree-stream"
 version = "0.27.0"
 dependencies = [
  "gix-attributes",
+ "gix-error",
  "gix-features",
  "gix-filter",
  "gix-fs",
@@ -2604,7 +2605,6 @@ dependencies = [
  "gix-traverse",
  "gix-worktree",
  "parking_lot",
- "thiserror 2.0.18",
 ]
 
 [[package]]

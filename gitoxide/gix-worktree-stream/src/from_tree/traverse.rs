@@ -7,6 +7,8 @@ use gix_object::{
 };
 use gix_traverse::tree::{visit::Action, Visit};
 
+use gix_error::{message, ResultExt};
+
 use crate::{entry::Error, protocol, SharedErrorSlot};
 
 pub struct Delegate<'a, AttributesFn, Find>
@@ -65,17 +67,22 @@ where
         if self.ignore_state().is_set() {
             return Ok(std::ops::ControlFlow::Continue(true));
         }
-        self.objects.find(entry.oid, &mut self.buf)?;
+        self.objects
+            .find(entry.oid, &mut self.buf)
+            .or_raise(|| message("Could not find a tree's leaf, typically a blob"))?;
 
         self.pipeline.driver_context_mut().blob = Some(entry.oid.into());
-        let converted = self.pipeline.convert_to_worktree(
-            &self.buf,
-            self.path.as_ref(),
-            &mut |a, b| {
-                (self.fetch_attributes)(a, entry.mode, b).ok();
-            },
-            gix_filter::driver::apply::Delay::Forbid,
-        )?;
+        let converted = self
+            .pipeline
+            .convert_to_worktree(
+                &self.buf,
+                self.path.as_ref(),
+                &mut |a, b| {
+                    (self.fetch_attributes)(a, entry.mode, b).ok();
+                },
+                gix_filter::driver::apply::Delay::Forbid,
+            )
+            .or_raise(|| message("Could not convert to worktree representation"))?;
 
         // Our pipe writer always writes the whole amount.
         #[allow(clippy::unused_io_amount)]
@@ -87,12 +94,15 @@ where
                     entry.mode,
                     Some(buf.len()),
                     self.out,
-                )?;
-                self.out.write(buf)?;
+                )
+                .or_raise(|| message("Could not write entry header"))?;
+                self.out.write(buf).or_raise(|| message("Could not write entry data"))?;
             }
             ToWorktreeOutcome::Process(MaybeDelayed::Immediate(read)) => {
-                protocol::write_entry_header_and_path(self.path.as_ref(), entry.oid, entry.mode, None, self.out)?;
-                protocol::write_stream(&mut self.buf, read, self.out)?;
+                protocol::write_entry_header_and_path(self.path.as_ref(), entry.oid, entry.mode, None, self.out)
+                    .or_raise(|| message("Could not write entry header"))?;
+                protocol::write_stream(&mut self.buf, read, self.out)
+                    .or_raise(|| message("Could not write stream data"))?;
             }
             ToWorktreeOutcome::Process(MaybeDelayed::Delayed(_)) => {
                 unreachable!("we forbade it")

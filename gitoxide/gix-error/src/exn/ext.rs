@@ -25,6 +25,26 @@ pub trait ErrorExt: std::error::Error + Send + Sync + 'static {
         Exn::new(self)
     }
 
+    /// Raise this error as a child of a new exception with the given context error.
+    ///
+    /// This is a shorthand for `self.raise().raise(context)` — it wraps `self` in an [`Exn`]
+    /// and immediately nests it under a new `Exn<T>` headed by `context`.
+    ///
+    /// ```rust,ignore
+    /// // Instead of:
+    /// io_err.raise().raise(message("could not read file"))
+    ///
+    /// // Write:
+    /// io_err.and_raise(message("could not read file"))
+    /// ```
+    #[track_caller]
+    fn and_raise<T: std::error::Error + Send + Sync + 'static>(self, context: T) -> Exn<T>
+    where
+        Self: Sized,
+    {
+        Exn::new(self).raise(context)
+    }
+
     /// Raise this error as a new exception, with type erasure.
     #[track_caller]
     fn raise_erased(self) -> Exn
