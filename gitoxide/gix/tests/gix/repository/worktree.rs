@@ -23,8 +23,6 @@ fn stream() -> crate::Result {
 #[test]
 #[cfg(feature = "worktree-archive")]
 fn archive() -> crate::Result {
-    use gix::Exn;
-
     let repo = crate::named_repo("make_packed_and_loose.sh")?;
     let (stream, _index) = repo.worktree_stream(repo.head_commit()?.tree_id()?)?;
     let mut buf = Vec::<u8>::new();
@@ -35,8 +33,7 @@ fn archive() -> crate::Result {
         gix_features::progress::Discard,
         &std::sync::atomic::AtomicBool::default(),
         Default::default(),
-    )
-    .map_err(Exn::into_error)?;
+    )?;
     assert_eq!(buf.len(), EXPECTED_BUFFER_LENGTH, "default format is internal");
     Ok(())
 }

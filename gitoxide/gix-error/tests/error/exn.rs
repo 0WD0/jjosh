@@ -118,6 +118,22 @@ fn raise_chain() {
 }
 
 #[test]
+fn and_raise() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+    let exn = io_err.and_raise(message("could not read config"));
+    insta::assert_debug_snapshot!(exn, @r"
+    could not read config
+    |
+    └─ file not found
+    ");
+
+    // and_raise is equivalent to raise().raise() (compare with {:#?} to omit locations)
+    let io_err2 = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+    let exn2 = io_err2.raise().raise(message("could not read config"));
+    assert_eq!(format!("{exn:#?}"), format!("{exn2:#?}"));
+}
+
+#[test]
 fn raise_all() {
     let e = message("Top").raise_all(
         (1..5).map(|idx| message!("E{}", idx).raise_all((0..idx).map(|sidx| message!("E{}-{}", idx, sidx)))),
@@ -154,35 +170,35 @@ fn raise_all() {
         └─ E4-3
     ");
     insta::assert_snapshot!(debug_string(&e), @"
-    Top, at gix-error/tests/error/exn.rs:122
+    Top, at gix-error/tests/error/exn.rs:138
     |
-    └─ E1, at gix-error/tests/error/exn.rs:123
+    └─ E1, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E1-0, at gix-error/tests/error/exn.rs:123
+    |   └─ E1-0, at gix-error/tests/error/exn.rs:139
     |
-    └─ E2, at gix-error/tests/error/exn.rs:123
+    └─ E2, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E2-0, at gix-error/tests/error/exn.rs:123
+    |   └─ E2-0, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E2-1, at gix-error/tests/error/exn.rs:123
+    |   └─ E2-1, at gix-error/tests/error/exn.rs:139
     |
-    └─ E3, at gix-error/tests/error/exn.rs:123
+    └─ E3, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E3-0, at gix-error/tests/error/exn.rs:123
+    |   └─ E3-0, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E3-1, at gix-error/tests/error/exn.rs:123
+    |   └─ E3-1, at gix-error/tests/error/exn.rs:139
     |   |
-    |   └─ E3-2, at gix-error/tests/error/exn.rs:123
+    |   └─ E3-2, at gix-error/tests/error/exn.rs:139
     |
-    └─ E4, at gix-error/tests/error/exn.rs:123
+    └─ E4, at gix-error/tests/error/exn.rs:139
         |
-        └─ E4-0, at gix-error/tests/error/exn.rs:123
+        └─ E4-0, at gix-error/tests/error/exn.rs:139
         |
-        └─ E4-1, at gix-error/tests/error/exn.rs:123
+        └─ E4-1, at gix-error/tests/error/exn.rs:139
         |
-        └─ E4-2, at gix-error/tests/error/exn.rs:123
+        └─ E4-2, at gix-error/tests/error/exn.rs:139
         |
-        └─ E4-3, at gix-error/tests/error/exn.rs:123
+        └─ E4-3, at gix-error/tests/error/exn.rs:139
     ");
 
     let e = e.chain_all((1..3).map(|idx| message!("SE{}", idx)));
@@ -285,15 +301,15 @@ fn inverse_error_call_chain() {
     └─ E5
     ");
     insta::assert_snapshot!(debug_string(&e5), @"
-    E1, at gix-error/tests/error/exn.rs:271
+    E1, at gix-error/tests/error/exn.rs:287
     |
-    └─ E2, at gix-error/tests/error/exn.rs:272
+    └─ E2, at gix-error/tests/error/exn.rs:288
     |
-    └─ E3, at gix-error/tests/error/exn.rs:273
+    └─ E3, at gix-error/tests/error/exn.rs:289
     |
-    └─ E4, at gix-error/tests/error/exn.rs:274
+    └─ E4, at gix-error/tests/error/exn.rs:290
     |
-    └─ E5, at gix-error/tests/error/exn.rs:275
+    └─ E5, at gix-error/tests/error/exn.rs:291
     ");
 
     insta::assert_snapshot!(format!("{e5:#}"), @r#"
@@ -415,9 +431,9 @@ fn result_ext() {
     let result: Result<(), Message> = Err(message("An error"));
     let result = result.or_raise(|| message("Another error"));
     insta::assert_snapshot!(debug_string(result.unwrap_err()), @"
-    Another error, at gix-error/tests/error/exn.rs:416
+    Another error, at gix-error/tests/error/exn.rs:432
     |
-    └─ An error, at gix-error/tests/error/exn.rs:416
+    └─ An error, at gix-error/tests/error/exn.rs:432
     ");
 }
 
@@ -425,7 +441,7 @@ fn result_ext() {
 fn option_ext() {
     let result: Option<()> = None;
     let result = result.ok_or_raise(|| message("An error"));
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:427");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:443");
 }
 
 #[test]
@@ -436,7 +452,7 @@ fn from_message() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()),@"An error, at gix-error/tests/error/exn.rs:434");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()),@"An error, at gix-error/tests/error/exn.rs:450");
 }
 
 #[test]
@@ -456,7 +472,7 @@ fn bail() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:455");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:471");
 }
 
 #[test]
@@ -477,7 +493,7 @@ fn ensure_fail() {
     }
 
     let result = foo();
-    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:475");
+    insta::assert_snapshot!(debug_string(result.unwrap_err()), @"An error, at gix-error/tests/error/exn.rs:491");
 }
 
 #[test]
@@ -535,17 +551,17 @@ fn raise_chain_anyhow() {
     "#);
 
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(root))), @"
-    root, at gix-error/tests/error/exn.rs:514
+    root, at gix-error/tests/error/exn.rs:530
 
     Caused by:
-        0: E2, at gix-error/tests/error/exn.rs:513
-        1: E1, at gix-error/tests/error/exn.rs:510
-        2: E1-2, at gix-error/tests/error/exn.rs:511
-        3: E1-3, at gix-error/tests/error/exn.rs:512
-        4: E1c1-1, at gix-error/tests/error/exn.rs:511
-        5: E1c1-2, at gix-error/tests/error/exn.rs:511
-        6: E1c2-1, at gix-error/tests/error/exn.rs:512
-        7: E1c2-2, at gix-error/tests/error/exn.rs:512
+        0: E2, at gix-error/tests/error/exn.rs:529
+        1: E1, at gix-error/tests/error/exn.rs:526
+        2: E1-2, at gix-error/tests/error/exn.rs:527
+        3: E1-3, at gix-error/tests/error/exn.rs:528
+        4: E1c1-1, at gix-error/tests/error/exn.rs:527
+        5: E1c1-2, at gix-error/tests/error/exn.rs:527
+        6: E1c2-1, at gix-error/tests/error/exn.rs:528
+        7: E1c2-2, at gix-error/tests/error/exn.rs:528
     ");
 }
 
@@ -570,13 +586,13 @@ fn inverse_error_call_chain_anyhow() {
     ");
 
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(e5))), @"
-    E1, at gix-error/tests/error/exn.rs:555
+    E1, at gix-error/tests/error/exn.rs:571
 
     Caused by:
-        0: E2, at gix-error/tests/error/exn.rs:556
-        1: E3, at gix-error/tests/error/exn.rs:557
-        2: E4, at gix-error/tests/error/exn.rs:558
-        3: E5, at gix-error/tests/error/exn.rs:559
+        0: E2, at gix-error/tests/error/exn.rs:572
+        1: E3, at gix-error/tests/error/exn.rs:573
+        2: E4, at gix-error/tests/error/exn.rs:574
+        3: E5, at gix-error/tests/error/exn.rs:575
     ");
 }
 
@@ -618,15 +634,15 @@ fn into_chain() {
     // By default, there is paths displayed, just like everywhere.
     insta::assert_debug_snapshot!(causes_display(&root, Style::Normal), @r#"
     [
-        "root, at gix-error/tests/error/exn.rs:594",
-        "E2, at gix-error/tests/error/exn.rs:593",
-        "E1, at gix-error/tests/error/exn.rs:590",
-        "E1-2, at gix-error/tests/error/exn.rs:591",
-        "E1-3, at gix-error/tests/error/exn.rs:592",
-        "E1c1-1, at gix-error/tests/error/exn.rs:591",
-        "E1c1-2, at gix-error/tests/error/exn.rs:591",
-        "E1c2-1, at gix-error/tests/error/exn.rs:592",
-        "E1c2-2, at gix-error/tests/error/exn.rs:592",
+        "root, at gix-error/tests/error/exn.rs:610",
+        "E2, at gix-error/tests/error/exn.rs:609",
+        "E1, at gix-error/tests/error/exn.rs:606",
+        "E1-2, at gix-error/tests/error/exn.rs:607",
+        "E1-3, at gix-error/tests/error/exn.rs:608",
+        "E1c1-1, at gix-error/tests/error/exn.rs:607",
+        "E1c1-2, at gix-error/tests/error/exn.rs:607",
+        "E1c2-1, at gix-error/tests/error/exn.rs:608",
+        "E1c2-2, at gix-error/tests/error/exn.rs:608",
     ]
     "#);
 
@@ -648,17 +664,17 @@ fn into_chain() {
     // This should look similar.
     #[cfg(feature = "anyhow")]
     insta::assert_snapshot!(remove_stackstrace(format!("{:?}", anyhow::Error::from(root))), @"
-    root, at gix-error/tests/error/exn.rs:594
+    root, at gix-error/tests/error/exn.rs:610
 
     Caused by:
-        0: E2, at gix-error/tests/error/exn.rs:593
-        1: E1, at gix-error/tests/error/exn.rs:590
-        2: E1-2, at gix-error/tests/error/exn.rs:591
-        3: E1-3, at gix-error/tests/error/exn.rs:592
-        4: E1c1-1, at gix-error/tests/error/exn.rs:591
-        5: E1c1-2, at gix-error/tests/error/exn.rs:591
-        6: E1c2-1, at gix-error/tests/error/exn.rs:592
-        7: E1c2-2, at gix-error/tests/error/exn.rs:592
+        0: E2, at gix-error/tests/error/exn.rs:609
+        1: E1, at gix-error/tests/error/exn.rs:606
+        2: E1-2, at gix-error/tests/error/exn.rs:607
+        3: E1-3, at gix-error/tests/error/exn.rs:608
+        4: E1c1-1, at gix-error/tests/error/exn.rs:607
+        5: E1c1-2, at gix-error/tests/error/exn.rs:607
+        6: E1c2-1, at gix-error/tests/error/exn.rs:608
+        7: E1c2-2, at gix-error/tests/error/exn.rs:608
     ");
 }
 

@@ -537,5 +537,5 @@ pub mod worktree_stream {
 #[cfg(feature = "worktree-archive")]
 pub mod worktree_archive {
     /// The error returned by [`Repository::worktree_archive()`](crate::Repository::worktree_archive()).
-    pub type Error = gix_archive::Error;
+    pub type Error = gix_error::Error;
 }

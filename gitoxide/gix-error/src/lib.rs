@@ -40,6 +40,37 @@
 //! A side effect of this is that any callee that causes errors needs to be annotated with
 //! `.or_raise(|| message!("context information"))` or `.or_raise_erased(|| message!("context information"))`.
 //!
+//! # Using `Exn` (bare) in closure *bounds*
+//!
+//! Callback and closure **bounds** should use `Result<T, Exn>` (bare, without a type parameter)
+//! rather than `Result<T, Exn<Message>>` or any other specific type. This allows callers to
+//! return any error type from their callbacks without being forced into `Message`.
+//!
+//! Note that functions should still return the most specific type possible (usually `Exn<Message>`);
+//! only the *bound* on the callback parameter should use the bare `Exn`.
+//!
+//! ```rust,ignore
+//! // GOOD — callback bound is flexible, function return is specific:
+//! fn process(cb: impl FnMut() -> Result<(), Exn>) -> Result<(), Exn<Message>> { ... }
+//!
+//! // BAD — forces caller to construct Message errors in their callback:
+//! fn process(cb: impl FnMut() -> Result<(), Exn<Message>>) -> Result<(), Exn<Message>> { ... }
+//! ```
+//!
+//! Inside the function, use [`.or_raise()`](ResultExt::or_raise) to convert the bare `Exn` from the
+//! callback into the function's typed error, adding context:
+//! ```rust,ignore
+//! let entry = callback().or_raise(|| message("context about the callback call"))?;
+//! ```
+//!
+//! Inside a closure that must return bare `Exn`, use [`.or_erased()`](ResultExt::or_erased) to
+//! convert a typed `Exn<E>` to `Exn`, or [`raise_erased()`](ErrorExt::raise_erased) for standalone errors:
+//! ```rust,ignore
+//! |stream| {
+//!     stream.next_entry().or_erased()   // Exn<Message> → Exn
+//! }
+//! ```
+//!
 //! # [`Error`] — `Exn` with `std::error::Error`
 //!
 //! Since [`Exn`] does not implement [`std::error::Error`], it cannot be used where that trait is required
@@ -197,6 +228,41 @@
 //! let err = result.unwrap_err();
 //! let ve = err.downcast_any_ref::<ValidationError>().expect("is a ValidationError");
 //! assert_eq!(ve.input.as_deref(), Some("bad".into()));
+//! ```
+//!
+//! # Common Pitfalls
+//!
+//! ## Don't use `.erased()` to change the `Exn` type parameter
+//!
+//! [`Exn::raise()`] already nests the current `Exn<E>` as a child of a new `Exn<T>`,
+//! so there is no need to erase the type first. Use [`ErrorExt::and_raise()`] as shorthand:
+//! ```rust,ignore
+//! // WRONG — double-boxes and discards type information:
+//! io_err.raise().erased().raise(message("context"))
+//!
+//! // OK — raise() nests the Exn<io::Error> as a child of Exn<Message> directly:
+//! io_err.raise().raise(message("context"))
+//!
+//! // BEST — and_raise() is a shorthand for .raise().raise():
+//! io_err.and_raise(message("context"))
+//! ```
+//!
+//! Only use [`.erased()`](Exn::erased) when you genuinely need a type-erased `Exn` (no type parameter),
+//! e.g. to return different error types from the same function via `Result<T, Exn>`.
+//!
+//! ## Convert `Exn` to [`Error`] at public API boundaries
+//!
+//! Porcelain crates (like `gix`) should not expose [`Exn<Message>`](Exn) in their public API
+//! because it does not implement [`std::error::Error`], which makes it incompatible
+//! with `anyhow`, `Box<dyn Error>`, and the `?` operator in those contexts.
+//!
+//! Instead, convert to [`Error`] (which does implement `std::error::Error`) at the boundary:
+//! ```rust,ignore
+//! // In the porcelain crate's error module:
+//! pub type Error = gix_error::Error;  // not gix_archive::Error (which is Exn<Message>)
+//!
+//! // The conversion happens automatically via From<Exn<E>> for Error,
+//! // so `?` works without explicit .into_error() calls.
 //! ```
 //!
 //! # Feature Flags

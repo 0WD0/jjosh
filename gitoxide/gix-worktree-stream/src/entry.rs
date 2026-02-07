@@ -44,10 +44,7 @@ impl Stream {
                 if err.kind() == ErrorKind::UnexpectedEof {
                     return Ok(None);
                 }
-                Err(err
-                    .raise()
-                    .erased()
-                    .raise(gix_error::message("Could not read stream entry")))
+                Err(err.and_raise(gix_error::message("Could not read stream entry")))
             }
         }
     }

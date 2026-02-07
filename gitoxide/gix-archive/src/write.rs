@@ -24,7 +24,7 @@ pub fn write_stream<NextFn>(
     opts: Options,
 ) -> Result<(), Error>
 where
-    NextFn: FnMut(&mut Stream) -> Result<Option<Entry<'_>>, gix_worktree_stream::entry::Error>,
+    NextFn: FnMut(&mut Stream) -> Result<Option<Entry<'_>>, gix_error::Exn>,
 {
     if opts.format == Format::InternalTransientNonPersistable {
         return Err(message("The internal format cannot be used as an archive, it's merely a debugging tool").raise());
@@ -97,7 +97,9 @@ where
         }
 
         let mut state = State::new(opts.format, opts.modification_time, out)?;
-        while let Some(entry) = next_entry(stream)? {
+        while let Some(entry) =
+            next_entry(stream).or_raise(|| message("Could not retrieve the next entry from the stream"))?
+        {
             match &mut state {
                 #[cfg(feature = "tar")]
                 State::Tar((ar, buf)) => {
@@ -124,6 +126,12 @@ where
             }
         }
     }
+    #[cfg(not(any(feature = "tar", feature = "tar_gz")))]
+    {
+        let _ = (next_entry, out);
+        return Err(message!("Support for the format '{:?}' was not compiled in", opts.format).raise());
+    }
+    #[allow(unreachable_code)]
     Ok(())
 }
 
@@ -139,7 +147,7 @@ pub fn write_stream_seek<NextFn>(
     opts: Options,
 ) -> Result<(), Error>
 where
-    NextFn: FnMut(&mut Stream) -> Result<Option<Entry<'_>>, gix_worktree_stream::entry::Error>,
+    NextFn: FnMut(&mut Stream) -> Result<Option<Entry<'_>>, gix_error::Exn>,
 {
     let compression_level = match opts.format {
         Format::Zip { compression_level } => compression_level.map(i64::from),
@@ -151,7 +159,9 @@ where
         let mut ar = rawzip::ZipArchiveWriter::new(out);
         let mut buf = Vec::new();
         let mtime = rawzip::time::UtcDateTime::from_unix(opts.modification_time);
-        while let Some(entry) = next_entry(stream)? {
+        while let Some(entry) =
+            next_entry(stream).or_raise(|| message("Could not retrieve the next entry from the stream"))?
+        {
             append_zip_entry(
                 &mut ar,
                 entry,
@@ -165,7 +175,19 @@ where
             .map_err(std::io::Error::other)
             .or_raise(|| message("Could not finish zip archive"))?;
     }
+    #[cfg(not(feature = "zip"))]
+    {
+        let _ = compression_level;
+        return Err(message!(
+            "Support for the format '{:?}' was not compiled in",
+            Format::Zip {
+                compression_level: None
+            }
+        )
+        .raise());
+    }
 
+    #[cfg(feature = "zip")]
     Ok(())
 }
 

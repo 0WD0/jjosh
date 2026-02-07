@@ -141,9 +141,11 @@ impl crate::Repository {
             &mut stream,
             |stream| {
                 if should_interrupt.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Err(gix_error::ErrorExt::raise(gix_error::message("Cancelled by user")));
+                    return Err(gix_error::ErrorExt::raise_erased(gix_error::message(
+                        "Cancelled by user",
+                    )));
                 }
-                let res = stream.next_entry();
+                let res = stream.next_entry().or_erased();
                 blobs.inc();
                 res
             },
