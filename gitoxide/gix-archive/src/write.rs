@@ -171,13 +171,12 @@ where
                 opts.tree_prefix.as_ref(),
             )?;
         }
-        ar.finish()
-            .map_err(std::io::Error::other)
-            .or_raise(|| message("Could not finish zip archive"))?;
+        ar.finish().or_raise(|| message("Could not finish zip archive"))?;
     }
     #[cfg(not(feature = "zip"))]
     {
         let _ = compression_level;
+        #[allow(clippy::needless_return)]
         return Err(message!(
             "Support for the format '{:?}' was not compiled in",
             Format::Zip {
@@ -205,7 +204,7 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
     let unix_permissions = if entry.mode.is_executable() { 0o755 } else { 0o644 };
     let path = path
         .to_str()
-        .map_err(|e| message!("Invalid UTF-8 in entry path: {path:?}").raise_all(Some(e.raise())))?;
+        .or_raise(|| message!("Invalid UTF-8 in entry path: {path:?}"))?;
 
     match entry.mode.kind() {
         gix_object::tree::EntryKind::Blob | gix_object::tree::EntryKind::BlobExecutable => {
@@ -217,7 +216,6 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
 
             let (mut zip_entry, config) = file_builder
                 .start()
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not start zip file entry"))?;
 
             // Use flate2 for compression. Level 9 is the maximum compression level for deflate.
@@ -232,14 +230,12 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
             std::io::copy(&mut entry, &mut writer).or_raise(|| message("Could not write zip entry data"))?;
             let (encoder, descriptor) = writer
                 .finish()
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not finish zip entry writer"))?;
             encoder
                 .finish()
                 .or_raise(|| message("Could not finish deflate encoder"))?;
             zip_entry
                 .finish(descriptor)
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not finish zip entry"))?;
         }
         gix_object::tree::EntryKind::Tree | gix_object::tree::EntryKind::Commit => {
@@ -252,7 +248,6 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
                 .last_modified(mtime)
                 .unix_permissions(unix_permissions)
                 .create()
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not create zip directory entry"))?;
         }
         gix_object::tree::EntryKind::Link => {
@@ -261,12 +256,11 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
 
             // For symlinks, we need to create a file with symlink permissions
             let symlink_path = path;
-            let target = buf.as_bstr().to_str().map_err(|e| {
+            let target = buf.as_bstr().to_str().or_raise(|| {
                 message!(
                     "Invalid UTF-8 in symlink target for entry '{symlink_path}': {:?}",
                     buf.as_bstr()
                 )
-                .raise_all(Some(e.raise()))
             })?;
 
             let (mut zip_entry, config) = ar
@@ -275,7 +269,6 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
                 .last_modified(mtime)
                 .unix_permissions(0o120644) // Symlink mode
                 .start()
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not start zip symlink entry"))?;
 
             let mut writer = config.wrap(&mut zip_entry);
@@ -284,11 +277,9 @@ fn append_zip_entry<W: std::io::Write + std::io::Seek>(
                 .or_raise(|| message("Could not write symlink target"))?;
             let (_, descriptor) = writer
                 .finish()
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not finish zip symlink writer"))?;
             zip_entry
                 .finish(descriptor)
-                .map_err(std::io::Error::other)
                 .or_raise(|| message("Could not finish zip symlink entry"))?;
         }
     }

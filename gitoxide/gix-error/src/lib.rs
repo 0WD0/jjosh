@@ -250,6 +250,18 @@
 //! Only use [`.erased()`](Exn::erased) when you genuinely need a type-erased `Exn` (no type parameter),
 //! e.g. to return different error types from the same function via `Result<T, Exn>`.
 //!
+//! ## Don't use `.raise_all()` with a single error
+//!
+//! [`Exn::raise_all()`] is meant for creating error trees with *multiple* causes.
+//! If you only have a single causing error, use [`.or_raise()`](ResultExt::or_raise) instead:
+//! ```rust,ignore
+//! // WRONG — raise_all() is for multiple causes, not a single one:
+//! result.map_err(|e| message("context").raise_all(Some(e.raise())))?;
+//!
+//! // RIGHT — or_raise() wraps the error with context directly:
+//! result.or_raise(|| message("context"))?;
+//! ```
+//!
 //! ## Convert `Exn` to [`Error`] at public API boundaries
 //!
 //! Porcelain crates (like `gix`) should not expose [`Exn<Message>`](Exn) in their public API
