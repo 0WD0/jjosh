@@ -2206,8 +2206,8 @@ name = "gix-quote"
 version = "0.6.2"
 dependencies = [
  "bstr",
+ "gix-error",
  "gix-utils",
- "thiserror 2.0.18",
 ]
 
 [[package]]

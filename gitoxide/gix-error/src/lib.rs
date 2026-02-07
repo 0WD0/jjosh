@@ -104,7 +104,7 @@
 //! # Migrating from `thiserror`
 //!
 //! This section describes the mechanical translation from `thiserror` error enums to `gix-error`.
-//! In `Cargo.toml`, replace `thiserror = "<version>"` with `gix-error = { version = "^0.0.0", path = "../gix-error" }`.
+//! In `Cargo.toml`, replace `thiserror = "<version>"` with `gix-error = { version = "^0.1.0", path = "../gix-error" }`.
 //!
 //! ## Choosing the replacement type
 //!
