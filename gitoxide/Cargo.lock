@@ -1944,9 +1944,9 @@ dependencies = [
  "document-features",
  "gix-actor",
  "gix-date",
+ "gix-error",
  "gix-testtools",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]
