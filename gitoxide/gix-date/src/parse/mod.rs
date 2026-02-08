@@ -14,13 +14,9 @@ impl TimeBuf {
     /// Represent this instance as standard string, serialized in a format compatible with
     /// signature fields in Git commits, also known as anything parseable as [raw format](function::parse_header()).
     pub fn as_str(&self) -> &str {
-        // SAFETY: We know that serialized times are pure ASCII, a subset of UTF-8.
-        //         `buf` and `len` are written only by time-serialization code.
+        // Time serializes as ASCII, which is a subset of UTF-8.
         let time_bytes = self.buf.as_slice();
-        #[allow(unsafe_code)]
-        unsafe {
-            std::str::from_utf8_unchecked(time_bytes)
-        }
+        std::str::from_utf8(time_bytes).expect("time serializes as valid UTF-8")
     }
 
     /// Clear the previous content.

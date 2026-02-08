@@ -14,7 +14,40 @@ fn parse_inner(input: &str) -> Option<Result<Span, Exn<Error>>> {
     span(period, units)
 }
 
+/// Parse named relative dates like "now", "today", "yesterday".
+fn parse_named(input: &str, now: Option<SystemTime>) -> Option<Result<Zoned, Exn<Error>>> {
+    let input = input.trim().to_lowercase();
+    let span = match input.as_str() {
+        "now" => Span::new(),
+        "today" => {
+            // "today" means midnight of today, but we just return now for simplicity
+            // like git does in many contexts
+            Span::new()
+        }
+        "yesterday" => Span::new().try_days(1).ok()?,
+        _ => return None,
+    };
+
+    Some((|| -> Result<Zoned, Exn<Error>> {
+        let now = now.ok_or(ValidationError::new("Missing current time"))?;
+        let ts: Timestamp = Timestamp::try_from(now).or_raise(|| Error::new("Could not convert current time"))?;
+        let zdt = ts.to_zoned(TimeZone::UTC);
+        if span.is_zero() {
+            Ok(zdt)
+        } else {
+            zdt.checked_sub(span)
+                .or_raise(|| Error::new(format!("Failed to subtract {zdt} from {span}")))
+        }
+    })())
+}
+
 pub fn parse(input: &str, now: Option<SystemTime>) -> Option<Result<Zoned, Exn<Error>>> {
+    // First try named dates
+    if let Some(result) = parse_named(input, now) {
+        return Some(result);
+    }
+
+    // Then try numeric relative dates
     parse_inner(input).map(|result| -> Result<Zoned, Exn<Error>> {
         let span = result?;
         // This was an error case in a previous version of this code, where
@@ -55,10 +88,40 @@ fn span(period: &str, units: i64) -> Option<Result<Span, Exn<Error>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn two_weeks_ago() {
         let actual = parse_inner("2 weeks ago").unwrap().unwrap();
         assert_eq!(actual.fieldwise(), Span::new().weeks(2));
+    }
+
+    #[test]
+    fn now() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let result = parse("now", Some(now)).unwrap().unwrap();
+        assert_eq!(result.timestamp().as_second(), 1_000_000);
+    }
+
+    #[test]
+    fn today() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let result = parse("today", Some(now)).unwrap().unwrap();
+        assert_eq!(result.timestamp().as_second(), 1_000_000);
+    }
+
+    #[test]
+    fn yesterday() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let result = parse("yesterday", Some(now)).unwrap().unwrap();
+        // yesterday is 1 day (86400 seconds) before now
+        assert_eq!(result.timestamp().as_second(), 1_000_000 - 86400);
+    }
+
+    #[test]
+    fn case_insensitive() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let result = parse("NOW", Some(now)).unwrap().unwrap();
+        assert_eq!(result.timestamp().as_second(), 1_000_000);
     }
 }
