@@ -19,7 +19,7 @@ struct Sample {
 /// Other relative formats like "yesterday", "last week" etc. are not included in baseline
 /// testing because they would require additional handling in the baseline script.
 fn is_relative_date(pattern: &str) -> bool {
-    pattern.ends_with(" ago")
+    pattern.ends_with(" ago") || pattern == "now" || pattern == "today" || pattern == "yesterday"
 }
 
 /// The fixed "now" timestamp used for testing relative dates.

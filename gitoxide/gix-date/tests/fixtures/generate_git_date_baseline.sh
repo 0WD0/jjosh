@@ -138,6 +138,10 @@ baseline '1466000000 -0200' 'RAW'  # from git t0006
 # ============================================================================
 # These tests use GIT_TEST_DATE_NOW=1000000000 (Sun Sep 9 01:46:40 UTC 2001)
 
+# Named
+# 'now' and 'today' don't seem to work.
+baseline_relative 'yesterday' ''
+ 
 # Seconds - from git t0006 check_relative
 baseline_relative '1 second ago' ''
 baseline_relative '2 seconds ago' ''

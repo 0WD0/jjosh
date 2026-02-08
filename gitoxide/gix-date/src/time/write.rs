@@ -6,7 +6,8 @@ impl std::fmt::Display for Time {
         let mut buf = Vec::with_capacity(Time::MAX.size());
         self.write_to(&mut buf).expect("write to memory cannot fail");
         // Time serializes as ASCII, which is a subset of UTF-8.
-        // We use from_utf8_unchecked-free approach for safety.
+        // Use `from_utf8()` (validated) instead of `from_utf8_unchecked()` for safety,
+        // with the option to switch to an unsafe version if 30% performance boost are needed here.
         let raw = std::str::from_utf8(&buf).expect("time serializes as valid UTF-8");
         f.write_str(raw)
     }
