@@ -312,7 +312,7 @@ mktest!(
 ///
 /// Context: https://github.com/Byron/gitoxide/pull/1453#issuecomment-2371013904
 #[test]
-fn diff_disparity_imara_diff_v2() {
+fn diff_algorithm_parity() {
     for (case, diff_algorithm) in [
         ("empty-lines-myers", gix_diff::blob::Algorithm::Myers),
         ("empty-lines-histogram", gix_diff::blob::Algorithm::Histogram),
