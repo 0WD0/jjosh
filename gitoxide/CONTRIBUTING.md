@@ -1,6 +1,7 @@
 ### Please disclose the use AI…
 
-…if it's *full agent mode* or *multi*-line completions in the PR comment.
+…if it's editing files for you please let us know in the PR comment _or preferably_ using
+`Co-authored-by: <agent-identity>` message trailers.
 
 For everything else, please have a look at the respective section in the [README] file.
 

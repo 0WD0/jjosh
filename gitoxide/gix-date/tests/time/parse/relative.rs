@@ -152,3 +152,42 @@ fn various_examples() {
         _ = gix_date::parse(date, None).unwrap_or_else(|err| unreachable!("{date}: all examples can be parsed: {err}"));
     }
 }
+
+mod named {
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn now() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let actual = gix_date::parse("now", Some(now)).unwrap();
+        assert_eq!(actual.seconds, 1_000_000);
+    }
+
+    #[test]
+    fn today() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let actual = gix_date::parse(" today ", Some(now)).unwrap();
+        assert_eq!(
+            actual.seconds, 1_000_000,
+            "the input is independent of surrounding whitespace as well"
+        );
+    }
+
+    #[test]
+    fn yesterday() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let actual = gix_date::parse("yesterday", Some(now)).unwrap();
+        assert_eq!(
+            actual.seconds,
+            1_000_000 - 86400,
+            "yesterday is 1 day (86400 seconds) before now"
+        );
+    }
+
+    #[test]
+    fn now_case_insensitive() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let actual = gix_date::parse("NOW", Some(now)).unwrap();
+        assert_eq!(actual.seconds, 1_000_000);
+    }
+}
