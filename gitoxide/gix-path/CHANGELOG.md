@@ -5,7 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.1 (2026-02-10)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 3 commits contributed to the release over the course of 18 calendar days.
+ - 18 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2407 from GitoxideLabs/dependabot/cargo/cargo-fb4135702f ([`8bceefb`](https://github.com/GitoxideLabs/gitoxide/commit/8bceefbfc5f897517bfdd24744695a82cfa0d5be))
+    - Bump the cargo group with 59 updates ([`7ce3c55`](https://github.com/GitoxideLabs/gitoxide/commit/7ce3c5587aec1ca813039c047783b9cb2a106826))
+    - Merge pull request #2393 from GitoxideLabs/report ([`f7d0975`](https://github.com/GitoxideLabs/gitoxide/commit/f7d09758d245aaa89409e39bb6ba1ed6b7118ea5))
+</details>
+
 ## 0.11.0 (2026-01-22)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 1 commit contributed to the release.
+ - 60 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.0.0, gix-date v0.13.0, gix-actor v0.38.0, gix-validate v0.11.0, gix-path v0.11.0, gix-features v0.46.0, gix-hash v0.22.0, gix-hashtable v0.12.0, gix-object v0.55.0, gix-glob v0.24.0, gix-attributes v0.30.0, gix-command v0.7.0, gix-packetline v0.21.0, gix-filter v0.25.0, gix-fs v0.19.0, gix-chunk v0.5.0, gix-commitgraph v0.32.0, gix-revwalk v0.26.0, gix-traverse v0.52.0, gix-worktree-stream v0.27.0, gix-archive v0.27.0, gix-tempfile v21.0.0, gix-lock v21.0.0, gix-index v0.46.0, gix-config-value v0.17.0, gix-pathspec v0.15.0, gix-ignore v0.19.0, gix-worktree v0.47.0, gix-diff v0.58.0, gix-blame v0.8.0, gix-ref v0.58.0, gix-sec v0.13.0, gix-config v0.51.0, gix-prompt v0.13.0, gix-url v0.35.0, gix-credentials v0.35.0, gix-discover v0.46.0, gix-dir v0.20.0, gix-mailmap v0.30.0, gix-revision v0.40.0, gix-merge v0.11.0, gix-negotiate v0.26.0, gix-pack v0.65.0, gix-odb v0.75.0, gix-refspec v0.36.0, gix-shallow v0.8.0, gix-transport v0.53.0, gix-protocol v0.56.0, gix-status v0.25.0, gix-submodule v0.25.0, gix-worktree-state v0.25.0, gix v0.78.0, gix-fsck v0.17.0, gitoxide-core v0.53.0, gitoxide v0.50.0, safety bump 50 crates ([`562e684`](https://github.com/GitoxideLabs/gitoxide/commit/562e684319fa649db6a96c0a22d64bbe3c11e9e6))
+</details>
 
 ## 0.10.22 (2025-11-22)
 
@@ -49,7 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    expected to be the `Programs` subdirectory of the user's local
    application data directory, typically:
    
-       C:\Users\<user>\AppData\Local\Programs
+   C:\Users\<user>\AppData\Local\Programs
    
    When Git for Windows is installed for a user rather than
    systemwide, it is typically installed a `Git` subdirectory of that
@@ -109,6 +151,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+<csr-id-1fa24cd9380cf063aa1a29e01136282ac3bc92c3/>
+<csr-id-b24783accba4bdd39c0821564060a3b4f3745903/>
+
  - <csr-id-9000a848cfd94fcb20f0c07b3c366fc55fa4eb3c/> Don't use `EXEPATH` unless it is absolute
    The first of two strategies used by the `system_prefix()` function
    on Windows is an optimization that looks for `clangarm64`,
@@ -154,15 +199,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    present. However, there are at least three ways it could happen:
    
    - `EXEPATH` has the intended meaning as the root of a Git for
-     Windows installation, but the directory it refers to contains
-     multiple directories left over from a previous installation. A
-     corresponding scenario applies to `ALTERNATIVE_LOCATIONS`, but
-     it is resolved by checking all the directories in a reasonable
-     order. Here, we are not checking the contents of the directories,
-     so no matter what order we look for them in, picking one when
-     there are others risks picking the wrong one.
-   
-   - `EXEPATH` has the intended meaning as the root of a Git for
+   Windows installation, but the directory it refers to contains
+   multiple directories left over from a previous installation. A
+   corresponding scenario applies to `ALTERNATIVE_LOCATIONS`, but
+   it is resolved by checking all the directories in a reasonable
+   order. Here, we are not checking the contents of the directories,
+   so no matter what order we look for them in, picking one when
+   there are others risks picking the wrong one.
+- `EXEPATH` has the intended meaning as the root of a Git for
      Windows installation, but it is a custom installation produced
      from local build or custom distribution rather than an official
      build, and it contains multiple such directories because it
@@ -174,80 +218,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      installation locations, without considering the effects of doing
      so. In contrast, `EXEPATH` will often be set in a Git Bash
      environment even in a highly customized Git for Windows tree.
-   
-   - `EXEPATH` has a different meaning from what is intended. For
+- `EXEPATH` has a different meaning from what is intended. For
      example, the user might set it to the root of an ordinary MSYS2
      installation. (Note that it is also likely to have various other
      meanings even more different from these, but those won't likely
      cause the `EXEPATH` optimization to be used when it shouldn't,
      because most possible meanings of `EXEPATH` won't involve a
      subdirectory of any of the names we look for.
-   
-   Instead of using the first existing subdirectory we fine, this
-   checks for all of them and requires that exactly one exist. If more
-   than one exist, then that is now treated the same as if none exist,
-   falling back to the `git --exec-path`-based strategy, which is
-   sometimes slower but more robust.
- - <csr-id-1fa24cd9380cf063aa1a29e01136282ac3bc92c3/> Extend `ALTERNATIVE_LOCATIONS` for ARM64 Windows
-   `gix-path` looks for and runs an installed `git` executable, when
-   present, to discover information about how Git is set up. This
-   is used in several functions in `gix_path::env`, especially on
-   Windows, where if `git.exe` is not found in a `PATH` search, then
-   common installation locations for Git for Windows are checked.
-   
-   These locations on Windows are resolved based on information from
-   the current environment, since different systems have different
-   program files directories. This was implemented in #1456 (which
-   built on #1419). Although this was sufficient to find the most
-   common Git for Windows installation locations, it did not find
-   ARM64 builds of Git for Windows. Such builds place the non-shim
-   `git.exe` program in `(git root)\clangarm64\bin`, rather than in
-   `(git root)\mingw64\bin` or `(git root)\mingw32\bin`. At the time
-   of #1419 and #1456, no stable ARM64 builds of Git for Windows were
-   available. Since then, Git for Windows began releasing such builds.
-   
-   This modifies the alternative locations examined if `git.exe` is
-   not found in a `PATH` search on Windows so that, where `(git root)`
-   is in a 64-bit program files directory, we check for a
-   `(git root)\clangarm64\bin` directory, in addition to checking for
-   a `(git root)\mingw64\bin` directory as was already done.
-   
-   Although 64-bit and 32-bit program files directories are separate,
-   on ARM64 systems the 64-bit program files directory is used both
-   for ARM64 programs, which the system can run directly, and for
-   x86_64 programs, which the system must run through emulation.
-   
-   This checks both `clangarm64` and `mingw64`, where `mingw64` was
-   checked before. It does so in that order, because if both are
-   available, then we are probably on an ARM64 system, and the ARM64
-   build of Git for Windows should be preferred, both because it will
-   tend to perform better and because the user is likely to expect
-   that to be used. (An x86_64 build, especially if present directly
-   alongside an ARM64 build, may be left over from a previous version
-   of Git for Windows that didn't have ARM64 builds and that was only
-   incompletely uninstalled.)
-   
-   This checks both, in that order, on all systems where we had
-   checked `mingw64` before, even on x86_64 systems. This is because:
-   
-   - To limit production dependencies and code complexity, we have
+- To limit production dependencies and code complexity, we have
      been examining only environment variables (and information
      available at build time) to ascertain which program files
      directories exist and whether they are 64-bit or 32-bit program
      files directories. At least for now, this preserves that general
      approach, continuing not to explicitly call Windows API functions
      or access the Windows registry, other than in tests.
-   
-   - But determining from environment variables whether the system is
+- But determining from environment variables whether the system is
      ARM64 or x86_64 is less straightforward than determining the
      program files directory locations, in one major case as well as
      various edge cases.
-   
-   The reason it's less straightforward is that, if our parent process
-   (or other ancestor) passes down a sanitized environment while still
-   attempting to let the program files directories be found, then:
-   
-   - That process should make available all of the `ProgramFiles`,
+- That process should make available all of the `ProgramFiles`,
      `ProgramW6432`, `ProgramFiles(x86)`, and `ProgramFiles(ARM)`
      variables that exist in its own environment.
    
@@ -255,15 +244,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      populated from the parent `ProgramW6432`, `ProgramFiles(x86)`, or
      `ProgramFiles(ARM)`, depending on the architectures of the parent
      and child, if the parent passes down the relevant variable.)
-   
-   - Even if the parent/ancestor is not designed with the WoW64 rules
+- Even if the parent/ancestor is not designed with the WoW64 rules
      in mind, it will likely pass down at least `ProgramFiles`.
    
      This will then be used as the child `ProgramFiles`, if whichever
      of `ProgramFilesW6432`, `ProgramFiles(x86)`, or
      `ProgramFiles(ARM)` is relevant is not passed down by the parent.
-   
-   - In contrast, the parent/ancestor may omit the variables
+- In contrast, the parent/ancestor may omit the variables
      `PROCESSOR_ARCHITECTURE` and `PROCESSOR_ARCHITEW6432`, which are
      not obviously needed for locating programs.
    
@@ -276,8 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      However, in this case, as in others, it will generally be set
      according to our process architecture, rather than the system
      architecture.
-   
-   - Thus, even if `PROCESSOR_ARCHITE*` variables are preserved or set
+- Thus, even if `PROCESSOR_ARCHITE*` variables are preserved or set
      correctly, there are common cases where they are not sufficient.
    
      The main such case is when we are an x86_64 build, but the system
@@ -299,8 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      In this case, the Rust target will be for x86_64, not ARM64 or
      Arm64EC. So checking our own Rust build target can't fully check
      if the program is Arm64EC.)
-   
-   - Although the `PROCESSOR_IDENTIFIER` variable is more reliable if
+- Although the `PROCESSOR_IDENTIFIER` variable is more reliable if
      present--see actions/partner-runner-images#117 for an example of
      where this is more reliable than `PROCESSOR_ARCHITECTURE`--it is
      slightly more complex to parse. Much more importantly, unlike
@@ -309,8 +294,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      removed it. Whether or not a parent/ancestor passes down
      `PROCESSOR_ARCHITE*` variables, it may still not choose to let
      `PROCESSOR_IDENTIFIER` through, if it sanitizes the environment.
-   
-   - It would sometimes work to look for `ProgramFiles(ARM)`. This
+- It would sometimes work to look for `ProgramFiles(ARM)`. This
      environment variable, if present, gives the 32-bit ARM program
      files directory location on an ARM64 Windows system. If set, then
      the Windows system could be treated as ARM64. However, a
@@ -329,30 +313,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      outside of ARM64 Windows. It may therefore be left over from a
      previous installation or migration, or even created by a local
      user as in the CVE-2024-40644 scenario patched in #1456.
-   
-   (These complexities all relate to deciding whether and in what
-   order to search `bin` subdirectories of `clangarm64`, `mingw64`,
-   and `mingw32`. They would go away if we looked for the shim rather
-   than the non-shim executable. This is because the path from
-   `(git root)` to the shim does not contain a directory component
-   named after a build target. That simplification would carry its own
-   tradeoffs, and it is unclear if it ought to be done; it is not done
-   here.)
- - <csr-id-b24783accba4bdd39c0821564060a3b4f3745903/> Use `nul` instead of `NUL` on Windows
-   `NULL_DEVICE` is `/dev/null` except on Windows, where there are
-   several possible choices. Previously we were using `NUL` because
-   the more modern full path `\\.\NUL` is not supported by `git`.
-   
-   However, `git` also rejects `NUL`, when capitalized, on some
-   Windows systems. This can be observed on Windows 11 ARM64 builds.
-   In contrast, the lower-case `nul`, which Windows itself treats the
-   same as `NUL`, is always accepted by Git for Windows.
-   
-   Although it's not readily apparent why Git for Windows accepts
-   `NUL` on some Windows operating systems and/or platforms and not
-   others, the preferential treatment of `nul` (not extending to
-   `NUL`) can be seen in a few places in the Git for Windows source
-   code, including in `mingw_access` (`strcmp` is case-sensitive):
 
 ### Commit Statistics
 
@@ -411,6 +371,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Use `nul` instead of `NUL` on Windows ([`b24783a`](https://github.com/GitoxideLabs/gitoxide/commit/b24783accba4bdd39c0821564060a3b4f3745903))
     - Merge pull request #2100 from GitoxideLabs/release ([`202bc6d`](https://github.com/GitoxideLabs/gitoxide/commit/202bc6da79854d1fb6bb32b9c6bb2a6f882c77f5))
 </details>
+
+<csr-unknown>
+Instead of using the first existing subdirectory we fine, thischecks for all of them and requires that exactly one exist. If morethan one exist, then that is now treated the same as if none exist,falling back to the git --exec-path-based strategy, which issometimes slower but more robust. Extend ALTERNATIVE_LOCATIONS for ARM64 Windowsgix-path looks for and runs an installed git executable, whenpresent, to discover information about how Git is set up. Thisis used in several functions in gix_path::env, especially onWindows, where if git.exe is not found in a PATH search, thencommon installation locations for Git for Windows are checked.These locations on Windows are resolved based on information fromthe current environment, since different systems have differentprogram files directories. This was implemented in #1456 (whichbuilt on #1419). Although this was sufficient to find the mostcommon Git for Windows installation locations, it did not findARM64 builds of Git for Windows. Such builds place the non-shimgit.exe program in (git root)\clangarm64\bin, rather than in(git root)\mingw64\bin or (git root)\mingw32\bin. At the timeof #1419 and #1456, no stable ARM64 builds of Git for Windows wereavailable. Since then, Git for Windows began releasing such builds.This modifies the alternative locations examined if git.exe isnot found in a PATH search on Windows so that, where (git root)is in a 64-bit program files directory, we check for a(git root)\clangarm64\bin directory, in addition to checking fora (git root)\mingw64\bin directory as was already done.Although 64-bit and 32-bit program files directories are separate,on ARM64 systems the 64-bit program files directory is used bothfor ARM64 programs, which the system can run directly, and forx86_64 programs, which the system must run through emulation.This checks both clangarm64 and mingw64, where mingw64 waschecked before. It does so in that order, because if both areavailable, then we are probably on an ARM64 system, and the ARM64build of Git for Windows should be preferred, both because it willtend to perform better and because the user is likely to expectthat to be used. (An x86_64 build, especially if present directlyalongside an ARM64 build, may be left over from a previous versionof Git for Windows that didn’t have ARM64 builds and that was onlyincompletely uninstalled.)This checks both, in that order, on all systems where we hadchecked mingw64 before, even on x86_64 systems. This is because:The reason it’s less straightforward is that, if our parent process(or other ancestor) passes down a sanitized environment while stillattempting to let the program files directories be found, then:(These complexities all relate to deciding whether and in whatorder to search bin subdirectories of clangarm64, mingw64,and mingw32. They would go away if we looked for the shim ratherthan the non-shim executable. This is because the path from(git root) to the shim does not contain a directory componentnamed after a build target. That simplification would carry its owntradeoffs, and it is unclear if it ought to be done; it is not donehere.) Use nul instead of NUL on WindowsNULL_DEVICE is /dev/null except on Windows, where there areseveral possible choices. Previously we were using NUL becausethe more modern full path \\.\NUL is not supported by git.However, git also rejects NUL, when capitalized, on someWindows systems. This can be observed on Windows 11 ARM64 builds.In contrast, the lower-case nul, which Windows itself treats thesame as NUL, is always accepted by Git for Windows.Although it’s not readily apparent why Git for Windows acceptsNUL on some Windows operating systems and/or platforms and notothers, the preferential treatment of nul (not extending toNUL) can be seen in a few places in the Git for Windows sourcecode, including in mingw_access (strcmp is case-sensitive):<csr-unknown/>
 
 ## 0.10.20 (2025-08-03)
 
@@ -622,6 +585,19 @@ A maintenance release without user-facing changes.
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
    - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+   - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
+- https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
 - https://github.com/GitoxideLabs/gitoxide/pull/1862#issuecomment-2692158831
