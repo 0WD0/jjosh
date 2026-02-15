@@ -445,7 +445,26 @@ impl Url {
         if matches!(self.scheme, Scheme::Ssh | Scheme::Git) && !self.path.starts_with(b"/") {
             out.write_all(b"/")?;
         }
-        out.write_all(&self.path)?;
+        if matches!(self.scheme, Scheme::Http | Scheme::Https) {
+            const PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+                .add(b' ')
+                .add(b'"')
+                .add(b'#')
+                .add(b'%')
+                .add(b'<')
+                .add(b'>')
+                .add(b'?')
+                .add(b'`')
+                .add(b'{')
+                .add(b'}');
+            write!(
+                out,
+                "{}",
+                percent_encoding::percent_encode(self.path.as_ref(), PATH_ENCODE_SET)
+            )?;
+        } else {
+            out.write_all(&self.path)?;
+        }
         Ok(())
     }
 

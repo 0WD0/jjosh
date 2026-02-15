@@ -153,3 +153,13 @@ fn percent_encoded_international_path() -> crate::Result {
     assert_eq!(url.path, "/café", "international characters are decoded in path");
     Ok(())
 }
+
+#[test]
+fn percent_encoded_path_roundtrips_in_lossless_serialization() -> crate::Result {
+    let input = "https://%20@%40:example.org/%20%25";
+    let url = gix_url::parse(input.into())?;
+    let serialized = url.to_bstring();
+    assert_eq!(serialized, input);
+    assert_eq!(gix_url::parse(serialized.as_ref())?, url);
+    Ok(())
+}
