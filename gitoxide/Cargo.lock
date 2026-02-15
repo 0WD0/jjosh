@@ -2194,6 +2194,7 @@ dependencies = [
  "gix-transport",
  "gix-utils",
  "maybe-async",
+ "nonempty",
  "serde",
  "thiserror 2.0.18",
  "winnow",
@@ -2332,6 +2333,7 @@ dependencies = [
  "bstr",
  "gix-hash",
  "gix-lock",
+ "nonempty",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -3567,6 +3569,9 @@ name = "nonempty"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "ntapi"

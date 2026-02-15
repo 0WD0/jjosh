@@ -17,7 +17,7 @@ pub enum Update {
 /// The list of shallow commits represents the shallow boundary, beyond which we are lacking all (parent) commits.
 /// Note that the list is never empty, as `Ok(None)` is returned in that case indicating the repository
 /// isn't a shallow clone.
-pub fn read(shallow_file: &std::path::Path) -> Result<Option<Vec<gix_hash::ObjectId>>, read::Error> {
+pub fn read(shallow_file: &std::path::Path) -> Result<Option<nonempty::NonEmpty<gix_hash::ObjectId>>, read::Error> {
     use bstr::ByteSlice;
     let buf = match std::fs::read(shallow_file) {
         Ok(buf) => buf,
@@ -31,11 +31,7 @@ pub fn read(shallow_file: &std::path::Path) -> Result<Option<Vec<gix_hash::Objec
         .collect::<Result<Vec<_>, _>>()?;
 
     commits.sort();
-    if commits.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(commits))
-    }
+    Ok(nonempty::NonEmpty::from_vec(commits))
 }
 
 ///
@@ -56,10 +52,10 @@ pub mod write {
         /// Git also prunes the set of shallow commits while writing, we don't until we support some sort of pruning.
         pub fn write(
             mut file: gix_lock::File,
-            shallow_commits: Option<Vec<gix_hash::ObjectId>>,
+            shallow_commits: Option<nonempty::NonEmpty<gix_hash::ObjectId>>,
             updates: &[Update],
         ) -> Result<(), Error> {
-            let mut shallow_commits = shallow_commits.unwrap_or_default();
+            let mut shallow_commits = shallow_commits.map(Vec::from).unwrap_or_default();
             for update in updates {
                 match update {
                     Update::Shallow(id) => {
@@ -69,27 +65,22 @@ pub mod write {
                 }
             }
             if shallow_commits.is_empty() {
-                std::fs::remove_file(file.resource_path())?;
-                drop(file);
-                return Ok(());
-            }
-
-            if shallow_commits.is_empty() {
                 if let Err(err) = std::fs::remove_file(file.resource_path()) {
                     if err.kind() != std::io::ErrorKind::NotFound {
                         return Err(err.into());
                     }
                 }
-            } else {
-                shallow_commits.sort();
-                let mut buf = Vec::<u8>::new();
-                for commit in shallow_commits {
-                    commit.write_hex_to(&mut buf).map_err(Error::Io)?;
-                    buf.push(b'\n');
-                }
-                file.write_all(&buf).map_err(Error::Io)?;
-                file.flush()?;
+                drop(file);
+                return Ok(());
             }
+            shallow_commits.sort();
+            let mut buf = Vec::<u8>::new();
+            for commit in shallow_commits {
+                commit.write_hex_to(&mut buf).map_err(Error::Io)?;
+                buf.push(b'\n');
+            }
+            file.write_all(&buf).map_err(Error::Io)?;
+            file.flush().map_err(Error::Io)?;
             file.commit()?;
             Ok(())
         }
