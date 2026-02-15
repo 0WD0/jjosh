@@ -112,6 +112,7 @@ mod baseline {
 
     use bstr::ByteSlice;
     use gix_hash::ObjectId;
+    use nonempty::NonEmpty;
 
     /// The expectation as produced by Git itself
     #[derive(Debug)]
@@ -119,7 +120,7 @@ mod baseline {
         pub plain_input: String,
         pub first: ObjectId,
         pub others: Vec<ObjectId>,
-        pub bases: Option<Vec<ObjectId>>,
+        pub bases: Option<NonEmpty<ObjectId>>,
     }
 
     pub fn parse_expectations(baseline: &Path) -> std::io::Result<Vec<Expectation>> {
@@ -143,7 +144,7 @@ mod baseline {
                 plain_input,
                 first,
                 others,
-                bases: if bases.is_empty() { None } else { Some(bases) },
+                bases: NonEmpty::from_vec(bases),
             });
         }
         Ok(out)

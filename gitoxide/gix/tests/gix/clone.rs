@@ -20,6 +20,13 @@ mod blocking_io {
     use gix_ref::TargetRef;
     use gix_refspec::parse::Operation;
 
+    fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
+        let commits = repo.shallow_commits()?.expect(expected);
+        Ok(std::iter::once(commits.head)
+            .chain(commits.tail.iter().copied())
+            .collect())
+    }
+
     #[test]
     fn fetch_shallow_no_checkout_then_unshallow() -> crate::Result {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
@@ -47,7 +54,7 @@ mod blocking_io {
         drop(prepare);
 
         assert_eq!(
-            repo.shallow_commits()?.expect("shallow").as_slice(),
+            shallow_ids(&repo, "shallow")?,
             [
                 hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
                 hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
@@ -143,7 +150,7 @@ mod blocking_io {
             .with_in_memory_config_overrides(Some("my.marker=1"))
             .fetch_only(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())?;
         assert_eq!(
-            repo.shallow_commits()?.expect("present").as_slice(),
+            shallow_ids(&repo, "present")?,
             vec![
                 hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
                 hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
@@ -178,7 +185,7 @@ mod blocking_io {
 
         assert!(repo.is_shallow());
         assert_eq!(
-            repo.shallow_commits()?.expect("present").as_slice(),
+            shallow_ids(&repo, "present")?,
             vec![
                 hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
                 hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
@@ -195,7 +202,7 @@ mod blocking_io {
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
         assert_eq!(
-            repo.shallow_commits()?.expect("present").as_slice(),
+            shallow_ids(&repo, "present")?,
             vec![
                 hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
                 hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),
@@ -253,7 +260,7 @@ mod blocking_io {
 
         assert!(repo.is_shallow());
         assert_eq!(
-            repo.shallow_commits()?.expect("present").as_slice(),
+            shallow_ids(&repo, "present")?,
             vec![
                 hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
                 hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),
