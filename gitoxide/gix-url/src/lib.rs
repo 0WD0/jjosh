@@ -446,14 +446,14 @@ impl Url {
             out.write_all(b"/")?;
         }
         if matches!(self.scheme, Scheme::Http | Scheme::Https) {
+            // We intentionally do not encode '?' and '#': ParsedUrl keeps them in `path`,
+            // and encoding would change routed endpoints for already parsed URLs.
             const PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
                 .add(b' ')
                 .add(b'"')
-                .add(b'#')
                 .add(b'%')
                 .add(b'<')
                 .add(b'>')
-                .add(b'?')
                 .add(b'`')
                 .add(b'{')
                 .add(b'}');

@@ -169,3 +169,16 @@ fn percent_encoded_path_roundtrips_in_lossless_serialization() -> crate::Result 
     }
     Ok(())
 }
+
+#[test]
+fn query_and_fragment_delimiters_in_path_roundtrip() -> crate::Result {
+    assert_url_roundtrip(
+        "https://host/repo.git?token=abc",
+        url(Scheme::Https, None, "host", None, b"/repo.git?token=abc"),
+    )?;
+    assert_url_roundtrip(
+        "https://host/repo.git#section",
+        url(Scheme::Https, None, "host", None, b"/repo.git#section"),
+    )?;
+    Ok(())
+}
