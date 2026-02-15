@@ -1,5 +1,14 @@
 //! Utilities for testing `gitoxide` crates, many of which might be useful for testing programs that use `git` in general.
 //!
+//! ## Environment Variables
+//!
+//! ### `GIX_TEST_FIXTURE_HASH`
+//!
+//! Set this variable to control which hash function is used when creating or loading test fixtures.
+//! Valid values are the names of hash functions supported by `gix_hash::Kind` (e.g., `sha1`, `sha256`).
+//! If not set, the default hash function via `gix_hash::Kind::default()` is used.
+//!
+
 //! ## Feature Flags
 #![cfg_attr(
     all(doc, feature = "document-features"),
