@@ -153,3 +153,32 @@ fn percent_encoded_international_path() -> crate::Result {
     assert_eq!(url.path, "/café", "international characters are decoded in path");
     Ok(())
 }
+
+#[test]
+fn percent_encoded_path_roundtrips_in_lossless_serialization() -> crate::Result {
+    for (input, expected_host, expected_path) in [
+        ("https://%20@%40:example.org/%20%25", "%40:example.org", "/ %"),
+        ("https://%20@%40:example.org/%20%25/%20%25", "%40:example.org", "/ %/ %"),
+    ] {
+        let url = gix_url::parse(input.into())?;
+        let serialized = url.to_bstring();
+        assert_eq!(serialized, input);
+        assert_eq!(url.host(), Some(expected_host));
+        assert_eq!(url.path, expected_path);
+        assert_eq!(gix_url::parse(serialized.as_ref())?, url);
+    }
+    Ok(())
+}
+
+#[test]
+fn query_and_fragment_delimiters_in_path_roundtrip() -> crate::Result {
+    assert_url_roundtrip(
+        "https://host/repo.git?token=abc",
+        url(Scheme::Https, None, "host", None, b"/repo.git?token=abc"),
+    )?;
+    assert_url_roundtrip(
+        "https://host/repo.git#section",
+        url(Scheme::Https, None, "host", None, b"/repo.git#section"),
+    )?;
+    Ok(())
+}
