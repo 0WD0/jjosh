@@ -156,10 +156,16 @@ fn percent_encoded_international_path() -> crate::Result {
 
 #[test]
 fn percent_encoded_path_roundtrips_in_lossless_serialization() -> crate::Result {
-    let input = "https://%20@%40:example.org/%20%25";
-    let url = gix_url::parse(input.into())?;
-    let serialized = url.to_bstring();
-    assert_eq!(serialized, input);
-    assert_eq!(gix_url::parse(serialized.as_ref())?, url);
+    for (input, expected_host, expected_path) in [
+        ("https://%20@%40:example.org/%20%25", "%40:example.org", "/ %"),
+        ("https://%20@%40:example.org/%20%25/%20%25", "%40:example.org", "/ %/ %"),
+    ] {
+        let url = gix_url::parse(input.into())?;
+        let serialized = url.to_bstring();
+        assert_eq!(serialized, input);
+        assert_eq!(url.host(), Some(expected_host));
+        assert_eq!(url.path, expected_path);
+        assert_eq!(gix_url::parse(serialized.as_ref())?, url);
+    }
     Ok(())
 }
