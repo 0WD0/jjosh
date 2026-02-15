@@ -1424,6 +1424,7 @@ dependencies = [
  "gix-worktree-stream",
  "insta",
  "is_ci",
+ "nonempty",
  "parking_lot",
  "pretty_assertions",
  "prodash",
@@ -1971,6 +1972,7 @@ dependencies = [
  "gix-utils",
  "gix-worktree",
  "imara-diff 0.1.8",
+ "nonempty",
  "pretty_assertions",
  "serde",
  "termtree",
@@ -2286,6 +2288,7 @@ dependencies = [
  "gix-testtools",
  "gix-trace",
  "insta",
+ "nonempty",
  "permutohedron",
  "serde",
 ]
@@ -3558,6 +3561,12 @@ dependencies = [
  "memoffset",
  "pin-utils",
 ]
+
+[[package]]
+name = "nonempty"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
 
 [[package]]
 name = "ntapi"

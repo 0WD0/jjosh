@@ -52,7 +52,7 @@ mod octopus {
     ) -> Result<Option<ObjectId>, Error> {
         for other in others {
             if let Some(next) =
-                crate::merge_base(first, std::slice::from_ref(other), graph)?.and_then(|bases| bases.into_iter().next())
+                crate::merge_base(first, std::slice::from_ref(other), graph)?.map(|bases| *bases.first())
             {
                 first = next;
             } else {
