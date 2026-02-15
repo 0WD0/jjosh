@@ -85,6 +85,13 @@ mod blocking_and_async_io {
         try_repo_rw(name).unwrap()
     }
 
+    fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
+        let commits = repo.shallow_commits()?.expect(expected);
+        Ok(std::iter::once(commits.head)
+            .chain(commits.tail.iter().copied())
+            .collect())
+    }
+
     #[test]
     #[cfg(feature = "blocking-network-client")]
     fn fetch_more_packs_than_can_be_handled() -> gix_testtools::Result {
@@ -405,7 +412,7 @@ mod blocking_and_async_io {
         );
 
         assert_eq!(
-            repo.shallow_commits()?.expect("shallow clone").as_slice(),
+            shallow_ids(&repo, "shallow clone")?,
             [
                 hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
                 hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
@@ -428,7 +435,7 @@ mod blocking_and_async_io {
         );
 
         assert_eq!(
-            repo.shallow_commits()?.expect("shallow clone").as_slice(),
+            shallow_ids(&repo, "shallow clone")?,
             [
                 hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
                 hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),

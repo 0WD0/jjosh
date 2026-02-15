@@ -1424,6 +1424,7 @@ dependencies = [
  "gix-worktree-stream",
  "insta",
  "is_ci",
+ "nonempty",
  "parking_lot",
  "pretty_assertions",
  "prodash",
@@ -1557,6 +1558,7 @@ dependencies = [
  "gix-hash",
  "gix-testtools",
  "memmap2",
+ "nonempty",
  "serde",
 ]
 
@@ -1971,6 +1973,7 @@ dependencies = [
  "gix-utils",
  "gix-worktree",
  "imara-diff 0.1.8",
+ "nonempty",
  "pretty_assertions",
  "serde",
  "termtree",
@@ -2192,6 +2195,7 @@ dependencies = [
  "gix-transport",
  "gix-utils",
  "maybe-async",
+ "nonempty",
  "serde",
  "thiserror 2.0.18",
  "winnow",
@@ -2286,6 +2290,7 @@ dependencies = [
  "gix-testtools",
  "gix-trace",
  "insta",
+ "nonempty",
  "permutohedron",
  "serde",
 ]
@@ -2329,6 +2334,7 @@ dependencies = [
  "bstr",
  "gix-hash",
  "gix-lock",
+ "nonempty",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -3557,6 +3563,15 @@ dependencies = [
  "libc",
  "memoffset",
  "pin-utils",
+]
+
+[[package]]
+name = "nonempty"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9737e026353e5cd0736f98eddae28665118eb6f6600902a7f50db585621fecb6"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

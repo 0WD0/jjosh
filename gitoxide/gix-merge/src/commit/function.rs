@@ -60,14 +60,15 @@ pub fn commit<'objects>(
         |commit_id: gix_hash::ObjectId| objects.find_commit(&commit_id, &mut state.buf1).map(|c| c.tree());
 
     let (merge_base_tree_id, ancestor_name): (_, Cow<'_, str>) = match merge_bases.clone() {
-        Some(base_commit) if base_commit.len() == 1 => {
-            (commit_to_tree(base_commit[0])?, abbreviate_hash(&base_commit[0]).into())
-        }
-        Some(mut base_commits) => {
+        Some(base_commit) if base_commit.len() == 1 => (
+            commit_to_tree(*base_commit.first())?,
+            abbreviate_hash(base_commit.first()).into(),
+        ),
+        Some(base_commits) => {
             let virtual_base_tree = if options.use_first_merge_base {
-                let first = base_commits.first().expect("if Some() there is at least one.");
-                commit_to_tree(*first)?
+                commit_to_tree(*base_commits.first())?
             } else {
+                let mut base_commits: Vec<_> = base_commits.into();
                 let first = base_commits.pop().expect("at least two");
                 let second = base_commits.pop().expect("at least one left");
                 let out = crate::commit::virtual_merge_base(
@@ -81,7 +82,7 @@ pub fn commit<'objects>(
                     abbreviate_hash,
                     options.tree_merge.clone(),
                 )?;
-                virtual_merge_bases = out.virtual_merge_bases;
+                virtual_merge_bases = Vec::from(out.virtual_merge_bases);
                 out.tree_id
             };
             (virtual_base_tree, "merged common ancestors".into())

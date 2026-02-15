@@ -69,8 +69,10 @@ impl Graph {
                 .raise());
             }
 
-            for (base_graph_index, (expected, actual)) in self.files[..file_index]
+            for (base_graph_index, (expected, actual)) in self
+                .files
                 .iter()
+                .take(file_index)
                 .map(crate::File::checksum)
                 .zip(file.iter_base_graph_ids())
                 .enumerate()

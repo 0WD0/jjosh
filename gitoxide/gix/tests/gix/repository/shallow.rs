@@ -2,6 +2,13 @@ use serial_test::parallel;
 
 use crate::util::{hex_to_id, named_subrepo_opts};
 
+fn shallow_ids(repo: &gix::Repository) -> crate::Result<Vec<gix::ObjectId>> {
+    let commits = repo.shallow_commits()?.expect("present");
+    Ok(std::iter::once(commits.head)
+        .chain(commits.tail.iter().copied())
+        .collect())
+}
+
 #[test]
 #[parallel]
 fn no() -> crate::Result {
@@ -36,7 +43,7 @@ fn yes() -> crate::Result {
         let repo = named_subrepo_opts("make_shallow_repo.sh", name, crate::restricted())?;
         assert!(repo.is_shallow());
         assert_eq!(
-            repo.shallow_commits()?.expect("present").as_slice(),
+            shallow_ids(&repo)?,
             [hex_to_id("30887839de28edf7ab66c860e5c58b4d445f6b12")]
         );
     }
@@ -90,7 +97,7 @@ mod traverse {
             for name in ["shallow.git", "shallow"] {
                 let repo = gix::open_opts(shallow_base.join(name), crate::restricted())?;
                 assert_eq!(
-                    repo.shallow_commits()?.expect("present").as_slice(),
+                    super::shallow_ids(&repo)?,
                     [
                         hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
                         hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),

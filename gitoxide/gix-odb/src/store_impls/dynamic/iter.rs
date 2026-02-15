@@ -54,9 +54,13 @@ pub enum Ordering {
 ///
 /// Use [`with_ordering()`][AllObjects::with_ordering()] to choose a performance trade-off.
 pub struct AllObjects {
+    /// The current iteration state (pack, loose, or depleted)
     state: State,
+    /// The total number of packed objects (used for size hint)
     num_objects: usize,
+    /// Non-empty collection of loose object databases to iterate through
     loose_dbs: Arc<Vec<loose::Store>>,
+    /// The ordering strategy for returning objects
     order: Ordering,
 }
 

@@ -41,7 +41,7 @@ pub struct File {
 /// may come from one or more `objects/info/commit-graphs/graph-*.graph` files. These files are
 /// generated via `git commit-graph write ...` commands.
 pub struct Graph {
-    files: Vec<File>,
+    files: nonempty::NonEmpty<File>,
 }
 
 /// Instantiate a commit graph from an `.git/objects/info` directory, or one of the various commit-graph files.
