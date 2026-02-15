@@ -14,15 +14,8 @@ impl Graph {
     /// The kind of hash used in this `Graph`.
     ///
     /// Note that it is always conforming to the hash used in the owning repository.
-    ///
-    /// # Panics
-    ///
-    /// If the graph does not contain any `File`.
     pub fn object_hash(&self) -> gix_hash::Kind {
-        self.files
-            .first()
-            .map(super::File::object_hash)
-            .expect("graph to have at least one file")
+        self.files.first().object_hash()
     }
 
     /// Returns the commit matching the given `id`.

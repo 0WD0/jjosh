@@ -1558,6 +1558,7 @@ dependencies = [
  "gix-hash",
  "gix-testtools",
  "memmap2",
+ "nonempty",
  "serde",
 ]
 

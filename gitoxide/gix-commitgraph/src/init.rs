@@ -54,6 +54,8 @@ impl Graph {
 
     /// Create a new commit graph from a list of `files`.
     pub fn new(files: Vec<File>) -> Result<Self, Message> {
+        let files = nonempty::NonEmpty::from_vec(files)
+            .ok_or_else(|| message!("Commit-graph must contain at least one file"))?;
         let num_commits: u64 = files.iter().map(|f| u64::from(f.num_commits())).sum();
         if num_commits > u64::from(MAX_COMMITS) {
             return Err(message!(
@@ -61,9 +63,8 @@ impl Graph {
             ));
         }
 
-        for window in files.windows(2) {
-            let f1 = &window[0];
-            let f2 = &window[1];
+        let mut f1 = files.first();
+        for f2 in files.tail() {
             if f1.object_hash() != f2.object_hash() {
                 return Err(message!(
                     "Commit-graph files mismatch: '{path1}' uses hash {hash1:?}, but '{path2}' uses hash {hash2:?}",
@@ -73,6 +74,7 @@ impl Graph {
                     hash2 = f2.object_hash(),
                 ));
             }
+            f1 = f2;
         }
 
         Ok(Self { files })
