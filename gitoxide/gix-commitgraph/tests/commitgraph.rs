@@ -81,6 +81,14 @@ pub fn graph_and_expected_named(
     let expected = inspect_refs(&repo_dir, refs);
     let cg =
         Graph::from_info_dir(&repo_dir.join(".git").join("objects").join("info")).expect("graph present and valid");
+    let object_hash = cg.object_hash();
+    let any_ref = expected.values().next().expect("at least one ref");
+    assert_eq!(
+        object_hash,
+        any_ref.id().kind(),
+        "graph hash kind should match fixture object IDs"
+    );
+
     (cg, expected)
 }
 
