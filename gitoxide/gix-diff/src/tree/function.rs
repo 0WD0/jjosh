@@ -300,9 +300,14 @@ fn handle_lhs_and_rhs_with_equal_filenames(
 ) -> Result<(), Error> {
     match (lhs.mode.is_tree(), rhs.mode.is_tree()) {
         (true, true) => {
-            delegate.push_back_tracked_path_component(lhs.filename);
-            if lhs.oid != rhs.oid
-                && delegate
+            if lhs.oid == rhs.oid {
+                // If the tree oids are identical, we won't bother recursing
+                // into this subtree as the entire tree is identical.
+                // For path management purposes, treat it like a skipped blob.
+                delegate.push_path_component(lhs.filename);
+            } else {
+                delegate.push_back_tracked_path_component(lhs.filename);
+                if delegate
                     .visit(Change::Modification {
                         previous_entry_mode: lhs.mode,
                         previous_oid: lhs.oid.to_owned(),
@@ -310,14 +315,15 @@ fn handle_lhs_and_rhs_with_equal_filenames(
                         oid: rhs.oid.to_owned(),
                     })
                     .is_break()
-            {
-                return Err(Error::Cancelled);
+                {
+                    return Err(Error::Cancelled);
+                }
+                queue.push_back((
+                    Some(lhs.oid.to_owned()),
+                    Some(rhs.oid.to_owned()),
+                    relation_to_propagate,
+                ));
             }
-            queue.push_back((
-                Some(lhs.oid.to_owned()),
-                Some(rhs.oid.to_owned()),
-                relation_to_propagate,
-            ));
         }
         (_, true) => {
             delegate.push_back_tracked_path_component(lhs.filename);

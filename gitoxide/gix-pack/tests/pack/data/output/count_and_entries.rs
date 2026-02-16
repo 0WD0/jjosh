@@ -146,7 +146,7 @@ fn traversals() -> crate::Result {
                 output::count::objects::Outcome {
                     input_objects: 1,
                     expanded_objects: 102,
-                    decoded_objects: 18,
+                    decoded_objects: 10,
                     total_objects: 103,
                 },
                 output::entry::iter_from_counts::Outcome {
@@ -179,7 +179,7 @@ fn traversals() -> crate::Result {
                 output::count::objects::Outcome {
                     input_objects: 1,
                     expanded_objects: 102,
-                    decoded_objects: 18,
+                    decoded_objects: 10,
                     total_objects: 103,
                 },
                 output::entry::iter_from_counts::Outcome {
@@ -221,7 +221,7 @@ fn traversals() -> crate::Result {
                 output::count::objects::Outcome {
                     input_objects: 16,
                     expanded_objects: 866,
-                    decoded_objects: 208,
+                    decoded_objects: 74,
                     total_objects: 868,
                 },
                 output::entry::iter_from_counts::Outcome {
