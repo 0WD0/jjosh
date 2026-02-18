@@ -8,6 +8,16 @@ use gix_fs::{stack::ToNormalPathComponents, Stack};
 
 use crate::SymlinkCheck;
 
+#[derive(Debug, thiserror::Error)]
+#[error("Cannot step through symlink to perform an lstat")]
+struct CannotStepThroughSymlink;
+
+pub(crate) fn is_symlink_step_error(err: &std::io::Error) -> bool {
+    err.get_ref()
+        .and_then(|source| source.downcast_ref::<CannotStepThroughSymlink>())
+        .is_some()
+}
+
 impl SymlinkCheck {
     /// Create a new stack that starts operating at `root`.
     pub fn new(root: PathBuf) -> Self {
@@ -69,7 +79,7 @@ impl gix_fs::stack::Delegate for Delegate {
             }
 
             if stack.current().symlink_metadata()?.is_symlink() {
-                return Err(std::io::Error::other("Cannot step through symlink to perform an lstat"));
+                return Err(std::io::Error::other(CannotStepThroughSymlink));
             }
             Ok(())
         }

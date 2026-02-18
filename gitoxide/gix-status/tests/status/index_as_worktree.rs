@@ -349,6 +349,22 @@ fn removed() {
 }
 
 #[test]
+#[cfg(unix)]
+fn removed_if_a_tracked_directory_is_replaced_with_a_symlink() {
+    assert_eq!(
+        fixture(
+            "status_tracked_dir_replaced_with_symlink",
+            &[(BStr::new(b"tracked/file"), 0, status_removed())]
+        ),
+        Outcome {
+            entries_to_process: 1,
+            entries_processed: 1,
+            ..Default::default()
+        }
+    );
+}
+
+#[test]
 fn replace_dir_with_file() {
     let out = fixture_filtered_detailed(
         "status_many",
