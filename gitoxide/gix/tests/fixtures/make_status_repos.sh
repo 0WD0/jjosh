@@ -41,3 +41,15 @@ git init untracked-added
   echo content >added
   git add added
 )
+
+git init symlink-replaces-tracked-dir
+(cd symlink-replaces-tracked-dir
+  mkdir tracked target
+  echo content >tracked/file
+  echo other >target/file
+  git add tracked/file
+  git commit -m init
+
+  rm -rf tracked
+  ln -s target tracked
+)

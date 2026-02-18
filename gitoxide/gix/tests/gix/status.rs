@@ -411,6 +411,64 @@ mod index_worktree {
             assert!(is_dirty, "this should abort the work as quickly as possible");
             Ok(())
         }
+
+        #[test]
+        #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
+        fn tracked_entries_under_a_symlinked_directory_are_reported_as_removed() -> crate::Result {
+            let repo = repo("symlink-replaces-tracked-dir")?;
+            let mut items: Vec<_> = repo
+                .status(gix::progress::Discard)?
+                .into_index_worktree_iter(None)?
+                .collect::<Result<_, _>>()?;
+            items.sort_by(|a, b| a.rela_path().cmp(b.rela_path()));
+            let idx = 2;
+            assert_eq!(items[idx].rela_path(), "tracked/file");
+            assert_eq!(
+                items[idx].summary(),
+                Some(gix::status::index_worktree::iter::Summary::Removed)
+            );
+            // Remove the entry with stat information which can't be stable.
+            items.remove(idx);
+            // We correctly identify the `tracked` folder as tracked, knowing that in the index
+            // it's a directory, and locally it's a symlink.
+            insta::assert_debug_snapshot!(&items, @r#"
+            [
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "target",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            Directory,
+                        ),
+                        index_kind: None,
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+                DirectoryContents {
+                    entry: Entry {
+                        rela_path: "tracked",
+                        status: Untracked,
+                        property: None,
+                        disk_kind: Some(
+                            Symlink,
+                        ),
+                        index_kind: Some(
+                            Directory,
+                        ),
+                        pathspec_match: Some(
+                            Always,
+                        ),
+                    },
+                    collapsed_directory_status: None,
+                },
+            ]
+            "#);
+            Ok(())
+        }
     }
 }
 
