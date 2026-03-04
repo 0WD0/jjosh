@@ -69,11 +69,11 @@ serde = { version = "1.0.114", optional = true, default-features = false, featur
 document-features = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
-criterion = "0.8.0"
+criterion = "0.8.2"
 pretty_assertions = "1.0.0"
 gix-testtools = { path = "../tests/tools" }
 gix-odb = { path = "../gix-odb" }
-termtree = "0.5.1"
+termtree = "1.0.0"
 
 [package.metadata.docs.rs]
 all-features = true
