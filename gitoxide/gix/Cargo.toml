@@ -438,7 +438,7 @@ async-std = { version = "1.12.0", optional = true }
 ##
 ## If disabled, the text will be search verbatim in any portion of the commit message, similar to
 ## how a simple unanchored regex of only 'normal' characters would work.
-regex = { version = "1.11.3", optional = true, default-features = false, features = [
+regex = { version = "1.12.3", optional = true, default-features = false, features = [
     "std",
 ] }
 
@@ -458,10 +458,10 @@ gix-testtools = { path = "../tests/tools" }
 is_ci = "1.1.1"
 anyhow = "1"
 walkdir = "2.3.2"
-serial_test = { version = "3.3.1", default-features = false }
+serial_test = { version = "3.4.0", default-features = false }
 async-std = { version = "1.12.0", features = ["attributes"] }
-termtree = "0.5.1"
-insta = "1.46.1"
+termtree = "1.0.0"
+insta = "1.46.3"
 
 [package.metadata.docs.rs]
 features = [

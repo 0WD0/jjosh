@@ -48,7 +48,7 @@ gix-hashtable = { version = "^0.12.0", path = "../gix-hashtable", optional = tru
 gix-traverse = { version = "^0.54.0", path = "../gix-traverse", optional = true }
 gix-diff = { version = "^0.60.0", path = "../gix-diff", default-features = false, optional = true }
 
-memmap2 = "0.9.7"
+memmap2 = "0.9.10"
 smallvec = "1.15.1"
 parking_lot = { version = "0.12.4", default-features = false, optional = true }
 thiserror = "2.0.18"

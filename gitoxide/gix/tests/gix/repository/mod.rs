@@ -136,10 +136,12 @@ mod dirwalk {
 #[test]
 fn size_in_memory() {
     let actual_size = std::mem::size_of::<Repository>();
-    let limit = 1250;
+    // Windows currently lays out `Repository` slightly larger than other platforms.
+    // Keep the tighter limit elsewhere so regular growth still gets noticed quickly.
+    let limit = if cfg!(windows) { 1280 } else { 1250 };
     assert!(
         actual_size <= limit,
-        "size of Repository shouldn't change without us noticing, it's meant to be cloned: should have been below {limit:?}, was {actual_size} (bigger on windows)"
+        "size of Repository shouldn't change without us noticing, it's meant to be cloned: should have been below {limit:?}, was {actual_size}"
     );
 }
 
