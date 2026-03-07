@@ -246,7 +246,7 @@ where
                     match this.state {
                         State::Idle { ref mut parent } => {
                             let parent = parent.take().expect("parent to be present here");
-                            let inactive = parent as *mut _;
+                            let inactive = std::ptr::from_mut(parent);
                             this.state = State::ReadLine {
                                 read_line: parent.read_line().boxed_local(),
                                 parent_inactive: Some(inactive),
