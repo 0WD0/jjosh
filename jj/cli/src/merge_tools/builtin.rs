@@ -1211,16 +1211,16 @@ mod tests {
             .block_on()
             .unwrap();
 
-        let actual_copy_ids = tree
-            .path_value(file_path)
-            .block_on()
-            .unwrap()
-            .map(|tree_value| {
-                let Some(TreeValue::File { copy_id, .. }) = tree_value else {
-                    panic!("The path should point to an existing file.");
-                };
-                copy_id.clone()
-            });
+        let actual_copy_ids =
+            tree.path_value(file_path)
+                .block_on()
+                .unwrap()
+                .into_map(|tree_value| {
+                    let Some(TreeValue::File { copy_id, .. }) = tree_value else {
+                        panic!("The path should point to an existing file.");
+                    };
+                    copy_id
+                });
         assert_eq!(
             actual_copy_ids.resolve_trivial(SameChange::Accept),
             Some(&new_copy_id),

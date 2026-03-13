@@ -363,10 +363,7 @@ impl MergedTree {
                 .map(|&label| label.to_owned()),
         );
         let flattened_tree_ids: Merge<TreeId> = merge
-            .into_iter()
-            .map(|(tree, _label)| tree.into_tree_ids())
-            .collect::<MergeBuilder<_>>()
-            .build()
+            .into_map(|(tree, _label)| tree.into_tree_ids())
             .flatten();
 
         let (labels, tree_ids) = flattened_labels.simplify_with(&flattened_tree_ids);
