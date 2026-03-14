@@ -1,6 +1,6 @@
 use gix::config::tree::{gitoxide, Branch, Core, Key};
 
-use crate::named_repo;
+use crate::{named_repo, repo_rw};
 
 #[cfg(feature = "credentials")]
 mod credential_helpers;
@@ -168,5 +168,34 @@ fn apply_cli_overrides() -> crate::Result {
         "values without key-sep are true"
     );
 
+    Ok(())
+}
+
+#[test]
+fn reload_reloads_on_disk_changes() -> crate::Result {
+    use std::io::Write;
+
+    let (mut repo, _tmp) = repo_rw("make_config_repo.sh")?;
+    assert_eq!(repo.config_snapshot().integer("core.abbrev"), None);
+
+    let config_path = repo.git_dir().join("config");
+    let mut config = std::fs::OpenOptions::new().append(true).open(config_path)?;
+    writeln!(config, "\n[core]\n\tabbrev = 4")?;
+
+    assert_eq!(repo.config_snapshot().integer("core.abbrev"), None);
+    repo.reload()?;
+    assert_eq!(repo.config_snapshot().integer("core.abbrev"), Some(4));
+    Ok(())
+}
+
+#[test]
+fn reload_discards_in_memory_only_changes() -> crate::Result {
+    let mut repo = named_repo("make_config_repo.sh")?;
+
+    repo.config_snapshot_mut().set_raw_value(&Core::ABBREV, "4")?;
+    assert_eq!(repo.config_snapshot().integer("core.abbrev"), Some(4));
+
+    repo.reload()?;
+    assert_eq!(repo.config_snapshot().integer("core.abbrev"), None);
     Ok(())
 }
