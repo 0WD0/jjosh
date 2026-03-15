@@ -3515,7 +3515,7 @@ impl<S: Stream<Item = Result<CommitId, RevsetEvaluationError>>> RevsetStreamExt 
         self,
         store: &Arc<Store>,
     ) -> impl Stream<Item = Result<Commit, RevsetEvaluationError>> + use<'_, S> {
-        self.then(async move |result| {
+        self.map(async move |result| {
             let commit_id = result?;
             let commit = store
                 .get_commit_async(&commit_id)
@@ -3523,6 +3523,7 @@ impl<S: Stream<Item = Result<CommitId, RevsetEvaluationError>>> RevsetStreamExt 
                 .map_err(RevsetEvaluationError::Backend)?;
             Ok(commit)
         })
+        .buffered(store.concurrency())
     }
 }
 
