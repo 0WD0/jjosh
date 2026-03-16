@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "wasi", feature(wasip2))]
 //! This crate contains an assortment of utilities to deal with paths and their conversions.
 //!
 //! Generally `git` treats paths as bytes, but inherently assumes non-illformed UTF-8 as encoding on windows. Internally, it expects
