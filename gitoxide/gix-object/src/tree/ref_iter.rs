@@ -202,8 +202,21 @@ mod decode {
     }
 
     pub fn tree<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<TreeRef<'a>, E> {
-        let mut out = Vec::new();
         let mut i = &**i;
+
+        // Calculate an estimate of the amount of entries to reduce
+        // the amount of allocations necessary.
+        // Note that this assumes that we want speed over fitting Vecs, this is a trade-off.
+        // TODO(SHA256): know actual/desired length for reduced overallocation
+        const HASH_LEN_FIXME: usize = 20;
+        const AVERAGE_FILENAME_LEN: usize = 24;
+        const AVERAGE_MODE_LEN: usize = 6;
+        const ENTRY_DELIMITER_LEN: usize = 2; // space + trailing zero
+        const AVERAGE_TREE_ENTRIES: usize = 16 * 2; // prevent overallocation beyond what's meaningful or what could be dangerous
+        let average_entry_len = ENTRY_DELIMITER_LEN + HASH_LEN_FIXME + AVERAGE_MODE_LEN + AVERAGE_FILENAME_LEN;
+        let upper_bound = i.len() / average_entry_len;
+        let mut out = Vec::with_capacity(upper_bound.min(AVERAGE_TREE_ENTRIES));
+
         while !i.is_empty() {
             let Some((rest, entry)) = fast_entry(i) else {
                 #[allow(clippy::unit_arg)]
