@@ -17,7 +17,7 @@ mod prefix {
     }
 
     #[test]
-    fn short_absolute_refs_have_no_prefix() {
+    fn short_absolute_refs_even_if_unusual_count_as_prefix() {
         assert_eq!(parse("refs/short").to_ref().prefix().unwrap(), "refs/short");
     }
 
@@ -37,14 +37,35 @@ mod prefix {
         assert_eq!(parse("refs/heads/main").to_ref().prefix().unwrap(), "refs/heads/main");
         assert_eq!(parse("refs/foo/bar").to_ref().prefix().unwrap(), "refs/foo/bar");
         assert_eq!(
+            parse("refs/namespaces/foo/refs/heads/main").to_ref().prefix().unwrap(),
+            "refs/namespaces/foo/refs/heads/main"
+        );
+        assert_eq!(
             parse("refs/heads/*:refs/remotes/origin/*").to_ref().prefix().unwrap(),
             "refs/heads/"
+        );
+        assert_eq!(
+            parse("refs/namespaces/*:refs/remotes/origin/*")
+                .to_ref()
+                .prefix()
+                .unwrap(),
+            "refs/namespaces/"
         );
     }
 
     #[test]
     fn strange_glob_patterns_have_no_prefix() {
         assert_eq!(parse("refs/*/main:refs/*/main").to_ref().prefix(), None);
+        assert_eq!(
+            parse("refs/*/foo/*").to_ref().prefix(),
+            None,
+            "duplicate * in pattern, we only support simple ones"
+        );
+        assert_eq!(
+            parse("refs/heads/[a-z.]/release/*").to_ref().prefix(),
+            None,
+            "complex glob patterns aren't handled either"
+        );
     }
 
     #[test]
@@ -103,7 +124,16 @@ mod expand_prefixes {
     fn full_names_expand_to_their_prefix() {
         assert_eq!(parse("refs/heads/main"), ["refs/heads/main"]);
         assert_eq!(parse("refs/foo/bar"), ["refs/foo/bar"]);
+        assert_eq!(
+            parse("refs/namespaces/foo/refs/heads/main"),
+            ["refs/namespaces/foo/refs/heads/main"]
+        );
         assert_eq!(parse("refs/heads/*:refs/remotes/origin/*"), ["refs/heads/"]);
+        assert_eq!(parse("refs/namespaces/*:refs/remotes/origin/*"), ["refs/namespaces/"]);
+        assert_eq!(
+            parse("refs/namespaces/foo/refs/heads/*:refs/remotes/origin/*"),
+            ["refs/namespaces/foo/refs/heads/"]
+        );
     }
 
     #[test]
@@ -118,6 +148,8 @@ mod expand_prefixes {
     #[test]
     fn strange_glob_patterns_expand_to_nothing() {
         assert_eq!(parse("refs/*/main:refs/*/main").len(), 0);
+        assert_eq!(parse("refs/*/foo/*").len(), 0);
+        assert_eq!(parse("refs/heads/[a-z.]/release/*").len(), 0);
     }
 
     #[test]
