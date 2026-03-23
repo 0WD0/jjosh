@@ -526,7 +526,7 @@ jobs:
 
     strategy:
       matrix:
-        target: [ wasm32-unknown-unknown, wasm32-wasip1 ]
+        target: [ wasm32-unknown-unknown, wasm32-wasip1, wasm32-wasip2 ]
 
     env:
       TARGET: ${{ matrix.target }}
@@ -544,7 +544,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: 'WASI only: crates without feature toggle'
-        if: endsWith(matrix.target, '-wasi')
+        if: startsWith(matrix.target, 'wasm32-wasi')
         run: |
           set -x
           for crate in gix-sec; do
@@ -592,6 +592,7 @@ jobs:
             gix-commitgraph
             gix-hash
             gix-hashtable
+            gix-index
             gix-object
             gix-refspec
             gix-revision

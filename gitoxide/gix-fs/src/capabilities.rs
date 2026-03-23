@@ -181,3 +181,15 @@ impl Default for Capabilities {
         }
     }
 }
+
+#[cfg(not(any(windows, unix, target_os = "wasi")))]
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities {
+            precompose_unicode: false,
+            ignore_case: false,
+            executable_bit: false,
+            symlink: false,
+        }
+    }
+}
