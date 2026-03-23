@@ -90,6 +90,7 @@ comfort = [
 
 ## Enable support for the SHA-1 hash throughout the `gix` stack.
 sha1 = [
+    "gix-hash/sha1",
     "gix-archive?/sha1",
     "gix-blame?/sha1",
     "gix-commitgraph/sha1",
@@ -98,7 +99,6 @@ sha1 = [
     "gix-dir?/sha1",
     "gix-discover/sha1",
     "gix-filter?/sha1",
-    "gix-hash/sha1",
     "gix-hashtable/sha1",
     "gix-index?/sha1",
     "gix-merge?/sha1",
@@ -121,8 +121,6 @@ sha1 = [
 ]
 
 ## Enable support for the SHA-256 hash throughout the `gix` stack.
-##
-## Note that, as of 2026-03-02, only `gix-hash` offers that flag yet.
 sha256 = [
     "gix-hash/sha256",
 ]
