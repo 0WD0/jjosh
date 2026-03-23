@@ -3,17 +3,45 @@ use std::{io, io::ErrorKind::AlreadyExists, path::Path};
 /// Create a new symlink at `link` which points to `original`.
 ///
 /// Note that `original` doesn't have to exist.
-#[cfg(not(windows))]
+#[cfg(unix)]
 pub fn create(original: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(original, link)
+}
+
+/// Create a new symlink at `link` which points to `original`.
+///
+/// Note that `original` doesn't have to exist.
+#[cfg(target_os = "wasi")]
+pub fn create(original: &Path, link: &Path) -> io::Result<()> {
+    std::fs::soft_link(original, link)
+}
+
+/// Create a new symlink at `link` which points to `original`.
+///
+/// Note that symbolic links are unsupported on this platform.
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn create(_original: &Path, _link: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "symbolic links are not supported on this platform",
+    ))
 }
 
 /// Remove a symlink.
 ///
 /// Note that on only on windows this is special.
-#[cfg(not(windows))]
+#[cfg(any(unix, target_os = "wasi"))]
 pub fn remove(path: &Path) -> io::Result<()> {
     std::fs::remove_file(path)
+}
+
+/// Remove a symlink.
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn remove(_path: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "symbolic links are not supported on this platform",
+    ))
 }
 
 // TODO: use the `symlink` crate once it can delete directory symlinks
@@ -50,7 +78,7 @@ pub fn create(original: &Path, link: &Path) -> io::Result<()> {
 
 /// Return true if `err` indicates that a file collision happened, i.e. a symlink couldn't be created as the `link`
 /// already exists as filesystem object.
-#[cfg(not(windows))]
+#[cfg(any(unix, target_os = "wasi"))]
 pub fn is_collision_error(err: &std::io::Error) -> bool {
     // TODO: use ::IsDirectory as well when stabilized instead of raw_os_error(), and ::FileSystemLoop respectively
     err.kind() == AlreadyExists
@@ -64,4 +92,11 @@ pub fn is_collision_error(err: &std::io::Error) -> bool {
 #[cfg(windows)]
 pub fn is_collision_error(err: &std::io::Error) -> bool {
     err.kind() == AlreadyExists || err.kind() == std::io::ErrorKind::PermissionDenied
+}
+
+/// Return true if `err` indicates that a file collision happened, i.e. a symlink couldn't be created as the `link`
+/// already exists as filesystem object.
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn is_collision_error(err: &std::io::Error) -> bool {
+    err.kind() == AlreadyExists
 }
