@@ -59,22 +59,26 @@ pub(crate) mod function {
     /// These prefixes can be constructed from a set of [`RefSpec`]'s using
     /// [`RefPrefixes::from_refspecs`].
     ///
-    /// Alternatively, they can be constructed using [`RefsPrefixes::new`] and
+    /// Alternatively, they can be constructed using [`RefPrefixes::new`] and
     /// using [`RefPrefixes::extend`] to add new prefixes. Note that any
     /// references not starting with `refs/` will be filtered out.
     ///
     /// [`RefSpec`]: gix_refspec::RefSpec
     /// [gitprotocol-v2.adoc#ls-refs]: https://github.com/git/git/blob/master/Documentation/gitprotocol-v2.adoc#ls-refs
     pub struct RefPrefixes {
-        prefixes: HashSet<BString>,
+        prefixes: Vec<BString>,
+    }
+
+    impl Default for RefPrefixes {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl RefPrefixes {
         /// Create an empty set of [`RefPrefixes`].
         pub fn new() -> RefPrefixes {
-            RefPrefixes {
-                prefixes: HashSet::new(),
-            }
+            RefPrefixes { prefixes: Vec::new() }
         }
 
         /// Convert a series of [`RefSpec`]'s into a set of [`RefPrefixes`].
@@ -85,7 +89,7 @@ pub(crate) mod function {
         /// [`RefSpec`]: gix_refspec::RefSpec
         pub fn from_refspecs<'a>(refspecs: impl IntoIterator<Item = &'a gix_refspec::RefSpec>) -> Self {
             let mut seen = HashSet::new();
-            let mut prefixes = HashSet::new();
+            let mut prefixes = Self::new();
             for spec in refspecs.into_iter() {
                 let spec = spec.to_ref();
                 if seen.insert(spec.instruction()) {
@@ -94,7 +98,7 @@ pub(crate) mod function {
                     prefixes.extend(out);
                 }
             }
-            Self { prefixes }
+            prefixes
         }
 
         fn into_args(self) -> impl Iterator<Item = BString> {
@@ -107,8 +111,11 @@ pub(crate) mod function {
 
     impl Extend<BString> for RefPrefixes {
         fn extend<T: IntoIterator<Item = BString>>(&mut self, iter: T) {
-            self.prefixes
-                .extend(iter.into_iter().filter(|prefix| prefix.starts_with(b"refs/")));
+            for prefix in iter.into_iter().filter(|prefix| prefix.starts_with(b"refs/")) {
+                if !self.prefixes.iter().any(|existing| existing == &prefix) {
+                    self.prefixes.push(prefix);
+                }
+            }
         }
     }
 
@@ -125,8 +132,11 @@ pub(crate) mod function {
     impl<'a> LsRefsCommand<'a> {
         /// Build a command to list refs from the given server `capabilities`,
         /// using `agent` information to identify ourselves.
+        ///
+        /// Use [`crate::ls_refs::RefPrefixes::from_refspecs()`] to construct `ref_prefixes`
+        /// from refspecs, or [`crate::ls_refs::RefPrefixes::new()`] to build them manually.
         pub fn new(
-            prefix_refspecs: Option<RefPrefixes>,
+            ref_prefixes: Option<RefPrefixes>,
             capabilities: &'a Capabilities,
             agent: (&'static str, Option<Cow<'static, str>>),
         ) -> Self {
@@ -142,8 +152,8 @@ pub(crate) mod function {
                 arguments.push("unborn".into());
             }
 
-            if let Some(refspecs) = prefix_refspecs {
-                arguments.extend(refspecs.into_args());
+            if let Some(prefixes) = ref_prefixes {
+                arguments.extend(prefixes.into_args());
             }
 
             Self {
@@ -221,6 +231,42 @@ pub(crate) mod function {
                 trace,
             )?;
             Ok(from_v2_refs(&mut remote_refs)?)
+        }
+    }
+
+    #[cfg(test)]
+    mod ref_prefixes {
+        use bstr::{BString, ByteSlice};
+
+        use super::RefPrefixes;
+
+        #[test]
+        fn extend_preserves_first_seen_order_and_deduplicates_refs() {
+            let mut prefixes = RefPrefixes::new();
+            prefixes.extend(
+                [
+                    "refs/tags",
+                    "HEAD",
+                    "refs/heads/main",
+                    "refs/tags",
+                    "refs/heads/feature",
+                    "refs/heads/main",
+                ]
+                .into_iter()
+                .map(|prefix| prefix.as_bytes().as_bstr().to_owned()),
+            );
+
+            assert_eq!(
+                prefixes.into_args().collect::<Vec<_>>(),
+                [
+                    "ref-prefix refs/tags",
+                    "ref-prefix refs/heads/main",
+                    "ref-prefix refs/heads/feature"
+                ]
+                .into_iter()
+                .map(BString::from)
+                .collect::<Vec<_>>()
+            );
         }
     }
 }
