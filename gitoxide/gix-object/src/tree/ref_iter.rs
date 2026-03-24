@@ -5,8 +5,25 @@ use winnow::{error::ParserError, prelude::*};
 
 use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 
-/// Yes
-pub fn iter_next<'a, I, P>(
+/// Advance a path lookup by matching the next path component against `tree`.
+///
+/// `components` must yield the remaining path components to resolve, and `tree` must be the
+/// current object to search in.
+///
+/// The return value indicates how the caller should proceed:
+///
+/// - [`ControlFlow::Continue`] contains the object id of the matched entry when there are more
+///   components left to resolve. Callers should load that object and pass it back into a subsequent
+///   invocation.
+/// - [`ControlFlow::Break`]`(Some(entry))` contains the matched entry for the final component, and
+///   signals that lookup completed successfully.
+/// - [`ControlFlow::Break`]`(None)` signals that lookup cannot continue and should stop without a
+///   match. This happens if `tree` is not a tree object, if `components` is already exhausted, or if
+///   the next component is not present in `tree`.
+///
+/// Note that this behaviour is tuned to prefer to exhaust the entire chain of `components`, only the
+/// last component can yield a [`ControlFlow::Break`].
+pub fn next_entry<'a, I, P>(
     components: &mut core::iter::Peekable<I>,
     tree: crate::Data<'a>,
 ) -> core::ops::ControlFlow<Option<EntryRef<'a>>, gix_hash::ObjectId>
@@ -67,7 +84,7 @@ impl<'a> TreeRefIter<'a> {
         let mut data = crate::Data::new(crate::Kind::Tree, buffer);
 
         loop {
-            data = match iter_next(&mut iter, data) {
+            data = match next_entry(&mut iter, data) {
                 ControlFlow::Continue(oid) => {
                     let Some(next_tree) = odb.try_find(&oid, buffer)? else {
                         break Ok(None);

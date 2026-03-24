@@ -9,10 +9,10 @@ use crate::{
 pub mod editor;
 
 mod ref_iter;
+pub use ref_iter::next_entry;
+
 ///
 pub mod write;
-
-pub use ref_iter::iter_next;
 
 /// The state needed to apply edits instantly to in-memory trees.
 ///

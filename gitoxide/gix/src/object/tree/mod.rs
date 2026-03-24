@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use gix_hash::ObjectId;
 pub use gix_object::tree::{EntryKind, EntryMode};
-use gix_object::{bstr::BStr, tree::iter_next, FindExt, TreeRefIter};
+use gix_object::{bstr::BStr, tree::next_entry, FindExt, TreeRefIter};
 
 use crate::{object::find, Id, ObjectDetached, Repository, Tree};
 
@@ -72,7 +72,7 @@ impl<'repo> Tree<'repo> {
         let mut data = gix_object::Data::new(gix_object::Kind::Tree, buf);
 
         loop {
-            data = match iter_next(&mut iter, data) {
+            data = match next_entry(&mut iter, data) {
                 ControlFlow::Continue(oid) => self.repo.find(&oid, buf)?,
                 ControlFlow::Break(entry) => {
                     let mapped = entry.map(|e| Entry {
@@ -106,10 +106,11 @@ impl<'repo> Tree<'repo> {
         let mut data = gix_object::Data::new(gix_object::Kind::Tree, &self.data);
 
         loop {
-            data = match iter_next(&mut iter, data) {
+            data = match next_entry(&mut iter, data) {
                 ControlFlow::Continue(oid) => {
+                    let res = self.repo.find(&oid, &mut self.data)?;
                     self.id = oid;
-                    self.repo.find(&oid, &mut self.data)?
+                    res
                 }
                 ControlFlow::Break(entry) => {
                     let repo = self.repo;
