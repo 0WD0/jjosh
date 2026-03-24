@@ -9,6 +9,8 @@ use crate::{
 pub mod editor;
 
 mod ref_iter;
+pub use ref_iter::next_entry;
+
 ///
 pub mod write;
 
