@@ -27,7 +27,7 @@ path = "examples/try-deadlock-on-cleanup.rs"
 required-features = ["signals"]
 
 [lib]
-doctest = false
+doctest = true
 test = true
 
 [dependencies]

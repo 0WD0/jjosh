@@ -13,7 +13,7 @@ alias c := check
 alias nt := nextest
 
 # Run all tests, clippy, including journey tests, try building docs
-test: clippy check doc unit-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests check-mode
+test: clippy check doc unit-tests doc-tests journey-tests-pure journey-tests-small journey-tests-async journey-tests check-mode
 
 # Run all tests, without clippy, and try building docs
 ci-test: check doc unit-tests check-mode
@@ -240,7 +240,12 @@ unit-tests:
     cargo nextest run -p gix --features async-network-client --no-fail-fast
     cargo nextest run -p gix --features blocking-network-client --no-fail-fast
     cargo nextest run -p gitoxide-core --lib --no-tests=warn --no-fail-fast
+
+# Run all doctests
+doc-tests:
     cargo test --workspace --doc --no-fail-fast
+    # `cargo nextest` doesn't run doctests, so cover feature-gated examples explicitly here.
+    cargo test -p gix-packetline --doc --features blocking-io --no-fail-fast
 
 # These tests aren't run by default as they are flaky (even locally)
 unit-tests-flaky:

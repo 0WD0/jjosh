@@ -215,7 +215,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
         * [x] handle 'old' form for reading and detect old form
         * [x] list
         * [ ] edit
-* [ ] API documentation
+* [x] API documentation
     * [ ] Some examples
 
 ### gix-actor
@@ -228,7 +228,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
 * types to represent hash digests to identify git objects.
 * used to abstract over different kinds of hashes, like SHA1 and the upcoming SHA256
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-chunk
 * [x] decode the chunk file table of contents and provide convenient API
@@ -267,7 +267,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
 * [x] edit trees efficiently and write changes back
     - [ ] See if `gix-fs::InternedMap` improves performance.
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-pack
 * **packs**
@@ -311,7 +311,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
         * [ ] [special handling for networked packs](https://github.com/git/git/blob/89b43f80a514aee58b662ad606e6352e03eaeee4/packfile.c#L949:L949)
         * [ ] [detect and retry packed object reading](https://github.com/git/git/blob/89b43f80a514aee58b662ad606e6352e03eaeee4/packfile.c#L1268:L1268)
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-odb
 * **loose object store**
@@ -346,7 +346,7 @@ The top-level crate that acts as hub to all functionality provided by the `gix-*
     * [ ] support multiple promisor remotes and `extensions.partialClone`
     * [ ] make object lookups, maintenance and connectivity checks promisor-aware
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-diff
 
@@ -461,7 +461,7 @@ A utility crate with types and functionality related to shallow-file handling.
 * [x] username expansion for ssh and git urls
 * [x] convert URL to string
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-packetline
 * [PKT-Line](https://github.com/git/git/blob/master/Documentation/technical/protocol-common.txt#L52:L52)
@@ -474,7 +474,7 @@ A utility crate with types and functionality related to shallow-file handling.
 * [x] `Write` with built-in packet line encoding
 * [x] `async` support
 * [x] API documentation
-    * [ ] Some examples
+    * [x] Some examples
 
 ### gix-transport
 * No matter what we do here, timeouts must be supported to prevent hanging forever and to make interrupts destructor-safe.

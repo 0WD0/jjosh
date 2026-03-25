@@ -12,7 +12,7 @@ rust-version = "1.82"
 include = ["src/**/*", "LICENSE-*", "README.md"]
 
 [lib]
-doctest = false
+doctest = true
 
 [dependencies]
 gix-glob = { version = "^0.24.0", path = "../gix-glob" }

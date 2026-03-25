@@ -41,6 +41,19 @@ impl<'repo> Tree<'repo> {
     }
 
     /// Find the entry named `name` by iteration, or return `None` if it wasn't found.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let tree = repo.head_tree()?;
+    ///
+    /// assert_eq!(tree.find_entry("this").expect("present").filename(), "this");
+    /// assert!(tree.find_entry("does-not-exist").is_none());
+    /// # Ok(()) }
+    /// ```
     pub fn find_entry(&self, name: impl PartialEq<BStr>) -> Option<EntryRef<'repo, '_>> {
         TreeRefIter::from_bytes(&self.data)
             .filter_map(Result::ok)
@@ -127,6 +140,19 @@ impl<'repo> Tree<'repo> {
     ///
     /// If any path component contains illformed UTF-8 and thus can't be converted to bytes on platforms which can't do so natively,
     /// the returned component will be empty which makes the lookup fail.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::worktree_repo_dir()?)?;
+    /// let tree = repo.head_commit()?.tree()?;
+    /// let entry = tree.lookup_entry_by_path("dir/c")?.expect("present");
+    ///
+    /// assert_eq!(entry.filename(), "c");
+    /// # Ok(()) }
+    /// ```
     pub fn lookup_entry_by_path(
         &self,
         relative_path: impl AsRef<std::path::Path>,
