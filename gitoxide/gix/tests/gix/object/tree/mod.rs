@@ -62,6 +62,11 @@ mod peel_to_entry {
 
         assert!(entry.mode().is_tree());
         assert_eq!(tree.id(), dir_id);
+        assert_eq!(
+            tree.find_entry("c").expect("subtree entry").filename(),
+            "c",
+            "the data matches the id"
+        );
         Ok(())
     }
 
@@ -101,6 +106,11 @@ mod peel_to_entry {
 
         assert!(entry.is_none());
         assert_eq!(tree.id(), root_id);
+        assert_eq!(
+            tree.find_entry("dir").expect("root tree entry").filename(),
+            "dir",
+            "the data matches the id"
+        );
         Ok(())
     }
 
@@ -114,6 +124,11 @@ mod peel_to_entry {
 
         assert!(entry.is_none());
         assert_eq!(tree.id(), dir_id);
+        assert_eq!(
+            tree.find_entry("c").expect("nested tree entry").filename(),
+            "c",
+            "the data matches the id"
+        );
         Ok(())
     }
 

@@ -103,13 +103,15 @@ impl<'repo> Tree<'repo> {
     {
         let mut iter = path.into_iter().peekable();
         let mut data = gix_object::Data::new(gix_object::Kind::Tree, &self.data);
+        let mut data_id = self.id;
 
         loop {
             data = match next_entry(&mut iter, data) {
                 ControlFlow::Continue(id) => {
                     let res = self.repo.find(&id, &mut self.data)?;
+                    data_id = id;
                     if res.kind.is_tree() {
-                        self.id = id;
+                        self.id = data_id;
                     }
                     res
                 }
@@ -120,8 +122,15 @@ impl<'repo> Tree<'repo> {
                     });
                     if let Some(entry) = &mapped {
                         if entry.mode().is_tree() {
-                            self.id = entry.object_id();
+                            let id = entry.object_id();
+                            self.repo.find(&id, &mut self.data)?;
+                            data_id = id;
+                            self.id = data_id;
                         }
+                    }
+                    if data_id != self.id {
+                        // Ensure that our data always matches our id, even if this means an extra lookup.
+                        self.repo.find(&self.id, &mut self.data)?;
                     }
                     break Ok(mapped);
                 }
