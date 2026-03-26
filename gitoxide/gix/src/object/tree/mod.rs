@@ -101,15 +101,14 @@ impl<'repo> Tree<'repo> {
 
     /// Follow a sequence of `path` components starting from this instance, and look them up one by one until the last component
     /// is looked up and its tree entry is returned, while changing this instance to point to the last seen tree.
-    /// Note that if the lookup fails, it may be impossible to continue making lookups through this tree.
+    /// If the returned entry itself is a tree, this instance is updated to point to it as well.
     /// It's useful to have this function to be able to reuse the internal buffer of the tree.
     ///
     /// # Performance Notes
     ///
-    /// Searching tree entries is currently done in sequence, which allows to the search to be allocation free. It would be possible
-    /// to reuse a vector and use a binary search instead, which might be able to improve performance over all.
-    /// However, a benchmark should be created first to have some data and see which trade-off to choose here.
-    ///
+    /// Searching tree entries is currently done in sequence, which allows to the search to be allocation free.
+    /// This is beneficial for most 'common' repositiries, but for other cases an allocation might be preferable
+    /// to allow a bisect.
     pub fn peel_to_entry<I, P>(&mut self, path: I) -> Result<Option<Entry<'repo>>, find::existing::Error>
     where
         I: IntoIterator<Item = P>,
@@ -117,17 +116,35 @@ impl<'repo> Tree<'repo> {
     {
         let mut iter = path.into_iter().peekable();
         let mut data = gix_object::Data::new(gix_object::Kind::Tree, &self.data);
+        let mut data_id = self.id;
 
         loop {
             data = match next_entry(&mut iter, data) {
-                ControlFlow::Continue(oid) => {
-                    let res = self.repo.find(&oid, &mut self.data)?;
-                    self.id = oid;
+                ControlFlow::Continue(id) => {
+                    let res = self.repo.find(&id, &mut self.data)?;
+                    data_id = id;
+                    if res.kind.is_tree() {
+                        self.id = data_id;
+                    }
                     res
                 }
                 ControlFlow::Break(entry) => {
-                    let repo = self.repo;
-                    let mapped = entry.map(|e| Entry { inner: e.into(), repo });
+                    let mapped = entry.map(|e| Entry {
+                        inner: e.into(),
+                        repo: self.repo,
+                    });
+                    if let Some(entry) = &mapped {
+                        if entry.mode().is_tree() {
+                            let id = entry.object_id();
+                            self.repo.find(&id, &mut self.data)?;
+                            data_id = id;
+                            self.id = data_id;
+                        }
+                    }
+                    if data_id != self.id {
+                        // Ensure that our data always matches our id, even if this means an extra lookup.
+                        self.repo.find(&self.id, &mut self.data)?;
+                    }
                     break Ok(mapped);
                 }
             }
