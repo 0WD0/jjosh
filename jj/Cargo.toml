@@ -39,7 +39,7 @@ clap_complete_nushell = "4.6.0"
 # Update clap-markdown manually since test_generate_md_cli_help snapshot
 # will need regenerating.
 clap-markdown = "=0.1.5"
-clap_mangen = "0.2.25"
+clap_mangen = "0.3.0"
 clru = "0.6.3"
 criterion = "0.8.2"
 crossterm = { version = "0.29", default-features = false, features = ["windows"] }
@@ -64,7 +64,7 @@ hashbrown = { version = "0.16.1", default-features = false, features = ["inline-
 ignore = "0.4.25"
 indexmap = { version = "2.13.0", features = ["serde"] }
 indoc = "2.0.7"
-insta = { version = "1.46.3", features = ["filters"] }
+insta = { version = "1.47.1", features = ["filters"] }
 interim = { version = "0.2.1", features = ["chrono_0_4"] }
 itertools = "0.14.0"
 jsonschema = { version = "0.45.0", default-features = false }
