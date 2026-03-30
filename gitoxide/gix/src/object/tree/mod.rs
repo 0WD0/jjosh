@@ -129,23 +129,25 @@ impl<'repo> Tree<'repo> {
                     res
                 }
                 ControlFlow::Break(entry) => {
-                    let mapped = entry.map(|e| Entry {
-                        inner: e.into(),
-                        repo: self.repo,
-                    });
-                    if let Some(entry) = &mapped {
-                        if entry.mode().is_tree() {
-                            let id = entry.object_id();
-                            self.repo.find(&id, &mut self.data)?;
-                            data_id = id;
+                    let entry = if let Some(e) = entry {
+                        let inner = e.into();
+                        if e.mode.is_tree() {
+                            data_id = e.oid.to_owned();
+                            self.repo.find(&data_id, &mut self.data)?;
                             self.id = data_id;
                         }
-                    }
+
+                        Some(Entry { inner, repo: self.repo })
+                    } else {
+                        None
+                    };
+
                     if data_id != self.id {
                         // Ensure that our data always matches our id, even if this means an extra lookup.
                         self.repo.find(&self.id, &mut self.data)?;
                     }
-                    break Ok(mapped);
+
+                    break Ok(entry);
                 }
             }
         }
