@@ -131,11 +131,9 @@ impl<'repo> Tree<'repo> {
                 ControlFlow::Break(entry) => {
                     let entry = if let Some(e) = entry {
                         let inner = e.into();
-
                         if e.mode.is_tree() {
-                            let id = e.oid.to_owned();
-                            data_id = id;
-                            self.repo.find(&id, &mut self.data)?;
+                            data_id = e.oid.to_owned();
+                            self.repo.find(&data_id, &mut self.data)?;
                             self.id = data_id;
                         }
 
