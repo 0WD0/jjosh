@@ -1146,7 +1146,6 @@ where
     );
 
     let hash_kind = hash_kind_from_env().unwrap_or_default();
-    eprintln!("Using hash '{hash_kind}' when determining which fixture to use or recreate");
 
     let script_location = script_name.as_ref();
     let script_path = fixture_path_inner(script_location, root);
