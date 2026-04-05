@@ -71,6 +71,10 @@ impl crate::Repository {
     /// Create a new reference with `name`, like `refs/heads/branch`, pointing to `target`, adhering to `constraint`
     /// during creation and writing `log_message` into the reflog. Note that a ref-log will be written even if `log_message` is empty.
     ///
+    /// Note that this accepts any valid full reference name, including `refs/heads/HEAD`.
+    /// Git rejects creating a local branch with that name in branch-specific code paths, but this API operates on generic
+    /// references instead. Branch names can be validated with [`gix_ref::Category::to_full_name()`].
+    ///
     /// The newly created Reference is returned.
     pub fn reference<Name, E>(
         &self,

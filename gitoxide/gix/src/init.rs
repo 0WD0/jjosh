@@ -4,7 +4,7 @@ use std::{borrow::Cow, path::Path};
 use gix_ref::{
     store::WriteReflog,
     transaction::{PreviousValue, RefEdit},
-    FullName, Target,
+    Category, FullName, Target,
 };
 
 use crate::{bstr::BString, config::tree::Init, ThreadSafeRepository};
@@ -75,13 +75,12 @@ impl ThreadSafeRepository {
             .string(Init::DEFAULT_BRANCH)
             .unwrap_or_else(|| Cow::Borrowed(DEFAULT_BRANCH_NAME.into()));
         if branch_name.as_ref() != DEFAULT_BRANCH_NAME {
-            let sym_ref: FullName =
-                format!("refs/heads/{branch_name}")
-                    .try_into()
-                    .map_err(|err| Error::InvalidBranchName {
-                        name: branch_name.into_owned(),
-                        source: err,
-                    })?;
+            let sym_ref: FullName = Category::LocalBranch
+                .to_full_name(branch_name.as_ref())
+                .map_err(|err| Error::InvalidBranchName {
+                    name: branch_name.into_owned(),
+                    source: err,
+                })?;
             let mut repo = repo.to_thread_local();
             let prev_write_reflog = repo.refs.write_reflog;
             repo.refs.write_reflog = WriteReflog::Disable;
