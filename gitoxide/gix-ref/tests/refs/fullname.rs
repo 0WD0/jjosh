@@ -137,6 +137,24 @@ fn to_full_name() -> gix_testtools::Result {
 }
 
 #[test]
+fn local_branch_head_is_reserved() -> gix_testtools::Result {
+    assert!(matches!(
+        Category::LocalBranch.to_full_name("HEAD"),
+        Err(gix_validate::reference::name::Error::Reserved { name }) if name == "refs/heads/HEAD"
+    ));
+    assert!(matches!(
+        Category::LocalBranch.to_full_name("refs/heads/HEAD"),
+        Err(gix_validate::reference::name::Error::Reserved { name }) if name == "refs/heads/HEAD"
+    ));
+    assert_eq!(
+        FullName::try_from("refs/heads/HEAD")?.as_bstr(),
+        "refs/heads/HEAD",
+        "generic full-name parsing still accepts this name so remote refs remain representable"
+    );
+    Ok(())
+}
+
+#[test]
 fn prefix_with_namespace_and_stripping() {
     let ns = gix_ref::namespace::expand("foo").unwrap();
     let mut name: gix_ref::FullName = "refs/heads/main".try_into().unwrap();
