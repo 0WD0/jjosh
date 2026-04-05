@@ -195,8 +195,8 @@ impl Category<'_> {
         } else {
             FullName::try_from(partial_name.as_bstr())?
         };
-        if matches!(self, Category::LocalBranch) {
-            gix_validate::reference::branch_name(full_name.as_bstr())?;
+        if matches!(self, Category::LocalBranch) && full_name.as_bstr() == b"refs/heads/HEAD".as_bstr() {
+            return Err(gix_validate::reference::name::Error::Reserved { name: full_name.into() });
         }
         Ok(full_name)
     }

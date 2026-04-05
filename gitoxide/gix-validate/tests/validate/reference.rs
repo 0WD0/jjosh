@@ -322,12 +322,12 @@ mod branch_name {
 
         #[test]
         fn refs_heads_main() {
-            assert!(gix_validate::reference::branch_name(b"refs/heads/main".as_bstr()).is_ok())
+            assert!(gix_validate::reference::branch_name(b"refs/heads/main".as_bstr()).is_ok());
         }
 
         #[test]
         fn refs_heads_head_different_case() {
-            assert!(gix_validate::reference::branch_name(b"refs/heads/HEAd".as_bstr()).is_ok())
+            assert!(gix_validate::reference::branch_name(b"refs/heads/HEAd".as_bstr()).is_ok());
         }
     }
 

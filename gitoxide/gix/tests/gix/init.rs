@@ -76,6 +76,32 @@ mod non_bare {
     }
 
     #[test]
+    fn init_bare_with_fully_qualified_custom_branch_name_is_not_prefixed_again() -> crate::Result {
+        let tmp = tempfile::tempdir()?;
+        let repo: gix::Repository = gix::ThreadSafeRepository::init_opts(
+            tmp.path(),
+            gix::create::Kind::Bare,
+            gix::create::Options::default(),
+            gix::open::Options::isolated().config_overrides([
+                "user.name=a",
+                "user.email=b",
+                "init.defaultBranch=refs/heads/special",
+            ]),
+        )?
+        .into();
+        assert_eq!(
+            repo.head()?.referent_name().expect("name").as_bstr(),
+            "refs/heads/special"
+        );
+        assert_eq!(
+            repo.is_pristine(),
+            Some(true),
+            "the expected default ref uses the de-duplicated fully qualified branch name"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn init_bare_rejects_reserved_branch_name() -> crate::Result {
         let tmp = tempfile::tempdir()?;
         let err = gix::ThreadSafeRepository::init_opts(
