@@ -87,7 +87,7 @@ export default defineConfig({
 				{
 					label: 'Reference',
 					items: [
-						{ label: 'Settings', slug: 'config' },
+						{ label: 'Configuration', slug: 'config' },
 						{ label: 'Fileset language', slug: 'filesets' },
 						{ label: 'Revset language', slug: 'revsets' },
 						{ label: 'Templating language', slug: 'templates' },

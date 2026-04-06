@@ -143,7 +143,7 @@ nav: # This lists all the files that become part of the documentation
       - Multiple remotes: 'guides/multiple-remotes.md'
 
   - Reference:
-      - Settings: 'config.md'
+      - Configuration: 'config.md'
       - Fileset language: 'filesets.md'
       - Revset language: 'revsets.md'
       - Templating language: 'templates.md'
