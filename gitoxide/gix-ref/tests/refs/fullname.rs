@@ -137,19 +137,16 @@ fn to_full_name() -> gix_testtools::Result {
 }
 
 #[test]
-fn local_branch_head_is_reserved() -> gix_testtools::Result {
-    assert!(matches!(
-        Category::LocalBranch.to_full_name("HEAD"),
-        Err(gix_validate::reference::name::Error::Reserved { name }) if name == "refs/heads/HEAD"
-    ));
-    assert!(matches!(
-        Category::LocalBranch.to_full_name("refs/heads/HEAD"),
-        Err(gix_validate::reference::name::Error::Reserved { name }) if name == "refs/heads/HEAD"
-    ));
+fn local_branch_head_is_representable_as_full_ref_name() -> gix_testtools::Result {
     assert_eq!(
-        FullName::try_from("refs/heads/HEAD")?.as_bstr(),
+        Category::LocalBranch.to_full_name("HEAD")?.as_bstr(),
         "refs/heads/HEAD",
-        "generic full-name parsing still accepts this name so remote refs remain representable"
+        "generic full-name construction accepts names that are invalid only in branch-specific contexts"
+    );
+    assert_eq!(
+        Category::LocalBranch.to_full_name("refs/heads/HEAD")?.as_bstr(),
+        "refs/heads/HEAD",
+        "fully qualified names keep their category prefix de-duplicated"
     );
     Ok(())
 }
