@@ -166,9 +166,6 @@ impl Category<'_> {
     /// the `short_name` to create a valid fully qualified [reference name](FullName).
     ///
     /// If `short_name` already contains the prefix that it would receive (and is thus a full name), no duplication will occur.
-    ///
-    /// Note that [`Self::LocalBranch`] rejects the exact name `refs/heads/HEAD`, matching Git's branch-specific rules.
-    /// Generic full reference handling accepts that name, however, as it is a valid reference outside of local-branch creation.
     pub fn to_full_name<'a>(&self, short_name: impl Into<&'a BStr>) -> Result<FullName, crate::name::Error> {
         let mut out: BString = self.prefix().into();
         let short_name = short_name.into();
@@ -189,16 +186,12 @@ impl Category<'_> {
             | Category::PseudoRef
             | Category::MainPseudoRef => short_name,
         };
-        let full_name = if out.is_empty() || !partial_name.starts_with(&out) {
+        if out.is_empty() || !partial_name.starts_with(&out) {
             out.extend_from_slice(partial_name);
-            FullName::try_from(out)?
+            FullName::try_from(out)
         } else {
-            FullName::try_from(partial_name.as_bstr())?
-        };
-        if matches!(self, Category::LocalBranch) && full_name.as_bstr() == b"refs/heads/HEAD".as_bstr() {
-            return Err(gix_validate::reference::name::Error::Reserved { name: full_name.into() });
+            FullName::try_from(partial_name.as_bstr())
         }
-        Ok(full_name)
     }
 }
 

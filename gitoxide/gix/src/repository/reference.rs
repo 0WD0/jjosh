@@ -73,7 +73,7 @@ impl crate::Repository {
     ///
     /// Note that this accepts any valid full reference name, including `refs/heads/HEAD`.
     /// Git rejects creating a local branch with that name in branch-specific code paths, but this API operates on generic
-    /// references instead. Branch names can be validated with [`gix_ref::Category::to_full_name()`].
+    /// references instead. Branch names can be validated with [`gix_validate::reference::branch_name()`].
     ///
     /// The newly created Reference is returned.
     pub fn reference<Name, E>(

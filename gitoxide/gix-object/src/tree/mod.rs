@@ -111,7 +111,7 @@ impl EntryMode {
         }
 
         // Happy path: space is at index 6
-        let space_pos = if i.get(6) == Some(&b' ') {
+        let space_pos = if i.get(6) == Some(&b' ') && i.get(5) != Some(&b' ') {
             for b in i.iter().take(6) {
                 let b = b.wrapping_sub(b'0') as u16;
                 // Not a pure octal input.
