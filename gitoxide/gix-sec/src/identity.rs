@@ -63,9 +63,9 @@ mod impl_ {
 #[cfg(windows)]
 mod impl_ {
     use std::{
-        io,
+        io, mem,
         mem::MaybeUninit,
-        os::windows::io::{FromRawHandle as _, OwnedHandle},
+        os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle},
         path::Path,
         ptr,
     };
@@ -80,14 +80,46 @@ mod impl_ {
         }};
     }
 
+    fn token_information(token: windows_sys::Win32::Foundation::HANDLE, class: i32) -> io::Result<Vec<u8>> {
+        use windows_sys::Win32::{
+            Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER},
+            Security::GetTokenInformation,
+        };
+
+        #[allow(unsafe_code)]
+        unsafe {
+            let mut buffer_size = 36;
+            let mut heap_buf = vec![0; 36];
+
+            loop {
+                if GetTokenInformation(
+                    token,
+                    class,
+                    heap_buf.as_mut_ptr().cast(),
+                    heap_buf.len() as _,
+                    &mut buffer_size,
+                ) != 0
+                {
+                    return Ok(heap_buf);
+                }
+
+                if GetLastError() != ERROR_INSUFFICIENT_BUFFER {
+                    error!("Couldn't acquire token information");
+                }
+
+                heap_buf.resize(buffer_size as _, 0);
+            }
+        }
+    }
+
     pub fn is_path_owned_by_current_user(path: &Path) -> io::Result<bool> {
         use windows_sys::Win32::{
-            Foundation::{GetLastError, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION, ERROR_SUCCESS},
+            Foundation::{LocalFree, ERROR_INVALID_FUNCTION, ERROR_SUCCESS},
             Security::{
                 Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
-                CheckTokenMembership, EqualSid, GetTokenInformation, IsWellKnownSid, TokenOwner,
-                WinBuiltinAdministratorsSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, TOKEN_OWNER,
-                TOKEN_QUERY,
+                CheckTokenMembership, EqualSid, IsWellKnownSid, TokenElevationType, TokenElevationTypeLimited,
+                TokenLinkedToken, TokenUser, WinBuiltinAdministratorsSid, OWNER_SECURITY_INFORMATION,
+                PSECURITY_DESCRIPTOR, TOKEN_ELEVATION_TYPE, TOKEN_LINKED_TOKEN, TOKEN_QUERY, TOKEN_USER,
             },
             System::Threading::{GetCurrentProcess, GetCurrentThread, OpenProcessToken, OpenThreadToken},
         };
@@ -169,46 +201,48 @@ mod impl_ {
 
             let _owned_token = OwnedHandle::from_raw_handle(token as _);
 
-            let buf = 'token_buf: {
-                let mut buffer_size = 36;
-                let mut heap_buf = vec![0; 36];
+            let user_info = token_information(token, TokenUser)?;
+            let token_user = (*user_info.as_ptr().cast::<TOKEN_USER>()).User.Sid;
 
-                loop {
-                    if GetTokenInformation(
-                        token,
-                        TokenOwner,
-                        heap_buf.as_mut_ptr().cast(),
-                        heap_buf.len() as _,
-                        &mut buffer_size,
-                    ) != 0
-                    {
-                        break 'token_buf heap_buf;
-                    }
-
-                    if GetLastError() != ERROR_INSUFFICIENT_BUFFER {
-                        error!("Couldn't acquire token ownership");
-                    }
-
-                    heap_buf.resize(buffer_size as _, 0);
-                }
-            };
-
-            let token_owner = (*buf.as_ptr().cast::<TOKEN_OWNER>()).Owner;
-
-            // If the current user is the owner of the parent folder then they also
-            // own this file
-            if EqualSid(folder_owner, token_owner) != 0 {
+            if EqualSid(folder_owner, token_user) != 0 {
                 return Ok(true);
             }
 
-            // Admin-group owned folders are considered owned by the current user, if they are in the admin group
-            if IsWellKnownSid(token_owner, WinBuiltinAdministratorsSid) == 0 {
+            // Admin-group owned folders are considered owned by the current user, if they are in the admin group.
+            if IsWellKnownSid(folder_owner, WinBuiltinAdministratorsSid) == 0 {
                 return Ok(false);
             }
 
             let mut is_member = 0;
-            if CheckTokenMembership(std::ptr::null_mut(), token_owner, &mut is_member) == 0 {
+            if CheckTokenMembership(std::ptr::null_mut(), folder_owner, &mut is_member) == 0 {
                 error!("Couldn't check if user is an administrator");
+            }
+
+            if is_member != 0 {
+                return Ok(true);
+            }
+
+            let mut elevation_type = TokenElevationTypeLimited;
+            let mut elevation_type_size = 0;
+            if windows_sys::Win32::Security::GetTokenInformation(
+                token,
+                TokenElevationType,
+                (&mut elevation_type as *mut TOKEN_ELEVATION_TYPE).cast(),
+                mem::size_of::<TOKEN_ELEVATION_TYPE>() as u32,
+                &mut elevation_type_size,
+            ) == 0
+                || elevation_type != TokenElevationTypeLimited
+            {
+                return Ok(false);
+            }
+
+            let linked_token_info = token_information(token, TokenLinkedToken)?;
+            let linked_token = (*linked_token_info.as_ptr().cast::<TOKEN_LINKED_TOKEN>()).LinkedToken;
+            let linked_token = OwnedHandle::from_raw_handle(linked_token as _);
+
+            let mut is_member = 0;
+            if CheckTokenMembership(linked_token.as_raw_handle() as _, folder_owner, &mut is_member) == 0 {
+                error!("Couldn't check if elevated user is an administrator");
             }
 
             Ok(is_member != 0)
