@@ -130,3 +130,13 @@ fn bash_program_absolute_or_unrooted() {
     let bash = bash_program();
     assert!(!is_rooted_relative(bash), "{bash:?}");
 }
+
+#[test]
+fn invoke_bash_runs_in_given_working_directory() {
+    let dir = tempfile::TempDir::new().expect("can create temp dir");
+    invoke_bash(dir.path(), "printf '%s' hello > out");
+    assert_eq!(
+        std::fs::read(dir.path().join("out")).expect("script wrote output"),
+        b"hello"
+    );
+}

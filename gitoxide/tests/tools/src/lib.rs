@@ -260,6 +260,27 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
         .status()
 }
 
+/// Run `script` with [`bash_program()`] in `cwd`.
+///
+/// Standard input is disconnected while standard output and error stay attached to the inherited
+/// handles.
+///
+/// # Panics
+///
+/// This function expects the script to succeed and will panic otherwise.
+pub fn invoke_bash(cwd: impl AsRef<Path>, script: &str) {
+    let status = std::process::Command::new(bash_program())
+        .current_dir(cwd)
+        .arg("-c")
+        .arg(script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .expect("can run bash script");
+    assert!(status.success(), "bash script failed with {status}");
+}
+
 /// Spawn a git daemon process to host all repository at or below `working_dir`.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
     let mut ports: Vec<_> = (9419u16..9419 + 100).collect();
