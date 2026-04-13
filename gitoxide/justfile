@@ -50,9 +50,8 @@ check:
     ! cargo check --features lean-async 2>/dev/null
     ! cargo check -p gitoxide-core --all-features --features gix/sha1 2>/dev/null
     ! cargo check -p gix-protocol --all-features 2>/dev/null
-    # warning happens if nothing found, no exit code :/
-    cargo --color=never tree -p gix --no-default-features -e normal -i imara-diff \
-        2>&1 >/dev/null | grep '^warning: nothing to print\>'
+    tree="$(cargo --color=never tree -p gix --no-default-features -e normal --prefix none --format '{p}')"; \
+        ! printf '%s\n' "$tree" | rg -q '^gix-imara-diff(-01)? v'
     cargo --color=never tree -p gix --no-default-features -e normal -i gix-submodule \
         2>&1 >/dev/null | grep '^warning: nothing to print\>'
     cargo --color=never tree -p gix --no-default-features -e normal -i gix-pathspec \
