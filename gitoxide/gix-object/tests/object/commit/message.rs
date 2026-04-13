@@ -218,6 +218,102 @@ mod body {
         let input = "foo\nbar\n\nbar\r\n\r\nbaz";
         assert_eq!(body(input).as_ref(), input);
     }
+
+    /// A commit whose body is *only* trailers (no preceding body paragraph) should
+    /// have its trailers detected, matching the behaviour of `git interpret-trailers`.
+    ///
+    /// This arises naturally when a commit message has a subject line followed
+    /// immediately by trailers and no other body text, e.g.:
+    ///
+    /// ```text
+    /// Fix the thing
+    ///
+    /// Signed-off-by: Alice <alice@example.com>
+    /// ```
+    ///
+    /// The full message bytes are `"Fix the thing\n\nSigned-off-by: …"`.
+    /// `MessageRef::from_bytes` splits at the first `\n\n`, yielding the body
+    /// `"Signed-off-by: …"` — which contains no second `\n\n`.  Prior to this
+    /// fix `BodyRef::from_bytes` therefore returned zero trailers for such
+    /// messages, diverging from `git interpret-trailers --parse`.
+    #[test]
+    fn trailer_as_sole_body_content() {
+        let input = "Signed-off-by: Alice <alice@example.com>";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Signed-off-by".into(),
+                value: "Alice <alice@example.com>".into(),
+            }],
+        );
+        assert_eq!(body.without_trailer(), "", "body-without-trailer must be empty");
+    }
+
+    #[test]
+    fn multiple_trailers_as_sole_body_content() {
+        let input = "Signed-off-by: Alice <alice@example.com>\nCo-authored-by: Bob <bob@example.com>";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![
+                TrailerRef {
+                    token: "Signed-off-by".into(),
+                    value: "Alice <alice@example.com>".into(),
+                },
+                TrailerRef {
+                    token: "Co-authored-by".into(),
+                    value: "Bob <bob@example.com>".into(),
+                },
+            ],
+        );
+        assert_eq!(body.without_trailer(), "");
+    }
+
+    /// Non-trailer body text that happens to be followed on the *same* paragraph
+    /// by a trailer line must not be mistaken for a trailer block — a blank line
+    /// separator is required.
+    #[test]
+    fn body_text_then_trailer_without_blank_line_is_not_a_trailer() {
+        let input = "some body text\nSigned-off-by: Alice <alice@example.com>";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![],
+            "no trailers without a blank-line separator"
+        );
+    }
+
+    /// A body whose first line looks like a trailer but whose subsequent
+    /// lines are plain prose must not be treated as a trailer block.
+    #[test]
+    fn trailer_like_first_line_followed_by_prose_is_not_a_trailer() {
+        let input = "Note: this change\nmore explanation";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![],
+            "not a trailer block when non-trailer lines are present"
+        );
+    }
+
+    /// Via `MessageRef`: a subject-only message with a trailer immediately
+    /// after the blank line (the common case in the wild) must surface the
+    /// trailer through the public `MessageRef` API.
+    #[test]
+    fn trailer_as_sole_body_content_via_message_ref() {
+        let msg = MessageRef::from_bytes(b"Fix the thing\n\nSigned-off-by: Alice <alice@example.com>\n");
+        let trailers: Vec<_> = msg.body().expect("body is present").trailers().collect();
+        assert_eq!(
+            trailers,
+            vec![TrailerRef {
+                token: "Signed-off-by".into(),
+                value: "Alice <alice@example.com>".into(),
+            }],
+        );
+    }
 }
 
 mod summary {

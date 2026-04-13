@@ -80,9 +80,50 @@ impl<'a> BodyRef<'a> {
                     start_of_trailer: trailer,
                 })
             })
-            .unwrap_or_else(|| BodyRef {
-                body_without_trailer: body.as_bstr(),
-                start_of_trailer: &[],
+            .unwrap_or_else(|| {
+                // No blank-line separator found within the body. This happens when
+                // the commit message body consists entirely of trailers with no
+                // preceding body text, e.g.:
+                //
+                //   Fix the thing\n\nSigned-off-by: Alice <alice@example.com>
+                //
+                // `MessageRef::from_bytes` already consumed the first `\n\n` when
+                // splitting the title from the body, so the body bytes here are
+                // just `"Signed-off-by: …"` with no further `\n\n`. Git itself
+                // recognises this as a valid trailer block; we match that behaviour
+                // by treating the entire body as the trailer block when *every*
+                // non-empty line is a valid trailer.
+                let all_trailers = {
+                    let mut found_any = false;
+                    let mut ok = true;
+                    for line in body.lines() {
+                        if line.is_empty() {
+                            continue;
+                        }
+                        let mut probe = line;
+                        if terminated(parse_single_line_trailer::<()>, eof)
+                            .parse_next(&mut probe)
+                            .is_ok()
+                        {
+                            found_any = true;
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    found_any && ok
+                };
+                if all_trailers {
+                    BodyRef {
+                        body_without_trailer: b"".as_bstr(),
+                        start_of_trailer: body,
+                    }
+                } else {
+                    BodyRef {
+                        body_without_trailer: body.as_bstr(),
+                        start_of_trailer: &[],
+                    }
+                }
             })
     }
 
