@@ -44,6 +44,7 @@ doctest = false
 [[bench]]
 name = "line-count"
 harness = false
+required-features = ["blob-experimental"]
 path = "./benches/line_count.rs"
 
 [dependencies]
