@@ -2,6 +2,7 @@ use std::{collections::BTreeSet, io, path::Path, time::Instant};
 
 use anyhow::bail;
 use gix::{
+    actor::{Identity, IdentityRef},
     bstr::{BStr, ByteSlice},
     prelude::*,
     progress, Count, NestedProgress, Progress,
@@ -39,18 +40,54 @@ impl SignatureRef<'_> {
     }
 }
 
+/// A parsed author identity that can either borrow from commit data or own its
+/// storage when trailer parsing had to synthesize/unfold the value first.
+///
+/// This is not a `Cow<IdentityRef<'a>>` because `IdentityRef<'a>` is itself a
+/// borrowed view, while the owned case here is a different type altogether:
+/// [`Identity`]. We keep this enum private so callers can use `name()` and
+/// `email()` without caring whether the identity is borrowed or owned, and so
+/// the common borrowed case stays allocation-free.
+enum ParsedIdentity<'a> {
+    Borrowed(IdentityRef<'a>),
+    Owned(Identity),
+}
+
+impl ParsedIdentity<'_> {
+    fn name(&self) -> &BStr {
+        match self {
+            ParsedIdentity::Borrowed(identity) => identity.name,
+            ParsedIdentity::Owned(identity) => identity.name.as_ref(),
+        }
+    }
+
+    fn email(&self) -> &BStr {
+        match self {
+            ParsedIdentity::Borrowed(identity) => identity.email,
+            ParsedIdentity::Owned(identity) => identity.email.as_ref(),
+        }
+    }
+}
+
+fn parse_trailer_identity(trailer: gix::objs::commit::message::body::TrailerRef<'_>) -> Option<ParsedIdentity<'_>> {
+    match trailer.value {
+        std::borrow::Cow::Borrowed(value) => IdentityRef::from_bytes::<gix::objs::decode::ParseError>(value.as_ref())
+            .ok()
+            .map(|identity| ParsedIdentity::Borrowed(identity.trim())),
+        std::borrow::Cow::Owned(value) => IdentityRef::from_bytes::<gix::objs::decode::ParseError>(value.as_ref())
+            .ok()
+            .map(|identity| ParsedIdentity::Owned(identity.trim().to_owned())),
+    }
+}
+
 /// Return `(commit_author, [commit_author, co_authors...])`. Use the `commit_author` for easy access to the commit author itself.
 fn commit_author_identities(
     commit_data: &[u8],
-) -> Result<(gix::actor::SignatureRef<'_>, SmallVec<[gix::actor::IdentityRef<'_>; 2]>), gix::objs::decode::Error> {
+) -> Result<(gix::actor::SignatureRef<'_>, SmallVec<[ParsedIdentity<'_>; 2]>), gix::objs::decode::Error> {
     let commit = gix::objs::CommitRef::from_bytes(commit_data)?;
     let author = commit.author()?.trim();
-    let mut authors = smallvec![gix::actor::IdentityRef::from(author)];
-    authors.extend(commit.co_authored_by_trailers().filter_map(|trailer| {
-        gix::actor::IdentityRef::from_bytes::<gix::objs::decode::ParseError>(trailer.value.as_ref())
-            .ok()
-            .map(|identity| identity.trim())
-    }));
+    let mut authors = smallvec![ParsedIdentity::Borrowed(gix::actor::IdentityRef::from(author))];
+    authors.extend(commit.co_authored_by_trailers().filter_map(parse_trailer_identity));
     Ok((author, authors))
 }
 
@@ -107,8 +144,8 @@ where
                         let mut authors_for_commit = SmallVec::<[SignatureRef<'static>; 2]>::new();
                         for identity in authors {
                             let author = mailmap.resolve_cow(gix::actor::SignatureRef {
-                                name: identity.name,
-                                email: identity.email,
+                                name: identity.name(),
+                                email: identity.email(),
                                 time: commit_author.time,
                             });
                             let name = string_ref(author.name.as_ref());
@@ -413,7 +450,7 @@ Co-authored-by: Third Author <third@example.com>\n";
         assert_eq!(
             authors
                 .iter()
-                .map(|identity| (identity.name, identity.email))
+                .map(|identity| (identity.name(), identity.email()))
                 .collect::<Vec<_>>(),
             vec![
                 (
@@ -443,7 +480,7 @@ subject\n\
 Co-authored-by: not a signature\n";
         let (_, authors) = commit_author_identities(commit).expect("valid commit");
         assert_eq!(authors.len(), 1);
-        assert_eq!(authors[0].name, "Main Author".as_bytes().as_bstr());
-        assert_eq!(authors[0].email, "main@example.com".as_bytes().as_bstr());
+        assert_eq!(authors[0].name(), "Main Author".as_bytes().as_bstr());
+        assert_eq!(authors[0].email(), "main@example.com".as_bytes().as_bstr());
     }
 }
