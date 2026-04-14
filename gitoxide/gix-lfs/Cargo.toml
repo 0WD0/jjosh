@@ -9,6 +9,7 @@ description = "A crate of the gitoxide project dealing with handling git large f
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
+include = ["/src/**/*", "/LICENSE-*"]
 
 [lib]
 doctest = false

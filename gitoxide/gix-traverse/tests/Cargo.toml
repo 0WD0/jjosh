@@ -9,6 +9,7 @@ description = "Integration tests for the gix-traverse crate"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
+publish = false
 
 [[test]]
 name = "traverse"

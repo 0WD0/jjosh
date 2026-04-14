@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 description = "Tests for the gix-pack crate"
 edition = "2021"
 rust-version = "1.82"
+publish = false
 
 [features]
 gix-features-parallel = ["gix-features/parallel"]
