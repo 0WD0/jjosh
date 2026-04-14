@@ -1,13 +1,16 @@
+# Modified for gitoxide from the upstream imara-diff crate.
+# Upstream source: git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:Cargo.toml
+
 [package]
 name = "gix-imara-diff"
 version = "0.2.0"
 edition = "2021"
-authors = ["pascalkuthe <pascalkuthe@pm.me>"]
+authors = ["pascalkuthe <pascalkuthe@pm.me>", "Sebastian Thiel <sebastian.thiel@icloud.com>"]
 rust-version = "1.71"
 license = "Apache-2.0"
 
-description = "A high performance library for computing diffs."
-repository  = "https://github.com/pascalkuthe/imara-diff"
+description = "A high performance library for computing diffs, maintained as a modified copy of upstream imara-diff for gitoxide."
+repository = "https://github.com/GitoxideLabs/gitoxide"
 keywords = ["diff", "difference", "myers", "compare", "changes"]
 readme = "README.md"
 exclude = [
@@ -26,6 +29,8 @@ default = ["unified_diff"]
 unified_diff = []
 
 [dev-dependencies]
+gix-hash = { version = "^0.23.0", path = "../gix-hash", features = ["sha1"] }
+gix-object = { version = "^0.58.0", path = "../gix-object", features = ["sha1"] }
 cov-mark = "2.1.0"
 expect-test = "1.4.0"
 

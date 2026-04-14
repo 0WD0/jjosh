@@ -1,3 +1,6 @@
+// Modified for gitoxide from the upstream imara-diff crate.
+// Upstream source: git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/lib.rs
+
 #![deny(missing_docs)]
 //! Imara-diff is a solid (imara in Swahili) diff library for Rust.
 //! Solid refers to the fact that imara-diff provides very good runtime performance even

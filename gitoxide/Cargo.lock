@@ -1924,6 +1924,8 @@ dependencies = [
  "bstr",
  "cov-mark",
  "expect-test",
+ "gix-hash",
+ "gix-object",
  "hashbrown 0.16.1",
  "memchr",
 ]

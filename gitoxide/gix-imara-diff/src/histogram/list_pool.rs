@@ -1,3 +1,6 @@
+// Modified for gitoxide from the upstream imara-diff crate.
+// Upstream source: git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/histogram/list_pool.rs
+
 use crate::histogram::MAX_CHAIN_LEN;
 
 /// A small list of entity references allocated from a pool.
