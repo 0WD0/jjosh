@@ -294,11 +294,11 @@ instead of depending directly on the lower-level crates.
         vec![
             TrailerRef {
                 token: "Signed-off-by".into(),
-                value: "Sebastian Thiel <sebastian.thiel@icloud.com>".into()
+                value: b"Sebastian Thiel <sebastian.thiel@icloud.com>".as_bstr().into()
             },
             TrailerRef {
                 token: "Signed-off-by".into(),
-                value: "Kim Altintop <kim@eagain.st>".into()
+                value: b"Kim Altintop <kim@eagain.st>".as_bstr().into()
             }
         ]
     );
