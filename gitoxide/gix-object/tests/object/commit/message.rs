@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use gix_object::commit::MessageRef;
+use gix_object::commit::{message::body::TrailerRef, MessageRef};
 
 #[test]
 fn only_title_no_trailing_newline() {
@@ -131,7 +131,43 @@ fn title_with_windows_separator_and_empty_body() {
     );
 }
 
+/// Via `MessageRef`: a subject-only message with a trailer immediately
+/// after the blank line (the common case in the wild) must surface the
+/// trailer through the public `MessageRef` API.
+#[test]
+fn trailer_as_sole_body_content() {
+    let msg = MessageRef::from_bytes(b"Fix the thing\n\nSigned-off-by: Alice <alice@example.com>\n");
+    let body = msg.body().expect("body is present");
+    let trailers: Vec<_> = body.trailers().collect();
+    assert_eq!(msg.title, "Fix the thing");
+    assert_eq!(body.without_trailer(), "");
+    assert_eq!(
+        trailers,
+        vec![TrailerRef {
+            token: "Signed-off-by".into(),
+            value: b"Alice <alice@example.com>".as_bstr().into(),
+        }],
+    );
+}
+
+#[test]
+fn folded_trailer_as_sole_body_content_via_message_ref() {
+    let msg = MessageRef::from_bytes(b"Fix the thing\n\nAcked-by: Alice\n continuation line\n");
+    let body = msg.body().expect("body is present");
+    assert_eq!(msg.title, "Fix the thing");
+    assert_eq!(body.without_trailer(), "");
+    let trailers: Vec<_> = body.trailers().collect();
+    assert_eq!(
+        trailers,
+        vec![TrailerRef {
+            token: "Acked-by".into(),
+            value: b"Alice continuation line".as_bstr().into(),
+        }],
+    );
+}
+
 mod body {
+    use bstr::ByteSlice;
     use gix_object::commit::{
         message::{body::TrailerRef, BodyRef},
         MessageRef,
@@ -188,35 +224,227 @@ mod body {
             body.trailers().collect::<Vec<_>>(),
             vec![TrailerRef {
                 token: "token".into(),
-                value: "value".into()
+                value: b"value".as_bstr().into()
             }]
         );
     }
 
     #[test]
-    fn two_trailers_with_broken_one_inbetween_after_a_few_paragraphs() {
+    fn generic_trailers_mixed_with_prose_after_a_few_paragraphs_are_not_a_trailer_block() {
         let input = "foo\nbar\n\nbar\n\nbaz\n\na: b\ncannot parse this\r\nc: d\n";
         let body = body(input);
-        assert_eq!(body.as_ref(), "foo\nbar\n\nbar\n\nbaz");
-        assert_eq!(
-            body.trailers().collect::<Vec<_>>(),
-            vec![
-                TrailerRef {
-                    token: "a".into(),
-                    value: "b".into()
-                },
-                TrailerRef {
-                    token: "c".into(),
-                    value: "d".into()
-                }
-            ]
-        );
+        assert_eq!(body.as_ref(), input);
+        assert_eq!(body.trailers().collect::<Vec<_>>(), vec![]);
     }
 
     #[test]
     fn no_trailer_after_a_paragraph_windows() {
         let input = "foo\nbar\n\nbar\r\n\r\nbaz";
         assert_eq!(body(input).as_ref(), input);
+    }
+
+    /// A commit whose body is *only* trailers (no preceding body paragraph) should
+    /// have its trailers detected, matching the behaviour of `git interpret-trailers`.
+    ///
+    /// This arises naturally when a commit message has a subject line followed
+    /// immediately by trailers and no other body text, e.g.:
+    ///
+    /// ```text
+    /// Fix the thing
+    ///
+    /// Signed-off-by: Alice <alice@example.com>
+    /// ```
+    ///
+    /// The full message bytes are `"Fix the thing\n\nSigned-off-by: …"`.
+    /// `MessageRef::from_bytes` splits at the first `\n\n`, yielding the body
+    /// `"Signed-off-by: …"` — which contains no second `\n\n`.  Prior to this
+    /// fix `BodyRef::from_bytes` therefore returned zero trailers for such
+    /// messages, diverging from `git interpret-trailers --parse`.
+    #[test]
+    fn trailer_as_sole_body_content() {
+        let input = "Signed-off-by: Alice <alice@example.com>\nCo-authored-by: Bob <bob@example.com>";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![
+                TrailerRef {
+                    token: "Signed-off-by".into(),
+                    value: b"Alice <alice@example.com>".as_bstr().into(),
+                },
+                TrailerRef {
+                    token: "Co-authored-by".into(),
+                    value: b"Bob <bob@example.com>".as_bstr().into(),
+                },
+            ],
+        );
+        assert_eq!(body.without_trailer(), "", "body-without-trailer must be empty");
+    }
+
+    /// Generic trailer-looking lines mixed with prose in the same paragraph do not
+    /// form a trailer block without a recognized Git prefix.
+    #[test]
+    fn body_text_then_generic_trailer_without_blank_line_is_not_a_trailer() {
+        let input = "some body text\ntoken: value";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![],
+            "generic trailer-like lines are not enough to form a trailer block"
+        );
+    }
+
+    /// Git recognizes `Signed-off-by` as a special trailer prefix, so a footer block
+    /// that mixes prose with such trailers still parses even without an extra blank
+    /// line inside the body.
+    #[test]
+    fn body_text_then_recognized_trailer_without_blank_line_is_a_trailer_block() {
+        let input = "some body text\nSigned-off-by: Alice <alice@example.com>";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), "", "the whole body is the trailer block");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Signed-off-by".into(),
+                value: b"Alice <alice@example.com>".as_bstr().into(),
+            }],
+        );
+    }
+
+    /// A body whose first line looks like a trailer but whose subsequent
+    /// lines are plain prose must not be treated as a trailer block.
+    #[test]
+    fn trailer_like_first_line_followed_by_prose_is_not_a_trailer() {
+        let input = "Note: this is not a trailer despite the colon\nmore explanation";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![],
+            "not a trailer block when non-trailer lines are present"
+        );
+    }
+
+    #[test]
+    fn trailer_as_sole_body_content_with_folded_value() {
+        let input = "Acked-by: Alice\n continuation line";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Acked-by".into(),
+                value: b"Alice continuation line".as_bstr().into(),
+            }],
+        );
+        assert_eq!(body.without_trailer(), "", "body-without-trailer must be empty");
+    }
+
+    #[test]
+    fn trailer_as_sole_body_content_with_space_before_separator() {
+        let input = "Acked-by : Alice";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Acked-by".into(),
+                value: b"Alice".as_bstr().into(),
+            }],
+        );
+        assert_eq!(body.without_trailer(), "", "body-without-trailer must be empty");
+    }
+
+    #[test]
+    fn mixed_footer_with_recognized_prefix_and_prose_is_a_trailer_block() {
+        let input =
+            "not a trailer\nSigned-off-by: Alice <alice@example.com>\nanother note\nSigned-off-by: Bob <bob@example.com>";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![
+                TrailerRef {
+                    token: "Signed-off-by".into(),
+                    value: b"Alice <alice@example.com>".as_bstr().into(),
+                },
+                TrailerRef {
+                    token: "Signed-off-by".into(),
+                    value: b"Bob <bob@example.com>".as_bstr().into(),
+                },
+            ],
+        );
+        assert_eq!(
+            body.without_trailer(),
+            "",
+            "the entire body is the trailer block, even though not everything can be parsed"
+        );
+    }
+
+    #[test]
+    fn recognized_prefix_footer_at_exactly_twenty_five_percent_is_a_trailer_block() {
+        let input = "Signed-off-by: Alice <alice@example.com>\n\
+not a trailer 1\n\
+not a trailer 2\n\
+not a trailer 3";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), "", "the whole body is the trailer block");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Signed-off-by".into(),
+                value: b"Alice <alice@example.com>".as_bstr().into(),
+            }],
+        );
+    }
+
+    #[test]
+    fn recognized_prefix_footer_below_twenty_five_percent_is_not_a_trailer_block() {
+        let input = "Signed-off-by: Alice <alice@example.com>\n\
+not a trailer 1\n\
+not a trailer 2\n\
+not a trailer 3\n\
+not a trailer 4";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(body.trailers().collect::<Vec<_>>(), vec![]);
+    }
+
+    #[test]
+    fn mixed_footer_with_only_generic_trailers_and_prose_is_not_a_trailer_block() {
+        let input = "a: b\nnot a trailer\nc: d";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), input, "must be returned unchanged");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![],
+            "generic trailers mixed with prose do not form a trailer block"
+        );
+    }
+
+    #[test]
+    fn folded_trailer_after_body_paragraph() {
+        let input = "body paragraph\n\nAcked-by: Alice\n continuation line";
+        let body = body(input);
+        assert_eq!(body.without_trailer(), "body paragraph");
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Acked-by".into(),
+                value: b"Alice continuation line".as_bstr().into(),
+            }],
+        );
+    }
+
+    #[test]
+    fn trailer_as_sole_body_content_with_folded_value_windows() {
+        let input = "Acked-by: Alice\r\n continuation line\r\n";
+        let body = body(input);
+        assert_eq!(
+            body.trailers().collect::<Vec<_>>(),
+            vec![TrailerRef {
+                token: "Acked-by".into(),
+                value: b"Alice continuation line".as_bstr().into(),
+            }],
+        );
+        assert_eq!(body.without_trailer(), "", "body-without-trailer must be empty");
     }
 }
 
