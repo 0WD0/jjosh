@@ -9,7 +9,7 @@ repository = "https://github.com/GitoxideLabs/gitoxide"
 documentation = "https://github.com/git/git/blob/seen/Documentation/technical/chunk-format.txt"
 license = "MIT OR Apache-2.0"
 edition = "2021"
-include = ["src/**/*", "LICENSE-*"]
+include = ["/src/**/*", "/LICENSE-*"]
 rust-version = "1.82"
 
 [lib]

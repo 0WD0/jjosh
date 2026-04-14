@@ -12,7 +12,7 @@ authors = [
 ]
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
-include = ["src/**/*", "LICENSE-*"]
+include = ["/src/**/*", "/LICENSE-*"]
 rust-version = "1.82"
 
 [lib]

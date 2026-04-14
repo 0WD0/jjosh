@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project implementing parsing and serialization of gix-url"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
-include = ["src/**/*", "LICENSE-*", "tests/baseline/**/*"]
+include = ["/src/**/*", "/LICENSE-*", "/tests/baseline/**/*"]
 rust-version = "1.82"
 
 [lib]

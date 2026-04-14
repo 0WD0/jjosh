@@ -10,7 +10,7 @@ authors = ["Edward Shen <code@eddie.sh>"]
 edition = "2021"
 keywords = ["git-config", "git", "config", "gitoxide"]
 categories = ["config", "parser-implementations"]
-include = ["src/**/*", "LICENSE-*", "README.md"]
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 rust-version = "1.82"
 autotests = false
 
