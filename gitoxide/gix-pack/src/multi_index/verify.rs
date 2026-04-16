@@ -194,7 +194,7 @@ impl File {
                 pack_ids_and_offsets.push((pack_id, entry_index));
             }
             // sort by pack-id to allow handling all indices matching a pack while its open.
-            pack_ids_and_offsets.sort_by(|l, r| l.0.cmp(&r.0));
+            pack_ids_and_offsets.sort_by_key(|l| l.0);
             progress.show_throughput(order_start);
         };
 

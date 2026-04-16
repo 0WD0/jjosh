@@ -32,7 +32,7 @@ fn random_quadratic_produces_values_in_the_correct_range() {
 
 #[test]
 fn how_many_iterations_for_a_second_of_waittime() {
-    let max = Duration::from_millis(1000);
+    let max = Duration::from_secs(1);
     assert_eq!(Quadratic::default().until_no_remaining(max).count(), 14);
     assert_eq!(
         Quadratic::default()

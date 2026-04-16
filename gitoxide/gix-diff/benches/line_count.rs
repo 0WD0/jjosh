@@ -1,4 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use std::{fmt::Write, hint::black_box};
+
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 struct BenchmarkTokenSource {
     number_of_lines: u32,
@@ -50,21 +52,7 @@ impl Iterator for BenchmarkTokenizer {
     }
 }
 
-impl imara_diff::intern::TokenSource for BenchmarkTokenSource {
-    type Token = String;
-
-    type Tokenizer = BenchmarkTokenizer;
-
-    fn tokenize(&self) -> Self::Tokenizer {
-        BenchmarkTokenizer::new(self.number_of_lines, self.skip_every)
-    }
-
-    fn estimate_tokens(&self) -> u32 {
-        self.number_of_lines
-    }
-}
-
-impl imara_diff_v2::TokenSource for BenchmarkTokenSource {
+impl imara_diff::TokenSource for BenchmarkTokenSource {
     type Token = String;
 
     type Tokenizer = BenchmarkTokenizer;
@@ -79,40 +67,96 @@ impl imara_diff_v2::TokenSource for BenchmarkTokenSource {
 }
 
 fn count_lines(c: &mut Criterion) {
-    let input = imara_diff::intern::InternedInput::new(
+    let input = imara_diff::InternedInput::new(
         BenchmarkTokenSource::new(10_000, 5),
         BenchmarkTokenSource::new(10_000, 6),
     );
 
-    let input_v2 = imara_diff_v2::InternedInput::new(
-        BenchmarkTokenSource::new(10_000, 5),
-        BenchmarkTokenSource::new(10_000, 6),
-    );
-
-    c.bench_function("imara-diff 0.1", |b| {
+    c.bench_function("imara-diff (synthetic input)", |b| {
         b.iter(|| {
-            let counters = gix_diff::blob::diff(
-                gix_diff::blob::Algorithm::Histogram,
-                &input,
-                gix_diff::blob::sink::Counter::default(),
-            );
+            let diff = gix_diff::blob::Diff::compute(gix_diff::blob::Algorithm::Histogram, &input);
 
-            assert_eq!(counters.insertions, 1666);
-            assert_eq!(counters.removals, 1333);
-        });
-    });
-    c.bench_function("imara-diff 0.2", |b| {
-        b.iter(|| {
-            let diff = imara_diff_v2::Diff::compute(imara_diff_v2::Algorithm::Histogram, &input_v2);
-
-            let additions = diff.count_additions();
-            let removals = diff.count_removals();
-
-            assert_eq!(additions, 1666);
-            assert_eq!(removals, 1333);
+            assert_eq!(diff.count_additions(), 1666);
+            assert_eq!(diff.count_removals(), 1333);
         });
     });
 }
 
-criterion_group!(benches, count_lines);
+fn slider_postprocess(c: &mut Criterion) {
+    let (before, after) = rust_like_fixture(2_000);
+    let input = imara_diff::InternedInput::new(before.as_str(), after.as_str());
+
+    let baseline = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
+    let expected_additions = baseline.count_additions();
+    let expected_removals = baseline.count_removals();
+
+    let mut group = c.benchmark_group("slider-postprocess");
+    group.bench_function("histogram-only", |b| {
+        b.iter(|| {
+            let diff = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
+
+            assert_eq!(diff.count_additions(), expected_additions);
+            assert_eq!(diff.count_removals(), expected_removals);
+
+            black_box(diff);
+        });
+    });
+    group.bench_function("histogram+git-slider-postprocess", |b| {
+        b.iter(|| {
+            let mut diff = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
+            diff.postprocess_lines(&input);
+
+            assert_eq!(diff.count_additions(), expected_additions);
+            assert_eq!(diff.count_removals(), expected_removals);
+
+            black_box(diff);
+        });
+    });
+    group.bench_function("git-slider-postprocess-only", |b| {
+        b.iter_batched(
+            || imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input),
+            |mut diff| {
+                diff.postprocess_lines(&input);
+
+                assert_eq!(diff.count_additions(), expected_additions);
+                assert_eq!(diff.count_removals(), expected_removals);
+
+                black_box(diff);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
+}
+
+fn rust_like_fixture(functions: usize) -> (String, String) {
+    let mut before = String::new();
+    let mut after = String::new();
+
+    for idx in 0..functions {
+        push_function(&mut before, idx, false);
+        push_function(&mut after, idx, true);
+    }
+
+    (before, after)
+}
+
+fn push_function(buf: &mut String, idx: usize, with_extra_logging: bool) {
+    writeln!(buf, "fn section_{idx}() {{").unwrap();
+    writeln!(buf, "    let mut value = {idx};").unwrap();
+    buf.push_str("    if value % 3 == 0 {\n");
+    buf.push_str("        println!(\"triple: {}\", value);\n");
+    if with_extra_logging && idx % 3 == 0 {
+        buf.push_str("        println!(\"slider: {}\", value + 1);\n");
+    }
+    buf.push_str("    } else {\n");
+    buf.push_str("        println!(\"plain: {}\", value);\n");
+    if with_extra_logging && idx % 5 == 0 {
+        buf.push_str("        println!(\"trace: {}\", value.saturating_sub(1));\n");
+    }
+    buf.push_str("    }\n");
+    buf.push_str("}\n\n");
+}
+
+criterion_group!(benches, count_lines, slider_postprocess);
 criterion_main!(benches);

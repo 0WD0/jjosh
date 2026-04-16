@@ -1,7 +1,8 @@
 use gix_diff::blob::unified_diff::ConsumeBinaryHunk;
+use gix_diff::blob::UnifiedDiff;
 use gix_diff::blob::{
     unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
-    Algorithm, UnifiedDiff,
+    Algorithm,
 };
 use gix_object::bstr::BString;
 
@@ -10,15 +11,15 @@ fn removed_modified_added() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
 
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
-    let actual = gix_diff::blob::diff(
+    let interner = gix_diff::blob::InternedInput::new(
+        gix_diff::blob::platform::resource::ByteLinesWithoutTerminator::new(a.as_bytes()),
+        gix_diff::blob::platform::resource::ByteLinesWithoutTerminator::new(b.as_bytes()),
+    );
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     // merged by context.
@@ -39,14 +40,11 @@ fn removed_modified_added() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(1),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(1),
     )?;
     // Small context lines keeps hunks separate.
     insta::assert_snapshot!(actual, @r"
@@ -64,14 +62,11 @@ fn removed_modified_added() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(0),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(0),
     )?;
     // No context is also fine
     insta::assert_snapshot!(actual, @r"
@@ -85,10 +80,11 @@ fn removed_modified_added() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(&interner, Recorder::new("\n"), ContextSize::symmetrical(1)),
+        Recorder::new("\n"),
+        ContextSize::symmetrical(1),
     )?;
     assert_eq!(
         actual,
@@ -107,15 +103,12 @@ fn context_overlap_by_one_line_move_up() -> crate::Result {
     let a = "2\n3\n4\n5\n6\n7\n";
     let b = "7\n2\n3\n4\n5\n6\n";
 
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
-    let actual = gix_diff::blob::diff(
+    let interner = gix_diff::blob::InternedInput::new(a, b);
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     // merged by context.
@@ -137,15 +130,12 @@ fn non_utf8() -> crate::Result {
     let a = &b"\xC0\x80"[..];
     let b = b"ascii";
 
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
-    let err = gix_diff::blob::diff(
+    let interner = gix_diff::blob::InternedInput::new(a, b);
+    let err = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )
     .unwrap_err();
     assert_eq!(
@@ -154,14 +144,11 @@ fn non_utf8() -> crate::Result {
         "strings enforce an encoding, which fails here"
     );
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(BString::default(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(BString::default(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
     insta::assert_snapshot!(actual, @r"
     @@ -1,1 +1,1 @@
@@ -176,15 +163,12 @@ fn context_overlap_by_one_line_move_down() -> crate::Result {
     let a = "2\n3\n4\n5\n6\n7\n";
     let b = "7\n2\n3\n4\n5\n6\n";
 
-    let interner = gix_diff::blob::intern::InternedInput::new(b, a);
-    let actual = gix_diff::blob::diff(
+    let interner = gix_diff::blob::InternedInput::new(b, a);
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     // merged by context.
@@ -206,18 +190,15 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "1\n2\n3\n4\n4.5\n5\n6\n7\n8\n9\n10";
 
-    let a = gix_diff::blob::sources::lines_with_terminator(a);
-    let b = gix_diff::blob::sources::lines_with_terminator(b);
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let a = gix_diff::blob::sources::byte_lines(a.as_bytes());
+    let b = gix_diff::blob::sources::byte_lines(b.as_bytes());
+    let interner = gix_diff::blob::InternedInput::new(a, b);
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
     // TODO: fix this
     insta::assert_snapshot!(actual, @r"
@@ -234,18 +215,15 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "1\n2\n3\n4\n5\n6\n6.5\n7\n8\n9\n10";
 
-    let a = gix_diff::blob::sources::lines_with_terminator(a);
-    let b = gix_diff::blob::sources::lines_with_terminator(b);
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let a = gix_diff::blob::sources::byte_lines(a.as_bytes());
+    let b = gix_diff::blob::sources::byte_lines(b.as_bytes());
+    let interner = gix_diff::blob::InternedInput::new(a, b);
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     insta::assert_snapshot!(actual, @r"
@@ -261,18 +239,15 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "1\n2\n3\n3.5\n4\n5\n6\n7\n8\n9\n10";
 
-    let a = gix_diff::blob::sources::lines_with_terminator(a);
-    let b = gix_diff::blob::sources::lines_with_terminator(b);
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let a = gix_diff::blob::sources::byte_lines(a.as_bytes());
+    let b = gix_diff::blob::sources::byte_lines(b.as_bytes());
+    let interner = gix_diff::blob::InternedInput::new(a, b);
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     insta::assert_snapshot!(actual, @r"
@@ -290,18 +265,15 @@ fn added_on_top_keeps_context_correctly_sized() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "1\n2\n3\n4\n5\n6\n7\n7.5\n8\n9\n10";
 
-    let a = gix_diff::blob::sources::lines_with_terminator(a);
-    let b = gix_diff::blob::sources::lines_with_terminator(b);
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
+    let a = gix_diff::blob::sources::byte_lines(a.as_bytes());
+    let b = gix_diff::blob::sources::byte_lines(b.as_bytes());
+    let interner = gix_diff::blob::InternedInput::new(a, b);
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
     insta::assert_snapshot!(actual, @r"
     @@ -5,6 +5,7 @@
@@ -321,17 +293,14 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     let a = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
     let b = "2\n3\n4\n5\nsix\n7\n8\n9\n10\neleven\ntwelve";
 
-    let a = gix_diff::blob::sources::lines_with_terminator(a);
-    let b = gix_diff::blob::sources::lines_with_terminator(b);
-    let interner = gix_diff::blob::intern::InternedInput::new(a, b);
-    let actual = gix_diff::blob::diff(
+    let a = gix_diff::blob::sources::byte_lines(a.as_bytes());
+    let b = gix_diff::blob::sources::byte_lines(b.as_bytes());
+    let interner = gix_diff::blob::InternedInput::new(a, b);
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     // merged by context.
@@ -354,14 +323,11 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(1),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(1),
     )?;
     // Small context lines keeps hunks separate.
     insta::assert_snapshot!(actual, @r"
@@ -381,14 +347,11 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(0),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(0),
     )?;
     // No context is also fine
     insta::assert_snapshot!(actual, @r"
@@ -404,10 +367,11 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
     +twelve
     ");
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(&interner, Recorder::new("\r\n"), ContextSize::symmetrical(1)),
+        Recorder::new("\r\n"),
+        ContextSize::symmetrical(1),
     )?;
     assert_eq!(
         actual,
@@ -418,10 +382,11 @@ fn removed_modified_added_with_newlines_in_tokens() -> crate::Result {
         ]
     );
 
-    let actual = gix_diff::blob::diff(
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(&interner, DiffLineKindRecorder::default(), ContextSize::symmetrical(1)),
+        DiffLineKindRecorder::default(),
+        ContextSize::symmetrical(1),
     )?;
 
     assert_eq!(
@@ -453,15 +418,12 @@ fn all_added_or_removed() -> crate::Result {
 
     let samples = [0, 1, 3, 100];
     for context_lines in samples {
-        let interner = gix_diff::blob::intern::InternedInput::new("", content);
-        let actual = gix_diff::blob::diff(
+        let interner = gix_diff::blob::InternedInput::new("", content);
+        let actual = render(
             Algorithm::Myers,
             &interner,
-            UnifiedDiff::new(
-                &interner,
-                ConsumeBinaryHunk::new(String::new(), "\n"),
-                ContextSize::symmetrical(context_lines),
-            ),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
+            ContextSize::symmetrical(context_lines),
         )?;
         assert_eq!(
             actual,
@@ -477,15 +439,12 @@ fn all_added_or_removed() -> crate::Result {
     }
 
     for context_lines in samples {
-        let interner = gix_diff::blob::intern::InternedInput::new(content, "");
-        let actual = gix_diff::blob::diff(
+        let interner = gix_diff::blob::InternedInput::new(content, "");
+        let actual = render(
             Algorithm::Myers,
             &interner,
-            UnifiedDiff::new(
-                &interner,
-                ConsumeBinaryHunk::new(String::new(), "\n"),
-                ContextSize::symmetrical(context_lines),
-            ),
+            ConsumeBinaryHunk::new(String::new(), "\n"),
+            ContextSize::symmetrical(context_lines),
         )?;
         assert_eq!(
             actual,
@@ -504,19 +463,30 @@ fn all_added_or_removed() -> crate::Result {
 
 #[test]
 fn empty() -> crate::Result {
-    let interner = gix_diff::blob::intern::InternedInput::new(&b""[..], &b""[..]);
-    let actual = gix_diff::blob::diff(
+    let interner = gix_diff::blob::InternedInput::new(&b""[..], &b""[..]);
+    let actual = render(
         Algorithm::Myers,
         &interner,
-        UnifiedDiff::new(
-            &interner,
-            ConsumeBinaryHunk::new(String::new(), "\n"),
-            ContextSize::symmetrical(3),
-        ),
+        ConsumeBinaryHunk::new(String::new(), "\n"),
+        ContextSize::symmetrical(3),
     )?;
 
     insta::assert_snapshot!(actual, @r"");
     Ok(())
+}
+
+fn render<T, D>(
+    algorithm: Algorithm,
+    input: &gix_diff::blob::InternedInput<T>,
+    delegate: D,
+    context_size: ContextSize,
+) -> std::io::Result<D::Out>
+where
+    T: AsRef<[u8]> + std::hash::Hash + Eq,
+    D: ConsumeHunk,
+{
+    let diff = gix_diff::blob::Diff::compute(algorithm, input);
+    UnifiedDiff::new(&diff, input, delegate, context_size).consume()
 }
 
 struct Recorder {

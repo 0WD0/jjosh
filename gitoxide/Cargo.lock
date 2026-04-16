@@ -1710,7 +1710,6 @@ dependencies = [
  "gix-fs",
  "gix-hash",
  "gix-imara-diff",
- "gix-imara-diff-01",
  "gix-index",
  "gix-object",
  "gix-path",
@@ -1922,18 +1921,14 @@ dependencies = [
 name = "gix-imara-diff"
 version = "0.2.0"
 dependencies = [
+ "bstr",
  "cov-mark",
  "expect-test",
+ "gix-hash",
+ "gix-imara-diff",
+ "gix-object",
  "hashbrown 0.16.1",
  "memchr",
-]
-
-[[package]]
-name = "gix-imara-diff-01"
-version = "0.1.8"
-dependencies = [
- "expect-test",
- "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -2028,7 +2023,7 @@ dependencies = [
  "gix-filter",
  "gix-fs",
  "gix-hash",
- "gix-imara-diff-01",
+ "gix-imara-diff",
  "gix-index",
  "gix-object",
  "gix-odb",

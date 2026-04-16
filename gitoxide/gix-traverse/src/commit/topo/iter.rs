@@ -44,7 +44,7 @@ impl Queue {
 
     pub(super) fn initial_sort(&mut self) {
         if let Self::Topo(ref mut inner_vec) = self {
-            inner_vec.sort_by(|a, b| a.0.cmp(&b.0));
+            inner_vec.sort_by_key(|a| a.0);
         }
     }
 }

@@ -1,3 +1,6 @@
+// Modified for gitoxide from the upstream imara-diff crate.
+// Upstream source: git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/lib.rs
+
 #![deny(missing_docs)]
 //! Imara-diff is a solid (imara in Swahili) diff library for Rust.
 //! Solid refers to the fact that imara-diff provides very good runtime performance even
@@ -88,13 +91,13 @@
 //! [`Diff::hunks`], which returns a list of additions/removals/modifications in the
 //! order that they appear in the input.
 //!
-//! Finally, if the `unified_diff` feature is enabled, a diff can be printed with
-//! [`Diff::unified_diff`] to print a unified diff/patch as shown by `git diff` or `diff
-//! -u`. Note that while the unified diff has a decent amount of flexibility, it is fairly
+//! Finally, when built with the `unified_diff` feature, this crate also provides a
+//! built-in unified diff/patch formatter similar to `git diff` or `diff -u`.
+//! Note that while the formatter has a decent amount of flexibility, it is fairly
 //! simplistic and not every formatting may be possible. It's meant to cover common
 //! situations but not cover every advanced use case. Instead, if you need more advanced
 //! printing, build your own printer on top of the [`Diff::hunks`] iterator; for that, you can
-//! take inspiration from the built-in printer.
+//! take inspiration from the built-in printer implementation.
 //!
 //! ```
 //! # use gix_imara_diff::{InternedInput, Diff, Algorithm, BasicLineDiffPrinter, UnifiedDiffConfig};
@@ -283,12 +286,12 @@ impl Diff {
 
     /// Returns the total number of tokens that were added in the second sequence.
     pub fn count_additions(&self) -> u32 {
-        self.added.iter().map(|&added| added as u32).sum()
+        self.added.iter().map(|&added| u32::from(added)).sum()
     }
 
     /// Returns the total number of tokens that were removed from the first sequence (`before`).
     pub fn count_removals(&self) -> u32 {
-        self.removed.iter().map(|&removed| removed as u32).sum()
+        self.removed.iter().map(|&removed| u32::from(removed)).sum()
     }
 
     /// Returns `true` if the token at the given index was removed from the first sequence (`before`).

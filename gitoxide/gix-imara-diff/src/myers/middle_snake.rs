@@ -1,3 +1,6 @@
+// Modified for gitoxide from the upstream imara-diff crate.
+// Upstream source: git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/myers/middle_snake.rs
+
 use std::ptr::NonNull;
 
 use crate::myers::slice::FileSlice;

@@ -119,7 +119,7 @@ impl Store {
             )));
         }
         let mut replacements: Vec<_> = replacements.collect();
-        replacements.sort_by(|a, b| a.0.cmp(&b.0));
+        replacements.sort_by_key(|a| a.0);
 
         Ok(Store {
             current_dir,

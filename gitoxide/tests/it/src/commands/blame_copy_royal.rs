@@ -87,7 +87,7 @@ pub(super) mod function {
 
         let mut buf = Vec::new();
 
-        eprintln!("{prefix} perform {} asset copy operations", blame_infos.len(),);
+        eprintln!("{prefix} perform {} asset copy operations", blame_infos.len());
         for blame_path_entry in &blame_infos {
             let dst = assets.join(format!("{}.commit", blame_path_entry.commit_id));
             if !dry_run {
@@ -239,7 +239,7 @@ git commit -m {commit_id}
                 source_file_path.clone()
             } else {
                 let source_file_path = std::str::from_utf8(source_file_path.as_slice()).with_context(|| {
-                    format!("Source file path '{source_file_path}' was not valid UTF8 and can't be remapped",)
+                    format!("Source file path '{source_file_path}' was not valid UTF8 and can't be remapped")
                 })?;
 
                 crate::commands::copy_royal::remapped(source_file_path).into()
@@ -253,7 +253,7 @@ git commit -m {commit_id}
                     } else {
                         let source_file_path =
                         std::str::from_utf8(previous_source_file_path.as_slice()).with_context(|| {
-                            format!("Source file path '{previous_source_file_path}' was not valid UTF8 and can't be remapped",)
+                            format!("Source file path '{previous_source_file_path}' was not valid UTF8 and can't be remapped")
                         })?;
 
                         crate::commands::copy_royal::remapped(source_file_path)

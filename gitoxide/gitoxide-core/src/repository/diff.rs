@@ -1,8 +1,6 @@
 use anyhow::Context;
-use gix::diff::blob::unified_diff::ConsumeBinaryHunk;
 use gix::{
     bstr::{BString, ByteSlice},
-    diff::blob::{intern::TokenSource, unified_diff::ContextSize, UnifiedDiff},
     objs::tree::EntryMode,
     odb::store::RefreshMode,
     prelude::ObjectIdExt,
@@ -202,24 +200,24 @@ pub fn file(
         }
     };
 
-    let interner = gix::diff::blob::intern::InternedInput::new(
+    let interner = gix::diff::blob::InternedInput::new(
         tokens_for_diffing(outcome.old.data.as_slice().unwrap_or_default()),
         tokens_for_diffing(outcome.new.data.as_slice().unwrap_or_default()),
     );
 
-    let unified_diff = UnifiedDiff::new(
+    let diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &interner);
+    let rendered = gix::diff::blob::UnifiedDiff::new(
+        &diff,
         &interner,
-        ConsumeBinaryHunk::new(BString::default(), "\n"),
-        ContextSize::symmetrical(3),
-    );
-
-    let unified_diff = gix::diff::blob::diff(algorithm, &interner, unified_diff)?;
-
-    out.write_all(unified_diff.as_bytes())?;
+        gix::diff::blob::unified_diff::ConsumeBinaryHunk::new(BString::default(), "\n"),
+        gix::diff::blob::unified_diff::ContextSize::symmetrical(3),
+    )
+    .consume()?;
+    write!(out, "{rendered}")?;
 
     Ok(())
 }
 
-pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
-    gix::diff::blob::sources::byte_lines(data)
+pub(crate) fn tokens_for_diffing(data: &[u8]) -> gix::diff::blob::platform::resource::ByteLinesWithoutTerminator<'_> {
+    gix::diff::blob::platform::resource::ByteLinesWithoutTerminator::new(data)
 }

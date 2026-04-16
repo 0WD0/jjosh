@@ -260,7 +260,7 @@ pub fn setup_line_renderer_range(
         prodash::render::line::Options {
             level_filter: Some(levels),
             frames_per_second: DEFAULT_FRAME_RATE,
-            initial_delay: Some(std::time::Duration::from_millis(1000)),
+            initial_delay: Some(std::time::Duration::from_secs(1)),
             timestamp: true,
             throughput: true,
             hide_cursor: true,

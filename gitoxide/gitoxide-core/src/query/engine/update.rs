@@ -256,17 +256,16 @@ pub fn update(
                                                                     let tokens = prep.interned_input();
                                                                     match prep.operation {
                                                                         Operation::InternalDiff { algorithm } => {
-                                                                            let counts = gix::diff::blob::diff(
-                                                                                algorithm,
-                                                                                &tokens,
-                                                                                gix::diff::blob::sink::Counter::default(
-                                                                                ),
+                                                                            let diff = gix::diff::blob::Diff::compute(
+                                                                                algorithm, &tokens,
                                                                             );
-                                                                            nl += counts.insertions as usize
-                                                                                + counts.removals as usize;
+                                                                            let added = diff.count_additions() as usize;
+                                                                            let removed =
+                                                                                diff.count_removals() as usize;
+                                                                            nl += added + removed;
                                                                             let lines = LineStats {
-                                                                                added: counts.insertions as usize,
-                                                                                removed: counts.removals as usize,
+                                                                                added,
+                                                                                removed,
                                                                                 before: tokens.before.len(),
                                                                                 after: tokens.after.len(),
                                                                             };
@@ -312,8 +311,8 @@ pub fn update(
                                                             lines: diff.map(|d| LineStats {
                                                                 added: d.insertions as usize,
                                                                 removed: d.removals as usize,
-                                                                before: d.before as usize,
-                                                                after: d.after as usize,
+                                                                before: d.before,
+                                                                after: d.after,
                                                             }),
                                                         });
                                                     }

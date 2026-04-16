@@ -119,7 +119,7 @@ impl BlameRanges {
                 non_overlapping.push(merged_range);
 
                 *ranges = non_overlapping;
-                ranges.sort_by(|a, b| a.start.cmp(&b.start));
+                ranges.sort_by_key(|a| a.start);
             }
             Self::WholeFile => *self = Self::PartialFile(vec![new_range]),
         }
@@ -230,8 +230,8 @@ impl Outcome {
     /// Note that [`Self::blob`] must be tokenized in exactly the same way as the tokenizer that was used
     /// to perform the diffs, which is what this method assures.
     pub fn entries_with_lines(&self) -> impl Iterator<Item = (BlameEntry, Vec<BString>)> + '_ {
-        use gix_diff::blob::intern::TokenSource;
-        let mut interner = gix_diff::blob::intern::Interner::new(self.blob.len() / 100);
+        use gix_diff::blob::TokenSource;
+        let mut interner = gix_diff::blob::Interner::new(self.blob.len() / 100);
         let lines_as_tokens: Vec<_> = tokens_for_diffing(&self.blob)
             .tokenize()
             .map(|token| interner.intern(token))

@@ -330,19 +330,19 @@ impl ThreadSafeRepository {
                 None if !config.is_bare_but_assume_bare_if_unconfigured() && looks_like_standard_git_dir() => {
                     worktree_dir = Some(git_dir.parent().expect("parent is always available").to_owned());
                 }
-                Some(_) => {
-                    // We may assume that the presence of a worktree-dir means it's not bare, but only if there
-                    // is no configuration saying otherwise.
-                    // Thus, if we are here and the common-dir config claims it's bare, and we have inferred a worktree anyway,
-                    // forget about it.
+                // We may assume that the presence of a worktree-dir means it's not bare, but only if there
+                // is no configuration saying otherwise.
+                // Thus, if we are here and the common-dir config claims it's bare, and we have inferred a worktree anyway,
+                // forget about it.
+                Some(_)
                     if !worktree_dir_override_from_configuration
-                        && refs.git_dir().ancestors().nth(1).and_then(|p| p.file_name()) != Some("worktrees".as_ref())
-                        && config.is_bare.unwrap_or_default()
-                    {
-                        worktree_dir = None;
-                    }
+                        && refs.git_dir().ancestors().nth(1).and_then(|p| p.file_name())
+                            != Some("worktrees".as_ref())
+                        && config.is_bare.unwrap_or_default() =>
+                {
+                    worktree_dir = None;
                 }
-                None => {}
+                None | Some(_) => {}
             }
         }
 

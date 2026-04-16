@@ -73,11 +73,7 @@ fn baseline() {
 
     fn is_one_sided_glob_pattern(spec: &[u8], op: Operation) -> bool {
         use bstr::ByteSlice;
-        matches!(op, Operation::Fetch)
-            && spec
-                .to_str()
-                .map(|s| s.contains('*') && !s.contains(':'))
-                .unwrap_or(false)
+        matches!(op, Operation::Fetch) && spec.to_str().is_ok_and(|s| s.contains('*') && !s.contains(':'))
     }
 }
 

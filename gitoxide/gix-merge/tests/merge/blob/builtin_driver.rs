@@ -137,7 +137,7 @@ mod text {
             ),
         ] {
             let mut out = Vec::new();
-            let mut input = imara_diff::intern::InternedInput::default();
+            let mut input = imara_diff::InternedInput::default();
             gix_merge::blob::builtin_driver::text(&mut out, &mut input, Default::default(), ours, base, theirs, opts);
         }
     }
@@ -154,7 +154,7 @@ mod text {
         }
         fn run_fuzz_case(ours: &[u8], base: &[u8], theirs: &[u8], marker_size: NonZero<u8>) {
             let mut out = Vec::new();
-            let mut input = imara_diff::intern::InternedInput::default();
+            let mut input = imara_diff::InternedInput::default();
             for diff_algorithm in [
                 imara_diff::Algorithm::Histogram,
                 imara_diff::Algorithm::Myers,
@@ -225,7 +225,7 @@ mod text {
             let mut num_cases = 0;
             for case in baseline::Expectations::new(&root, &cases) {
                 num_cases += 1;
-                let mut input = imara_diff::intern::InternedInput::default();
+                let mut input = imara_diff::InternedInput::default();
                 let actual = gix_merge::blob::builtin_driver::text(
                     &mut out,
                     &mut input,
@@ -298,7 +298,7 @@ mod text {
                 conflict,
                 ..Default::default()
             };
-            let mut input = imara_diff::intern::InternedInput::default();
+            let mut input = imara_diff::InternedInput::default();
             let mut out = Vec::new();
             let actual = builtin_driver::text(
                 &mut out,
@@ -354,7 +354,7 @@ mod text {
                 conflict,
                 ..Default::default()
             };
-            let mut input = imara_diff::intern::InternedInput::default();
+            let mut input = imara_diff::InternedInput::default();
             let mut out = Vec::new();
             let actual = builtin_driver::text(
                 &mut out,

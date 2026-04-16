@@ -16,7 +16,7 @@ fn fuzz_text_merge(
     }: Ctx,
 ) -> Result<()> {
     let mut buf = Vec::new();
-    let mut input = imara_diff::intern::InternedInput::default();
+    let mut input = imara_diff::InternedInput::default();
     for diff_algorithm in [
         imara_diff::Algorithm::Histogram,
         imara_diff::Algorithm::Myers,

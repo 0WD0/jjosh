@@ -1,82 +1,9 @@
 use gix_object::bstr::ByteSlice;
-use gix_testtools::bstr::{BString, ByteVec};
 use pretty_assertions::StrComparison;
 
 #[test]
-fn baseline_v1() -> gix_testtools::Result {
-    use gix_diff::blob::{unified_diff::ContextSize, UnifiedDiff};
-
-    let worktree_path = gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_sliders_repo.sh")?;
-    let asset_dir = worktree_path.join("assets");
-
-    let dir = std::fs::read_dir(&worktree_path)?;
-
-    let mut diffs = Vec::new();
-
-    for entry in dir {
-        let entry = entry?;
-        let Some(baseline::DirEntry {
-            file_name,
-            algorithm,
-            old_data,
-            new_data,
-        }) = baseline::parse_dir_entry(&asset_dir, &entry.file_name())?
-        else {
-            continue;
-        };
-
-        let interner = gix_diff::blob::intern::InternedInput::new(
-            tokens_for_diffing(old_data.as_slice()),
-            tokens_for_diffing(new_data.as_slice()),
-        );
-
-        let actual = gix_diff::blob::diff(
-            algorithm,
-            &interner,
-            UnifiedDiff::new(
-                &interner,
-                baseline::DiffHunkRecorder::new(),
-                ContextSize::symmetrical(3),
-            ),
-        )?;
-
-        let baseline_path = worktree_path.join(&file_name);
-        let baseline = std::fs::read(baseline_path)?;
-        let baseline = baseline::Baseline::new(&baseline);
-
-        let actual = actual
-            .iter()
-            .fold(BString::default(), |mut acc, diff_hunk| {
-                acc.push_str(diff_hunk.header.to_string().as_str());
-                acc.push(b'\n');
-
-                acc.extend_from_slice(&diff_hunk.lines);
-
-                acc
-            })
-            .to_string();
-
-        let baseline = baseline.fold_to_unidiff().to_string();
-        let actual_matches_baseline = actual == baseline;
-        diffs.push((actual, baseline, actual_matches_baseline, file_name));
-    }
-
-    if diffs.is_empty() {
-        eprintln!("Slider baseline isn't setup - look at ./gix-diff/tests/README.md for instructions");
-    }
-
-    assert_diffs(&diffs);
-
-    Ok(())
-}
-
-fn tokens_for_diffing(data: &[u8]) -> impl gix_diff::blob::intern::TokenSource<Token = &[u8]> {
-    gix_diff::blob::sources::byte_lines(data)
-}
-
-#[test]
-fn baseline_v2() -> gix_testtools::Result {
-    use gix_diff::blob::v2::{Algorithm, BasicLineDiffPrinter, Diff, InternedInput, UnifiedDiffConfig};
+fn baseline() -> gix_testtools::Result {
+    use gix_diff::blob::{self, diff_with_slider_heuristics, Algorithm, InternedInput};
 
     let worktree_path = gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_sliders_repo.sh")?;
     let asset_dir = worktree_path.join("assets");
@@ -101,28 +28,26 @@ fn baseline_v2() -> gix_testtools::Result {
             old_data.to_str().expect("BUG: we don't have non-ascii here"),
             new_data.to_str().expect("BUG: we don't have non-ascii here"),
         );
-        let algorithm = match algorithm {
-            gix_diff::blob::Algorithm::Myers => Algorithm::Myers,
-            gix_diff::blob::Algorithm::Histogram => Algorithm::Histogram,
-            gix_diff::blob::Algorithm::MyersMinimal => Algorithm::MyersMinimal,
-        };
+        let diff = diff_with_slider_heuristics(
+            match algorithm {
+                Algorithm::Myers => Algorithm::Myers,
+                Algorithm::Histogram => Algorithm::Histogram,
+                Algorithm::MyersMinimal => Algorithm::MyersMinimal,
+            },
+            &input,
+        );
 
-        let mut diff = Diff::compute(algorithm, &input);
-        diff.postprocess_lines(&input);
-
-        let actual = diff
-            .unified_diff(
-                &BasicLineDiffPrinter(&input.interner),
-                UnifiedDiffConfig::default(),
-                &input,
-            )
-            .to_string();
+        let actual = blob::UnifiedDiff::new(
+            &diff,
+            &input,
+            blob::unified_diff::ConsumeBinaryHunk::new(String::new(), "\n"),
+            blob::unified_diff::ContextSize::symmetrical(3),
+        )
+        .consume()?;
 
         let baseline_path = worktree_path.join(&file_name);
         let baseline = std::fs::read(baseline_path)?;
-        let baseline = baseline::Baseline::new(&baseline);
-
-        let baseline = baseline.fold_to_unidiff().to_string();
+        let baseline = baseline::skip_header_and_fold_to_unidiff(&baseline);
 
         let actual_matches_baseline = actual == baseline;
         diffs.push((actual, baseline, actual_matches_baseline, file_name));
@@ -166,183 +91,10 @@ fn assert_diffs(diffs: &[(String, String, bool, String)]) {
 }
 
 mod baseline {
-    use gix_diff::blob::unified_diff::{ConsumeHunk, HunkHeader};
     use gix_diff::blob::Algorithm;
-    use gix_object::bstr::{self, BString};
-    use gix_object::bstr::{ByteSlice, ByteVec};
+    use gix_object::bstr::ByteSlice;
     use std::ffi::OsStr;
-    use std::iter::Peekable;
     use std::path::Path;
-
-    static START_OF_HEADER: &[u8; 4] = b"@@ -";
-
-    #[derive(Debug, PartialEq)]
-    pub struct DiffHunk {
-        pub header: HunkHeader,
-        pub lines: BString,
-    }
-
-    pub struct DiffHunkRecorder {
-        inner: Vec<DiffHunk>,
-    }
-
-    impl DiffHunkRecorder {
-        pub fn new() -> Self {
-            Self { inner: Vec::new() }
-        }
-    }
-
-    impl ConsumeHunk for DiffHunkRecorder {
-        type Out = Vec<DiffHunk>;
-
-        fn consume_hunk(
-            &mut self,
-            header: HunkHeader,
-            lines: &[(gix_diff::blob::unified_diff::DiffLineKind, &[u8])],
-        ) -> std::io::Result<()> {
-            let mut buf = Vec::new();
-
-            for &(kind, line) in lines {
-                buf.push(kind.to_prefix() as u8);
-                buf.extend_from_slice(line);
-                buf.push(b'\n');
-            }
-
-            let diff_hunk = DiffHunk {
-                header,
-                lines: buf.into(),
-            };
-
-            self.inner.push(diff_hunk);
-
-            Ok(())
-        }
-
-        fn finish(self) -> Self::Out {
-            self.inner
-        }
-    }
-
-    type Lines<'a> = Peekable<bstr::Lines<'a>>;
-
-    pub struct Baseline<'a> {
-        lines: Lines<'a>,
-    }
-
-    impl<'a> Baseline<'a> {
-        pub fn new(content: &'a [u8]) -> Baseline<'a> {
-            let mut lines = content.lines().peekable();
-            skip_header(&mut lines);
-            Baseline { lines }
-        }
-    }
-
-    impl Baseline<'_> {
-        /// Converts all baseline [`DiffHunk`]s into a single unified diff format string.
-        pub fn fold_to_unidiff(self) -> BString {
-            self.fold(BString::default(), |mut acc, diff_hunk| {
-                acc.push_str(diff_hunk.header.to_string().as_str());
-                acc.push(b'\n');
-
-                acc.extend_from_slice(&diff_hunk.lines);
-
-                acc
-            })
-        }
-    }
-
-    impl Iterator for Baseline<'_> {
-        type Item = DiffHunk;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            let mut hunk_header = None;
-            let mut hunk_lines = Vec::new();
-
-            while let Some(line) = self.lines.next() {
-                if line.starts_with(START_OF_HEADER) {
-                    assert!(hunk_header.is_none(), "should not overwrite existing hunk_header");
-                    hunk_header = parse_hunk_header(line).ok();
-
-                    continue;
-                }
-
-                match line[0] {
-                    b' ' | b'+' | b'-' => {
-                        hunk_lines.extend_from_slice(line);
-                        hunk_lines.push(b'\n');
-                    }
-                    b'\\' => {
-                        assert_eq!(line, "\\ No newline at end of file".as_bytes());
-                    }
-                    _ => unreachable!(
-                        "BUG: expecting unified diff format, found line: `{}`",
-                        line.to_str_lossy()
-                    ),
-                }
-
-                match self.lines.peek() {
-                    Some(next_line) if next_line.starts_with(START_OF_HEADER) => break,
-                    None => break,
-                    _ => {}
-                }
-            }
-
-            hunk_header.map(|hunk_header| DiffHunk {
-                header: hunk_header,
-                lines: hunk_lines.into(),
-            })
-        }
-    }
-
-    fn skip_header(lines: &mut Lines) {
-        // diff --git a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa b/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-        // index ccccccc..ddddddd 100644
-        // --- a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-        // +++ b/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-
-        let line = lines.next().expect("line to be present");
-        assert!(line.starts_with(b"diff --git "));
-
-        let line = lines.next().expect("line to be present");
-        assert!(line.starts_with(b"index "));
-
-        let line = lines.next().expect("line to be present");
-        assert!(line.starts_with(b"--- "));
-
-        let line = lines.next().expect("line to be present");
-        assert!(line.starts_with(b"+++ "));
-    }
-
-    /// Parse diff hunk headers that conform to the unified diff hunk header format.
-    ///
-    /// The parser is very primitive and relies on the fact that `+18` is parsed as `18`. This
-    /// allows us to split the input on ` ` and `,` only.
-    ///
-    /// @@ -18,6 +18,7 @@ abc def ghi
-    /// @@ -{before_hunk_start},{before_hunk_len} +{after_hunk_start},{after_hunk_len} @@
-    fn parse_hunk_header(line: &[u8]) -> gix_testtools::Result<HunkHeader> {
-        let line = line.strip_prefix(START_OF_HEADER).unwrap();
-
-        let parts: Vec<_> = line.split(|b| *b == b' ' || *b == b',').collect();
-        let [before_hunk_start, before_hunk_len, after_hunk_start, after_hunk_len, ..] = parts[..] else {
-            unreachable!()
-        };
-
-        Ok(HunkHeader {
-            before_hunk_start: parse_number(before_hunk_start),
-            before_hunk_len: parse_number(before_hunk_len),
-            after_hunk_start: parse_number(after_hunk_start),
-            after_hunk_len: parse_number(after_hunk_len),
-        })
-    }
-
-    fn parse_number(bytes: &[u8]) -> u32 {
-        bytes
-            .to_str()
-            .expect("to be a valid UTF-8 string")
-            .parse::<u32>()
-            .expect("to be a number")
-    }
 
     pub struct DirEntry {
         pub file_name: String,
@@ -383,5 +135,336 @@ mod baseline {
             new_data,
         }
         .into())
+    }
+
+    pub fn skip_header_and_fold_to_unidiff(content: &[u8]) -> String {
+        let mut lines = content.lines();
+
+        assert!(lines.next().expect("diff header").starts_with(b"diff --git "));
+        assert!(lines.next().expect("index header").starts_with(b"index "));
+        assert!(lines.next().expect("--- header").starts_with(b"--- "));
+        assert!(lines.next().expect("+++ header").starts_with(b"+++ "));
+
+        let mut out = String::new();
+        for line in lines {
+            if line.starts_with(b"\\") {
+                continue;
+            }
+            out.push_str(line.to_str().expect("baseline diff is valid utf-8"));
+            out.push('\n');
+        }
+        out
+    }
+}
+
+mod heuristics {
+    //! We can consider to move some of these tests to the actual imara-diff test-suite as well.
+    use gix_diff::blob::{self, diff_with_slider_heuristics};
+    use gix_object::bstr::BStr;
+
+    #[test]
+    fn basic_usage() -> crate::Result {
+        let before = r#"fn foo() {
+        let x = 1;
+        println!("x = {}", x);
+    }
+    "#;
+
+        let after = r#"fn foo() {
+        let x = 2;
+        println!("x = {}", x);
+        println!("done");
+    }
+    "#;
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
+        @@ -2,1 +2,1 @@
+        -        let x = 1;
+        +        let x = 2;
+        @@ -4,0 +4,1 @@
+        +        println!("done");
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn unified_diff_with_bstr_printer_usage() -> crate::Result {
+        let before: &BStr = r#"fn foo() {
+        let x = 1;
+        println!("x = {}", x);
+    }
+    "#
+        .into();
+
+        let after: &BStr = r#"fn foo() {
+        let x = 2;
+        println!("x = {}", x);
+        println!("done");
+    }
+    "#
+        .into();
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
+        @@ -2,1 +2,1 @@
+        -        let x = 1;
+        +        let x = 2;
+        @@ -4,0 +4,1 @@
+        +        println!("done");
+        "#);
+        Ok(())
+    }
+
+    /// Test slider heuristics with indentation
+    #[test]
+    fn slider_heuristics_with_indentation() -> crate::Result {
+        let before = r#"fn main() {
+        if true {
+            println!("hello");
+        }
+    }
+    "#;
+
+        let after = r#"fn main() {
+        if true {
+            println!("hello");
+            println!("world");
+        }
+    }
+    "#;
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
+        @@ -4,0 +4,1 @@
+        +            println!("world");
+        "#);
+
+        Ok(())
+    }
+
+    /// Test that Myers algorithm also works with slider heuristics
+    #[test]
+    fn myers_with_slider_heuristics() -> crate::Result {
+        let before = "a\nb\nc\n";
+        let after = "a\nx\nc\n";
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Myers, &input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r"
+        @@ -2,1 +2,1 @@
+        -b
+        +x
+        ");
+
+        Ok(())
+    }
+
+    /// Test empty diff
+    #[test]
+    fn empty_diff_with_slider_heuristics() -> crate::Result {
+        let before = "unchanged\n";
+        let after = "unchanged\n";
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        assert_eq!(diff.count_removals(), 0);
+        assert_eq!(diff.count_additions(), 0);
+
+        Ok(())
+    }
+
+    /// Test complex multi-hunk diff with slider heuristics
+    #[test]
+    fn multi_hunk_diff_with_slider_heuristics() -> crate::Result {
+        let before = r#"struct Foo {
+        x: i32,
+    }
+    
+    impl Foo {
+        fn new() -> Self {
+            Foo { x: 0 }
+        }
+    }
+    "#;
+
+        let after = r#"struct Foo {
+        x: i32,
+        y: i32,
+    }
+    
+    impl Foo {
+        fn new() -> Self {
+            Foo { x: 0, y: 0 }
+        }
+    }
+    "#;
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @"
+        @@ -3,0 +3,1 @@
+        +        y: i32,
+        @@ -7,1 +8,1 @@
+        -            Foo { x: 0 }
+        +            Foo { x: 0, y: 0 }
+        ");
+
+        Ok(())
+    }
+
+    /// Test custom context size in the local unified diff printer.
+    #[test]
+    fn custom_context_size() -> crate::Result {
+        let before = "line1\nline2\nline3\nline4\nline5\nline6\nline7\n";
+        let after = "line1\nline2\nline3\nMODIFIED\nline5\nline6\nline7\n";
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        // Test with context size of 1
+        let unified = util::unidiff_with_context(&diff, &input, 1)?;
+        insta::assert_snapshot!(unified, @r"
+        @@ -3,3 +3,3 @@
+         line3
+        -line4
+        +MODIFIED
+         line5
+        ");
+
+        // Test with context size of 3 (default)
+        let unified_default = util::unidiff_with_context(&diff, &input, 3)?;
+
+        // Smaller context should have fewer lines
+        insta::assert_snapshot!(unified_default, @r"
+        @@ -1,7 +1,7 @@
+         line1
+         line2
+         line3
+        -line4
+        +MODIFIED
+         line5
+         line6
+         line7
+        ");
+
+        Ok(())
+    }
+
+    /// Test that hunks iterator works correctly
+    #[test]
+    fn hunks_iterator() -> crate::Result {
+        let before = "a\nb\nc\nd\ne\n";
+        let after = "a\nX\nc\nY\ne\n";
+
+        let input = blob::InternedInput::new(before, after);
+        let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
+
+        let hunks: Vec<_> = diff.hunks().collect();
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r"
+        @@ -2,1 +2,1 @@
+        -b
+        +X
+        @@ -4,1 +4,1 @@
+        -d
+        +Y
+        ");
+        // Should have two separate hunks
+        insta::assert_debug_snapshot!(hunks, @r"
+        [
+            Hunk {
+                before: 1..2,
+                after: 1..2,
+            },
+            Hunk {
+                before: 3..4,
+                after: 3..4,
+            },
+        ]
+        ");
+        Ok(())
+    }
+
+    /// Test postprocessing without heuristic
+    #[test]
+    fn postprocess_no_heuristic() -> crate::Result {
+        let before = "a\nb\nc\n";
+        let after = "a\nX\nc\n";
+
+        let input = blob::InternedInput::new(before, after);
+
+        // Create diff but postprocess without heuristic
+        let mut diff = blob::Diff::compute(blob::Algorithm::Histogram, &input);
+        diff.postprocess_no_heuristic(&input);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r"
+        @@ -2,1 +2,1 @@
+        -b
+        +X
+        ");
+
+        Ok(())
+    }
+
+    #[test]
+    fn indent_heuristic_available() -> crate::Result {
+        let before = "fn foo() {\n    x\n}\n";
+        let after = "fn foo() {\n    y\n}\n";
+
+        let input = blob::InternedInput::new(before, after);
+
+        let mut diff = blob::Diff::compute(blob::Algorithm::Histogram, &input);
+
+        let heuristic = blob::IndentHeuristic::new(|token| {
+            let line: &str = input.interner[token];
+            blob::IndentLevel::for_ascii_line(line.as_bytes().iter().copied(), 4)
+        });
+
+        diff.postprocess_with_heuristic(&input, heuristic);
+
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @r"
+        @@ -2,1 +2,1 @@
+        -    x
+        +    y
+        ");
+
+        Ok(())
+    }
+
+    mod util {
+        use std::hash::Hash;
+
+        use gix_diff::blob;
+
+        pub fn unidiff<T: AsRef<[u8]> + ?Sized + Hash + Eq>(
+            diff: &blob::Diff,
+            input: &blob::InternedInput<&T>,
+        ) -> String {
+            unidiff_with_context(diff, input, 0).expect("rendering unified diff succeeds")
+        }
+
+        pub fn unidiff_with_context<T: AsRef<[u8]> + ?Sized + Hash + Eq>(
+            diff: &blob::Diff,
+            input: &blob::InternedInput<&T>,
+            context_len: u32,
+        ) -> std::io::Result<String> {
+            blob::UnifiedDiff::new(
+                diff,
+                input,
+                blob::unified_diff::ConsumeBinaryHunk::new(String::new(), "\n"),
+                blob::unified_diff::ContextSize::symmetrical(context_len),
+            )
+            .consume()
+        }
     }
 }
