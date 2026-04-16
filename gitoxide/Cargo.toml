@@ -242,7 +242,6 @@ members = [
     "gix-object",
     "gix-glob",
     "gix-diff",
-    "gix-imara-diff-01",
     "gix-imara-diff",
     "gix-merge",
     "gix-date",

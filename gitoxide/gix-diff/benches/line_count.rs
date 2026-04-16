@@ -52,21 +52,7 @@ impl Iterator for BenchmarkTokenizer {
     }
 }
 
-impl imara_diff::intern::TokenSource for BenchmarkTokenSource {
-    type Token = String;
-
-    type Tokenizer = BenchmarkTokenizer;
-
-    fn tokenize(&self) -> Self::Tokenizer {
-        BenchmarkTokenizer::new(self.number_of_lines, self.skip_every)
-    }
-
-    fn estimate_tokens(&self) -> u32 {
-        self.number_of_lines
-    }
-}
-
-impl imara_diff_v2::TokenSource for BenchmarkTokenSource {
+impl imara_diff::TokenSource for BenchmarkTokenSource {
     type Token = String;
 
     type Tokenizer = BenchmarkTokenizer;
@@ -81,53 +67,33 @@ impl imara_diff_v2::TokenSource for BenchmarkTokenSource {
 }
 
 fn count_lines(c: &mut Criterion) {
-    let input = imara_diff::intern::InternedInput::new(
+    let input = imara_diff::InternedInput::new(
         BenchmarkTokenSource::new(10_000, 5),
         BenchmarkTokenSource::new(10_000, 6),
     );
 
-    let input_v2 = imara_diff_v2::InternedInput::new(
-        BenchmarkTokenSource::new(10_000, 5),
-        BenchmarkTokenSource::new(10_000, 6),
-    );
-
-    c.bench_function("imara-diff 0.1", |b| {
+    c.bench_function("imara-diff (synthetic input)", |b| {
         b.iter(|| {
-            let counters = gix_diff::blob::diff(
-                gix_diff::blob::Algorithm::Histogram,
-                &input,
-                gix_diff::blob::sink::Counter::default(),
-            );
+            let diff = gix_diff::blob::Diff::compute(gix_diff::blob::Algorithm::Histogram, &input);
 
-            assert_eq!(counters.insertions, 1666);
-            assert_eq!(counters.removals, 1333);
-        });
-    });
-    c.bench_function("imara-diff 0.2", |b| {
-        b.iter(|| {
-            let diff = imara_diff_v2::Diff::compute(imara_diff_v2::Algorithm::Histogram, &input_v2);
-
-            let additions = diff.count_additions();
-            let removals = diff.count_removals();
-
-            assert_eq!(additions, 1666);
-            assert_eq!(removals, 1333);
+            assert_eq!(diff.count_additions(), 1666);
+            assert_eq!(diff.count_removals(), 1333);
         });
     });
 }
 
 fn slider_postprocess(c: &mut Criterion) {
     let (before, after) = rust_like_fixture(2_000);
-    let input = imara_diff_v2::InternedInput::new(before.as_str(), after.as_str());
+    let input = imara_diff::InternedInput::new(before.as_str(), after.as_str());
 
-    let baseline = imara_diff_v2::Diff::compute(imara_diff_v2::Algorithm::Histogram, &input);
+    let baseline = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
     let expected_additions = baseline.count_additions();
     let expected_removals = baseline.count_removals();
 
     let mut group = c.benchmark_group("slider-postprocess");
     group.bench_function("histogram-only", |b| {
         b.iter(|| {
-            let diff = imara_diff_v2::Diff::compute(imara_diff_v2::Algorithm::Histogram, &input);
+            let diff = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
 
             assert_eq!(diff.count_additions(), expected_additions);
             assert_eq!(diff.count_removals(), expected_removals);
@@ -137,7 +103,8 @@ fn slider_postprocess(c: &mut Criterion) {
     });
     group.bench_function("histogram+git-slider-postprocess", |b| {
         b.iter(|| {
-            let diff = gix_diff::blob::diff_with_slider_heuristics(imara_diff_v2::Algorithm::Histogram, &input);
+            let mut diff = imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input);
+            diff.postprocess_lines(&input);
 
             assert_eq!(diff.count_additions(), expected_additions);
             assert_eq!(diff.count_removals(), expected_removals);
@@ -147,7 +114,7 @@ fn slider_postprocess(c: &mut Criterion) {
     });
     group.bench_function("git-slider-postprocess-only", |b| {
         b.iter_batched(
-            || imara_diff_v2::Diff::compute(imara_diff_v2::Algorithm::Histogram, &input),
+            || imara_diff::Diff::compute(imara_diff::Algorithm::Histogram, &input),
             |mut diff| {
                 diff.postprocess_lines(&input);
 

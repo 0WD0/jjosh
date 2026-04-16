@@ -29,7 +29,7 @@ mod into_iter {
     #[test]
     fn item_size() {
         let actual = std::mem::size_of::<Item>();
-        let sha1 = 264;
+        let sha1 = 280;
         let sha256_extra = 56;
         let expected = sha1 + sha256_extra;
         assert!(
@@ -318,7 +318,7 @@ mod index_worktree {
         #[test]
         fn item_size() {
             let actual = std::mem::size_of::<Item>();
-            let sha1 = 264;
+            let sha1 = 280;
             let sha256_extra = 56;
             let expected = sha1 + sha256_extra;
             assert!(

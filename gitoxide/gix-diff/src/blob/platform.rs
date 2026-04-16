@@ -96,6 +96,55 @@ pub mod resource {
         platform::{CacheKey, CacheValue, Resource},
     };
 
+    /// A token source that splits bytes into lines while removing trailing newline separators.
+    #[derive(Clone, Copy)]
+    pub struct ByteLinesWithoutTerminator<'a>(&'a [u8]);
+
+    impl<'a> ByteLinesWithoutTerminator<'a> {
+        /// Create a new instance over `data`.
+        pub fn new(data: &'a [u8]) -> Self {
+            Self(data)
+        }
+    }
+
+    impl<'a> Iterator for ByteLinesWithoutTerminator<'a> {
+        type Item = &'a [u8];
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.0.is_empty() {
+                return None;
+            }
+            let line_len = self
+                .0
+                .iter()
+                .position(|b| *b == b'\n')
+                .map_or(self.0.len(), |len| len + 1);
+            let (line, rem) = self.0.split_at(line_len);
+            self.0 = rem;
+            let line = line.strip_suffix(b"\n").unwrap_or(line);
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            Some(line)
+        }
+    }
+
+    impl<'a> imara_diff::TokenSource for ByteLinesWithoutTerminator<'a> {
+        type Token = &'a [u8];
+        type Tokenizer = Self;
+
+        fn tokenize(&self) -> Self::Tokenizer {
+            *self
+        }
+
+        fn estimate_tokens(&self) -> u32 {
+            let len: usize = self.take(20).map(<[u8]>::len).sum();
+            if len == 0 {
+                100
+            } else {
+                (self.0.len() * 20 / len) as u32
+            }
+        }
+    }
+
     impl<'a> Resource<'a> {
         pub(crate) fn new(key: &'a CacheKey, value: &'a CacheValue) -> Self {
             Resource {
@@ -118,9 +167,9 @@ pub mod resource {
         /// Note that this will cause unusual diffs if a file didn't end in newline but lines were added
         /// on the other side.
         ///
-        /// Suitable to create tokens using [`imara_diff::intern::InternedInput`].
-        pub fn intern_source(&self) -> imara_diff::sources::ByteLines<'a, true> {
-            crate::blob::sources::byte_lines_with_terminator(self.data.as_slice().unwrap_or_default())
+        /// Suitable to create tokens using [`crate::blob::InternedInput`].
+        pub fn intern_source(&self) -> imara_diff::sources::ByteLines<'a> {
+            crate::blob::sources::byte_lines(self.data.as_slice().unwrap_or_default())
         }
 
         /// Produce an iterator over lines, but remove LF or CRLF.
@@ -128,9 +177,9 @@ pub mod resource {
         /// This produces the expected diffs when lines were added at the end of a file that didn't end
         /// with a newline before the change.
         ///
-        /// Suitable to create tokens using [`imara_diff::intern::InternedInput`].
-        pub fn intern_source_strip_newline_separators(&self) -> imara_diff::sources::ByteLines<'a, false> {
-            crate::blob::sources::byte_lines(self.data.as_slice().unwrap_or_default())
+        /// Suitable to create tokens using [`crate::blob::InternedInput`].
+        pub fn intern_source_strip_newline_separators(&self) -> ByteLinesWithoutTerminator<'a> {
+            ByteLinesWithoutTerminator::new(self.data.as_slice().unwrap_or_default())
         }
     }
 
@@ -220,12 +269,12 @@ pub mod prepare_diff {
     /// The kind of operation that should be performed based on the configuration of the resources involved in the diff.
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     pub enum Operation<'a> {
-        /// The [internal diff algorithm](imara_diff::diff) should be called with the provided arguments.
+        /// The internal diff algorithm should be computed with [`crate::blob::Diff::compute()`].
         /// This only happens if none of the resources are binary, and if there is no external diff program configured via git-attributes
         /// *or* [Options::skip_internal_diff_if_external_is_configured](super::Options::skip_internal_diff_if_external_is_configured)
         /// is `false`.
         ///
-        /// Use [`Outcome::interned_input()`] to easily obtain an interner for use with [`imara_diff::diff()`], or maintain one yourself
+        /// Use [`Outcome::interned_input()`] to easily obtain an interner for use with [`crate::blob::Diff::compute()`], or maintain one yourself
         /// for greater reuse.
         InternalDiff {
             /// The algorithm we determined should be used, which is one of (in order, first set one wins):
@@ -270,8 +319,8 @@ pub mod prepare_diff {
         /// Note that newline separators will be removed to improve diff quality
         /// at the end of files that didn't have a newline, but had lines added
         /// past the end.
-        pub fn interned_input(&self) -> imara_diff::intern::InternedInput<&'a [u8]> {
-            crate::blob::intern::InternedInput::new(
+        pub fn interned_input(&self) -> crate::blob::InternedInput<&'a [u8]> {
+            crate::blob::InternedInput::new(
                 self.old.intern_source_strip_newline_separators(),
                 self.new.intern_source_strip_newline_separators(),
             )

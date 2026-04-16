@@ -1,3 +1,0 @@
-*.before text eol=lf
-*.after text eol=lf
-*.diff text eol=lf

@@ -109,7 +109,7 @@ mod merge {
             "as both are the same, it just picks ours, declaring it non-conflicting"
         );
 
-        let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
+        let mut input = imara_diff::InternedInput::new(&[][..], &[]);
         assert_eq!(
             platform_ref.builtin_merge(BuiltinDriver::Binary, &mut buf, &mut input, default_labels()),
             res,
@@ -489,7 +489,7 @@ cat "%B" >> "%A""#
             "the new buffer is considered empty, both sides were deleted, too"
         );
 
-        let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
+        let mut input = imara_diff::InternedInput::new(&[][..], &[]);
         let res = platform_ref.builtin_merge(BuiltinDriver::Text, &mut buf, &mut input, Default::default());
         assert_eq!(res, (Pick::Buffer, Resolution::Complete), "both versions are deleted");
         assert!(buf.is_empty(), "the result is the same on direct invocation");
@@ -557,7 +557,7 @@ cat "%B" >> "%A""#
             "this is the default for binary merges, which are used in this case"
         );
 
-        let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
+        let mut input = imara_diff::InternedInput::new(&[][..], &[]);
         assert_eq!(
             platform_ref.builtin_merge(BuiltinDriver::Text, &mut out, &mut input, Default::default()),
             res,

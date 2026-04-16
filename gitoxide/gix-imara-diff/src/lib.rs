@@ -283,12 +283,12 @@ impl Diff {
 
     /// Returns the total number of tokens that were added in the second sequence.
     pub fn count_additions(&self) -> u32 {
-        self.added.iter().map(|&added| added as u32).sum()
+        self.added.iter().map(|&added| u32::from(added)).sum()
     }
 
     /// Returns the total number of tokens that were removed from the first sequence (`before`).
     pub fn count_removals(&self) -> u32 {
-        self.removed.iter().map(|&removed| removed as u32).sum()
+        self.removed.iter().map(|&removed| u32::from(removed)).sum()
     }
 
     /// Returns `true` if the token at the given index was removed from the first sequence (`before`).

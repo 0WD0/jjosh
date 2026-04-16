@@ -10,14 +10,14 @@ pub fn hunks_differ_in_diff3(
     style: ConflictStyle,
     a: &[Hunk],
     b: &[Hunk],
-    input: &imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &[imara_diff::intern::Token],
+    input: &imara_diff::InternedInput<&[u8]>,
+    current_tokens: &[imara_diff::Token],
 ) -> bool {
     if style != ConflictStyle::Diff3 {
         return true;
     }
 
-    let tokens_for_hunk = |hunk: &Hunk| -> &[imara_diff::intern::Token] {
+    let tokens_for_hunk = |hunk: &Hunk| -> &[imara_diff::Token] {
         &tokens_for_side(hunk.side, input, current_tokens)[hunk.after.start as usize..hunk.after.end as usize]
     };
 
@@ -36,13 +36,13 @@ pub fn contains_lines(hunks: &[Hunk]) -> bool {
 /// to understand what's going on there without investing more time than it seemed worth.
 pub fn detect_line_ending(
     hunks: &[Hunk],
-    input: &mut imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &[imara_diff::intern::Token],
+    input: &mut imara_diff::InternedInput<&[u8]>,
+    current_tokens: &[imara_diff::Token],
 ) -> Option<&'static BStr> {
     fn is_eol_crlf(
         hunks: &[Hunk],
-        input: &mut imara_diff::intern::InternedInput<&[u8]>,
-        current_tokens: &[imara_diff::intern::Token],
+        input: &mut imara_diff::InternedInput<&[u8]>,
+        current_tokens: &[imara_diff::Token],
     ) -> Option<bool> {
         let (range, side) = hunks.iter().rev().find_map(|h| {
             (!h.after.is_empty())
@@ -71,17 +71,17 @@ pub fn detect_line_ending(
 
 pub fn detect_line_ending_or_nl(
     hunks: &[Hunk],
-    input: &mut imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &[imara_diff::intern::Token],
+    input: &mut imara_diff::InternedInput<&[u8]>,
+    current_tokens: &[imara_diff::Token],
 ) -> &'static BStr {
     detect_line_ending(hunks, input, current_tokens).unwrap_or(b"\n".into())
 }
 
 fn tokens_for_side<'a>(
     side: Side,
-    input: &'a imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &'a [imara_diff::intern::Token],
-) -> &'a [imara_diff::intern::Token] {
+    input: &'a imara_diff::InternedInput<&[u8]>,
+    current_tokens: &'a [imara_diff::Token],
+) -> &'a [imara_diff::Token] {
     match side {
         Side::Current => current_tokens,
         Side::Other => &input.after,
@@ -105,7 +105,7 @@ pub fn write_conflict_marker(out: &mut Vec<u8>, marker: u8, label: Option<&BStr>
     out.push_str(nl);
 }
 
-pub fn write_ancestor(input: &imara_diff::intern::InternedInput<&[u8]>, from: u32, to: usize, out: &mut Vec<u8>) {
+pub fn write_ancestor(input: &imara_diff::InternedInput<&[u8]>, from: u32, to: usize, out: &mut Vec<u8>) {
     if to < from as usize {
         return;
     }
@@ -173,8 +173,8 @@ fn ancestor_hunk(start: u32, num_lines: u32) -> Hunk {
 pub fn zealously_contract_hunks(
     a_hunks: &mut Vec<Hunk>,
     b_hunks: &mut Vec<Hunk>,
-    input: &imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &[imara_diff::intern::Token],
+    input: &imara_diff::InternedInput<&[u8]>,
+    current_tokens: &[imara_diff::Token],
 ) -> (Vec<Hunk>, usize) {
     let line_content = |token_idx: u32, side: Side| {
         let tokens = match side {
@@ -386,8 +386,8 @@ fn iterate_hunks_rev(hunks: &[Hunk]) -> impl Iterator<Item = (u32, usize, Side)>
 
 pub fn write_hunks(
     hunks: &[Hunk],
-    input: &imara_diff::intern::InternedInput<&[u8]>,
-    current_tokens: &[imara_diff::intern::Token],
+    input: &imara_diff::InternedInput<&[u8]>,
+    current_tokens: &[imara_diff::Token],
     out: &mut Vec<u8>,
 ) {
     for hunk in hunks {
@@ -404,11 +404,7 @@ fn usize_range(range: &Range<u32>) -> Range<usize> {
     range.start as usize..range.end as usize
 }
 
-fn write_tokens(
-    interner: &imara_diff::intern::Interner<&[u8]>,
-    tokens: &[imara_diff::intern::Token],
-    out: &mut Vec<u8>,
-) {
+fn write_tokens(interner: &imara_diff::Interner<&[u8]>, tokens: &[imara_diff::Token], out: &mut Vec<u8>) {
     for token in tokens {
         out.extend_from_slice(interner[*token]);
     }
@@ -457,8 +453,8 @@ pub fn take_intersecting(
     Some(())
 }
 
-pub fn tokens(input: &[u8]) -> imara_diff::sources::ByteLines<'_, true> {
-    imara_diff::sources::byte_lines_with_terminator(input)
+pub fn tokens(input: &[u8]) -> imara_diff::sources::ByteLines<'_> {
+    imara_diff::sources::byte_lines(input)
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -477,23 +473,16 @@ pub struct Hunk {
     pub side: Side,
 }
 
-pub struct CollectHunks {
-    pub hunks: Vec<Hunk>,
-    pub side: Side,
-}
-
-impl imara_diff::Sink for CollectHunks {
-    type Out = Vec<Hunk>;
-
-    fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
-        self.hunks.push(Hunk {
-            before,
-            after,
-            side: self.side,
-        });
-    }
-
-    fn finish(self) -> Self::Out {
-        self.hunks
-    }
+pub fn collect_hunks(
+    algorithm: imara_diff::Algorithm,
+    input: &imara_diff::InternedInput<&[u8]>,
+    side: Side,
+    mut hunks: Vec<Hunk>,
+) -> Vec<Hunk> {
+    hunks.extend(imara_diff::Diff::compute(algorithm, input).hunks().map(|hunk| Hunk {
+        before: hunk.before,
+        after: hunk.after,
+        side,
+    }));
+    hunks
 }

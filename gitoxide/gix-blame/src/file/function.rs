@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use gix_diff::{blob::intern::TokenSource, tree::Visit};
+use gix_diff::{blob::TokenSource, tree::Visit};
 use gix_hash::ObjectId;
 use gix_object::{
     bstr::{BStr, BString},
@@ -204,13 +204,13 @@ pub fn file(
         #[cfg(debug_assertions)]
         {
             let source_blob = odb.find_blob(&entry_id, &mut buf)?.data.to_vec();
-            let mut source_interner = gix_diff::blob::intern::Interner::new(source_blob.len() / 100);
+            let mut source_interner = gix_diff::blob::Interner::new(source_blob.len() / 100);
             let source_lines_as_tokens: Vec<_> = tokens_for_diffing(&source_blob)
                 .tokenize()
                 .map(|token| source_interner.intern(token))
                 .collect();
 
-            let mut blamed_interner = gix_diff::blob::intern::Interner::new(blamed_file_blob.len() / 100);
+            let mut blamed_interner = gix_diff::blob::Interner::new(blamed_file_blob.len() / 100);
             let blamed_lines_as_tokens: Vec<_> = tokens_for_diffing(&blamed_file_blob)
                 .tokenize()
                 .map(|token| blamed_interner.intern(token))
@@ -758,7 +758,7 @@ fn blob_changes(
     diff_algorithm: gix_diff::blob::Algorithm,
     stats: &mut Statistics,
 ) -> Result<Vec<Change>, Error> {
-    use gix_diff::blob::v2::Hunk;
+    use gix_diff::blob::Hunk;
 
     resource_cache.set_resource(
         previous_oid,
@@ -776,17 +776,12 @@ fn blob_changes(
     )?;
 
     let outcome = resource_cache.prepare_diff()?;
-    let input = gix_diff::blob::v2::InternedInput::new(
+    let input = gix_diff::blob::InternedInput::new(
         outcome.old.data.as_slice().unwrap_or_default(),
         outcome.new.data.as_slice().unwrap_or_default(),
     );
 
-    let diff_algorithm: gix_diff::blob::v2::Algorithm = match diff_algorithm {
-        gix_diff::blob::Algorithm::Histogram => gix_diff::blob::v2::Algorithm::Histogram,
-        gix_diff::blob::Algorithm::Myers => gix_diff::blob::v2::Algorithm::Myers,
-        gix_diff::blob::Algorithm::MyersMinimal => gix_diff::blob::v2::Algorithm::MyersMinimal,
-    };
-    let mut diff = gix_diff::blob::v2::Diff::compute(diff_algorithm, &input);
+    let mut diff = gix_diff::blob::Diff::compute(diff_algorithm, &input);
     diff.postprocess_lines(&input);
 
     let mut last_seen_after_end = 0;
@@ -882,5 +877,5 @@ fn collect_parents(
 /// Return an iterator over tokens for use in diffing. These are usually lines, but it's important
 /// to unify them so the later access shows the right thing.
 pub(crate) fn tokens_for_diffing(data: &[u8]) -> impl TokenSource<Token = &[u8]> {
-    gix_diff::blob::sources::byte_lines_with_terminator(data)
+    gix_diff::blob::sources::byte_lines(data)
 }

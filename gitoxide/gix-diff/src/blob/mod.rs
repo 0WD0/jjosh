@@ -5,16 +5,13 @@ use std::{collections::HashMap, path::PathBuf};
 use bstr::BString;
 pub use imara_diff::*;
 
-/// Re-export imara-diff v0.2 types for use with slider heuristics.
-///
-/// This module provides access to the v0.2 API of imara-diff, which includes
-/// support for Git's slider heuristics to produce more intuitive diffs.
-#[cfg(feature = "blob-experimental")]
-pub use imara_diff_v2 as v2;
+/// Facilities to render a computed [`Diff`] as unified diff output.
+pub mod unified_diff;
+pub use unified_diff::impls::UnifiedDiff;
 
 /// Compute a diff with Git's slider heuristics to produce more intuitive diffs.
 ///
-/// This function uses `imara-diff` v0.2 which provides the [`v2::Diff`] structure
+/// This function uses [`Diff`] from `imara-diff`
 /// that supports postprocessing with slider heuristics. The slider heuristics move
 /// diff hunks to more intuitive locations based on indentation and other factors,
 /// resulting in diffs that are more readable and match Git's output more closely.
@@ -22,7 +19,7 @@ pub use imara_diff_v2 as v2;
 /// # Examples
 ///
 /// ```
-/// use gix_diff::blob::{diff_with_slider_heuristics, v2::{Algorithm, InternedInput}};
+/// use gix_diff::blob::{diff_with_slider_heuristics, Algorithm, InternedInput};
 ///
 /// let before = "fn foo() {\n    let x = 1;\n}\n";
 /// let after = "fn foo() {\n    let x = 2;\n}\n";
@@ -34,9 +31,8 @@ pub use imara_diff_v2 as v2;
 /// assert_eq!(diff.count_removals(), 1);
 /// assert_eq!(diff.count_additions(), 1);
 /// ```
-#[cfg(feature = "blob-experimental")]
-pub fn diff_with_slider_heuristics<T: AsRef<[u8]>>(algorithm: v2::Algorithm, input: &v2::InternedInput<T>) -> v2::Diff {
-    let mut diff = v2::Diff::compute(algorithm, input);
+pub fn diff_with_slider_heuristics<T: AsRef<[u8]>>(algorithm: Algorithm, input: &InternedInput<T>) -> Diff {
+    let mut diff = Diff::compute(algorithm, input);
     diff.postprocess_lines(input);
     diff
 }
@@ -47,9 +43,6 @@ pub mod pipeline;
 ///
 pub mod platform;
 
-pub mod unified_diff;
-pub use unified_diff::impls::UnifiedDiff;
-
 /// Information about the diff performed to detect similarity.
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
 pub struct DiffLineStats {
@@ -58,9 +51,9 @@ pub struct DiffLineStats {
     /// The amount of lines to add to the source to get to the destination.
     pub insertions: u32,
     /// The amount of lines of the previous state, in the source.
-    pub before: u32,
+    pub before: usize,
     /// The amount of lines of the new state, in the destination.
-    pub after: u32,
+    pub after: usize,
     /// A range from 0 to 1.0, where 1.0 is a perfect match and 0.5 is a similarity of 50%.
     /// Similarity is the ratio between all lines in the previous blob and the current blob,
     /// calculated as `(old_lines_count - new_lines_count) as f32 / old_lines_count.max(new_lines_count) as f32`.

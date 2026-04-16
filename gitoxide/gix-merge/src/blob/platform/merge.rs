@@ -322,7 +322,7 @@ pub(super) mod inner {
                 &self,
                 driver: BuiltinDriver,
                 out: &mut Vec<u8>,
-                input: &mut imara_diff::intern::InternedInput<&'parent [u8]>,
+                input: &mut imara_diff::InternedInput<&'parent [u8]>,
                 labels: builtin_driver::text::Labels<'_>,
             ) -> (Pick, Resolution) {
                 let base = self.ancestor.data.as_slice().unwrap_or_default();
@@ -429,7 +429,7 @@ impl<'parent> PlatformRef<'parent> {
                 Ok((inner::builtin_merge::Pick::Buffer, Resolution::Complete))
             }
             Err(builtin) => {
-                let mut input = imara_diff::intern::InternedInput::new(&[][..], &[]);
+                let mut input = imara_diff::InternedInput::new(&[][..], &[]);
                 out.clear();
                 let (pick, resolution) = self.builtin_merge(builtin, out, &mut input, labels);
                 Ok((pick, resolution))
