@@ -9,6 +9,7 @@ description = "A crate of the gitoxide project dedicated to a terminal user inte
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
+include = ["/src/**/*", "/LICENSE-*"]
 
 [[bin]]
 name = "gixi"

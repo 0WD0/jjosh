@@ -9,6 +9,7 @@ description = "A crate of the gitoxide project dedicated to implementing a 'blam
 authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>", "Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
+include = ["/src/**/*", "/LICENSE-*"]
 
 [features]
 ## Enable support for the SHA-1 hash by forwarding the feature to dependencies.

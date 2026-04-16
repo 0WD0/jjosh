@@ -9,6 +9,7 @@ description = "A crate of the gitoxide project to read and write .git/FETCH_HEAD
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
+include = ["/src/**/*", "/LICENSE-*"]
 
 [lib]
 doctest = false

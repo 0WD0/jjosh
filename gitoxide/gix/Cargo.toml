@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 version = "0.81.0"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
-include = ["src/**/*", "LICENSE-*"]
+include = ["/src/**/*", "/LICENSE-*"]
 # This MSRV is dictated by `firefox` to support the `helix` editor, but is now probably
 # effectively controlled by `jiff`, which also aligns with `regex`.
 rust-version = "1.82"

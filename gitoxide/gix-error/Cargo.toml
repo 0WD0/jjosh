@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project to provide common errors and error-handling utilities"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
-include = ["src/**/*", "LICENSE-*"]
+include = ["/src/**/*", "/LICENSE-*"]
 rust-version = "1.82"
 
 [features]
@@ -41,4 +41,3 @@ insta = "1.46.3"
 [package.metadata.docs.rs]
 all-features = true
 features = ["document-features"]
-

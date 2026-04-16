@@ -9,7 +9,7 @@ description = "A crate providing file system specific utilities to `gitoxide`"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2021"
 rust-version = "1.82"
-include = ["src/**/*", "LICENSE-*"]
+include = ["/src/**/*", "/LICENSE-*"]
 
 [lib]
 doctest = true
