@@ -182,10 +182,10 @@ mod heuristics {
 
         insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
         @@ -2,1 +2,1 @@
-        -    let x = 1;
-        +    let x = 2;
+        -        let x = 1;
+        +        let x = 2;
         @@ -4,0 +4,1 @@
-        +    println!("done");
+        +        println!("done");
         "#);
         Ok(())
     }
@@ -212,10 +212,10 @@ mod heuristics {
 
         insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
         @@ -2,1 +2,1 @@
-        -    let x = 1;
-        +    let x = 2;
+        -        let x = 1;
+        +        let x = 2;
         @@ -4,0 +4,1 @@
-        +    println!("done");
+        +        println!("done");
         "#);
         Ok(())
     }
@@ -243,7 +243,7 @@ mod heuristics {
 
         insta::assert_snapshot!(util::unidiff(&diff, &input), @r#"
         @@ -4,0 +4,1 @@
-        +        println!("world");
+        +            println!("world");
         "#);
 
         Ok(())
@@ -311,12 +311,12 @@ mod heuristics {
         let input = blob::InternedInput::new(before, after);
         let diff = diff_with_slider_heuristics(blob::Algorithm::Histogram, &input);
 
-        insta::assert_snapshot!(util::unidiff(&diff, &input), @r"
+        insta::assert_snapshot!(util::unidiff(&diff, &input), @"
         @@ -3,0 +3,1 @@
-        +    y: i32,
+        +        y: i32,
         @@ -7,1 +8,1 @@
-        -        Foo { x: 0 }
-        +        Foo { x: 0, y: 0 }
+        -            Foo { x: 0 }
+        +            Foo { x: 0, y: 0 }
         ");
 
         Ok(())

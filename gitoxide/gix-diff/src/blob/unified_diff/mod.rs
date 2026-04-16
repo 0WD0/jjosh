@@ -71,7 +71,7 @@ pub trait ConsumeBinaryHunkDelegate {
     fn consume_binary_hunk(&mut self, header: HunkHeader, header_str: &str, hunk: &[u8]) -> std::io::Result<()>;
 }
 
-/// A utility trait for use in [`UnifiedDiff`].
+/// A utility trait for use in [`crate::blob::UnifiedDiff`].
 pub trait ConsumeHunk {
     /// The item this instance produces after consuming all hunks.
     type Out;
@@ -80,7 +80,7 @@ pub trait ConsumeHunk {
     /// and the original token bytes (`&[u8]`) for that line without the unified diff prefix character.
     /// The `header` specifies hunk offsets, which positions the `lines` in the old and new file respectively.
     ///
-    /// Note that [`UnifiedDiff`] will wrap its output in an [`std::io::Result`].
+    /// Note that [`crate::blob::UnifiedDiff`] will wrap its output in an [`std::io::Result`].
     /// After this method returned its first error, it will not be called anymore.
     fn consume_hunk(&mut self, header: HunkHeader, lines: &[(DiffLineKind, &[u8])]) -> std::io::Result<()>;
 

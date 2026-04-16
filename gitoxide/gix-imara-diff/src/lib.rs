@@ -91,13 +91,13 @@
 //! [`Diff::hunks`], which returns a list of additions/removals/modifications in the
 //! order that they appear in the input.
 //!
-//! Finally, if the `unified_diff` feature is enabled, a diff can be printed with
-//! [`Diff::unified_diff`] to print a unified diff/patch as shown by `git diff` or `diff
-//! -u`. Note that while the unified diff has a decent amount of flexibility, it is fairly
+//! Finally, when built with the `unified_diff` feature, this crate also provides a
+//! built-in unified diff/patch formatter similar to `git diff` or `diff -u`.
+//! Note that while the formatter has a decent amount of flexibility, it is fairly
 //! simplistic and not every formatting may be possible. It's meant to cover common
 //! situations but not cover every advanced use case. Instead, if you need more advanced
 //! printing, build your own printer on top of the [`Diff::hunks`] iterator; for that, you can
-//! take inspiration from the built-in printer.
+//! take inspiration from the built-in printer implementation.
 //!
 //! ```
 //! # use gix_imara_diff::{InternedInput, Diff, Algorithm, BasicLineDiffPrinter, UnifiedDiffConfig};
