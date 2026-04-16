@@ -52,7 +52,7 @@ fn remove_redundant(
     let _span = gix_trace::detail!("gix_revision::remove_redundant()", num_commits = %commits.len());
     let sorted_commits = {
         let mut v = commits.to_vec();
-        v.sort_by(|a, b| a.1.cmp(&b.1));
+        v.sort_by_key(|a| a.1);
         v
     };
     let mut min_gen_pos = 0;
@@ -74,7 +74,7 @@ fn remove_redundant(
                 .map_err(|_| Simple("could not insert parent commit into graph"))?;
         }
     }
-    walk_start.sort_by(|a, b| a.0.cmp(&b.0));
+    walk_start.sort_by_key(|a| a.0);
     // allow walking everything at first.
     walk_start
         .iter_mut()

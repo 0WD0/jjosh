@@ -192,11 +192,7 @@ impl<'a> TokenSource for BStrLines<'a> {
 
     fn estimate_tokens(&self) -> u32 {
         let len: usize = self.take(20).map(|line| line.len()).sum();
-        if len == 0 {
-            100
-        } else {
-            (self.0.len() * 20 / len) as u32
-        }
+        (self.0.len() * 20).checked_div(len).unwrap_or(100) as u32
     }
 }
 
@@ -231,10 +227,6 @@ impl<'a> TokenSource for ByteLines<'a> {
 
     fn estimate_tokens(&self) -> u32 {
         let len: usize = self.take(20).map(|line| line.len()).sum();
-        if len == 0 {
-            100
-        } else {
-            (self.0.len() * 20 / len) as u32
-        }
+        (self.0.len() * 20).checked_div(len).unwrap_or(100) as u32
     }
 }

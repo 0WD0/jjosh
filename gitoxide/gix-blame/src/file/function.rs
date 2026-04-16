@@ -407,7 +407,7 @@ pub fn file(
 
     // I don’t know yet whether it would make sense to use a data structure instead that preserves
     // order on insertion.
-    out.sort_by(|a, b| a.start_in_blamed_file.cmp(&b.start_in_blamed_file));
+    out.sort_by_key(|a| a.start_in_blamed_file);
     Ok(Outcome {
         entries: coalesce_blame_entries(out),
         blob: blamed_file_blob,

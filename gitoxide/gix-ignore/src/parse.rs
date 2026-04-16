@@ -78,10 +78,8 @@ fn truncate_non_escaped_trailing_spaces(buf: &[u8]) -> &[u8] {
                 last_space_pos.get_or_insert(pos);
                 continue;
             }
-            b'\\' => {
-                if bytes.next().is_none() {
-                    return buf;
-                }
+            b'\\' if bytes.next().is_none() => {
+                return buf;
             }
             _ => {}
         }

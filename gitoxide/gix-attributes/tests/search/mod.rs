@@ -309,8 +309,7 @@ mod baseline {
 
         let mut buf = Vec::new();
         let mut collection = MetadataCollection::default();
-        let group =
-            gix_attributes::Search::new_globals([base.join("user.attributes")].into_iter(), &mut buf, &mut collection)?;
+        let group = gix_attributes::Search::new_globals([base.join("user.attributes")], &mut buf, &mut collection)?;
 
         Ok((group, collection, base, input))
     }

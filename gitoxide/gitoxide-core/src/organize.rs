@@ -101,7 +101,7 @@ pub fn find_git_repository_workdirs(
         // Only return paths which are repositories are further participating in the traversal
         // Don't let bare repositories cause siblings to be pruned.
         if found_any_repo && !found_bare_repo {
-            siblings.retain(|e| e.as_ref().map(|e| e.client_state.info.is_some()).unwrap_or(false));
+            siblings.retain(|e| e.as_ref().is_ok_and(|e| e.client_state.info.is_some()));
         }
     })
     .into_iter()

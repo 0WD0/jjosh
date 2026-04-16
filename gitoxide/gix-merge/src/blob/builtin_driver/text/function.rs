@@ -57,7 +57,7 @@ pub fn merge<'a>(
         return Resolution::Complete;
     }
 
-    hunks.sort_by(|a, b| a.before.start.cmp(&b.before.start));
+    hunks.sort_by_key(|a| a.before.start);
     let mut hunks = hunks.into_iter().peekable();
     let mut intersecting = Vec::new();
     let mut ancestor_integrated_until = 0;

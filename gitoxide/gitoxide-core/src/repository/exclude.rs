@@ -38,7 +38,7 @@ pub fn query(
     let mut cache = repo.excludes(
         &index,
         Some(gix::ignore::Search::from_overrides(
-            overrides.into_iter(),
+            overrides,
             repo.ignore_pattern_parser()?,
         )),
         Default::default(),

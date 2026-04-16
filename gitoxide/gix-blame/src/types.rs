@@ -119,7 +119,7 @@ impl BlameRanges {
                 non_overlapping.push(merged_range);
 
                 *ranges = non_overlapping;
-                ranges.sort_by(|a, b| a.start.cmp(&b.start));
+                ranges.sort_by_key(|a| a.start);
             }
             Self::WholeFile => *self = Self::PartialFile(vec![new_range]),
         }

@@ -702,7 +702,7 @@ where
                     let parent = delegate::Traversal::NthParent(1);
                     delegate.traverse(parent).or_raise(|| {
                         Error::new_with_input(
-                            format!("delegate.parent({parent:?}) failed",),
+                            format!("delegate.parent({parent:?}) failed"),
                             past_sep.unwrap_or_default(),
                         )
                     })?;

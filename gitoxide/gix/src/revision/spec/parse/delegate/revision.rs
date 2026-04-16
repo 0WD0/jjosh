@@ -203,7 +203,7 @@ impl delegate::Revision for Delegate<'_> {
             Some((ref_name, id)) => {
                 let id = match self.repo.find_reference(ref_name.as_bstr()) {
                     Ok(mut r) => {
-                        let id = r.peel_to_id().map(crate::Id::detach).unwrap_or(id);
+                        let id = r.peel_to_id().map_or(id, crate::Id::detach);
                         self.refs[self.idx] = Some(r.detach());
                         id
                     }
@@ -217,9 +217,7 @@ impl delegate::Revision for Delegate<'_> {
             }
             None => Err(message!(
                 "HEAD has {available} prior checkouts and checkout number {branch_no} is out of range",
-                available = prior_checkouts_iter(&mut head.log_iter())
-                    .map(Iterator::count)
-                    .unwrap_or(0)
+                available = prior_checkouts_iter(&mut head.log_iter()).map_or(0, Iterator::count)
             )
             .raise_erased()),
         }

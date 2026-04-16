@@ -205,7 +205,7 @@ mod lookup_ref_delta_objects {
             Ok(entry(base(), D_B)),
         ];
         let actual = LookupRefDeltaObjectsIter::new(input.into_iter(), gix_object::find::Never).collect::<Vec<_>>();
-        for (actual, expected) in actual.into_iter().zip(expected.into_iter()) {
+        for (actual, expected) in actual.into_iter().zip(expected) {
             assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         }
     }

@@ -839,7 +839,7 @@ mod gitoxide {
         #[test]
         fn connect_timeout() -> crate::Result {
             assert_eq!(
-                gitoxide::Http::CONNECT_TIMEOUT.validated_assignment_fmt(&Duration::from_millis(1000).as_millis())?,
+                gitoxide::Http::CONNECT_TIMEOUT.validated_assignment_fmt(&Duration::from_secs(1).as_millis())?,
                 "gitoxide.http.connectTimeout=1000"
             );
             Ok(())
