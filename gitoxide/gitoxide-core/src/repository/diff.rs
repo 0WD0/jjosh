@@ -209,7 +209,7 @@ pub fn file(
     let rendered = gix::diff::blob::UnifiedDiff::new(
         &diff,
         &interner,
-        gix::diff::blob::unified_diff::ConsumeBinaryHunk::new(String::new(), "\n"),
+        gix::diff::blob::unified_diff::ConsumeBinaryHunk::new(BString::default(), "\n"),
         gix::diff::blob::unified_diff::ContextSize::symmetrical(3),
     )
     .consume()?;

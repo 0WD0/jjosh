@@ -91,12 +91,15 @@ pub struct Resource<'a> {
 
 ///
 pub mod resource {
+    use bstr::ByteSlice;
+
     use crate::blob::{
         pipeline,
         platform::{CacheKey, CacheValue, Resource},
     };
 
     /// A token source that splits bytes into lines while removing trailing newline separators.
+    // TODO: use `bstr::Lines` here, but it's not `Copy`
     #[derive(Clone, Copy)]
     pub struct ByteLinesWithoutTerminator<'a>(&'a [u8]);
 
@@ -111,19 +114,27 @@ pub mod resource {
         type Item = &'a [u8];
 
         fn next(&mut self) -> Option<Self::Item> {
-            if self.0.is_empty() {
-                return None;
+            let mut l = match self.0.find_byte(b'\n') {
+                None if self.0.is_empty() => None,
+                None => {
+                    let line = self.0;
+                    self.0 = b"";
+                    Some(line)
+                }
+                Some(end) => {
+                    let line = &self.0[..=end];
+                    self.0 = &self.0[end + 1..];
+                    Some(line)
+                }
+            }?;
+
+            if l.last_byte() == Some(b'\n') {
+                l = &l[..l.len() - 1];
+                if l.last_byte() == Some(b'\r') {
+                    l = &l[..l.len() - 1];
+                }
             }
-            let line_len = self
-                .0
-                .iter()
-                .position(|b| *b == b'\n')
-                .map_or(self.0.len(), |len| len + 1);
-            let (line, rem) = self.0.split_at(line_len);
-            self.0 = rem;
-            let line = line.strip_suffix(b"\n").unwrap_or(line);
-            let line = line.strip_suffix(b"\r").unwrap_or(line);
-            Some(line)
+            Some(l)
         }
     }
 
