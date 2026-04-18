@@ -11,6 +11,77 @@ use gix_imara_diff::{Algorithm, Diff, UnifiedDiffConfig};
 
 const ALL_ALGORITHMS: [Algorithm; 2] = [Algorithm::Histogram, Algorithm::Myers];
 
+mod fuzzed {
+    use std::time::{Duration, Instant};
+
+    use arbitrary::Arbitrary;
+    use gix_imara_diff::{Algorithm, Diff, InternedInput};
+
+    #[derive(Debug, Arbitrary)]
+    struct ComprehensiveDiffInput<'a> {
+        before: &'a [u8],
+        before_str: &'a str,
+        after: &'a [u8],
+        after_str: &'a str,
+    }
+
+    fn run_comprehensive_diff_fuzz_case(
+        ComprehensiveDiffInput {
+            before,
+            before_str,
+            after,
+            after_str,
+        }: ComprehensiveDiffInput<'_>,
+    ) {
+        let input = InternedInput::new(before, after);
+
+        for algorithm in [Algorithm::Histogram, Algorithm::Myers, Algorithm::MyersMinimal] {
+            let mut diff = Diff::compute(algorithm, &input);
+
+            let _ = diff.count_additions();
+            let _ = diff.count_removals();
+
+            for hunk in diff.hunks() {
+                let _ = hunk.is_pure_insertion();
+                let _ = hunk.is_pure_removal();
+                let _ = hunk.invert();
+            }
+
+            diff.postprocess_no_heuristic(&input);
+            diff.postprocess_lines(&input);
+        }
+
+        let input = InternedInput::new(before_str, after_str);
+        let mut word_input = InternedInput::default();
+        let mut word_diff = Diff::default();
+
+        let diff = Diff::compute(Algorithm::Myers, &input);
+        for hunk in diff.hunks() {
+            hunk.latin_word_diff(&input, &mut word_input, &mut word_diff);
+        }
+    }
+
+    #[test]
+    fn timeout_regression() {
+        let input = ComprehensiveDiffInput::arbitrary(&mut arbitrary::Unstructured::new(include_bytes!(
+            "../fixtures/clusterfuzz-testcase-minimized-gix-imara-diff-comprehensive_diff-6497314075377664"
+        )))
+        .expect("testcase matches the historical fuzz target input layout");
+
+        let start = Instant::now();
+        run_comprehensive_diff_fuzz_case(input);
+        let elapsed = start.elapsed();
+
+        let expected = Duration::from_secs(3);
+        assert!(
+            elapsed < expected,
+            "clusterfuzz regression took {:?}, expected less than {:?}",
+            elapsed,
+            expected
+        );
+    }
+}
+
 #[test]
 fn words_tokenizer() {
     let text = "Hello,  imara!\n (foo-bar_baz)";

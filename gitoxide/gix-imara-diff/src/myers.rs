@@ -166,6 +166,7 @@ impl Myers {
             };
 
             if need_min {
+                ec += 1;
                 continue;
             }
 
