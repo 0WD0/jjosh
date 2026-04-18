@@ -318,13 +318,13 @@ impl<'repo> Platform<'repo> {
                 })
                 .sorting(sorting.into_simple().expect("for now there is nothing else"))?
                 .parents(parents)
-                .hide(hidden)?
                 .commit_graph(
                     commit_graph.or(use_commit_graph
                         .map_or_else(|| self.repo.config.may_use_commit_graph(), Ok)?
                         .then(|| self.repo.commit_graph().ok())
                         .flatten()),
                 )
+                .hide(hidden)?
                 .map(|res| res.map_err(iter::Error::from)),
             ),
         })
