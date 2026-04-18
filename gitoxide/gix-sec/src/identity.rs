@@ -210,8 +210,9 @@ mod impl_ {
 
             let _owned_token = OwnedHandle::from_raw_handle(token as _);
 
-            let user_info = token_information(token, TokenUser, "TokenUser", "current token", path)?;
-            let token_user = (*user_info.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+            let user_info_buf = token_information(token, TokenUser, "TokenUser", "current token", path)?;
+            let token_user_info = ptr::read_unaligned(user_info_buf.as_ptr().cast::<TOKEN_USER>());
+            let token_user = token_user_info.User.Sid;
 
             if EqualSid(folder_owner, token_user) != 0 {
                 return Ok(true);
@@ -255,7 +256,8 @@ mod impl_ {
                 "limited current token",
                 path,
             )?;
-            let linked_token = (*linked_token_info.as_ptr().cast::<TOKEN_LINKED_TOKEN>()).LinkedToken;
+            let linked_token_info = ptr::read_unaligned(linked_token_info.as_ptr().cast::<TOKEN_LINKED_TOKEN>());
+            let linked_token = linked_token_info.LinkedToken;
             let linked_token = OwnedHandle::from_raw_handle(linked_token as _);
 
             let mut is_member = 0;
