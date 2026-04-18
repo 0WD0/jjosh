@@ -76,11 +76,17 @@ mod impl_ {
             error!(inner, $msg);
         }};
         ($inner:expr, $msg:expr) => {{
-            return Err(io::Error::new($inner.kind(), $msg));
+            return Err(io::Error::new($inner.kind(), format!("{}: {}", $msg, $inner)));
         }};
     }
 
-    fn token_information(token: windows_sys::Win32::Foundation::HANDLE, class: i32) -> io::Result<Vec<u8>> {
+    fn token_information(
+        token: windows_sys::Win32::Foundation::HANDLE,
+        class: i32,
+        class_name: &'static str,
+        subject: &'static str,
+        path: &Path,
+    ) -> io::Result<Vec<u8>> {
         use windows_sys::Win32::{
             Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER},
             Security::GetTokenInformation,
@@ -104,7 +110,10 @@ mod impl_ {
                 }
 
                 if GetLastError() != ERROR_INSUFFICIENT_BUFFER {
-                    error!("Couldn't acquire token information");
+                    error!(format!(
+                        "Couldn't acquire {class_name} for the {subject} while checking ownership of '{}'",
+                        path.display()
+                    ));
                 }
 
                 heap_buf.resize(buffer_size as _, 0);
@@ -163,10 +172,7 @@ mod impl_ {
                     let inner = io::Error::from_raw_os_error(result as _);
                     error!(
                         inner,
-                        format!(
-                            "Couldn't get security information for path '{}' with err {inner}",
-                            path.display()
-                        )
+                        format!("Couldn't get security information for path '{}'", path.display())
                     );
                 }
 
@@ -194,14 +200,17 @@ mod impl_ {
                 if OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, token.as_mut_ptr()) == 0
                     && OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, token.as_mut_ptr()) == 0
                 {
-                    error!("Couldn't acquire thread or process token");
+                    error!(format!(
+                        "Couldn't acquire a thread or process token while checking ownership of '{}'",
+                        path.display()
+                    ));
                 }
                 token.assume_init()
             };
 
             let _owned_token = OwnedHandle::from_raw_handle(token as _);
 
-            let user_info = token_information(token, TokenUser)?;
+            let user_info = token_information(token, TokenUser, "TokenUser", "current token", path)?;
             let token_user = (*user_info.as_ptr().cast::<TOKEN_USER>()).User.Sid;
 
             if EqualSid(folder_owner, token_user) != 0 {
@@ -215,7 +224,10 @@ mod impl_ {
 
             let mut is_member = 0;
             if CheckTokenMembership(std::ptr::null_mut(), folder_owner, &mut is_member) == 0 {
-                error!("Couldn't check if user is an administrator");
+                error!(format!(
+                    "Couldn't check whether the current token is in the Administrators group while checking ownership of '{}'",
+                    path.display()
+                ));
             }
 
             if is_member != 0 {
@@ -236,13 +248,22 @@ mod impl_ {
                 return Ok(false);
             }
 
-            let linked_token_info = token_information(token, TokenLinkedToken)?;
+            let linked_token_info = token_information(
+                token,
+                TokenLinkedToken,
+                "TokenLinkedToken",
+                "limited current token",
+                path,
+            )?;
             let linked_token = (*linked_token_info.as_ptr().cast::<TOKEN_LINKED_TOKEN>()).LinkedToken;
             let linked_token = OwnedHandle::from_raw_handle(linked_token as _);
 
             let mut is_member = 0;
             if CheckTokenMembership(linked_token.as_raw_handle() as _, folder_owner, &mut is_member) == 0 {
-                error!("Couldn't check if elevated user is an administrator");
+                error!(format!(
+                    "Couldn't check whether the linked elevated token is in the Administrators group while checking ownership of '{}'",
+                    path.display()
+                ));
             }
 
             Ok(is_member != 0)
