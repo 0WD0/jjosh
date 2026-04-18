@@ -1,4 +1,7 @@
-use std::{cmp::Reverse, collections::VecDeque};
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::VecDeque,
+};
 
 use gix_date::SecondsSinceUnixEpoch;
 use gix_hash::ObjectId;
@@ -73,64 +76,170 @@ pub enum Error {
     Find(#[from] gix_object::find::existing_iter::Error),
     #[error(transparent)]
     ObjectDecode(#[from] gix_object::decode::Error),
+    #[error(transparent)]
+    HiddenGraph(#[from] gix_revwalk::graph::get_or_insert_default::Error),
 }
 
 use Result as Either;
 
 type QueueKey<T> = Either<T, Reverse<T>>;
-type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, (ObjectId, CommitState)>;
-type Candidates = VecDeque<crate::commit::Info>;
+type CommitDateQueue = gix_revwalk::PriorityQueue<QueueKey<SecondsSinceUnixEpoch>, ObjectId>;
+
+bitflags::bitflags! {
+    #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+    struct PaintFlags: u8 {
+        const VISIBLE = 1 << 0;
+        const HIDDEN = 1 << 1;
+        const STALE = 1 << 2;
+    }
+}
+
+/// Priority for hidden-frontier painting that prefers newer commits, using generation numbers
+/// when available and falling back to commit time as a tie-breaker.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct GenThenTime {
+    generation: gix_revwalk::graph::Generation,
+    time: SecondsSinceUnixEpoch,
+}
+
+impl From<&gix_revwalk::graph::Commit<PaintFlags>> for GenThenTime {
+    fn from(commit: &gix_revwalk::graph::Commit<PaintFlags>) -> Self {
+        GenThenTime {
+            generation: commit.generation.unwrap_or(gix_commitgraph::GENERATION_NUMBER_INFINITY),
+            time: commit.commit_time,
+        }
+    }
+}
+
+impl Ord for GenThenTime {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.generation.cmp(&other.generation).then(self.time.cmp(&other.time))
+    }
+}
+
+impl PartialOrd<Self> for GenThenTime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// The state used and potentially shared by multiple graph traversals.
 #[derive(Clone)]
 pub(super) struct State {
-    next: VecDeque<(ObjectId, CommitState)>,
-    queue: CommitDateQueue,
-    buf: Vec<u8>,
-    seen: gix_revwalk::graph::IdMap<CommitState>,
-    parents_buf: Vec<u8>,
-    parent_ids: SmallVec<[(ObjectId, SecondsSinceUnixEpoch); 2]>,
-    /// The list (FIFO) of thus far interesting commits.
+    /// Pending visible commits when traversal is driven in insertion/topological order.
     ///
-    /// As they may turn hidden later, we have to keep them until the conditions are met to return them.
-    /// If `None`, there is nothing to do with hidden commits.
-    // TODO(perf): review this as we don't really need candidates anymore, given our current way of doing things.
-    //             However, maybe they can see use when getting an incremental traversal done.
-    candidates: Option<Candidates>,
+    /// This queue is consumed by `next_by_topology()`, and also becomes the active frontier for
+    /// first-parent traversal after any time-ordered queue is flattened back into FIFO order.
+    next: VecDeque<ObjectId>,
+    /// Pending visible commits when traversal is driven by commit date.
+    ///
+    /// This queue is consumed by `next_by_commit_date()`. It holds the same logical frontier as
+    /// `next`, but keeps it ordered by commit time instead of insertion order.
+    queue: CommitDateQueue,
+    /// Backing storage for the currently yielded commit.
+    buf: Vec<u8>,
+    /// Set of commits that were already enqueued for the visible traversal, for cycle-checking.
+    seen: gix_hashtable::HashSet<ObjectId>,
+    /// Hidden frontier commits that must not be yielded or crossed during traversal.
+    hidden: gix_revwalk::graph::IdMap<()>,
+    /// Hidden input tips from which the hidden frontier is derived.
+    ///
+    /// These are consumed on the first call ot `next` to compute the hidden frontier once.
+    hidden_tips: Vec<ObjectId>,
+    /// Scratch buffer for parent commit lookups when commit times are loaded from the object database.
+    parents_buf: Vec<u8>,
+    /// Reusable parent id/time storage populated from the commit-graph cache.
+    parent_ids: SmallVec<[(ObjectId, SecondsSinceUnixEpoch); 2]>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum CommitState {
-    /// The commit may be returned, it hasn't been hidden yet.
-    Interesting,
-    /// The commit should not be returned.
-    Hidden,
+fn to_queue_key(i: i64, order: CommitTimeOrder) -> QueueKey<i64> {
+    match order {
+        CommitTimeOrder::NewestFirst => Ok(i),
+        CommitTimeOrder::OldestFirst => Err(Reverse(i)),
+    }
 }
 
-impl CommitState {
-    pub fn is_hidden(&self) -> bool {
-        matches!(self, CommitState::Hidden)
+/// Compute the boundary at which the visible walk must stop because commits become reachable from
+/// both the visible tips and the hidden tips.
+///
+/// The algorithm performs a merge-base-style paint in a temporary `gix_revwalk::Graph`:
+/// visible tips are marked with `VISIBLE`, hidden tips with `HIDDEN`, and these flags are
+/// propagated to parents in generation/time order. Once a commit carries both flags, it is part
+/// of the overlap between the two histories and is marked `STALE` so older ancestors no longer
+/// need to keep re-propagating the same combined state.
+///
+/// The returned set is not all commits reachable from hidden tips. It is only the overlap frontier
+/// where the visible traversal must stop. The actual `Simple` walk then skips these commits and
+/// refuses to enqueue parents across them, which avoids traversing hidden-only history.
+fn compute_hidden_frontier(
+    visible_tips: &[ObjectId],
+    hidden_tips: &[ObjectId],
+    objects: &impl gix_object::Find,
+    cache: Option<&gix_commitgraph::Graph>,
+) -> Result<gix_revwalk::graph::IdMap<()>, Error> {
+    let mut graph = gix_revwalk::Graph::<gix_revwalk::graph::Commit<PaintFlags>>::new(objects, cache);
+    let mut queue = gix_revwalk::PriorityQueue::<GenThenTime, ObjectId>::new();
+
+    for &visible in visible_tips {
+        graph.get_or_insert_full_commit(visible, |commit| {
+            commit.data |= PaintFlags::VISIBLE;
+            queue.insert(GenThenTime::from(&*commit), visible);
+        })?;
     }
-    pub fn is_interesting(&self) -> bool {
-        matches!(self, CommitState::Interesting)
+    for &hidden in hidden_tips {
+        graph.get_or_insert_full_commit(hidden, |commit| {
+            commit.data |= PaintFlags::HIDDEN;
+            queue.insert(GenThenTime::from(&*commit), hidden);
+        })?;
     }
+
+    while queue.iter_unordered().any(|id| {
+        graph
+            .get(id)
+            .is_some_and(|commit| !commit.data.contains(PaintFlags::STALE))
+    }) {
+        let (_info, commit_id) = match queue.pop() {
+            Some(v) => v,
+            None => break,
+        };
+        let commit = graph.get_mut(&commit_id).expect("queued commits are in the graph");
+        let mut flags = commit.data;
+        if flags == (PaintFlags::VISIBLE | PaintFlags::HIDDEN) {
+            flags |= PaintFlags::STALE;
+        }
+
+        for parent_id in commit.parents.clone() {
+            graph.get_or_insert_full_commit(parent_id, |parent| {
+                if (parent.data & flags) != flags {
+                    parent.data |= flags;
+                    queue.insert(GenThenTime::from(&*parent), parent_id);
+                }
+            })?;
+        }
+    }
+
+    Ok(graph
+        .detach()
+        .into_iter()
+        .filter_map(|(id, commit)| {
+            commit
+                .data
+                .contains(PaintFlags::VISIBLE | PaintFlags::HIDDEN)
+                .then_some((id, ()))
+        })
+        .collect())
 }
 
 ///
 mod init {
-    use std::cmp::Reverse;
-
     use super::{
-        super::{simple::Sorting, Either, Info, ParentIds, Parents, Simple},
-        collect_parents, Candidates, CommitDateQueue, CommitState, CommitTimeOrder, Error, State,
+        collect_parents, compute_hidden_frontier, to_queue_key, CommitDateQueue, CommitTimeOrder, Error, Sorting, State,
     };
+    use crate::commit::{Either, Info, ParentIds, Parents, Simple};
     use gix_date::SecondsSinceUnixEpoch;
     use gix_hash::{oid, ObjectId};
-    use gix_hashtable::hash_map::Entry;
     use gix_object::{CommitRefIter, FindExt};
-    use std::collections::VecDeque;
-    use Err as Oldest;
-    use Ok as Newest;
+    use std::{cmp::Reverse, collections::VecDeque};
 
     impl Default for State {
         fn default() -> Self {
@@ -139,9 +248,10 @@ mod init {
                 queue: gix_revwalk::PriorityQueue::new(),
                 buf: vec![],
                 seen: Default::default(),
+                hidden: Default::default(),
+                hidden_tips: Vec::new(),
                 parents_buf: vec![],
                 parent_ids: Default::default(),
-                candidates: None,
             }
         }
     }
@@ -153,26 +263,31 @@ mod init {
                 queue,
                 buf,
                 seen,
+                hidden,
+                hidden_tips,
                 parents_buf: _,
                 parent_ids: _,
-                candidates,
             } = self;
             next.clear();
             queue.clear();
             buf.clear();
             seen.clear();
-            *candidates = None;
+            hidden.clear();
+            hidden_tips.clear();
         }
     }
 
-    fn to_queue_key(i: i64, order: CommitTimeOrder) -> super::QueueKey<i64> {
-        match order {
-            CommitTimeOrder::NewestFirst => Newest(i),
-            CommitTimeOrder::OldestFirst => Oldest(Reverse(i)),
+    impl Sorting {
+        /// If not topo sort, provide the cutoff date if present.
+        fn cutoff_time(&self) -> Option<SecondsSinceUnixEpoch> {
+            match self {
+                Sorting::ByCommitTimeCutoff { seconds, .. } => Some(*seconds),
+                _ => None,
+            }
         }
     }
 
-    /// Builder
+    /// Builder methods
     impl<Find, Predicate> Simple<Find, Predicate>
     where
         Find: gix_object::Find,
@@ -181,15 +296,12 @@ mod init {
         pub fn sorting(mut self, sorting: Sorting) -> Result<Self, Error> {
             self.sorting = sorting;
             match self.sorting {
-                Sorting::BreadthFirst => {
-                    self.queue_to_vecdeque();
-                }
+                Sorting::BreadthFirst => self.queue_to_vecdeque(),
                 Sorting::ByCommitTime(order) | Sorting::ByCommitTimeCutoff { order, .. } => {
                     let state = &mut self.state;
-                    for (commit_id, commit_state) in state.next.drain(..) {
+                    for commit_id in state.next.drain(..) {
                         add_to_queue(
                             commit_id,
-                            commit_state,
                             order,
                             sorting.cutoff_time(),
                             &mut state.queue,
@@ -213,84 +325,8 @@ mod init {
 
         /// Hide the given `tips`, along with all commits reachable by them so that they will not be returned
         /// by the traversal.
-        ///
-        /// This function fully traverses all hidden tips and their ancestors, marking them as hidden
-        /// before iteration begins. This approach ensures correct behavior regardless
-        /// of graph topology or traversal order, matching git's `rev-list --not` behavior,
-        /// at great cost to performance, unfortunately.
-        ///
-        /// Note that hidden objects are expected to exist.
-        // TODO(perf): make this hiding iterative to avoid traversing the entire graph, always.
         pub fn hide(mut self, tips: impl IntoIterator<Item = ObjectId>) -> Result<Self, Error> {
-            // Collect hidden tips first
-            let hidden_tips: Vec<ObjectId> = tips.into_iter().collect();
-            if hidden_tips.is_empty() {
-                return Ok(self);
-            }
-
-            // Fully traverse all hidden tips and mark all reachable commits as Hidden.
-            // This is "graph painting" - we paint all hidden commits upfront rather than
-            // interleaving hidden and interesting traversals, which ensures correct behavior
-            // regardless of graph topology or traversal order.
-            let mut queue: VecDeque<ObjectId> = VecDeque::new();
-
-            for id_to_ignore in hidden_tips {
-                if self.state.seen.insert(id_to_ignore, CommitState::Hidden).is_none() {
-                    queue.push_back(id_to_ignore);
-                }
-            }
-
-            // Process all hidden commits and their ancestors
-            while let Some(id) = queue.pop_front() {
-                match super::super::find(self.cache.as_ref(), &self.objects, &id, &mut self.state.buf) {
-                    Ok(Either::CachedCommit(commit)) => {
-                        if !collect_parents(&mut self.state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
-                            // drop corrupt caches and retry
-                            self.cache = None;
-                            // Re-add to queue to retry without cache
-                            if self.state.seen.get(&id).is_some_and(CommitState::is_hidden) {
-                                queue.push_back(id);
-                            }
-                            continue;
-                        }
-                        for (parent_id, _commit_time) in self.state.parent_ids.drain(..) {
-                            if self.state.seen.insert(parent_id, CommitState::Hidden).is_none() {
-                                queue.push_back(parent_id);
-                            }
-                        }
-                    }
-                    Ok(Either::CommitRefIter(commit_iter)) => {
-                        for token in commit_iter {
-                            match token {
-                                Ok(gix_object::commit::ref_iter::Token::Tree { .. }) => continue,
-                                Ok(gix_object::commit::ref_iter::Token::Parent { id: parent_id }) => {
-                                    if self.state.seen.insert(parent_id, CommitState::Hidden).is_none() {
-                                        queue.push_back(parent_id);
-                                    }
-                                }
-                                Ok(_unused_token) => break,
-                                Err(err) => return Err(err.into()),
-                            }
-                        }
-                    }
-                    Err(err) => return Err(err.into()),
-                }
-            }
-
-            // Now that all hidden commits are painted, we no longer need special handling
-            // during the main traversal. We can remove hidden commits from the main queues
-            // and simply skip them during iteration.
-            //
-            // Note: We don't need the candidates buffer anymore since hidden commits are
-            // pre-painted. But we keep it for compatibility with existing behavior and
-            // in case interesting commits were already queued before hide() was called.
-            self.state.candidates = None;
-
-            // Remove any hidden commits from the interesting queues
-            self.state
-                .next
-                .retain(|(id, _)| !self.state.seen.get(id).is_some_and(CommitState::is_hidden));
-
+            self.state.hidden_tips = tips.into_iter().collect();
             Ok(self)
         }
 
@@ -311,11 +347,42 @@ mod init {
                     .map(|(_time, id)| id),
             );
         }
+
+        fn visible_inputs_sorted(&self) -> Vec<ObjectId> {
+            let mut out: Vec<_> = self
+                .state
+                .next
+                .iter()
+                .copied()
+                .chain(self.state.queue.iter_unordered().copied())
+                .collect();
+            out.sort();
+            out.dedup();
+            out
+        }
+
+        fn compute_hidden_frontier(&mut self, hidden_tips: Vec<ObjectId>) -> Result<(), Error> {
+            self.state.hidden.clear();
+            if hidden_tips.is_empty() {
+                return Ok(());
+            }
+            let visible_tips = self.visible_inputs_sorted();
+            if visible_tips.is_empty() {
+                return Ok(());
+            }
+            self.state.hidden =
+                compute_hidden_frontier(&visible_tips, &hidden_tips, &self.objects, self.cache.as_ref())?;
+            self.state.next.retain(|id| !self.state.hidden.contains_key(id));
+            self.state.queue = std::mem::replace(&mut self.state.queue, gix_revwalk::PriorityQueue::new())
+                .into_iter_unordered()
+                .filter(|(_, id)| !self.state.hidden.contains_key(id))
+                .collect();
+            Ok(())
+        }
     }
 
     fn add_to_queue(
         commit_id: ObjectId,
-        commit_state: CommitState,
         order: CommitTimeOrder,
         cutoff_time: Option<SecondsSinceUnixEpoch>,
         queue: &mut CommitDateQueue,
@@ -326,18 +393,14 @@ mod init {
         let time = commit_iter.committer()?.seconds();
         let key = to_queue_key(time, order);
         match (cutoff_time, order) {
-            (Some(cutoff_time), _) if time >= cutoff_time => {
-                queue.insert(key, (commit_id, commit_state));
-            }
+            (Some(cutoff_time), _) if time >= cutoff_time => queue.insert(key, commit_id),
             (Some(_), _) => {}
-            (None, _) => {
-                queue.insert(key, (commit_id, commit_state));
-            }
+            (None, _) => queue.insert(key, commit_id),
         }
         Ok(())
     }
 
-    /// Lifecycle
+    /// Lifecycle methods
     impl<Find> Simple<Find, fn(&oid) -> bool>
     where
         Find: gix_object::Find,
@@ -355,7 +418,6 @@ mod init {
         }
     }
 
-    /// Lifecycle
     impl<Find, Predicate> Simple<Find, Predicate>
     where
         Find: gix_object::Find,
@@ -382,11 +444,8 @@ mod init {
                 state.clear();
                 state.next.reserve(tips.size_hint().0);
                 for tip in tips.map(Into::into) {
-                    let commit_state = CommitState::Interesting;
-                    let seen = state.seen.insert(tip, commit_state);
-                    // We know there can only be duplicate interesting ones.
-                    if seen.is_none() && predicate(&tip) {
-                        state.next.push_back((tip, commit_state));
+                    if state.seen.insert(tip) && predicate(&tip) {
+                        state.next.push_back(tip);
                     }
                 }
             }
@@ -422,6 +481,14 @@ mod init {
         type Item = Result<Info, Error>;
 
         fn next(&mut self) -> Option<Self::Item> {
+            if !self.state.hidden_tips.is_empty() {
+                let hidden_tips = std::mem::take(&mut self.state.hidden_tips);
+                if let Err(err) = self.compute_hidden_frontier(hidden_tips) {
+                    self.state.queue.clear();
+                    self.state.next.clear();
+                    return Some(Err(err));
+                }
+            }
             if matches!(self.parents, Parents::First) {
                 self.next_by_topology()
             } else {
@@ -430,22 +497,6 @@ mod init {
                     Sorting::ByCommitTime(order) => self.next_by_commit_date(order, None),
                     Sorting::ByCommitTimeCutoff { seconds, order } => self.next_by_commit_date(order, seconds.into()),
                 }
-            }
-            .or_else(|| {
-                self.state
-                    .candidates
-                    .as_mut()
-                    .and_then(|candidates| candidates.pop_front().map(Ok))
-            })
-        }
-    }
-
-    impl Sorting {
-        /// If not topo sort, provide the cutoff date if present.
-        fn cutoff_time(&self) -> Option<SecondsSinceUnixEpoch> {
-            match self {
-                Sorting::ByCommitTimeCutoff { seconds, .. } => Some(*seconds),
-                _ => None,
             }
         }
     }
@@ -464,21 +515,15 @@ mod init {
             let state = &mut self.state;
             let next = &mut state.queue;
 
-            'skip_hidden: loop {
-                let (commit_time, (oid, _queued_commit_state)) = match next.pop()? {
-                    (Newest(t) | Oldest(Reverse(t)), o) => (t, o),
+            loop {
+                let (commit_time, oid) = match next.pop()? {
+                    (Ok(t) | Err(Reverse(t)), o) => (t, o),
                 };
+                if state.hidden.contains_key(&oid) {
+                    continue;
+                }
                 let mut parents: ParentIds = Default::default();
 
-                // Always use the state that is actually stored, as we may change the type as we go.
-                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
-                if can_deplete_candidates_early(
-                    next.iter_unordered().map(|t| t.1),
-                    commit_state,
-                    state.candidates.as_ref(),
-                ) {
-                    return None;
-                }
                 match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
                     Ok(Either::CachedCommit(commit)) => {
                         if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
@@ -490,9 +535,8 @@ mod init {
                             parents.push(id);
                             insert_into_seen_and_queue(
                                 &mut state.seen,
+                                &state.hidden,
                                 id,
-                                &mut state.candidates,
-                                commit_state,
                                 &mut self.predicate,
                                 next,
                                 order,
@@ -509,9 +553,8 @@ mod init {
                                     parents.push(id);
                                     insert_into_seen_and_queue(
                                         &mut state.seen,
+                                        &state.hidden,
                                         id,
-                                        &mut state.candidates,
-                                        commit_state,
                                         &mut self.predicate,
                                         next,
                                         order,
@@ -534,68 +577,26 @@ mod init {
                     }
                     Err(err) => return Some(Err(err.into())),
                 }
-                match commit_state {
-                    CommitState::Interesting => {
-                        let info = Info {
-                            id: oid,
-                            parent_ids: parents,
-                            commit_time: Some(commit_time),
-                        };
-                        match state.candidates.as_mut() {
-                            None => return Some(Ok(info)),
-                            Some(candidates) => {
-                                // assure candidates aren't prematurely returned - hidden commits may catch up with
-                                // them later.
-                                candidates.push_back(info);
-                            }
-                        }
-                    }
-                    CommitState::Hidden => continue 'skip_hidden,
-                }
+
+                return Some(Ok(Info {
+                    id: oid,
+                    parent_ids: parents,
+                    commit_time: Some(commit_time),
+                }));
             }
         }
-    }
 
-    /// Returns `true` if we have only hidden cursors queued for traversal, assuming that we don't see interesting ones ever again.
-    ///
-    /// `unqueued_commit_state` is the state of the commit that is currently being processed.
-    fn can_deplete_candidates_early(
-        mut queued_states: impl Iterator<Item = CommitState>,
-        unqueued_commit_state: CommitState,
-        candidates: Option<&Candidates>,
-    ) -> bool {
-        if candidates.is_none() {
-            return false;
-        }
-        if unqueued_commit_state.is_interesting() {
-            return false;
-        }
-
-        let mut is_empty = true;
-        queued_states.all(|state| {
-            is_empty = false;
-            state.is_hidden()
-        }) && !is_empty
-    }
-
-    /// Utilities
-    impl<Find, Predicate> Simple<Find, Predicate>
-    where
-        Find: gix_object::Find,
-        Predicate: FnMut(&oid) -> bool,
-    {
         fn next_by_topology(&mut self) -> Option<Result<Info, Error>> {
             let state = &mut self.state;
             let next = &mut state.next;
-            'skip_hidden: loop {
-                let (oid, _queued_commit_state) = next.pop_front()?;
+
+            loop {
+                let oid = next.pop_front()?;
+                if state.hidden.contains_key(&oid) {
+                    continue;
+                }
                 let mut parents: ParentIds = Default::default();
 
-                // Always use the state that is actually stored, as we may change the type as we go.
-                let commit_state = *state.seen.get(&oid).expect("every commit we traverse has state added");
-                if can_deplete_candidates_early(next.iter().map(|t| t.1), commit_state, state.candidates.as_ref()) {
-                    return None;
-                }
                 match super::super::find(self.cache.as_ref(), &self.objects, &oid, &mut state.buf) {
                     Ok(Either::CachedCommit(commit)) => {
                         if !collect_parents(&mut state.parent_ids, self.cache.as_ref(), commit.iter_parents()) {
@@ -606,15 +607,8 @@ mod init {
 
                         for (pid, _commit_time) in state.parent_ids.drain(..) {
                             parents.push(pid);
-                            insert_into_seen_and_next(
-                                &mut state.seen,
-                                pid,
-                                &mut state.candidates,
-                                commit_state,
-                                &mut self.predicate,
-                                next,
-                            );
-                            if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
+                            insert_into_seen_and_next(&mut state.seen, &state.hidden, pid, &mut self.predicate, next);
+                            if matches!(self.parents, Parents::First) {
                                 break;
                             }
                         }
@@ -627,13 +621,12 @@ mod init {
                                     parents.push(pid);
                                     insert_into_seen_and_next(
                                         &mut state.seen,
+                                        &state.hidden,
                                         pid,
-                                        &mut state.candidates,
-                                        commit_state,
                                         &mut self.predicate,
                                         next,
                                     );
-                                    if commit_state.is_interesting() && matches!(self.parents, Parents::First) {
+                                    if matches!(self.parents, Parents::First) {
                                         break;
                                     }
                                 }
@@ -644,125 +637,51 @@ mod init {
                     }
                     Err(err) => return Some(Err(err.into())),
                 }
-                match commit_state {
-                    CommitState::Interesting => {
-                        let info = Info {
-                            id: oid,
-                            parent_ids: parents,
-                            commit_time: None,
-                        };
-                        match state.candidates.as_mut() {
-                            None => return Some(Ok(info)),
-                            Some(candidates) => {
-                                // assure candidates aren't prematurely returned - hidden commits may catch up with
-                                // them later.
-                                candidates.push_back(info);
-                            }
-                        }
-                    }
-                    CommitState::Hidden => continue 'skip_hidden,
-                }
+
+                return Some(Ok(Info {
+                    id: oid,
+                    parent_ids: parents,
+                    commit_time: None,
+                }));
             }
         }
     }
 
-    #[inline]
-    fn remove_candidate(candidates: Option<&mut Candidates>, remove: ObjectId) -> Option<()> {
-        let candidates = candidates?;
-        let pos = candidates
-            .iter_mut()
-            .enumerate()
-            .find_map(|(idx, info)| (info.id == remove).then_some(idx))?;
-        candidates.remove(pos);
-        None
-    }
-
     fn insert_into_seen_and_next(
-        seen: &mut gix_revwalk::graph::IdMap<CommitState>,
+        seen: &mut gix_hashtable::HashSet<ObjectId>,
+        hidden: &gix_revwalk::graph::IdMap<()>,
         parent_id: ObjectId,
-        candidates: &mut Option<Candidates>,
-        commit_state: CommitState,
         predicate: &mut impl FnMut(&oid) -> bool,
-        next: &mut VecDeque<(ObjectId, CommitState)>,
+        next: &mut VecDeque<ObjectId>,
     ) {
-        let enqueue = match seen.entry(parent_id) {
-            Entry::Occupied(mut e) => {
-                let enqueue = handle_seen(commit_state, *e.get(), parent_id, candidates);
-                if commit_state.is_hidden() {
-                    e.insert(commit_state);
-                }
-                enqueue
-            }
-            Entry::Vacant(e) => {
-                e.insert(commit_state);
-                match commit_state {
-                    CommitState::Interesting => predicate(&parent_id),
-                    CommitState::Hidden => true,
-                }
-            }
-        };
-        if enqueue {
-            next.push_back((parent_id, commit_state));
+        if hidden.contains_key(&parent_id) {
+            return;
+        }
+        if seen.insert(parent_id) && predicate(&parent_id) {
+            next.push_back(parent_id);
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     fn insert_into_seen_and_queue(
-        seen: &mut gix_revwalk::graph::IdMap<CommitState>,
+        seen: &mut gix_hashtable::HashSet<ObjectId>,
+        hidden: &gix_revwalk::graph::IdMap<()>,
         parent_id: ObjectId,
-        candidates: &mut Option<Candidates>,
-        commit_state: CommitState,
         predicate: &mut impl FnMut(&oid) -> bool,
         queue: &mut CommitDateQueue,
         order: CommitTimeOrder,
         cutoff: Option<SecondsSinceUnixEpoch>,
         get_parent_commit_time: impl FnOnce() -> gix_date::SecondsSinceUnixEpoch,
     ) {
-        let enqueue = match seen.entry(parent_id) {
-            Entry::Occupied(mut e) => {
-                let enqueue = handle_seen(commit_state, *e.get(), parent_id, candidates);
-                if commit_state.is_hidden() {
-                    e.insert(commit_state);
-                }
-                enqueue
-            }
-            Entry::Vacant(e) => {
-                e.insert(commit_state);
-                match commit_state {
-                    CommitState::Interesting => (predicate)(&parent_id),
-                    CommitState::Hidden => true,
-                }
-            }
-        };
-
-        if enqueue {
+        if hidden.contains_key(&parent_id) {
+            return;
+        }
+        if seen.insert(parent_id) && predicate(&parent_id) {
             let parent_commit_time = get_parent_commit_time();
             let key = to_queue_key(parent_commit_time, order);
             match cutoff {
                 Some(cutoff_older_than) if parent_commit_time < cutoff_older_than => {}
-                Some(_) | None => queue.insert(key, (parent_id, commit_state)),
-            }
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn handle_seen(
-        next_state: CommitState,
-        current_state: CommitState,
-        id: ObjectId,
-        candidates: &mut Option<Candidates>,
-    ) -> bool {
-        match (current_state, next_state) {
-            (CommitState::Hidden, CommitState::Hidden) => false,
-            (CommitState::Interesting, CommitState::Interesting) => false,
-            (CommitState::Hidden, CommitState::Interesting) => {
-                // keep traversing to paint more hidden. After all, the commit_state overrides the current parent state
-                true
-            }
-            (CommitState::Interesting, CommitState::Hidden) => {
-                remove_candidate(candidates.as_mut(), id);
-                true
+                Some(_) | None => queue.insert(key, parent_id),
             }
         }
     }
@@ -781,7 +700,7 @@ fn collect_parents(
                 let parent = cache.commit_at(pos);
                 (
                     parent.id().to_owned(),
-                    parent.committer_timestamp() as gix_date::SecondsSinceUnixEpoch, // we can't handle errors here and trying seems overkill
+                    parent.committer_timestamp() as gix_date::SecondsSinceUnixEpoch,
                 )
             }),
             Err(_err) => return false,
