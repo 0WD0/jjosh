@@ -3,8 +3,8 @@
 use crate::{BlobRef, CommitRef, CommitRefIter, Data, Kind, ObjectRef, TagRef, TagRefIter, TreeRef, TreeRefIter};
 
 impl<'a> Data<'a> {
-    /// Constructs a new data object from `kind`, `hash_kind` and `data`.
-    pub fn new(kind: Kind, hash_kind: gix_hash::Kind, data: &'a [u8]) -> Data<'a> {
+    /// Constructs a new data object from `data`, `kind` and `hash_kind`.
+    pub fn new(data: &'a [u8], kind: Kind, hash_kind: gix_hash::Kind) -> Data<'a> {
         Data { kind, hash_kind, data }
     }
     /// Decodes the data in the backing slice into a [`ObjectRef`], allowing to access all of its data

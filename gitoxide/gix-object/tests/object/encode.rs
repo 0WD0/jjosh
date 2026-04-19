@@ -71,7 +71,9 @@ macro_rules! round_trip {
     };
 }
 
-macro_rules! round_trip_with_hash_len {
+/// Needed for roundtripping object types that take a `hash_kind` parameter.
+/// This is the same as `round_trip`, but for types that have `from_bytes()` with `hash_kind`.
+macro_rules! round_trip_with_hash_kind {
     ($owned:ty, $borrowed:ty, $( $files:literal ), +) => {
         #[test]
         fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
@@ -203,7 +205,7 @@ mod tree {
         );
     }
 
-    round_trip_with_hash_len!(gix_object::Tree, gix_object::TreeRef, "tree/everything.tree");
+    round_trip_with_hash_kind!(gix_object::Tree, gix_object::TreeRef, "tree/everything.tree");
 }
 
 mod blob {

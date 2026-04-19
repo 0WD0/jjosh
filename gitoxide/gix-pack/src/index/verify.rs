@@ -242,7 +242,7 @@ impl index::File {
             match object_kind {
                 Tree | Commit | Tag => {
                     let object =
-                        gix_object::ObjectRef::from_bytes(object_kind, index_entry.oid.kind(), buf).map_err(|err| {
+                        gix_object::ObjectRef::from_bytes(buf, object_kind, index_entry.oid.kind()).map_err(|err| {
                             integrity::Error::ObjectDecode {
                                 source: err,
                                 kind: object_kind,

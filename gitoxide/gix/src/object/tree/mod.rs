@@ -37,7 +37,7 @@ impl<'repo> Tree<'repo> {
 
     /// Parse our tree data and return the parse tree for direct access to its entries.
     pub fn decode(&self) -> Result<gix_object::TreeRef<'_>, gix_object::decode::Error> {
-        gix_object::TreeRef::from_bytes(&self.data, self.repo.object_hash())
+        gix_object::TreeRef::from_bytes(&self.data, self.id.kind())
     }
 
     /// Find the entry named `name` by iteration, or return `None` if it wasn't found.
@@ -82,7 +82,7 @@ impl<'repo> Tree<'repo> {
         buf.extend_from_slice(&self.data);
 
         let mut iter = path.into_iter().peekable();
-        let mut data = gix_object::Data::new(gix_object::Kind::Tree, self.id.kind(), buf);
+        let mut data = gix_object::Data::new(buf, gix_object::Kind::Tree, self.id.kind());
 
         loop {
             data = match next_entry(&mut iter, data) {
@@ -115,7 +115,7 @@ impl<'repo> Tree<'repo> {
         P: PartialEq<BStr>,
     {
         let mut iter = path.into_iter().peekable();
-        let mut data = gix_object::Data::new(gix_object::Kind::Tree, self.id.kind(), &self.data);
+        let mut data = gix_object::Data::new(&self.data, gix_object::Kind::Tree, self.id.kind());
         let mut data_id = self.id;
 
         loop {

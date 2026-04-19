@@ -1,7 +1,7 @@
 use std::ops::ControlFlow;
 
 use bstr::BStr;
-use winnow::{error::ParserError, prelude::*};
+use winnow::error::ParserError;
 
 use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 
@@ -54,7 +54,7 @@ where
 }
 
 impl<'a> TreeRefIter<'a> {
-    /// Instantiate an iterator from the given tree data.
+    /// Instantiate an iterator from the given tree `data` and `hash_kind`.
     pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> TreeRefIter<'a> {
         TreeRefIter { data, hash_kind }
     }
@@ -81,7 +81,7 @@ impl<'a> TreeRefIter<'a> {
         buffer.extend_from_slice(self.data);
 
         let mut iter = path.into_iter().peekable();
-        let mut data = crate::Data::new(crate::Kind::Tree, self.hash_kind, buffer);
+        let mut data = crate::Data::new(buffer, crate::Kind::Tree, self.hash_kind);
 
         loop {
             data = match next_entry(&mut iter, data) {
@@ -124,14 +124,7 @@ impl<'a> TreeRefIter<'a> {
 impl<'a> TreeRef<'a> {
     /// Deserialize a Tree from `data`, assuming `hash_kind` to determine how the object ids are encoded in this particular tree.
     pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TreeRef<'a>, crate::decode::Error> {
-        let state = decode::State {
-            hash_len: hash_kind.len_in_bytes(),
-        };
-        let mut input = decode::Stream { input: data, state };
-        match decode::tree.parse_next(&mut input) {
-            Ok(tag) => Ok(tag),
-            Err(err) => Err(crate::decode::Error::with_err(err, &input)),
-        }
+        decode::tree(data, hash_kind.len_in_bytes())
     }
 
     /// Find an entry named `name` knowing if the entry is a directory or not, using a binary search.
@@ -221,7 +214,7 @@ impl<'a> TryFrom<&'a [u8]> for tree::EntryMode {
 
 mod decode {
     use bstr::ByteSlice;
-    use winnow::{error::ParserError, prelude::*, Stateful};
+    use winnow::error::ParserError;
 
     use crate::{tree, tree::EntryRef, TreeRef};
 
@@ -244,15 +237,8 @@ mod decode {
         ))
     }
 
-    #[derive(Debug)]
-    pub struct State {
-        pub hash_len: usize,
-    }
-
-    pub type Stream<'is> = Stateful<&'is [u8], State>;
-
-    pub fn tree<'a, E: ParserError<&'a [u8]>>(stream: &mut Stream<'a>) -> ModalResult<TreeRef<'a>, E> {
-        let mut i = stream.input;
+    pub fn tree(data: &[u8], hash_len: usize) -> Result<TreeRef<'_>, crate::decode::Error> {
+        let mut i = data;
 
         // Calculate an estimate of the amount of entries to reduce
         // the amount of allocations necessary.
@@ -261,14 +247,17 @@ mod decode {
         const AVERAGE_MODE_LEN: usize = 6;
         const ENTRY_DELIMITER_LEN: usize = 2; // space + trailing zero
         const AVERAGE_TREE_ENTRIES: usize = 16 * 2; // prevent overallocation beyond what's meaningful or what could be dangerous
-        let average_entry_len = ENTRY_DELIMITER_LEN + stream.state.hash_len + AVERAGE_MODE_LEN + AVERAGE_FILENAME_LEN;
+        let average_entry_len = ENTRY_DELIMITER_LEN + hash_len + AVERAGE_MODE_LEN + AVERAGE_FILENAME_LEN;
         let upper_bound = i.len() / average_entry_len;
         let mut out = Vec::with_capacity(upper_bound.min(AVERAGE_TREE_ENTRIES));
 
         while !i.is_empty() {
-            let Some((rest, entry)) = fast_entry(i, stream.state.hash_len) else {
+            let Some((rest, entry)) = fast_entry(i, hash_len) else {
                 #[allow(clippy::unit_arg)]
-                return Err(winnow::error::ErrMode::from_input(&i));
+                return Err(crate::decode::Error::with_err(
+                    winnow::error::ErrMode::from_input(&i),
+                    i,
+                ));
             };
             i = rest;
             out.push(entry);

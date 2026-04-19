@@ -94,7 +94,8 @@ fn leading_space_in_tree_name() -> crate::Result {
     buf.extend_from_slice(oid.as_bytes());
 
     assert_eq!(
-        TreeRefIter::from_bytes(&buf).collect::<Result<Vec<_>, _>>()?,
+        TreeRefIter::from_bytes(&buf, gix_testtools::hash_kind_from_env().unwrap_or_default())
+            .collect::<Result<Vec<_>, _>>()?,
         vec![EntryRef {
             mode: tree::EntryKind::Tree.into(),
             filename: b" leading space".as_bstr(),
