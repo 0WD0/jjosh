@@ -4,7 +4,7 @@
 //! ## Decode Borrowed Objects
 //!
 //! ```
-//! let object = gix_object::ObjectRef::from_loose(b"blob 5\0hello").unwrap();
+//! let object = gix_object::ObjectRef::from_loose(b"blob 5\0hello", gix_hash::Kind::Sha1).unwrap();
 //! let blob = object.as_blob().unwrap();
 //!
 //! assert_eq!(blob.data, b"hello");
@@ -16,7 +16,7 @@
 //! ```
 //! use gix_object::WriteTo;
 //!
-//! let object = gix_object::ObjectRef::from_loose(b"blob 5\0hello")
+//! let object = gix_object::ObjectRef::from_loose(b"blob 5\0hello", gix_hash::Kind::Sha1)
 //!     .unwrap()
 //!     .into_owned()
 //!     .unwrap();
@@ -263,6 +263,8 @@ pub struct TreeRef<'a> {
 /// A directory snapshot containing files (blobs), directories (trees) and submodules (commits), lazily evaluated.
 #[derive(Default, PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
 pub struct TreeRefIter<'a> {
+    /// The hash kind to use in this tree.
+    hash_kind: gix_hash::Kind,
     /// The directories and files contained in this tree.
     data: &'a [u8],
 }
@@ -289,6 +291,8 @@ impl Tree {
 pub struct Data<'a> {
     /// kind of object
     pub kind: Kind,
+    /// The hash kind to use for this piece of data.
+    pub hash_kind: gix_hash::Kind,
     /// decoded, decompressed data, owned by a backing store.
     pub data: &'a [u8],
 }

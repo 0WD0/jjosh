@@ -39,7 +39,7 @@ where
         return ControlFlow::Break(None);
     };
 
-    let Some(entry) = TreeRefIter::from_bytes(tree.data)
+    let Some(entry) = TreeRefIter::from_bytes(tree.data, tree.hash_kind)
         .filter_map(Result::ok)
         .find(|entry| component.eq(entry.filename))
     else {
@@ -55,8 +55,8 @@ where
 
 impl<'a> TreeRefIter<'a> {
     /// Instantiate an iterator from the given tree data.
-    pub fn from_bytes(data: &'a [u8]) -> TreeRefIter<'a> {
-        TreeRefIter { data }
+    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> TreeRefIter<'a> {
+        TreeRefIter { data, hash_kind }
     }
 
     /// Follow a sequence of `path` components starting from this instance, and look them up in `odb` one by one using `buffer`
@@ -81,7 +81,7 @@ impl<'a> TreeRefIter<'a> {
         buffer.extend_from_slice(self.data);
 
         let mut iter = path.into_iter().peekable();
-        let mut data = crate::Data::new(crate::Kind::Tree, buffer);
+        let mut data = crate::Data::new(crate::Kind::Tree, self.hash_kind, buffer);
 
         loop {
             data = match next_entry(&mut iter, data) {
@@ -122,12 +122,15 @@ impl<'a> TreeRefIter<'a> {
 }
 
 impl<'a> TreeRef<'a> {
-    /// Deserialize a Tree from `data`.
-    pub fn from_bytes(mut data: &'a [u8]) -> Result<TreeRef<'a>, crate::decode::Error> {
-        let input = &mut data;
-        match decode::tree.parse_next(input) {
+    /// Deserialize a Tree from `data`, assuming `hash_kind` to determine how the object ids are encoded in this particular tree.
+    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TreeRef<'a>, crate::decode::Error> {
+        let state = decode::State {
+            hash_len: hash_kind.len_in_bytes(),
+        };
+        let mut input = decode::Stream { input: data, state };
+        match decode::tree.parse_next(&mut input) {
             Ok(tag) => Ok(tag),
-            Err(err) => Err(crate::decode::Error::with_err(err, input)),
+            Err(err) => Err(crate::decode::Error::with_err(err, &input)),
         }
     }
 
@@ -190,7 +193,7 @@ impl<'a> Iterator for TreeRefIter<'a> {
         if self.data.is_empty() {
             return None;
         }
-        match decode::fast_entry(self.data) {
+        match decode::fast_entry(self.data, self.hash_kind.len_in_bytes()) {
             Some((data_left, entry)) => {
                 self.data = data_left;
                 Some(Ok(entry))
@@ -218,47 +221,52 @@ impl<'a> TryFrom<&'a [u8]> for tree::EntryMode {
 
 mod decode {
     use bstr::ByteSlice;
-    use winnow::{error::ParserError, prelude::*};
+    use winnow::{error::ParserError, prelude::*, Stateful};
 
     use crate::{tree, tree::EntryRef, TreeRef};
 
-    pub fn fast_entry(i: &[u8]) -> Option<(&[u8], EntryRef<'_>)> {
+    pub fn fast_entry(i: &[u8], hash_len: usize) -> Option<(&[u8], EntryRef<'_>)> {
         let (mode, i) = tree::EntryMode::extract_from_bytes(i)?;
         let (filename, i) = i.split_at(i.find_byte(0)?);
         let i = &i[1..];
-        const HASH_LEN_FIXME: usize = 20; // TODO(SHA256): know actual/desired length or we may overshoot
         let (oid, i) = match i.len() {
-            len if len < HASH_LEN_FIXME => return None,
-            _ => i.split_at(20),
+            len if len < hash_len => return None,
+            _ => i.split_at(hash_len),
         };
         Some((
             i,
             EntryRef {
                 mode,
                 filename: filename.as_bstr(),
-                oid: gix_hash::oid::try_from_bytes(oid).expect("we counted exactly 20 bytes"),
+                oid: gix_hash::oid::try_from_bytes(oid)
+                    .unwrap_or_else(|_| panic!("we counted exactly {hash_len} bytes")),
             },
         ))
     }
 
-    pub fn tree<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<TreeRef<'a>, E> {
-        let mut i = &**i;
+    #[derive(Debug)]
+    pub struct State {
+        pub hash_len: usize,
+    }
+
+    pub type Stream<'is> = Stateful<&'is [u8], State>;
+
+    pub fn tree<'a, E: ParserError<&'a [u8]>>(stream: &mut Stream<'a>) -> ModalResult<TreeRef<'a>, E> {
+        let mut i = stream.input;
 
         // Calculate an estimate of the amount of entries to reduce
         // the amount of allocations necessary.
         // Note that this assumes that we want speed over fitting Vecs, this is a trade-off.
-        // TODO(SHA256): know actual/desired length for reduced overallocation
-        const HASH_LEN_FIXME: usize = 20;
         const AVERAGE_FILENAME_LEN: usize = 24;
         const AVERAGE_MODE_LEN: usize = 6;
         const ENTRY_DELIMITER_LEN: usize = 2; // space + trailing zero
         const AVERAGE_TREE_ENTRIES: usize = 16 * 2; // prevent overallocation beyond what's meaningful or what could be dangerous
-        let average_entry_len = ENTRY_DELIMITER_LEN + HASH_LEN_FIXME + AVERAGE_MODE_LEN + AVERAGE_FILENAME_LEN;
+        let average_entry_len = ENTRY_DELIMITER_LEN + stream.state.hash_len + AVERAGE_MODE_LEN + AVERAGE_FILENAME_LEN;
         let upper_bound = i.len() / average_entry_len;
         let mut out = Vec::with_capacity(upper_bound.min(AVERAGE_TREE_ENTRIES));
 
         while !i.is_empty() {
-            let Some((rest, entry)) = fast_entry(i) else {
+            let Some((rest, entry)) = fast_entry(i, stream.state.hash_len) else {
                 #[allow(clippy::unit_arg)]
                 return Err(winnow::error::ErrMode::from_input(&i));
             };

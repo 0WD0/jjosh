@@ -50,7 +50,7 @@ macro_rules! round_trip {
                     let w = &mut output;
                     w.write_all(&item.loose_header())?;
                     item.write_to(w)?;
-                    let parsed = ObjectRef::from_loose(&output)?;
+                    let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
                     let item2 = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
                     assert_eq!(item2, item, "object-ref loose: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
                 }
@@ -61,7 +61,72 @@ macro_rules! round_trip {
                 let w = &mut output;
                 w.write_all(&item.loose_header())?;
                 item.write_to(w)?;
-                let parsed = ObjectRef::from_loose(&output)?;
+                let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+                let parsed_borrowed = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
+                let item2: $owned = parsed_borrowed.try_into().or(Err(super::Error::TryFromError))?;
+                assert_eq!(item2, item, "object-ref loose owned: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
+            }
+            Ok(())
+        }
+    };
+}
+
+macro_rules! round_trip_with_hash_len {
+    ($owned:ty, $borrowed:ty, $( $files:literal ), +) => {
+        #[test]
+        fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
+            use std::convert::TryFrom;
+            use std::io::Write;
+            use crate::fixture_bytes;
+            use gix_object::{ObjectRef, Object, WriteTo};
+            use bstr::ByteSlice;
+
+            for input_name in &[
+                $( $files ),*
+            ] {
+                let input = fixture_bytes(input_name);
+                // Test the parse->borrowed->owned->write chain for an object kind
+                let mut output = Vec::new();
+                let item = <$borrowed>::from_bytes(&input, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "borrowed: {input_name}");
+
+                let item: $owned = item.try_into()?;
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr());
+
+                // Test the parse->borrowed->owned->write chain for the top-level objects
+                let item = ObjectRef::from(<$borrowed>::from_bytes(&input, gix_testtools::hash_kind_from_env().unwrap_or_default())?);
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "object-ref");
+
+                let item: Object = Object::try_from(item)?;
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "owned");
+
+                // Test the loose serialisation -> parse chain for an object kind
+                let item = <$borrowed>::from_bytes(&input, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+                // serialise a borowed item to a tagged loose object
+                output.clear();
+                {
+                    let w = &mut output;
+                    w.write_all(&item.loose_header())?;
+                    item.write_to(w)?;
+                    let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+                    let item2 = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
+                    assert_eq!(item2, item, "object-ref loose: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
+                }
+
+                let item: $owned = item.try_into()?;
+                // serialise an owned to a tagged loose object
+                output.clear();
+                let w = &mut output;
+                w.write_all(&item.loose_header())?;
+                item.write_to(w)?;
+                let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
                 let parsed_borrowed = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
                 let item2: $owned = parsed_borrowed.try_into().or(Err(super::Error::TryFromError))?;
                 assert_eq!(item2, item, "object-ref loose owned: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
@@ -138,7 +203,7 @@ mod tree {
         );
     }
 
-    round_trip!(gix_object::Tree, gix_object::TreeRef, "tree/everything.tree");
+    round_trip_with_hash_len!(gix_object::Tree, gix_object::TreeRef, "tree/everything.tree");
 }
 
 mod blob {
