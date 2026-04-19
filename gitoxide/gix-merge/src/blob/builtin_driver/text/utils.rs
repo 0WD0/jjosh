@@ -479,7 +479,9 @@ pub fn collect_hunks(
     side: Side,
     mut hunks: Vec<Hunk>,
 ) -> Vec<Hunk> {
-    hunks.extend(imara_diff::Diff::compute(algorithm, input).hunks().map(|hunk| Hunk {
+    let mut diff = imara_diff::Diff::compute(algorithm, input);
+    diff.postprocess_lines(input);
+    hunks.extend(diff.hunks().map(|hunk| Hunk {
         before: hunk.before,
         after: hunk.after,
         side,
