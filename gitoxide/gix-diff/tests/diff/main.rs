@@ -41,6 +41,7 @@ mod util {
                     buffer.extend_from_slice(data);
                     Ok(Some(gix_object::Data {
                         kind: gix_object::Kind::Blob,
+                        hash_kind: id.kind(),
                         data: buffer.as_slice(),
                     }))
                 }

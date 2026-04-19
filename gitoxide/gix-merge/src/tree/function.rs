@@ -77,7 +77,7 @@ where
     let (mut base_buf, mut side_buf) = (Vec::new(), Vec::new());
     let ancestor_tree = objects.find_tree(base_tree, &mut base_buf)?;
     let mut editor = tree::Editor::new(ancestor_tree.to_owned(), objects, base_tree.kind());
-    let ancestor_tree = gix_object::TreeRefIter::from_bytes(&base_buf);
+    let ancestor_tree = gix_object::TreeRefIter::from_bytes(&base_buf, base_tree.kind());
     let tree_conflicts = options.tree_conflicts;
 
     let mut our_changes = Vec::new();

@@ -107,8 +107,8 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
     {
         let (lhs, rhs, mut cache, odb) = repo_with_trees(None, "c1 - initial")?;
         let err = gix_diff::tree_with_rewrites(
-            TreeRefIter::from_bytes(&lhs),
-            TreeRefIter::from_bytes(&rhs),
+            TreeRefIter::from_bytes(&lhs, gix_testtools::hash_kind_from_env().unwrap_or_default()),
+            TreeRefIter::from_bytes(&rhs, gix_testtools::hash_kind_from_env().unwrap_or_default()),
             &mut cache,
             &mut Default::default(),
             &odb,
@@ -1843,8 +1843,11 @@ mod util {
         let (from, to, mut cache, odb) = repo_with_trees(lhs, rhs)?;
         let mut out = Vec::new();
         let rewrites_info = gix_diff::tree_with_rewrites(
-            TreeRefIter::from_bytes(&from),
-            TreeRefIter::from_bytes(&to),
+            // TODO(SHA256):
+            // Get hash from env. This requires updating the snapshot at the top of the file as
+            // well.
+            TreeRefIter::from_bytes(&from, gix_hash::Kind::Sha1),
+            TreeRefIter::from_bytes(&to, gix_hash::Kind::Sha1),
             &mut cache,
             &mut Default::default(),
             &odb,

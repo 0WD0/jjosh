@@ -261,6 +261,10 @@ impl Store {
                 .expect("BUG: here the size is already confirmed to fit into memory"),
             0,
         );
-        Ok(gix_object::Data { kind, data: buf })
+        Ok(gix_object::Data {
+            kind,
+            hash_kind: id.kind(),
+            data: buf,
+        })
     }
 }

@@ -72,7 +72,7 @@ pub(super) mod function {
                     tree_buf: buf,
                     byte_offset_to_next_entry,
                 } => {
-                    let mut iter = TreeRefIter::from_bytes(&buf[byte_offset_to_next_entry..]);
+                    let mut iter = TreeRefIter::from_bytes(&buf[byte_offset_to_next_entry..], root.kind());
                     delegate.pop_back_tracked_path_and_set_current();
                     while let Some(entry) = iter.next() {
                         let entry = entry?;

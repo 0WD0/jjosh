@@ -37,7 +37,7 @@ impl<'repo> Tree<'repo> {
 
     /// Parse our tree data and return the parse tree for direct access to its entries.
     pub fn decode(&self) -> Result<gix_object::TreeRef<'_>, gix_object::decode::Error> {
-        gix_object::TreeRef::from_bytes(&self.data)
+        gix_object::TreeRef::from_bytes(&self.data, self.repo.object_hash())
     }
 
     /// Find the entry named `name` by iteration, or return `None` if it wasn't found.
@@ -55,7 +55,7 @@ impl<'repo> Tree<'repo> {
     /// # Ok(()) }
     /// ```
     pub fn find_entry(&self, name: impl PartialEq<BStr>) -> Option<EntryRef<'repo, '_>> {
-        TreeRefIter::from_bytes(&self.data)
+        TreeRefIter::from_bytes(&self.data, self.id.kind())
             .filter_map(Result::ok)
             .find(|entry| name.eq(entry.filename))
             .map(|entry| EntryRef {
@@ -82,7 +82,7 @@ impl<'repo> Tree<'repo> {
         buf.extend_from_slice(&self.data);
 
         let mut iter = path.into_iter().peekable();
-        let mut data = gix_object::Data::new(gix_object::Kind::Tree, buf);
+        let mut data = gix_object::Data::new(gix_object::Kind::Tree, self.id.kind(), buf);
 
         loop {
             data = match next_entry(&mut iter, data) {
@@ -115,7 +115,7 @@ impl<'repo> Tree<'repo> {
         P: PartialEq<BStr>,
     {
         let mut iter = path.into_iter().peekable();
-        let mut data = gix_object::Data::new(gix_object::Kind::Tree, &self.data);
+        let mut data = gix_object::Data::new(gix_object::Kind::Tree, self.id.kind(), &self.data);
         let mut data_id = self.id;
 
         loop {
@@ -222,7 +222,8 @@ mod iter {
         /// Return an iterator over tree entries to obtain information about files and directories this tree contains.
         pub fn iter(&self) -> impl Iterator<Item = Result<EntryRef<'repo, '_>, gix_object::decode::Error>> {
             let repo = self.repo;
-            gix_object::TreeRefIter::from_bytes(&self.data).map(move |e| e.map(|entry| EntryRef { inner: entry, repo }))
+            gix_object::TreeRefIter::from_bytes(&self.data, self.id.kind())
+                .map(move |e| e.map(|entry| EntryRef { inner: entry, repo }))
         }
     }
 }
