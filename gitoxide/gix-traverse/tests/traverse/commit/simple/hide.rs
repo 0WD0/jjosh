@@ -1,5 +1,28 @@
 use super::*;
-use crate::util::{fixture, git_rev_list};
+use crate::util::{commit_graph, fixture, git_rev_list};
+use std::{cell::Cell, rc::Rc};
+
+fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> crate::Result {
+    let graph = git_graph(repo_dir)?;
+    insta::allow_duplicates! {
+        insta::assert_snapshot!(graph, @r"
+            *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4  (HEAD -> main) merge
+            |\ \  
+            | | * 48e8dac19508f4238f06c8de2b10301ce64a641c  (branch2) b2c2
+            | | * cb6a6befc0a852ac74d74e0354e0f004af29cb79  b2c1
+            | * | 66a309480201c4157b0eae86da69f2d606aadbe7  (branch1) b1c2
+            | * | 80947acb398362d8236fcb8bf0f8a9dac640583f  b1c1
+            | |/  
+            * / 0edb95c0c0d9933d88f532ec08fcd405d0eee882  c5
+            |/  
+            * 8cb5f13b66ce52a49399a2c49f537ee2b812369c  c4
+            * 33aa07785dd667c0196064e3be3c51dd9b4744ef  c3
+            * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83  c2
+            * 65d6af66f60b8e39fd1ba6a1423178831e764ec5  c1
+            ");
+    }
+    Ok(())
+}
 
 #[test]
 fn disjoint_hidden_and_interesting() -> crate::Result {
@@ -50,21 +73,7 @@ fn all_hidden() -> crate::Result {
 fn some_hidden_and_all_hidden() -> crate::Result {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
 
-    insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4  (HEAD -> main) merge
-        |\ \  
-        | | * 48e8dac19508f4238f06c8de2b10301ce64a641c  (branch2) b2c2
-        | | * cb6a6befc0a852ac74d74e0354e0f004af29cb79  b2c1
-        | * | 66a309480201c4157b0eae86da69f2d606aadbe7  (branch1) b1c2
-        | * | 80947acb398362d8236fcb8bf0f8a9dac640583f  b1c1
-        | |/  
-        * / 0edb95c0c0d9933d88f532ec08fcd405d0eee882  c5
-        |/  
-        * 8cb5f13b66ce52a49399a2c49f537ee2b812369c  c4
-        * 33aa07785dd667c0196064e3be3c51dd9b4744ef  c3
-        * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83  c2
-        * 65d6af66f60b8e39fd1ba6a1423178831e764ec5  c1
-        ");
+    assert_simple_repo_graph(&repo_dir)?;
 
     // Test: Hidden has to catch up with non-hidden
     let tip_c2 = hex_to_id("ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83");
@@ -193,4 +202,124 @@ fn interesting_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
     assert_eq!(git_output, expected, "git rev-list should show A, B, C");
 
     Ok(())
+}
+
+#[test]
+fn without_commit_graph_still_hides_single_visible_tip_correctly() -> crate::Result {
+    let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
+    assert_simple_repo_graph(&repo_dir)?;
+    let tip_c2 = hex_to_id("ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83");
+    let hidden_c5 = hex_to_id("0edb95c0c0d9933d88f532ec08fcd405d0eee882");
+
+    let result: Vec<_> = Simple::new([tip_c2], &odb)
+        .sorting(Sorting::BreadthFirst)?
+        .parents(Parents::All)
+        .commit_graph(None)
+        .hide([hidden_c5])?
+        .map(|res| res.map(|info| info.id))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert!(result.is_empty(), "c2 is reachable from hidden c5");
+    Ok(())
+}
+
+#[test]
+fn commit_graph_reduces_odb_lookups_when_hidden_tips_cover_visible_tips() -> crate::Result {
+    let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
+    assert_simple_repo_graph(&repo_dir)?;
+    let tips = [
+        hex_to_id("ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83"), // c2
+        hex_to_id("33aa07785dd667c0196064e3be3c51dd9b4744ef"), // c3
+    ];
+    let hidden_c5 = hex_to_id("0edb95c0c0d9933d88f532ec08fcd405d0eee882");
+    let without_graph_lookups = Rc::new(Cell::new(0usize));
+    let with_graph_lookups = Rc::new(Cell::new(0usize));
+
+    let without_graph: Vec<_> = Simple::new(
+        tips,
+        CountingFind {
+            inner: &odb,
+            lookups: Rc::clone(&without_graph_lookups),
+        },
+    )
+    .sorting(Sorting::BreadthFirst)?
+    .parents(Parents::All)
+    .commit_graph(None)
+    .hide([hidden_c5])?
+    .map(|res| res.map(|info| info.id))
+    .collect::<Result<Vec<_>, _>>()?;
+
+    let with_graph: Vec<_> = Simple::new(
+        tips,
+        CountingFind {
+            inner: &odb,
+            lookups: Rc::clone(&with_graph_lookups),
+        },
+    )
+    .sorting(Sorting::BreadthFirst)?
+    .parents(Parents::All)
+    .commit_graph(commit_graph(odb.store_ref()))
+    .hide([hidden_c5])?
+    .map(|res| res.map(|info| info.id))
+    .collect::<Result<Vec<_>, _>>()?;
+
+    assert!(
+        without_graph.is_empty(),
+        "both starting tips are reachable from hidden c5"
+    );
+    assert_eq!(
+        without_graph, with_graph,
+        "commit-graph must not change traversal results"
+    );
+    assert!(
+        with_graph_lookups.get() < without_graph_lookups.get(),
+        "commit-graph should reduce object database lookups for hidden painting",
+    );
+    Ok(())
+}
+
+#[test]
+fn hide_and_commit_graph_call_order_do_not_matter() -> crate::Result {
+    let (repo_dir, odb) = named_fixture("make_repos.sh", "simple")?;
+    assert_simple_repo_graph(&repo_dir)?;
+    let tip_merge = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4");
+    let hidden_branches = [
+        hex_to_id("48e8dac19508f4238f06c8de2b10301ce64a641c"),
+        hex_to_id("66a309480201c4157b0eae86da69f2d606aadbe7"),
+    ];
+
+    let hide_then_graph: Vec<_> = Simple::new([tip_merge], &odb)
+        .sorting(Sorting::BreadthFirst)?
+        .parents(Parents::All)
+        .hide(hidden_branches)?
+        .commit_graph(commit_graph(odb.store_ref()))
+        .map(|res| res.map(|info| info.id))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let graph_then_hide: Vec<_> = Simple::new([tip_merge], &odb)
+        .sorting(Sorting::BreadthFirst)?
+        .parents(Parents::All)
+        .commit_graph(commit_graph(odb.store_ref()))
+        .hide(hidden_branches)?
+        .map(|res| res.map(|info| info.id))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(hide_then_graph, graph_then_hide);
+    Ok(())
+}
+
+struct CountingFind<'a> {
+    inner: &'a gix_odb::Handle,
+    lookups: Rc<Cell<usize>>,
+}
+
+impl gix_object::Find for CountingFind<'_> {
+    fn try_find<'a>(
+        &self,
+        id: &gix_hash::oid,
+        buffer: &'a mut Vec<u8>,
+    ) -> Result<Option<gix_object::Data<'a>>, gix_object::find::Error> {
+        self.lookups.set(self.lookups.get() + 1);
+        gix_object::Find::try_find(self.inner, id, buffer)
+    }
 }
