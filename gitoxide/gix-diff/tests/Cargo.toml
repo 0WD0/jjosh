@@ -20,7 +20,7 @@ path = "diff/main.rs"
 gix-diff = { path = "..", features = ["blob"] }
 gix-index = { path = "../../gix-index" }
 gix-pathspec = { path = "../../gix-pathspec" }
-gix-hash = { path = "../../gix-hash" }
+gix-hash = { path = "../../gix-hash", features = ["sha1", "sha256"] }
 gix-fs = { path = "../../gix-fs" }
 gix-worktree = { path = "../../gix-worktree" }
 gix-object = { path = "../../gix-object" }

@@ -16,7 +16,7 @@ mod changes {
         type Changes = Vec<recorder::Change>;
 
         fn db(args: impl IntoIterator<Item = &'static str>) -> crate::Result<gix_odb::Handle> {
-            gix_odb::at(
+            crate::open_odb(
                 gix_testtools::scripted_fixture_read_only_with_args_standalone("make_diff_repo.sh", args)?
                     .join(".git")
                     .join("objects"),
@@ -159,7 +159,7 @@ mod changes {
         fn many_different_states() -> crate::Result {
             let db = db(None)?;
             let all_commits = all_commits(&db);
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f added"])?,
                 vec![Addition {
                     entry_mode: EntryKind::Blob.into(),
@@ -170,7 +170,7 @@ mod changes {
                 ":000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A      f"
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f modified"])?,
                 vec![Modification {
                     previous_entry_mode: EntryKind::Blob.into(),
@@ -182,7 +182,7 @@ mod changes {
                 ":100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 28ce6a8b26aa170e1de65536fe8abe1832bd3242 M      f"
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f deleted"])?,
                 vec![Deletion {
                     entry_mode: EntryKind::Blob.into(),
@@ -194,7 +194,7 @@ mod changes {
             "
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f mode modified to dir f/"])?,
                 vec![
                     Deletion {
@@ -220,7 +220,7 @@ mod changes {
                    :000000 100644 0000000000000000000000000000000000000000 28ce6a8b26aa170e1de65536fe8abe1832bd3242 A      f/f"
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["a renamed to b"])?,
                 vec![
                     Deletion {
@@ -242,7 +242,7 @@ mod changes {
 
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f/f modified"])?,
                 vec![
                     Modification {
@@ -266,7 +266,7 @@ mod changes {
             let tree_with_link_id = hex_to_id("7e26dba59b6336f87d1d4ae3505a2da302b91c76");
             let link_entry_oid = hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e");
             let link_entry_mode = EntryKind::Link;
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f/f mode changed to link"])?,
                 vec![
                     Modification {
@@ -287,7 +287,7 @@ mod changes {
                 ":100644 120000 13c2aca72ab576cb5f22dc8e7f8ba8ddab553a8a 2e65efe2a145dda7ee51d1741299f848e5bf752e T	f/f"
             );
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f/ changed into file f"])?,
                 vec![
                     Addition {
@@ -326,7 +326,7 @@ mod changes {
                  :100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	f/b
                  :120000 000000 2e65efe2a145dda7ee51d1741299f848e5bf752e 0000000000000000000000000000000000000000 D	f/f"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["delete d/"])?,
                 vec![
                     Deletion {
@@ -344,7 +344,7 @@ mod changes {
                 ],
                 ":100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	d/f"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["add /c /d /e"])?,
                 vec![
                     Addition {
@@ -370,7 +370,7 @@ mod changes {
                  :000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	d
                  :000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	e"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["add g/a"])?,
                 vec![
                     Addition {
@@ -388,7 +388,7 @@ mod changes {
                 ],
                 ":000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	g/a"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["remove /c /d /e"])?,
                 vec![
                     Deletion {
@@ -414,7 +414,7 @@ mod changes {
                  :100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	d
                  :100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	e"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rm /f, add /ff"])?,
                 vec![
                     Deletion {
@@ -433,7 +433,7 @@ mod changes {
                 ":100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	f
                   :000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	ff"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rm g/a, add g/aa"])?,
                 vec![
                     Modification {
@@ -459,7 +459,7 @@ mod changes {
                 ":100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	g/a
                  :000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	g/aa"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rm /ff, add /f"])?,
                 vec![
                     Addition {
@@ -478,7 +478,7 @@ mod changes {
                 ":100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	f
                   :000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A	ff"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rm g/aa, add g/a"])?,
                 vec![
                     Modification {
@@ -512,7 +512,7 @@ mod changes {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f added"])?,
                 vec![
                     Addition {
@@ -530,7 +530,7 @@ mod changes {
                 ],
                 ":000000 100644 0000000000000000000000000000000000000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 A      a/f"
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["f modified"])?,
                 vec![
                     Modification {
@@ -567,7 +567,7 @@ mod changes {
 
             let last_commit = all_commits["rm g/aa, add g/a"];
             let first_commit = all_commits["f added"];
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_commits(&db, first_commit.to_owned(), &last_commit, None)?,
                 vec![
                     Addition {
@@ -590,7 +590,7 @@ mod changes {
                     }
                 ]
             );
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_commits(&db, last_commit.to_owned(), &first_commit, Location::FileName.into())?,
                 vec![
                     Deletion {
@@ -621,7 +621,7 @@ mod changes {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_commits(&db, None::<ObjectId>, &all_commits["add g/a"], Some(Location::Path))?,
                 vec![
                     Addition {
@@ -682,7 +682,7 @@ mod changes {
             let db = db(None)?;
             let all_commits = all_commits(&db);
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rename git-sec to gix-sec"])?,
                 vec![
                     Deletion {
@@ -755,7 +755,7 @@ mod changes {
             let db = db(None)?;
             let all_commits = all_commits(&db);
 
-            assert_eq!(
+            assert_hash_agnostic_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rename gix-sec to git-sec"])?,
                 vec![
                     Addition {

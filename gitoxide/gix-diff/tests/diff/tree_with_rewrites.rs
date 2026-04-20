@@ -9,25 +9,25 @@ use gix_object::{bstr::BStr, TreeRefIter};
 #[test]
 fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
     let (changes, _out) = collect_changes(None, "c1 - initial").expect("full path tracking is the default");
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Addition {
             location: "a",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "b",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "d",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "dir",
@@ -37,7 +37,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(587ff082e0b98914788500eae5dd6a33f04883c9),
+            id: Oid(2),
         },
         Addition {
             location: "dir/c",
@@ -47,7 +47,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
     ]
     "#);
@@ -61,25 +61,25 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
         },
     )
     .expect("the path-options are respected - we only see the filename here");
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Addition {
             location: "a",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "b",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "d",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "dir",
@@ -89,7 +89,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(587ff082e0b98914788500eae5dd6a33f04883c9),
+            id: Oid(2),
         },
         Addition {
             location: "c",
@@ -99,7 +99,7 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
     ]
     "#);
@@ -129,28 +129,28 @@ fn empty_to_new_tree_without_rename_tracking() -> crate::Result {
 fn changes_against_modified_tree_with_filename_tracking() -> crate::Result {
     let (changes, _out) = collect_changes("c2", "c3-modification")?;
 
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "a",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(78981922613b2afb6025042ff6bd878ac1994e85),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(b4f17b61de71d9b2e54ac9e62b1629ae2d97a6a7),
+            id: Oid(2),
         },
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(e5c63aefe4327cb1c780c71966b678ce8e4225da),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(c7ac5f82f536976f3561c9999b5f11e5893358be),
+            id: Oid(4),
         },
         Modification {
             location: "dir/c",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(6695780ceb14b05e076a99bbd2babf34723b3464),
+            previous_id: Oid(5),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
+            id: Oid(6),
         },
     ]
     "#);
@@ -162,28 +162,28 @@ fn changes_against_modified_tree_with_filename_tracking() -> crate::Result {
             ..Default::default()
         },
     )?;
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "a",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(78981922613b2afb6025042ff6bd878ac1994e85),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(b4f17b61de71d9b2e54ac9e62b1629ae2d97a6a7),
+            id: Oid(2),
         },
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(e5c63aefe4327cb1c780c71966b678ce8e4225da),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(c7ac5f82f536976f3561c9999b5f11e5893358be),
+            id: Oid(4),
         },
         Modification {
             location: "c",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(6695780ceb14b05e076a99bbd2babf34723b3464),
+            previous_id: Oid(5),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
+            id: Oid(6),
         },
     ]
     "#);
@@ -303,35 +303,35 @@ fn rename_by_similarity() -> crate::Result {
                 }),
             },
         ).expect("errors can only happen with IO or ODB access fails");
-        insta::assert_debug_snapshot!(
-            changes,
+        insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
+            changes)),
             @r#"
         [
             Modification {
                 location: "b",
                 previous_entry_mode: EntryMode(0o100644),
-                previous_id: Sha1(61780798228d17af2d34fce4cfbdf35556832472),
+                previous_id: Oid(1),
                 entry_mode: EntryMode(0o100644),
-                id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
+                id: Oid(2),
             },
             Modification {
                 location: "dir",
                 previous_entry_mode: EntryMode(0o40000),
-                previous_id: Sha1(d1622e275dbb2cb3215a0bdcd2fc77273891f360),
+                previous_id: Oid(3),
                 entry_mode: EntryMode(0o40000),
-                id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
+                id: Oid(4),
             },
             Deletion {
                 location: "dir/c",
                 relation: None,
                 entry_mode: EntryMode(0o100644),
-                id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
+                id: Oid(5),
             },
             Addition {
                 location: "dir/c-moved",
                 relation: None,
                 entry_mode: EntryMode(0o100644),
-                id: Sha1(f01e8ddf5adc56985b9a1cda6d7c7ef9e3abe034),
+                id: Oid(6),
             },
         ]
         "#
@@ -357,27 +357,27 @@ fn rename_by_similarity() -> crate::Result {
     )
     .expect("it found all items at the cut-off point, similar to git");
 
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "b",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(61780798228d17af2d34fce4cfbdf35556832472),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
+            id: Oid(2),
         },
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(d1622e275dbb2cb3215a0bdcd2fc77273891f360),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
+            id: Oid(4),
         },
         Rewrite {
             source_location: "dir/c",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(40006fcef15a8853a1b7ae186d93b7d680fd29cf),
+            source_id: Oid(5),
             diff: Some(
                 DiffLineStats {
                     removals: 0,
@@ -388,7 +388,7 @@ fn rename_by_similarity() -> crate::Result {
                 },
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(f01e8ddf5adc56985b9a1cda6d7c7ef9e3abe034),
+            id: Oid(6),
             location: "dir/c-moved",
             relation: None,
             copy: false,
@@ -449,23 +449,23 @@ fn copies_by_identity() -> crate::Result {
             }),
         },
     )?;
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(6602e61ea053525e4907e155c0b3da3a269e1385),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
+            id: Oid(2),
         },
         Rewrite {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            source_id: Oid(3),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            id: Oid(3),
             location: "c1",
             relation: None,
             copy: true,
@@ -474,10 +474,10 @@ fn copies_by_identity() -> crate::Result {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            source_id: Oid(3),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            id: Oid(3),
             location: "c2",
             relation: None,
             copy: true,
@@ -486,10 +486,10 @@ fn copies_by_identity() -> crate::Result {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            source_id: Oid(3),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(f00c965d8307308469e537302baa73048488f162),
+            id: Oid(3),
             location: "dir/c3",
             relation: None,
             copy: true,
@@ -517,23 +517,23 @@ fn copies_by_similarity() -> crate::Result {
             }),
         },
     )?;
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(1d7e20e07562a54af0408fd2669b0c56a6faa6f0),
+            id: Oid(2),
         },
         Rewrite {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            source_id: Oid(3),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            id: Oid(3),
             location: "c4",
             relation: None,
             copy: true,
@@ -542,7 +542,7 @@ fn copies_by_similarity() -> crate::Result {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            source_id: Oid(3),
             diff: Some(
                 DiffLineStats {
                     removals: 0,
@@ -553,7 +553,7 @@ fn copies_by_similarity() -> crate::Result {
                 },
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
+            id: Oid(4),
             location: "c5",
             relation: None,
             copy: true,
@@ -562,7 +562,7 @@ fn copies_by_similarity() -> crate::Result {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            source_id: Oid(3),
             diff: Some(
                 DiffLineStats {
                     removals: 0,
@@ -573,7 +573,7 @@ fn copies_by_similarity() -> crate::Result {
                 },
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
+            id: Oid(5),
             location: "dir/c6",
             relation: None,
             copy: true,
@@ -638,61 +638,120 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
             }),
         },
     )?;
-    insta::assert_debug_snapshot!(changes, @r#"
-    [
-        Rewrite {
-            source_location: "base",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
-            location: "c6",
-            relation: None,
-            copy: true,
-        },
-        Rewrite {
-            source_location: "dir/c6",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
-            location: "c7",
-            relation: None,
-            copy: true,
-        },
-        Rewrite {
-            source_location: "c5",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: None,
-            source_id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
-            diff: Some(
-                DiffLineStats {
-                    removals: 0,
-                    insertions: 3,
-                    before: 12,
-                    after: 15,
-                    similarity: 0.75,
-                },
-            ),
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(97b3d1a5707f8a11fa5fa8bc6c3bd7b3965601fd),
-            location: "newly-added",
-            relation: None,
-            copy: true,
-        },
-        Modification {
-            location: "b",
-            previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(f198d0640214092732566fb00543163845c8252c),
-        },
-    ]
-    "#);
+    // The chosen source for `newly-added` differs by fixture hash kind because candidate order is id-dependent.
+    match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
+        [
+            Rewrite {
+                source_location: "base",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(1),
+                diff: None,
+                entry_mode: EntryMode(0o100644),
+                id: Oid(1),
+                location: "c6",
+                relation: None,
+                copy: true,
+            },
+            Rewrite {
+                source_location: "dir/c6",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(2),
+                diff: None,
+                entry_mode: EntryMode(0o100644),
+                id: Oid(2),
+                location: "c7",
+                relation: None,
+                copy: true,
+            },
+            Rewrite {
+                source_location: "c5",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(3),
+                diff: Some(
+                    DiffLineStats {
+                        removals: 0,
+                        insertions: 3,
+                        before: 12,
+                        after: 15,
+                        similarity: 0.75,
+                    },
+                ),
+                entry_mode: EntryMode(0o100644),
+                id: Oid(4),
+                location: "newly-added",
+                relation: None,
+                copy: true,
+            },
+            Modification {
+                location: "b",
+                previous_entry_mode: EntryMode(0o100644),
+                previous_id: Oid(5),
+                entry_mode: EntryMode(0o100644),
+                id: Oid(6),
+            },
+        ]
+        "#),
+        gix_hash::Kind::Sha256 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
+        [
+            Rewrite {
+                source_location: "base",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(1),
+                diff: None,
+                entry_mode: EntryMode(0o100644),
+                id: Oid(1),
+                location: "c6",
+                relation: None,
+                copy: true,
+            },
+            Rewrite {
+                source_location: "dir/c6",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(2),
+                diff: None,
+                entry_mode: EntryMode(0o100644),
+                id: Oid(2),
+                location: "c7",
+                relation: None,
+                copy: true,
+            },
+            Rewrite {
+                source_location: "base",
+                source_entry_mode: EntryMode(0o100644),
+                source_relation: None,
+                source_id: Oid(1),
+                diff: Some(
+                    DiffLineStats {
+                        removals: 0,
+                        insertions: 4,
+                        before: 11,
+                        after: 15,
+                        similarity: 0.6666667,
+                    },
+                ),
+                entry_mode: EntryMode(0o100644),
+                id: Oid(3),
+                location: "newly-added",
+                relation: None,
+                copy: true,
+            },
+            Modification {
+                location: "b",
+                previous_entry_mode: EntryMode(0o100644),
+                previous_id: Oid(4),
+                entry_mode: EntryMode(0o100644),
+                id: Oid(5),
+            },
+        ]
+        "#),
+        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
+    }
     let out = out.expect("tracking enabled");
     assert_eq!(out.num_similarity_checks, 4);
     assert_eq!(
@@ -722,16 +781,16 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
             }),
         },
     )?;
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Rewrite {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            source_id: Oid(1),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            id: Oid(1),
             location: "c6",
             relation: None,
             copy: true,
@@ -740,10 +799,10 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
             source_location: "dir/c6",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
+            id: Oid(2),
             location: "c7",
             relation: None,
             copy: true,
@@ -751,15 +810,15 @@ fn copies_in_entire_tree_by_similarity_with_limit() -> crate::Result {
         Modification {
             location: "b",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(54781fa52cf133fa9d0bf59cfe2ef2621b5ad29f),
+            previous_id: Oid(3),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(f198d0640214092732566fb00543163845c8252c),
+            id: Oid(4),
         },
         Addition {
             location: "newly-added",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(97b3d1a5707f8a11fa5fa8bc6c3bd7b3965601fd),
+            id: Oid(5),
         },
     ]
     "#);
@@ -790,23 +849,23 @@ fn copies_by_similarity_with_limit() -> crate::Result {
         },
     )?;
 
-    insta::assert_debug_snapshot!(changes, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes), @r#"
     [
         Modification {
             location: "dir",
             previous_entry_mode: EntryMode(0o40000),
-            previous_id: Sha1(f01fd5b4d733a4ae749cbb58a828cdb3f342f298),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(1d7e20e07562a54af0408fd2669b0c56a6faa6f0),
+            id: Oid(2),
         },
         Rewrite {
             source_location: "base",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            source_id: Oid(3),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(3bb459b831ea471b9cd1cbb7c6d54a74251a711b),
+            id: Oid(3),
             location: "c4",
             relation: None,
             copy: true,
@@ -815,13 +874,13 @@ fn copies_by_similarity_with_limit() -> crate::Result {
             location: "c5",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(08fe19ca4d2f79624f35333157d610811efc1aed),
+            id: Oid(4),
         },
         Addition {
             location: "dir/c6",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(cf7a729ca69bfabd0995fc9b083e86a18215bd91),
+            id: Oid(5),
         },
     ]
     "#);
@@ -853,16 +912,16 @@ fn realistic_renames_by_identity() -> crate::Result {
         },
     )?;
 
-    insta::assert_debug_snapshot!(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>(), @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>())), @r#"
     [
         Rewrite {
             source_location: "git-index/src/file.rs",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(1),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
             location: "git-index/src/file/mod.rs",
             relation: None,
             copy: false,
@@ -871,14 +930,14 @@ fn realistic_renames_by_identity() -> crate::Result {
             location: "git-index/tests/index/file/access.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Modification {
             location: "git-index/tests/index/file/mod.rs",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(8ba3a16384aacc37d01564b28401755ce8053f51),
+            id: Oid(2),
         },
     ]
     "#);
@@ -906,7 +965,7 @@ index e69de29..8ba3a16 100644
 @@ -0,0 +1 @@
 +n
 "#;
-        assert_eq!(actual, expected);
+        crate::assert_hash_agnostic_patch_eq(&actual, expected);
     }
 
     let out = out.expect("tracking enabled");
@@ -928,32 +987,32 @@ fn realistic_renames_disabled() -> crate::Result {
         },
     )?;
 
-    insta::assert_debug_snapshot!(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>(), @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>())), @r#"
     [
         Deletion {
             location: "git-index/src/file.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "git-index/src/file/mod.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "git-index/tests/index/file/access.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Modification {
             location: "git-index/tests/index/file/mod.rs",
             previous_entry_mode: EntryMode(0o100644),
-            previous_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            previous_id: Oid(1),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(8ba3a16384aacc37d01564b28401755ce8053f51),
+            id: Oid(2),
         },
     ]
     "#);
@@ -983,7 +1042,7 @@ index e69de29..8ba3a16 100644
 @@ -0,0 +1 @@
 +n
 "#;
-        assert_eq!(actual, expected);
+        crate::assert_hash_agnostic_patch_eq(&actual, expected);
     }
 
     assert_eq!(out, None, "tracking is disabled completely");
@@ -1002,10 +1061,10 @@ fn realistic_renames_disabled_2() -> crate::Result {
     )?;
 
     // Directories are associated with their children, making a bundling possible.
-    insta::assert_debug_snapshot!(changes.into_iter()
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter()
                                      .filter(|c| !c.entry_mode().is_tree() ||
                                                   c.relation().is_some_and(|r| matches!(r, Relation::Parent(_)))
-                                     ).collect::<Vec<_>>(), @r#"
+                                     ).collect::<Vec<_>>())), @r#"
     [
         Deletion {
             location: "git-sec",
@@ -1015,7 +1074,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
+            id: Oid(1),
         },
         Addition {
             location: "gix-sec",
@@ -1025,7 +1084,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o40000),
-            id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
+            id: Oid(1),
         },
         Deletion {
             location: "git-sec/CHANGELOG.md",
@@ -1035,7 +1094,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/Cargo.toml",
@@ -1045,7 +1104,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/CHANGELOG.md",
@@ -1055,7 +1114,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/Cargo.toml",
@@ -1065,7 +1124,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/src/identity.rs",
@@ -1075,7 +1134,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/src/lib.rs",
@@ -1085,7 +1144,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/src/permission.rs",
@@ -1095,7 +1154,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/src/trust.rs",
@@ -1105,7 +1164,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/tests/sec.rs",
@@ -1115,7 +1174,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/src/identity.rs",
@@ -1125,7 +1184,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/src/lib.rs",
@@ -1135,7 +1194,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/src/permission.rs",
@@ -1145,7 +1204,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/src/trust.rs",
@@ -1155,7 +1214,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/tests/sec.rs",
@@ -1165,7 +1224,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Deletion {
             location: "git-sec/tests/identity/mod.rs",
@@ -1175,7 +1234,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
         Addition {
             location: "gix-sec/tests/identity/mod.rs",
@@ -1185,7 +1244,7 @@ fn realistic_renames_disabled_2() -> crate::Result {
                 ),
             ),
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
         },
     ]
     "#);
@@ -1247,9 +1306,9 @@ diff --git a/gix-sec/tests/sec.rs b/gix-sec/tests/sec.rs
 new file mode 100644
 index 0000000..e69de29
 "#;
-        assert_eq!(
-            std::fs::read_to_string(repo_workdir()?.join("baseline-2.no-renames"))?,
-            expected
+        crate::assert_hash_agnostic_patch_eq(
+            &std::fs::read_to_string(repo_workdir()?.join("baseline-2.no-renames"))?,
+            expected,
         );
     }
 
@@ -1268,31 +1327,31 @@ fn realistic_renames_disabled_3() -> crate::Result {
         },
     )?;
 
-    insta::assert_debug_snapshot!(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>(), @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>())), @r#"
     [
         Addition {
             location: "src/ein.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Addition {
             location: "src/gix.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Deletion {
             location: "src/plumbing-cli.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
         Deletion {
             location: "src/porcelain-cli.rs",
             relation: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
         },
     ]
     "#);
@@ -1319,9 +1378,9 @@ deleted file mode 100644
 index e69de29..0000000
 "#;
 
-        assert_eq!(
-            std::fs::read_to_string(repo_workdir()?.join("baseline-3.no-renames"))?,
-            expected
+        crate::assert_hash_agnostic_patch_eq(
+            &std::fs::read_to_string(repo_workdir()?.join("baseline-3.no-renames"))?,
+            expected,
         );
     }
 
@@ -1345,16 +1404,16 @@ fn realistic_renames_by_identity_3() -> crate::Result {
         },
     )?;
 
-    insta::assert_debug_snapshot!(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>(), @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter().filter(|c| !c.entry_mode().is_tree()).collect::<Vec<_>>())), @r#"
     [
         Rewrite {
             source_location: "src/plumbing-cli.rs",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(1),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
             location: "src/ein.rs",
             relation: None,
             copy: false,
@@ -1363,10 +1422,10 @@ fn realistic_renames_by_identity_3() -> crate::Result {
             source_location: "src/porcelain-cli.rs",
             source_entry_mode: EntryMode(0o100644),
             source_relation: None,
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(1),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(1),
             location: "src/gix.rs",
             relation: None,
             copy: false,
@@ -1391,9 +1450,9 @@ similarity index 100%
 rename from src/porcelain-cli.rs
 rename to src/gix.rs
 "#;
-        assert_eq!(
-            std::fs::read_to_string(repo_workdir()?.join("baseline-3.with-renames"))?,
-            expected
+        crate::assert_hash_agnostic_patch_eq(
+            &std::fs::read_to_string(repo_workdir()?.join("baseline-3.with-renames"))?,
+            expected,
         );
     }
 
@@ -1425,10 +1484,10 @@ fn realistic_renames_2() -> crate::Result {
     )?;
 
     // Look how nicely it captures and associates this directory rename.
-    insta::assert_debug_snapshot!(changes.into_iter()
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&(changes.into_iter()
                                      .filter(|c| !c.entry_mode().is_tree() ||
                                                   c.relation().is_some_and(|r| matches!(r, Relation::Parent(_)))
-                                     ).collect::<Vec<_>>(), @r#"
+                                     ).collect::<Vec<_>>())), @r#"
     [
         Rewrite {
             source_location: "git-sec",
@@ -1438,10 +1497,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
+            source_id: Oid(1),
             diff: None,
             entry_mode: EntryMode(0o40000),
-            id: Sha1(0026010e87631065a2739f627622feb14f903fd4),
+            id: Oid(1),
             location: "gix-sec",
             relation: Some(
                 Parent(
@@ -1458,10 +1517,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/CHANGELOG.md",
             relation: Some(
                 ChildOfParent(
@@ -1478,10 +1537,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/Cargo.toml",
             relation: Some(
                 ChildOfParent(
@@ -1498,10 +1557,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/src/identity.rs",
             relation: Some(
                 ChildOfParent(
@@ -1518,10 +1577,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/src/lib.rs",
             relation: Some(
                 ChildOfParent(
@@ -1538,10 +1597,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/src/permission.rs",
             relation: Some(
                 ChildOfParent(
@@ -1558,10 +1617,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/src/trust.rs",
             relation: Some(
                 ChildOfParent(
@@ -1578,10 +1637,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/tests/sec.rs",
             relation: Some(
                 ChildOfParent(
@@ -1598,10 +1657,10 @@ fn realistic_renames_2() -> crate::Result {
                     1,
                 ),
             ),
-            source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            source_id: Oid(2),
             diff: None,
             entry_mode: EntryMode(0o100644),
-            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+            id: Oid(2),
             location: "gix-sec/tests/identity/mod.rs",
             relation: Some(
                 ChildOfParent(
@@ -1654,9 +1713,9 @@ similarity index 100%
 rename from git-sec/tests/sec.rs
 rename to gix-sec/tests/sec.rs
 "#;
-        assert_eq!(
-            std::fs::read_to_string(repo_workdir()?.join("baseline-2.with-renames"))?,
-            expected
+        crate::assert_hash_agnostic_patch_eq(
+            &std::fs::read_to_string(repo_workdir()?.join("baseline-2.with-renames"))?,
+            expected,
         );
     }
 
@@ -1687,94 +1746,194 @@ fn realistic_renames_3_without_identity() -> crate::Result {
         },
     )?;
 
-    // Look how nicely it captures and associates this directory rename.
-    insta::assert_debug_snapshot!(changes.into_iter()
-                                     .filter(|c| !c.entry_mode().is_tree() ||
-                                                  c.relation().is_some_and(|r| matches!(r, Relation::Parent(_)))
-                                     ).collect::<Vec<_>>(), @r#"
-    [
-        Rewrite {
-            source_location: "src/plumbing/options.rs",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: Some(
-                ChildOfParent(
-                    2,
-                ),
-            ),
-            source_id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(00750edc07d6415dcc07ae0351e9397b0222b7ba),
-            location: "src/plumbing-renamed/options/mod.rs",
-            relation: Some(
-                ChildOfParent(
-                    1,
-                ),
-            ),
-            copy: false,
-        },
-        Rewrite {
-            source_location: "src/plumbing/mod.rs",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: Some(
-                ChildOfParent(
-                    2,
-                ),
-            ),
-            source_id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(0cfbf08886fca9a91cb753ec8734c84fcbe52c9f),
-            location: "src/plumbing-renamed/mod.rs",
-            relation: Some(
-                ChildOfParent(
-                    1,
-                ),
-            ),
-            copy: false,
-        },
-        Rewrite {
-            source_location: "src/plumbing/main.rs",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: Some(
-                ChildOfParent(
-                    2,
-                ),
-            ),
-            source_id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Sha1(d00491fd7e5bb6fa28c517a0bb32b8b506539d4d),
-            location: "src/plumbing-renamed/main.rs",
-            relation: Some(
-                ChildOfParent(
-                    1,
-                ),
-            ),
-            copy: false,
-        },
-        Rewrite {
-            source_location: "src/plumbing",
-            source_entry_mode: EntryMode(0o40000),
-            source_relation: Some(
-                Parent(
-                    2,
-                ),
-            ),
-            source_id: Sha1(b9d41dcdbd92fcab2fb6594d04f2ad99b3472621),
-            diff: None,
-            entry_mode: EntryMode(0o40000),
-            id: Sha1(202702465d7bb291153629dc2e8b353afe9cbdae),
-            location: "src/plumbing-renamed",
-            relation: Some(
-                Parent(
-                    1,
-                ),
-            ),
-            copy: false,
-        },
-    ]
-    "#);
+    // The same rewrites are found in both modes, but their emitted order follows object-id ordering.
+    match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => {
+            insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
+                changes
+                    .into_iter()
+                    .filter(|c| !c.entry_mode().is_tree() || c.relation().is_some_and(|r| matches!(r, Relation::Parent(_))))
+                    .collect::<Vec<_>>())),
+                @r#"
+            [
+                Rewrite {
+                    source_location: "src/plumbing/options.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(1),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(1),
+                    location: "src/plumbing-renamed/options/mod.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing/mod.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(2),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(2),
+                    location: "src/plumbing-renamed/mod.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing/main.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(3),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(3),
+                    location: "src/plumbing-renamed/main.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing",
+                    source_entry_mode: EntryMode(0o40000),
+                    source_relation: Some(
+                        Parent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(4),
+                    diff: None,
+                    entry_mode: EntryMode(0o40000),
+                    id: Oid(5),
+                    location: "src/plumbing-renamed",
+                    relation: Some(
+                        Parent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+            ]
+            "#
+            );
+        }
+        gix_hash::Kind::Sha256 => {
+            insta::assert_snapshot!(crate::normalize_debug_snapshot(&(
+                changes
+                    .into_iter()
+                    .filter(|c| !c.entry_mode().is_tree() || c.relation().is_some_and(|r| matches!(r, Relation::Parent(_))))
+                    .collect::<Vec<_>>())),
+                @r#"
+            [
+                Rewrite {
+                    source_location: "src/plumbing/mod.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(1),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(1),
+                    location: "src/plumbing-renamed/mod.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing/main.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(2),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(2),
+                    location: "src/plumbing-renamed/main.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing/options.rs",
+                    source_entry_mode: EntryMode(0o100644),
+                    source_relation: Some(
+                        ChildOfParent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(3),
+                    diff: None,
+                    entry_mode: EntryMode(0o100644),
+                    id: Oid(3),
+                    location: "src/plumbing-renamed/options/mod.rs",
+                    relation: Some(
+                        ChildOfParent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+                Rewrite {
+                    source_location: "src/plumbing",
+                    source_entry_mode: EntryMode(0o40000),
+                    source_relation: Some(
+                        Parent(
+                            2,
+                        ),
+                    ),
+                    source_id: Oid(4),
+                    diff: None,
+                    entry_mode: EntryMode(0o40000),
+                    id: Oid(5),
+                    location: "src/plumbing-renamed",
+                    relation: Some(
+                        Parent(
+                            1,
+                        ),
+                    ),
+                    copy: false,
+                },
+            ]
+            "#
+            );
+        }
+        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
+    }
 
     let out = out.expect("tracking enabled");
     assert_eq!(
@@ -1800,12 +1959,23 @@ mod util {
         gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_rewrites_repo.sh")
     }
 
+    pub fn fixture_hash_kind() -> gix_hash::Kind {
+        gix_testtools::hash_kind_from_env().unwrap_or_default()
+    }
+
     pub fn repo_with_trees(
         lhs: impl Into<Option<&'static str>>,
         rhs: impl Into<Option<&'static str>>,
     ) -> gix_testtools::Result<(Vec<u8>, Vec<u8>, gix_diff::blob::Platform, gix_odb::Handle)> {
         let root = repo_workdir()?;
-        let odb = gix_odb::at(root.join(".git/objects"))?;
+        let odb = gix_odb::at_opts(
+            root.join(".git/objects"),
+            Vec::new(),
+            gix_odb::store::init::Options {
+                object_hash: fixture_hash_kind(),
+                ..Default::default()
+            },
+        )?;
         let lhs = read_tree(&odb, &root, lhs.into())?;
         let rhs = read_tree(&odb, &root, rhs.into())?;
 
@@ -1842,12 +2012,10 @@ mod util {
     ) -> gix_testtools::Result<(Vec<gix_diff::tree_with_rewrites::Change>, Option<rewrites::Outcome>)> {
         let (from, to, mut cache, odb) = repo_with_trees(lhs, rhs)?;
         let mut out = Vec::new();
+        let hash_kind = fixture_hash_kind();
         let rewrites_info = gix_diff::tree_with_rewrites(
-            // TODO(SHA256):
-            // Get hash from env. This requires updating the snapshot at the top of the file as
-            // well.
-            TreeRefIter::from_bytes(&from, gix_hash::Kind::Sha1),
-            TreeRefIter::from_bytes(&to, gix_hash::Kind::Sha1),
+            TreeRefIter::from_bytes(&from, hash_kind),
+            TreeRefIter::from_bytes(&to, hash_kind),
             &mut cache,
             &mut Default::default(),
             &odb,
