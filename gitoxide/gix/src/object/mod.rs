@@ -172,7 +172,7 @@ impl<'repo> Object<'repo> {
 
     /// Obtain a fully parsed commit whose fields reference our data buffer.
     pub fn try_to_commit_ref(&self) -> Result<gix_object::CommitRef<'_>, conversion::Error> {
-        gix_object::Data::new(self.kind, &self.data)
+        gix_object::Data::new(&self.data, self.kind, self.id.kind())
             .decode()?
             .into_commit()
             .ok_or(conversion::Error::UnexpectedType {
@@ -187,14 +187,14 @@ impl<'repo> Object<'repo> {
     ///
     /// - this object is not a commit
     pub fn to_commit_ref_iter(&self) -> gix_object::CommitRefIter<'_> {
-        gix_object::Data::new(self.kind, &self.data)
+        gix_object::Data::new(&self.data, self.kind, self.id.kind())
             .try_into_commit_iter()
             .expect("BUG: This object must be a commit")
     }
 
     /// Obtain a commit token iterator from the data in this instance, if it is a commit.
     pub fn try_to_commit_ref_iter(&self) -> Option<gix_object::CommitRefIter<'_>> {
-        gix_object::Data::new(self.kind, &self.data).try_into_commit_iter()
+        gix_object::Data::new(&self.data, self.kind, self.id.kind()).try_into_commit_iter()
     }
 
     /// Obtain a tag token iterator from the data in this instance.
@@ -203,7 +203,7 @@ impl<'repo> Object<'repo> {
     ///
     /// - this object is not a tag
     pub fn to_tag_ref_iter(&self) -> gix_object::TagRefIter<'_> {
-        gix_object::Data::new(self.kind, &self.data)
+        gix_object::Data::new(&self.data, self.kind, self.id.kind())
             .try_into_tag_iter()
             .expect("BUG: this object must be a tag")
     }
@@ -214,7 +214,7 @@ impl<'repo> Object<'repo> {
     ///
     /// - this object is not a tag
     pub fn try_to_tag_ref_iter(&self) -> Option<gix_object::TagRefIter<'_>> {
-        gix_object::Data::new(self.kind, &self.data).try_into_tag_iter()
+        gix_object::Data::new(&self.data, self.kind, self.id.kind()).try_into_tag_iter()
     }
 
     /// Obtain a tag object from the data in this instance.
@@ -229,7 +229,7 @@ impl<'repo> Object<'repo> {
 
     /// Obtain a fully parsed tag object whose fields reference our data buffer.
     pub fn try_to_tag_ref(&self) -> Result<gix_object::TagRef<'_>, conversion::Error> {
-        gix_object::Data::new(self.kind, &self.data)
+        gix_object::Data::new(&self.data, self.kind, self.id.kind())
             .decode()?
             .into_tag()
             .ok_or(conversion::Error::UnexpectedType {

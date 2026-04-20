@@ -62,6 +62,7 @@ pub fn hex_hash<'a, E: ParserError<&'a [u8]>>(i: &mut &'a [u8]) -> ModalResult<&
         gix_hash::Kind::shortest().len_in_hex()..=gix_hash::Kind::longest().len_in_hex(),
         is_hex_digit_lc,
     )
+    .verify(|hex: &&[u8]| gix_hash::Kind::all().iter().any(|hk| hk.len_in_hex() == hex.len()))
     .map(ByteSlice::as_bstr)
     .parse_next(i)
 }

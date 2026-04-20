@@ -25,6 +25,32 @@ fn lookup_entry_by_path() -> crate::Result {
     Ok(())
 }
 
+#[test]
+fn decode_uses_the_tree_id_hash_kind() -> crate::Result {
+    use gix::bstr::ByteSlice;
+
+    let repo = named_repo("make_basic_repo.sh")?;
+    assert_eq!(repo.object_hash(), gix::hash::Kind::Sha1, "fixture assumption");
+
+    let bogus_sha256_entry_id = gix::hash::Kind::Sha256.null();
+    let mut data = b"100644 file\0".to_vec();
+    data.extend_from_slice(bogus_sha256_entry_id.as_bytes());
+
+    let bogux_sha256_tree_id = gix::hash::Kind::Sha256.empty_tree();
+    let tree = gix::Tree::from_data(bogux_sha256_tree_id, data, &repo);
+    let decoded = tree.decode()?;
+
+    assert_eq!(decoded.entries.len(), 1);
+    assert_eq!(decoded.entries[0].filename, b"file".as_bstr());
+    assert_eq!(decoded.entries[0].oid, bogus_sha256_entry_id.as_ref());
+    assert_eq!(
+        bogus_sha256_entry_id.kind(),
+        bogux_sha256_tree_id.kind(),
+        "both kinds are expected to match, the `repo.object_hash()` doesn't matter here"
+    );
+    Ok(())
+}
+
 mod peel_to_entry {
     #[test]
     fn top_level_file_keeps_the_current_tree() -> crate::Result {

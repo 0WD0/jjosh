@@ -190,7 +190,11 @@ where
             };
             buf.clear();
             // …but write nothing
-            Ok(Some(gix::objs::Data { kind, data: buf }))
+            Ok(Some(gix::objs::Data {
+                kind,
+                hash_kind: id.kind(),
+                data: buf,
+            }))
         } else {
             self.db.try_find(id, buf)
         }
@@ -201,10 +205,11 @@ where
 struct Empty;
 
 impl gix::objs::Find for Empty {
-    fn try_find<'a>(&self, _id: &gix::oid, buffer: &'a mut Vec<u8>) -> Result<Option<gix::objs::Data<'a>>, Error> {
+    fn try_find<'a>(&self, id: &gix::oid, buffer: &'a mut Vec<u8>) -> Result<Option<gix::objs::Data<'a>>, Error> {
         buffer.clear();
         Ok(Some(gix::objs::Data {
             kind: gix::object::Kind::Blob,
+            hash_kind: id.kind(),
             data: buffer,
         }))
     }

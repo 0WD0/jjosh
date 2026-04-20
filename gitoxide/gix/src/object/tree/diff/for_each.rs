@@ -76,8 +76,8 @@ impl<'old> Platform<'_, 'old> {
         };
         let opts = self.options.into();
         Ok(gix_diff::tree_with_rewrites(
-            TreeRefIter::from_bytes(&self.lhs.data),
-            TreeRefIter::from_bytes(&other.data),
+            TreeRefIter::from_bytes(&self.lhs.data, self.lhs.id.kind()),
+            TreeRefIter::from_bytes(&other.data, other.id.kind()),
             cache,
             &mut self.state,
             &repo.objects,

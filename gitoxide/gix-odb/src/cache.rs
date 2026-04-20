@@ -218,7 +218,7 @@ mod impls {
         ) -> Result<Option<(Data<'a>, Option<gix_pack::data::entry::Location>)>, gix_object::find::Error> {
             if let Some(mut obj_cache) = self.object_cache.as_ref().map(RefCell::borrow_mut) {
                 if let Some(kind) = obj_cache.get(&id.as_ref().to_owned(), buffer) {
-                    return Ok(Some((Data::new(kind, buffer), None)));
+                    return Ok(Some((Data::new(buffer, kind, id.kind()), None)));
                 }
             }
             let possibly_obj = self.inner.try_find_cached(id.as_ref(), buffer, pack_cache)?;

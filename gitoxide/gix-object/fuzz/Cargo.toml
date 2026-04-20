@@ -10,6 +10,10 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 
+[dependencies.gix-hash]
+path = "../../gix-hash"
+features = ["sha1", "sha256"]
+
 [dependencies.gix-object]
 path = ".."
 features = ["sha1"]

@@ -9,13 +9,20 @@ use crate::{fixture_name, hex_to_id};
 
 #[test]
 fn empty() {
-    assert_eq!(TreeRefIter::from_bytes(&[]).count(), 0, "empty trees are definitely ok");
+    assert_eq!(
+        TreeRefIter::from_bytes(&[], gix_testtools::hash_kind_from_env().unwrap_or_default()).count(),
+        0,
+        "empty trees are definitely ok"
+    );
 }
 
 #[test]
 fn error_handling() {
     let data = fixture_name("tree", "everything.tree");
-    let iter = TreeRefIter::from_bytes(&data[..data.len() / 2]);
+    let iter = TreeRefIter::from_bytes(
+        &data[..data.len() / 2],
+        gix_testtools::hash_kind_from_env().unwrap_or_default(),
+    );
     let entries = iter.collect::<Vec<_>>();
     assert!(
         entries.last().expect("at least one token").is_err(),
@@ -26,14 +33,14 @@ fn error_handling() {
 #[test]
 fn offset_to_next_entry() {
     let buf = fixture_name("tree", "everything.tree");
-    let mut iter = TreeRefIter::from_bytes(&buf);
+    let mut iter = TreeRefIter::from_bytes(&buf, gix_testtools::hash_kind_from_env().unwrap_or_default());
     assert_eq!(iter.offset_to_next_entry(&buf), 0, "first entry is always at 0");
     iter.next();
 
     let actual = iter.offset_to_next_entry(&buf);
     assert_eq!(actual, 31, "now the offset increases");
     assert_eq!(
-        TreeRefIter::from_bytes(&buf[actual..])
+        TreeRefIter::from_bytes(&buf[actual..], gix_testtools::hash_kind_from_env().unwrap_or_default())
             .next()
             .map(|e| e.unwrap().filename),
         iter.next().map(|e| e.unwrap().filename),
@@ -44,7 +51,11 @@ fn offset_to_next_entry() {
 #[test]
 fn everything() -> crate::Result {
     assert_eq!(
-        TreeRefIter::from_bytes(&fixture_name("tree", "everything.tree")).collect::<Result<Vec<_>, _>>()?,
+        TreeRefIter::from_bytes(
+            &fixture_name("tree", "everything.tree"),
+            gix_testtools::hash_kind_from_env().unwrap_or_default()
+        )
+        .collect::<Result<Vec<_>, _>>()?,
         vec![
             EntryRef {
                 mode: tree::EntryKind::BlobExecutable.into(),
@@ -83,7 +94,8 @@ fn leading_space_in_tree_name() -> crate::Result {
     buf.extend_from_slice(oid.as_bytes());
 
     assert_eq!(
-        TreeRefIter::from_bytes(&buf).collect::<Result<Vec<_>, _>>()?,
+        TreeRefIter::from_bytes(&buf, gix_testtools::hash_kind_from_env().unwrap_or_default())
+            .collect::<Result<Vec<_>, _>>()?,
         vec![EntryRef {
             mode: tree::EntryKind::Tree.into(),
             filename: b" leading space".as_bstr(),

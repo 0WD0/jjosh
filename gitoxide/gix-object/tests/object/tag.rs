@@ -160,6 +160,17 @@ fn invalid() {
     );
 }
 
+#[test]
+fn invalid_target_id_length() {
+    let input = b"object 00000066666666666684666666666666666299297\ntype commit\ntag bad\n";
+
+    assert!(TagRef::from_bytes(input).is_err());
+    assert!(TagRefIter::from_bytes(input)
+        .next()
+        .expect("a decoding error is returned for the first token")
+        .is_err());
+}
+
 mod from_bytes {
     use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 

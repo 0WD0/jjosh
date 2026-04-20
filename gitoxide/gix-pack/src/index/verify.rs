@@ -241,13 +241,14 @@ impl index::File {
             use gix_object::Kind::*;
             match object_kind {
                 Tree | Commit | Tag => {
-                    let object = gix_object::ObjectRef::from_bytes(object_kind, buf).map_err(|err| {
-                        integrity::Error::ObjectDecode {
-                            source: err,
-                            kind: object_kind,
-                            id: index_entry.oid,
-                        }
-                    })?;
+                    let object =
+                        gix_object::ObjectRef::from_bytes(buf, object_kind, index_entry.oid.kind()).map_err(|err| {
+                            integrity::Error::ObjectDecode {
+                                source: err,
+                                kind: object_kind,
+                                id: index_entry.oid,
+                            }
+                        })?;
                     if let Mode::HashCrc32DecodeEncode = verify_mode {
                         encode_buf.clear();
                         object.write_to(&mut *encode_buf)?;

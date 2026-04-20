@@ -207,7 +207,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     if check.object_checksum() {
-        gix_object::Data::new(object_kind, decompressed)
+        gix_object::Data::new(decompressed, object_kind, index_entry.oid.kind())
             .verify_checksum(&index_entry.oid)
             .map_err(|source| Error::PackObjectVerify {
                 offset: index_entry.pack_offset,
