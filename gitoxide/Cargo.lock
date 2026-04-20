@@ -2079,6 +2079,7 @@ dependencies = [
  "gix-testtools",
  "gix-utils",
  "gix-validate",
+ "insta",
  "itoa",
  "pretty_assertions",
  "serde",
