@@ -123,8 +123,7 @@ mod impl_ {
 
     /// Read a fixed-size token information record of type `T` with `GetTokenInformation`.
     ///
-    /// Use this for token information classes whose result fits exactly into `T`, unlike
-    /// [`sized_token_information`] which resizes a buffer dynamically.
+    /// Use this for token information classes whose result fits exactly into `T`.
     fn fixed_size_token_information<T: Copy>(
         token: windows_sys::Win32::Foundation::HANDLE,
         class: i32,
