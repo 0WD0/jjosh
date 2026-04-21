@@ -155,3 +155,42 @@ fn missing_reflog_creates_it_even_if_similarly_named_empty_dir_exists_and_append
     }
     Ok(())
 }
+
+#[test]
+fn reflog_write_normalizes_committer_name_and_email_like_git() -> Result {
+    let (_keep, store) = empty_store(WriteReflog::Always)?;
+    let full_name_str = "refs/heads/main";
+    let full_name: &FullNameRef = full_name_str.try_into()?;
+    let new = hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242");
+    let committer = Signature {
+        name: "  committer\n  ".into(),
+        email: "  committer@example.com\n  ".into(),
+        time: gix_date::parse_header("1234 +0800").unwrap(),
+    };
+
+    store.reflog_create_or_append(
+        full_name,
+        None,
+        &new,
+        committer.to_ref(&mut TimeBuf::default()).into(),
+        b"the message".as_bstr(),
+        false,
+    )?;
+
+    let mut buf = Vec::new();
+    assert_eq!(
+        reflog_lines(&store, full_name_str, &mut buf)?,
+        vec![crate::log::Line {
+            previous_oid: gix_hash::Kind::Sha1.null(),
+            new_oid: new,
+            signature: Signature {
+                name: "committer".into(),
+                email: "committer@example.com".into(),
+                time: gix_date::parse_header("1234 +0800").unwrap(),
+            },
+            message: "the message".into()
+        }],
+        "it trimmed whitespace as basic fix for slightly malformed signatures"
+    );
+    Ok(())
+}
