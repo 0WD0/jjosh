@@ -121,6 +121,40 @@ mod impl_ {
         }
     }
 
+    /// Read a fixed-size token information record of type `T` with `GetTokenInformation`.
+    ///
+    /// Use this for token information classes whose result fits exactly into `T`, unlike
+    /// [`sized_token_information`] which resizes a buffer dynamically.
+    fn fixed_size_token_information<T: Copy>(
+        token: windows_sys::Win32::Foundation::HANDLE,
+        class: i32,
+        class_name: &'static str,
+        subject: &'static str,
+        path: &Path,
+    ) -> io::Result<T> {
+        use windows_sys::Win32::Security::GetTokenInformation;
+
+        #[allow(unsafe_code)]
+        unsafe {
+            let mut info = MaybeUninit::<T>::uninit();
+            let mut returned_size = 0;
+            if GetTokenInformation(
+                token,
+                class,
+                info.as_mut_ptr().cast(),
+                mem::size_of::<T>() as u32,
+                &mut returned_size,
+            ) == 0
+            {
+                error!(format!(
+                    "Couldn't acquire {class_name} for the {subject} while checking ownership of '{}'",
+                    path.display()
+                ));
+            }
+            Ok(info.assume_init())
+        }
+    }
+
     pub fn is_path_owned_by_current_user(path: &Path) -> io::Result<bool> {
         use windows_sys::Win32::{
             Foundation::{LocalFree, ERROR_INVALID_FUNCTION, ERROR_SUCCESS},
@@ -235,28 +269,24 @@ mod impl_ {
                 return Ok(true);
             }
 
-            let mut elevation_type = TokenElevationTypeLimited;
-            let mut elevation_type_size = 0;
-            if windows_sys::Win32::Security::GetTokenInformation(
+            let elevation_type = fixed_size_token_information::<TOKEN_ELEVATION_TYPE>(
                 token,
                 TokenElevationType,
-                (&mut elevation_type as *mut TOKEN_ELEVATION_TYPE).cast(),
-                mem::size_of::<TOKEN_ELEVATION_TYPE>() as u32,
-                &mut elevation_type_size,
-            ) == 0
-                || elevation_type != TokenElevationTypeLimited
-            {
+                "TokenElevationType",
+                "current token",
+                path,
+            )?;
+            if elevation_type != TokenElevationTypeLimited {
                 return Ok(false);
             }
 
-            let linked_token_info = token_information(
+            let linked_token_info = fixed_size_token_information::<TOKEN_LINKED_TOKEN>(
                 token,
                 TokenLinkedToken,
                 "TokenLinkedToken",
                 "limited current token",
                 path,
             )?;
-            let linked_token_info = ptr::read_unaligned(linked_token_info.as_ptr().cast::<TOKEN_LINKED_TOKEN>());
             let linked_token = linked_token_info.LinkedToken;
             let linked_token = OwnedHandle::from_raw_handle(linked_token as _);
 
