@@ -8,9 +8,11 @@ pub fn repo(name: &str) -> crate::Result<gix::Repository> {
 }
 
 mod open {
+    use gix_sec::Trust;
+
     use gix::submodule;
 
-    use crate::submodule::repo;
+    use crate::{submodule::repo, util::named_subrepo_opts};
 
     #[test]
     fn various() -> crate::Result {
@@ -122,6 +124,36 @@ mod open {
                 "an expectation per submodule"
             );
         }
+        Ok(())
+    }
+
+    /// Reproducer for GHSA-p3hw-mv63-rf9w: `Submodule::open()` must not inherit
+    /// `git_dir_trust` from the parent repository because doing so skips recomputing
+    /// trust for the submodule git-dir and can bypass ownership-based trust checks.
+    #[test]
+    fn trust_is_recomputed_for_opened_submodules() -> crate::Result {
+        let repo = named_subrepo_opts(
+            "make_submodules.sh",
+            "with-submodules",
+            crate::restricted().with(Trust::Reduced),
+        )?;
+        assert_eq!(
+            repo.git_dir_trust(),
+            Trust::Reduced,
+            "the parent trust is forced for the test"
+        );
+
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+        let sm_repo = sm.open()?.expect("submodule repository exists");
+        assert_eq!(
+            sm_repo.git_dir_trust(),
+            Trust::Full,
+            "submodule trust must be re-derived from its own git-dir instead of inherited from the parent"
+        );
         Ok(())
     }
 
@@ -448,6 +480,67 @@ mod open {
                     superproject_configuration: true,
                 }
             );
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+mod advisory {
+    use gix::bstr::BString;
+
+    /// Reproducer for GHSA-p3hw-mv63-rf9w and GHSA-fr8x-3vfx-f45h: a crafted submodule name with
+    /// traversal components is reused to derive `.git/modules/<name>`, so `Submodule::state()` and
+    /// `Submodule::open()` can be redirected to another repository outside the intended modules
+    /// directory.
+    #[test]
+    fn traversal_names_do_not_escape_the_modules_directory() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_submodule_traversal_advisory.sh")?;
+        let repo_dir = fixture.path().join("victim-repo");
+        let redirected_repo = fixture.path().join("escaped-target.git");
+
+        let repo = gix::open_opts(&repo_dir, crate::restricted())?;
+        let sm = repo
+            .submodules()?
+            .expect("submodule configuration present")
+            .next()
+            .expect("one malicious submodule");
+
+        assert!(
+            sm.open()?.is_none(),
+            "opening a submodule must not reach the external repository at {}",
+            redirected_repo.display()
+        );
+        assert!(
+            !sm.state()?.repository_exists,
+            "submodule names with traversal components must not resolve to repositories outside `.git/modules`"
+        );
+        Ok(())
+    }
+
+    /// Reproducer for malicious `submodule.<name>.update = !...` commands added in `.gitmodules`
+    /// after `git submodule init`: `gix` must reject them from `.gitmodules` instead of exposing
+    /// them as executable updates.
+    #[test]
+    fn update_commands_from_gitmodules_are_rejected_after_init() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_submodule_update_advisory.sh")?;
+        let victim = fixture.path().join("victim");
+
+        let repo = gix::open_opts(&victim, crate::restricted())?;
+        let sm = repo
+            .submodules()?
+            .expect("submodules present")
+            .next()
+            .expect("one submodule");
+        match sm.update() {
+            Err(gix::submodule::config::update::Error::CommandForbiddenInModulesConfiguration {
+                submodule,
+                actual,
+            }) => {
+                assert_eq!(submodule, BString::from("sub"));
+                assert_eq!(actual, BString::from("touch pwned"));
+            }
+            other => panic!("expected forbidden command from `.gitmodules`, got {other:?}"),
         }
         Ok(())
     }

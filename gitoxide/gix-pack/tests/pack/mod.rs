@@ -39,4 +39,5 @@ mod bundle;
 mod data;
 mod index;
 mod iter;
+mod malformed;
 mod multi_index;
