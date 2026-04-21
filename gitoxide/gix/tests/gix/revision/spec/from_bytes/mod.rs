@@ -125,7 +125,7 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
             "Now we enforce the object to exist and be valid, as ultimately it wants to match with a certain type"
         );
         insta::assert_debug_snapshot!(err, @r#"
-        delegate.peel_until(ValidObject) failed: {object}
+        delegate.peel_until(ValidObject) failed: "{object}"
         |
         └─ An error occurred while obtaining an object from the loose object store
         |
@@ -142,8 +142,8 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
             Spec::from_id(hex_to_id("cafea31147e840161a1860c50af999917ae1536b").attach(&repo))
         );
         let err = parse_spec("cafea^{object}", &repo).unwrap_err();
-        insta::assert_snapshot!(format!("{err:#?}").replace('\\', "/").replace("windows", "unix"), @r"
-        delegate.peel_until(ValidObject) failed: {object}
+        insta::assert_snapshot!(format!("{err:#?}").replace('\\', "/").replace("windows", "unix"), @r#"
+        delegate.peel_until(ValidObject) failed: "{object}"
         |
         └─ An error occurred while obtaining an object from the loose object store
         |
@@ -152,7 +152,7 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
         └─ Could not decode zip stream, status was 'Invalid input data'
         |
         └─ Invalid input data
-        ");
+        "#);
     }
 }
 

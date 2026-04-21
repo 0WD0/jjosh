@@ -76,7 +76,7 @@ fn reflog_by_unix_timestamp_for_current_branch() {
 #[test]
 fn reflog_by_date_with_date_parse_failure() {
     let err = try_parse("@{foo}").unwrap_err();
-    insta::assert_snapshot!(err, @"could not parse time for reflog lookup: foo");
+    insta::assert_snapshot!(err, @"could not parse time for reflog lookup: \"foo\"");
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn sibling_branch_for_hash_is_invalid() {
 fn nth_checked_out_branch_for_refname_is_invalid() {
     let err = try_parse("r1@{-1}").unwrap_err();
     // its undefined how to handle negative numbers and specified ref names
-    insta::assert_snapshot!(err, @"reference name must be followed by positive numbers in @{n}: -1");
+    insta::assert_snapshot!(err, @"reference name must be followed by positive numbers in @{n}: \"-1\"");
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn nth_checked_out_branch() {
 fn numbers_within_braces_cannot_be_negative_zero() {
     let err = try_parse("@{-0}").unwrap_err();
     // negative zero is not accepted, even though it could easily be defaulted to 0 which is a valid value
-    insta::assert_snapshot!(err, @"negative zero is invalid - remove the minus sign: -0");
+    insta::assert_snapshot!(err, @"negative zero is invalid - remove the minus sign: \"-0\"");
 }
 
 #[test]

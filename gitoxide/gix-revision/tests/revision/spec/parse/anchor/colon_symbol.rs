@@ -110,7 +110,7 @@ fn empty_top_level_regex_are_invalid() {
 fn regex_with_empty_exclamation_mark_prefix_is_invalid() {
     let err = try_parse(r#":/!hello"#).unwrap_err();
     assert_eq!(err.input.as_ref().map(AsRef::as_ref), Some(b"!hello".as_ref()));
-    insta::assert_snapshot!(err, @"need one character after /!, typically -: !hello");
+    insta::assert_snapshot!(err, @"need one character after /!, typically -: \"!hello\"");
 }
 
 #[test]
