@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn compare_select_samples() {
-        let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1);
+        let null = gix_hash::ObjectId::null(gix_testtools::hash_kind_from_env().unwrap_or_default());
         let actual = compare(
             &EntryRef {
                 mode: EntryKind::Blob.into(),
