@@ -1,15 +1,31 @@
 /// The error provided when redirection went beyond what we deem acceptable.
 #[derive(Debug, thiserror::Error)]
-#[error("Redirect url {redirect_url:?} could not be reconciled with original url {expected_url} as they don't share the same suffix")]
+#[error("Redirect url {redirect_url:?} could not be reconciled with original url {expected_url} as they don't share authority or the same suffix")]
 pub struct Error {
     redirect_url: String,
     expected_url: String,
+}
+
+fn shares_authority(lhs: &str, rhs: &str) -> bool {
+    let Ok(lhs) = gix_url::parse(lhs.into()) else {
+        return false;
+    };
+    let Ok(rhs) = gix_url::parse(rhs.into()) else {
+        return false;
+    };
+    lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.port_or_default() == rhs.port_or_default()
 }
 
 pub(crate) fn base_url(redirect_url: &str, base_url: &str, url: String) -> Result<String, Error> {
     let tail = url
         .strip_prefix(base_url)
         .expect("BUG: caller assures `base_url` is subset of `url`");
+    if !shares_authority(redirect_url, base_url) {
+        return Err(Error {
+            redirect_url: redirect_url.into(),
+            expected_url: url,
+        });
+    }
     redirect_url
         .strip_suffix(tail)
         .ok_or_else(|| Error {
@@ -37,13 +53,55 @@ mod tests {
     fn base_url_complete() {
         assert_eq!(
             base_url(
-                "https://redirected.org/b/info/refs?hi",
+                "https://original/b/info/refs?hi",
                 "https://original/a",
                 "https://original/a/info/refs?hi".into()
             )
             .unwrap(),
-            "https://redirected.org/b"
+            "https://original/b"
         );
+    }
+
+    #[test]
+    fn base_url_rejects_authority_changes() {
+        assert!(base_url(
+            "http://original/b/info/refs?hi",
+            "https://original/a",
+            "https://original/a/info/refs?hi".into()
+        )
+        .is_err());
+        assert!(base_url(
+            "https://redirected.org/b/info/refs?hi",
+            "https://original/a",
+            "https://original/a/info/refs?hi".into()
+        )
+        .is_err());
+        assert!(base_url(
+            "https://original:444/b/info/refs?hi",
+            "https://original/a",
+            "https://original/a/info/refs?hi".into()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn shares_authority_complete() {
+        assert!(shares_authority(
+            "https://original/b/info/refs?hi",
+            "https://original/a"
+        ));
+        assert!(!shares_authority(
+            "http://original/b/info/refs?hi",
+            "https://original/a"
+        ));
+        assert!(!shares_authority(
+            "https://redirected.org/b/info/refs?hi",
+            "https://original/a"
+        ));
+        assert!(!shares_authority(
+            "https://original:444/b/info/refs?hi",
+            "https://original/a"
+        ));
     }
 
     #[test]
