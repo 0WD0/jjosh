@@ -16,7 +16,7 @@ pub struct ValidationError {
 
 /// Lifecycle
 impl ValidationError {
-    /// Create a new error with `message` and `input`. Note that `input` isn't printed.
+    /// Create a new error with `message` and `input`. The `input` is displayed with debug formatting to not hide whitespace related issues.
     pub fn new_with_input(message: impl Into<Cow<'static, str>>, input: impl Into<BString>) -> Self {
         ValidationError {
             message: message.into(),
@@ -38,7 +38,7 @@ impl Display for ValidationError {
         match &self.input {
             None => f.write_str(self.message.as_ref()),
             Some(input) => {
-                write!(f, "{}: {input}", self.message)
+                write!(f, "{}: {input:?}", self.message)
             }
         }
     }
