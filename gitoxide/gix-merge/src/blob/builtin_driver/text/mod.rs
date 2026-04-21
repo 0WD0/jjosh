@@ -125,6 +125,16 @@ impl Default for Conflict {
         }
     }
 }
+///
+/// Prepared merge state for rendering the same merge with multiple conflict strategies.
+///
+/// Construct this with [`Merge::new()`] to compute the expensive diff state once, then call
+/// [`Merge::run()`] repeatedly with different [`Conflict`] values.
+#[derive(Clone, Debug)]
+pub struct Merge {
+    current_tokens: Vec<imara_diff::Token>,
+    hunks: Vec<utils::Hunk>,
+}
 
 pub(super) mod function;
 mod utils;

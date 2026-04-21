@@ -1,7 +1,7 @@
 #![no_main]
 use anyhow::Result;
 use arbitrary::Arbitrary;
-use gix_merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Options};
+use gix_merge::blob::builtin_driver::text::{self, Conflict, ConflictStyle};
 use gix_merge::blob::Resolution;
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
@@ -22,20 +22,10 @@ fn fuzz_text_merge(
         imara_diff::Algorithm::Myers,
         imara_diff::Algorithm::MyersMinimal,
     ] {
-        let mut opts = Options {
-            diff_algorithm,
-            conflict: Default::default(),
-        };
         for (left, right) in [(ours, theirs), (theirs, ours)] {
-            let resolution = gix_merge::blob::builtin_driver::text(
-                &mut buf,
-                &mut input,
-                Default::default(),
-                left,
-                base,
-                right,
-                opts,
-            );
+            input.clear();
+            let prepared = text::PreparedMerge::new(&mut input, left, base, right, diff_algorithm);
+            let resolution = prepared.merge(&mut buf, &mut input, Default::default(), Conflict::default());
             if resolution == Resolution::Conflict {
                 for conflict in [
                     Conflict::ResolveWithOurs,
@@ -50,16 +40,7 @@ fn fuzz_text_merge(
                         marker_size,
                     },
                 ] {
-                    opts.conflict = conflict;
-                    gix_merge::blob::builtin_driver::text(
-                        &mut buf,
-                        &mut input,
-                        Default::default(),
-                        left,
-                        base,
-                        right,
-                        opts,
-                    );
+                    prepared.merge(&mut buf, &mut input, Default::default(), conflict);
                 }
             }
         }
