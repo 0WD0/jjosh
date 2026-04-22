@@ -37,6 +37,19 @@ pub(crate) fn pack_from_memory_at(at: &str) -> gix_pack::data::File<&'static [u8
     gix_pack::data::File::from_data(data, path, gix_hash::Kind::Sha1).expect("valid pack file")
 }
 
+pub(crate) fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
+    let mut paths = std::fs::read_dir(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../fuzz/artifacts")
+            .join(target),
+    )
+    .expect("artifact directory exists")
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()).filter(|path| path.is_file()))
+    .collect::<Vec<_>>();
+    paths.sort();
+    paths
+}
+
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[cfg(not(windows))]

@@ -47,11 +47,16 @@ mod access {
         ///
         /// The index is sequential like in any other vector.
         pub fn for_each_set_bit(&self, mut f: impl FnMut(usize) -> Option<()>) -> Option<()> {
+            let num_bits = self.num_bits();
             let mut index = 0usize;
             let mut iter = self.bits.iter();
             while let Some(word) = iter.next() {
                 if rlw_runbit_is_set(word) {
-                    let len = rlw_running_len_bits(word);
+                    let len = usize::try_from(rlw_running_len_bits(word)).ok()?;
+                    let end = index.checked_add(len)?;
+                    if end > num_bits {
+                        return None;
+                    }
                     for _ in 0..len {
                         f(index)?;
                         index += 1;

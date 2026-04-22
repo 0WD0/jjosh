@@ -67,6 +67,9 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind, alloc_limit_bytes: Optio
     }
 
     let num_directory_blocks: usize = num_directory_blocks.try_into().ok()?;
+    if num_directory_blocks > data.len() {
+        return None;
+    }
     if alloc_limit_bytes
         .is_some_and(|limit| num_directory_blocks.saturating_mul(std::mem::size_of::<Directory>()) > limit)
     {
@@ -91,19 +94,22 @@ pub fn decode(data: &[u8], object_hash: gix_hash::Kind, alloc_limit_bytes: Optio
     }
 
     check_only.for_each_set_bit(|index| {
-        directories.get_mut(index)?.check_only = true;
+        let directory = directories.get_mut(index)?;
+        directory.check_only = true;
         Some(())
     })?;
     valid.for_each_set_bit(|index| {
+        let directory = directories.get_mut(index)?;
         let (stat, rest) = crate::decode::stat(data)?;
-        directories.get_mut(index)?.stat = stat.into();
+        directory.stat = stat.into();
         data = rest;
         Some(())
     })?;
     hash_valid.for_each_set_bit(|index| {
+        let directory = directories.get_mut(index)?;
         let (hash, rest) = data.split_at_checked(hash_len)?;
         data = rest;
-        directories.get_mut(index)?.exclude_file_oid = ObjectId::from_bytes_or_panic(hash).into();
+        directory.exclude_file_oid = ObjectId::from_bytes_or_panic(hash).into();
         Some(())
     })?;
 
@@ -148,7 +154,11 @@ fn decode_directory_block<'a>(
     directories.push(Directory {
         name: name.into(),
         untracked_entries,
-        sub_directories: Vec::with_capacity(num_dirs),
+        sub_directories: {
+            let mut sub_directories = Vec::new();
+            sub_directories.try_reserve(num_dirs).ok()?;
+            sub_directories
+        },
         // the following are set later through their bitmaps
         stat: None,
         exclude_file_oid: None,

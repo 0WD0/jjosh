@@ -6,6 +6,17 @@ use std::{
 
 use gix_pack::data;
 
+#[test]
+fn artifact_inputs_can_be_opened_without_panicking() {
+    for path in crate::pack::fuzz_artifact_paths("data_file") {
+        _ = data::File::from_data(
+            std::fs::read(&path).expect("artifact is readable"),
+            path,
+            gix_hash::Kind::Sha1,
+        );
+    }
+}
+
 /// Reproducer for the truncated ref-delta metadata fuzz case: malformed entry data must not panic
 /// while attempting to read the base object id.
 #[test]
@@ -122,6 +133,58 @@ fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
             Err(gix_pack::data::decode::Error::OutOfMemory)
         ),
         "pack-controlled allocations larger than the configured limit must be rejected"
+    );
+}
+
+/// Reproducer for the fuzz target OOM case: with the same allocation cap used by the fuzz harness,
+/// malformed delta chains must be rejected without panicking or tripping allocator aborts.
+#[test]
+fn runaway_delta_allocation_is_rejected_with_fuzz_alloc_limit() {
+    let bytes = [
+        0x50, 0x41, 0x43, 0x4b, 0x00, 0x00, 0x00, 0x02, 0xf2, 0x00, 0x00, 0xdd, 0x09, 0x96, 0x98, 0xe7, 0x6c, 0x01,
+        0x78, 0x9c, 0x7a, 0x73, 0x6a, 0xfd, 0xff, 0x9b, 0x9b, 0x9b, 0x9b, 0x9b, 0x00, 0x5b,
+    ];
+    let file = data::File::from_data(
+        bytes.as_slice(),
+        PathBuf::from("fuzzed-runaway-delta-allocation.pack"),
+        gix_hash::Kind::Sha1,
+    )
+    .expect("pack header is syntactically valid")
+    .with_alloc_limit_bytes(Some(64 * 1024 * 1024));
+    let len = bytes.len() as u64;
+    let mut offsets = vec![0, 12.min(len - 1), (len - 1) / 2];
+    let mut first_eight = [0u8; 8];
+    first_eight.copy_from_slice(&bytes[..8]);
+    offsets.push(u64::from_le_bytes(first_eight) % len);
+    offsets.sort_unstable();
+    offsets.dedup();
+
+    let mut saw_parseable_entry = false;
+    for offset in offsets {
+        let Ok(entry) = file.entry(offset) else {
+            continue;
+        };
+        saw_parseable_entry = true;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            file.decode_entry(
+                entry,
+                &mut Vec::new(),
+                &mut Default::default(),
+                &|_, _| None,
+                &mut gix_pack::cache::Never,
+            )
+        }));
+
+        assert!(
+            result
+                .expect("fuzz-target allocation caps must prevent allocator aborts")
+                .is_err(),
+            "malformed delta chains should be rejected under the fuzz allocation cap"
+        );
+    }
+    assert!(
+        saw_parseable_entry,
+        "the reproducer should exercise at least one parseable entry"
     );
 }
 

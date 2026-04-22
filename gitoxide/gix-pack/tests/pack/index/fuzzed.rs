@@ -3,6 +3,17 @@ use std::{
     path::PathBuf,
 };
 
+#[test]
+fn artifact_inputs_can_be_opened_without_panicking() {
+    for path in crate::pack::fuzz_artifact_paths("index_file") {
+        _ = gix_pack::index::File::from_data(
+            std::fs::read(&path).expect("artifact is readable"),
+            path,
+            gix_hash::Kind::Sha1,
+        );
+    }
+}
+
 /// Reproducer for the large-offset fuzz case: malformed V2 indices must not panic while
 /// dereferencing a 64-bit pack offset that is missing from the file.
 #[test]

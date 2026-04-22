@@ -18,12 +18,12 @@ mod error {
         Header(#[from] decode::header::Error),
         #[error("Could not hash index data")]
         Hasher(#[from] gix_hash::hasher::Error),
+        #[error("Index data would require more memory than can be reserved")]
+        OutOfMemory,
         #[error("Could not parse entry at index {index}")]
         Entry { index: u32 },
         #[error("Mandatory extension wasn't implemented or malformed.")]
         Extension(#[from] extension::decode::Error),
-        #[error("Entry too large to fit in memory")]
-        OutOfMemory,
         #[error("Index trailer should have been {expected} bytes long, but was {actual}")]
         UnexpectedTrailerLength { expected: usize, actual: usize },
         #[error("Shared index checksum mismatch")]
@@ -132,7 +132,7 @@ impl State {
                                         .spawn_scoped(scope, move || {
                                             let num_entries_for_chunks =
                                                 chunks.iter().map(|c| c.num_entries).sum::<u32>() as usize;
-                                            let mut entries = Vec::with_capacity(num_entries_for_chunks);
+                                            let mut entries = vec_with_capacity(num_entries_for_chunks)?;
                                             let path_backing_buffer_size_for_chunks =
                                                 entries::estimate_path_storage_requirements_in_bytes(
                                                     num_entries_for_chunks as u32,
@@ -142,7 +142,7 @@ impl State {
                                                     version,
                                                 );
                                             let mut path_backing =
-                                                Vec::with_capacity(path_backing_buffer_size_for_chunks);
+                                                vec_with_capacity(path_backing_buffer_size_for_chunks)?;
                                             let mut is_sparse = false;
                                             for offset in chunks {
                                                 let (
@@ -289,6 +289,12 @@ struct EntriesOutcome {
     pub is_sparse: bool,
 }
 
+fn vec_with_capacity<T>(capacity: usize) -> Result<Vec<T>, Error> {
+    let mut vec = Vec::new();
+    vec.try_reserve(capacity).map_err(|_| Error::OutOfMemory)?;
+    Ok(vec)
+}
+
 fn entries(
     post_header_data: &[u8],
     path_backing_buffer_size: usize,
@@ -296,10 +302,8 @@ fn entries(
     object_hash: gix_hash::Kind,
     version: Version,
 ) -> Result<(EntriesOutcome, &[u8]), Error> {
-    let mut entries = Vec::new();
-    entries.try_reserve(num_entries as usize)?;
-    let mut path_backing = Vec::new();
-    path_backing.try_reserve(path_backing_buffer_size)?;
+    let mut entries = vec_with_capacity(num_entries as usize)?;
+    let mut path_backing = vec_with_capacity(path_backing_buffer_size)?;
     entries::chunk(
         post_header_data,
         &mut entries,

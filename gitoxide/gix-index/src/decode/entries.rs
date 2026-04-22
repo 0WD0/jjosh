@@ -64,7 +64,6 @@ pub fn max_entries_possible(
     entries_block_size_in_bytes(on_disk_size, offset_to_extensions, object_hash)
         / min_entry_size_in_bytes(object_hash, version)
 }
-
 pub fn estimate_path_storage_requirements_in_bytes(
     num_entries: u32,
     on_disk_size: usize,
