@@ -456,6 +456,45 @@ mod object_caches {
     }
 }
 
+mod pack_alloc_limit_bytes {
+    use gix_odb::find::Header;
+    use gix_odb::HeaderExt;
+
+    use crate::util::repo_opts;
+
+    #[test]
+    fn limits_packed_object_allocations() -> crate::Result {
+        let repo = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
+        let packed_only_id = repo
+            .objects
+            .iter()?
+            .find_map(|id| {
+                let id = id.ok()?;
+                matches!(repo.objects.header(id).ok()?, Header::Packed(_)).then_some(id)
+            })
+            .expect("fixture contains packed-only objects");
+        assert!(
+            repo.find_object(packed_only_id).is_ok(),
+            "without a configured allocation limit packed objects are readable"
+        );
+
+        let limited = repo_opts(
+            "make_packed_and_loose.sh",
+            gix::open::Options::isolated().config_overrides([
+                "user.name=gitoxide",
+                "user.email=gitoxide@localhost",
+                "gitoxide.objects.allocLimit=1",
+            ]),
+        )?
+        .to_thread_local();
+        assert!(
+            limited.find_object(packed_only_id).is_err(),
+            "a tiny allocation limit rejects packed object reads"
+        );
+        Ok(())
+    }
+}
+
 mod worktree {
     use gix::open;
 

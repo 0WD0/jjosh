@@ -429,6 +429,21 @@ mod subsections {
             keys::UnsignedInteger::new_unsigned_integer("cacheLimit", &Gitoxide::OBJECTS)
                 .with_note("If unset or 0, there is no object cache")
                 .with_environment_override("GIX_OBJECT_CACHE_MEMORY");
+        /// The `gitoxide.objects.allocLimit` key.
+        ///
+        /// Implemented for:
+        /// - packed object decoding in `gix-pack::data::File`
+        /// - multi-pack-index name decoding in `gix-pack::multi_index::File`
+        /// - direct packed-object inflation in `gix-odb`
+        ///
+        /// Not yet implemented for:
+        /// - loose objects
+        /// - `gix-index`
+        /// - packed-refs
+        pub const ALLOC_LIMIT: keys::UnsignedInteger =
+            keys::UnsignedInteger::new_unsigned_integer("allocLimit", &Gitoxide::OBJECTS)
+                .with_environment_override("GIT_ALLOC_LIMIT")
+                .with_note("The maximum size of a single allocation caused by user-controlled on-disk object data. In fact, it's used for all untrusted data that causes allocations.");
         /// The `gitoxide.objects.noReplace` key.
         pub const NO_REPLACE: keys::Boolean = keys::Boolean::new_boolean("noReplace", &Gitoxide::OBJECTS);
         /// The `gitoxide.objects.replaceRefBase` key.
@@ -442,7 +457,7 @@ mod subsections {
         }
 
         fn keys(&self) -> &[&dyn Key] {
-            &[&Self::CACHE_LIMIT, &Self::REPLACE_REF_BASE]
+            &[&Self::CACHE_LIMIT, &Self::ALLOC_LIMIT, &Self::REPLACE_REF_BASE]
         }
 
         fn parent(&self) -> Option<&dyn Section> {

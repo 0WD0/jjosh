@@ -458,6 +458,7 @@ impl ThreadSafeRepository {
                     slots: object_store_slots,
                     object_hash: config.object_hash,
                     use_multi_pack_index: config.use_multi_pack_index,
+                    alloc_limit_bytes: config.alloc_limit_bytes,
                     current_dir: current_dir.to_owned().into(),
                 },
             )?),

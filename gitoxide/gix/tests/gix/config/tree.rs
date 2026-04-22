@@ -915,6 +915,18 @@ mod gitoxide {
             );
         }
     }
+    mod objects {
+        use gix::config::tree::{gitoxide, Key};
+
+        #[test]
+        fn alloc_limit() -> crate::Result {
+            assert_eq!(
+                gitoxide::Objects::ALLOC_LIMIT.validated_assignment("16m".into())?,
+                "gitoxide.objects.allocLimit=16m"
+            );
+            Ok(())
+        }
+    }
 }
 
 #[cfg(any(
