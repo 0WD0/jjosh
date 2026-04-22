@@ -1,15 +1,14 @@
 #![no_main]
 
-mod util;
-
 use anyhow::Result;
 use gix_features::{progress, zlib};
 use gix_pack::{cache, data};
+use gix_pack_fuzz::{virtual_path, interrupt_flag};
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 
 fn fuzz(input: &[u8]) -> Result<()> {
-    let pack = match data::File::from_data(input, util::virtual_path(".pack"), gix_hash::Kind::Sha1) {
+    let pack = match data::File::from_data(input, virtual_path(".pack"), gix_hash::Kind::Sha1) {
         Ok(pack) => pack,
         Err(err) => {
             _ = black_box(err);
@@ -22,7 +21,7 @@ fn fuzz(input: &[u8]) -> Result<()> {
     _ = black_box(pack.num_objects());
     _ = black_box(pack.object_hash());
     _ = black_box(pack.checksum());
-    _ = black_box(pack.verify_checksum(&mut progress::Discard, &util::interrupt_flag()));
+    _ = black_box(pack.verify_checksum(&mut progress::Discard, &interrupt_flag()));
 
     for offset in interesting_offsets(input) {
         let entry = match pack.entry(offset) {

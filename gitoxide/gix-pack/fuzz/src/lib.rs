@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{ops::Range, path::PathBuf, sync::atomic::AtomicBool};
 
 pub fn virtual_path(suffix: &str) -> PathBuf {
@@ -9,6 +7,7 @@ pub fn virtual_path(suffix: &str) -> PathBuf {
 pub fn interrupt_flag() -> AtomicBool {
     AtomicBool::new(false)
 }
+
 pub fn empty_candidates() -> Range<u32> {
     0..0
 }
