@@ -17,31 +17,29 @@ fn fuzz_text_merge(
 ) -> Result<()> {
     let mut buf = Vec::new();
     let mut input = imara_diff::InternedInput::default();
-    for diff_algorithm in [
-        imara_diff::Algorithm::Histogram,
-        imara_diff::Algorithm::Myers,
-        imara_diff::Algorithm::MyersMinimal,
-    ] {
-        for (left, right) in [(ours, theirs), (theirs, ours)] {
-            input.clear();
-            let prepared = text::PreparedMerge::new(&mut input, left, base, right, diff_algorithm);
-            let resolution = prepared.merge(&mut buf, &mut input, Default::default(), Conflict::default());
-            if resolution == Resolution::Conflict {
-                for conflict in [
-                    Conflict::ResolveWithOurs,
-                    Conflict::ResolveWithTheirs,
-                    Conflict::ResolveWithUnion,
-                    Conflict::Keep {
-                        style: ConflictStyle::Diff3,
-                        marker_size,
-                    },
-                    Conflict::Keep {
-                        style: ConflictStyle::ZealousDiff3,
-                        marker_size,
-                    },
-                ] {
-                    prepared.merge(&mut buf, &mut input, Default::default(), conflict);
-                }
+    // Fuzz this merge entrypoint with Histogram only. Repetitive adversarial text can drive the
+    // Myers-family algorithms into pathological runtimes under sanitizer and coverage
+    // instrumentation, which makes them unsuitable for this libFuzzer target and obscures
+    // gix-merge-specific bugs behind diff-algorithm timeouts.
+    for (left, right) in [(ours, theirs), (theirs, ours)] {
+        input.clear();
+        let prepared = text::Merge::new(&mut input, left, base, right, imara_diff::Algorithm::Histogram);
+        let resolution = prepared.run(&mut buf, &mut input, Default::default(), Conflict::default());
+        if resolution == Resolution::Conflict {
+            for conflict in [
+                Conflict::ResolveWithOurs,
+                Conflict::ResolveWithTheirs,
+                Conflict::ResolveWithUnion,
+                Conflict::Keep {
+                    style: ConflictStyle::Diff3,
+                    marker_size,
+                },
+                Conflict::Keep {
+                    style: ConflictStyle::ZealousDiff3,
+                    marker_size,
+                },
+            ] {
+                prepared.run(&mut buf, &mut input, Default::default(), conflict);
             }
         }
     }
