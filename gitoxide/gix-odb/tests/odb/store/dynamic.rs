@@ -23,7 +23,7 @@ fn db_with_all_object_sources() -> crate::Result<(gix_odb::Handle, gix_testtools
         .write(true)
         .create_new(true)
         .open(objects_dir.path().join("pack/multi-pack-index"))?;
-    gix_odb::pack::multi_index::File::write_from_index_paths(
+    gix_odb::pack::multi_index::write_from_index_paths(
         vec![
             fixture_path_standalone("objects/pack/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx"),
             fixture_path_standalone("objects/pack/pack-c0438c19fb16422b6bbcce24387b3264416d485b.idx"),

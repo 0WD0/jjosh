@@ -28,7 +28,7 @@ pub fn create(
         gix::lock::acquire::Fail::Immediately,
         None,
     )?);
-    gix::odb::pack::multi_index::File::write_from_index_paths(
+    gix::odb::pack::multi_index::write_from_index_paths(
         index_paths,
         &mut out,
         &mut progress,
