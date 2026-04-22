@@ -61,9 +61,7 @@ mod access {
                 }
 
                 for _ in 0..rlw_literal_words(word) {
-                    let word = iter
-                        .next()
-                        .expect("BUG: ran out of words while going through uncompressed portion");
+                    let word = iter.next()?;
                     for bit_index in 0..64 {
                         if word & (1 << bit_index) != 0 {
                             f(index)?;
