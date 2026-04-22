@@ -15,6 +15,8 @@ fn memory_backed_index(at: &str) -> gix_pack::index::File<&'static [u8]> {
     gix_pack::index::File::from_data(data, path, gix_hash::Kind::Sha1).expect("valid index file")
 }
 
+mod fuzzed;
+
 mod version {
     mod v1 {
         use gix_pack::index;

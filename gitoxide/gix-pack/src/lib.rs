@@ -98,3 +98,8 @@ fn exact_vec<T>(capacity: usize) -> Vec<T> {
     v.reserve_exact(capacity);
     v
 }
+
+#[inline]
+fn fan_is_monotonically_increasing(fan: &[u32]) -> bool {
+    !fan.windows(2).any(|window| window[0] > window[1])
+}

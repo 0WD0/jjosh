@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use crate::multi_index;
 
 mod error {
-    /// The error returned by [`multi_index::write_from_index_paths()`][super::write_from_index_paths()].
+    /// The error returned by [`crate::multi_index::write_from_index_paths()`].
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
@@ -38,7 +38,7 @@ pub struct Outcome {
     pub multi_index_checksum: gix_hash::ObjectId,
 }
 
-/// The progress ids used in [`write_from_index_paths()`].
+/// The progress ids used in [`crate::multi_index::write_from_index_paths()`].
 ///
 /// Use this information to selectively extract the progress of interest in case the parent application has custom visualization.
 #[derive(Debug, Copy, Clone)]

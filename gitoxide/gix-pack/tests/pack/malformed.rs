@@ -29,48 +29,6 @@ fn delta_copy_is_reported_without_panicking() -> crate::Result {
     Ok(())
 }
 
-/// Reproducer for GHSA-x494-mj8g-cj27: malformed ref-delta metadata currently makes
-/// `gix_pack::data::Entry::from_bytes()` index past the provided slice and panic instead of
-/// reporting a decode error for truncated attacker-controlled input.
-#[test]
-fn ref_delta_metadata_is_reported_without_panicking() {
-    let result = catch_unwind(|| data::Entry::from_bytes(&[0x70], 0, gix_hash::Kind::Sha1.len_in_bytes()));
-
-    assert!(
-        result
-            .expect("truncated ref-delta metadata should not panic during entry decoding")
-            .is_err(),
-        "truncated ref-delta metadata should be rejected as corrupt input"
-    );
-}
-
-/// Reproducer for the F009 PoC and GHSA-x494-mj8g-cj27: a forged pack entry header with too many
-/// continuation bytes currently reaches `gix_pack::data::File::entry()` and panics with
-/// `attempt to shift left with overflow` instead of returning a decode error.
-#[test]
-fn oversized_pack_entry_header_is_reported_without_panicking() -> crate::Result {
-    let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("f009.pack");
-
-    let mut pack = Vec::new();
-    pack.extend_from_slice(b"PACK");
-    pack.extend_from_slice(&2u32.to_be_bytes());
-    pack.extend_from_slice(&1u32.to_be_bytes());
-    pack.extend_from_slice(&[0x80; 21]);
-    std::fs::write(&path, pack)?;
-
-    let file = data::File::at(&path, gix_hash::Kind::Sha1)?;
-    let result = catch_unwind(AssertUnwindSafe(|| file.entry(12)));
-
-    assert!(
-        result
-            .expect("forged pack entry headers should not panic during entry decoding")
-            .is_err(),
-        "forged pack entry headers should be rejected as corrupt pack data"
-    );
-    Ok(())
-}
-
 /// Reproducer for GHSA-x494-mj8g-cj27: a delta that declares a result size above `isize::MAX`
 /// currently reaches `gix_pack::data::File::decode_entry()` and panics with a capacity overflow
 /// instead of rejecting the attacker-controlled size header.

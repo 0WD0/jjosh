@@ -83,6 +83,8 @@ where
 
             (kind, fan, num_objects)
         };
+        validate_fan(&fan)?;
+        validate_size(&data, kind, num_objects, hash_len)?;
         Ok(Self {
             data,
             path,
@@ -103,4 +105,93 @@ fn read_fan(d: &[u8]) -> ([u32; FAN_LEN], usize) {
         *f = crate::read_u32(c);
     }
     (fan, FAN_LEN * N32_SIZE)
+}
+
+fn validate_fan(fan: &[u32; FAN_LEN]) -> Result<(), Error> {
+    if !crate::fan_is_monotonically_increasing(fan) {
+        return Err(Error::Corrupt {
+            message: "Pack index fan-out table must be monotonically increasing".into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) -> Result<(), Error> {
+    let num_objects = num_objects as usize;
+    let footer_size = hash_len * 2;
+    let expected_size = match kind {
+        Version::V1 => FAN_LEN
+            .checked_mul(N32_SIZE)
+            .and_then(|size| size.checked_add(num_objects.checked_mul(N32_SIZE + hash_len)?))
+            .and_then(|size| size.checked_add(footer_size))
+            .ok_or_else(|| Error::Corrupt {
+                message: "Pack index size overflowed while validating version 1 layout".into(),
+            })?,
+        Version::V2 => {
+            let v2_header_size = V2_SIGNATURE.len() + N32_SIZE + FAN_LEN * N32_SIZE;
+            let oid_bytes = num_objects.checked_mul(hash_len).ok_or_else(|| Error::Corrupt {
+                message: "Pack index size overflowed while validating object ids".into(),
+            })?;
+            let table_bytes = num_objects.checked_mul(N32_SIZE).ok_or_else(|| Error::Corrupt {
+                message: "Pack index size overflowed while validating 32-bit tables".into(),
+            })?;
+            let offset32_start = v2_header_size
+                .checked_add(oid_bytes)
+                .and_then(|size| size.checked_add(table_bytes))
+                .ok_or_else(|| Error::Corrupt {
+                    message: "Pack index size overflowed while locating 32-bit offsets".into(),
+                })?;
+            let offset32_end = offset32_start.checked_add(table_bytes).ok_or_else(|| Error::Corrupt {
+                message: "Pack index size overflowed while locating 32-bit offsets".into(),
+            })?;
+            if offset32_end > data.len() {
+                return Err(Error::Corrupt {
+                    message: format!(
+                        "Pack index of size {} is too small for {} objects in version 2",
+                        data.len(),
+                        num_objects
+                    ),
+                });
+            }
+            let large_offset_indices: Vec<_> = data[offset32_start..offset32_end]
+                .chunks_exact(N32_SIZE)
+                .filter_map(|offset| {
+                    let offset = crate::read_u32(offset);
+                    (offset & (1 << 31) != 0).then_some((offset ^ (1 << 31)) as usize)
+                })
+                .collect();
+            let large_offsets = large_offset_indices.len();
+            v2_header_size
+                .checked_add(oid_bytes)
+                .and_then(|size| size.checked_add(table_bytes))
+                .and_then(|size| size.checked_add(table_bytes))
+                .and_then(|size| size.checked_add(large_offsets.checked_mul(size_of::<u64>())?))
+                .and_then(|size| size.checked_add(footer_size))
+                .ok_or_else(|| Error::Corrupt {
+                    message: "Pack index size overflowed while validating version 2 layout".into(),
+                })
+                .and_then(|expected_size| {
+                    let max_large_offset_index = large_offset_indices.into_iter().max().unwrap_or(0);
+                    if large_offsets > 0 && max_large_offset_index >= large_offsets {
+                        return Err(Error::Corrupt {
+                            message: format!(
+                                "Pack index references large offset {max_large_offset_index}, but only {large_offsets} large offsets are present"
+                            ),
+                        });
+                    }
+                    Ok(expected_size)
+                })?
+        }
+    };
+    if data.len() != expected_size {
+        // Aborting here is needed for protection against malformed inputs, or the offset access done later can panic
+        // as it's done without explicit error handling.
+        return Err(Error::Corrupt {
+            message: format!(
+                "Pack index size is incorrect, expected {expected_size} bytes for {num_objects} objects in version {kind:?}, but got {} bytes",
+                data.len()
+            ),
+        });
+    }
+    Ok(())
 }

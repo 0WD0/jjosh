@@ -8,6 +8,10 @@ impl data::File<crate::MMap> {
     ///
     /// The `object_hash` is a way to read (and write) the same file format with different hashes, as the hash kind
     /// isn't stored within the file format itself.
+    ///
+    /// This constructor leaves allocation limiting disabled, allowing allocations of any size dictated by pack data.
+    /// Use [`Self::from_data()`] together with [`File::with_alloc_limit_bytes()`][crate::data::File::with_alloc_limit_bytes()]
+    /// when working with untrusted input.
     pub fn at(path: impl AsRef<Path>, object_hash: gix_hash::Kind) -> Result<Self, data::header::decode::Error> {
         Self::at_inner(path.as_ref(), object_hash)
     }
@@ -26,6 +30,9 @@ where
     T: crate::FileData,
 {
     /// Instantiate a data file from `data` as assumed to be read or memory-mapped from `path`.
+    ///
+    /// This constructor leaves allocation limiting disabled, allowing allocations of any size dictated by pack data.
+    /// Call [`File::with_alloc_limit_bytes()`][crate::data::File::with_alloc_limit_bytes()] before decoding entries from untrusted input.
     pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self, data::header::decode::Error> {
         use crate::data::header::N32_SIZE;
         let hash_len = object_hash.len_in_bytes();
@@ -46,6 +53,19 @@ where
             num_objects,
             hash_len,
             object_hash,
+            alloc_limit_bytes: None,
         })
+    }
+
+    /// Configure the maximum size of a single allocation caused by user-controlled on-disk pack data.
+    ///
+    /// Use `None` to disable the limit, which is also the default.
+    ///
+    /// This is currently enforced when decoding pack entries and resolving delta chains.
+    /// Callers that allocate from pack metadata directly should consult [`File::alloc_limit_bytes()`][crate::data::File::alloc_limit_bytes()]
+    /// and apply the same limit themselves.
+    pub fn with_alloc_limit_bytes(mut self, alloc_limit_bytes: Option<usize>) -> Self {
+        self.alloc_limit_bytes = alloc_limit_bytes;
+        self
     }
 }

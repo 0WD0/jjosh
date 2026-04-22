@@ -11,6 +11,7 @@ fn multi_index() -> (File, PathBuf) {
 }
 
 mod access;
+mod fuzzed;
 
 mod verify;
 
