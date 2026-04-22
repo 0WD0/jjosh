@@ -1,4 +1,7 @@
-use std::{mem::size_of, path::Path};
+use std::{
+    mem::size_of,
+    path::{Path, PathBuf},
+};
 
 use crate::index::{self, Version, FAN_LEN, V2_SIGNATURE};
 
@@ -20,20 +23,30 @@ pub enum Error {
 const N32_SIZE: usize = size_of::<u32>();
 
 /// Instantiation
-impl index::File {
+impl index::File<crate::MMap> {
     /// Open the pack index file at the given `path`.
     ///
     /// The `object_hash` is a way to read (and write) the same file format with different hashes, as the hash kind
     /// isn't stored within the file format itself.
-    pub fn at(path: impl AsRef<Path>, object_hash: gix_hash::Kind) -> Result<index::File, Error> {
+    pub fn at(path: impl AsRef<Path>, object_hash: gix_hash::Kind) -> Result<Self, Error> {
         Self::at_inner(path.as_ref(), object_hash)
     }
 
-    fn at_inner(path: &Path, object_hash: gix_hash::Kind) -> Result<index::File, Error> {
+    fn at_inner(path: &Path, object_hash: gix_hash::Kind) -> Result<Self, Error> {
         let data = crate::mmap::read_only(path).map_err(|source| Error::Io {
             source,
             path: path.to_owned(),
         })?;
+        Self::from_data(data, path.to_owned(), object_hash)
+    }
+}
+
+impl<T> index::File<T>
+where
+    T: crate::FileData,
+{
+    /// Instantiate an index file from `data` as assumed to be read or memory-mapped from `path`.
+    pub fn from_data(data: T, path: PathBuf, object_hash: gix_hash::Kind) -> Result<Self, Error> {
         let idx_len = data.len();
         let hash_len = object_hash.len_in_bytes();
 
@@ -70,9 +83,9 @@ impl index::File {
 
             (kind, fan, num_objects)
         };
-        Ok(index::File {
+        Ok(Self {
             data,
-            path: path.to_owned(),
+            path,
             version: kind,
             num_objects,
             fan,

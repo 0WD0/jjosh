@@ -13,7 +13,7 @@ mod method {
 
     use crate::{
         hex_to_id,
-        pack::{data::file::pack_at, SMALL_PACK},
+        pack::{data::file::pack_at, pack_from_memory_at, SMALL_PACK},
     };
 
     #[test]
@@ -25,6 +25,16 @@ mod method {
     #[test]
     fn verify_checksum() -> Result<(), Box<dyn std::error::Error>> {
         let p = pack_at(SMALL_PACK);
+        assert_eq!(
+            p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
+            p.checksum()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn verify_checksum_from_memory() -> Result<(), Box<dyn std::error::Error>> {
+        let p = pack_from_memory_at(SMALL_PACK);
         assert_eq!(
             p.verify_checksum(&mut progress::Discard, &AtomicBool::new(false))?,
             p.checksum()

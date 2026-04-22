@@ -73,7 +73,10 @@ impl Outcome {
 }
 
 /// Decompression of objects
-impl File {
+impl<T> File<T>
+where
+    T: crate::FileData,
+{
     /// Decompress the given `entry` into `out` and return the amount of bytes read from the pack data.
     /// Note that `inflate` is not reset after usage, but will be reset before using it.
     ///

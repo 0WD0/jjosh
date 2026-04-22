@@ -21,7 +21,7 @@ fn from_paths() -> crate::Result {
         .write(true)
         .create_new(true)
         .open(&output_path)?;
-    let outcome = gix_pack::multi_index::File::write_from_index_paths(
+    let outcome = gix_pack::multi_index::write_from_index_paths(
         input_indices.clone(),
         &mut out,
         &mut progress::Discard,

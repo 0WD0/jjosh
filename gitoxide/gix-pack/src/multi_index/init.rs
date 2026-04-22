@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::multi_index::{chunk, File, Version};
 
@@ -36,14 +36,14 @@ mod error {
 pub use error::Error;
 
 /// Initialization
-impl File {
+impl File<crate::MMap> {
     /// Open the multi-index file at the given `path`.
     pub fn at(path: impl AsRef<Path>) -> Result<Self, Error> {
         Self::try_from(path.as_ref())
     }
 }
 
-impl TryFrom<&Path> for File {
+impl TryFrom<&Path> for File<crate::MMap> {
     type Error = Error;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
@@ -51,7 +51,16 @@ impl TryFrom<&Path> for File {
             source,
             path: path.to_owned(),
         })?;
+        Self::from_data(data, path.to_owned())
+    }
+}
 
+impl<T> File<T>
+where
+    T: crate::FileData,
+{
+    /// Instantiate a multi-index file from `data` as assumed to be read or memory-mapped from `path`.
+    pub fn from_data(data: T, path: PathBuf) -> Result<Self, Error> {
         const TRAILER_LEN: usize = gix_hash::Kind::shortest().len_in_bytes(); /* trailing hash */
         if data.len()
             < Self::HEADER_LEN
@@ -139,7 +148,7 @@ impl TryFrom<&Path> for File {
 
         Ok(File {
             data,
-            path: path.to_owned(),
+            path,
             version,
             hash_len: object_hash.len_in_bytes(),
             object_hash,

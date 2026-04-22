@@ -35,7 +35,10 @@ pub struct Outcome {
 }
 
 /// Obtain object information quickly.
-impl File {
+impl<T> File<T>
+where
+    T: crate::FileData,
+{
     /// Resolve the object header information starting at `entry`, following the chain of entries as needed.
     ///
     /// The `entry` determines which object to decode, and is commonly obtained with the help of a pack index file or through pack iteration.

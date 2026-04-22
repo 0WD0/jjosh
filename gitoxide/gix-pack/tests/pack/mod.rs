@@ -11,6 +11,8 @@ const PACKS_AND_INDICES: &[(&str, &str)] = &[(SMALL_PACK_INDEX, SMALL_PACK), (IN
 
 const V2_PACKS_AND_INDICES: &[(&str, &str)] = &[(SMALL_PACK_INDEX, SMALL_PACK), (INDEX_V2, PACK_FOR_INDEX_V2)];
 
+use std::path::PathBuf;
+
 use gix_hash::ObjectId;
 pub use gix_testtools::{
     fixture_path_standalone as fixture_path, scripted_fixture_read_only_standalone as scripted_fixture_read_only,
@@ -18,6 +20,21 @@ pub use gix_testtools::{
 
 pub fn hex_to_id(hex: &str) -> ObjectId {
     ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
+}
+
+/// Read fixture data into memory and intentionally leak it to obtain a `'static` byte slice.
+///
+/// This is acceptable in tests because the fixtures are small, loaded only for the duration of the
+/// test process, and the process exits immediately after the test run.
+pub(crate) fn leaked_fixture_bytes(path: PathBuf) -> (&'static [u8], PathBuf) {
+    let data: &'static [u8] = Box::leak(std::fs::read(&path).expect("readable fixture").into_boxed_slice());
+    (data, path)
+}
+
+/// Load a pack fixture into memory and instantiate a memory-backed pack file from it.
+pub(crate) fn pack_from_memory_at(at: &str) -> gix_pack::data::File<&'static [u8]> {
+    let (data, path) = leaked_fixture_bytes(fixture_path(at));
+    gix_pack::data::File::from_data(data, path, gix_hash::Kind::Sha1).expect("valid pack file")
 }
 
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
