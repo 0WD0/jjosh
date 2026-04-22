@@ -145,6 +145,37 @@ fn multi_index_access() -> crate::Result {
 }
 
 #[test]
+fn multi_index_alloc_limit_bytes_falls_back_to_plain_indices() -> crate::Result {
+    let dir = gix_testtools::scripted_fixture_writable_standalone("make_repo_multi_index.sh")?;
+    let handle = gix_odb::at_opts(
+        dir.path().join(".git/objects"),
+        Vec::new(),
+        gix_odb::store::init::Options {
+            alloc_limit_bytes: Some(1),
+            ..Default::default()
+        },
+    )?;
+
+    let mut count = 0;
+    for oid in handle.iter()? {
+        oid?;
+        count += 1;
+    }
+
+    assert_eq!(
+        count, 1732,
+        "packed objects remain reachable by falling back to plain indices"
+    );
+    let metrics = handle.store_ref().metrics();
+    assert!(
+        metrics.known_reachable_indices > 1,
+        "a multi-index open blocked by the allocation limit must fall back to loading plain indices"
+    );
+    assert_eq!(metrics.known_packs, 15);
+    Ok(())
+}
+
+#[test]
 fn multi_index_keep_open() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_writable_standalone("make_repo_multi_index.sh")?;
     let (stable_handle, handle) = {
