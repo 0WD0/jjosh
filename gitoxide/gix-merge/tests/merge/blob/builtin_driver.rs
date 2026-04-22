@@ -161,7 +161,7 @@ mod text {
         for (left, right) in [(ours, theirs), (theirs, ours)] {
             input.clear();
             let merge = text::Merge::new(&mut input, left, base, right, imara_diff::Algorithm::Histogram);
-            let resolution = merge.run(&mut out, &mut input, Default::default(), Conflict::default());
+            let resolution = merge.run(&mut out, Default::default(), Conflict::default());
             if resolution == Resolution::Conflict {
                 for conflict in [
                     Conflict::ResolveWithOurs,
@@ -176,7 +176,7 @@ mod text {
                         marker_size,
                     },
                 ] {
-                    merge.run(&mut out, &mut input, Default::default(), conflict);
+                    merge.run(&mut out, Default::default(), conflict);
                 }
             }
         }

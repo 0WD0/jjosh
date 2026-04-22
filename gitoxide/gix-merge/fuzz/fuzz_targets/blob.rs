@@ -24,7 +24,7 @@ fn fuzz_text_merge(
     for (left, right) in [(ours, theirs), (theirs, ours)] {
         input.clear();
         let prepared = text::Merge::new(&mut input, left, base, right, imara_diff::Algorithm::Histogram);
-        let resolution = prepared.run(&mut buf, &mut input, Default::default(), Conflict::default());
+        let resolution = prepared.run(&mut buf, Default::default(), Conflict::default());
         if resolution == Resolution::Conflict {
             for conflict in [
                 Conflict::ResolveWithOurs,
@@ -39,7 +39,7 @@ fn fuzz_text_merge(
                     marker_size,
                 },
             ] {
-                prepared.run(&mut buf, &mut input, Default::default(), conflict);
+                prepared.run(&mut buf, Default::default(), conflict);
             }
         }
     }

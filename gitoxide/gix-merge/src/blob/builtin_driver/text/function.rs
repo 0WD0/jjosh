@@ -7,26 +7,27 @@ use crate::blob::{
             fill_ancestor, hunks_differ_in_diff3, take_intersecting, tokens, write_ancestor, write_conflict_marker,
             write_hunks, zealously_contract_hunks, Hunk, Side,
         },
-        Conflict, ConflictStyle, Labels, Options, Merge,
+        Conflict, ConflictStyle, Labels, Merge, Options,
     },
     Resolution,
 };
 
-impl Merge {
+impl<'input, 'data> Merge<'input, 'data> {
     /// Prepare merge state for `current`, `ancestor`, and `other` using `diff_algorithm`.
     ///
     /// This computes the hunk structure once so it can be rendered multiple times with
     /// [`Merge::run()`], which is useful when experimenting with multiple conflict styles
     /// for the same input triplet.
     ///
-    /// The provided `input` is reused for calls to [`Merge::run()`].
-    pub fn new<'a>(
-        input: &mut imara_diff::InternedInput<&'a [u8]>,
-        current: &'a [u8],
-        ancestor: &'a [u8],
-        other: &'a [u8],
+    /// The returned [`Merge`] keeps a reference to the provided `input`, which guarantees
+    /// that subsequent calls to [`Merge::run()`] use the exact same interner state.
+    pub fn new(
+        input: &'input mut imara_diff::InternedInput<&'data [u8]>,
+        current: &'data [u8],
+        ancestor: &'data [u8],
+        other: &'data [u8],
         diff_algorithm: imara_diff::Algorithm,
-    ) -> Merge {
+    ) -> Merge<'input, 'data> {
         input.update_before(tokens(ancestor));
         input.update_after(tokens(current));
 
@@ -38,17 +39,22 @@ impl Merge {
         let mut hunks = collect_hunks(diff_algorithm, input, Side::Other, hunks);
         hunks.sort_by_key(|a| a.before.start);
 
-        Merge { current_tokens, hunks }
+        Merge {
+            input,
+            current_tokens,
+            hunks,
+        }
     }
 
-    /// Render this prepared merge using the given `conflict` strategy.
+    /// Merge `current` and `other` with `ancestor` as base using to `conflict`
+    /// as strategy.
     ///
-    /// `self` must have been obtained from [`Merge::new()`] using the same `input`
-    /// instance, without mutating that `input` in between.
+    /// Use `labels` to annotate conflict sections.
+    ///
+    /// Place the merged result in `out` (cleared before use) and return the resolution.
     pub fn run(
         &self,
         out: &mut Vec<u8>,
-        input: &mut imara_diff::InternedInput<&[u8]>,
         Labels {
             ancestor: ancestor_label,
             current: current_label,
@@ -57,14 +63,14 @@ impl Merge {
         conflict: Conflict,
     ) -> Resolution {
         out.clear();
+        let input = self.input;
         let current_tokens = &self.current_tokens;
-        let hunks = self.hunks.clone();
-        if hunks.is_empty() {
+        if self.hunks.is_empty() {
             write_ancestor(input, 0, input.before.len(), out);
             return Resolution::Complete;
         }
 
-        let mut hunks = hunks.into_iter().peekable();
+        let mut hunks = self.hunks.iter().cloned().peekable();
         let mut intersecting = Vec::new();
         let mut ancestor_integrated_until = 0;
         let mut resolution = Resolution::Complete;
@@ -258,7 +264,6 @@ pub fn merge<'a>(
     let merge = Merge::new(input, current, ancestor, other, diff_algorithm);
     merge.run(
         out,
-        input,
         Labels {
             ancestor: ancestor_label,
             current: current_label,
