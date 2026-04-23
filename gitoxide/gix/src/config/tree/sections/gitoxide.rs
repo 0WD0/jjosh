@@ -438,7 +438,6 @@ mod subsections {
         ///
         /// Not yet implemented for:
         /// - loose objects
-        /// - `gix-index`
         /// - packed-refs
         pub const ALLOC_LIMIT: keys::UnsignedInteger =
             keys::UnsignedInteger::new_unsigned_integer("allocLimit", &Gitoxide::OBJECTS)
