@@ -229,7 +229,9 @@ impl super::Store {
             Arc::new(
                 db_paths
                     .iter()
-                    .map(|path| crate::loose::Store::at(path, self.object_hash))
+                    .map(|path| {
+                        crate::loose::Store::at_with_alloc_limit_bytes(path, self.object_hash, self.alloc_limit_bytes)
+                    })
                     .collect::<Vec<_>>(),
             )
         } else {

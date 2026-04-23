@@ -11,6 +11,10 @@ fn ldb() -> Store {
     Store::at(fixture_path_standalone("objects"), gix_hash::Kind::Sha1)
 }
 
+fn limited_ldb(limit: usize) -> Store {
+    Store::at_with_alloc_limit_bytes(fixture_path_standalone("objects"), gix_hash::Kind::Sha1, Some(limit))
+}
+
 pub fn object_ids() -> Vec<gix_hash::ObjectId> {
     vec![
         hex_to_id("37d4e6c5c48ba0d245164c4e10d5f41140cab980"), // blob
@@ -228,7 +232,7 @@ mod find {
 
     use crate::{
         hex_to_id,
-        store::loose::{ldb, locate_oid},
+        store::loose::{ldb, limited_ldb, locate_oid},
     };
 
     fn find<'a>(hex: &str, buf: &'a mut Vec<u8>) -> gix_object::Data<'a> {
@@ -346,6 +350,24 @@ cjHJZXWmV4CcRfmLsXzU8s2cR9A0DBvOxhPD1TlKC2JhBFXigjuL9U4Rbq9tdegB
             o.data.len(),
             "erm, blobs are the same as raw data?"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn blob_big_respects_alloc_limit_bytes() -> crate::Result {
+        let id = hex_to_id("a706d7cd20fc8ce71489f34b50cf01011c104193");
+        let db = limited_ldb(1);
+        let mut buf = Vec::new();
+
+        assert_eq!(
+            db.try_header(&id)?.expect("header present"),
+            (56915, Kind::Blob),
+            "header-only reads remain available"
+        );
+        assert!(matches!(
+            db.try_find(&id, &mut buf),
+            Err(loose::find::Error::OutOfMemory { size: 56915 })
+        ));
         Ok(())
     }
 

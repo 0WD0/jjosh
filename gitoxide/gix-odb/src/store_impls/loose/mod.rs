@@ -12,6 +12,8 @@ pub struct Store {
     pub(crate) path: PathBuf,
     /// The kind of hash we should assume during iteration and when writing new objects.
     pub(crate) object_hash: gix_hash::Kind,
+    /// The maximum size of a single allocation caused by user-controlled loose object data.
+    pub(crate) alloc_limit_bytes: Option<usize>,
 }
 
 /// Initialization
@@ -22,10 +24,22 @@ impl Store {
     /// In a git repository, this would be `.git/objects`.
     ///
     /// The `object_hash` determines which hash to use when writing, finding or iterating objects.
+    ///
+    /// Prefer [`Self::at_with_alloc_limit_bytes()`] for untrusted input.
     pub fn at(objects_directory: impl Into<PathBuf>, object_hash: gix_hash::Kind) -> Store {
+        Self::at_with_alloc_limit_bytes(objects_directory, object_hash, None)
+    }
+
+    /// Like [Self::at], but `alloc_limit_bytes` will limit allocations caused by loose object bodies declared on disk.
+    pub fn at_with_alloc_limit_bytes(
+        objects_directory: impl Into<PathBuf>,
+        object_hash: gix_hash::Kind,
+        alloc_limit_bytes: Option<usize>,
+    ) -> Store {
         Store {
             path: objects_directory.into(),
             object_hash,
+            alloc_limit_bytes,
         }
     }
 
