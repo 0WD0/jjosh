@@ -10,7 +10,7 @@ fn multi_index_from_memory() -> gix_pack::multi_index::File<&'static [u8]> {
             .expect("test fixture exists")
             .join(".git/objects/pack/multi-pack-index"),
     );
-    gix_pack::multi_index::File::from_data(data, path).expect("valid multi-index")
+    gix_pack::multi_index::File::from_data(data, path, None).expect("valid multi-index")
 }
 
 #[test]

@@ -229,9 +229,7 @@ impl super::Store {
             Arc::new(
                 db_paths
                     .iter()
-                    .map(|path| {
-                        crate::loose::Store::at_with_alloc_limit_bytes(path, self.object_hash, self.alloc_limit_bytes)
-                    })
+                    .map(|path| crate::loose::Store::at(path, self.object_hash, self.alloc_limit_bytes))
                     .collect::<Vec<_>>(),
             )
         } else {
@@ -475,7 +473,7 @@ impl super::Store {
                         is_multipack_index(p)
                             .then(|| {
                                 // we always open the multi-pack here to be able to remove indices
-                                gix_pack::multi_index::File::at_with_alloc_limit_bytes(p, alloc_limit_bytes)
+                                gix_pack::multi_index::File::at(p, alloc_limit_bytes)
                                     .ok()
                                     .filter(|midx| midx.object_hash() == hash)
                                     .map(|midx| (midx, *a, *b))

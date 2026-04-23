@@ -327,7 +327,7 @@ impl IndexAndPacks {
             }),
             IndexAndPacks::MultiIndex(bundle) => {
                 bundle.multi_index.load_strict(|path| {
-                    gix_pack::multi_index::File::at_with_alloc_limit_bytes(path, alloc_limit_bytes)
+                    gix_pack::multi_index::File::at(path, alloc_limit_bytes)
                         .map(Arc::new)
                         .map_err(|err| match err {
                             gix_pack::multi_index::init::Error::Io { source, .. } => source,

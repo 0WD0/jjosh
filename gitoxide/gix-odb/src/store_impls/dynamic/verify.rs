@@ -198,10 +198,7 @@ impl super::Store {
                         let index = match bundle.multi_index.loaded() {
                             Some(index) => index.deref(),
                             None => {
-                                index = pack::multi_index::File::at_with_alloc_limit_bytes(
-                                    bundle.multi_index.path(),
-                                    self.alloc_limit_bytes,
-                                )?;
+                                index = pack::multi_index::File::at(bundle.multi_index.path(), self.alloc_limit_bytes)?;
                                 &index
                             }
                         };

@@ -11,6 +11,7 @@ fn malformed_fanout_is_reported_without_panicking() {
         match gix_pack::multi_index::File::from_data(
             malformed_multi_index_with_inconsistent_fanout(),
             PathBuf::from("fuzzed.midx"),
+            None,
         ) {
             Ok(index) => {
                 let _ = index.lookup(gix_hash::Kind::Sha1.null());
@@ -32,6 +33,7 @@ fn long_pack_names_over_alloc_limit_bytes_are_rejected_as_out_of_memory() {
     let index = gix_pack::multi_index::File::from_data(
         valid_multi_index_with_index_name(long_name.as_bytes()),
         PathBuf::from("fuzzed-long-name.midx"),
+        None,
     )
     .expect("synthetic multi-index is valid");
 
@@ -39,7 +41,7 @@ fn long_pack_names_over_alloc_limit_bytes_are_rejected_as_out_of_memory() {
 
     assert!(
         matches!(
-            gix_pack::multi_index::File::from_data_with_alloc_limit_bytes(
+            gix_pack::multi_index::File::from_data(
                 valid_multi_index_with_index_name(long_name.as_bytes()),
                 PathBuf::from("fuzzed-long-name.midx"),
                 Some(64)

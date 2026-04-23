@@ -9,7 +9,7 @@ use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 
 fn fuzz(input: &[u8]) -> Result<()> {
-    let index = match multi_index::File::from_data(input, virtual_path(".midx")) {
+    let index = match multi_index::File::from_data(input, virtual_path(".midx"), None) {
         Ok(index) => index,
         Err(err) => {
             _ = black_box(err);

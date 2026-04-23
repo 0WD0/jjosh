@@ -39,18 +39,9 @@ pub use error::Error;
 impl File<crate::MMap> {
     /// Open the multi-index file at the given `path`.
     ///
-    /// This constructor leaves allocation limiting disabled, allowing allocations of any size dictated by on-disk data.
-    /// Prefer [`File::at_with_alloc_limit_bytes()`] for untrusted input.
-    pub fn at(path: impl AsRef<Path>) -> Result<Self, Error> {
-        Self::at_inner(path.as_ref(), None)
-    }
-
-    /// Open the multi-index file at the given `path` while bounding each allocation caused by
-    /// user-controlled on-disk data using `alloc_limit_bytes`.
-    ///
-    /// Use `None` to disable the limit, allowing allocations of any size dictated by on-disk data, which can be a
-    /// problem with untrusted input. This is also the default used by [`File::at()`].
-    pub fn at_with_alloc_limit_bytes(path: impl AsRef<Path>, alloc_limit_bytes: Option<usize>) -> Result<Self, Error> {
+    /// `alloc_limit_bytes` bounds each allocation caused by user-controlled on-disk data, useful for untrusted input.
+    /// Use `None` to disable the limit.
+    pub fn at(path: impl AsRef<Path>, alloc_limit_bytes: Option<usize>) -> Result<Self, Error> {
         Self::at_inner(path.as_ref(), alloc_limit_bytes)
     }
 
@@ -59,15 +50,7 @@ impl File<crate::MMap> {
             source,
             path: path.to_owned(),
         })?;
-        Self::from_data_with_alloc_limit_bytes(data, path.to_owned(), alloc_limit_bytes)
-    }
-}
-
-impl TryFrom<&Path> for File<crate::MMap> {
-    type Error = Error;
-
-    fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        Self::at_inner(path, None)
+        Self::from_data(data, path.to_owned(), alloc_limit_bytes)
     }
 }
 
@@ -77,26 +60,12 @@ where
 {
     /// Instantiate a multi-index file from `data` as assumed to be read or memory-mapped from `path`.
     ///
-    /// This constructor leaves allocation limiting disabled, allowing allocations of any size dictated by on-disk data.
-    /// Prefer [`File::from_data_with_alloc_limit_bytes()`] for untrusted input.
-    pub fn from_data(data: T, path: PathBuf) -> Result<Self, Error> {
-        Self::from_data_with_alloc_limit_bytes(data, path, None)
-    }
-
-    /// Instantiate a multi-index file from `data` as assumed to be read or memory-mapped from
-    /// `path`, while bounding each allocation caused by user-controlled on-disk data.
+    /// `alloc_limit_bytes` bounds each allocation caused by untrusted on-disk multi-index data.
+    /// Use `None` to disable the limit.
     ///
-    /// Use `None` to disable the limit, allowing allocations of any size dictated by on-disk data, which can be a
-    /// problem with untrusted input. This is also the default used by [`File::from_data()`][Self::from_data()].
-    ///: Otherwise, it limits allocations caused by attacker-controlled on-disk multi-index data.
     ///  It is used to reject reserving the output `Vec<PathBuf>` if its capacity estimate exceeds the limit,
     ///  and to reject any single path entry whose byte length exceeds the limit before turning it into a `PathBuf`.
-    ///  Use `None` to disable this limit.
-    pub fn from_data_with_alloc_limit_bytes(
-        data: T,
-        path: PathBuf,
-        alloc_limit_bytes: Option<usize>,
-    ) -> Result<Self, Error> {
+    pub fn from_data(data: T, path: PathBuf, alloc_limit_bytes: Option<usize>) -> Result<Self, Error> {
         const TRAILER_LEN: usize = gix_hash::Kind::shortest().len_in_bytes(); /* trailing hash */
         if data.len()
             < Self::HEADER_LEN
