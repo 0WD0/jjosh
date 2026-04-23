@@ -435,10 +435,6 @@ mod subsections {
         /// - packed object decoding in `gix-pack::data::File`
         /// - multi-pack-index name decoding in `gix-pack::multi_index::File`
         /// - direct packed-object inflation in `gix-odb`
-        ///
-        /// Not yet implemented for:
-        /// - loose objects
-        /// - packed-refs
         pub const ALLOC_LIMIT: keys::UnsignedInteger =
             keys::UnsignedInteger::new_unsigned_integer("allocLimit", &Gitoxide::OBJECTS)
                 .with_environment_override("GIT_ALLOC_LIMIT")

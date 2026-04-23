@@ -480,16 +480,56 @@ mod pack_alloc_limit_bytes {
 
         let limited = repo_opts(
             "make_packed_and_loose.sh",
-            gix::open::Options::isolated().config_overrides([
-                "user.name=gitoxide",
-                "user.email=gitoxide@localhost",
-                "gitoxide.objects.allocLimit=1",
-            ]),
+            gix::open::Options::isolated().config_overrides(["gitoxide.objects.allocLimit=1"]),
         )?
         .to_thread_local();
         assert!(
             limited.find_object(packed_only_id).is_err(),
             "a tiny allocation limit rejects packed object reads"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn limits_loose_object_allocations() -> crate::Result {
+        let repo = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
+        let loose_only_blob_id = repo
+            .objects
+            .iter()?
+            .find_map(|id| {
+                let id = id.ok()?;
+                match repo.objects.header(id).ok()? {
+                    Header::Loose {
+                        kind: gix_object::Kind::Blob,
+                        size,
+                    } if size > 1 => Some(id),
+                    _ => None,
+                }
+            })
+            .expect("fixture contains loose-only blobs");
+        assert!(
+            repo.find_object(loose_only_blob_id).is_ok(),
+            "without a configured allocation limit loose objects are readable"
+        );
+
+        let limited = repo_opts(
+            "make_packed_and_loose.sh",
+            gix::open::Options::isolated().config_overrides(["gitoxide.objects.allocLimit=1"]),
+        )?
+        .to_thread_local();
+        assert!(
+            matches!(
+                limited.find_header(loose_only_blob_id)?,
+                Header::Loose {
+                    kind: gix_object::Kind::Blob,
+                    size,
+                } if size > 1
+            ),
+            "loose headers can always be found, independently of the allocation limit"
+        );
+        assert!(
+            limited.find_object(loose_only_blob_id).is_err(),
+            "a tiny allocation limit rejects loose object reads"
         );
         Ok(())
     }
