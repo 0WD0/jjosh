@@ -462,7 +462,7 @@ mod open {
 
             assert_ne!(
                 sm.git_dir_try_old_form()?,
-                sm.git_dir(),
+                sm.git_dir()?,
                 "compat git dir should be the worktree location"
             );
             let sm_repo = sm.open()?.expect("initialized");
@@ -497,7 +497,6 @@ mod advisory {
     fn traversal_names_do_not_escape_the_modules_directory() -> crate::Result {
         let fixture = gix_testtools::scripted_fixture_writable("make_submodule_traversal_advisory.sh")?;
         let repo_dir = fixture.path().join("victim-repo");
-        let redirected_repo = fixture.path().join("escaped-target.git");
 
         let repo = gix::open_opts(&repo_dir, crate::restricted())?;
         let sm = repo
@@ -506,14 +505,39 @@ mod advisory {
             .next()
             .expect("one malicious submodule");
 
+        assert!(matches!(
+            sm.git_dir(),
+            Err(gix_validate::submodule::name::Error::ParentComponent)
+        ));
+        assert!(matches!(
+            sm.git_dir_try_old_form(),
+            Err(gix::submodule::git_dir_try_old_form::Error::GitDir(
+                gix_validate::submodule::name::Error::ParentComponent
+            ))
+        ));
+
+        assert!(matches!(
+            sm.open(),
+            Err(gix::submodule::open::Error::GitDir(
+                gix::submodule::git_dir_try_old_form::Error::GitDir(
+                    gix_validate::submodule::name::Error::ParentComponent
+                )
+            ))
+        ));
+        assert!(matches!(
+            sm.state(),
+            Err(gix::submodule::state::Error::GitDirTryOldForm(
+                gix::submodule::git_dir_try_old_form::Error::GitDir(
+                    gix_validate::submodule::name::Error::ParentComponent
+                )
+            ))
+        ));
+
+        let redirected_repo = fixture.path().join("escaped-target.git");
         assert!(
-            sm.open()?.is_none(),
-            "opening a submodule must not reach the external repository at {}",
+            redirected_repo.is_dir(),
+            "the attacker-controlled repository does indeex exist at {}",
             redirected_repo.display()
-        );
-        assert!(
-            !sm.state()?.repository_exists,
-            "submodule names with traversal components must not resolve to repositories outside `.git/modules`"
         );
         Ok(())
     }
