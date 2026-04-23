@@ -459,6 +459,7 @@ mod object_caches {
 mod pack_alloc_limit_bytes {
     use gix_odb::find::Header;
     use gix_odb::HeaderExt;
+    use gix_sec::Trust;
 
     use crate::util::repo_opts;
 
@@ -531,6 +532,47 @@ mod pack_alloc_limit_bytes {
             limited.find_object(loose_only_blob_id).is_err(),
             "a tiny allocation limit rejects loose object reads"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn reduced_trust_sets_a_default_limit_unless_disabled() -> crate::Result {
+        let base = repo_opts("make_packed_and_loose.sh", crate::util::restricted())?.to_thread_local();
+        let packed_only_id = base
+            .objects
+            .iter()?
+            .map(Result::unwrap)
+            .next()
+            .expect("fixture contains packed-only objects");
+        assert!(
+            base.find_object(packed_only_id).is_ok(),
+            "trusted repositories keep reading packed objects without an implicit limit"
+        );
+
+        let reduced = repo_opts(
+            "make_packed_and_loose.sh",
+            crate::util::restricted()
+                .with(Trust::Reduced)
+                .config_overrides(["gitoxide.objects.allocLimitIfReducedTrust=1"]),
+        )?
+        .to_thread_local();
+        assert!(
+            reduced.find_object(packed_only_id).is_err(),
+            "reduced trust applies the configured fallback allocation limit if none was configured"
+        );
+
+        let reduced_without_fallback = repo_opts(
+            "make_packed_and_loose.sh",
+            crate::util::restricted()
+                .with(Trust::Reduced)
+                .config_overrides(["gitoxide.objects.allocLimitIfReducedTrust=0"]),
+        )?
+        .to_thread_local();
+        assert!(
+            reduced_without_fallback.find_object(packed_only_id).is_ok(),
+            "the reduced-trust fallback can be disabled explicitly"
+        );
+
         Ok(())
     }
 }
