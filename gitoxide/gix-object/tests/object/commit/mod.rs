@@ -206,6 +206,15 @@ fn invalid_object_id_length() {
         .is_err());
 }
 
+#[test]
+fn fuzz_artifact_inputs_can_be_parsed_without_panicking() {
+    for path in crate::fuzz_artifact_paths("fuzz_commit") {
+        let input = std::fs::read(path).expect("artifact is readable");
+        _ = CommitRef::from_bytes(&input);
+        _ = CommitRefIter::from_bytes(&input).count();
+    }
+}
+
 mod from_bytes;
 mod iter;
 mod message;

@@ -227,9 +227,34 @@ mod subsecond_precision {
 
 /// Various cases the fuzzer found
 mod fuzz {
+    use std::path::PathBuf;
+
+    fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
+        let mut paths = std::fs::read_dir(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fuzz/artifacts")
+                .join(target),
+        )
+        .expect("artifact directory exists")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    }
+
     #[test]
     fn reproduce_1979() {
         gix_date::parse("fRi ", None).ok();
+    }
+
+    #[test]
+    fn artifact_inputs_can_be_parsed_without_panicking() {
+        for path in fuzz_artifact_paths("parse") {
+            let input = std::fs::read(path).expect("artifact is readable");
+            if let Ok(input) = std::str::from_utf8(&input) {
+                gix_date::parse(input, None).ok();
+            }
+        }
     }
 
     #[test]

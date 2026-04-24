@@ -80,6 +80,19 @@ fn fixture_bytes(path: &str) -> Vec<u8> {
     fixup(std::fs::read(fixture(path)).unwrap())
 }
 
+pub(crate) fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
+    let mut paths = std::fs::read_dir(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fuzz/artifacts")
+            .join(target),
+    )
+    .expect("artifact directory exists")
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+    .collect::<Vec<_>>();
+    paths.sort();
+    paths
+}
+
 fn fixture_name(kind: &str, path: &str) -> Vec<u8> {
     fixup(fixture_bytes(PathBuf::from(kind).join(path).to_str().unwrap()))
 }
