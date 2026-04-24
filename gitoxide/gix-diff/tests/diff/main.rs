@@ -1,8 +1,12 @@
 use gix_testtools::Result;
 use std::collections::HashMap;
 
-fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
-    gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("valid hex id")
+fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
+    match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+        gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex_sha1.as_bytes()).expect("40 bytes hex"),
+        gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(hex_sha256.as_bytes()).expect("64 bytes hex"),
+        _ => unimplemented!(),
+    }
 }
 
 fn fixture_hash_kind() -> gix_hash::Kind {
@@ -119,16 +123,6 @@ fn normalize_patch_snapshot(input: &str) -> String {
 
 fn assert_hash_agnostic_patch_eq(actual: &str, expected: &str) {
     pretty_assertions::assert_eq!(normalize_patch_snapshot(expected), normalize_patch_snapshot(actual));
-}
-
-macro_rules! assert_hash_agnostic_eq {
-    ($left:expr, $right:expr $(, $($arg:tt)+)?) => {{
-        pretty_assertions::assert_eq!(
-            crate::normalize_debug_snapshot(&($left)),
-            crate::normalize_debug_snapshot(&($right))
-            $(, $($arg)+)?
-        );
-    }};
 }
 
 mod blob;

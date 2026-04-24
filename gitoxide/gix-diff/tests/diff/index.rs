@@ -328,21 +328,24 @@ fn renames_by_similarity_with_limit() -> crate::Result {
     assert_eq!(actual_entry_modes, [Mode::FILE, Mode::FILE, Mode::FILE, Mode::FILE]);
 
     let actual_ids: Vec<_> = changes.iter().map(ChangeRef::id).collect();
-    let expected_ids = match crate::fixture_hash_kind() {
-        gix_hash::Kind::Sha1 => [
-            crate::hex_to_id("f00c965d8307308469e537302baa73048488f162"),
-            crate::hex_to_id("683cfcc0f47566c332aa45d81c5cc98acb4aab49"),
-            crate::hex_to_id("3bb459b831ea471b9cd1cbb7c6d54a74251a711b"),
-            crate::hex_to_id("0a805f8e02d72bd354c1f00607906de2e49e00d6"),
-        ],
-        gix_hash::Kind::Sha256 => [
-            crate::hex_to_id("300fc9db3fb50e3794eb4013cfe2c9f6c0fa1d8db7f9e3a4f6f0158b3b62cc69"),
-            crate::hex_to_id("b863f94555dd058a680cca6d4afa1bad30b5f9c36122c7089f853081aa1c5a28"),
-            crate::hex_to_id("19ebb6b2c2f3a64e6578013f680ec39330ce158af5977a1b17be0d551185fbab"),
-            crate::hex_to_id("6271a9ad76b692e75a96d260cf02c4cd89e1d2071256447ff50e8a8f443299b4"),
-        ],
-        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
-    };
+    let expected_ids = [
+        crate::hex_to_id(
+            "f00c965d8307308469e537302baa73048488f162",
+            "300fc9db3fb50e3794eb4013cfe2c9f6c0fa1d8db7f9e3a4f6f0158b3b62cc69",
+        ),
+        crate::hex_to_id(
+            "683cfcc0f47566c332aa45d81c5cc98acb4aab49",
+            "b863f94555dd058a680cca6d4afa1bad30b5f9c36122c7089f853081aa1c5a28",
+        ),
+        crate::hex_to_id(
+            "3bb459b831ea471b9cd1cbb7c6d54a74251a711b",
+            "19ebb6b2c2f3a64e6578013f680ec39330ce158af5977a1b17be0d551185fbab",
+        ),
+        crate::hex_to_id(
+            "0a805f8e02d72bd354c1f00607906de2e49e00d6",
+            "6271a9ad76b692e75a96d260cf02c4cd89e1d2071256447ff50e8a8f443299b4",
+        ),
+    ];
     assert_eq!(actual_ids, expected_ids);
 
     let out = out.expect("tracking enabled");

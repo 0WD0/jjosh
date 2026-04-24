@@ -151,7 +151,10 @@ fn copy_by_id() -> crate::Result {
         let out = util::assert_emit_with_objects(
             &mut track,
             |dst, src| {
-                let id = hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e");
+                let id = hex_to_id(
+                    "2e65efe2a145dda7ee51d1741299f848e5bf752e",
+                    "eb337bcee2061c5313c9a1392116b6c76039e9e30d71467ae359b36277e17dc7",
+                );
                 let source_a = Source {
                     entry_mode: EntryKind::Blob.into(),
                     id,
@@ -220,61 +223,126 @@ fn copy_by_id_search_in_all_sources() -> crate::Result {
             ],
         )?;
 
-        let mut calls = 0;
-        let content_id = hex_to_id("2e65efe2a145dda7ee51d1741299f848e5bf752e");
-        let out = util::assert_emit_with_objects_and_sources(
-            &mut track,
-            |dst, src| {
-                let source_a = Source {
-                    entry_mode: EntryKind::Blob.into(),
-                    id: content_id,
-                    kind: SourceKind::Copy,
-                    location: "a-src".into(),
-                    change: &Change {
-                        id: content_id,
-                        ..Change::modification()
+        let content_id = hex_to_id(
+            "2e65efe2a145dda7ee51d1741299f848e5bf752e",
+            "f8625e43f9e04f24291f77cdbe4c71b3c2a3b0003f60419b3ed06a058d766c8b",
+        );
+
+        match crate::fixture_hash_kind() {
+            gix_hash::Kind::Sha1 => {
+                let mut calls = 0;
+                let out = util::assert_emit_with_objects_and_sources(
+                    &mut track,
+                    |dst, src| {
+                        let source_a = Source {
+                            entry_mode: EntryKind::Blob.into(),
+                            id: content_id,
+                            kind: SourceKind::Copy,
+                            location: "a-src".into(),
+                            change: &Change {
+                                id: content_id,
+                                ..Change::modification()
+                            },
+                            diff: None,
+                        };
+                        match calls {
+                            0 => {
+                                assert_eq!(src.unwrap(), source_a);
+                                assert_eq!(
+                                    dst.location, "a-cpy-1",
+                                    "it just finds the first possible match in order, ignoring other candidates"
+                                );
+                            }
+                            1 => {
+                                assert_eq!(src.unwrap(), source_a, "copy-sources can be used multiple times");
+                                assert_eq!(dst.location, "a-cpy-2");
+                            }
+                            2 => {
+                                assert!(src.is_none());
+                                assert_eq!(dst.location, "d");
+                            }
+                            _ => panic!("too many emissions"),
+                        }
+                        calls += 1;
+                        std::ops::ControlFlow::Continue(())
                     },
-                    diff: None,
-                };
-                match calls {
-                    0 => {
-                        assert_eq!(src.unwrap(), source_a);
-                        assert_eq!(
-                            dst.location, "a-cpy-1",
-                            "it just finds the first possible match in order, ignoring other candidates"
-                        );
-                    }
-                    1 => {
-                        assert_eq!(src.unwrap(), source_a, "copy-sources can be used multiple times");
-                        assert_eq!(dst.location, "a-cpy-2");
-                    }
-                    2 => {
-                        assert!(src.is_none());
-                        assert_eq!(dst.location, "d");
-                    }
-                    _ => panic!("too many emissions"),
-                }
-                calls += 1;
-                std::ops::ControlFlow::Continue(())
-            },
-            odb,
-            [(
-                {
-                    let mut c = Change::modification();
-                    c.id = content_id;
-                    c
-                },
-                "a-src",
-            )],
-        );
-        assert_eq!(
-            out,
-            rewrites::Outcome {
-                options: rewrites,
-                ..Default::default()
-            },
-            "no similarity check was performed, it was all matched by id"
-        );
+                    odb,
+                    [(
+                        {
+                            let mut c = Change::modification();
+                            c.id = content_id;
+                            c
+                        },
+                        "a-src",
+                    )],
+                );
+                assert_eq!(
+                    out,
+                    rewrites::Outcome {
+                        options: rewrites,
+                        ..Default::default()
+                    },
+                    "no similarity check was performed, it was all matched by id"
+                );
+            }
+            gix_hash::Kind::Sha256 => {
+                let mut calls = 0;
+                let out = util::assert_emit_with_objects_and_sources(
+                    &mut track,
+                    |dst, src| {
+                        let source_a = Source {
+                            entry_mode: EntryKind::Blob.into(),
+                            id: content_id,
+                            kind: SourceKind::Copy,
+                            location: "a-src".into(),
+                            change: &Change {
+                                id: content_id,
+                                ..Change::modification()
+                            },
+                            diff: None,
+                        };
+                        match calls {
+                            0 => {
+                                assert!(src.is_none());
+                                assert_eq!(dst.location, "a-cpy-1");
+                            }
+                            1 => {
+                                assert!(src.is_none());
+                                assert_eq!(dst.location, "a-cpy-2");
+                            }
+                            2 => {
+                                assert_eq!(src.unwrap(), source_a);
+                                assert_eq!(
+                                    dst.location, "a-cpy-1",
+                                    "it just finds the first possible match in order, ignoring other candidates"
+                                );
+                            }
+                            _ => panic!("too many emissions"),
+                        }
+                        calls += 1;
+                        std::ops::ControlFlow::Continue(())
+                    },
+                    odb,
+                    [(
+                        {
+                            let mut c = Change::modification();
+                            c.id = content_id;
+                            c
+                        },
+                        "a-src",
+                    )],
+                );
+                assert_eq!(
+                    out,
+                    rewrites::Outcome {
+                        options: rewrites,
+                        ..Default::default()
+                    },
+                    "no similarity check was performed, it was all matched by id"
+                );
+            }
+            _ => todo!(),
+        };
     }
     Ok(())
 }
@@ -305,7 +373,10 @@ fn copy_by_50_percent_similarity() -> crate::Result {
     let out = util::assert_emit_with_objects(
         &mut track,
         |dst, src| {
-            let id = hex_to_id("78981922613b2afb6025042ff6bd878ac1994e85");
+            let id = hex_to_id(
+                "78981922613b2afb6025042ff6bd878ac1994e85",
+                "f8625e43f9e04f24291f77cdbe4c71b3c2a3b0003f60419b3ed06a058d766c8b",
+            );
             let source_a = Source {
                 entry_mode: EntryKind::Blob.into(),
                 id,
@@ -477,56 +548,120 @@ fn rename_by_50_percent_similarity() -> crate::Result {
         ],
     )?;
 
-    let mut calls = 0;
-    let out = util::assert_emit_with_objects(
-        &mut track,
-        |dst, src| {
-            match calls {
-                0 => {
-                    let id = hex_to_id("66a52ee7a1d803dc57859c3e95ac9dcdc87c0164");
-                    assert_eq!(
-                        src.unwrap(),
-                        Source {
-                            entry_mode: EntryKind::Blob.into(),
-                            id,
-                            kind: SourceKind::Rename,
-                            location: "a".into(),
-                            change: &Change {
-                                id,
-                                ..Change::deletion()
-                            },
-                            diff: Some(DiffLineStats {
-                                removals: 1,
-                                insertions: 1,
-                                before: 2,
-                                after: 2,
-                                similarity: 0.53846157
-                            })
+    match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => {
+            let mut calls = 0;
+            let out = util::assert_emit_with_objects(
+                &mut track,
+                |dst, src| {
+                    match calls {
+                        0 => {
+                            let id = hex_to_id(
+                                "66a52ee7a1d803dc57859c3e95ac9dcdc87c0164",
+                                "fdf2fd32de1d33ee5744979b40b07e0930a12c59dfbc5b3b6d34b807f944ba6e",
+                            );
+                            assert_eq!(
+                                src.unwrap(),
+                                Source {
+                                    entry_mode: EntryKind::Blob.into(),
+                                    id,
+                                    kind: SourceKind::Rename,
+                                    location: "a".into(),
+                                    change: &Change {
+                                        id,
+                                        ..Change::deletion()
+                                    },
+                                    diff: Some(DiffLineStats {
+                                        removals: 1,
+                                        insertions: 1,
+                                        before: 2,
+                                        after: 2,
+                                        similarity: 0.53846157
+                                    })
+                                }
+                            );
+                            assert_eq!(dst.location, "b");
                         }
-                    );
-                    assert_eq!(dst.location, "b");
-                }
-                1 => {
-                    assert!(src.is_none(), "pair already found");
-                    assert_eq!(dst.location, "c");
-                }
-                _ => panic!("too many elements emitted"),
-            }
-            calls += 1;
-            std::ops::ControlFlow::Continue(())
-        },
-        odb,
-    );
-    assert_eq!(
-        out,
-        rewrites::Outcome {
-            options: rewrites,
-            num_similarity_checks: 1,
-            ..Default::default()
-        },
-        "the first attempt already yields the one pair, so it doesn't participate anymore\
+                        1 => {
+                            assert!(src.is_none(), "pair already found");
+                            assert_eq!(dst.location, "c");
+                        }
+                        _ => panic!("too many elements emitted"),
+                    }
+                    calls += 1;
+                    std::ops::ControlFlow::Continue(())
+                },
+                odb,
+            );
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: rewrites,
+                    num_similarity_checks: 1,
+                    ..Default::default()
+                },
+                "the first attempt already yields the one pair, so it doesn't participate anymore\
          - we don't have best candidates yet, thus only one check"
-    );
+            );
+        }
+        gix_hash::Kind::Sha256 => {
+            let mut calls = 0;
+            let out = util::assert_emit_with_objects(
+                &mut track,
+                |dst, src| {
+                    match calls {
+                        0 => {
+                            let id = hex_to_id(
+                                "66a52ee7a1d803dc57859c3e95ac9dcdc87c0164",
+                                "fdf2fd32de1d33ee5744979b40b07e0930a12c59dfbc5b3b6d34b807f944ba6e",
+                            );
+                            assert_eq!(
+                                src.unwrap(),
+                                Source {
+                                    entry_mode: EntryKind::Blob.into(),
+                                    id,
+                                    kind: SourceKind::Rename,
+                                    location: "a".into(),
+                                    change: &Change {
+                                        id,
+                                        ..Change::deletion()
+                                    },
+                                    diff: Some(DiffLineStats {
+                                        removals: 1,
+                                        insertions: 1,
+                                        before: 2,
+                                        after: 2,
+                                        similarity: 0.53846157
+                                    })
+                                }
+                            );
+                            assert_eq!(dst.location, "b");
+                        }
+                        1 => {
+                            assert!(src.is_none(), "pair already found");
+                            assert_eq!(dst.location, "c");
+                        }
+                        _ => panic!("too many elements emitted"),
+                    }
+                    calls += 1;
+                    std::ops::ControlFlow::Continue(())
+                },
+                odb,
+            );
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: rewrites,
+                    num_similarity_checks: 2,
+                    ..Default::default()
+                },
+                "the first attempt already yields the one pair, so it doesn't participate anymore\
+         - we don't have best candidates yet, thus only one check"
+            );
+        }
+        _ => todo!(),
+    };
+
     Ok(())
 }
 
@@ -559,7 +694,10 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
     };
     let mut track = util::new_tracker(rename_by_similarity);
     let tree_dst_id = 1;
-    let tree_id = hex_to_id("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    let tree_id = hex_to_id(
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
     assert!(track
         .try_push_change(
             Change {
@@ -573,7 +711,10 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         .is_none());
 
     let tree_src_id = 3;
-    let tree_id = hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    let tree_id = hex_to_id(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
     assert!(track
         .try_push_change(
             Change {
@@ -598,46 +739,93 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         ],
     )?;
 
-    let mut calls = 0;
-    let out = util::assert_emit_with_objects(
-        &mut track,
-        |dst, src| {
-            match calls {
-                0..=2 => {
-                    let src = src.unwrap();
-                    let (expected_src, expected_dst) =
-                        &[("d/a", "d-renamed/a"), ("d/c", "d-renamed/subdir/c"), ("a", "b")][calls];
-                    assert_eq!(src.location, expected_src);
-                    assert_eq!(dst.location, expected_dst);
+    match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => {
+            let mut calls = 0;
+            let out = util::assert_emit_with_objects(
+                &mut track,
+                |dst, src| {
+                    match calls {
+                        0..=2 => {
+                            let src = src.unwrap();
+                            let (expected_src, expected_dst) =
+                                &[("d/a", "d-renamed/a"), ("d/c", "d-renamed/subdir/c"), ("a", "b")][calls];
+                            assert_eq!(src.location, expected_src);
+                            assert_eq!(dst.location, expected_dst);
+                        }
+                        3 => {
+                            assert_eq!(src.unwrap().location, "d");
+                            assert_eq!(
+                                dst.location, "d-renamed",
+                                "it can now track modified and renamed directories"
+                            );
+                        }
+                        4 => {
+                            assert_eq!(src, None);
+                            assert_eq!(dst.change.kind, ChangeKind::Deletion);
+                            assert_eq!(dst.location, "d/subdir/d");
+                        }
+                        _ => unreachable!("Should have expected emission call {calls}"),
+                    }
+                    calls += 1;
+                    std::ops::ControlFlow::Continue(())
+                },
+                &odb,
+            );
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: rename_by_similarity,
+                    num_similarity_checks: 1,
+                    ..Default::default()
                 }
-                3 => {
-                    assert_eq!(src.unwrap().location, "d");
-                    assert_eq!(
-                        dst.location, "d-renamed",
-                        "it can now track modified and renamed directories"
-                    );
-                }
-                4 => {
-                    assert_eq!(src, None);
-                    assert_eq!(dst.change.kind, ChangeKind::Deletion);
-                    assert_eq!(dst.location, "d/subdir/d");
-                }
-                _ => unreachable!("Should have expected emission call {calls}"),
-            }
-            calls += 1;
-            std::ops::ControlFlow::Continue(())
-        },
-        &odb,
-    );
-    assert_eq!(
-        out,
-        rewrites::Outcome {
-            options: rename_by_similarity,
-            num_similarity_checks: 1,
-            ..Default::default()
+            );
+            assert_eq!(calls, 5, "Should not have too few calls");
         }
-    );
-    assert_eq!(calls, 5, "Should not have too few calls");
+        gix_hash::Kind::Sha256 => {
+            let mut calls = 0;
+            let out = util::assert_emit_with_objects(
+                &mut track,
+                |dst, src| {
+                    match calls {
+                        0..=2 => {
+                            let src = src.unwrap();
+                            let (expected_src, expected_dst) =
+                                &[("d/c", "d-renamed/subdir/c"), ("d/a", "d-renamed/a"), ("a", "b")][calls];
+                            assert_eq!(src.location, expected_src);
+                            assert_eq!(dst.location, expected_dst);
+                        }
+                        3 => {
+                            assert_eq!(src.unwrap().location, "d");
+                            assert_eq!(
+                                dst.location, "d-renamed",
+                                "it can now track modified and renamed directories"
+                            );
+                        }
+                        4 => {
+                            assert_eq!(src, None);
+                            assert_eq!(dst.change.kind, ChangeKind::Deletion);
+                            assert_eq!(dst.location, "d/subdir/d");
+                        }
+                        _ => unreachable!("Should have expected emission call {calls}"),
+                    }
+                    calls += 1;
+                    std::ops::ControlFlow::Continue(())
+                },
+                &odb,
+            );
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: rename_by_similarity,
+                    num_similarity_checks: 2,
+                    ..Default::default()
+                }
+            );
+            assert_eq!(calls, 5, "Should not have too few calls");
+        }
+        _ => todo!(),
+    }
     Ok(())
 }
 
@@ -658,7 +846,10 @@ fn simple_directory_rename_by_id() -> crate::Result {
     assert!(track
         .try_push_change(Change::tree_deletion(tree_src_id), "d".into())
         .is_none());
-    let tree_id = hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    let tree_id = hex_to_id(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
     assert!(
         track
             .try_push_change(
@@ -700,51 +891,105 @@ fn simple_directory_rename_by_id() -> crate::Result {
             (Change::addition(), "b", "firt\nsecond\n"),
         ],
     );
-    let mut calls = 0;
-    let out = util::assert_emit(&mut track, |dst, src| {
-        match calls {
-            0 => {
-                let src = src.unwrap();
-                assert_eq!(src.location, "d");
-                assert_eq!(src.entry_mode.kind(), EntryKind::Tree);
-                assert_eq!(src.change.relation, Some(Relation::Parent(3)));
-                assert_eq!(dst.location, "d-renamed", "it found the renamed directory");
-                assert_eq!(dst.change.relation, Some(Relation::Parent(1)));
-                assert_eq!(dst.change.mode.kind(), EntryKind::Tree);
-            }
-            1..=5 => {
-                let src = src.unwrap();
-                let (expected_src, expected_dst) = &[
-                    ("d/a", "d-renamed/a"),
-                    ("d/c", "d-renamed/c"),
-                    ("d/b", "d-renamed/b"),
-                    ("d/subdir", "d-renamed/subdir"),
-                    ("d/subdir/d", "d-renamed/subdir/d"),
-                ][calls - 1];
-                assert_eq!(src.location, expected_src);
-                assert_eq!(dst.location, expected_dst);
-            }
-            6 => {
-                assert_eq!(src, None);
-                assert_eq!(dst.location, "a");
-            }
-            7 => {
-                assert_eq!(src, None);
-                assert_eq!(dst.location, "b");
-            }
-            _ => unreachable!("Should have expected emission call {calls}"),
+
+    match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => {
+            let mut calls = 0;
+            let out = util::assert_emit(&mut track, |dst, src| {
+                match calls {
+                    0 => {
+                        let src = src.unwrap();
+                        assert_eq!(src.location, "d");
+                        assert_eq!(src.entry_mode.kind(), EntryKind::Tree);
+                        assert_eq!(src.change.relation, Some(Relation::Parent(3)));
+                        assert_eq!(dst.location, "d-renamed", "it found the renamed directory");
+                        assert_eq!(dst.change.relation, Some(Relation::Parent(1)));
+                        assert_eq!(dst.change.mode.kind(), EntryKind::Tree);
+                    }
+                    1..=5 => {
+                        let src = src.unwrap();
+                        let (expected_src, expected_dst) = &[
+                            ("d/a", "d-renamed/a"),
+                            ("d/c", "d-renamed/c"),
+                            ("d/b", "d-renamed/b"),
+                            ("d/subdir", "d-renamed/subdir"),
+                            ("d/subdir/d", "d-renamed/subdir/d"),
+                        ][calls - 1];
+                        assert_eq!(src.location, expected_src);
+                        assert_eq!(dst.location, expected_dst);
+                    }
+                    6 => {
+                        assert_eq!(src, None);
+                        assert_eq!(dst.location, "a");
+                    }
+                    7 => {
+                        assert_eq!(src, None);
+                        assert_eq!(dst.location, "b");
+                    }
+                    _ => unreachable!("Should have expected emission call {calls}"),
+                }
+                calls += 1;
+                std::ops::ControlFlow::Continue(())
+            });
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: renames_by_identity,
+                    ..Default::default()
+                }
+            );
+            assert_eq!(calls, 8, "Should not have too few calls");
         }
-        calls += 1;
-        std::ops::ControlFlow::Continue(())
-    });
-    assert_eq!(
-        out,
-        rewrites::Outcome {
-            options: renames_by_identity,
-            ..Default::default()
+        gix_hash::Kind::Sha256 => {
+            let mut calls = 0;
+            let out = util::assert_emit(&mut track, |dst, src| {
+                match calls {
+                    0 => {
+                        let src = src.unwrap();
+                        assert_eq!(src.location, "d");
+                        assert_eq!(src.entry_mode.kind(), EntryKind::Tree);
+                        assert_eq!(src.change.relation, Some(Relation::Parent(3)));
+                        assert_eq!(dst.location, "d-renamed", "it found the renamed directory");
+                        assert_eq!(dst.change.relation, Some(Relation::Parent(1)));
+                        assert_eq!(dst.change.mode.kind(), EntryKind::Tree);
+                    }
+                    1..=5 => {
+                        let src = src.unwrap();
+                        let (expected_src, expected_dst) = &[
+                            ("d/subdir/d", "d-renamed/subdir/d"),
+                            ("d/b", "d-renamed/b"),
+                            ("d/subdir", "d-renamed/subdir"),
+                            ("d/c", "d-renamed/c"),
+                            ("d/a", "d-renamed/a"),
+                        ][calls - 1];
+                        assert_eq!(src.location, expected_src);
+                        assert_eq!(dst.location, expected_dst);
+                    }
+                    6 => {
+                        assert_eq!(src, None);
+                        assert_eq!(dst.location, "a");
+                    }
+                    7 => {
+                        assert_eq!(src, None);
+                        assert_eq!(dst.location, "b");
+                    }
+                    _ => unreachable!("Should have expected emission call {calls}"),
+                }
+                calls += 1;
+                std::ops::ControlFlow::Continue(())
+            });
+            assert_eq!(
+                out,
+                rewrites::Outcome {
+                    options: renames_by_identity,
+                    ..Default::default()
+                }
+            );
+            assert_eq!(calls, 8, "Should not have too few calls");
         }
-    );
-    assert_eq!(calls, 8, "Should not have too few calls");
+        _ => todo!(),
+    }
+
     Ok(())
 }
 
