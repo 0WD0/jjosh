@@ -39,6 +39,7 @@ smallvec = "1.15.1"
 thiserror = "2.0.18"
 
 [dev-dependencies]
+gix-hash = { version = "^0.23.0", path = "../gix-hash", features = ["sha1", "sha256"] }
 gix-ref = { path = "../gix-ref" }
 gix-filter = { path = "../gix-filter" }
 gix-fs = { path = "../gix-fs" }

@@ -73,7 +73,7 @@ mod baseline {
 
         fn next(&mut self) -> Option<Self::Item> {
             let mut ranges = None;
-            let mut commit_id = gix_hash::Kind::Sha1.null();
+            let mut commit_id = gix_testtools::hash_kind_from_env().unwrap_or_default().null();
             let mut skip_lines: u32 = 0;
             let mut source_file_name: Option<gix_object::bstr::BString> = None;
 
@@ -162,7 +162,12 @@ impl Fixture {
                 ..Default::default()
             },
         );
-        let odb = gix_odb::at(worktree_path.join(".git/objects"))?;
+        let object_hash = gix_testtools::hash_kind_from_env().unwrap_or_default();
+        let options = gix_odb::store::init::Options {
+            object_hash,
+            ..Default::default()
+        };
+        let odb = gix_odb::at_opts(worktree_path.join(".git/objects"), Vec::new(), options)?;
 
         let mut reference = gix_ref::file::Store::find(&store, "HEAD")?;
 
@@ -172,7 +177,7 @@ impl Fixture {
         let head_id = reference.peel_to_id(&store, &odb)?;
 
         let git_dir = worktree_path.join(".git");
-        let index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default())?;
+        let index = gix_index::File::at(git_dir.join("index"), object_hash, false, Default::default())?;
         let stack = gix_worktree::Stack::from_state_and_ignore_case(
             worktree_path.clone(),
             false,
