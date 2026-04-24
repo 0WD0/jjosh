@@ -3,7 +3,7 @@
 use anyhow::Result;
 use gix_features::{progress, zlib};
 use gix_pack::{cache, data};
-use gix_pack_fuzz::{virtual_path, interrupt_flag};
+use gix_pack_fuzz::{interrupt_flag, virtual_path};
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 

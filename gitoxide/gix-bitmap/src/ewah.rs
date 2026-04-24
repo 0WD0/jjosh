@@ -62,12 +62,25 @@ mod access {
                         index += 1;
                     }
                 } else {
-                    index += usize::try_from(rlw_running_len_bits(word)).ok()?;
+                    let len = usize::try_from(rlw_running_len_bits(word)).ok()?;
+                    let end = index.checked_add(len)?;
+                    if end > num_bits {
+                        return None;
+                    }
+                    index = end;
                 }
 
                 for _ in 0..rlw_literal_words(word) {
                     let word = iter.next()?;
-                    for bit_index in 0..64 {
+                    let remaining = num_bits.checked_sub(index)?;
+                    if remaining == 0 {
+                        return None;
+                    }
+                    let bits_in_word = remaining.min(64);
+                    if bits_in_word < 64 && (word >> bits_in_word) != 0 {
+                        return None;
+                    }
+                    for bit_index in 0..bits_in_word {
                         if word & (1 << bit_index) != 0 {
                             f(index)?;
                         }

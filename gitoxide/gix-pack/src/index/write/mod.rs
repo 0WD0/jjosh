@@ -22,7 +22,7 @@ pub struct Outcome {
     pub num_objects: u32,
 }
 
-/// The progress ids used in [`write_data_iter_from_stream()`][crate::index::write_data_iter_to_stream()].
+/// The progress ids used in [`write_data_iter_to_stream()`][crate::index::write_data_iter_to_stream()].
 ///
 /// Use this information to selectively extract the progress of interest in case the parent application has custom visualization.
 #[derive(Debug, Copy, Clone)]

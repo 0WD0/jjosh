@@ -34,6 +34,8 @@ pub mod integrity {
         Fan { index: usize },
         #[error("The multi-index claims to have no objects")]
         Empty,
+        #[error("The multi-index path '{path}' has no parent directory")]
+        InvalidPath { path: std::path::PathBuf },
         #[error("Interrupted")]
         Interrupted,
     }
@@ -142,7 +144,11 @@ where
         C: crate::cache::DecodeEntry,
         F: Fn() -> C + Send + Clone,
     {
-        let parent = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let parent = self.path.parent().ok_or_else(|| {
+            index::traverse::Error::Processor(integrity::Error::InvalidPath {
+                path: self.path.clone(),
+            })
+        })?;
 
         let actual_index_checksum = self
             .verify_checksum(

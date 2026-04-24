@@ -29,7 +29,7 @@ pub enum Error {
 
 /// Object lookup
 impl Store {
-    const MAP_ACTION: &'static str = "open";
+    const OPEN_OR_MAP_ACTION: &'static str = "open or map";
 
     /// Returns true if the given id is contained in our repository.
     pub fn contains(&self, id: &gix_hash::oid) -> bool {
@@ -200,7 +200,7 @@ impl Store {
                 zlib::stream::inflate::read(&mut input, &mut inflate.state, &mut out[decompressed_body_prefix_len..])
                     .map_err(|e| Error::Io {
                     source: e,
-                    action: "deflate",
+                    action: "inflate",
                     path: path.to_owned(),
                 })?;
 
@@ -232,7 +232,7 @@ impl Store {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => {
                 return Err(Error::Io {
-                    action: Self::MAP_ACTION,
+                    action: Self::OPEN_OR_MAP_ACTION,
                     source: err,
                     path: path.to_owned(),
                 })
@@ -242,7 +242,7 @@ impl Store {
         if map.is_empty() {
             return Err(Error::Io {
                 source: io::Error::other("empty loose object file"),
-                action: Self::MAP_ACTION,
+                action: Self::OPEN_OR_MAP_ACTION,
                 path: path.to_owned(),
             });
         }

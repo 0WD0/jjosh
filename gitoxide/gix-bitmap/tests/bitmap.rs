@@ -22,6 +22,27 @@ mod fuzzed {
         );
     }
 
+    #[test]
+    fn non_zero_padding_bits_in_last_literal_word_are_rejected() {
+        let mut data = Vec::new();
+        // One logical bit, two compressed words, then RLW position 0.
+        data.extend_from_slice(&1u32.to_be_bytes());
+        data.extend_from_slice(&2u32.to_be_bytes());
+        // The only in-range bit is bit 0 and it is unset; bit 33 is set only in padding.
+        data.extend_from_slice(&(1u64 << 33).to_be_bytes());
+        data.extend_from_slice(&2u64.to_be_bytes());
+        data.extend_from_slice(&0u32.to_be_bytes());
+
+        let (bitmap, rest) = gix_bitmap::ewah::decode(&data).expect("fixture must decode");
+
+        assert!(rest.is_empty(), "fixture should be fully consumed");
+        assert_eq!(
+            bitmap.for_each_set_bit(|_| Some(())),
+            None,
+            "set bits outside the declared bit length must be rejected"
+        );
+    }
+
     fn artifact_paths(target: &str) -> Vec<std::path::PathBuf> {
         std::fs::read_dir(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

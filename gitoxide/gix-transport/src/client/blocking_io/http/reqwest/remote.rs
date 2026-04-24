@@ -41,12 +41,6 @@ impl Default for Remote {
         let (req_send, req_recv) = std::sync::mpsc::sync_channel(0);
         let (res_send, res_recv) = std::sync::mpsc::sync_channel(0);
         let handle = std::thread::spawn(move || -> Result<(), Error> {
-            fn shares_authority(lhs: &reqwest::Url, rhs: &reqwest::Url) -> bool {
-                lhs.scheme() == rhs.scheme()
-                    && lhs.host_str() == rhs.host_str()
-                    && lhs.port_or_known_default() == rhs.port_or_known_default()
-            }
-
             let mut follow = None;
             let mut redirected_base_url = None::<String>;
             let allow_redirects = Arc::new(atomic::AtomicBool::new(false));
@@ -64,7 +58,12 @@ impl Default for Remote {
                             let prev_urls = attempt.previous();
 
                             match prev_urls.first() {
-                                Some(prev_url) if !shares_authority(prev_url, curr_url) => {
+                                Some(prev_url)
+                                    if !redirect::shares_authority_or_upgrades_scheme(
+                                        curr_url.as_str(),
+                                        prev_url.as_str(),
+                                    ) =>
+                                {
                                     // git does not want to be redirected to a different host.
                                     attempt.stop()
                                 }

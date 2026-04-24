@@ -11,7 +11,7 @@ use crate::data;
 pub enum Error {
     #[error("Object type {type_id} is unsupported")]
     UnsupportedType { type_id: u8 },
-    #[error("Pack entry is truncated while reading {message}")]
+    #[error("Pack entry is truncated: {message}")]
     Corrupt { message: &'static str },
     #[error("Pack entry header value overflowed while decoding")]
     Overflow,
@@ -142,7 +142,7 @@ fn parse_header_info(data: &[u8]) -> Result<(u8, u64, usize), Error> {
     let mut shift = 4u32;
     while c & 0b1000_0000 != 0 {
         c = *data.get(i).ok_or(Error::Corrupt {
-            message: "Pack entry header continuation byte is missing",
+            message: "pack entry header continuation byte",
         })?;
         i += 1;
         let component = u64::from(c & 0b0111_1111).checked_shl(shift).ok_or(Error::Overflow)?;

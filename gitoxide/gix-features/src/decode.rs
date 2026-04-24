@@ -16,7 +16,7 @@ pub fn leb64_from_read(mut r: impl Read) -> Result<(u64, usize), std::io::Error>
             .checked_add(1)
             .and_then(|value| value.checked_shl(7))
             .and_then(|value| value.checked_add(u64::from(c) & 0x7f))
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "ofs-delta distance overflowed"))?;
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "LEB64 value overflowed"))?;
     }
     Ok((value, i))
 }

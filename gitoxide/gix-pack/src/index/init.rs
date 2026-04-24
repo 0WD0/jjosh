@@ -153,14 +153,15 @@ fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) 
                     ),
                 });
             }
-            let large_offset_indices: Vec<_> = data[offset32_start..offset32_end]
+            let (large_offsets, max_large_offset_index) = data[offset32_start..offset32_end]
                 .chunks_exact(N32_SIZE)
                 .filter_map(|offset| {
                     let offset = crate::read_u32(offset);
                     (offset & (1 << 31) != 0).then_some((offset ^ (1 << 31)) as usize)
                 })
-                .collect();
-            let large_offsets = large_offset_indices.len();
+                .fold((0usize, 0usize), |(count, max_index), index| {
+                    (count + 1, max_index.max(index))
+                });
             v2_header_size
                 .checked_add(oid_bytes)
                 .and_then(|size| size.checked_add(table_bytes))
@@ -171,7 +172,6 @@ fn validate_size(data: &[u8], kind: Version, num_objects: u32, hash_len: usize) 
                     message: "Pack index size overflowed while validating version 2 layout".into(),
                 })
                 .and_then(|expected_size| {
-                    let max_large_offset_index = large_offset_indices.into_iter().max().unwrap_or(0);
                     if large_offsets > 0 && max_large_offset_index >= large_offsets {
                         return Err(Error::Corrupt {
                             message: format!(

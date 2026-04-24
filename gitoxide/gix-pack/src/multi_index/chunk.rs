@@ -203,7 +203,7 @@ pub mod lookup {
 
     /// Return true if the size of the `offset` range seems to match for a `hash` of the given kind and the amount of objects.
     pub fn is_valid(offset: &Range<usize>, hash: gix_hash::Kind, num_objects: u32) -> bool {
-        (offset.end - offset.start) == num_objects as usize * hash.len_in_bytes()
+        (offset.end - offset.start) == (num_objects as usize).saturating_mul(hash.len_in_bytes())
     }
 }
 
@@ -251,10 +251,10 @@ pub mod offsets {
         Ok(())
     }
 
-    /// Returns true if the `offset` range seems to match the size required for `num_objects`.
+    /// Returns true if the `offset` range seems to match the size required for the untrusted `num_objects`.
     pub fn is_valid(offset: &Range<usize>, num_objects: u32) -> bool {
         let entry_size = 4 /* pack-id */ + 4 /* pack-offset */;
-        (offset.end - offset.start) == num_objects as usize * entry_size
+        (offset.end - offset.start) == (num_objects as usize).saturating_mul(entry_size)
     }
 }
 

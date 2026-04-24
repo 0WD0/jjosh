@@ -110,11 +110,11 @@ pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> Result<(
             }
         }
     }
-    if i != data.len() {
-        return Err(apply::Error::Corrupt {
-            message: "delta instructions were not consumed completely",
-        });
-    }
+    debug_assert_eq!(
+        i,
+        data.len(),
+        "delta instructions were not consumed completely, should be impossible"
+    );
     if !target.is_empty() {
         return Err(apply::Error::Corrupt {
             message: "delta instructions produced fewer bytes than promised",

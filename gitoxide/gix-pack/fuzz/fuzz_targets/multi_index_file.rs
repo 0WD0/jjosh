@@ -4,7 +4,7 @@ use anyhow::Result;
 use gix_features::progress;
 use gix_hash::Prefix;
 use gix_pack::multi_index;
-use gix_pack_fuzz::{interrupt_flag, virtual_path, empty_candidates};
+use gix_pack_fuzz::{empty_candidates, interrupt_flag, virtual_path};
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 
