@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-transport"
-version = "0.55.1"
+version = "0.56.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dedicated to implementing the git transport layer"
@@ -85,13 +85,13 @@ path = "tests/async-transport.rs"
 required-features = ["async-client"]
 
 [dependencies]
-gix-command = { version = "^0.8.0", path = "../gix-command" }
-gix-features = { version = "^0.46.2", path = "../gix-features" }
-gix-url = { version = "^0.35.2", path = "../gix-url" }
-gix-sec = { version = "^0.13.2", path = "../gix-sec" }
-gix-packetline = { version = "^0.21.2", path = "../gix-packetline" }
-gix-credentials = { version = "^0.37.1", path = "../gix-credentials", optional = true }
-gix-quote = { version = "^0.7.0", path = "../gix-quote" }
+gix-command = { version = "^0.8.1", path = "../gix-command" }
+gix-features = { version = "^0.47.0", path = "../gix-features" }
+gix-url = { version = "^0.35.3", path = "../gix-url" }
+gix-sec = { version = "^0.13.3", path = "../gix-sec" }
+gix-packetline = { version = "^0.21.3", path = "../gix-packetline" }
+gix-credentials = { version = "^0.37.2", path = "../gix-credentials", optional = true }
+gix-quote = { version = "^0.7.1", path = "../gix-quote" }
 
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
     "std",
