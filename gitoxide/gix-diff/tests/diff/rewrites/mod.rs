@@ -39,7 +39,7 @@ impl gix_diff::rewrites::tracker::Change for Change {
     }
 }
 
-const NULL_ID: LazyLock<gix_hash::ObjectId> = LazyLock::new(|| crate::fixture_hash_kind().null());
+static NULL_ID: LazyLock<gix_hash::ObjectId> = LazyLock::new(|| crate::fixture_hash_kind().null());
 
 impl Change {
     fn modification() -> Self {

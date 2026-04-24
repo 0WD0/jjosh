@@ -342,7 +342,7 @@ fn copy_by_id_search_in_all_sources() -> crate::Result {
                 );
             }
             _ => todo!(),
-        };
+        }
     }
     Ok(())
 }
@@ -660,7 +660,7 @@ fn rename_by_50_percent_similarity() -> crate::Result {
             );
         }
         _ => todo!(),
-    };
+    }
 
     Ok(())
 }
