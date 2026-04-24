@@ -44,7 +44,7 @@ pub(crate) fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
             .join(target),
     )
     .expect("artifact directory exists")
-    .filter_map(|entry| entry.ok().map(|entry| entry.path()).filter(|path| path.is_file()))
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
     .collect::<Vec<_>>();
     paths.sort();
     paths

@@ -1,4 +1,5 @@
 use filetime::FileTime;
+use std::path::PathBuf;
 
 fn decode_fuzzed(data: &[u8]) -> Result<(gix_index::State, Option<gix_hash::ObjectId>), gix_index::decode::Error> {
     gix_index::State::from_bytes(
@@ -7,6 +8,14 @@ fn decode_fuzzed(data: &[u8]) -> Result<(gix_index::State, Option<gix_hash::Obje
         gix_hash::Kind::Sha1,
         Default::default(),
     )
+}
+
+#[test]
+fn index_file_artifacts_run_fuzzer() {
+    for path in artifact_paths("index_file") {
+        let data = std::fs::read(path).expect("artifact is readable");
+        let _ = decode_fuzzed(&data);
+    }
 }
 
 #[test]
@@ -129,4 +138,18 @@ fn alloc_limit_constructor_rejects_oversized_allocations() {
     .expect_err("fixture should exceed tiny allocation limit");
 
     assert!(matches!(err, gix_index::decode::Error::OutOfMemory), "{err:?}");
+}
+
+fn artifact_paths(target: &str) -> Vec<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../fuzz/artifacts")
+        .join(target);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut paths = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
 }
