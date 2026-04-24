@@ -42,6 +42,60 @@ mod access {
     use super::Vec;
 
     impl Vec {
+        /// Create a bitmap from a sequence of bit values.
+        ///
+        /// The resulting bitmap uses a literal-only EWAH representation.
+        ///
+        /// Returns `None` if `bits.len()` exceeds `u32::MAX`.
+        pub fn from_bits(bits: &[bool]) -> Option<Self> {
+            let literal_words: std::vec::Vec<u64> = bits
+                .chunks(64)
+                .map(|chunk| {
+                    chunk.iter().enumerate().fold(
+                        0u64,
+                        |word, (idx, bit)| {
+                            if *bit {
+                                word | (1u64 << idx)
+                            } else {
+                                word
+                            }
+                        },
+                    )
+                })
+                .collect();
+            let num_bits = bits.len().try_into().ok()?;
+
+            Some(Vec {
+                num_bits,
+                bits: std::iter::once((literal_words.len() as u64) << (1 + RLW_RUNNING_BITS))
+                    .chain(literal_words)
+                    .collect(),
+                rlw: 0,
+            })
+        }
+
+        /// Write the bitmap as EWAH bytes to `out`.
+        ///
+        /// These bytes can be parsed again with [`decode()`](super::decode()).
+        pub fn write_to(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
+            let len: u32 = self.bits.len().try_into().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "bit word count exceeds u32::MAX")
+            })?;
+            let rlw: u32 = self.rlw.try_into().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "run length word offset exceeds u32::MAX",
+                )
+            })?;
+
+            out.write_all(&self.num_bits.to_be_bytes())?;
+            out.write_all(&len.to_be_bytes())?;
+            for word in &self.bits {
+                out.write_all(&word.to_be_bytes())?;
+            }
+            out.write_all(&rlw.to_be_bytes())
+        }
+
         /// Call `f(index)` for each bit that is true, given the index of the bit that identifies it uniquely within the bit array.
         /// If `f` returns `None` the iteration will be stopped and `None` is returned.
         ///

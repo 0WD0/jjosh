@@ -24,14 +24,22 @@ mod fuzzed {
 
     #[test]
     fn non_zero_padding_bits_in_last_literal_word_are_rejected() {
+        let bitmap = gix_bitmap::ewah::Vec::from_bits(&[false]).expect("small test fixtures must fit into u32");
         let mut data = Vec::new();
-        // One logical bit, two compressed words, then RLW position 0.
-        data.extend_from_slice(&1u32.to_be_bytes());
-        data.extend_from_slice(&2u32.to_be_bytes());
-        // The only in-range bit is bit 0 and it is unset; bit 33 is set only in padding.
-        data.extend_from_slice(&(1u64 << 33).to_be_bytes());
-        data.extend_from_slice(&2u64.to_be_bytes());
-        data.extend_from_slice(&0u32.to_be_bytes());
+        bitmap
+            .write_to(&mut data)
+            .expect("writing a valid test fixture to bytes must succeed");
+        let header_size = 4 + 4;
+        // Skip the fixed-size header and the RLW word, then flip bit 33 in the first literal word
+        // so the bitmap stays logically empty while the serialized padding becomes invalid.
+        let literal_word_offset = header_size + 8;
+        let mut literal_word = u64::from_be_bytes(
+            data[literal_word_offset..literal_word_offset + 8]
+                .try_into()
+                .expect("literal word"),
+        );
+        literal_word |= 1u64 << 33;
+        data[literal_word_offset..literal_word_offset + 8].copy_from_slice(&literal_word.to_be_bytes());
 
         let (bitmap, rest) = gix_bitmap::ewah::decode(&data).expect("fixture must decode");
 
@@ -41,6 +49,69 @@ mod fuzzed {
             None,
             "set bits outside the declared bit length must be rejected"
         );
+    }
+
+    #[test]
+    fn literal_only_bitmaps_preserve_all_set_bits() {
+        for bits in [
+            vec![],
+            vec![false],
+            vec![true],
+            vec![true, false, true, false, true],
+            (0..64).map(|idx| idx % 3 == 0).collect(),
+            (0..65).map(|idx| idx == 0 || idx == 63 || idx == 64).collect(),
+            (0..130).map(|idx| idx == 1 || idx == 64 || idx == 129).collect(),
+        ] {
+            let bitmap = gix_bitmap::ewah::Vec::from_bits(&bits).expect("small test fixtures must fit into u32");
+            let mut encoded = Vec::new();
+            let expected: Vec<_> = bits
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, bit)| bit.then_some(idx))
+                .collect();
+
+            bitmap
+                .write_to(&mut encoded)
+                .expect("writing a valid test fixture to bytes must succeed");
+            let (bitmap, rest) = gix_bitmap::ewah::decode(&encoded).expect("serialized test fixture must decode");
+            let mut actual = Vec::new();
+
+            assert!(rest.is_empty(), "serialized test fixture should be fully consumed");
+            assert_eq!(
+                bitmap.num_bits(),
+                bits.len(),
+                "fixture should preserve the declared bit length"
+            );
+            assert_eq!(
+                bitmap.for_each_set_bit(|idx| {
+                    actual.push(idx);
+                    Some(())
+                }),
+                Some(()),
+                "well-formed literal-only bitmaps must iterate successfully"
+            );
+            assert_eq!(
+                actual, expected,
+                "iteration should report exactly the set bits from the source bitmap"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_padding_bits_in_last_literal_word_are_accepted() {
+        let bitmap =
+            gix_bitmap::ewah::Vec::from_bits(&[true, false, true]).expect("small test fixtures must fit into u32");
+        let mut actual = Vec::new();
+
+        assert_eq!(
+            bitmap.for_each_set_bit(|idx| {
+                actual.push(idx);
+                Some(())
+            }),
+            Some(()),
+            "unused bits in the last partial word are valid when they are zero"
+        );
+        assert_eq!(actual, vec![0, 2], "iteration should ignore zero padding bits");
     }
 
     fn artifact_paths(target: &str) -> Vec<std::path::PathBuf> {
