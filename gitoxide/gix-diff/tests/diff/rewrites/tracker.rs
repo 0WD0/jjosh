@@ -50,7 +50,7 @@ fn rename_by_id() -> crate::Result {
                 src.unwrap(),
                 Source {
                     entry_mode: EntryKind::Blob.into(),
-                    id: NULL_ID,
+                    id: *NULL_ID,
                     kind: SourceKind::Rename,
                     location: "b".into(),
                     change: &Change::deletion(),
@@ -535,7 +535,7 @@ fn directories_without_relation_are_ignored() -> crate::Result {
     let mut track = util::new_tracker(Default::default());
     for mode in [EntryKind::Tree, EntryKind::Commit] {
         let tree_without_relation = Change {
-            id: NULL_ID,
+            id: *NULL_ID,
             kind: ChangeKind::Deletion,
             mode: mode.into(),
             relation: None,
