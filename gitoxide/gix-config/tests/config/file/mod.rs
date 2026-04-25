@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, path::PathBuf};
 
 use bstr::{BStr, ByteSlice};
 use gix_config::File;
@@ -6,6 +6,19 @@ use gix_testtools::fixture_path_standalone;
 
 pub fn cow_str(s: &str) -> Cow<'_, BStr> {
     Cow::Borrowed(s.as_bytes().as_bstr())
+}
+
+fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
+    let mut paths = std::fs::read_dir(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../fuzz/artifacts")
+            .join(target),
+    )
+    .expect("artifact directory exists")
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+    .collect::<Vec<_>>();
+    paths.sort();
+    paths
 }
 
 #[test]
@@ -24,6 +37,17 @@ mod open {
     #[test]
     fn parse_config_with_windows_line_endings_successfully() {
         File::from_path_no_includes(fixture_path_standalone("repo-config.crlf"), gix_config::Source::Local).unwrap();
+    }
+}
+
+#[test]
+fn fuzz_file_artifacts_can_be_parsed_without_panicking() {
+    for path in fuzz_artifact_paths("fuzz_file") {
+        _ = File::from_bytes_no_includes(
+            &std::fs::read(path).expect("artifact is readable"),
+            gix_config::file::Metadata::default(),
+            Default::default(),
+        );
     }
 }
 

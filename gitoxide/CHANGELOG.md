@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.52.1 (2026-04-24)
+
+### New Features
+
+ - <csr-id-ab2016f634d3138ec9312b541558bbb2da27f3c7/> add `gix free trust` to easily check the assigned trust level of any given path
+   This is particularly useful on Windows, which makes it easy to probe existing paths
+   with ownership that might be complex to reproduce otherwise.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 6 commits contributed to the release over the course of 26 calendar days.
+ - 32 days passed between releases.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2510 from GitoxideLabs/folder-identity-on-windows ([`a96587c`](https://github.com/GitoxideLabs/gitoxide/commit/a96587c23b267f74065ac9bed2e50de69113e67f))
+    - Add `gix free trust` to easily check the assigned trust level of any given path ([`ab2016f`](https://github.com/GitoxideLabs/gitoxide/commit/ab2016f634d3138ec9312b541558bbb2da27f3c7))
+    - Merge pull request #2513 from GitoxideLabs/v2-diff ([`2a5db88`](https://github.com/GitoxideLabs/gitoxide/commit/2a5db88d0330b0d125de4b6f3819f17a7f76f4b8))
+    - Thanks clippy ([`e4f380e`](https://github.com/GitoxideLabs/gitoxide/commit/e4f380eff3b0440002f7e9b64a14ddcfbe63192a))
+    - Merge pull request #2494 from GitoxideLabs/improvements ([`50fb46f`](https://github.com/GitoxideLabs/gitoxide/commit/50fb46f17acba7d75d4ed6795b7b9cef484e34c6))
+    - Adapt to changes in `gix-config`. ([`344218a`](https://github.com/GitoxideLabs/gitoxide/commit/344218a4946008f54bda2f1a6bbce15e84c1df3c))
+</details>
+
 ## 0.52.0 (2026-03-22)
 
 ## 0.51.0 (2026-02-22)

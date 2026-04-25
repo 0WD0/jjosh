@@ -90,6 +90,15 @@ fn fuzzed() {
 }
 
 #[test]
+fn fuzz_artifact_inputs_can_be_parsed_without_panicking() {
+    for path in crate::fuzz_artifact_paths("fuzz_tree") {
+        let input = std::fs::read(path).expect("artifact is readable");
+        _ = TreeRef::from_bytes(&input, gix_hash::Kind::Sha1);
+        _ = TreeRef::from_bytes(&input, gix_hash::Kind::Sha256);
+    }
+}
+
+#[test]
 fn special_trees() -> crate::Result {
     let hash_kind = crate::fixture_hash_kind();
     for (name, expected_entry_count) in [
