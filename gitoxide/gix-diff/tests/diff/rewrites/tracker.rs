@@ -225,124 +225,63 @@ fn copy_by_id_search_in_all_sources() -> crate::Result {
 
         let content_id = hex_to_id(
             "2e65efe2a145dda7ee51d1741299f848e5bf752e",
-            "f8625e43f9e04f24291f77cdbe4c71b3c2a3b0003f60419b3ed06a058d766c8b",
+            "eb337bcee2061c5313c9a1392116b6c76039e9e30d71467ae359b36277e17dc7",
         );
 
-        match crate::fixture_hash_kind() {
-            gix_hash::Kind::Sha1 => {
-                let mut calls = 0;
-                let out = util::assert_emit_with_objects_and_sources(
-                    &mut track,
-                    |dst, src| {
-                        let source_a = Source {
-                            entry_mode: EntryKind::Blob.into(),
-                            id: content_id,
-                            kind: SourceKind::Copy,
-                            location: "a-src".into(),
-                            change: &Change {
-                                id: content_id,
-                                ..Change::modification()
-                            },
-                            diff: None,
-                        };
-                        match calls {
-                            0 => {
-                                assert_eq!(src.unwrap(), source_a);
-                                assert_eq!(
-                                    dst.location, "a-cpy-1",
-                                    "it just finds the first possible match in order, ignoring other candidates"
-                                );
-                            }
-                            1 => {
-                                assert_eq!(src.unwrap(), source_a, "copy-sources can be used multiple times");
-                                assert_eq!(dst.location, "a-cpy-2");
-                            }
-                            2 => {
-                                assert!(src.is_none());
-                                assert_eq!(dst.location, "d");
-                            }
-                            _ => panic!("too many emissions"),
-                        }
-                        calls += 1;
-                        std::ops::ControlFlow::Continue(())
+        let mut calls = 0;
+        let out = util::assert_emit_with_objects_and_sources(
+            &mut track,
+            |dst, src| {
+                let source_a = Source {
+                    entry_mode: EntryKind::Blob.into(),
+                    id: content_id,
+                    kind: SourceKind::Copy,
+                    location: "a-src".into(),
+                    change: &Change {
+                        id: content_id,
+                        ..Change::modification()
                     },
-                    odb,
-                    [(
-                        {
-                            let mut c = Change::modification();
-                            c.id = content_id;
-                            c
-                        },
-                        "a-src",
-                    )],
-                );
-                assert_eq!(
-                    out,
-                    rewrites::Outcome {
-                        options: rewrites,
-                        ..Default::default()
-                    },
-                    "no similarity check was performed, it was all matched by id"
-                );
-            }
-            gix_hash::Kind::Sha256 => {
-                let mut calls = 0;
-                let out = util::assert_emit_with_objects_and_sources(
-                    &mut track,
-                    |dst, src| {
-                        let source_a = Source {
-                            entry_mode: EntryKind::Blob.into(),
-                            id: content_id,
-                            kind: SourceKind::Copy,
-                            location: "a-src".into(),
-                            change: &Change {
-                                id: content_id,
-                                ..Change::modification()
-                            },
-                            diff: None,
-                        };
-                        match calls {
-                            0 => {
-                                assert!(src.is_none());
-                                assert_eq!(dst.location, "a-cpy-1");
-                            }
-                            1 => {
-                                assert!(src.is_none());
-                                assert_eq!(dst.location, "a-cpy-2");
-                            }
-                            2 => {
-                                assert_eq!(src.unwrap(), source_a);
-                                assert_eq!(
-                                    dst.location, "a-cpy-1",
-                                    "it just finds the first possible match in order, ignoring other candidates"
-                                );
-                            }
-                            _ => panic!("too many emissions"),
-                        }
-                        calls += 1;
-                        std::ops::ControlFlow::Continue(())
-                    },
-                    odb,
-                    [(
-                        {
-                            let mut c = Change::modification();
-                            c.id = content_id;
-                            c
-                        },
-                        "a-src",
-                    )],
-                );
-                assert_eq!(
-                    out,
-                    rewrites::Outcome {
-                        options: rewrites,
-                        ..Default::default()
-                    },
-                    "no similarity check was performed, it was all matched by id"
-                );
-            }
-            _ => todo!(),
-        }
+                    diff: None,
+                };
+                match calls {
+                    0 => {
+                        assert_eq!(src.unwrap(), source_a);
+                        assert_eq!(
+                            dst.location, "a-cpy-1",
+                            "it just finds the first possible match in order, ignoring other candidates"
+                        );
+                    }
+                    1 => {
+                        assert_eq!(src.unwrap(), source_a, "copy-sources can be used multiple times");
+                        assert_eq!(dst.location, "a-cpy-2");
+                    }
+                    2 => {
+                        assert!(src.is_none());
+                        assert_eq!(dst.location, "d");
+                    }
+                    _ => panic!("too many emissions"),
+                }
+                calls += 1;
+                std::ops::ControlFlow::Continue(())
+            },
+            odb,
+            [(
+                {
+                    let mut c = Change::modification();
+                    c.id = content_id;
+                    c
+                },
+                "a-src",
+            )],
+        );
+        assert_eq!(
+            out,
+            rewrites::Outcome {
+                options: rewrites,
+                ..Default::default()
+            },
+            "no similarity check was performed, it was all matched by id"
+        );
     }
     Ok(())
 }
