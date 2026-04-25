@@ -246,7 +246,7 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-refspec --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-refspec --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree-stream --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-stream --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-stream --features sha256 --no-fail-fast
     cargo nextest run -p gix --no-default-features --no-fail-fast
     cargo nextest run -p gix --no-default-features --features basic,comfort,max-performance-safe --no-fail-fast
     cargo nextest run -p gix --no-default-features --features basic,extras,comfort,need-more-recent-msrv --no-fail-fast
