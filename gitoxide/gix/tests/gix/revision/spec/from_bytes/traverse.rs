@@ -36,7 +36,7 @@ fn freestanding_negation_yields_descriptive_error() -> crate::Result {
     );
     let err = parse_spec("^!", &repo).unwrap_err();
     insta::assert_debug_snapshot!(err, @r#"
-    couldn't parse revision: !
+    couldn't parse revision: "!"
     |
     └─ The ref partially named "!" could not be found
     "#);

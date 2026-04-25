@@ -44,7 +44,7 @@ fn fully_failed_disambiguation_still_yields_an_ambiguity_error() {
     let err = parse_spec("0000000000^{tag}", &repo).unwrap_err();
 
     insta::assert_debug_snapshot!(err, @r#"
-    delegate.peel_until(ObjectKind(Tag)) failed: {tag}
+    delegate.peel_until(ObjectKind(Tag)) failed: "{tag}"
     |
     └─ Short id 0000000000 is ambiguous. Candidates are:
     	0000000000e commit 2005-04-07 "a2onsxbvj"

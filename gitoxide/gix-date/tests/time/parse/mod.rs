@@ -180,7 +180,7 @@ fn git_default() {
 fn invalid_dates_can_be_produced_without_current_time() {
     assert_eq!(
         gix_date::parse("foobar", None).unwrap_err().to_string(),
-        "Unknown date format: foobar"
+        "Unknown date format: \"foobar\""
     );
 }
 
