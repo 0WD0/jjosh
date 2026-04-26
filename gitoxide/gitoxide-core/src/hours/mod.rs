@@ -71,10 +71,10 @@ impl ParsedIdentity<'_> {
 
 fn parse_trailer_identity(trailer: gix::objs::commit::message::body::TrailerRef<'_>) -> Option<ParsedIdentity<'_>> {
     match trailer.value {
-        std::borrow::Cow::Borrowed(value) => IdentityRef::from_bytes::<gix::objs::decode::ParseError>(value.as_ref())
+        std::borrow::Cow::Borrowed(value) => IdentityRef::from_bytes(value.as_ref())
             .ok()
             .map(|identity| ParsedIdentity::Borrowed(identity.trim())),
-        std::borrow::Cow::Owned(value) => IdentityRef::from_bytes::<gix::objs::decode::ParseError>(value.as_ref())
+        std::borrow::Cow::Owned(value) => IdentityRef::from_bytes(value.as_ref())
             .ok()
             .map(|identity| ParsedIdentity::Owned(identity.trim().to_owned())),
     }

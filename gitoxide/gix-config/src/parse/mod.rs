@@ -14,8 +14,9 @@ use std::{borrow::Cow, hash::Hash};
 
 use bstr::BStr;
 
-mod nom;
-pub use self::nom::from_bytes;
+mod from_bytes;
+pub use self::from_bytes::from_bytes;
+
 mod event;
 #[path = "events.rs"]
 mod events_type;

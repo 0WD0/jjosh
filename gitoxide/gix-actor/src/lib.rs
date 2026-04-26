@@ -44,8 +44,6 @@ use bstr::{BStr, BString};
 /// For convenience to allow using `gix-date` without adding it to own cargo manifest.
 pub use gix_date as date;
 
-/// Decode actor identities and signatures.
-pub mod decode;
 mod identity;
 ///
 pub mod signature;

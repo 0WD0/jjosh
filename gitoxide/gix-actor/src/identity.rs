@@ -4,8 +4,18 @@ use crate::{signature::decode, Identity, IdentityRef};
 
 impl<'a> IdentityRef<'a> {
     /// Deserialize an identity from the given `data`.
-    pub fn from_bytes(mut data: &'a [u8]) -> Result<Self, crate::decode::Error> {
-        decode::identity(&mut data)
+    ///
+    /// Typical input is `Name <name@example.com> 1700000000 +0000`.
+    pub fn from_bytes(mut data: &'a [u8]) -> Result<Self, gix_error::ValidationError> {
+        Self::from_bytes_consuming(&mut data)
+    }
+
+    /// Deserialize an identity from the given `data` and advance it past the identity.
+    ///
+    /// Typical input is `Name <name@example.com> 1700000000 +0000`; on success,
+    /// `data` points to the bytes immediately after the closing `>`.
+    pub fn from_bytes_consuming(data: &mut &'a [u8]) -> Result<Self, gix_error::ValidationError> {
+        decode::identity(data)
     }
 
     /// Create an owned instance from this shared one.

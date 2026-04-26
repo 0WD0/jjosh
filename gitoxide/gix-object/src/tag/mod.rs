@@ -1,6 +1,5 @@
 use crate::parse::parse_signature;
 use crate::TagRef;
-use winnow::prelude::*;
 
 mod decode;
 
@@ -14,9 +13,9 @@ impl<'a> TagRef<'a> {
     /// Deserialize a tag from `data`.
     pub fn from_bytes(mut data: &'a [u8]) -> Result<TagRef<'a>, crate::decode::Error> {
         let input = &mut data;
-        match decode::git_tag.parse_next(input) {
+        match decode::git_tag(input) {
             Ok(tag) => Ok(tag),
-            Err(err) => Err(crate::decode::Error::with_err(err, input)),
+            Err(err) => Err(err),
         }
     }
     /// The object this tag points to as `Id`.

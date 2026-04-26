@@ -71,7 +71,7 @@ pub fn check(
 
     let mut buf = Vec::new();
     for contact in contacts {
-        let actor = match gix::actor::IdentityRef::from_bytes::<()>(&contact) {
+        let actor = match gix::actor::IdentityRef::from_bytes(&contact) {
             Ok(a) => a,
             Err(_) => {
                 let Some(email) = contact

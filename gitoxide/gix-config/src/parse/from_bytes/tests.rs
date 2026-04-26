@@ -1,10 +1,49 @@
 use super::*;
 
-mod section_headers {
-    use winnow::prelude::*;
+trait ParsePeekExt<'a, T> {
+    fn parse_peek(self, input: &'a [u8]) -> Result<(&'a [u8], T), ()>;
+    fn parse(self, input: &'a [u8]) -> Result<T, ()>;
+}
 
-    use super::section_header;
-    use crate::parse::tests::util::{fully_consumed, section_header as parsed_section_header};
+impl<'a, T, F> ParsePeekExt<'a, T> for F
+where
+    F: FnOnce(&mut &'a [u8]) -> Result<T, ()>,
+{
+    fn parse_peek(self, mut input: &'a [u8]) -> Result<(&'a [u8], T), ()> {
+        let value = self(&mut input)?;
+        Ok((input, value))
+    }
+
+    fn parse(self, input: &'a [u8]) -> Result<T, ()> {
+        let (remaining, value) = self.parse_peek(input)?;
+        if remaining.is_empty() {
+            Ok(value)
+        } else {
+            Err(())
+        }
+    }
+}
+
+mod config {
+    use super::from_bytes;
+
+    #[test]
+    fn key_value_before_first_section_is_rejected() {
+        assert!(
+            from_bytes(b"a = b\n", &mut |_| {}).is_err(),
+            "Git accepts this and reports `a=b`, as git_parse_source() parses alphabetic keys even before any section"
+        );
+    }
+}
+
+mod section_headers {
+    use std::borrow::Cow;
+
+    use super::{section_header, ParsePeekExt};
+    use crate::parse::{
+        section,
+        tests::util::{fully_consumed, section_header as parsed_section_header},
+    };
 
     #[test]
     fn no_subsection() {
@@ -15,10 +54,36 @@ mod section_headers {
     }
 
     #[test]
+    fn empty_section_name_without_quoted_subsection_is_rejected() {
+        assert!(section_header.parse_peek(b"[]").is_err());
+    }
+
+    #[test]
     fn modern_subsection() {
         assert_eq!(
             section_header.parse_peek(br#"[hello "world"]"#).unwrap(),
             fully_consumed(parsed_section_header("hello", (" ", "world"))),
+        );
+    }
+
+    #[test]
+    fn empty_section_name_with_quoted_subsection_is_accepted() {
+        assert_eq!(
+            section_header.parse_peek(br#"[ "core"]"#).unwrap(),
+            fully_consumed(section::Header {
+                name: section::Name(Cow::Borrowed("".into())),
+                separator: Some(Cow::Borrowed(" ".into())),
+                subsection_name: Some(Cow::Borrowed("core".into())),
+            }),
+            "Git accepts this as an empty section name with `core` as subsection, yielding keys like `.core.bare`; gix does this too for compatibility"
+        );
+    }
+
+    #[test]
+    fn quoted_section_name_without_leading_space_is_rejected() {
+        assert!(
+            section_header.parse_peek(br#"["core"]"#).is_err(),
+            "Git rejects this as a bad config line"
         );
     }
 
@@ -78,7 +143,10 @@ mod section_headers {
 
     #[test]
     fn null_byt_in_sub_section() {
-        assert!(section_header.parse_peek(b"[hello \"hello\0\"]").is_err());
+        assert!(
+            section_header.parse_peek(b"[hello \"hello\0\"]").is_err(),
+            "Git accepts this because get_extended_base_var() only rejects newline in quoted subsections"
+        );
     }
 
     #[test]
@@ -89,6 +157,19 @@ mod section_headers {
     #[test]
     fn eof_after_escape_in_sub_section() {
         assert!(section_header.parse_peek(br#"[hello "hello\"#).is_err());
+    }
+
+    #[test]
+    fn missing_closing_bracket_after_quoted_subsection() {
+        assert!(section_header.parse_peek(br#"[hello "world""#).is_err());
+    }
+
+    #[test]
+    fn whitespace_before_closing_bracket_after_quoted_subsection() {
+        assert!(
+            section_header.parse_peek(br#"[hello "world" ]"#).is_err(),
+            "yes, Git fails here, too!"
+        );
     }
 
     #[test]
@@ -118,9 +199,7 @@ mod section_headers {
 mod sub_section {
     use std::borrow::Cow;
 
-    use winnow::prelude::*;
-
-    use super::sub_section;
+    use super::{sub_section, ParsePeekExt};
 
     #[test]
     fn zero_copy_simple() {
@@ -138,9 +217,7 @@ mod sub_section {
 }
 
 mod config_name {
-    use winnow::prelude::*;
-
-    use super::config_name;
+    use super::{config_name, ParsePeekExt};
     use crate::parse::tests::util::fully_consumed;
 
     #[test]
@@ -167,8 +244,6 @@ mod config_name {
 }
 
 mod section {
-    use winnow::error::InputError;
-
     use crate::parse::{
         error::ParseNode,
         tests::util::{
@@ -179,10 +254,7 @@ mod section {
         Event, Section,
     };
 
-    fn section<'a>(
-        mut i: &'a [u8],
-        node: &mut ParseNode,
-    ) -> winnow::ModalResult<(&'a [u8], Section<'a>), InputError<&'a [u8]>> {
+    fn section<'a>(mut i: &'a [u8], node: &mut ParseNode) -> Result<(&'a [u8], Section<'a>), ()> {
         let mut header = None;
         let mut events = Vec::new();
         super::section(&mut i, node, &mut |e| match &header {
@@ -512,24 +584,20 @@ mod section {
 
 mod value_continuation {
     use bstr::ByteSlice;
-    use winnow::error::InputError;
 
     use crate::parse::{
         tests::util::{newline_custom_event, newline_event, value_done_event, value_not_done_event},
         Event,
     };
 
-    pub fn value_impl<'a>(
-        mut i: &'a [u8],
-        events: &mut Vec<Event<'a>>,
-    ) -> winnow::ModalResult<(&'a [u8], ()), InputError<&'a [u8]>> {
-        super::value_impl(&mut i, &mut |e| events.push(e)).map(|_| (i, ()))
+    pub fn value<'a>(mut i: &'a [u8], events: &mut Vec<Event<'a>>) -> Result<(&'a [u8], ()), ()> {
+        super::value(&mut i, &mut |e| events.push(e)).map(|_| (i, ()))
     }
 
     #[test]
     fn simple_continuation() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello\\\nworld", &mut events).unwrap().0, b"");
+        assert_eq!(value(b"hello\\\nworld", &mut events).unwrap().0, b"");
         assert_eq!(
             events,
             vec![
@@ -543,7 +611,7 @@ mod value_continuation {
     #[test]
     fn continuation_with_whitespace() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello\\\n        world", &mut events).unwrap().0, b"");
+        assert_eq!(value(b"hello\\\n        world", &mut events).unwrap().0, b"");
         assert_eq!(
             events,
             vec![
@@ -554,7 +622,7 @@ mod value_continuation {
         );
 
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello\\\r\n        world", &mut events).unwrap().0, b"");
+        assert_eq!(value(b"hello\\\r\n        world", &mut events).unwrap().0, b"");
         assert_eq!(
             events,
             vec![
@@ -566,7 +634,7 @@ mod value_continuation {
 
         let mut events = Vec::new();
         assert!(
-            value_impl(b"hello\\\r\r\n        world", &mut events).is_err(),
+            value(b"hello\\\r\r\n        world", &mut events).is_err(),
             r"\r must be followed by \n"
         );
     }
@@ -575,7 +643,7 @@ mod value_continuation {
     fn complex_continuation_with_leftover_comment() {
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(b"1    \"\\\"\\\na ; e \"\\\"\\\nd # \"b\t ; c", &mut events)
+            value(b"1    \"\\\"\\\na ; e \"\\\"\\\nd # \"b\t ; c", &mut events)
                 .unwrap()
                 .0,
             b" # \"b\t ; c"
@@ -595,14 +663,14 @@ mod value_continuation {
     #[test]
     fn quote_split_over_two_lines_with_leftover_comment() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"\"\\\n;\";a", &mut events).unwrap().0, b";a");
+        assert_eq!(value(b"\"\\\n;\";a", &mut events).unwrap().0, b";a");
         assert_eq!(
             events,
             vec![value_not_done_event("\""), newline_event(), value_done_event(";\"")]
         );
 
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"\"a\\\r\nb;\";c", &mut events).unwrap().0, b";c");
+        assert_eq!(value(b"\"a\\\r\nb;\";c", &mut events).unwrap().0, b";c");
         assert_eq!(
             events,
             vec![
@@ -617,7 +685,7 @@ mod value_continuation {
     fn quote_split_over_multiple_lines_without_surrounding_quotes_but_inner_quotes() {
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(
+            value(
                 br#"1\
 "2" a\
 \"3 b\"\
@@ -647,7 +715,7 @@ mod value_continuation {
     fn quote_split_over_multiple_lines_with_surrounding_quotes() {
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(
+            value(
                 br#""1\
 "2" a\
 \"3 b\"\
@@ -675,45 +743,45 @@ mod value_continuation {
 }
 
 mod value_no_continuation {
-    use super::value_continuation::value_impl;
+    use super::value_continuation::value;
     use crate::parse::tests::util::value_event;
 
     #[test]
     fn no_comment() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello", &mut events).unwrap().0, b"");
+        assert_eq!(value(b"hello", &mut events).unwrap().0, b"");
         assert_eq!(events, vec![value_event("hello")]);
     }
 
     #[test]
     fn windows_newline() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hi\r\nrest", &mut events).unwrap().0, b"\r\nrest");
+        assert_eq!(value(b"hi\r\nrest", &mut events).unwrap().0, b"\r\nrest");
         assert_eq!(events, vec![value_event("hi")]);
 
         events.clear();
-        assert_eq!(value_impl(b"hi\r\r\r\nrest", &mut events).unwrap().0, b"\r\r\r\nrest");
+        assert_eq!(value(b"hi\r\r\r\nrest", &mut events).unwrap().0, b"\r\r\r\nrest");
         assert_eq!(events, vec![value_event("hi")]);
     }
 
     #[test]
     fn no_comment_newline() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello\na", &mut events).unwrap().0, b"\na");
+        assert_eq!(value(b"hello\na", &mut events).unwrap().0, b"\na");
         assert_eq!(events, vec![value_event("hello")]);
     }
 
     #[test]
     fn semicolon_comment_not_consumed() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello;world", &mut events).unwrap().0, b";world");
+        assert_eq!(value(b"hello;world", &mut events).unwrap().0, b";world");
         assert_eq!(events, vec![value_event("hello")]);
     }
 
     #[test]
     fn octothorpe_comment_not_consumed() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(b"hello#world", &mut events).unwrap().0, b"#world");
+        assert_eq!(value(b"hello#world", &mut events).unwrap().0, b"#world");
         assert_eq!(events, vec![value_event("hello")]);
     }
 
@@ -721,7 +789,7 @@ mod value_no_continuation {
     fn values_with_extraneous_whitespace_without_comment() {
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(b"hello               ", &mut events).unwrap().0,
+            value(b"hello               ", &mut events).unwrap().0,
             b"               "
         );
         assert_eq!(events, vec![value_event("hello")]);
@@ -731,14 +799,14 @@ mod value_no_continuation {
     fn values_with_extraneous_whitespace_before_comment() {
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(b"hello             #world", &mut events).unwrap().0,
+            value(b"hello             #world", &mut events).unwrap().0,
             b"             #world"
         );
         assert_eq!(events, vec![value_event("hello")]);
 
         let mut events = Vec::new();
         assert_eq!(
-            value_impl(b"hello             ;world", &mut events).unwrap().0,
+            value(b"hello             ;world", &mut events).unwrap().0,
             b"             ;world"
         );
         assert_eq!(events, vec![value_event("hello")]);
@@ -748,52 +816,49 @@ mod value_no_continuation {
     #[allow(clippy::needless_raw_string_hashes)]
     fn trans_escaped_comment_marker_not_consumed() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(br##"hello"#"world; a"##, &mut events).unwrap().0, b"; a");
+        assert_eq!(value(br##"hello"#"world; a"##, &mut events).unwrap().0, b"; a");
         assert_eq!(events, vec![value_event(r##"hello"#"world"##)]);
     }
 
     #[test]
     fn complex_test() {
         let mut events = Vec::new();
-        assert_eq!(value_impl(br#"value";";ahhhh"#, &mut events).unwrap().0, b";ahhhh");
+        assert_eq!(value(br#"value";";ahhhh"#, &mut events).unwrap().0, b";ahhhh");
         assert_eq!(events, vec![value_event(r#"value";""#)]);
     }
 
     #[test]
     fn garbage_after_continuation_is_err() {
-        assert!(value_impl(br"hello \afwjdls", &mut Default::default()).is_err());
+        assert!(value(br"hello \afwjdls", &mut Default::default()).is_err());
     }
 
     #[test]
     fn invalid_escape() {
-        assert!(value_impl(br"\x", &mut Default::default()).is_err());
+        assert!(value(br"\x", &mut Default::default()).is_err());
     }
 
     #[test]
     fn incomplete_quote() {
-        assert!(value_impl(br#"hello "world"#, &mut Default::default()).is_err());
+        assert!(value(br#"hello "world"#, &mut Default::default()).is_err());
     }
 
     #[test]
     fn incomplete_escape() {
-        assert!(value_impl(br"hello world\", &mut Default::default()).is_err());
+        assert!(
+            value(br"hello world\", &mut Default::default()).is_err(),
+            "Git accepts this because EOF is normalized to newline and the trailing backslash becomes a continuation"
+        );
     }
 }
 
 mod key_value_pair {
-    use winnow::error::InputError;
-
     use crate::parse::{
         error::ParseNode,
         tests::util::{name_event, value_event, whitespace_event},
         Event,
     };
 
-    fn key_value<'a>(
-        mut i: &'a [u8],
-        node: &mut ParseNode,
-        events: &mut Vec<Event<'a>>,
-    ) -> winnow::ModalResult<(&'a [u8], ()), InputError<&'a [u8]>> {
+    fn key_value<'a>(mut i: &'a [u8], node: &mut ParseNode, events: &mut Vec<Event<'a>>) -> Result<(&'a [u8], ()), ()> {
         super::key_value_pair(&mut i, node, &mut |e| events.push(e)).map(|_| (i, ()))
     }
 
@@ -851,10 +916,140 @@ mod key_value_pair {
     }
 }
 
-mod comment {
-    use winnow::prelude::*;
+mod value {
+    use super::value;
+    use crate::parse::{
+        tests::util::{newline_custom_event, newline_event, value_done_event, value_event, value_not_done_event},
+        Event,
+    };
 
-    use super::comment;
+    fn parse(mut input: &[u8]) -> Result<(&[u8], Vec<Event<'_>>), ()> {
+        let mut events = Vec::new();
+        value(&mut input, &mut |event| events.push(event))?;
+        Ok((input, events))
+    }
+
+    #[test]
+    fn empty_value() {
+        let (remaining, events) = parse(b"").unwrap();
+        assert_eq!(remaining, b"");
+        assert_eq!(events, vec![value_event("")]);
+    }
+
+    #[test]
+    fn plain_value_runs_until_eof_and_trims_trailing_whitespace() {
+        let (remaining, events) = parse(b"hello  \t").unwrap();
+        assert_eq!(remaining, b"  \t");
+        assert_eq!(events, vec![value_event("hello")]);
+    }
+
+    #[test]
+    fn newline_without_backslash_is_not_a_continuation() {
+        let (remaining, events) = parse(b"config\n  value").unwrap();
+        assert_eq!(remaining, b"\n  value");
+        assert_eq!(events, vec![value_event("config")]);
+    }
+
+    #[test]
+    fn unquoted_comment_markers_end_the_value() {
+        let (remaining, events) = parse(b"hello  ;comment").unwrap();
+        assert_eq!(remaining, b"  ;comment");
+        assert_eq!(events, vec![value_event("hello")]);
+
+        let (remaining, events) = parse(b"hello  #comment").unwrap();
+        assert_eq!(remaining, b"  #comment");
+        assert_eq!(events, vec![value_event("hello")]);
+    }
+
+    #[test]
+    fn quoted_comment_markers_remain_part_of_the_value() {
+        let (remaining, events) = parse(br#""a;b#c";comment"#).unwrap();
+        assert_eq!(remaining, b";comment");
+        assert_eq!(events, vec![value_event(r#""a;b#c""#)]);
+    }
+
+    #[test]
+    fn allowed_escapes_remain_part_of_the_value() {
+        let (remaining, events) = parse(br#"\n\t\\\b\""#).unwrap();
+        assert_eq!(remaining, b"");
+        assert_eq!(events, vec![value_event(r#"\n\t\\\b\""#)]);
+    }
+
+    #[test]
+    fn backslash_lf_continuation_is_allowed() {
+        let (remaining, events) = parse(b"hello\\\n  world").unwrap();
+        assert_eq!(remaining, b"");
+        assert_eq!(
+            events,
+            vec![
+                value_not_done_event("hello"),
+                newline_event(),
+                value_done_event("  world")
+            ]
+        );
+    }
+
+    #[test]
+    fn backslash_crlf_continuation_is_allowed() {
+        let (remaining, events) = parse(b"hello\\\r\n  world").unwrap();
+        assert_eq!(remaining, b"");
+        assert_eq!(
+            events,
+            vec![
+                value_not_done_event("hello"),
+                newline_custom_event("\r\n"),
+                value_done_event("  world")
+            ]
+        );
+    }
+
+    #[test]
+    fn continuations_keep_quote_state() {
+        let (remaining, events) = parse(
+            br#""a\
+;b";comment"#,
+        )
+        .unwrap();
+        assert_eq!(remaining, b";comment");
+        assert_eq!(
+            events,
+            vec![value_not_done_event("\"a"), newline_event(), value_done_event(";b\"")]
+        );
+    }
+
+    #[test]
+    fn backslash_cr_without_lf_is_rejected() {
+        assert!(parse(b"hello\\\r  world").is_err());
+    }
+
+    #[test]
+    fn backslash_cr_crlf_is_rejected() {
+        assert!(parse(b"hello\\\r\r\n  world").is_err());
+    }
+
+    #[test]
+    fn trailing_backslash_is_rejected() {
+        assert!(
+            parse(b"hello\\").is_err(),
+            "Git accepts this because get_next_char() maps EOF to newline, which parse_value() treats as a continuation"
+        );
+    }
+
+    #[test]
+    fn unsupported_escapes_are_rejected() {
+        assert!(parse(br"\a").is_err());
+        assert!(parse(br"\x").is_err());
+        assert!(parse(b"\\\0").is_err());
+    }
+
+    #[test]
+    fn unterminated_quote_is_rejected() {
+        assert!(parse(br#""hello"#).is_err());
+    }
+}
+
+mod comment {
+    use super::{comment, ParsePeekExt};
     use crate::parse::tests::util::{comment as parsed_comment, fully_consumed};
 
     #[test]

@@ -1622,12 +1622,10 @@ dependencies = [
  "gix-path",
  "gix-ref",
  "gix-sec",
- "memchr",
  "serde",
  "smallvec",
  "thiserror 2.0.18",
  "unicode-bom",
- "winnow",
 ]
 
 [[package]]
@@ -1927,7 +1925,6 @@ dependencies = [
  "gix-imara-diff",
  "gix-object",
  "hashbrown 0.16.1",
- "memchr",
 ]
 
 [[package]]
@@ -2070,6 +2067,7 @@ dependencies = [
  "document-features",
  "gix-actor",
  "gix-date",
+ "gix-error",
  "gix-features",
  "gix-hash",
  "gix-hashtable",
@@ -2084,7 +2082,6 @@ dependencies = [
  "smallvec",
  "termtree",
  "thiserror 2.0.18",
- "winnow",
 ]
 
 [[package]]
@@ -2259,7 +2256,6 @@ dependencies = [
  "nonempty",
  "serde",
  "thiserror 2.0.18",
- "winnow",
 ]
 
 [[package]]
@@ -2295,7 +2291,6 @@ dependencies = [
  "memmap2",
  "serde",
  "thiserror 2.0.18",
- "winnow",
 ]
 
 [[package]]
@@ -2496,7 +2491,6 @@ dependencies = [
  "serial_test",
  "tar",
  "tempfile",
- "winnow",
  "xz2",
 ]
 
@@ -6105,9 +6099,6 @@ name = "winnow"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "winreg"

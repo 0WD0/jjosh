@@ -2,6 +2,49 @@ use gix_object::{bstr::ByteSlice, Kind, TagRef, TagRefIter};
 
 use crate::fixture_name;
 
+const PGP_BEGIN_NOT_AT_LINE_START: &[u8] = b"object ffa700b4aca13b80cb6b98a078e7c96804f8e0ec
+type commit
+tag pgp-marker-in-message
+
+message text
+not-a-signature -----BEGIN PGP SIGNATURE-----
+body
+-----END PGP SIGNATURE-----";
+const PGP_BEGIN_NOT_AT_LINE_START_MESSAGE: &[u8] = b"message text
+not-a-signature -----BEGIN PGP SIGNATURE-----
+body
+-----END PGP SIGNATURE-----";
+const PGP_SIGNATURE_WITH_TRAILING_TEXT: &[u8] = b"object ffa700b4aca13b80cb6b98a078e7c96804f8e0ec
+type commit
+tag pgp-signature-with-trailing-text
+
+message text
+-----BEGIN PGP SIGNATURE-----
+body
+-----END PGP SIGNATURE-----
+trailing text";
+const PGP_SIGNATURE_WITH_TRAILING_TEXT_SIGNATURE: &[u8] = b"-----BEGIN PGP SIGNATURE-----
+body
+-----END PGP SIGNATURE-----
+trailing text";
+const PGP_SIGNATURE_WITHOUT_END_MARKER: &[u8] = b"object ffa700b4aca13b80cb6b98a078e7c96804f8e0ec
+type commit
+tag pgp-signature-without-end-marker
+
+message text
+-----BEGIN PGP SIGNATURE-----
+body";
+const PGP_SIGNATURE_WITHOUT_END_MARKER_SIGNATURE: &[u8] = b"-----BEGIN PGP SIGNATURE-----
+body";
+const PGP_SIGNATURE_AT_BODY_START: &[u8] = b"object ffa700b4aca13b80cb6b98a078e7c96804f8e0ec
+type commit
+tag pgp-signature-at-body-start
+
+-----BEGIN PGP SIGNATURE-----
+body";
+const PGP_SIGNATURE_AT_BODY_START_SIGNATURE: &[u8] = b"-----BEGIN PGP SIGNATURE-----
+body";
+
 mod method {
     use bstr::ByteSlice;
     use gix_object::TagRef;
@@ -129,6 +172,26 @@ KLMHist5yj0sw1E4hDTyQa0=
     }
 
     #[test]
+    fn pgp_begin_marker_not_at_line_start_is_message() -> crate::Result {
+        assert_eq!(
+            TagRefIter::from_bytes(super::PGP_BEGIN_NOT_AT_LINE_START).collect::<Result<Vec<_>, _>>()?,
+            vec![
+                Token::Target {
+                    id: hex_to_id("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec")
+                },
+                Token::TargetKind(Kind::Commit),
+                Token::Name(b"pgp-marker-in-message".as_bstr()),
+                Token::Tagger(None),
+                Token::Body {
+                    message: super::PGP_BEGIN_NOT_AT_LINE_START_MESSAGE.as_bstr(),
+                    pgp_signature: None
+                }
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn error_handling() -> crate::Result {
         let data = fixture_name("tag", "empty.txt");
         let iter = TagRefIter::from_bytes(&data[..data.len() / 3]);
@@ -145,19 +208,28 @@ KLMHist5yj0sw1E4hDTyQa0=
 fn invalid() {
     let fixture = fixture_name("tag", "whitespace.txt");
     let partial_tag = &fixture[..fixture.len() / 2];
-    assert_eq!(
-        TagRef::from_bytes(partial_tag).unwrap_err().to_string(),
-        if cfg!(feature = "verbose-object-parsing-errors") {
-            "object parsing failed at `Sebasti`\ninvalid Closing '>' not found\nexpected `<name> <<email>> <timestamp> <+|-><HHMM>`, `tagger <signature>`"
-        } else {
-            "object parsing failed"
-        }
-    );
+    assert!(TagRef::from_bytes(partial_tag).is_err());
     assert_eq!(
         TagRefIter::from_bytes(partial_tag).take_while(Result::is_ok).count(),
         3,
         "we can decode some fields before failing"
     );
+}
+
+#[test]
+fn uppercase_target_id() -> crate::Result {
+    let input = b"object FFA700B4ACA13B80CB6B98A078E7C96804F8E0EC
+type commit
+tag uppercase-target
+
+message";
+    let tag = TagRef::from_bytes(input)?;
+    assert_eq!(tag.target, b"FFA700B4ACA13B80CB6B98A078E7C96804F8E0EC".as_bstr());
+    assert_eq!(
+        tag.target(),
+        crate::hex_to_id("ffa700b4aca13b80cb6b98a078e7c96804f8e0ec")
+    );
+    Ok(())
 }
 
 #[test]
@@ -175,6 +247,14 @@ mod from_bytes {
     use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 
     use crate::{fixture_name, tag::tag_fixture};
+
+    fn assert_roundtrip(input: &[u8]) -> crate::Result {
+        let tag = TagRef::from_bytes(input)?;
+        let mut out = Vec::new();
+        tag.write_to(&mut out)?;
+        assert_eq!(out, input);
+        Ok(())
+    }
 
     #[test]
     fn signed() -> crate::Result {
@@ -265,6 +345,51 @@ KLMHist5yj0sw1E4hDTyQa0=
                 )
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn pgp_begin_marker_not_at_line_start_is_message() -> crate::Result {
+        let tag = TagRef::from_bytes(super::PGP_BEGIN_NOT_AT_LINE_START)?;
+        assert_eq!(tag.message, super::PGP_BEGIN_NOT_AT_LINE_START_MESSAGE.as_bstr());
+        assert_eq!(tag.pgp_signature, None, "it doesn't parse this as PGP signature");
+        assert_roundtrip(super::PGP_BEGIN_NOT_AT_LINE_START)?;
+        Ok(())
+    }
+
+    #[test]
+    fn trailing_text_after_pgp_end_marker_is_signature() -> crate::Result {
+        let tag = TagRef::from_bytes(super::PGP_SIGNATURE_WITH_TRAILING_TEXT)?;
+        assert_eq!(tag.message, b"message text".as_bstr());
+        assert_eq!(
+            tag.pgp_signature,
+            Some(super::PGP_SIGNATURE_WITH_TRAILING_TEXT_SIGNATURE.as_bstr())
+        );
+        assert_roundtrip(super::PGP_SIGNATURE_WITH_TRAILING_TEXT)?;
+        Ok(())
+    }
+
+    #[test]
+    fn pgp_begin_marker_without_end_marker_starts_signature() -> crate::Result {
+        let tag = TagRef::from_bytes(super::PGP_SIGNATURE_WITHOUT_END_MARKER)?;
+        assert_eq!(tag.message, b"message text".as_bstr());
+        assert_eq!(
+            tag.pgp_signature,
+            Some(super::PGP_SIGNATURE_WITHOUT_END_MARKER_SIGNATURE.as_bstr())
+        );
+        assert_roundtrip(super::PGP_SIGNATURE_WITHOUT_END_MARKER)?;
+        Ok(())
+    }
+
+    #[test]
+    fn pgp_begin_marker_at_body_start_is_signature() -> crate::Result {
+        let tag = TagRef::from_bytes(super::PGP_SIGNATURE_AT_BODY_START)?;
+        assert_eq!(tag.message, b"".as_bstr());
+        assert_eq!(
+            tag.pgp_signature,
+            Some(super::PGP_SIGNATURE_AT_BODY_START_SIGNATURE.as_bstr())
+        );
+        assert_roundtrip(super::PGP_SIGNATURE_AT_BODY_START)?;
         Ok(())
     }
 

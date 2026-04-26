@@ -19,8 +19,6 @@ impl AsRef<[u8]> for packed::Backing {
 pub mod open {
     use std::path::PathBuf;
 
-    use winnow::{prelude::*, stream::Offset};
-
     use crate::store_impl::packed;
 
     /// Initialization
@@ -30,10 +28,8 @@ pub mod open {
                 let (offset, sorted) = {
                     let mut input = backing.as_ref();
                     if *input.first().unwrap_or(&b' ') == b'#' {
-                        let header = packed::decode::header::<()>
-                            .parse_next(&mut input)
-                            .map_err(|_| Error::HeaderParsing)?;
-                        let offset = input.offset_from(&backing.as_ref());
+                        let header = packed::decode::header(&mut input).map_err(|_| Error::HeaderParsing)?;
+                        let offset = backing.as_ref().len() - input.len();
                         (offset, header.sorted)
                     } else {
                         (0, false)

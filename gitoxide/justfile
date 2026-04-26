@@ -75,8 +75,8 @@ check:
     cargo check -p gix-hashtable 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'
     cargo check -p gix-hashtable --features sha1
     cargo check -p gix-object --all-features
-    cargo check -p gix-object --features verbose-object-parsing-errors 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'
-    cargo check -p gix-object --features sha1,verbose-object-parsing-errors
+    cargo check -p gix-object 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'
+    cargo check -p gix-object --features sha1
     cargo check -p gix-archive 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'
     cargo check -p gix-archive --features sha1
     cargo check -p gix-attributes --features serde
@@ -215,8 +215,8 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-commitgraph --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-object --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-object --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-object --features verbose-object-parsing-errors --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-object --features verbose-object-parsing-errors --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-object --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-object --no-fail-fast
     cargo nextest run -p gix-tempfile --features signals --no-fail-fast
     cargo nextest run -p gix-features --all-features --no-fail-fast
     cargo nextest run -p gix-ref-tests --all-features --no-fail-fast

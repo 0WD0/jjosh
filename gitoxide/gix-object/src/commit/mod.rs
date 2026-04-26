@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use bstr::{BStr, BString, ByteSlice};
-use winnow::prelude::*;
 
 use crate::parse::parse_signature;
 use crate::{Commit, CommitRef, TagRef};
@@ -66,9 +65,9 @@ impl<'a> CommitRef<'a> {
     /// Deserialize a commit from the given `data` bytes while avoiding most allocations.
     pub fn from_bytes(mut data: &'a [u8]) -> Result<CommitRef<'a>, crate::decode::Error> {
         let input = &mut data;
-        match decode::commit.parse_next(input) {
+        match decode::commit(input) {
             Ok(tag) => Ok(tag),
-            Err(err) => Err(crate::decode::Error::with_err(err, input)),
+            Err(err) => Err(err),
         }
     }
 }

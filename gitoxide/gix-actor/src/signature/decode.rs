@@ -1,10 +1,11 @@
 pub(crate) mod function {
     use bstr::ByteSlice;
+    use gix_error::ValidationError;
 
-    use crate::{decode::Error, IdentityRef, SignatureRef};
+    use crate::{IdentityRef, SignatureRef};
 
     /// Parse a signature from the bytes input `i`, and change it to point to the unparsed bytes afterwards.
-    pub fn decode<'a>(i: &mut &'a [u8]) -> Result<SignatureRef<'a>, Error> {
+    pub fn decode<'a>(i: &mut &'a [u8]) -> Result<SignatureRef<'a>, ValidationError> {
         let identity = identity(i)?;
         if i.first() == Some(&b' ') {
             *i = &i[1..];
@@ -25,19 +26,23 @@ pub(crate) mod function {
     }
 
     /// Parse an identity from the bytes input `i` (like `name <email>`).
-    pub fn identity<'a>(i: &mut &'a [u8]) -> Result<IdentityRef<'a>, Error> {
+    pub fn identity<'a>(i: &mut &'a [u8]) -> Result<IdentityRef<'a>, ValidationError> {
         let eol_idx = i.find_byte(b'\n').unwrap_or(i.len());
-        let right_delim_idx = i[..eol_idx].rfind_byte(b'>').ok_or(Error::MissingClosingBracket)?;
+        let right_delim_idx = i[..eol_idx]
+            .rfind_byte(b'>')
+            .ok_or_else(|| ValidationError::new("Closing '>' not found"))?;
         let i_name_and_email = &i[..right_delim_idx];
         let skip_from_right = i_name_and_email.iter().rev().take_while(|b| **b == b'>').count();
-        let left_delim_idx = i_name_and_email.find_byte(b'<').ok_or(Error::MissingOpeningBracket)?;
+        let left_delim_idx = i_name_and_email
+            .find_byte(b'<')
+            .ok_or_else(|| ValidationError::new("Opening '<' not found"))?;
         let skip_from_left = i[left_delim_idx..].iter().take_while(|b| **b == b'<').count();
         let mut name = i[..left_delim_idx].as_bstr();
         name = name.strip_suffix(b" ").unwrap_or(name).as_bstr();
 
         let email = i
             .get(left_delim_idx + skip_from_left..right_delim_idx - skip_from_right)
-            .ok_or(Error::DelimiterOverlap)?
+            .ok_or_else(|| ValidationError::new("Skipped parts run into each other"))?
             .as_bstr();
         *i = i.get(right_delim_idx + 1..).unwrap_or(&[]);
         Ok(IdentityRef { name, email })
@@ -52,11 +57,12 @@ pub use function::identity;
 #[cfg(test)]
 mod tests {
     mod parse_signature {
-        use crate::{decode::Error, signature, SignatureRef};
+        use gix_error::ValidationError;
 
-        fn decode(i: &[u8]) -> Result<(&[u8], SignatureRef<'_>), Error> {
-            let mut i = i;
-            signature::decode(&mut i).map(|signature| (i, signature))
+        use crate::SignatureRef;
+
+        fn decode(mut i: &[u8]) -> Result<(&[u8], SignatureRef<'_>), ValidationError> {
+            SignatureRef::from_bytes_consuming(&mut i).map(|signature| (i, signature))
         }
 
         fn signature(name: &'static str, email: &'static str, time: &'static str) -> SignatureRef<'static> {
@@ -137,8 +143,10 @@ mod tests {
         #[test]
         fn invalid_signature() {
             assert_eq!(
-                decode(b"hello < 12345 -1215").expect_err("parse fails as > is missing"),
-                Error::MissingClosingBracket
+                decode(b"hello < 12345 -1215")
+                    .expect_err("parse fails as > is missing")
+                    .to_string(),
+                "Closing '>' not found"
             );
         }
 

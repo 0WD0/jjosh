@@ -26,6 +26,19 @@ fn invalid_timestsamp() {
 }
 
 #[test]
+fn uppercase_tree_id() -> crate::Result {
+    let input = b"tree 7989DFB2EC2F41914611A22FB30BBC2B3849DF9A
+author Name <name@example.com> 1312735823 +0518
+committer Name <name@example.com> 1312735823 +0518
+
+message";
+    let commit = CommitRef::from_bytes(input)?;
+    assert_eq!(commit.tree, b"7989DFB2EC2F41914611A22FB30BBC2B3849DF9A".as_bstr());
+    assert_eq!(commit.tree(), hex_to_id("7989dfb2ec2f41914611a22fb30bbc2b3849df9a"));
+    Ok(())
+}
+
+#[test]
 fn invalid_email_of_committer() -> crate::Result {
     let actor = gix_actor::SignatureRef {
         name: b"Gregor Hartmann".as_bstr(),

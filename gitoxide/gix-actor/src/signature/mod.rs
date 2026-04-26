@@ -6,8 +6,19 @@ mod _ref {
     /// Lifecycle
     impl<'a> SignatureRef<'a> {
         /// Deserialize a signature from the given `data`.
-        pub fn from_bytes(mut data: &'a [u8]) -> Result<SignatureRef<'a>, crate::decode::Error> {
-            decode(&mut data)
+        ///
+        /// Typical input is `Name <name@example.com> 1700000000 +0000`.
+        pub fn from_bytes(mut data: &'a [u8]) -> Result<SignatureRef<'a>, gix_error::ValidationError> {
+            Self::from_bytes_consuming(&mut data)
+        }
+
+        /// Deserialize a signature from the given `data` and advance it past the signature.
+        ///
+        /// Typical input is `Name <name@example.com> 1700000000 +0000`; on
+        /// success, `data` points to the bytes immediately after the parsed
+        /// signature.
+        pub fn from_bytes_consuming(data: &mut &'a [u8]) -> Result<SignatureRef<'a>, gix_error::ValidationError> {
+            decode(data)
         }
 
         /// Try to parse the timestamp and create an owned instance from this shared one.

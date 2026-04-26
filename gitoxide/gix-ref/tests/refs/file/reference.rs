@@ -257,6 +257,14 @@ mod parse {
         );
 
         mktest!(
+            peeled_uppercase,
+            b"C5241B835B93AF497CDA80CE0DCEB8F49800DF1C\n",
+            gix_ref::Kind::Object,
+            Some(hex_to_id("c5241b835b93af497cda80ce0dceb8f49800df1c").as_ref()),
+            None
+        );
+
+        mktest!(
             symbolic,
             b"ref: refs/heads/main\n",
             gix_ref::Kind::Symbolic,

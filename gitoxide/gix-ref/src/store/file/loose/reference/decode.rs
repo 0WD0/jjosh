@@ -1,16 +1,7 @@
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
-use winnow::{
-    combinator::{opt, terminated},
-    prelude::*,
-    token::take_while,
-};
 
-use crate::{
-    parse::{hex_hash, newline},
-    store_impl::file::loose::Reference,
-    FullName, Target,
-};
+use crate::{parse::hex_hash, store_impl::file::loose::Reference, FullName, Target};
 
 enum MaybeUnsafeState {
     Id(ObjectId),
@@ -54,10 +45,10 @@ impl TryFrom<MaybeUnsafeState> for Target {
 impl Reference {
     /// Create a new reference of the given `parent` store with `relative_path` service as unique identifier
     /// at which the `path_contents` was read to obtain the refs value.
-    pub fn try_from_path(name: FullName, mut path_contents: &[u8]) -> Result<Self, Error> {
+    pub fn try_from_path(name: FullName, path_contents: &[u8]) -> Result<Self, Error> {
         Ok(Reference {
             name,
-            target: parse(&mut path_contents)
+            target: parse(path_contents)
                 .map_err(|_| Error::Parse {
                     content: path_contents.into(),
                 })?
@@ -66,14 +57,28 @@ impl Reference {
     }
 }
 
-fn parse(i: &mut &[u8]) -> ModalResult<MaybeUnsafeState> {
-    if let Some(_ref_prefix) = opt(terminated("ref: ", take_while(0.., b' '))).parse_next(i)? {
-        terminated(take_while(0.., |b| b != b'\r' && b != b'\n'), opt(newline))
-            .map(|path| MaybeUnsafeState::UnvalidatedPath(path.into()))
-            .parse_next(i)
+/// Parse the contents of a loose reference file.
+///
+/// A *symbolic* reference starts with `ref: `, may have additional spaces before
+/// the path, and returns [`MaybeUnsafeState::UnvalidatedPath`] with the path
+/// bytes up to the next line ending or the end of input. The path is validated
+/// later when it is converted into a [`Target`].
+///
+/// A *direct* reference starts with a hexadecimal object id and returns
+/// [`MaybeUnsafeState::Id`].
+///
+/// If neither reference form can be parsed, an error is returned.
+fn parse(mut i: &[u8]) -> Result<MaybeUnsafeState, ()> {
+    if let Some(rest) = i.strip_prefix(b"ref: ") {
+        i = rest;
+        while i.first() == Some(&b' ') {
+            i = &i[1..];
+        }
+        let path_end = i.iter().position(|b| *b == b'\r' || *b == b'\n').unwrap_or(i.len());
+        let path = i[..path_end].into();
+        Ok(MaybeUnsafeState::UnvalidatedPath(path))
     } else {
-        terminated(hex_hash, opt(newline))
-            .map(|hex| MaybeUnsafeState::Id(ObjectId::from_hex(hex).expect("prior validation")))
-            .parse_next(i)
+        let hex = hex_hash(&mut i)?;
+        Ok(MaybeUnsafeState::Id(ObjectId::from_hex(hex).expect("prior validation")))
     }
 }

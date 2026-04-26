@@ -178,14 +178,7 @@ mod method {
 fn invalid() {
     let fixture = fixture_name("commit", "unsigned.txt");
     let partial_commit = &fixture[..fixture.len() / 2];
-    assert_eq!(
-        CommitRef::from_bytes(partial_commit).unwrap_err().to_string(),
-        if cfg!(feature = "verbose-object-parsing-errors") {
-            "object parsing failed at ``\nexpected `author <signature>`"
-        } else {
-            "object parsing failed"
-        }
-    );
+    assert!(CommitRef::from_bytes(partial_commit).is_err());
     assert_eq!(
         CommitRefIter::from_bytes(partial_commit)
             .take_while(Result::is_ok)
