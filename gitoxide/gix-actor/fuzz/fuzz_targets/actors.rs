@@ -1,6 +1,6 @@
 #![no_main]
 
-use gix_actor::{IdentityRef, Signature, SignatureRef};
+use gix_actor::{IdentityRef, SignatureRef};
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 
@@ -24,10 +24,10 @@ fn inspect_signature(signature: SignatureRef<'_>) {
 }
 
 fuzz_target!(|input: &[u8]| {
-    if let Ok(identity) = IdentityRef::from_bytes::<()>(input) {
+    if let Ok(identity) = IdentityRef::from_bytes(input) {
         inspect_identity(identity);
     }
-    if let Ok(signature) = SignatureRef::from_bytes::<()>(input) {
+    if let Ok(signature) = SignatureRef::from_bytes(input) {
         inspect_signature(signature);
     }
 });

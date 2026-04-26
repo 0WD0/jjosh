@@ -12,7 +12,7 @@ fn round_trip() -> gix_testtools::Result {
         b".. whitespace  \t  is explicitly allowed    - unicode aware trimming must be done elsewhere  <byronimo@gmail.com>"
     ];
     for input in DEFAULTS {
-        let signature: Identity = gix_actor::IdentityRef::from_bytes::<()>(input).unwrap().into();
+        let signature: Identity = gix_actor::IdentityRef::from_bytes(input).unwrap().into();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
@@ -32,7 +32,7 @@ fn lenient_parsing() -> gix_testtools::Result {
             "fl <First Last<fl@openoffice.org",
         ),
     ] {
-        let identity = gix_actor::IdentityRef::from_bytes::<()>(input.as_bytes()).unwrap();
+        let identity = gix_actor::IdentityRef::from_bytes(input.as_bytes()).unwrap();
         assert_eq!(identity.name, "First Last");
         assert_eq!(
             identity.email, expected_email,

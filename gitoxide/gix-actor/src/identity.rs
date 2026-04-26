@@ -1,15 +1,11 @@
 use bstr::ByteSlice;
-use winnow::{error::StrContext, prelude::*};
 
 use crate::{signature::decode, Identity, IdentityRef};
 
 impl<'a> IdentityRef<'a> {
     /// Deserialize an identity from the given `data`.
-    pub fn from_bytes<E>(mut data: &'a [u8]) -> Result<Self, winnow::error::ErrMode<E>>
-    where
-        E: winnow::error::ParserError<&'a [u8]> + winnow::error::AddContext<&'a [u8], StrContext>,
-    {
-        decode::identity.parse_next(&mut data)
+    pub fn from_bytes(mut data: &'a [u8]) -> Result<Self, crate::decode::Error> {
+        decode::identity(&mut data)
     }
 
     /// Create an owned instance from this shared one.

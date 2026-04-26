@@ -49,7 +49,7 @@ use gix_actor::{Signature, SignatureRef};
 
 #[test]
 fn trim() {
-    let sig = gix_actor::SignatureRef::from_bytes::<()>(b" \t hello there \t < \t email \t > 1 -0030").unwrap();
+    let sig = gix_actor::SignatureRef::from_bytes(b" \t hello there \t < \t email \t > 1 -0030").unwrap();
     let sig = sig.trim();
     assert_eq!(sig.name, "hello there");
     assert_eq!(sig.email, "email");
@@ -65,7 +65,7 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for input in DEFAULTS {
-        let signature: Signature = gix_actor::SignatureRef::from_bytes::<()>(input).unwrap().into();
+        let signature: Signature = gix_actor::SignatureRef::from_bytes(input).unwrap().into();
         let mut output = Vec::new();
         signature.write_to(&mut output)?;
         assert_eq!(output.as_bstr(), input.as_bstr());
@@ -76,7 +76,7 @@ fn round_trip() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn signature_ref_round_trips_with_seconds_in_offset() -> Result<(), Box<dyn std::error::Error>> {
     let input = b"Sebastian Thiel <byronimo@gmail.com> 1313584730 +051800"; // Seen in the wild
-    let signature: SignatureRef = gix_actor::SignatureRef::from_bytes::<()>(input).unwrap();
+    let signature: SignatureRef = gix_actor::SignatureRef::from_bytes(input).unwrap();
     let mut output = Vec::new();
     signature.write_to(&mut output)?;
     assert_eq!(output.as_bstr(), input.as_bstr());
@@ -85,7 +85,7 @@ fn signature_ref_round_trips_with_seconds_in_offset() -> Result<(), Box<dyn std:
 
 #[test]
 fn parse_timestamp_with_trailing_digits() {
-    let signature = gix_actor::SignatureRef::from_bytes::<()>(b"first last <name@example.com> 1312735823 +051800")
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +051800")
         .expect("deal with trailing zeroes in timestamp by discarding it");
     assert_eq!(
         signature,
@@ -96,7 +96,7 @@ fn parse_timestamp_with_trailing_digits() {
         }
     );
 
-    let signature = gix_actor::SignatureRef::from_bytes::<()>(b"first last <name@example.com> 1312735823 +0518")
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com> 1312735823 +0518")
         .expect("this naturally works as the timestamp does not have trailing zeroes");
     assert_eq!(
         signature,
@@ -110,7 +110,7 @@ fn parse_timestamp_with_trailing_digits() {
 
 #[test]
 fn parse_missing_timestamp() {
-    let signature = gix_actor::SignatureRef::from_bytes::<()>(b"first last <name@example.com>")
+    let signature = gix_actor::SignatureRef::from_bytes(b"first last <name@example.com>")
         .expect("deal with missing timestamp in signature by zeroing it");
     assert_eq!(
         signature,

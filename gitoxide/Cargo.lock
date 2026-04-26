@@ -1497,7 +1497,6 @@ dependencies = [
  "gix-testtools",
  "pretty_assertions",
  "serde",
- "winnow",
 ]
 
 [[package]]
