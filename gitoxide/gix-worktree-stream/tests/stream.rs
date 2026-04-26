@@ -199,15 +199,15 @@ mod from_tree {
         );
 
         #[cfg(target_pointer_width = "64")]
-        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env() {
-            Some(gix_hash::Kind::Sha1) => 320302,
-            Some(gix_hash::Kind::Sha256) => 320458,
+        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+            gix_hash::Kind::Sha1 => 320302,
+            gix_hash::Kind::Sha256 => 320458,
             _ => unimplemented!(),
         };
         #[cfg(target_pointer_width = "32")]
-        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env() {
-            Some(gix_hash::Kind::Sha1) => 320198,
-            Some(gix_hash::Kind::Sha256) => todo!("let the test fail on CI and add the value here"),
+        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+            gix_hash::Kind::Sha1 => 320198,
+            gix_hash::Kind::Sha256 => todo!("let the test fail on CI and add the value here"),
             _ => unimplemented!(),
         };
 
