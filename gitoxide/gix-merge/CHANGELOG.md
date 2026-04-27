@@ -5,14 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.12.0 (2026-02-10)
+## 0.16.0 (2026-04-28)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 18 calendar days.
- - 18 days passed between releases.
+ - 1 commit contributed to the release over the course of 2 calendar days.
+ - 3 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -23,6 +23,185 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
+</details>
+
+## 0.15.0 (2026-04-24)
+
+### Chore
+
+ - <csr-id-ed32b8af877ae273570e950886b1050fe2f8afaa/> make `fuzz` test myers algorithm resilient against pathological inputs.
+   Achieved by removing Myers as it's way of operation can't really be fixed.
+ - <csr-id-3e05ca352597ef5966fa4dc4f52456c2424cddad/> add package.include directives to control which files are packaged.
+
+### New Features
+
+ - <csr-id-1ec28125bc33b4725133f27648b0978a0353463e/> add `blob::text::PreparedMerge` to allow re-running with different Conflict resolutions.
+   This is useful to quickly check different resolution results.
+
+### Bug Fixes
+
+ - <csr-id-91feaf29334555c8287ae9f16a0bdf2be0b9ccc0/> enable diff-postprocessing in when merging blobs
+   This can lead to cleaner, more Git-like merges.
+ - <csr-id-680dbb76266c8555324b89b47fac7dbeee04e67f/> coalesce split Myers hunks to prevent false merge conflicts
+   When imara-diff's Myers algorithm diffs two files, it sometimes splits
+   what is logically one change into a non-empty deletion hunk and a
+   separate empty insertion hunk, with one unchanged base line between
+   them. This is a valid minimal edit script, but it differs from the
+   alignment that git's xdiff (also Myers-based) would choose.
+   
+   When the empty insertion lands at a base position that the other side
+   of a 3-way merge also touches, `take_intersecting` reports an overlap
+   and the merge produces a conflict — even though `git merge-file`
+   resolves the same inputs cleanly.
+   
+   Fix this by adding a pre-processing step after sorting hunks: for each
+   empty-range insertion hunk, look backwards for the nearest same-side
+   non-empty hunk within a gap of at most one unchanged base line. If
+   found, extend that hunk to cover the gap and the insertion point. This
+   re-joins the split hunk, making the merge robust to different diff
+   algorithm alignment choices.
+   
+   The coalescing is conservative: it only applies when (a) the insertion
+   hunk has an empty before-range, (b) there is a same-side non-empty
+   hunk nearby (gap ≤ 1), and (c) that hunk is the nearest same-side
+   hunk. This avoids affecting cases like zdiff3-interesting where empty
+   insertions are standalone and represent genuinely different changes.
+
+### New Features (BREAKING)
+
+ - <csr-id-8094f5dcd4f24f4d54f7fbe7f716f80f2974b586/> Use `imara-diff-v2` with git sliders processing
+   The slider post-processing imrpoves the diff quality for about 8% slower diffs.
+   Line-counts, however, will be 50% faster to compute.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 20 commits contributed to the release over the course of 32 calendar days.
+ - 32 days passed between releases.
+ - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`f9fbcba`](https://github.com/GitoxideLabs/gitoxide/commit/f9fbcba28278f3fb2ad7969c2d00ac6765165724))
+    - Merge pull request #2534 from GitoxideLabs/fuzz-merge-timeout ([`2e8a90d`](https://github.com/GitoxideLabs/gitoxide/commit/2e8a90d5e70e18766d46f552c579ebd8d19b1140))
+    - Address auto-review ([`94b1c4b`](https://github.com/GitoxideLabs/gitoxide/commit/94b1c4bf2fe53bf326ba8fc0ad69ee9cb65b0c83))
+    - Make `fuzz` test myers algorithm resilient against pathological inputs. ([`ed32b8a`](https://github.com/GitoxideLabs/gitoxide/commit/ed32b8af877ae273570e950886b1050fe2f8afaa))
+    - Add `blob::text::PreparedMerge` to allow re-running with different Conflict resolutions. ([`1ec2812`](https://github.com/GitoxideLabs/gitoxide/commit/1ec28125bc33b4725133f27648b0978a0353463e))
+    - Merge pull request #2497 from cruessler/pass-hash-len-to-tree-ref-iter ([`7d50c30`](https://github.com/GitoxideLabs/gitoxide/commit/7d50c30040b8854a0129d86bd30535cb570ca75e))
+    - Adapt to changes in `gix-object` ([`6df1d55`](https://github.com/GitoxideLabs/gitoxide/commit/6df1d553b03e2809aa4f651e3ec48aad4688696e))
+    - Merge pull request #2476 from mtsgrd/fix/false-conflict-empty-insertion-overlap ([`172bd22`](https://github.com/GitoxideLabs/gitoxide/commit/172bd22b8241aba9187fc6e5134e3f454053c2be))
+    - Review ([`7b82f3a`](https://github.com/GitoxideLabs/gitoxide/commit/7b82f3ab676a8f8d223f02b57d5badd0e4392618))
+    - Enable diff-postprocessing in when merging blobs ([`91feaf2`](https://github.com/GitoxideLabs/gitoxide/commit/91feaf29334555c8287ae9f16a0bdf2be0b9ccc0))
+    - Coalesce split Myers hunks to prevent false merge conflicts ([`680dbb7`](https://github.com/GitoxideLabs/gitoxide/commit/680dbb76266c8555324b89b47fac7dbeee04e67f))
+    - Merge pull request #2513 from GitoxideLabs/v2-diff ([`2a5db88`](https://github.com/GitoxideLabs/gitoxide/commit/2a5db88d0330b0d125de4b6f3819f17a7f76f4b8))
+    - Thanks clippy ([`e4f380e`](https://github.com/GitoxideLabs/gitoxide/commit/e4f380eff3b0440002f7e9b64a14ddcfbe63192a))
+    - Use `imara-diff-v2` with git sliders processing ([`8094f5d`](https://github.com/GitoxideLabs/gitoxide/commit/8094f5dcd4f24f4d54f7fbe7f716f80f2974b586))
+    - Merge pull request #2518 from GitoxideLabs/improvements ([`444a92b`](https://github.com/GitoxideLabs/gitoxide/commit/444a92b0fa1df406cf2f36f8dbe82c2859e04e0b))
+    - Add package.include directives to control which files are packaged. ([`3e05ca3`](https://github.com/GitoxideLabs/gitoxide/commit/3e05ca352597ef5966fa4dc4f52456c2424cddad))
+    - Merge pull request #2506 from GitoxideLabs/vendor-imara-diff ([`8f091d1`](https://github.com/GitoxideLabs/gitoxide/commit/8f091d108cd75371be2ed9de6e81f785cda53d92))
+    - Add a test that reproduces a timeout issue in `gix-merge`. ([`3bf4bdc`](https://github.com/GitoxideLabs/gitoxide/commit/3bf4bdc8fafd0949e4fe9648972ee8fe3438088e))
+    - Vendor `imara-diff` 0.1 and 0.2 ([`fd49295`](https://github.com/GitoxideLabs/gitoxide/commit/fd49295c5ed4a57bf5771e23c0f803435990ecfa))
+    - Merge pull request #2480 from GitoxideLabs/report ([`98bae84`](https://github.com/GitoxideLabs/gitoxide/commit/98bae84fe534879899489c6f2c5e8cfcc863116d))
+</details>
+
+## 0.14.0 (2026-03-22)
+
+### New Features
+
+ - <csr-id-383291689c659a2cc0bee7687f5a9b9f7a3659a4/> add `sha1` and `sha256` features to `gix`.
+   This way one can control which hashes are compiled in exactly,
+   while having reasonable defaults automatically.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 11 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.1, gix-date v0.15.1, gix-path v0.11.2, gix-features v0.46.2, gix-hash v0.23.0, gix-hashtable v0.13.0, gix-object v0.58.0, gix-packetline v0.21.2, gix-filter v0.28.0, gix-fs v0.19.2, gix-commitgraph v0.35.0, gix-revwalk v0.29.0, gix-traverse v0.55.0, gix-worktree-stream v0.30.0, gix-archive v0.30.0, gix-tempfile v21.0.2, gix-lock v21.0.2, gix-index v0.49.0, gix-pathspec v0.16.1, gix-ignore v0.19.1, gix-worktree v0.50.0, gix-diff v0.61.0, gix-blame v0.11.0, gix-ref v0.61.0, gix-sec v0.13.2, gix-config v0.54.0, gix-prompt v0.14.1, gix-credentials v0.37.1, gix-discover v0.49.0, gix-dir v0.23.0, gix-revision v0.43.0, gix-merge v0.14.0, gix-negotiate v0.29.0, gix-pack v0.68.0, gix-odb v0.78.0, gix-refspec v0.39.0, gix-shallow v0.10.0, gix-transport v0.55.1, gix-protocol v0.59.0, gix-status v0.28.0, gix-submodule v0.28.0, gix-worktree-state v0.28.0, gix v0.81.0, gix-fsck v0.19.0, gitoxide-core v0.55.0, gitoxide v0.52.0, safety bump 31 crates ([`c389a2c`](https://github.com/GitoxideLabs/gitoxide/commit/c389a2ccb32b36c1178a1352a2bb3229aef3b016))
+    - Merge pull request #2472 from GitoxideLabs/improvements ([`8e47e0f`](https://github.com/GitoxideLabs/gitoxide/commit/8e47e0f00bed137db6231cf2ab327843ada0b2d2))
+    - Add a test for mergiraf-style merge drivers specifically ([`abe8bbf`](https://github.com/GitoxideLabs/gitoxide/commit/abe8bbfb02dc864011f8a0ed518aaf6b0faf3301))
+    - Merge pull request #2454 from GitoxideLabs/dependabot/cargo/cargo-da044b9bb0 ([`6183fd0`](https://github.com/GitoxideLabs/gitoxide/commit/6183fd092d7acd43763fe15be400ce81e7172775))
+    - Bump the cargo group with 68 updates ([`6bdb331`](https://github.com/GitoxideLabs/gitoxide/commit/6bdb33145e8aa81ba0dae5caafc675c591569715))
+    - Merge pull request #2441 from cruessler/remove-sha-1-from-default-features ([`e8bf096`](https://github.com/GitoxideLabs/gitoxide/commit/e8bf096c07205a41089a697a9726f075d3515643))
+    - Add `sha1` and `sha256` features to `gix`. ([`3832916`](https://github.com/GitoxideLabs/gitoxide/commit/383291689c659a2cc0bee7687f5a9b9f7a3659a4))
+    - Adapt to sha1 not being default feature of `gix-hash` ([`e71c703`](https://github.com/GitoxideLabs/gitoxide/commit/e71c703f0b8ca209f8aa912cbaf5aa26551496ef))
+    - Merge pull request #2445 from GitoxideLabs/improvements ([`6a7287c`](https://github.com/GitoxideLabs/gitoxide/commit/6a7287c9247120167e49154463f7e86c25100649))
+    - Add `cargo machete` CI job including exclusions ([`abd0724`](https://github.com/GitoxideLabs/gitoxide/commit/abd072444ff076557aa7e4c5b76ad7c47d488a4a))
+    - Merge pull request #2442 from GitoxideLabs/report ([`f7277f3`](https://github.com/GitoxideLabs/gitoxide/commit/f7277f3c9e3e5130edb714ff5bd3db06b7f589b3))
+</details>
+
+## 0.13.0 (2026-02-22)
+
+### New Features (BREAKING)
+
+ - <csr-id-231fda44d3de46776d19227100d52459e37bcaf5/> model merge-bases as a non-empty type in `gix-revision` and `gix-merge`
+   Adapt `gix` accordingly (even though it's nonbreaking).
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release over the course of 10 calendar days.
+ - 12 days passed between releases.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.0, gix-date v0.15.0, gix-actor v0.40.0, gix-object v0.57.0, gix-quote v0.7.0, gix-attributes v0.31.0, gix-command v0.8.0, gix-filter v0.27.0, gix-chunk v0.7.0, gix-commitgraph v0.34.0, gix-revwalk v0.28.0, gix-traverse v0.54.0, gix-worktree-stream v0.29.0, gix-archive v0.29.0, gix-bitmap v0.3.0, gix-index v0.48.0, gix-pathspec v0.16.0, gix-worktree v0.49.0, gix-diff v0.60.0, gix-blame v0.10.0, gix-ref v0.60.0, gix-config v0.53.0, gix-prompt v0.14.0, gix-url v0.35.2, gix-credentials v0.37.0, gix-discover v0.48.0, gix-dir v0.22.0, gix-mailmap v0.32.0, gix-revision v0.42.0, gix-merge v0.13.0, gix-negotiate v0.28.0, gix-pack v0.67.0, gix-odb v0.77.0, gix-refspec v0.38.0, gix-shallow v0.9.0, gix-transport v0.55.0, gix-protocol v0.58.0, gix-status v0.27.0, gix-submodule v0.27.0, gix-worktree-state v0.27.0, gix v0.80.0, gix-fsck v0.18.0, gitoxide-core v0.54.0, gitoxide v0.51.0, safety bump 42 crates ([`ecf90fc`](https://github.com/GitoxideLabs/gitoxide/commit/ecf90fccb9d43bff320c17f46fdc3f5832533a52))
+    - Merge pull request #2433 from GitoxideLabs/codex/nonempty-rewrite ([`29040a8`](https://github.com/GitoxideLabs/gitoxide/commit/29040a8277735cbc9fcd0d80626c75d710d3da2a))
+    - Model merge-bases as a non-empty type in `gix-revision` and `gix-merge` ([`231fda4`](https://github.com/GitoxideLabs/gitoxide/commit/231fda44d3de46776d19227100d52459e37bcaf5))
+    - Merge branch 'release' ([`9327b73`](https://github.com/GitoxideLabs/gitoxide/commit/9327b73785227f1322a327cb48fbb0800e1286ae))
+</details>
+
+## 0.12.0 (2026-02-10)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release over the course of 19 calendar days.
+ - 19 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.1.0, gix-date v0.14.0, gix-actor v0.39.0, gix-trace v0.1.18, gix-path v0.11.1, gix-features v0.46.1, gix-hash v0.22.1, gix-object v0.56.0, gix-quote v0.6.2, gix-attributes v0.30.1, gix-command v0.7.1, gix-packetline v0.21.1, gix-filter v0.26.0, gix-fs v0.19.1, gix-chunk v0.6.0, gix-commitgraph v0.33.0, gix-revwalk v0.27.0, gix-traverse v0.53.0, gix-worktree-stream v0.28.0, gix-archive v0.28.0, gix-bitmap v0.2.16, gix-tempfile v21.0.1, gix-lock v21.0.1, gix-index v0.47.0, gix-config-value v0.17.1, gix-pathspec v0.15.1, gix-worktree v0.48.0, gix-diff v0.59.0, gix-blame v0.9.0, gix-ref v0.59.0, gix-sec v0.13.1, gix-config v0.52.0, gix-prompt v0.13.1, gix-url v0.35.1, gix-credentials v0.36.0, gix-discover v0.47.0, gix-dir v0.21.0, gix-mailmap v0.31.0, gix-revision v0.41.0, gix-merge v0.12.0, gix-negotiate v0.27.0, gix-pack v0.66.0, gix-odb v0.76.0, gix-refspec v0.37.0, gix-shallow v0.8.1, gix-transport v0.54.0, gix-protocol v0.57.0, gix-status v0.26.0, gix-submodule v0.26.0, gix-worktree-state v0.26.0, gix v0.79.0, safety bump 35 crates ([`d66ac10`](https://github.com/GitoxideLabs/gitoxide/commit/d66ac1057a5b7bfb608d4e6be585c69fb692bfee))
     - Merge pull request #2407 from GitoxideLabs/dependabot/cargo/cargo-fb4135702f ([`8bceefb`](https://github.com/GitoxideLabs/gitoxide/commit/8bceefbfc5f897517bfdd24744695a82cfa0d5be))
     - Bump the cargo group with 59 updates ([`7ce3c55`](https://github.com/GitoxideLabs/gitoxide/commit/7ce3c5587aec1ca813039c047783b9cb2a106826))
     - Merge pull request #2393 from GitoxideLabs/report ([`f7d0975`](https://github.com/GitoxideLabs/gitoxide/commit/f7d09758d245aaa89409e39bb6ba1ed6b7118ea5))
