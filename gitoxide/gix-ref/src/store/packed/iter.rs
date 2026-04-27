@@ -1,5 +1,4 @@
 use gix_object::bstr::{BString, ByteSlice};
-use winnow::{combinator::preceded, prelude::*, token::rest};
 
 use crate::store_impl::{packed, packed::decode};
 
@@ -11,13 +10,13 @@ impl packed::Buffer {
     ///
     /// There is no namespace support in packed iterators. It can be emulated using `iter_prefixed(…)`.
     pub fn iter(&self) -> Result<packed::Iter<'_>, packed::iter::Error> {
-        packed::Iter::new(self.as_ref())
+        packed::Iter::new(self.as_ref(), self.hash_kind)
     }
 
     /// Return an iterator yielding only references matching the given prefix, ordered by reference name.
     pub fn iter_prefixed(&self, prefix: BString) -> Result<packed::Iter<'_>, packed::iter::Error> {
         let first_record_with_prefix = self.binary_search_by(prefix.as_bstr()).unwrap_or_else(|(_, pos)| pos);
-        packed::Iter::new_with_prefix(&self.as_ref()[first_record_with_prefix..], Some(prefix))
+        packed::Iter::new_with_prefix(&self.as_ref()[first_record_with_prefix..], self.hash_kind, Some(prefix))
     }
 }
 
@@ -29,8 +28,8 @@ impl<'a> Iterator for packed::Iter<'a> {
             return None;
         }
 
-        let start = self.cursor.checkpoint();
-        match decode::reference::<()>.parse_next(&mut self.cursor) {
+        let start = self.cursor;
+        match decode::reference(&mut self.cursor, self.hash_kind) {
             Ok(reference) => {
                 self.current_line += 1;
                 if let Some(ref prefix) = self.prefix {
@@ -42,7 +41,7 @@ impl<'a> Iterator for packed::Iter<'a> {
                 Some(Ok(reference))
             }
             Err(_) => {
-                self.cursor.reset(&start);
+                self.cursor = start;
                 let (failed_line, next_cursor) = self
                     .cursor
                     .find_byte(b'\n')
@@ -64,39 +63,43 @@ impl<'a> Iterator for packed::Iter<'a> {
 }
 
 impl<'a> packed::Iter<'a> {
-    /// Return a new iterator after successfully parsing the possibly existing first line of the given `packed` refs buffer.
-    pub fn new(packed: &'a [u8]) -> Result<Self, Error> {
-        Self::new_with_prefix(packed, None)
+    /// Return a new iterator after successfully parsing the possibly existing first line of the given `packed` refs buffer,
+    /// parsing object ids as `hash_kind`.
+    pub fn new(packed: &'a [u8], hash_kind: gix_hash::Kind) -> Result<Self, Error> {
+        Self::new_with_prefix(packed, hash_kind, None)
     }
 
-    /// Returns an iterators whose references will only match the given prefix.
+    /// Returns an iterator whose references will only match `prefix`.
     ///
-    /// It assumes that the underlying `packed` buffer is indeed sorted
+    /// It assumes that the underlying `packed` buffer is indeed sorted and parses object ids as `hash_kind`.
     pub(in crate::store_impl::packed) fn new_with_prefix(
         packed: &'a [u8],
+        hash_kind: gix_hash::Kind,
         prefix: Option<BString>,
     ) -> Result<Self, Error> {
         if packed.is_empty() {
             Ok(packed::Iter {
                 cursor: packed,
+                hash_kind,
                 prefix,
                 current_line: 1,
             })
         } else if packed[0] == b'#' {
             let mut input = packed;
-            let refs = preceded(decode::header::<()>, rest)
-                .parse_next(&mut input)
-                .map_err(|_| Error::Header {
-                    invalid_first_line: packed.lines().next().unwrap_or(packed).into(),
-                })?;
+            decode::header(&mut input).map_err(|_| Error::Header {
+                invalid_first_line: packed.lines().next().unwrap_or(packed).into(),
+            })?;
+            let refs = input;
             Ok(packed::Iter {
                 cursor: refs,
+                hash_kind,
                 prefix,
                 current_line: 2,
             })
         } else {
             Ok(packed::Iter {
                 cursor: packed,
+                hash_kind,
                 prefix,
                 current_line: 1,
             })

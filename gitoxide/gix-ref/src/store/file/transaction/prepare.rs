@@ -34,7 +34,7 @@ impl Transaction<'_, '_> {
             .and_then(|maybe_loose| {
                 maybe_loose
                     .map(|buf| {
-                        loose::Reference::try_from_path(change.update.name.clone(), &buf)
+                        loose::Reference::try_from_path(change.update.name.clone(), &buf, store.object_hash)
                             .map(Reference::from)
                             .map_err(Error::from)
                     })

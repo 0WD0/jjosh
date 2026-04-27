@@ -8,7 +8,7 @@
 
 use std::str::from_utf8_unchecked;
 
-use memchr::memchr;
+use bstr::ByteSlice;
 
 use crate::TokenSource;
 
@@ -175,7 +175,7 @@ impl<'a> Iterator for BStrLines<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let line_len = memchr(b'\n', self.0).map_or(self.0.len(), |len| len + 1);
+        let line_len = self.0.find_byte(b'\n').map_or(self.0.len(), |len| len + 1);
         let (line, rem) = self.0.split_at(line_len);
         self.0 = rem.into();
         Some(line.into())
@@ -208,7 +208,7 @@ impl<'a> Iterator for ByteLines<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let line_len = memchr(b'\n', self.0).map_or(self.0.len(), |len| len + 1);
+        let line_len = self.0.find_byte(b'\n').map_or(self.0.len(), |len| len + 1);
         let (line, rem) = self.0.split_at(line_len);
         self.0 = rem;
         Some(line)

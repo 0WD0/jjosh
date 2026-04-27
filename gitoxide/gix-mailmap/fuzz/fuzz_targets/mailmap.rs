@@ -27,7 +27,7 @@ fn resolve(snapshot: &Snapshot, input: &[u8]) {
         b"Jane <jane@desktop.(none)> 1 +0000".as_slice(),
         b"Unknown <unknown@example.com> 1 +0000".as_slice(),
     ] {
-        let Ok(signature) = SignatureRef::from_bytes::<()>(candidate) else {
+        let Ok(signature) = SignatureRef::from_bytes(candidate) else {
             continue;
         };
         _ = black_box(snapshot.try_resolve_ref(signature));

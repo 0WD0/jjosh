@@ -19,21 +19,21 @@ impl AsRef<[u8]> for packed::Backing {
 pub mod open {
     use std::path::PathBuf;
 
-    use winnow::{prelude::*, stream::Offset};
-
     use crate::store_impl::packed;
 
     /// Initialization
     impl packed::Buffer {
-        fn open_with_backing(backing: packed::Backing, path: PathBuf) -> Result<Self, Error> {
+        fn open_with_backing(
+            backing: packed::Backing,
+            path: PathBuf,
+            hash_kind: gix_hash::Kind,
+        ) -> Result<Self, Error> {
             let (backing, offset) = {
                 let (offset, sorted) = {
                     let mut input = backing.as_ref();
                     if *input.first().unwrap_or(&b' ') == b'#' {
-                        let header = packed::decode::header::<()>
-                            .parse_next(&mut input)
-                            .map_err(|_| Error::HeaderParsing)?;
-                        let offset = input.offset_from(&backing.as_ref());
+                        let header = packed::decode::header(&mut input).map_err(|_| Error::HeaderParsing)?;
+                        let offset = backing.as_ref().len() - input.len();
                         (offset, header.sorted)
                     } else {
                         (0, false)
@@ -42,7 +42,8 @@ pub mod open {
 
                 if !sorted {
                     // this implementation is likely slower than what git does, but it's less code, too.
-                    let mut entries = packed::Iter::new(&backing.as_ref()[offset..])?.collect::<Result<Vec<_>, _>>()?;
+                    let mut entries =
+                        packed::Iter::new(&backing.as_ref()[offset..], hash_kind)?.collect::<Result<Vec<_>, _>>()?;
                     entries.sort_by_key(|e| e.name.as_bstr());
                     let mut serialized = Vec::<u8>::new();
                     for entry in entries {
@@ -65,14 +66,20 @@ pub mod open {
                 offset,
                 data: backing,
                 path,
+                hash_kind,
             })
         }
 
-        /// Open the file at `path` and map it into memory if the file size is larger than `use_memory_map_if_larger_than_bytes`.
+        /// Open the file at `path`, parsing object ids as `hash_kind`, and map it into memory if the file size is larger
+        /// than `use_memory_map_if_larger_than_bytes`.
         ///
         /// In order to allow fast lookups and optimizations, the contents of the packed refs must be sorted.
         /// If that's not the case, they will be sorted on the fly with the data being written into a memory buffer.
-        pub fn open(path: PathBuf, use_memory_map_if_larger_than_bytes: u64) -> Result<Self, Error> {
+        pub fn open(
+            path: PathBuf,
+            use_memory_map_if_larger_than_bytes: u64,
+            hash_kind: gix_hash::Kind,
+        ) -> Result<Self, Error> {
             let backing = if std::fs::metadata(&path)?.len() <= use_memory_map_if_larger_than_bytes {
                 packed::Backing::InMemory(std::fs::read(&path)?)
             } else {
@@ -84,16 +91,17 @@ pub mod open {
                     },
                 )
             };
-            Self::open_with_backing(backing, path)
+            Self::open_with_backing(backing, path, hash_kind)
         }
 
-        /// Open a buffer from `bytes`, which is the content of a typical `packed-refs` file.
+        /// Open a buffer from `bytes`, which is the content of a typical `packed-refs` file, parsing object ids as
+        /// `hash_kind`.
         ///
         /// In order to allow fast lookups and optimizations, the contents of the packed refs must be sorted.
         /// If that's not the case, they will be sorted on the fly.
-        pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        pub fn from_bytes(bytes: &[u8], hash_kind: gix_hash::Kind) -> Result<Self, Error> {
             let backing = packed::Backing::InMemory(bytes.into());
-            Self::open_with_backing(backing, PathBuf::from("<memory>"))
+            Self::open_with_backing(backing, PathBuf::from("<memory>"), hash_kind)
         }
     }
 

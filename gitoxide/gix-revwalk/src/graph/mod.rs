@@ -369,6 +369,7 @@ fn try_lookup<'graph, 'cache>(
     if let Some(cache) = cache {
         if let Some(pos) = cache.lookup(id) {
             return Ok(Some(LazyCommit {
+                hash_kind: id.kind(),
                 backing: Either::Right((cache, pos)),
             }));
         }
@@ -380,6 +381,7 @@ fn try_lookup<'graph, 'cache>(
             .map_err(gix_object::find::existing_iter::Error::Find)?
         {
             Some(data) => data.kind.is_commit().then_some(LazyCommit {
+                hash_kind: data.hash_kind,
                 backing: Either::Left(buf),
             }),
             None => None,
@@ -439,6 +441,7 @@ where
 ///
 /// The owned version of this type is called [`Commit`] and can be obtained by calling [`LazyCommit::to_owned()`].
 pub struct LazyCommit<'graph, 'cache> {
+    hash_kind: gix_hash::Kind,
     backing: Either<&'graph [u8], (&'cache gix_commitgraph::Graph, gix_commitgraph::Position)>,
 }
 

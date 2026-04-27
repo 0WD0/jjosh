@@ -194,7 +194,7 @@ impl file::Store {
                 Ok(None)
             }
             Some(content) => Ok(Some(
-                loose::Reference::try_from_path(full_name.to_owned(), &content)
+                loose::Reference::try_from_path(full_name.to_owned(), &content, self.object_hash)
                     .map(Into::into)
                     .map(|mut r: Reference| {
                         if let Some(namespace) = &self.namespace {

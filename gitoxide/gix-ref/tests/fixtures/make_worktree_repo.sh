@@ -19,6 +19,8 @@ git update-ref refs/stacks/common :/c1
 
 
 git worktree add ../w-detached HEAD~1
+printf "gitdir: ../repo/.git/worktrees/w-detached\n" >../w-detached/.git
+printf "../../../../w-detached/.git\n" >.git/worktrees/w-detached/gitdir
 (
   cd ../w-detached
   git bisect start
@@ -28,6 +30,8 @@ git worktree add ../w-detached HEAD~1
 )
 
 git worktree add ../w1
+printf "gitdir: ../repo/.git/worktrees/w1\n" >../w1/.git
+printf "../../../../w1/.git\n" >.git/worktrees/w1/gitdir
 (
   cd ../w1
   git reset --hard HEAD~2

@@ -35,8 +35,8 @@ pub type FrontMatterEvents<'a> = SmallVec<[Event<'a>; 8]>;
 /// - Comment markers are not strictly defined either. This parser will always
 ///   and only handle a semicolon or octothorpe (also known as a hash or number
 ///   sign).
-/// - Global properties may be allowed in `.ini` parsers, but is strictly
-///   disallowed by this parser.
+/// - Global properties before the first section are accepted for compatibility
+///   with Git, even though they are uncommon in `.gitconfig` files.
 /// - Only `\t`, `\n`, `\b` `\\` are valid escape characters.
 /// - Quoted and semi-quoted values will be parsed (but quotes will be included
 ///   in event outputs). An example of a semi-quoted value is `5"hello world"`,

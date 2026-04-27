@@ -1,82 +1,55 @@
 pub(crate) mod function {
     use bstr::ByteSlice;
-    use winnow::{
-        combinator::{opt, separated_pair},
-        error::{AddContext, ErrMode, ParserError, StrContext},
-        prelude::*,
-        stream::{AsChar, Stream},
-        token::take_while,
-    };
+    use gix_error::ValidationError;
 
     use crate::{IdentityRef, SignatureRef};
 
-    /// Parse a signature from the bytes input `i` using `nom`.
-    pub fn decode<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
-        i: &mut &'a [u8],
-    ) -> ModalResult<SignatureRef<'a>, E> {
-        separated_pair(
-            identity,
-            opt(b" "),
-            opt((
-                take_while(0.., |b: u8| b == b'+' || b == b'-' || b.is_space() || b.is_dec_digit()).map(|v: &[u8]| v),
-            ))
-            .map(|maybe_bytes| {
-                if let Some((bytes,)) = maybe_bytes {
-                    // SAFETY: The parser validated that there are only ASCII characters.
-                    #[allow(unsafe_code)]
-                    unsafe {
-                        std::str::from_utf8_unchecked(bytes)
-                    }
-                } else {
-                    ""
-                }
-            }),
-        )
-        .context(StrContext::Expected("<name> <<email>> <timestamp> <+|-><HHMM>".into()))
-        .map(|(identity, time)| SignatureRef {
+    /// Parse a signature from the bytes input `i`, and change it to point to the unparsed bytes afterwards.
+    pub fn decode<'a>(i: &mut &'a [u8]) -> Result<SignatureRef<'a>, ValidationError> {
+        let identity = identity(i)?;
+        if i.first() == Some(&b' ') {
+            *i = &i[1..];
+        }
+
+        let time_len = i.iter().position(|b| !is_time_byte(*b)).unwrap_or(i.len());
+        let (time, rest) = i.split_at(time_len);
+        *i = rest;
+        // SAFETY: The parser validated that there are only ASCII characters with `is_time_byte()`.
+        #[allow(unsafe_code)]
+        let time = unsafe { std::str::from_utf8_unchecked(time) };
+
+        Ok(SignatureRef {
             name: identity.name,
             email: identity.email,
             time,
         })
-        .parse_next(i)
     }
 
-    /// Parse an identity from the bytes input `i` (like `name <email>`) using `nom`.
-    pub fn identity<'a, E: ParserError<&'a [u8]> + AddContext<&'a [u8], StrContext>>(
-        i: &mut &'a [u8],
-    ) -> ModalResult<IdentityRef<'a>, E> {
-        let start = i.checkpoint();
+    /// Parse an identity from the bytes input `i` (like `name <email>`).
+    pub fn identity<'a>(i: &mut &'a [u8]) -> Result<IdentityRef<'a>, ValidationError> {
         let eol_idx = i.find_byte(b'\n').unwrap_or(i.len());
         let right_delim_idx = i[..eol_idx]
             .rfind_byte(b'>')
-            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
-                i,
-                &start,
-                StrContext::Label("Closing '>' not found"),
-            )))?;
+            .ok_or_else(|| ValidationError::new("Closing '>' not found"))?;
         let i_name_and_email = &i[..right_delim_idx];
         let skip_from_right = i_name_and_email.iter().rev().take_while(|b| **b == b'>').count();
         let left_delim_idx = i_name_and_email
             .find_byte(b'<')
-            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
-                &i_name_and_email,
-                &start,
-                StrContext::Label("Opening '<' not found"),
-            )))?;
+            .ok_or_else(|| ValidationError::new("Opening '<' not found"))?;
         let skip_from_left = i[left_delim_idx..].iter().take_while(|b| **b == b'<').count();
         let mut name = i[..left_delim_idx].as_bstr();
         name = name.strip_suffix(b" ").unwrap_or(name).as_bstr();
 
         let email = i
             .get(left_delim_idx + skip_from_left..right_delim_idx - skip_from_right)
-            .ok_or(ErrMode::Cut(E::from_input(i).add_context(
-                &i_name_and_email,
-                &start,
-                StrContext::Label("Skipped parts run into each other"),
-            )))?
+            .ok_or_else(|| ValidationError::new("Skipped parts run into each other"))?
             .as_bstr();
         *i = i.get(right_delim_idx + 1..).unwrap_or(&[]);
         Ok(IdentityRef { name, email })
+    }
+
+    fn is_time_byte(b: u8) -> bool {
+        matches!(b, b'+' | b'-' | b'0'..=b'9' | b' ' | b'\t')
     }
 }
 pub use function::identity;
@@ -84,15 +57,12 @@ pub use function::identity;
 #[cfg(test)]
 mod tests {
     mod parse_signature {
-        use gix_testtools::to_bstr_err;
-        use winnow::prelude::*;
+        use gix_error::ValidationError;
 
-        use crate::{signature, SignatureRef};
+        use crate::SignatureRef;
 
-        fn decode<'i>(
-            i: &mut &'i [u8],
-        ) -> ModalResult<SignatureRef<'i>, winnow::error::TreeError<&'i [u8], winnow::error::StrContext>> {
-            signature::decode.parse_next(i)
+        fn decode(mut i: &[u8]) -> Result<(&[u8], SignatureRef<'_>), ValidationError> {
+            SignatureRef::from_bytes_consuming(&mut i).map(|signature| (i, signature))
         }
 
         fn signature(name: &'static str, email: &'static str, time: &'static str) -> SignatureRef<'static> {
@@ -105,8 +75,7 @@ mod tests {
 
         #[test]
         fn tz_minus() {
-            let actual = decode
-                .parse_peek(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0230")
+            let actual = decode(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0230")
                 .expect("parse to work")
                 .1;
             assert_eq!(
@@ -126,8 +95,7 @@ mod tests {
         #[test]
         fn tz_plus() {
             assert_eq!(
-                decode
-                    .parse_peek(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 +0230")
+                decode(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 +0230")
                     .expect("parse to work")
                     .1,
                 signature("Sebastian Thiel", "byronimo@gmail.com", "1528473343 +0230")
@@ -137,8 +105,7 @@ mod tests {
         #[test]
         fn email_with_space() {
             assert_eq!(
-                decode
-                    .parse_peek(b"Sebastian Thiel <\tbyronimo@gmail.com > 1528473343 +0230")
+                decode(b"Sebastian Thiel <\tbyronimo@gmail.com > 1528473343 +0230")
                     .expect("parse to work")
                     .1,
                 signature("Sebastian Thiel", "\tbyronimo@gmail.com ", "1528473343 +0230")
@@ -148,8 +115,7 @@ mod tests {
         #[test]
         fn negative_offset_0000() {
             assert_eq!(
-                decode
-                    .parse_peek(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0000")
+                decode(b"Sebastian Thiel <byronimo@gmail.com> 1528473343 -0000")
                     .expect("parse to work")
                     .1,
                 signature("Sebastian Thiel", "byronimo@gmail.com", "1528473343 -0000")
@@ -159,8 +125,7 @@ mod tests {
         #[test]
         fn negative_offset_double_dash() {
             assert_eq!(
-                decode
-                    .parse_peek(b"name <name@example.com> 1288373970 --700")
+                decode(b"name <name@example.com> 1288373970 --700")
                     .expect("parse to work")
                     .1,
                 signature("name", "name@example.com", "1288373970 --700")
@@ -170,7 +135,7 @@ mod tests {
         #[test]
         fn empty_name_and_email() {
             assert_eq!(
-                decode.parse_peek(b" <> 12345 -1215").expect("parse to work").1,
+                decode(b" <> 12345 -1215").expect("parse to work").1,
                 signature("", "", "12345 -1215")
             );
         }
@@ -178,18 +143,17 @@ mod tests {
         #[test]
         fn invalid_signature() {
             assert_eq!(
-                        decode.parse_peek(b"hello < 12345 -1215")
-                            .map_err(to_bstr_err)
-                            .expect_err("parse fails as > is missing")
-                            .to_string(),
-                        " at 'hello < 12345 -1215'\n  0: invalid Closing '>' not found at 'hello < 12345 -1215'\n  1: expected `<name> <<email>> <timestamp> <+|-><HHMM>` at 'hello < 12345 -1215'\n"
-                    );
+                decode(b"hello < 12345 -1215")
+                    .expect_err("parse fails as > is missing")
+                    .to_string(),
+                "Closing '>' not found"
+            );
         }
 
         #[test]
         fn invalid_time() {
             assert_eq!(
-                decode.parse_peek(b"hello <> abc -1215").expect("parse to work").1,
+                decode(b"hello <> abc -1215").expect("parse to work").1,
                 signature("hello", "", "")
             );
         }

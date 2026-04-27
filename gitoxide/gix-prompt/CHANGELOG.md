@@ -5,13 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.15.0 (2026-04-28)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 1 commit contributed to the release over the course of 2 calendar days.
+ - 3 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
+</details>
+
 ## 0.14.2 (2026-04-24)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release over the course of 32 calendar days.
+ - 5 commits contributed to the release over the course of 32 calendar days.
  - 32 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.2, gix-date v0.15.2, gix-actor v0.40.1, gix-trace v0.1.19, gix-validate v0.11.1, gix-path v0.11.3, gix-utils v0.3.2, gix-features v0.47.0, gix-hash v0.24.0, gix-hashtable v0.14.0, gix-object v0.59.0, gix-glob v0.25.0, gix-quote v0.7.1, gix-attributes v0.32.0, gix-command v0.8.1, gix-packetline v0.21.3, gix-filter v0.29.0, gix-fs v0.20.0, gix-chunk v0.7.1, gix-commitgraph v0.36.0, gix-revwalk v0.30.0, gix-traverse v0.56.0, gix-worktree-stream v0.31.0, gix-archive v0.31.0, gix-bitmap v0.3.1, gix-tempfile v22.0.0, gix-lock v22.0.0, gix-index v0.50.0, gix-config-value v0.17.2, gix-pathspec v0.17.0, gix-ignore v0.20.0, gix-worktree v0.51.0, gix-imara-diff v0.2.0, gix-diff v0.62.0, gix-blame v0.12.0, gix-ref v0.62.0, gix-sec v0.13.3, gix-config v0.55.0, gix-prompt v0.14.2, gix-url v0.35.3, gix-credentials v0.37.2, gix-discover v0.50.0, gix-dir v0.24.0, gix-mailmap v0.32.1, gix-revision v0.44.0, gix-merge v0.15.0, gix-negotiate v0.30.0, gix-pack v0.69.0, gix-odb v0.79.0, gix-refspec v0.40.0, gix-shallow v0.11.0, gix-transport v0.56.0, gix-protocol v0.60.0, gix-status v0.29.0, gix-submodule v0.29.0, gix-worktree-state v0.29.0, gix v0.82.0, gix-fsck v0.20.0, gitoxide-core v0.56.0, gitoxide v0.52.0 ([`0a844e7`](https://github.com/GitoxideLabs/gitoxide/commit/0a844e79db76c72b39c05e4705f0f7b40d1af9ab))
     - Update changelogs prior to release ([`f9fbcba`](https://github.com/GitoxideLabs/gitoxide/commit/f9fbcba28278f3fb2ad7969c2d00ac6765165724))
     - Merge pull request #2518 from GitoxideLabs/improvements ([`444a92b`](https://github.com/GitoxideLabs/gitoxide/commit/444a92b0fa1df406cf2f36f8dbe82c2859e04e0b))
     - Make `package.include` patterns more specific so they don't match ignored files ([`c2c917f`](https://github.com/GitoxideLabs/gitoxide/commit/c2c917fce56c40a9af0d06bd603b7d1d2e51474f))

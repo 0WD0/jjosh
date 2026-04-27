@@ -175,7 +175,7 @@ mod expand {
                         match obj.kind {
                             Tree | Blob => break,
                             Tag => {
-                                id = TagRefIter::from_bytes(obj.data)
+                                id = TagRefIter::from_bytes(obj.data, obj.hash_kind)
                                     .target_id()
                                     .expect("every tag has a target");
                                 let tmp = db.find(&id, buf1)?;
@@ -188,7 +188,7 @@ mod expand {
                             }
                             Commit => {
                                 let current_tree_iter = {
-                                    let mut commit_iter = CommitRefIter::from_bytes(obj.data);
+                                    let mut commit_iter = CommitRefIter::from_bytes(obj.data, obj.hash_kind);
                                     let tree_id = commit_iter.tree_id().expect("every commit has a tree");
                                     parent_commit_ids.clear();
                                     for token in commit_iter {
@@ -227,9 +227,12 @@ mod expand {
                                             push_obj_count_unique(
                                                 &mut out, seen_objs, commit_id, location, objects, stats, true,
                                             );
-                                            CommitRefIter::from_bytes(parent_commit_obj.data)
-                                                .tree_id()
-                                                .expect("every commit has a tree")
+                                            CommitRefIter::from_bytes(
+                                                parent_commit_obj.data,
+                                                parent_commit_obj.hash_kind,
+                                            )
+                                            .tree_id()
+                                            .expect("every commit has a tree")
                                         };
                                         let parent_tree = {
                                             let (parent_tree_obj, location) = db.find(&parent_tree_id, buf2)?;
@@ -296,7 +299,7 @@ mod expand {
                                 break;
                             }
                             Commit => {
-                                id = CommitRefIter::from_bytes(obj.0.data)
+                                id = CommitRefIter::from_bytes(obj.0.data, obj.0.hash_kind)
                                     .tree_id()
                                     .expect("every commit has a tree");
                                 stats.expanded_objects += 1;
@@ -305,7 +308,7 @@ mod expand {
                             }
                             Blob => break,
                             Tag => {
-                                id = TagRefIter::from_bytes(obj.0.data)
+                                id = TagRefIter::from_bytes(obj.0.data, obj.0.hash_kind)
                                     .target_id()
                                     .expect("every tag has a target");
                                 stats.expanded_objects += 1;

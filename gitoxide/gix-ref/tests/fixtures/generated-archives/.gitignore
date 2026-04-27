@@ -1,3 +1,5 @@
 make_worktree_repo.tar
+make_worktree_repo_sha256.tar
 make_worktree_repo_packed.tar
+make_worktree_repo_packed_sha256.tar
 make_multi_hop_ref*.tar

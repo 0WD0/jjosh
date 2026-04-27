@@ -18,7 +18,7 @@
 //!
 //! let snapshot = gix_mailmap::Snapshot::new(parsed);
 //! let resolved = snapshot.resolve(
-//!     SignatureRef::from_bytes::<()>(b"Jane <bugs@example.com> 1711398853 +0800").unwrap(),
+//!     SignatureRef::from_bytes(b"Jane <bugs@example.com> 1711398853 +0800").unwrap(),
 //! );
 //!
 //! assert_eq!(resolved.name, "Jane Doe");

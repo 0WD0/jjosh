@@ -107,14 +107,20 @@ impl packed::Transaction {
             {
                 let mut next_id = new;
                 edit.peeled = loop {
-                    let kind = objects.try_find(&next_id, &mut buf)?.map(|d| d.kind);
-                    match kind {
-                        Some(gix_object::Kind::Tag) => {
-                            next_id = gix_object::TagRefIter::from_bytes(&buf).target_id().map_err(|_| {
-                                prepare::Error::Resolve(
-                                    format!("Couldn't get target object id from tag {next_id}").into(),
-                                )
-                            })?;
+                    let data = objects.try_find(&next_id, &mut buf)?;
+                    match data {
+                        Some(gix_object::Data {
+                            kind: gix_object::Kind::Tag,
+                            data,
+                            hash_kind,
+                        }) => {
+                            next_id = gix_object::TagRefIter::from_bytes(data, hash_kind)
+                                .target_id()
+                                .map_err(|_| {
+                                    prepare::Error::Resolve(
+                                        format!("Couldn't get target object id from tag {next_id}").into(),
+                                    )
+                                })?;
                         }
                         Some(_) => {
                             break if next_id == new { None } else { Some(next_id) };

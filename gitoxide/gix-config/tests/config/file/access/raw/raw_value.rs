@@ -9,6 +9,17 @@ fn single_section() -> crate::Result {
 }
 
 #[test]
+fn global_property_uses_empty_section_name() -> crate::Result {
+    let config = File::try_from("a=b\n[core]\na=c")?;
+    assert_eq!(
+        config.raw_value_by("", None, "a").unwrap_err().to_string(),
+        "The requested section does not exist",
+        "these are not readable because the supporting this adds a lot of complexity"
+    );
+    Ok(())
+}
+
+#[test]
 fn last_one_wins_respected_in_section() -> crate::Result {
     let config = File::try_from("[core]\na=b\na=d")?;
     assert_eq!(config.raw_value("core.a")?.as_ref(), "d");

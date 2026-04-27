@@ -8,7 +8,7 @@ pub(crate) mod multi_value;
 pub(crate) mod section;
 pub(crate) mod value;
 
-fn escape_value(value: &BStr) -> BString {
+pub(crate) fn escape_value(value: &BStr) -> BString {
     let starts_with_whitespace = value.first().is_some_and(u8::is_ascii_whitespace);
     let ends_with_whitespace = value
         .get(value.len().saturating_sub(1))

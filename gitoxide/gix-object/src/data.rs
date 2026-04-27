@@ -16,8 +16,8 @@ impl<'a> Data<'a> {
         Ok(match self.kind {
             Kind::Tree => ObjectRef::Tree(TreeRef::from_bytes(self.data, self.hash_kind)?),
             Kind::Blob => ObjectRef::Blob(BlobRef { data: self.data }),
-            Kind::Commit => ObjectRef::Commit(CommitRef::from_bytes(self.data)?),
-            Kind::Tag => ObjectRef::Tag(TagRef::from_bytes(self.data)?),
+            Kind::Commit => ObjectRef::Commit(CommitRef::from_bytes(self.data, self.hash_kind)?),
+            Kind::Tag => ObjectRef::Tag(TagRef::from_bytes(self.data, self.hash_kind)?),
         })
     }
 
@@ -34,7 +34,7 @@ impl<'a> Data<'a> {
     /// `None` if this is not a commit object.
     pub fn try_into_commit_iter(self) -> Option<CommitRefIter<'a>> {
         match self.kind {
-            Kind::Commit => Some(CommitRefIter::from_bytes(self.data)),
+            Kind::Commit => Some(CommitRefIter::from_bytes(self.data, self.hash_kind)),
             _ => None,
         }
     }
@@ -43,7 +43,7 @@ impl<'a> Data<'a> {
     /// `None` if this is not a tag object.
     pub fn try_into_tag_iter(self) -> Option<TagRefIter<'a>> {
         match self.kind {
-            Kind::Tag => Some(TagRefIter::from_bytes(self.data)),
+            Kind::Tag => Some(TagRefIter::from_bytes(self.data, self.hash_kind)),
             _ => None,
         }
     }

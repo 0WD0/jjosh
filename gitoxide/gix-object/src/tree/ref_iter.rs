@@ -1,7 +1,6 @@
 use std::ops::ControlFlow;
 
 use bstr::BStr;
-use winnow::error::ParserError;
 
 use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
 
@@ -192,13 +191,8 @@ impl<'a> Iterator for TreeRefIter<'a> {
                 Some(Ok(entry))
             }
             None => {
-                let failing = self.data;
                 self.data = &[];
-                #[allow(clippy::unit_arg)]
-                Some(Err(crate::decode::Error::with_err(
-                    winnow::error::ErrMode::from_input(&failing),
-                    failing,
-                )))
+                Some(Err(crate::decode::Error))
             }
         }
     }
@@ -214,7 +208,6 @@ impl<'a> TryFrom<&'a [u8]> for tree::EntryMode {
 
 mod decode {
     use bstr::ByteSlice;
-    use winnow::error::ParserError;
 
     use crate::{tree, tree::EntryRef, TreeRef};
 
@@ -253,11 +246,7 @@ mod decode {
 
         while !i.is_empty() {
             let Some((rest, entry)) = fast_entry(i, hash_len) else {
-                #[allow(clippy::unit_arg)]
-                return Err(crate::decode::Error::with_err(
-                    winnow::error::ErrMode::from_input(&i),
-                    i,
-                ));
+                return Err(crate::decode::Error);
             };
             i = rest;
             out.push(entry);

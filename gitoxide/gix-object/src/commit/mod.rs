@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use bstr::{BStr, BString, ByteSlice};
-use winnow::prelude::*;
 
 use crate::parse::parse_signature;
 use crate::{Commit, CommitRef, TagRef};
@@ -63,12 +62,13 @@ mod write;
 
 /// Lifecycle
 impl<'a> CommitRef<'a> {
-    /// Deserialize a commit from the given `data` bytes while avoiding most allocations.
-    pub fn from_bytes(mut data: &'a [u8]) -> Result<CommitRef<'a>, crate::decode::Error> {
+    /// Deserialize a commit from the given `data` bytes while avoiding most allocations, using `hash_kind` to know
+    /// what kind of hash to expect for validation.
+    pub fn from_bytes(mut data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<CommitRef<'a>, crate::decode::Error> {
         let input = &mut data;
-        match decode::commit.parse_next(input) {
+        match decode::commit(input, hash_kind) {
             Ok(tag) => Ok(tag),
-            Err(err) => Err(crate::decode::Error::with_err(err, input)),
+            Err(err) => Err(err),
         }
     }
 }
@@ -89,7 +89,10 @@ impl<'a> CommitRef<'a> {
 
     /// Returns a convenient iterator over all extra headers.
     pub fn extra_headers(&self) -> ExtraHeaders<impl Iterator<Item = (&BStr, &BStr)>> {
-        ExtraHeaders::new(self.extra_headers.iter().map(|(k, v)| (*k, v.as_ref())))
+        ExtraHeaders::new(
+            self.extra_headers.iter().map(|(k, v)| (*k, v.as_ref())),
+            self.tree().kind(),
+        )
     }
 
     /// Return the author, with whitespace trimmed.
@@ -133,13 +136,17 @@ impl CommitRef<'_> {
 impl Commit {
     /// Returns a convenient iterator over all extra headers.
     pub fn extra_headers(&self) -> ExtraHeaders<impl Iterator<Item = (&BStr, &BStr)>> {
-        ExtraHeaders::new(self.extra_headers.iter().map(|(k, v)| (k.as_bstr(), v.as_bstr())))
+        ExtraHeaders::new(
+            self.extra_headers.iter().map(|(k, v)| (k.as_bstr(), v.as_bstr())),
+            self.tree.kind(),
+        )
     }
 }
 
 /// An iterator over extra headers in [owned][crate::Commit] and [borrowed][crate::CommitRef] commits.
 pub struct ExtraHeaders<I> {
     inner: I,
+    hash_kind: gix_hash::Kind,
 }
 
 /// Instantiation and convenience.
@@ -148,8 +155,8 @@ where
     I: Iterator<Item = (&'a BStr, &'a BStr)>,
 {
     /// Create a new instance from an iterator over tuples of (name, value) pairs.
-    pub fn new(iter: I) -> Self {
-        ExtraHeaders { inner: iter }
+    pub fn new(iter: I, hash_kind: gix_hash::Kind) -> Self {
+        ExtraHeaders { inner: iter, hash_kind }
     }
 
     /// Find the _value_ of the _first_ header with the given `name`.
@@ -176,7 +183,8 @@ where
     /// A merge tag is a tag object embedded within the respective header field of a commit, making
     /// it a child object of sorts.
     pub fn mergetags(self) -> impl Iterator<Item = Result<TagRef<'a>, crate::decode::Error>> {
-        self.find_all("mergetag").map(|b| TagRef::from_bytes(b))
+        let hash_kind = self.hash_kind;
+        self.find_all("mergetag").map(move |b| TagRef::from_bytes(b, hash_kind))
     }
 
     /// Return the cryptographic signature provided by gpg/pgp verbatim.

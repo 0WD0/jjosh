@@ -29,6 +29,7 @@ fn precompose_unicode_journey() -> crate::Result {
         root,
         gix_ref::store::init::Options {
             write_reflog: WriteReflog::Always,
+            object_hash: crate::fixture_hash_kind(),
             precompose_unicode: false,
             ..Default::default()
         },
@@ -57,6 +58,7 @@ fn precompose_unicode_journey() -> crate::Result {
         tmp.path().join(precomposed_a), // it's important that root paths are also precomposed then.
         gix_ref::store::init::Options {
             write_reflog: WriteReflog::Always,
+            object_hash: crate::fixture_hash_kind(),
             precompose_unicode: true,
             ..Default::default()
         },

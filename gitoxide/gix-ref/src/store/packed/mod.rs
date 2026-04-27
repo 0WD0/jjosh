@@ -20,6 +20,8 @@ enum Backing {
 #[derive(Debug)]
 pub struct Buffer {
     data: Backing,
+    /// The hash kind to expect when parsing packed references.
+    hash_kind: gix_hash::Kind,
     /// The offset to the first record, how many bytes to skip past the header
     offset: usize,
     /// The path from which we were loaded
@@ -75,6 +77,8 @@ impl Reference<'_> {
 pub struct Iter<'a> {
     /// The position at which to parse the next reference
     cursor: &'a [u8],
+    /// The hash kind to expect when parsing packed references.
+    hash_kind: gix_hash::Kind,
     /// The next line, starting at 1
     current_line: usize,
     /// If set, references returned will match the prefix, the first failed match will stop all iteration.

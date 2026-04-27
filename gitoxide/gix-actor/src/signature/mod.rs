@@ -1,17 +1,24 @@
 mod _ref {
     use bstr::ByteSlice;
-    use winnow::{error::StrContext, prelude::*};
 
     use crate::{signature::decode, IdentityRef, Signature, SignatureRef};
 
     /// Lifecycle
     impl<'a> SignatureRef<'a> {
         /// Deserialize a signature from the given `data`.
-        pub fn from_bytes<E>(mut data: &'a [u8]) -> Result<SignatureRef<'a>, winnow::error::ErrMode<E>>
-        where
-            E: winnow::error::ParserError<&'a [u8]> + winnow::error::AddContext<&'a [u8], StrContext>,
-        {
-            decode.parse_next(&mut data)
+        ///
+        /// Typical input is `Name <name@example.com> 1700000000 +0000`.
+        pub fn from_bytes(mut data: &'a [u8]) -> Result<SignatureRef<'a>, gix_error::ValidationError> {
+            Self::from_bytes_consuming(&mut data)
+        }
+
+        /// Deserialize a signature from the given `data` and advance it past the signature.
+        ///
+        /// Typical input is `Name <name@example.com> 1700000000 +0000`; on
+        /// success, `data` points to the bytes immediately after the parsed
+        /// signature.
+        pub fn from_bytes_consuming(data: &mut &'a [u8]) -> Result<SignatureRef<'a>, gix_error::ValidationError> {
+            decode(data)
         }
 
         /// Try to parse the timestamp and create an owned instance from this shared one.

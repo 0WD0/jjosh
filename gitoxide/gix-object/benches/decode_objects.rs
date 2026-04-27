@@ -3,19 +3,29 @@ use std::hint::black_box;
 
 fn parse_commit(c: &mut Criterion) {
     c.bench_function("CommitRef(sig)", |b| {
-        b.iter(|| black_box(gix_object::CommitRef::from_bytes(COMMIT_WITH_MULTI_LINE_HEADERS)).unwrap());
+        b.iter(|| {
+            black_box(gix_object::CommitRef::from_bytes(
+                COMMIT_WITH_MULTI_LINE_HEADERS,
+                gix_hash::Kind::Sha1,
+            ))
+            .unwrap()
+        });
     });
     c.bench_function("CommitRefIter(sig)", |b| {
-        b.iter(|| black_box(gix_object::CommitRefIter::from_bytes(COMMIT_WITH_MULTI_LINE_HEADERS).count()));
+        b.iter(|| {
+            black_box(
+                gix_object::CommitRefIter::from_bytes(COMMIT_WITH_MULTI_LINE_HEADERS, gix_hash::Kind::Sha1).count(),
+            )
+        });
     });
 }
 
 fn parse_tag(c: &mut Criterion) {
     c.bench_function("TagRef(sig)", |b| {
-        b.iter(|| black_box(gix_object::TagRef::from_bytes(TAG_WITH_SIGNATURE)).unwrap());
+        b.iter(|| black_box(gix_object::TagRef::from_bytes(TAG_WITH_SIGNATURE, gix_hash::Kind::Sha1)).unwrap());
     });
     c.bench_function("TagRefIter(sig)", |b| {
-        b.iter(|| black_box(gix_object::TagRefIter::from_bytes(TAG_WITH_SIGNATURE).count()));
+        b.iter(|| black_box(gix_object::TagRefIter::from_bytes(TAG_WITH_SIGNATURE, gix_hash::Kind::Sha1).count()));
     });
 }
 

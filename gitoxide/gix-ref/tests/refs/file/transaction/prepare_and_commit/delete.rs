@@ -127,7 +127,13 @@ fn delete_ref_with_incorrect_previous_value_fails() -> crate::Result {
 
     match res {
         Err(err) => {
-            assert_eq!(err.to_string(), "The reference \"refs/heads/main\" should have content ref: refs/heads/main, actual content was 02a7a22d90d7c02fb494ed25551850b868e634f0");
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "The reference \"refs/heads/main\" should have content ref: refs/heads/main, actual content was {}",
+                    hex_to_id("02a7a22d90d7c02fb494ed25551850b868e634f0")
+                )
+            );
         }
         Ok(_) => unreachable!("must be err"),
     }

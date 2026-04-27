@@ -1,5 +1,4 @@
 use gix_object::bstr::{BStr, BString, ByteSlice};
-use winnow::prelude::*;
 
 use crate::{store_impl::packed, FullNameRef, PartialNameRef};
 
@@ -42,9 +41,7 @@ impl packed::Buffer {
             Ok(line_start) => {
                 let mut input = &self.as_ref()[line_start..];
                 Ok(Some(
-                    packed::decode::reference::<()>
-                        .parse_next(&mut input)
-                        .map_err(|_| Error::Parse)?,
+                    packed::decode::reference(&mut input, self.hash_kind).map_err(|_| Error::Parse)?,
                 ))
             }
             Err((parse_failure, _)) => {
@@ -93,8 +90,7 @@ impl packed::Buffer {
         a.binary_search_by_key(&full_name.as_ref(), |b: &u8| {
             let ofs = std::ptr::from_ref::<u8>(b) as usize - a.as_ptr() as usize;
             let mut line = &a[search_start_of_record(ofs)..];
-            packed::decode::reference::<()>
-                .parse_next(&mut line)
+            packed::decode::reference(&mut line, self.hash_kind)
                 .map(|r| r.name.as_bstr().as_bytes())
                 .inspect_err(|_err| {
                     encountered_parse_failure = true;

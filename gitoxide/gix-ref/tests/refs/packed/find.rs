@@ -3,8 +3,11 @@ use gix_testtools::fixture_path_standalone;
 
 use crate::{
     file::{store_at, store_with_packed_refs},
+    hex_to_id,
     packed::write_packed_refs_with,
 };
+
+const HASH_KIND: gix_hash::Kind = gix_hash::Kind::Sha1;
 
 #[test]
 fn a_lock_file_would_not_be_a_valid_partial_name() {
@@ -47,6 +50,7 @@ fn binary_search_a_name_past_the_end_of_the_packed_refs_file() -> crate::Result 
     let packed_refs = packed::Buffer::open(
         fixture_path_standalone("packed-refs").join("triggers-out-of-bounds"),
         32,
+        HASH_KIND,
     )?;
     assert!(packed_refs.try_find("v0.0.1")?.is_none());
     Ok(())
@@ -61,7 +65,7 @@ c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 0b92c8a256ae06c189e3b9c30b646d62ac8f7d10 refs/tags/gix-actor-v0.1.1\n";
     let (_keep, path) = write_packed_refs_with(packed_refs)?;
 
-    let buf = packed::Buffer::open(path, 1024)?;
+    let buf = packed::Buffer::open(path, 1024, HASH_KIND)?;
     let name = "refs/tags/TEST-0.0.1";
     assert_eq!(
         buf.try_find(name)?.expect("reference exists"),
@@ -140,12 +144,14 @@ fn partial_name_to_full_name_conversion_rules_are_applied() -> crate::Result {
         "refs/remotes/origin/main",
         "more specification is possible, too"
     );
+    let target = hex_to_id("b3109a7e51fc593f85b145a76c70ddd1d133fafd").to_string();
+    let object = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03").to_string();
     assert_eq!(
         packed.try_find("tag-object")?.expect("present"),
         packed::Reference {
             name: "refs/tags/tag-object".try_into()?,
-            target: "b3109a7e51fc593f85b145a76c70ddd1d133fafd".into(),
-            object: Some("134385f6d781b7e97062102c6a483440bfda2a03".into())
+            target: target.as_str().into(),
+            object: Some(object.as_str().into())
         },
         "tag objects aren't special, but lets test a little more"
     );
@@ -161,7 +167,7 @@ bogus refs/tags/gix-actor-v0.1.0
 0b92c8a256ae06c189e3b9c30b646d62ac8f7d10 refs/tags/gix-actor-v0.1.1\n";
     let (_keep, path) = write_packed_refs_with(broken_packed_refs)?;
 
-    let buf = packed::Buffer::open(path, 1024)?;
+    let buf = packed::Buffer::open(path, 1024, HASH_KIND)?;
 
     let name = "refs/tags/gix-actor-v0.1.1";
     assert_eq!(

@@ -14,8 +14,9 @@ use std::{borrow::Cow, hash::Hash};
 
 use bstr::BStr;
 
-mod nom;
-pub use self::nom::from_bytes;
+mod from_bytes;
+pub use self::from_bytes::from_bytes;
+
 mod event;
 #[path = "events.rs"]
 mod events_type;
@@ -63,8 +64,10 @@ pub enum Event<'a> {
     Newline(Cow<'a, BStr>),
     /// Any value that isn't completed. This occurs when the value is continued
     /// onto the next line by ending it with a backslash.
-    /// A [`Newline`][Self::Newline] event is guaranteed after, followed by
-    /// either a ValueDone, a Whitespace, or another ValueNotDone.
+    /// A [`Newline`][Self::Newline] event usually follows, followed by either
+    /// `ValueDone`, `Whitespace`, or another `ValueNotDone`. The exception is a
+    /// trailing backslash at EOF, which Git accepts as a continuation and which
+    /// is represented by `ValueNotDone` followed directly by `ValueDone`.
     ValueNotDone(Cow<'a, BStr>),
     /// The last line of a value which was continued onto another line.
     /// With this it's possible to obtain the complete value by concatenating

@@ -160,24 +160,21 @@ impl ReferenceExt for Reference {
                 let mut oid = self.follow_to_object_packed(store, packed)?;
                 let mut buf = Vec::new();
                 let peeled_id = loop {
-                    let gix_object::Data {
-                        kind,
-                        data,
-                        hash_kind: _,
-                    } = objects
-                        .try_find(&oid, &mut buf)?
-                        .ok_or_else(|| peel::to_id::Error::NotFound {
-                            oid,
-                            name: self.name.0.clone(),
-                        })?;
+                    let gix_object::Data { kind, data, hash_kind } =
+                        objects
+                            .try_find(&oid, &mut buf)?
+                            .ok_or_else(|| peel::to_id::Error::NotFound {
+                                oid,
+                                name: self.name.0.clone(),
+                            })?;
                     match kind {
                         gix_object::Kind::Tag => {
-                            oid = gix_object::TagRefIter::from_bytes(data).target_id().map_err(|_err| {
-                                peel::to_id::Error::NotFound {
+                            oid = gix_object::TagRefIter::from_bytes(data, hash_kind)
+                                .target_id()
+                                .map_err(|_err| peel::to_id::Error::NotFound {
                                     oid,
                                     name: self.name.0.clone(),
-                                }
-                            })?;
+                                })?;
                         }
                         _ => break oid,
                     }

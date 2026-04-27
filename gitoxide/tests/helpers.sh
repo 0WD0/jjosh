@@ -60,10 +60,25 @@ function small-repo-in-sandbox() {
 }
 
 function launch-git-daemon() {
-    git -c uploadpack.allowrefinwant daemon --verbose --base-path=. --export-all --user-path &>/dev/null &
+    local i git_daemon_url_file
+
+    git_daemon_url_file="$(mktemp -t git-daemon-url.XXXXXX)"
+    "$jtt" git-daemon "$git_daemon_url_file" &
     daemon_pid=$!
-    while ! nc -z localhost 9418; do
+
+    for i in $(seq 1 50); do
+      if test -s "$git_daemon_url_file"; then
+        git_daemon_url="$(cat "$git_daemon_url_file")"
+        rm -f "$git_daemon_url_file"
+        trap 'kill "$daemon_pid" 2>/dev/null || true; wait "$daemon_pid" 2>/dev/null || true' EXIT
+        return
+      fi
       sleep 0.1
     done
-    trap 'kill $daemon_pid' EXIT
+
+    kill "$daemon_pid" 2>/dev/null || true
+    wait "$daemon_pid" 2>/dev/null || true
+    rm -f "$git_daemon_url_file"
+    echo 1>&2 "failed to start git daemon"
+    exit 1
 }

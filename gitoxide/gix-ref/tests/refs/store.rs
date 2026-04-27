@@ -7,7 +7,7 @@ fn is_send_and_sync() {
             path.join(".git"),
             gix_ref::store::init::Options {
                 write_reflog: gix_ref::store::WriteReflog::Normal,
-                object_hash: gix_hash::Kind::Sha1,
+                object_hash: crate::fixture_hash_kind(),
                 ..Default::default()
             },
         ))

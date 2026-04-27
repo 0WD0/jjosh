@@ -107,20 +107,20 @@ title "gix (with repository)"
         )
         fi
 
-        # for some reason, on CI the daemon always shuts down before we can connect,
-        # or isn't actually ready despite having accepted the first connection already.
+        # Use a wrapper to bind to an ephemeral port and only continue once the
+        # daemon can serve a real Git request.
         (with "git:// protocol"
           launch-git-daemon
           (with "version 1"
             it "generates the correct output" && {
               WITH_SNAPSHOT="$snapshot/file-v-any" \
-              expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose --config protocol.version=1 remote --name git://localhost/ refs
+              expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose --config protocol.version=1 remote --name "$git_daemon_url" refs
             }
           )
           (with "version 2"
             it "generates the correct output" && {
               WITH_SNAPSHOT="$snapshot/file-v-any" \
-              expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose -c protocol.version=2 remote -n git://localhost/ refs
+              expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose -c protocol.version=2 remote -n "$git_daemon_url" refs
             }
           )
         )
@@ -285,13 +285,13 @@ title "gix commit-graph"
               (with "no wanted refs"
                 it "generates the correct output" && {
                   WITH_SNAPSHOT="$snapshot/file-v-any-no-output" \
-                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 1 git://localhost/
+                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 1 "$git_daemon_url"
                 }
               )
               (with "wanted refs"
                 it "generates the correct output" && {
                   WITH_SNAPSHOT="$snapshot/file-v-any-no-output-wanted-ref-p1" \
-                  expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose free pack receive -p 1 git://localhost/ -r =refs/heads/main
+                  expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose free pack receive -p 1 "$git_daemon_url" -r =refs/heads/main
                 }
               )
             )
@@ -299,7 +299,7 @@ title "gix commit-graph"
               mkdir out
               it "generates the correct output" && {
                 WITH_SNAPSHOT="$snapshot/file-v-any-with-output" \
-                expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 1 git://localhost/ out/
+                expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 1 "$git_daemon_url" out/
               }
             )
           )
@@ -308,18 +308,18 @@ title "gix commit-graph"
               (with "NO wanted refs"
                 it "generates the correct output" && {
                   WITH_SNAPSHOT="$snapshot/file-v-any-no-output-p2" \
-                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 git://localhost/
+                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 "$git_daemon_url"
                 }
               )
               (with "wanted refs"
                 it "generates the correct output" && {
                   WITH_SNAPSHOT="$snapshot/file-v-any-no-output-single-ref" \
-                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 git://localhost/ -r refs/heads/main
+                  expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive -p 2 "$git_daemon_url" -r refs/heads/main
                 }
                 (when "ref does not exist"
                   it "fails with a detailed error message including what the server said" && {
                     WITH_SNAPSHOT="$snapshot/file-v-any-no-output-non-existing-single-ref" \
-                    expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose free pack receive -p 2 git://localhost/ -r refs/heads/does-not-exist
+                    expect_run $WITH_FAILURE "$exe_plumbing" --no-verbose free pack receive -p 2 "$git_daemon_url" -r refs/heads/does-not-exist
                   }
                 )
               )
@@ -327,7 +327,7 @@ title "gix commit-graph"
             (with "output directory"
               it "generates the correct output" && {
                 WITH_SNAPSHOT="$snapshot/file-v-any-with-output-p2" \
-                expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive git://localhost/ out/
+                expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose free pack receive "$git_daemon_url" out/
               }
             )
           )

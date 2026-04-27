@@ -103,6 +103,65 @@ mod section {
                 );
                 assert!(!invalid.is_legacy());
             }
+
+            #[test]
+            fn empty_section_name_with_quoted_subsection() {
+                let header = header("", Some((" ", "core")));
+                let mut out = Vec::new();
+                header.write_to(&mut out).unwrap();
+                assert_eq!(
+                    out, br#"[ "core"]"#,
+                    "Git accepts this as an empty section name with `core` as subsection, and we keep it"
+                );
+                assert!(!header.is_legacy());
+            }
+
+            #[test]
+            fn nul_byte_in_quoted_subsection() {
+                let header = header("hello", Some((" ", "hello\0")));
+                let mut out = Vec::new();
+                header.write_to(&mut out).unwrap();
+                assert_eq!(
+                    out, b"[hello \"hello\0\"]",
+                    "Git accepts NUL bytes in quoted subsection names, and we preserve them"
+                );
+                assert!(!header.is_legacy());
+            }
+        }
+    }
+}
+
+mod event {
+    mod write_to {
+        use crate::parse::Events;
+
+        fn write_events(input: &str) -> Vec<u8> {
+            let events = Events::from_str(input).unwrap().into_vec();
+            let mut out = Vec::new();
+            for event in &events {
+                event.write_to(&mut out).unwrap();
+            }
+            out
+        }
+
+        #[test]
+        fn key_value_before_first_section() {
+            let input = "a = b\n";
+            assert_eq!(
+                write_events(input),
+                input.as_bytes(),
+                "Git accepts key/value pairs before the first section, and we preserve them"
+            );
+        }
+
+        #[test]
+        fn value_with_trailing_backslash_at_eof() {
+            let input = "[core]\na=hello\\";
+            assert_eq!(
+                write_events(input),
+                input.as_bytes(),
+                "Git accepts EOF as a line continuation terminator, and we preserve the original trailing backslash"
+            );
         }
     }
 }
