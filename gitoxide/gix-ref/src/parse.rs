@@ -19,7 +19,7 @@ pub fn hex_hash<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<
     Ok(hex.as_bstr())
 }
 
-/// All all supported hash lengths, if they match perfectly.
+/// All supported hash lengths, if they match perfectly.
 pub fn hex_hash_any<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
     let max = gix_hash::Kind::longest().len_in_hex();
     let len = i.iter().take(max).take_while(|b| is_hex_digit(**b)).count();
