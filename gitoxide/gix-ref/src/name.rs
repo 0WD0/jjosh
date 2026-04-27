@@ -27,7 +27,7 @@ impl Category<'_> {
         }
     }
 
-    /// Returns true if the category is private to their worktrees, and never shared with other worktrees.
+    /// Returns `true` if the category is private to their worktrees, and never shared with other worktrees.
     pub fn is_worktree_private(&self) -> bool {
         matches!(
             self,
@@ -38,6 +38,11 @@ impl Category<'_> {
                 | Category::Rewritten
                 | Category::Bisect
         )
+    }
+
+    /// Returns `true` if this category represents remote-tracking branches, like `refs/remotes/<remote>/<name>`.
+    pub fn is_remote_tracking_branch(&self) -> bool {
+        matches!(self, Category::RemoteBranch)
     }
 }
 
