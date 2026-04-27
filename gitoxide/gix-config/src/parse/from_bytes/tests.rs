@@ -1046,7 +1046,10 @@ mod value {
     #[test]
     fn trailing_backslash_is_accepted_as_continuation_to_eof() {
         let (remaining, events) = parse(b"hello\\").unwrap();
-        assert_eq!(remaining, b"", "it consumes everything, as the continuation backslash is no value");
+        assert_eq!(
+            remaining, b"",
+            "it consumes everything, as the continuation backslash is no value"
+        );
         assert_eq!(
             events,
             vec![value_not_done_event("hello"), value_done_event("")],

@@ -212,8 +212,8 @@ impl<'a> ObjectRef<'a> {
         Ok(match kind {
             Kind::Tree => ObjectRef::Tree(TreeRef::from_bytes(data, hash_kind)?),
             Kind::Blob => ObjectRef::Blob(BlobRef { data }),
-            Kind::Commit => ObjectRef::Commit(CommitRef::from_bytes(data)?),
-            Kind::Tag => ObjectRef::Tag(TagRef::from_bytes(data)?),
+            Kind::Commit => ObjectRef::Commit(CommitRef::from_bytes(data, hash_kind)?),
+            Kind::Tag => ObjectRef::Tag(TagRef::from_bytes(data, hash_kind)?),
         })
     }
 

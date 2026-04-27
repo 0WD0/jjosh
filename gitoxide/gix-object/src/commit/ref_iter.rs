@@ -30,11 +30,13 @@ pub(crate) enum State {
 
 /// Lifecycle
 impl<'a> CommitRefIter<'a> {
-    /// Create a commit iterator from data.
-    pub fn from_bytes(data: &'a [u8]) -> CommitRefIter<'a> {
+    /// Create a commit iterator from the given `data`, using `hash_kind` to know
+    /// what kind of hash to expect for validation.
+    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> CommitRefIter<'a> {
         CommitRefIter {
             data,
             state: State::default(),
+            hash_kind,
         }
     }
 }
@@ -42,17 +44,21 @@ impl<'a> CommitRefIter<'a> {
 /// Access
 impl<'a> CommitRefIter<'a> {
     /// Parse `data` as commit and return its PGP signature, along with *all non-signature* data as [`SignedData`], or `None`
-    /// if the commit isn't signed.
+    /// if the commit isn't signed. All hashes in `data` are parsed as `hash_kind`.
     ///
     /// This allows the caller to validate the signature by passing the signed data along with the signature back to the program
     /// that created it.
-    pub fn signature(data: &'a [u8]) -> Result<Option<(Cow<'a, BStr>, SignedData<'a>)>, crate::decode::Error> {
+    pub fn signature(
+        data: &'a [u8],
+        hash_kind: gix_hash::Kind,
+    ) -> Result<Option<(Cow<'a, BStr>, SignedData<'a>)>, crate::decode::Error> {
         let mut signature_and_range = None;
 
         let raw_tokens = CommitRefIterRaw {
             data,
             state: State::default(),
             offset: 0,
+            hash_kind,
         };
         for token in raw_tokens {
             let token = token?;
@@ -146,19 +152,27 @@ fn missing_field() -> crate::decode::Error {
 
 impl<'a> CommitRefIter<'a> {
     #[inline]
-    fn next_inner(mut i: &'a [u8], state: &mut State) -> Result<(&'a [u8], Token<'a>), crate::decode::Error> {
+    fn next_inner(
+        mut i: &'a [u8],
+        state: &mut State,
+        hash_kind: gix_hash::Kind,
+    ) -> Result<(&'a [u8], Token<'a>), crate::decode::Error> {
         let input = &mut i;
-        match Self::next_inner_(input, state) {
+        match Self::next_inner_(input, state, hash_kind) {
             Ok(token) => Ok((*input, token)),
             Err(err) => Err(err),
         }
     }
 
-    fn next_inner_(input: &mut &'a [u8], state: &mut State) -> Result<Token<'a>, crate::decode::Error> {
+    fn next_inner_(
+        input: &mut &'a [u8],
+        state: &mut State,
+        hash_kind: gix_hash::Kind,
+    ) -> Result<Token<'a>, crate::decode::Error> {
         use State::*;
         Ok(match state {
             Tree => {
-                let tree = parse::header_field(input, b"tree", parse::hex_hash)?;
+                let tree = parse::header_field(input, b"tree", |value| parse::hex_hash(value, hash_kind))?;
                 *state = State::Parents;
                 Token::Tree {
                     id: ObjectId::from_hex(tree).expect("parsing validation"),
@@ -166,7 +180,7 @@ impl<'a> CommitRefIter<'a> {
             }
             Parents => {
                 if input.starts_with(b"parent ") {
-                    let parent = parse::header_field(input, b"parent", parse::hex_hash)?;
+                    let parent = parse::header_field(input, b"parent", |value| parse::hex_hash(value, hash_kind))?;
                     Token::Parent {
                         id: ObjectId::from_hex(parent).expect("parsing validation"),
                     }
@@ -174,7 +188,7 @@ impl<'a> CommitRefIter<'a> {
                     *state = State::Signature {
                         of: SignatureKind::Author,
                     };
-                    Self::next_inner_(input, state)?
+                    Self::next_inner_(input, state, hash_kind)?
                 }
             }
             Signature { ref mut of } => {
@@ -201,13 +215,13 @@ impl<'a> CommitRefIter<'a> {
                     let encoding = parse::header_field(input, b"encoding", Ok)?;
                     Token::Encoding(encoding.as_bstr())
                 } else {
-                    Self::next_inner_(input, state)?
+                    Self::next_inner_(input, state, hash_kind)?
                 }
             }
             ExtraHeaders => {
                 if input.starts_with(b"\n") {
                     *state = State::Message;
-                    Self::next_inner_(input, state)?
+                    Self::next_inner_(input, state, hash_kind)?
                 } else {
                     let before = *input;
                     match parse::any_header_field_multi_line(input)
@@ -240,7 +254,7 @@ impl<'a> Iterator for CommitRefIter<'a> {
         if self.data.is_empty() {
             return None;
         }
-        match Self::next_inner(self.data, &mut self.state) {
+        match Self::next_inner(self.data, &mut self.state, self.hash_kind) {
             Ok((data, token)) => {
                 self.data = data;
                 Some(Ok(token))
@@ -258,6 +272,7 @@ struct CommitRefIterRaw<'a> {
     data: &'a [u8],
     state: State,
     offset: usize,
+    hash_kind: gix_hash::Kind,
 }
 
 impl<'a> Iterator for CommitRefIterRaw<'a> {
@@ -267,7 +282,7 @@ impl<'a> Iterator for CommitRefIterRaw<'a> {
         if self.data.is_empty() {
             return None;
         }
-        match CommitRefIter::next_inner(self.data, &mut self.state) {
+        match CommitRefIter::next_inner(self.data, &mut self.state, self.hash_kind) {
             Ok((remaining, token)) => {
                 let consumed = self.data.len() - remaining.len();
                 let start = self.offset;

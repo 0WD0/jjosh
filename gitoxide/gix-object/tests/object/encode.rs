@@ -6,71 +6,6 @@ enum Error {
     TryFromError,
 }
 
-macro_rules! round_trip {
-    ($owned:ty, $borrowed:ty, $( $files:literal ), +) => {
-        #[test]
-        fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            use std::convert::TryFrom;
-            use std::io::Write;
-            use crate::fixture_bytes;
-            use gix_object::{ObjectRef, Object, WriteTo};
-            use bstr::ByteSlice;
-
-            for input_name in &[
-                $( $files ),*
-            ] {
-                let input = fixture_bytes(input_name);
-                // Test the parse->borrowed->owned->write chain for an object kind
-                let mut output = Vec::new();
-                let item = <$borrowed>::from_bytes(&input)?;
-                item.write_to(&mut output)?;
-                assert_eq!(output.as_bstr(), input.as_bstr(), "borrowed: {input_name}");
-
-                let item: $owned = item.try_into()?;
-                output.clear();
-                item.write_to(&mut output)?;
-                assert_eq!(output.as_bstr(), input.as_bstr());
-
-                // Test the parse->borrowed->owned->write chain for the top-level objects
-                let item = ObjectRef::from(<$borrowed>::from_bytes(&input)?);
-                output.clear();
-                item.write_to(&mut output)?;
-                assert_eq!(output.as_bstr(), input.as_bstr(), "object-ref");
-
-                let item: Object = Object::try_from(item)?;
-                output.clear();
-                item.write_to(&mut output)?;
-                assert_eq!(output.as_bstr(), input.as_bstr(), "owned");
-
-                // Test the loose serialisation -> parse chain for an object kind
-                let item = <$borrowed>::from_bytes(&input)?;
-                // serialise a borowed item to a tagged loose object
-                output.clear();
-                {
-                    let w = &mut output;
-                    w.write_all(&item.loose_header())?;
-                    item.write_to(w)?;
-                    let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
-                    let item2 = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
-                    assert_eq!(item2, item, "object-ref loose: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
-                }
-
-                let item: $owned = item.try_into()?;
-                // serialise an owned to a tagged loose object
-                output.clear();
-                let w = &mut output;
-                w.write_all(&item.loose_header())?;
-                item.write_to(w)?;
-                let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
-                let parsed_borrowed = <$borrowed>::try_from(parsed).or(Err(super::Error::TryFromError))?;
-                let item2: $owned = parsed_borrowed.try_into().or(Err(super::Error::TryFromError))?;
-                assert_eq!(item2, item, "object-ref loose owned: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
-            }
-            Ok(())
-        }
-    };
-}
-
 /// Needed for roundtripping object types that take a `hash_kind` parameter.
 /// This is the same as `round_trip`, but for types that have `from_bytes()` with `hash_kind`.
 macro_rules! round_trip_with_hash_kind {
@@ -79,7 +14,7 @@ macro_rules! round_trip_with_hash_kind {
         fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             use std::convert::TryFrom;
             use std::io::Write;
-            use crate::fixture_bytes;
+            use crate::object_fixture;
             use gix_object::{ObjectRef, Object, WriteTo};
             use bstr::ByteSlice;
             let hash_kind = crate::fixture_hash_kind();
@@ -87,11 +22,7 @@ macro_rules! round_trip_with_hash_kind {
             for input_name in &[
                 $( $files ),*
             ] {
-                let input = if let Some(path) = input_name.strip_prefix("tree/") {
-                    crate::tree_fixture(path)?
-                } else {
-                    fixture_bytes(input_name)
-                };
+                let input = object_fixture(input_name)?;
                 // Test the parse->borrowed->owned->write chain for an object kind
                 let mut output = Vec::new();
                 let item = <$borrowed>::from_bytes(&input, hash_kind)?;
@@ -144,7 +75,7 @@ macro_rules! round_trip_with_hash_kind {
 }
 
 mod tag {
-    round_trip!(
+    round_trip_with_hash_kind!(
         gix_object::Tag,
         gix_object::TagRef,
         "tag/empty_missing_nl.txt",
@@ -157,7 +88,7 @@ mod tag {
 }
 
 mod commit {
-    round_trip!(
+    round_trip_with_hash_kind!(
         gix_object::Commit,
         gix_object::CommitRef,
         "commit/email-with-space.txt",
@@ -216,8 +147,74 @@ mod tree {
 }
 
 mod blob {
-    // It doesn't matter which data we use - it's not interpreted.
-    round_trip!(gix_object::Blob, gix_object::BlobRef, "tree/everything.tree");
+    use std::{convert::TryFrom, io::Write};
+
+    use bstr::ByteSlice;
+    use gix_object::{Blob, BlobRef, Object, ObjectRef, WriteTo};
+
+    use crate::fixture_bytes;
+
+    #[test]
+    fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let input_name = "tree/everything.tree";
+        let input = fixture_bytes(input_name);
+        // It doesn't matter which data we use - it's not interpreted.
+
+        let mut output = Vec::new();
+        let item = BlobRef::from_bytes(&input)?;
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "borrowed: {input_name}");
+
+        let item: Blob = item.into();
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr());
+
+        let item = ObjectRef::from(BlobRef::from_bytes(&input)?);
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "object-ref");
+
+        let item: Object = Object::try_from(item)?;
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "owned");
+
+        let item = BlobRef::from_bytes(&input)?;
+        output.clear();
+        {
+            let w = &mut output;
+            w.write_all(&item.loose_header())?;
+            item.write_to(w)?;
+            let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+            let item2 = BlobRef::try_from(parsed).or(Err(super::Error::TryFromError))?;
+            assert_eq!(
+                item2,
+                item,
+                "object-ref loose: {input_name} {:?}\n{:?}",
+                output.as_bstr(),
+                input.as_bstr()
+            );
+        }
+
+        let item: Blob = item.into();
+        output.clear();
+        let w = &mut output;
+        w.write_all(&item.loose_header())?;
+        item.write_to(w)?;
+        let parsed = ObjectRef::from_loose(&output, gix_testtools::hash_kind_from_env().unwrap_or_default())?;
+        let parsed_borrowed = BlobRef::try_from(parsed).or(Err(super::Error::TryFromError))?;
+        let item2: Blob = parsed_borrowed.into();
+        assert_eq!(
+            item2,
+            item,
+            "object-ref loose owned: {input_name} {:?}\n{:?}",
+            output.as_bstr(),
+            input.as_bstr()
+        );
+
+        Ok(())
+    }
 }
 
 mod loose_header {

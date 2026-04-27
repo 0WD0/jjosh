@@ -109,15 +109,13 @@ pub(crate) fn any_header_field<'a>(i: &mut &'a [u8]) -> ParseResult<(&'a [u8], &
     }
 }
 
-/// Parse a complete hexadecimal object id.
+/// Parse a complete hexadecimal object id of the given `hash_kind`.
 ///
-/// Typical input is a 40-byte SHA-1 hex id or a 64-byte SHA-256 hex id. The
-/// entire input slice must be ASCII hex and must match one of the supported
-/// object hash lengths.
-pub fn hex_hash(i: &[u8]) -> ParseResult<&BStr> {
-    let max = gix_hash::Kind::longest().len_in_hex();
-    let len = i.iter().take(max).take_while(|b| b.is_ascii_hexdigit()).count();
-    if len != i.len() || !gix_hash::Kind::all().iter().any(|hk| hk.len_in_hex() == len) {
+/// Typical input is a 40-byte SHA-1 hex id or a 64-byte SHA-256 hex id,
+/// depending on `hash_kind`. The entire input slice must be ASCII hex and
+/// match the expected object hash length.
+pub fn hex_hash(i: &[u8], hash_kind: gix_hash::Kind) -> ParseResult<&BStr> {
+    if i.len() != hash_kind.len_in_hex() || !i.iter().all(u8::is_ascii_hexdigit) {
         return Err(crate::decode::Error);
     }
     Ok(i.as_bstr())

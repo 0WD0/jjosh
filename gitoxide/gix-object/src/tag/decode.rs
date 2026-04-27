@@ -14,8 +14,8 @@ use crate::{parse, parse::ParseResult, BStr, Kind, TagRef};
 /// This parser is not transactional as a whole: if a later field fails, `i` may
 /// already have been advanced past earlier successfully parsed fields. Individual
 /// field parsers document their own cursor behaviour.
-pub fn git_tag<'a>(i: &mut &'a [u8]) -> ParseResult<TagRef<'a>> {
-    let target = target(i)?;
+pub fn git_tag<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<TagRef<'a>> {
+    let target = target(i, hash_kind)?;
     let kind = kind(i)?;
     let tag_version = name(i)?;
     let tagger = tagger_raw(i)?;
@@ -38,17 +38,10 @@ pub fn git_tag<'a>(i: &mut &'a [u8]) -> ParseResult<TagRef<'a>> {
 /// Parse the `object <hex>\n` header and return the object id as bytes.
 ///
 /// Typical input is `object 0123456789012345678901234567890123456789\n`.
-/// Both SHA-1 and SHA-256 hex lengths are accepted, and uppercase ASCII hex is
-/// valid. On success, `i` is advanced past the entire header line.
-pub(crate) fn target<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
-    fn is_valid_hex_hash(value: &[u8]) -> bool {
-        matches!(value.len(), 40 | 64) && value.iter().all(u8::is_ascii_hexdigit)
-    }
-    parse::header_field(i, b"object", |value| {
-        is_valid_hex_hash(value)
-            .then(|| value.as_bstr())
-            .ok_or(crate::decode::Error)
-    })
+/// The hash must match `hash_kind`. Uppercase ASCII hex is also valid.
+/// On success, `i` is advanced past the entire header line.
+pub(crate) fn target<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<&'a BStr> {
+    parse::header_field(i, b"object", |value| parse::hex_hash(value, hash_kind))
 }
 
 /// Parse the `type <kind>\n` header and return the object kind.

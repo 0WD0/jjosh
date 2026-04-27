@@ -26,7 +26,11 @@ fn single_line() {
 fn global_property_uses_empty_section_name() -> crate::Result {
     let mut file = file("a=b\n[core]\na=c");
     let err = file.set_existing_raw_value_by("", None, "a", "d").unwrap_err();
-    assert_eq!(err.to_string(), "The requested section does not exist", "cannot set global values");
+    assert_eq!(
+        err.to_string(),
+        "The requested section does not exist",
+        "cannot set global values"
+    );
     Ok(())
 }
 

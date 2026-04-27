@@ -2067,7 +2067,6 @@ dependencies = [
  "document-features",
  "gix-actor",
  "gix-date",
- "gix-error",
  "gix-features",
  "gix-hash",
  "gix-hashtable",

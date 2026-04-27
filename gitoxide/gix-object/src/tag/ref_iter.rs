@@ -14,11 +14,12 @@ pub(crate) enum State {
 }
 
 impl<'a> TagRefIter<'a> {
-    /// Create a tag iterator from data.
-    pub fn from_bytes(data: &'a [u8]) -> TagRefIter<'a> {
+    /// Create a tag iterator from `data`, parsing hashes as `hash_kind`.
+    pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> TagRefIter<'a> {
         TagRefIter {
             data,
             state: State::default(),
+            hash_kind,
         }
     }
 
@@ -52,19 +53,27 @@ fn missing_field() -> crate::decode::Error {
 
 impl<'a> TagRefIter<'a> {
     #[inline]
-    fn next_inner(mut i: &'a [u8], state: &mut State) -> Result<(&'a [u8], Token<'a>), crate::decode::Error> {
+    fn next_inner(
+        mut i: &'a [u8],
+        state: &mut State,
+        hash_kind: gix_hash::Kind,
+    ) -> Result<(&'a [u8], Token<'a>), crate::decode::Error> {
         let input = &mut i;
-        match Self::next_inner_(input, state) {
+        match Self::next_inner_(input, state, hash_kind) {
             Ok(token) => Ok((*input, token)),
             Err(err) => Err(err),
         }
     }
 
-    fn next_inner_(input: &mut &'a [u8], state: &mut State) -> Result<Token<'a>, crate::decode::Error> {
+    fn next_inner_(
+        input: &mut &'a [u8],
+        state: &mut State,
+        hash_kind: gix_hash::Kind,
+    ) -> Result<Token<'a>, crate::decode::Error> {
         use State::*;
         Ok(match state {
             Target => {
-                let target = decode::target(input)?;
+                let target = decode::target(input, hash_kind)?;
                 *state = TargetKind;
                 Token::Target {
                     id: ObjectId::from_hex(target).expect("parsing validation"),
@@ -104,7 +113,7 @@ impl<'a> Iterator for TagRefIter<'a> {
         if self.data.is_empty() {
             return None;
         }
-        match Self::next_inner(self.data, &mut self.state) {
+        match Self::next_inner(self.data, &mut self.state, self.hash_kind) {
             Ok((data, token)) => {
                 self.data = data;
                 Some(Ok(token))

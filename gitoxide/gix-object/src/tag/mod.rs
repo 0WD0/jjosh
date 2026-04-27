@@ -11,9 +11,9 @@ pub mod ref_iter;
 
 impl<'a> TagRef<'a> {
     /// Deserialize a tag from `data`.
-    pub fn from_bytes(mut data: &'a [u8]) -> Result<TagRef<'a>, crate::decode::Error> {
+    pub fn from_bytes(mut data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TagRef<'a>, crate::decode::Error> {
         let input = &mut data;
-        match decode::git_tag(input) {
+        match decode::git_tag(input, hash_kind) {
             Ok(tag) => Ok(tag),
             Err(err) => Err(err),
         }

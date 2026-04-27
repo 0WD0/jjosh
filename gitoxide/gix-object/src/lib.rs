@@ -109,7 +109,7 @@ pub struct Blob {
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CommitRef<'a> {
-    /// HEX hash of tree object we point to. Usually 40 bytes long.
+    /// HEX hash of tree object we point to.
     ///
     /// Use [`tree()`](CommitRef::tree()) to obtain a decoded version of it.
     #[cfg_attr(feature = "serde", serde(borrow))]
@@ -140,6 +140,7 @@ pub struct CommitRef<'a> {
 pub struct CommitRefIter<'a> {
     data: &'a [u8],
     state: commit::ref_iter::State,
+    hash_kind: gix_hash::Kind,
 }
 
 /// A mutable git commit, representing an annotated state of a working tree along with a reference to its historical commits.
@@ -194,6 +195,7 @@ pub struct TagRef<'a> {
 pub struct TagRefIter<'a> {
     data: &'a [u8],
     state: tag::ref_iter::State,
+    hash_kind: gix_hash::Kind,
 }
 
 /// A mutable git tag.

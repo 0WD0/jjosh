@@ -158,7 +158,7 @@ mod method {
     #[test]
     fn tree() -> crate::Result {
         let fixture = fixture_name("commit", "unsigned.txt");
-        let commit = CommitRef::from_bytes(&fixture)?;
+        let commit = CommitRef::from_bytes(&fixture, gix_hash::Kind::Sha1)?;
         assert_eq!(commit.tree(), hex_to_id("1b2dfb4ac5e42080b682fc676e9738c94ce6d54d"));
         assert_eq!(commit.tree, "1b2dfb4ac5e42080b682fc676e9738c94ce6d54d");
         Ok(())
@@ -167,7 +167,7 @@ mod method {
     #[test]
     fn author_and_committer_trims_signature() -> crate::Result {
         let backing = fixture_name("commit", "email-with-space.txt");
-        let commit = CommitRef::from_bytes(&backing)?;
+        let commit = CommitRef::from_bytes(&backing, gix_hash::Kind::Sha1)?;
         std::assert_eq!(commit.author()?, signature("1592437401 +0800"));
         std::assert_eq!(commit.committer()?, signature("1592437401 +0800"));
         Ok(())
@@ -178,9 +178,9 @@ mod method {
 fn invalid() {
     let fixture = fixture_name("commit", "unsigned.txt");
     let partial_commit = &fixture[..fixture.len() / 2];
-    assert!(CommitRef::from_bytes(partial_commit).is_err());
+    assert!(CommitRef::from_bytes(partial_commit, gix_hash::Kind::Sha1).is_err());
     assert_eq!(
-        CommitRefIter::from_bytes(partial_commit)
+        CommitRefIter::from_bytes(partial_commit, gix_hash::Kind::Sha1)
             .take_while(Result::is_ok)
             .count(),
         1,
@@ -192,8 +192,8 @@ fn invalid() {
 fn invalid_object_id_length() {
     let input = b"tree 00000066666666666684666666666666666299297\npare6";
 
-    assert!(CommitRef::from_bytes(input).is_err());
-    assert!(CommitRefIter::from_bytes(input)
+    assert!(CommitRef::from_bytes(input, gix_hash::Kind::Sha1).is_err());
+    assert!(CommitRefIter::from_bytes(input, gix_hash::Kind::Sha1)
         .next()
         .expect("a decoding error is returned for the first token")
         .is_err());
@@ -203,8 +203,8 @@ fn invalid_object_id_length() {
 fn fuzz_artifact_inputs_can_be_parsed_without_panicking() {
     for path in crate::fuzz_artifact_paths("fuzz_commit") {
         let input = std::fs::read(path).expect("artifact is readable");
-        _ = CommitRef::from_bytes(&input);
-        _ = CommitRefIter::from_bytes(&input).count();
+        _ = CommitRef::from_bytes(&input, gix_hash::Kind::Sha1);
+        _ = CommitRefIter::from_bytes(&input, gix_hash::Kind::Sha1).count();
     }
 }
 
