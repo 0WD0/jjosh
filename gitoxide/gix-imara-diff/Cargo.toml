@@ -18,7 +18,6 @@ include = ["/src/**/*", "/LICENSE", "/README.md", "!/src/tests.rs"]
 [dependencies]
 bstr = { version = "1.12.0", default-features = false }
 hashbrown = { version = ">=0.15,<=0.16", default-features = false, features = ["default-hasher", "inline-more"] }
-memchr = "2.7.4"
 
 [features]
 default = []
