@@ -309,7 +309,7 @@ fn invalid_target_id_length() {
 mod from_bytes {
     use gix_object::{bstr::ByteSlice, Kind, TagRef, WriteTo};
 
-    use crate::{fixture_oid, object_fixture};
+    use crate::{fixture_name, fixture_oid, object_fixture};
 
     #[test]
     fn signed() -> crate::Result {
@@ -502,14 +502,13 @@ KLMHist5yj0sw1E4hDTyQa0=
 
     #[test]
     fn tagger_without_timestamp() -> crate::Result {
-        let target = fixture_oid_hex("4fcd840c4935e4c7a5ea3552710a0f26b9178c24");
         assert_eq!(
             TagRef::from_bytes(
-                &tag_fixture("tagger-without-timestamp.txt")?,
-                crate::fixture_hash_kind()
+                &fixture_name("tag", "tagger-without-timestamp.txt"),
+                gix_hash::Kind::Sha1
             )?,
             TagRef {
-                target: target.as_bytes().as_bstr(),
+                target: b"4fcd840c4935e4c7a5ea3552710a0f26b9178c24".as_bstr(),
                 name: b"ChangeLog".as_bstr(),
                 target_kind: Kind::Commit,
                 message: b"".as_bstr(),

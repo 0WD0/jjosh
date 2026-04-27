@@ -83,8 +83,9 @@ fn parse_trailer_identity(trailer: gix::objs::commit::message::body::TrailerRef<
 /// Return `(commit_author, [commit_author, co_authors...])`. Use the `commit_author` for easy access to the commit author itself.
 fn commit_author_identities(
     commit_data: &[u8],
+    hash_kind: gix::hash::Kind,
 ) -> Result<(gix::actor::SignatureRef<'_>, SmallVec<[ParsedIdentity<'_>; 2]>), gix::objs::decode::Error> {
-    let commit = gix::objs::CommitRef::from_bytes(commit_data)?;
+    let commit = gix::objs::CommitRef::from_bytes(commit_data, hash_kind)?;
     let author = commit.author()?.trim();
     let mut authors = smallvec![ParsedIdentity::Borrowed(gix::actor::IdentityRef::from(author))];
     authors.extend(commit.co_authored_by_trailers().filter_map(parse_trailer_identity));
@@ -130,7 +131,7 @@ where
             let extract_signatures = scope.spawn(move || -> anyhow::Result<Vec<_>> {
                 let mut out = Vec::new();
                 for (commit_idx, commit_data) in rx {
-                    if let Ok((commit_author, authors)) = commit_author_identities(&commit_data) {
+                    if let Ok((commit_author, authors)) = commit_author_identities(&commit_data, commit_id.kind()) {
                         let mut string_ref = |s: &[u8]| -> &'static BStr {
                             match string_heap.get(s) {
                                 Some(n) => n.as_bstr(),
@@ -445,7 +446,7 @@ body\n\
 \n\
 Co-authored-by: Second Author <second@example.com>\n\
 Co-authored-by: Third Author <third@example.com>\n";
-        let (author, authors) = commit_author_identities(commit).expect("valid commit");
+        let (author, authors) = commit_author_identities(commit, gix::hash::Kind::Sha1).expect("valid commit");
         assert_eq!(author.time, "1710000000 +0000");
         assert_eq!(
             authors
@@ -478,7 +479,7 @@ committer Main Author <main@example.com> 1710000000 +0000\n\
 subject\n\
 \n\
 Co-authored-by: not a signature\n";
-        let (_, authors) = commit_author_identities(commit).expect("valid commit");
+        let (_, authors) = commit_author_identities(commit, gix::hash::Kind::Sha1).expect("valid commit");
         assert_eq!(authors.len(), 1);
         assert_eq!(authors[0].name(), "Main Author".as_bytes().as_bstr());
         assert_eq!(authors[0].email(), "main@example.com".as_bytes().as_bstr());

@@ -138,6 +138,10 @@ pub(super) struct State {
     queue: CommitDateQueue,
     /// Backing storage for the currently yielded commit.
     buf: Vec<u8>,
+    /// The object hash kind of the currently yielded commit data in `buf`.
+    /// It's used to know the kind of hash to expect when a new iterator is returned from `buf`
+    /// via `Simple::commit_iter()`.
+    object_hash: gix_hash::Kind,
     /// Set of commits that were already enqueued for the visible traversal, for cycle-checking.
     seen: gix_hashtable::HashSet<ObjectId>,
     /// Hidden frontier commits that must not be yielded or crossed during traversal.
@@ -247,6 +251,7 @@ mod init {
                 next: Default::default(),
                 queue: gix_revwalk::PriorityQueue::new(),
                 buf: vec![],
+                object_hash: gix_hash::Kind::Sha1,
                 seen: Default::default(),
                 hidden: Default::default(),
                 hidden_tips: Vec::new(),
@@ -262,6 +267,7 @@ mod init {
                 next,
                 queue,
                 buf,
+                object_hash,
                 seen,
                 hidden,
                 hidden_tips,
@@ -271,6 +277,7 @@ mod init {
             next.clear();
             queue.clear();
             buf.clear();
+            *object_hash = gix_hash::Kind::Sha1;
             seen.clear();
             hidden.clear();
             hidden_tips.clear();
@@ -464,7 +471,7 @@ mod init {
     impl<Find, Predicate> Simple<Find, Predicate> {
         /// Return an iterator for accessing data of the current commit, parsed lazily.
         pub fn commit_iter(&self) -> CommitRefIter<'_> {
-            CommitRefIter::from_bytes(self.commit_data())
+            CommitRefIter::from_bytes(self.commit_data(), self.state.object_hash)
         }
 
         /// Return the current commits' raw data, which can be parsed using [`gix_object::CommitRef::from_bytes()`].
@@ -519,6 +526,7 @@ mod init {
                 let (commit_time, oid) = match next.pop()? {
                     (Ok(t) | Err(Reverse(t)), o) => (t, o),
                 };
+                state.object_hash = oid.kind();
                 if state.hidden.contains_key(&oid) {
                     continue;
                 }
@@ -592,6 +600,7 @@ mod init {
 
             loop {
                 let oid = next.pop_front()?;
+                state.object_hash = oid.kind();
                 if state.hidden.contains_key(&oid) {
                     continue;
                 }

@@ -86,7 +86,7 @@ impl<'repo> Commit<'repo> {
     /// # Ok(()) }
     /// ```
     pub fn message_raw(&self) -> Result<&'_ BStr, gix_object::decode::Error> {
-        gix_object::CommitRefIter::from_bytes(&self.data).message()
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind()).message()
     }
     /// Obtain the message by using intricate knowledge about the encoding, which is fastest and
     /// can't fail at the expense of error handling.
@@ -114,24 +114,24 @@ impl<'repo> Commit<'repo> {
     /// used for successive calls to string-ish information to avoid decoding the object
     /// more than once.
     pub fn decode(&self) -> Result<gix_object::CommitRef<'_>, gix_object::decode::Error> {
-        gix_object::CommitRef::from_bytes(&self.data)
+        gix_object::CommitRef::from_bytes(&self.data, self.id.kind())
     }
 
     /// Return an iterator over tokens, representing this commit piece by piece.
     pub fn iter(&self) -> gix_object::CommitRefIter<'_> {
-        gix_object::CommitRefIter::from_bytes(&self.data)
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind())
     }
 
     /// Return the commits author, with surrounding whitespace trimmed.
     pub fn author(&self) -> Result<gix_actor::SignatureRef<'_>, gix_object::decode::Error> {
-        gix_object::CommitRefIter::from_bytes(&self.data)
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind())
             .author()
             .map(|s| s.trim())
     }
 
     /// Return the commits committer. with surrounding whitespace trimmed.
     pub fn committer(&self) -> Result<gix_actor::SignatureRef<'_>, gix_object::decode::Error> {
-        gix_object::CommitRefIter::from_bytes(&self.data)
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind())
             .committer()
             .map(|s| s.trim())
     }
@@ -153,7 +153,7 @@ impl<'repo> Commit<'repo> {
     pub fn parent_ids(&self) -> impl Iterator<Item = crate::Id<'repo>> + '_ {
         use crate::ext::ObjectIdExt;
         let repo = self.repo;
-        gix_object::CommitRefIter::from_bytes(&self.data)
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind())
             .parent_ids()
             .map(move |id| id.attach(repo))
     }
@@ -181,7 +181,7 @@ impl<'repo> Commit<'repo> {
 
     /// Parse the commit and return the tree id it points to.
     pub fn tree_id(&self) -> Result<crate::Id<'repo>, gix_object::decode::Error> {
-        gix_object::CommitRefIter::from_bytes(&self.data)
+        gix_object::CommitRefIter::from_bytes(&self.data, self.id.kind())
             .tree_id()
             .map(|id| crate::Id::from_id(id, self.repo))
     }
@@ -217,7 +217,7 @@ impl<'repo> Commit<'repo> {
         &self,
     ) -> Result<Option<(std::borrow::Cow<'_, BStr>, gix_object::commit::SignedData<'_>)>, gix_object::decode::Error>
     {
-        gix_object::CommitRefIter::signature(&self.data)
+        gix_object::CommitRefIter::signature(&self.data, self.id.kind())
     }
 }
 
