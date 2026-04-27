@@ -26,11 +26,23 @@ where
 
 mod config {
     use super::from_bytes;
+    use crate::parse::tests::util::{name_event, newline_event, value_event, whitespace_event};
+    use crate::parse::Event;
 
     #[test]
-    fn key_value_before_first_section_is_rejected() {
-        assert!(
-            from_bytes(b"a = b\n", &mut |_| {}).is_err(),
+    fn key_value_before_first_section_is_accepted() {
+        let mut events = Vec::new();
+        from_bytes(b"a = b\n", &mut |event| events.push(event)).unwrap();
+        assert_eq!(
+            events,
+            vec![
+                name_event("a"),
+                whitespace_event(" "),
+                Event::KeyValueSeparator,
+                whitespace_event(" "),
+                value_event("b"),
+                newline_event(),
+            ],
             "Git accepts this and reports `a=b`, as git_parse_source() parses alphabetic keys even before any section"
         );
     }
@@ -143,8 +155,9 @@ mod section_headers {
 
     #[test]
     fn null_byt_in_sub_section() {
-        assert!(
-            section_header.parse_peek(b"[hello \"hello\0\"]").is_err(),
+        assert_eq!(
+            section_header.parse_peek(b"[hello \"hello\0\"]").unwrap(),
+            fully_consumed(parsed_section_header("hello", (" ", "hello\0"))),
             "Git accepts this because get_extended_base_var() only rejects newline in quoted subsections"
         );
     }
@@ -199,18 +212,18 @@ mod section_headers {
 mod sub_section {
     use std::borrow::Cow;
 
-    use super::{sub_section, ParsePeekExt};
+    use super::{quoted_sub_section, ParsePeekExt};
 
     #[test]
     fn zero_copy_simple() {
-        let actual = sub_section.parse_peek(br#"name""#).unwrap().1;
+        let actual = quoted_sub_section.parse_peek(br#"name""#).unwrap().1;
         assert_eq!(actual.as_ref(), "name");
         assert!(matches!(actual, Cow::Borrowed(_)));
     }
 
     #[test]
     fn escapes_need_allocation() {
-        let actual = sub_section.parse_peek(br#"\x\t\n\0\\\"""#).unwrap().1;
+        let actual = quoted_sub_section.parse_peek(br#"\x\t\n\0\\\"""#).unwrap().1;
         assert_eq!(actual.as_ref(), r#"xtn0\""#);
         assert!(matches!(actual, Cow::Owned(_)));
     }
@@ -744,7 +757,7 @@ mod value_continuation {
 
 mod value_no_continuation {
     use super::value_continuation::value;
-    use crate::parse::tests::util::value_event;
+    use crate::parse::tests::util::{value_done_event, value_event, value_not_done_event};
 
     #[test]
     fn no_comment() {
@@ -844,8 +857,11 @@ mod value_no_continuation {
 
     #[test]
     fn incomplete_escape() {
-        assert!(
-            value(br"hello world\", &mut Default::default()).is_err(),
+        let mut events = Vec::new();
+        assert_eq!(value(br"hello world\", &mut events).unwrap().0, b"");
+        assert_eq!(
+            events,
+            vec![value_not_done_event("hello world"), value_done_event("")],
             "Git accepts this because EOF is normalized to newline and the trailing backslash becomes a continuation"
         );
     }
@@ -1028,9 +1044,12 @@ mod value {
     }
 
     #[test]
-    fn trailing_backslash_is_rejected() {
-        assert!(
-            parse(b"hello\\").is_err(),
+    fn trailing_backslash_is_accepted_as_continuation_to_eof() {
+        let (remaining, events) = parse(b"hello\\").unwrap();
+        assert_eq!(remaining, b"", "it consumes everything, as the continuation backslash is no value");
+        assert_eq!(
+            events,
+            vec![value_not_done_event("hello"), value_done_event("")],
             "Git accepts this because get_next_char() maps EOF to newline, which parse_value() treats as a continuation"
         );
     }

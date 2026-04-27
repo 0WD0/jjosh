@@ -9,8 +9,9 @@ type ParseResult<T> = Result<T, ()>;
 /// Attempt to zero-copy parse the provided `input`, passing results to `dispatch`.
 ///
 /// The `input` is a complete Git config file. A UTF BOM is skipped, leading
-/// comments, whitespace, and newlines are emitted first via `dispatch`,
-/// and then one or more sections are parsed until EOF.
+/// comments, whitespace, newlines, and Git-compatible key/value pairs before
+/// the first section are emitted first via `dispatch`, and then one or more
+/// sections are parsed until EOF.
 ///
 /// On success, all input is consumed.
 /// On failure, the returned [`Error`] reports the line number, the parser node
@@ -29,6 +30,13 @@ pub fn from_bytes<'i>(mut input: &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) 
             dispatch(Event::Whitespace(Cow::Borrowed(whitespace)));
         } else if let Ok(newline) = take_newlines1(&mut input) {
             dispatch(Event::Newline(Cow::Borrowed(newline)));
+        } else if !input.starts_with(b"[") {
+            let mut node = ParseNode::SectionHeader;
+            key_value_pair(&mut input, &mut node, dispatch).map_err(|_| Error {
+                line_number: newlines_from(original, input),
+                last_attempted_parser: node,
+                parsed_until: input.as_bstr().into(),
+            })?;
         }
         if input.len() == before.len() {
             break;
@@ -155,7 +163,7 @@ fn section_header<'i>(i: &mut &'i [u8]) -> ParseResult<section::Header<'i>> {
         return Err(());
     };
     c = rest;
-    let subsection_name = sub_section(&mut c)?;
+    let subsection_name = quoted_sub_section(&mut c)?;
     let Some(rest) = c.strip_prefix(b"\"]") else {
         return Err(());
     };
@@ -179,9 +187,10 @@ fn is_section_char(c: u8) -> bool {
 /// Input starts immediately after the opening quote in `[section "sub"]`.
 /// Parsing stops before the closing quote. Backslash escapes copy the escaped
 /// byte into an owned buffer; otherwise the returned value borrows from the
-/// input. Newlines and NUL bytes are rejected. On success, `i` is advanced to
-/// the closing quote.
-fn sub_section<'i>(i: &mut &'i [u8]) -> ParseResult<Cow<'i, BStr>> {
+/// input. Newlines are rejected. On success, `i` is advanced to the closing
+/// quote.
+/// NUL byte are explicitly allowed.
+fn quoted_sub_section<'i>(i: &mut &'i [u8]) -> ParseResult<Cow<'i, BStr>> {
     let mut c = *i;
     let input = c;
     let mut out: Option<Vec<u8>> = None;
@@ -189,7 +198,7 @@ fn sub_section<'i>(i: &mut &'i [u8]) -> ParseResult<Cow<'i, BStr>> {
     while let Some(&b) = c.first() {
         match b {
             b'"' => break,
-            b'\n' | 0 => return Err(()),
+            b'\n' => return Err(()),
             b'\\' => {
                 let escaped = *c.get(1).ok_or(())?;
                 if escaped == b'\n' {
@@ -279,6 +288,8 @@ fn config_value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> Pa
 /// Double quotes toggle quoted mode for comment handling. Supported escapes are
 /// backslash followed by `n`, `t`, `\`, `b`, `"`, LF, or CRLF. Line continuations
 /// emit [`Event::ValueNotDone`], the continuation newline, and finally [`Event::ValueDone`].
+/// If the value ends with a trailing backslash at EOF, it is emitted as
+/// [`Event::ValueNotDone`] followed directly by an empty [`Event::ValueDone`].
 /// Otherwise a single [`Event::Value`] is emitted with trailing ASCII whitespace
 /// trimmed from the logical value.
 /// On success, `i` is advanced to the first unconsumed delimiter or EOF.
@@ -307,7 +318,11 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
                 cursor += 1;
                 let mut consumed = 1usize;
                 let Some(mut b) = input.get(cursor).copied() else {
-                    return Err(());
+                    let value = input[value_start..escape_index].as_bstr();
+                    dispatch(Event::ValueNotDone(Cow::Borrowed(value)));
+                    dispatch(Event::ValueDone(Cow::Borrowed("".into())));
+                    *i = &[];
+                    return Ok(());
                 };
                 if b == b'\r' {
                     cursor += 1;
