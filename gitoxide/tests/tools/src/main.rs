@@ -86,7 +86,7 @@ fn git_daemon(url_file: PathBuf) -> io::Result<()> {
 /// In `--inetd` mode Git doesn't accept the socket itself, so it can't derive
 /// `REMOTE_ADDR` and `REMOTE_PORT`. The wrapper owns `accept()`, and passes
 /// these values along for code paths that log or inspect peer information.
-/// 
+///
 /// As such, it's optional and not needed for it to function.
 #[cfg(unix)]
 fn remote_env(peer_addr: Option<std::net::SocketAddr>) -> Vec<(&'static str, String)> {
