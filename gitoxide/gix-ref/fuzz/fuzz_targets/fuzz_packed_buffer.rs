@@ -14,7 +14,7 @@ struct Ctx<'a> {
 }
 
 fn fuzz(ctx: Ctx) -> Result<()> {
-    let buffer = Buffer::from_bytes(ctx.packed_file_contents)?;
+    let buffer = Buffer::from_bytes(ctx.packed_file_contents, "sha1".parse().unwrap())?;
     _ = black_box(buffer.iter()?.count());
 
     let full_name_ref: &FullNameRef = BStr::new(ctx.name).try_into()?;

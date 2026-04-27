@@ -3,10 +3,12 @@ use gix_ref::packed;
 
 use crate::file::{store_at, store_with_packed_refs};
 
+const HASH_KIND: gix_hash::Kind = gix_hash::Kind::Sha1;
+
 #[test]
 fn empty() -> crate::Result {
     assert_eq!(
-        packed::Iter::new(&[])?.count(),
+        packed::Iter::new(&[], HASH_KIND)?.count(),
         0,
         "empty buffers are fine and lead to no line returned"
     );
@@ -17,7 +19,7 @@ fn empty() -> crate::Result {
 fn packed_refs_with_header() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_read_only_standalone("make_packed_ref_repository.sh")?;
     let buf = std::fs::read(dir.join(".git").join("packed-refs"))?;
-    let iter = packed::Iter::new(&buf)?;
+    let iter = packed::Iter::new(&buf, crate::fixture_hash_kind())?;
     assert_eq!(iter.count(), 11, "it finds the right amount of items");
     Ok(())
 }
@@ -86,7 +88,7 @@ c4cebba92af964f2d126be90b8a6298c4cf84d45 refs/tags/gix-actor-v0.1.0
 ^13da90b54699a6b500ec5cd7d175f2cd5a1bed06
 0b92c8a256ae06c189e3b9c30b646d62ac8f7d10 refs/tags/gix-actor-v0.1.1\n";
     assert_eq!(
-        packed::Iter::new(packed_refs)?.collect::<Result<Vec<_>, _>>()?,
+        packed::Iter::new(packed_refs, HASH_KIND)?.collect::<Result<Vec<_>, _>>()?,
         vec![
             packed::Reference {
                 name: "refs/tags/TEST-0.0.1".try_into()?,
@@ -114,7 +116,7 @@ fn broken_ref_doesnt_end_the_iteration() -> crate::Result {
 buggy-hash refs/wrong
 ^buggy-hash-too
 0b92c8a256ae06c189e3b9c30b646d62ac8f7d10 refs/tags/gix-actor-v0.1.1\n";
-    let mut iter = packed::Iter::new(packed_refs)?;
+    let mut iter = packed::Iter::new(packed_refs, HASH_KIND)?;
 
     assert!(iter.next().expect("first ref").is_ok(), "first line is valid");
     assert_eq!(

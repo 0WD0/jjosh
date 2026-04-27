@@ -21,7 +21,7 @@ pub(crate) mod prepare_and_commit {
 
     pub(crate) fn empty_store() -> crate::Result<(gix_testtools::tempfile::TempDir, file::Store)> {
         let dir = gix_testtools::tempfile::TempDir::new().unwrap();
-        let store = file::Store::at(dir.path().into(), Default::default());
+        let store = file::Store::at(dir.path().into(), crate::file::store_options());
         Ok((dir, store))
     }
 

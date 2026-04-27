@@ -75,7 +75,7 @@ impl<'a> From<LineRef<'a>> for Line {
 pub mod decode {
     use gix_object::bstr::{BStr, ByteSlice};
 
-    use crate::{file::log::LineRef, parse::hex_hash};
+    use crate::{file::log::LineRef, parse::hex_hash_any};
 
     ///
     mod error {
@@ -143,9 +143,9 @@ pub mod decode {
             None => (line, BStr::new(b"")),
         };
 
-        let old = hex_hash(&mut head)?;
+        let old = hex_hash_any(&mut head)?;
         head = head.strip_prefix(b" ").ok_or(())?;
-        let new = hex_hash(&mut head)?;
+        let new = hex_hash_any(&mut head)?;
         head = head.strip_prefix(b" ").ok_or(())?;
         let signature = gix_actor::signature::decode(&mut head).map_err(|_| ())?;
         if !head.is_empty() {

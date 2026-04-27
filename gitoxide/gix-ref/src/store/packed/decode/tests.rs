@@ -7,6 +7,8 @@ mod reference {
         FullNameRef,
     };
 
+    const HASH_KIND: gix_hash::Kind = gix_hash::Kind::Sha1;
+
     /// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
     fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
         gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
@@ -15,16 +17,27 @@ mod reference {
     #[test]
     fn invalid() {
         let mut input = b"# what looks like a comment".as_slice();
-        assert!(decode::reference(&mut input).is_err());
+        assert!(decode::reference(&mut input, HASH_KIND).is_err());
         let mut input = b"^e9cdc958e7ce2290e2d7958cdb5aa9323ef35d37\n".as_slice();
-        assert!(decode::reference(&mut input).is_err(), "lonely peel");
+        assert!(decode::reference(&mut input, HASH_KIND).is_err(), "lonely peel");
+        let mut input =
+            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n".as_slice();
+        assert!(
+            decode::reference(&mut input, gix_hash::Kind::Sha1).is_err(),
+            "sha1 refs reject sha256-sized ids"
+        );
+        let mut input = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n".as_slice();
+        assert!(
+            decode::reference(&mut input, gix_hash::Kind::Sha256).is_err(),
+            "sha256 refs reject sha1-sized ids"
+        );
     }
 
     #[test]
     fn uppercase_hex() -> Result {
         let mut input: &[u8] = b"D53C4B0F91F1B29769C9430F2D1C0BCAB1170C75 refs/heads/uppercase
 ^E9CDC958E7CE2290E2D7958CDB5AA9323EF35D37\n";
-        let parsed = decode::reference(&mut input).unwrap();
+        let parsed = decode::reference(&mut input, HASH_KIND).unwrap();
 
         assert!(input.is_empty(), "exhausted");
         assert_eq!(parsed.name, FullNameRef::new_unchecked("refs/heads/uppercase".into()));
@@ -34,10 +47,21 @@ mod reference {
     }
 
     #[test]
+    fn sha256_hex() -> Result {
+        let mut input: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n";
+        let parsed = decode::reference(&mut input, gix_hash::Kind::Sha256).unwrap();
+
+        assert!(input.is_empty(), "exhausted");
+        assert_eq!(parsed.name, FullNameRef::new_unchecked("refs/heads/main".into()));
+        assert_eq!(parsed.target().kind(), gix_hash::Kind::Sha256);
+        Ok(())
+    }
+
+    #[test]
     fn two_refs_in_a_row() -> Result {
         let mut input: &[u8] = b"d53c4b0f91f1b29769c9430f2d1c0bcab1170c75 refs/heads/alternates-after-packs-and-loose
 ^e9cdc958e7ce2290e2d7958cdb5aa9323ef35d37\neaae9c1bc723209d793eb93f5587fa2604d5cd92 refs/heads/avoid-double-lookup\n";
-        let parsed = decode::reference(&mut input).unwrap();
+        let parsed = decode::reference(&mut input, HASH_KIND).unwrap();
 
         assert_eq!(
             parsed,
@@ -50,7 +74,7 @@ mod reference {
         assert_eq!(parsed.target(), hex_to_id("d53c4b0f91f1b29769c9430f2d1c0bcab1170c75"));
         assert_eq!(parsed.object(), hex_to_id("e9cdc958e7ce2290e2d7958cdb5aa9323ef35d37"));
 
-        let parsed = decode::reference(&mut input).unwrap();
+        let parsed = decode::reference(&mut input, HASH_KIND).unwrap();
         assert!(input.is_empty(), "exhausted");
         assert_eq!(
             parsed.name,

@@ -43,12 +43,12 @@ impl TryFrom<MaybeUnsafeState> for Target {
 }
 
 impl Reference {
-    /// Create a new reference of the given `parent` store with `relative_path` service as unique identifier
-    /// at which the `path_contents` was read to obtain the refs value.
-    pub fn try_from_path(name: FullName, path_contents: &[u8]) -> Result<Self, Error> {
+    /// Create a new reference named `name` from the loose reference file contents in `path_contents`,
+    /// parsing object ids as `hash_kind`.
+    pub fn try_from_path(name: FullName, path_contents: &[u8], hash_kind: gix_hash::Kind) -> Result<Self, Error> {
         Ok(Reference {
             name,
-            target: parse(path_contents)
+            target: parse(path_contents, hash_kind)
                 .map_err(|_| Error::Parse {
                     content: path_contents.into(),
                 })?
@@ -68,7 +68,7 @@ impl Reference {
 /// [`MaybeUnsafeState::Id`].
 ///
 /// If neither reference form can be parsed, an error is returned.
-fn parse(mut i: &[u8]) -> Result<MaybeUnsafeState, ()> {
+fn parse(mut i: &[u8], hash_kind: gix_hash::Kind) -> Result<MaybeUnsafeState, ()> {
     if let Some(rest) = i.strip_prefix(b"ref: ") {
         i = rest;
         while i.first() == Some(&b' ') {
@@ -78,7 +78,10 @@ fn parse(mut i: &[u8]) -> Result<MaybeUnsafeState, ()> {
         let path = i[..path_end].into();
         Ok(MaybeUnsafeState::UnvalidatedPath(path))
     } else {
-        let hex = hex_hash(&mut i)?;
+        let hex = hex_hash(&mut i, hash_kind)?;
+        if i.first().is_some_and(u8::is_ascii_hexdigit) {
+            return Err(());
+        }
         Ok(MaybeUnsafeState::Id(ObjectId::from_hex(hex).expect("prior validation")))
     }
 }

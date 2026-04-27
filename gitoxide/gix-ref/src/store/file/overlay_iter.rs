@@ -21,6 +21,7 @@ use crate::{
 pub struct LooseThenPacked<'p, 's> {
     git_dir: &'s Path,
     common_dir: Option<&'s Path>,
+    hash_kind: gix_hash::Kind,
     namespace: Option<&'s Namespace>,
     iter_packed: Option<Peekable<packed::Iter<'p>>>,
     iter_git_dir: Peekable<SortedLoosePaths>,
@@ -97,7 +98,7 @@ impl<'p> LooseThenPacked<'p, '_> {
                 source: err,
                 path: refpath.to_owned(),
             })?;
-        loose::Reference::try_from_path(name, buf)
+        loose::Reference::try_from_path(name, buf, self.hash_kind)
             .map_err(|err| {
                 let relative_path = refpath
                     .strip_prefix(git_dir)
@@ -432,6 +433,7 @@ impl file::Store {
         Ok(LooseThenPacked {
             git_dir: self.git_dir(),
             common_dir: self.common_dir(),
+            hash_kind: self.object_hash,
             iter_packed: match packed {
                 Some(packed) => Some(
                     match git_dir_info.prefix() {

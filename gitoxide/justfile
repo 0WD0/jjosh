@@ -219,7 +219,8 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-object --no-fail-fast
     cargo nextest run -p gix-tempfile --features signals --no-fail-fast
     cargo nextest run -p gix-features --all-features --no-fail-fast
-    cargo nextest run -p gix-ref-tests --all-features --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-ref-tests --all-features --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-ref-tests --all-features --no-fail-fast
     cargo nextest run -p gix-odb --all-features --no-fail-fast
     cargo nextest run -p gix-odb-tests --features gix-features-parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-pack --all-features --no-fail-fast

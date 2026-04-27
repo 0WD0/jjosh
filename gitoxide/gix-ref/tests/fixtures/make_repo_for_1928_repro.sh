@@ -2,16 +2,23 @@
 set -eu -o pipefail
 
 git init -q
+hex_len=40
+if test "$(git rev-parse --show-object-format)" = "sha256"; then
+  hex_len=64
+fi
+oid () {
+  printf "%0.s$1" $(seq 1 "$hex_len")
+}
 
 mkdir -p .git/refs/heads/a
 cat <<EOF >.git/packed-refs
 # pack-refs with: peeled fully-peeled sorted
-1111111111111111111111111111111111111111 refs/heads/a-
-2222222222222222222222222222222222222222 refs/heads/a/b
-3333333333333333333333333333333333333333 refs/heads/a0
+$(oid 1) refs/heads/a-
+$(oid 2) refs/heads/a/b
+$(oid 3) refs/heads/a0
 EOF
 
 mkdir -p .git/refs/heads/a
-echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa >.git/refs/heads/a-
-echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb >.git/refs/heads/a/b
-echo cccccccccccccccccccccccccccccccccccccccc >.git/refs/heads/a0
+oid a >.git/refs/heads/a-
+oid b >.git/refs/heads/a/b
+oid c >.git/refs/heads/a0

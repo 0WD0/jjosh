@@ -26,7 +26,11 @@ impl file::Store {
     /// Note that it will automatically be memory mapped if it exceeds the default threshold of 32KB.
     /// Change the threshold with [file::Store::set_packed_buffer_mmap_threshold()].
     pub fn open_packed_buffer(&self) -> Result<Option<packed::Buffer>, packed::buffer::open::Error> {
-        match packed::Buffer::open(self.packed_refs_path(), self.packed_buffer_mmap_threshold) {
+        match packed::Buffer::open(
+            self.packed_refs_path(),
+            self.packed_buffer_mmap_threshold,
+            self.object_hash,
+        ) {
             Ok(buf) => Ok(Some(buf)),
             Err(packed::buffer::open::Error::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err),

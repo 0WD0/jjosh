@@ -28,7 +28,7 @@ gix-discover = { path = "../../gix-discover" }
 gix-odb = { path = "../../gix-odb" }
 gix-actor = { path = "../../gix-actor" }
 gix-date = { path = "../../gix-date" }
-gix-hash = { path = "../../gix-hash" }
+gix-hash = { path = "../../gix-hash", features = ["sha1", "sha256"] }
 gix-validate = { path = "../../gix-validate" }
 gix-lock = { path = "../../gix-lock" }
 gix-object = { path = "../../gix-object" }

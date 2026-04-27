@@ -145,7 +145,7 @@ mod loose {
         let store = store()?;
         assert_eq!(
             store.find_loose("FETCH_HEAD")?.target.id(),
-            hex_to_id("9064ea31fae4dc59a56bdd3a06c0ddc990ee689e"),
+            hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03"),
             "despite being special, we are able to read the first commit out of a typical FETCH_HEAD"
         );
         Ok(())

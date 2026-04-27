@@ -6,11 +6,24 @@ fn is_hex_digit(b: u8) -> bool {
     b.is_ascii_hexdigit()
 }
 
-/// Copy from `gix-object`, intentionally accepting all supported hash lengths.
-pub fn hex_hash<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
+/// Copy from `gix-object`, validating the hash against `hash_kind`.
+pub fn hex_hash<'a>(i: &mut &'a [u8], hash_kind: gix_hash::Kind) -> ParseResult<&'a BStr> {
+    let len = hash_kind.len_in_hex();
+    let Some(hex) = i.get(..len) else {
+        return Err(());
+    };
+    if !hex.iter().all(|b| is_hex_digit(*b)) {
+        return Err(());
+    }
+    *i = &i[len..];
+    Ok(hex.as_bstr())
+}
+
+/// All all supported hash lengths, if they match perfectly.
+pub fn hex_hash_any<'a>(i: &mut &'a [u8]) -> ParseResult<&'a BStr> {
     let max = gix_hash::Kind::longest().len_in_hex();
     let len = i.iter().take(max).take_while(|b| is_hex_digit(**b)).count();
-    if len < gix_hash::Kind::shortest().len_in_hex() {
+    if !gix_hash::Kind::all().iter().any(|kind| kind.len_in_hex() == len) {
         return Err(());
     }
     let (hex, rest) = i.split_at(len);
