@@ -1868,6 +1868,7 @@ version = "0.26.0"
 dependencies = [
  "bitflags 2.11.1",
  "bstr",
+ "criterion",
  "document-features",
  "gix-features",
  "gix-path",

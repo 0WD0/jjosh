@@ -9,10 +9,20 @@ use gix_ignore::{
 use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 
-fn relative_path(input: &[u8]) -> &bstr::BStr {
+// Keep fuzz-generated match paths small enough that pathological glob patterns don't dominate fuzzing time.
+// We don't mitigate this in gix-glob as memoization made typical matches slower, and we want to stay on par with Git.
+const MAX_FUZZ_PATH_LEN: usize = 256;
+
+fn relative_path(input: &[u8]) -> Option<&bstr::BStr> {
     let path = &input[input.iter().position(|b| *b != b'/').unwrap_or(input.len())..];
     let path = path.as_bstr();
-    if path.is_empty() { "fuzz".into() } else { path }
+    if path.len() > MAX_FUZZ_PATH_LEN {
+        None
+    } else if path.is_empty() {
+        Some("fuzz".into())
+    } else {
+        Some(path)
+    }
 }
 
 fn fuzz(input: &[u8]) {
@@ -42,7 +52,9 @@ fn fuzz(input: &[u8]) {
         b"dir/file.txt".as_slice(),
         input,
     ] {
-        let path = relative_path(path);
+        let Some(path) = relative_path(path) else {
+            continue;
+        };
         _ = black_box(search.pattern_matching_relative_path(path, Some(false), Case::Sensitive));
         _ = black_box(search.pattern_matching_relative_path(path, Some(true), Case::Fold));
         _ = black_box(overrides_search.pattern_matching_relative_path(path, Some(false), Case::Sensitive));
