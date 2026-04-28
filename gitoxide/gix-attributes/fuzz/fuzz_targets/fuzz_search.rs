@@ -16,6 +16,10 @@ fn arbitrary_case(u: &mut Unstructured) -> arbitrary::Result<Case> {
     Ok(*u.choose(&[Case::Sensitive, Case::Fold])?)
 }
 
+// Keep fuzz-generated path patterns small enough that pathological glob matching doesn't dominate fuzzing time.
+// We don't mitigate this in gix-glob as memoization made typical matches slower, and we want to stay on par with Git.
+const MAX_FUZZ_PATH_PATTERN_LEN: usize = 256;
+
 #[derive(Debug, Arbitrary)]
 struct Ctx<'a> {
     pattern: &'a str,
@@ -24,6 +28,10 @@ struct Ctx<'a> {
 }
 
 fn fuzz(Ctx { pattern, case }: Ctx) -> Result<()> {
+    if pattern.len() > MAX_FUZZ_PATH_PATTERN_LEN {
+        return Ok(());
+    }
+
     let mut search = Search::default();
     let mut collection = MetadataCollection::default();
     search.add_patterns_buffer(
