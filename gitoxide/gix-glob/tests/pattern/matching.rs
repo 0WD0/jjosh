@@ -343,6 +343,23 @@ fn fuzzed_exponential_runaway_denial_of_service() {
     }
 }
 
+#[test]
+fn pathological_recursive_globstar_matches_at_various_depths() {
+    let pattern = pat("***/**/****/***/onfig");
+
+    for path in [
+        "onfig",
+        "a/onfig",
+        "a/b/onfig",
+        "a/b/c/onfig",
+        "a/b/c/d/onfig",
+        "a/b/c/d/e/onfig",
+        "dir/dir/dir/dir/dir/dir/onfig",
+    ] {
+        assert!(match_path(&pattern, path, Some(false), Case::Sensitive), "{path:?}");
+    }
+}
+
 fn pat<'a>(pattern: impl Into<&'a BStr>) -> gix_glob::Pattern {
     gix_glob::Pattern::from_bytes(pattern.into()).expect("parsing works")
 }
