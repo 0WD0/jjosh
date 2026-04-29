@@ -381,7 +381,7 @@ fn try_lookup<'graph, 'cache>(
             .map_err(gix_object::find::existing_iter::Error::Find)?
         {
             Some(data) => data.kind.is_commit().then_some(LazyCommit {
-                object_hash: data.hash_kind,
+                object_hash: data.object_hash,
                 backing: Either::Left(buf),
             }),
             None => None,

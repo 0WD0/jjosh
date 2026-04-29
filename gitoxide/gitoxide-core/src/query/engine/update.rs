@@ -395,7 +395,7 @@ pub fn update(
                 self.progress.inc();
                 if self.known_commits.binary_search(&id.to_owned()).is_err() {
                     let res = {
-                        let mut parents = gix::objs::CommitRefIter::from_bytes(obj.data, obj.hash_kind).parent_ids();
+                        let mut parents = gix::objs::CommitRefIter::from_bytes(obj.data, obj.object_hash).parent_ids();
                         let res = parents.next().map(|first_parent| (Some(first_parent), id.to_owned()));
                         match parents.next() {
                             Some(_) => None,
