@@ -1,6 +1,6 @@
 /// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
 fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
-    match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+    match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex_sha1.as_bytes()).expect("40 bytes hex"),
         gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(hex_sha256.as_bytes()).expect("64 bytes hex"),
         _ => unimplemented!(),
@@ -39,7 +39,7 @@ mod from_tree {
     #[test]
     fn can_receive_err_if_root_is_not_found() {
         let mut stream = gix_worktree_stream::from_tree(
-            gix_testtools::hash_kind_from_env().unwrap_or_default().null(),
+            gix_testtools::object_hash().null(),
             FailObjectRetrieval,
             mutating_pipeline(false),
             |_, _, _| -> Result<_, Infallible> { unreachable!("must not be called") },
@@ -76,7 +76,7 @@ mod from_tree {
                     .map(|_| ())
             },
         );
-        let object_hash = gix_testtools::hash_kind_from_env().unwrap_or_default();
+        let object_hash = gix_testtools::object_hash();
         stream
             .add_entry_from_path(&dir, &dir.join("extra-file"), object_hash)?
             .add_entry_from_path(&dir, &dir.join("extra-bigfile"), object_hash)?
@@ -199,13 +199,13 @@ mod from_tree {
         );
 
         #[cfg(target_pointer_width = "64")]
-        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+        let expected_buffer_length: usize = match gix_testtools::object_hash() {
             gix_hash::Kind::Sha1 => 320302,
             gix_hash::Kind::Sha256 => 320458,
             _ => unimplemented!(),
         };
         #[cfg(target_pointer_width = "32")]
-        let expected_buffer_length: usize = match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+        let expected_buffer_length: usize = match gix_testtools::object_hash() {
             gix_hash::Kind::Sha1 => 320198,
             gix_hash::Kind::Sha256 => todo!("let the test fail on CI and add the value here"),
             _ => unimplemented!(),
@@ -263,7 +263,7 @@ mod from_tree {
             dir.join(".git").join("objects"),
             Vec::new(),
             gix_odb::store::init::Options {
-                object_hash: gix_testtools::hash_kind_from_env().unwrap_or_default(),
+                object_hash: gix_testtools::object_hash(),
                 ..Default::default()
             },
         )?;

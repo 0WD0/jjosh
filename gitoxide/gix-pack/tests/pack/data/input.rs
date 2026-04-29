@@ -32,7 +32,7 @@ mod lookup_ref_delta_objects {
     fn entry(header: Header, data: &'static [u8]) -> input::Entry {
         let obj = gix_object::Data {
             kind: header.as_kind().unwrap_or(gix_object::Kind::Blob),
-            hash_kind: gix_testtools::hash_kind_from_env().unwrap_or_default(),
+            hash_kind: gix_testtools::object_hash(),
             data,
         };
         let mut entry = input::Entry::from_data_obj(&obj, 0).expect("valid object");

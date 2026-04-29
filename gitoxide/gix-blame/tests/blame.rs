@@ -5,7 +5,7 @@ use gix_hash::ObjectId;
 use gix_object::bstr;
 
 fn fixture_hash_kind() -> gix_hash::Kind {
-    gix_testtools::hash_kind_from_env().unwrap_or_default()
+    gix_testtools::object_hash()
 }
 
 struct Baseline<'a> {

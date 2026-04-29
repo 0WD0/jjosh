@@ -53,7 +53,7 @@ where
 }
 
 impl<'a> TreeRefIter<'a> {
-    /// Instantiate an iterator from the given tree `data` and `hash_kind`.
+    /// Instantiate an iterator from the given tree `data` and `object_hash`.
     pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> TreeRefIter<'a> {
         TreeRefIter { data, hash_kind }
     }
@@ -121,7 +121,7 @@ impl<'a> TreeRefIter<'a> {
 }
 
 impl<'a> TreeRef<'a> {
-    /// Deserialize a Tree from `data`, assuming `hash_kind` to determine how the object ids are encoded in this particular tree.
+    /// Deserialize a Tree from `data`, assuming `object_hash` to determine how the object ids are encoded in this particular tree.
     pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> Result<TreeRef<'a>, crate::decode::Error> {
         decode::tree(data, hash_kind.len_in_bytes())
     }

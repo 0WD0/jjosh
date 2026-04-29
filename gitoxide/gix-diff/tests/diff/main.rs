@@ -2,7 +2,7 @@ use gix_testtools::Result;
 use std::collections::HashMap;
 
 fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
-    match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+    match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex_sha1.as_bytes()).expect("40 bytes hex"),
         gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(hex_sha256.as_bytes()).expect("64 bytes hex"),
         _ => unimplemented!(),
@@ -10,7 +10,7 @@ fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
 }
 
 fn fixture_hash_kind() -> gix_hash::Kind {
-    gix_testtools::hash_kind_from_env().unwrap_or_default()
+    gix_testtools::object_hash()
 }
 
 fn open_odb(objects_dir: impl Into<std::path::PathBuf>) -> std::io::Result<gix_odb::Handle> {

@@ -83,9 +83,9 @@ fn parse_trailer_identity(trailer: gix::objs::commit::message::body::TrailerRef<
 /// Return `(commit_author, [commit_author, co_authors...])`. Use the `commit_author` for easy access to the commit author itself.
 fn commit_author_identities(
     commit_data: &[u8],
-    hash_kind: gix::hash::Kind,
+    object_hash: gix::hash::Kind,
 ) -> Result<(gix::actor::SignatureRef<'_>, SmallVec<[ParsedIdentity<'_>; 2]>), gix::objs::decode::Error> {
-    let commit = gix::objs::CommitRef::from_bytes(commit_data, hash_kind)?;
+    let commit = gix::objs::CommitRef::from_bytes(commit_data, object_hash)?;
     let author = commit.author()?.trim();
     let mut authors = smallvec![ParsedIdentity::Borrowed(gix::actor::IdentityRef::from(author))];
     authors.extend(commit.co_authored_by_trailers().filter_map(parse_trailer_identity));

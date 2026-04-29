@@ -1059,7 +1059,7 @@ fn force_and_dir(
     destination_dir: Option<&Path>,
     root: DirectoryRoot,
     archive_name: impl AsRef<Path>,
-    hash_kind: Option<gix_hash::Kind>,
+    object_hash: Option<gix_hash::Kind>,
     script_identity: &dyn std::fmt::Display,
 ) -> (bool, PathBuf) {
     destination_dir.map_or_else(
@@ -1067,7 +1067,7 @@ fn force_and_dir(
             let dir = fixture_path_inner(
                 Path::new("generated-do-not-edit")
                     .join(archive_name)
-                    .join(hash_kind.unwrap_or_else(self::object_hash).to_string())
+                    .join(object_hash.unwrap_or_else(self::object_hash).to_string())
                     .join(format!("{}-{}", script_identity, family_name())),
                 root,
             );
@@ -1323,7 +1323,7 @@ const NULL_DEVICE: &str = "/dev/null";
 
 fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
     cmd: &'a mut std::process::Command,
-    hash_kind: gix_hash::Kind,
+    object_hash: gix_hash::Kind,
     args: I,
     script_result_directory: &Path,
 ) -> &'a mut std::process::Command {
@@ -1363,7 +1363,7 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_CONFIG_VALUE_2", "main")
         .env("GIT_CONFIG_KEY_3", "protocol.file.allow")
         .env("GIT_CONFIG_VALUE_3", "always")
-        .env("GIT_DEFAULT_HASH", hash_kind.to_string())
+        .env("GIT_DEFAULT_HASH", object_hash.to_string())
 }
 
 /// Get the path attempted as a `bash` interpreter, for fixture scripts having no `#!` we can use.

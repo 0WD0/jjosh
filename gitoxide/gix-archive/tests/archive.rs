@@ -240,7 +240,7 @@ mod from_tree {
                     .map(|_| ())
             },
         );
-        let object_hash = gix_testtools::hash_kind_from_env().unwrap_or_default();
+        let object_hash = gix_testtools::object_hash();
         stream
             .add_entry_from_path(&dir, &dir.join("extra-file"), object_hash)?
             .add_entry_from_path(&dir, &dir.join("extra-exe"), object_hash)?

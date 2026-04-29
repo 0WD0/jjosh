@@ -73,7 +73,7 @@ pub fn fixture(path: &str) -> PathBuf {
 }
 
 pub fn fixture_hash_kind() -> gix_hash::Kind {
-    gix_testtools::hash_kind_from_env().unwrap_or_default()
+    gix_testtools::object_hash()
 }
 
 fn fixture_bytes(path: &str) -> Vec<u8> {
