@@ -821,38 +821,60 @@ mod blocking_io {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let remote_repo = remote::repo("base");
         let ref_to_checkout = "annotated-detached-tag";
-        let mut prepare = gix::clone::PrepareFetch::new(
-            remote_repo.path(),
-            tmp.path(),
-            gix::create::Kind::WithWorktree,
-            Default::default(),
-            restricted(),
-        )?
-        .with_ref_name(Some(ref_to_checkout))?;
-        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        for shallow in [false, true] {
+            let destination = tmp.path().join(if shallow { "shallow" } else { "full" });
+            let mut prepare = gix::clone::PrepareFetch::new(
+                remote_repo.path(),
+                destination,
+                gix::create::Kind::WithWorktree,
+                Default::default(),
+                restricted(),
+            )?;
+            if shallow {
+                prepare = prepare.with_shallow(Shallow::DepthAtRemote(1.try_into()?));
+            }
+            let mut prepare = prepare.with_ref_name(Some(ref_to_checkout))?;
+            let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
 
-        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+            let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
 
-        assert_eq!(
-            repo.references()?.all()?.count() - 1,
-            remote_repo.references()?.all()?.count(),
-            "all references have been cloned, + remote HEAD (not listed in remote_repo)"
-        );
-        let checked_out_ref = repo.head_ref()?.expect("head points to ref");
-        let remote_ref_name = format!("refs/tags/{ref_to_checkout}");
-        assert_eq!(
-            checked_out_ref.name().as_bstr(),
-            remote_ref_name,
-            "it also works with tags"
-        );
+            assert_eq!(repo.is_shallow(), shallow);
+            let remote_ref_name = format!("refs/tags/{ref_to_checkout}");
+            if shallow {
+                let remote = repo.find_remote("origin")?;
+                let refspecs: Vec<_> = remote
+                    .refspecs(Direction::Fetch)
+                    .iter()
+                    .map(|spec| spec.to_ref().to_bstring().to_str().expect("valid utf8").to_owned())
+                    .collect();
+                assert_eq!(
+                    refspecs,
+                    vec![format!("+{remote_ref_name}:{remote_ref_name}")],
+                    "shallow clones of tags use a tag refspec"
+                );
+            } else {
+                assert_eq!(
+                    repo.references()?.all()?.count() - 1,
+                    remote_repo.references()?.all()?.count(),
+                    "all references have been cloned, + remote HEAD (not listed in remote_repo)"
+                );
+            }
 
-        assert_eq!(
-            checked_out_ref
-                .remote_ref_name(gix::remote::Direction::Fetch)
-                .transpose()?,
-            None,
-            "there is no merge configuration for tags"
-        );
+            let checked_out_ref = repo.head_ref()?.expect("head points to ref");
+            assert_eq!(
+                checked_out_ref.name().as_bstr(),
+                remote_ref_name,
+                "it also works with tags"
+            );
+
+            assert_eq!(
+                checked_out_ref
+                    .remote_ref_name(gix::remote::Direction::Fetch)
+                    .transpose()?,
+                None,
+                "there is no merge configuration for tags"
+            );
+        }
         Ok(())
     }
 
