@@ -214,7 +214,7 @@ impl Store {
         }
         Ok(Some(gix_object::Data {
             kind,
-            hash_kind: id.kind(),
+            object_hash: id.kind(),
             data: out,
         }))
     }

@@ -14,7 +14,7 @@ pub(crate) enum State {
 }
 
 impl<'a> TagRefIter<'a> {
-    /// Create a tag iterator from `data`, parsing hashes as `hash_kind`.
+    /// Create a tag iterator from `data`, parsing hashes as `object_hash`.
     pub fn from_bytes(data: &'a [u8], hash_kind: gix_hash::Kind) -> TagRefIter<'a> {
         TagRefIter {
             data,

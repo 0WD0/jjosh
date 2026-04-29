@@ -112,7 +112,7 @@ impl packed::Transaction {
                         Some(gix_object::Data {
                             kind: gix_object::Kind::Tag,
                             data,
-                            hash_kind,
+                            object_hash: hash_kind,
                         }) => {
                             next_id = gix_object::TagRefIter::from_bytes(data, hash_kind)
                                 .target_id()

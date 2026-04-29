@@ -874,7 +874,7 @@ mod utils {
                     tree.write_to(buffer).expect("valid trees can always be serialized");
                     Ok(Some(gix_object::Data {
                         kind: gix_object::Kind::Tree,
-                        hash_kind: id.kind(),
+                        object_hash: id.kind(),
                         data: &*buffer,
                     }))
                 }
