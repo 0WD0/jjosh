@@ -487,119 +487,69 @@ fn rename_by_50_percent_similarity() -> crate::Result {
         ],
     )?;
 
-    match crate::fixture_hash_kind() {
-        gix_hash::Kind::Sha1 => {
-            let mut calls = 0;
-            let out = util::assert_emit_with_objects(
-                &mut track,
-                |dst, src| {
-                    match calls {
-                        0 => {
-                            let id = hex_to_id(
-                                "66a52ee7a1d803dc57859c3e95ac9dcdc87c0164",
-                                "fdf2fd32de1d33ee5744979b40b07e0930a12c59dfbc5b3b6d34b807f944ba6e",
-                            );
-                            assert_eq!(
-                                src.unwrap(),
-                                Source {
-                                    entry_mode: EntryKind::Blob.into(),
-                                    id,
-                                    kind: SourceKind::Rename,
-                                    location: "a".into(),
-                                    change: &Change {
-                                        id,
-                                        ..Change::deletion()
-                                    },
-                                    diff: Some(DiffLineStats {
-                                        removals: 1,
-                                        insertions: 1,
-                                        before: 2,
-                                        after: 2,
-                                        similarity: 0.53846157
-                                    })
-                                }
-                            );
-                            assert_eq!(dst.location, "b");
+    let mut calls = 0;
+    let out = util::assert_emit_with_objects(
+        &mut track,
+        |dst, src| {
+            match calls {
+                0 => {
+                    let id = hex_to_id(
+                        "66a52ee7a1d803dc57859c3e95ac9dcdc87c0164",
+                        "fdf2fd32de1d33ee5744979b40b07e0930a12c59dfbc5b3b6d34b807f944ba6e",
+                    );
+                    assert_eq!(
+                        src.unwrap(),
+                        Source {
+                            entry_mode: EntryKind::Blob.into(),
+                            id,
+                            kind: SourceKind::Rename,
+                            location: "a".into(),
+                            change: &Change {
+                                id,
+                                ..Change::deletion()
+                            },
+                            diff: Some(DiffLineStats {
+                                removals: 1,
+                                insertions: 1,
+                                before: 2,
+                                after: 2,
+                                similarity: 0.53846157
+                            })
                         }
-                        1 => {
-                            assert!(src.is_none(), "pair already found");
-                            assert_eq!(dst.location, "c");
-                        }
-                        _ => panic!("too many elements emitted"),
-                    }
-                    calls += 1;
-                    std::ops::ControlFlow::Continue(())
-                },
-                odb,
-            );
-            assert_eq!(
-                out,
-                rewrites::Outcome {
-                    options: rewrites,
-                    num_similarity_checks: 1,
-                    ..Default::default()
-                },
-                "the first attempt already yields the one pair, so it doesn't participate anymore\
-         - we don't have best candidates yet, thus only one check"
-            );
-        }
-        gix_hash::Kind::Sha256 => {
-            let mut calls = 0;
-            let out = util::assert_emit_with_objects(
-                &mut track,
-                |dst, src| {
-                    match calls {
-                        0 => {
-                            let id = hex_to_id(
-                                "66a52ee7a1d803dc57859c3e95ac9dcdc87c0164",
-                                "fdf2fd32de1d33ee5744979b40b07e0930a12c59dfbc5b3b6d34b807f944ba6e",
-                            );
-                            assert_eq!(
-                                src.unwrap(),
-                                Source {
-                                    entry_mode: EntryKind::Blob.into(),
-                                    id,
-                                    kind: SourceKind::Rename,
-                                    location: "a".into(),
-                                    change: &Change {
-                                        id,
-                                        ..Change::deletion()
-                                    },
-                                    diff: Some(DiffLineStats {
-                                        removals: 1,
-                                        insertions: 1,
-                                        before: 2,
-                                        after: 2,
-                                        similarity: 0.53846157
-                                    })
-                                }
-                            );
-                            assert_eq!(dst.location, "b");
-                        }
-                        1 => {
-                            assert!(src.is_none(), "pair already found");
-                            assert_eq!(dst.location, "c");
-                        }
-                        _ => panic!("too many elements emitted"),
-                    }
-                    calls += 1;
-                    std::ops::ControlFlow::Continue(())
-                },
-                odb,
-            );
-            assert_eq!(
-                out,
-                rewrites::Outcome {
-                    options: rewrites,
-                    num_similarity_checks: 2,
-                    ..Default::default()
-                },
-                "the first attempt already yields the one pair, so it doesn't participate anymore\
-         - we don't have best candidates yet, thus only one check"
-            );
-        }
+                    );
+                    assert_eq!(dst.location, "b");
+                }
+                1 => {
+                    assert!(src.is_none(), "pair already found");
+                    assert_eq!(dst.location, "c");
+                }
+                _ => panic!("too many elements emitted"),
+            }
+            calls += 1;
+            std::ops::ControlFlow::Continue(())
+        },
+        odb,
+    );
+
+    // The rename tracker currently sorts by hash, hence the outcome is hash-dependent.
+    let expected = match crate::fixture_hash_kind() {
+        gix_hash::Kind::Sha1 => rewrites::Outcome {
+            options: rewrites,
+            num_similarity_checks: 1,
+            ..Default::default()
+        },
+        gix_hash::Kind::Sha256 => rewrites::Outcome {
+            options: rewrites,
+            num_similarity_checks: 2,
+            ..Default::default()
+        },
         _ => todo!(),
-    }
+    };
+    assert_eq!(
+        out, expected,
+        "the first attempt already yields the one pair, so it doesn't participate anymore\
+ - we don't have best candidates yet, thus only one check"
+    );
 
     Ok(())
 }
@@ -678,9 +628,10 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         ],
     )?;
 
+    // The rename tracker currently sorts by hash, hence the outcome is hash-dependent.
+    let mut calls = 0;
     match crate::fixture_hash_kind() {
         gix_hash::Kind::Sha1 => {
-            let mut calls = 0;
             let out = util::assert_emit_with_objects(
                 &mut track,
                 |dst, src| {
@@ -719,10 +670,8 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
                     ..Default::default()
                 }
             );
-            assert_eq!(calls, 5, "Should not have too few calls");
         }
         gix_hash::Kind::Sha256 => {
-            let mut calls = 0;
             let out = util::assert_emit_with_objects(
                 &mut track,
                 |dst, src| {
@@ -765,6 +714,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         }
         _ => todo!(),
     }
+    assert_eq!(calls, 5, "Should not have too few calls");
     Ok(())
 }
 
@@ -831,9 +781,9 @@ fn simple_directory_rename_by_id() -> crate::Result {
         ],
     );
 
+    let mut calls = 0;
     match crate::fixture_hash_kind() {
         gix_hash::Kind::Sha1 => {
-            let mut calls = 0;
             let out = util::assert_emit(&mut track, |dst, src| {
                 match calls {
                     0 => {
@@ -877,10 +827,8 @@ fn simple_directory_rename_by_id() -> crate::Result {
                     ..Default::default()
                 }
             );
-            assert_eq!(calls, 8, "Should not have too few calls");
         }
         gix_hash::Kind::Sha256 => {
-            let mut calls = 0;
             let out = util::assert_emit(&mut track, |dst, src| {
                 match calls {
                     0 => {
@@ -924,11 +872,10 @@ fn simple_directory_rename_by_id() -> crate::Result {
                     ..Default::default()
                 }
             );
-            assert_eq!(calls, 8, "Should not have too few calls");
         }
         _ => todo!(),
     }
-
+    assert_eq!(calls, 8, "Should not have too few calls");
     Ok(())
 }
 

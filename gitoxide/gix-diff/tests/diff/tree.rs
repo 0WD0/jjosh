@@ -353,33 +353,28 @@ mod changes {
                 ],
                 ":100644 000000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0000000000000000000000000000000000000000 D	d/f"
             );
+            let empty_blob_id = hex_to_id(
+                "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+            );
             pretty_assertions::assert_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["add /c /d /e"])?,
                 vec![
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "c".into(),
                         relation: None,
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "d".into(),
                         relation: None,
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "e".into(),
                         relation: None,
                     },
@@ -411,28 +406,19 @@ mod changes {
                 vec![
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "c".into(),
                         relation: None
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "d".into(),
                         relation: None
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "e".into(),
                         relation: None
                     },
@@ -594,15 +580,16 @@ mod changes {
 
             let last_commit = all_commits["rm g/aa, add g/a"];
             let first_commit = all_commits["f added"];
+            let empty_blob_id = hex_to_id(
+                "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+            );
             pretty_assertions::assert_eq!(
                 diff_commits(&db, first_commit.to_owned(), &last_commit, None)?,
                 vec![
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "".into(),
                         relation: None
                     },
@@ -617,10 +604,7 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "".into(),
                         relation: Some(Relation::ChildOfParent(1))
                     }
@@ -631,10 +615,7 @@ mod changes {
                 vec![
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "b".into(),
                         relation: None
                     },
@@ -649,10 +630,7 @@ mod changes {
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a".into(),
                         relation: Some(Relation::ChildOfParent(1))
                     }
@@ -665,6 +643,10 @@ mod changes {
         fn maximal_difference_nested() -> crate::Result {
             let db = db(["a"].iter().copied())?;
             let all_commits = all_commits(&db);
+            let empty_blob_id = hex_to_id(
+                "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+            );
 
             pretty_assertions::assert_eq!(
                 diff_commits(&db, None::<ObjectId>, &all_commits["add g/a"], Some(Location::Path))?,
@@ -680,46 +662,31 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/b".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/c".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/d".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/e".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/f".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
@@ -734,10 +701,7 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "a/g/a".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     }
@@ -750,6 +714,10 @@ mod changes {
         fn directory_rename() -> crate::Result {
             let db = db(None)?;
             let all_commits = all_commits(&db);
+            let empty_blob_id = hex_to_id(
+                "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+            );
 
             pretty_assertions::assert_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rename git-sec to gix-sec"])?,
@@ -774,19 +742,13 @@ mod changes {
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/2".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/7".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
@@ -801,19 +763,13 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/2".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/7".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     },
@@ -828,19 +784,13 @@ mod changes {
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/subdir/6".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/subdir/6".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     }
@@ -853,6 +803,10 @@ mod changes {
         fn reverse_directory_rename() -> crate::Result {
             let db = db(None)?;
             let all_commits = all_commits(&db);
+            let empty_blob_id = hex_to_id(
+                "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+                "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+            );
 
             pretty_assertions::assert_eq!(
                 diff_with_previous_commit_from(&db, &all_commits["rename gix-sec to git-sec"])?,
@@ -877,19 +831,13 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/2".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/7".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
@@ -904,19 +852,13 @@ mod changes {
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/2".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/7".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     },
@@ -931,19 +873,13 @@ mod changes {
                     },
                     Addition {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "git-sec/subdir/6".into(),
                         relation: Some(Relation::ChildOfParent(1)),
                     },
                     Deletion {
                         entry_mode: EntryKind::Blob.into(),
-                        oid: hex_to_id(
-                            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-                            "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813"
-                        ),
+                        oid: empty_blob_id,
                         path: "gix-sec/subdir/6".into(),
                         relation: Some(Relation::ChildOfParent(2)),
                     }
