@@ -16,6 +16,15 @@
     - …and you _do know_ the cause, please fix it immediately. If necessary by reverting the offending commit until a more durable fix is possible.
     - …and you _do not know_ the cause, please open a PR to invite collaborators for their input. This is to avoid multiple collaborators
       trying to fix the issue independently, causing merge-conflicts and confusion. We use this PR as synchronization primitive.
+- **please disclose AI assistance when collaborating**
+   - if AI edits files for you, disclose it in the PR description and commit metadata, preferably with an AI author
+     such as `$agent $version <ai-agent@example.invalid>` or a `Co-authored-by: <agent-identity>` trailer.
+   - agents operating through a person's GitHub account must identify themselves in comments, for example with phrases
+     like `AI agent on behalf of <person>: ...`.
+   - fully AI-generated PR or issue comments must be disclosed. Undisclosed AI-generated comments may lead to the PR or
+     issue being closed.
+   - AI-assisted proofreading or wording polish does not need disclosure, but it is still courteous to mention it when
+     the AI materially influenced the final text.
 - **for crates _you own_**
     - feel free to make any kind of changes to it, including major ones.
     - please use `cargo smart-release` for publishing to crates.io as it will handle dependencies properly.
