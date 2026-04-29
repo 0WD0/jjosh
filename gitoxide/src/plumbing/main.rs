@@ -199,6 +199,8 @@ pub fn main() -> Result<()> {
                         tree_favor,
                         debug,
                     },
+                message,
+                update_head,
                 ours,
                 base,
                 theirs,
@@ -223,6 +225,8 @@ pub fn main() -> Result<()> {
                             in_memory,
                             tree_favor: tree_favor.map(Into::into),
                             debug,
+                            message,
+                            update_head,
                         },
                     )
                 },
@@ -257,6 +261,8 @@ pub fn main() -> Result<()> {
                             tree_favor: tree_favor.map(Into::into),
                             in_memory,
                             debug,
+                            message: None,
+                            update_head: false,
                         },
                     )
                 },

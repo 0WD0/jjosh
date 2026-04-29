@@ -499,6 +499,13 @@ pub mod merge {
             #[clap(flatten)]
             opts: SharedOptions,
 
+            /// Create a commit on top of HEAD with this message and the merged tree.
+            #[clap(long)]
+            message: Option<String>,
+            /// Update HEAD to the created commit and set the index to its tree.
+            #[clap(long, requires = "message", conflicts_with = "in_memory")]
+            update_head: bool,
+
             /// A revspec to our treeish.
             #[clap(value_name = "OURS", value_parser = crate::shared::AsBString)]
             ours: BString,
