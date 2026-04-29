@@ -123,18 +123,18 @@ impl Stream {
 
     /// Add the item at `path` as entry to this stream, which is expected to be under `root`.
     ///
-    /// Note that the created entries will always have a null SHA1, and that we access this path
+    /// Note that the created entries will always have a null hash, and that we access this path
     /// to determine its type, and will access it again when it is requested.
     pub fn add_entry_from_path(
         &mut self,
         root: &Path,
         path: &Path,
-        hash_kind: gix_hash::Kind,
+        object_hash: gix_hash::Kind,
     ) -> std::io::Result<&mut Self> {
         let rela_path = path.strip_prefix(root).map_err(std::io::Error::other)?;
         let meta = path.symlink_metadata()?;
         let relative_path = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(rela_path)).into_owned();
-        let id = hash_kind.null();
+        let id = object_hash.null();
 
         let entry = if meta.is_symlink() {
             let content = std::fs::read_link(path)?;

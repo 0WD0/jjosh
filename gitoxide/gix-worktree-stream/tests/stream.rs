@@ -76,13 +76,13 @@ mod from_tree {
                     .map(|_| ())
             },
         );
-        let hash_kind = gix_testtools::hash_kind_from_env().unwrap_or_default();
+        let object_hash = gix_testtools::hash_kind_from_env().unwrap_or_default();
         stream
-            .add_entry_from_path(&dir, &dir.join("extra-file"), hash_kind)?
-            .add_entry_from_path(&dir, &dir.join("extra-bigfile"), hash_kind)?
-            .add_entry_from_path(&dir, &dir.join("extra-exe"), hash_kind)?
-            .add_entry_from_path(&dir, &dir.join("extra-dir-empty"), hash_kind)?
-            .add_entry_from_path(&dir, &dir.join("extra-dir").join("symlink-to-extra"), hash_kind)?;
+            .add_entry_from_path(&dir, &dir.join("extra-file"), object_hash)?
+            .add_entry_from_path(&dir, &dir.join("extra-bigfile"), object_hash)?
+            .add_entry_from_path(&dir, &dir.join("extra-exe"), object_hash)?
+            .add_entry_from_path(&dir, &dir.join("extra-dir-empty"), object_hash)?
+            .add_entry_from_path(&dir, &dir.join("extra-dir").join("symlink-to-extra"), object_hash)?;
 
         let tee_read = TeeToMemory {
             read: stream.into_read(),
@@ -182,8 +182,8 @@ mod from_tree {
                         "8c13ad7df9686daf00357f34700922485802cb0be33e684ec5171f7d0d8a84fd"
                     )
                 ),
-                ("extra-file".into(), EntryKind::Blob, hash_kind.null()),
-                ("extra-bigfile".into(), EntryKind::Blob, hash_kind.null()),
+                ("extra-file".into(), EntryKind::Blob, object_hash.null()),
+                ("extra-bigfile".into(), EntryKind::Blob, object_hash.null()),
                 (
                     "extra-exe".into(),
                     if cfg!(windows) {
@@ -191,10 +191,10 @@ mod from_tree {
                     } else {
                         EntryKind::BlobExecutable
                     },
-                    hash_kind.null()
+                    object_hash.null()
                 ),
-                ("extra-dir-empty".into(), EntryKind::Tree, hash_kind.null()),
-                ("extra-dir/symlink-to-extra".into(), EntryKind::Link, hash_kind.null())
+                ("extra-dir-empty".into(), EntryKind::Tree, object_hash.null()),
+                ("extra-dir/symlink-to-extra".into(), EntryKind::Link, object_hash.null())
             ]
         );
 
