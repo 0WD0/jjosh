@@ -2,6 +2,7 @@
 
 Source issue: [GitoxideLabs/gitoxide#281](https://github.com/GitoxideLabs/gitoxide/issues/281)  
 Imported on: 2026-04-22  
+Last reconciled: 2026-04-30
 Working assumption: checkboxes in this file reflect current checkout, not only historical issue state.
 
 ## Mission
@@ -20,9 +21,11 @@ Make object-hash kind first-class across config, protocol, storage, tests, and c
 - [ ] Remove hash-type specific methods from `gix-hash` and lean on `gix_hash::Kind`-parametric usage.
   Evidence: `gix-hash` still contains `new_sha1`, `new_sha256`, `from_20_bytes`, `from_32_bytes`, `null_sha1`, `null_sha256`.
 - [ ] Remove len-20 assumptions from all relevant code paths.
-  Evidence: big progress exists, but 73 `Kind::Sha1.null()` call sites still remain, plus a few explicit 20-byte comments and helpers.
+  Evidence: big progress exists, but 69 non-plan/non-changelog `Kind::Sha1.null()` call sites still remain, plus a few explicit 20-byte comments and helpers.
 - [ ] Provide visible CLI path for choosing object hash kind.
   Evidence: current tree has 0 `--object-hash` matches.
+- [ ] Propagate `sha256` feature support through crates that participate in object traversal, object parsing, and object-id storage.
+  Evidence: only `gix-hash`, `gix-ref`, `gix-worktree-stream`, and top-level `gix` define a `sha256` feature today; `gix-traverse` only exposes `sha1`, while `justfile` compile-guards it for missing hash selection and only checks `--features sha1`.
 - [x] Remove default `sha1` feature from `gix-hash` and deal with fallout.
   Evidence: `gix-hash` has `default = []`, docs.rs explicitly enables `sha1`, root `gitoxide` chooses SHA1 via features, and `justfile` contains 31 compile-guard checks for missing hash selection.
 - [x] Remove SHA1 mention from `gix-features` feature toggles.
@@ -45,11 +48,13 @@ Make object-hash kind first-class across config, protocol, storage, tests, and c
 
 ## Current Snapshot
 
-Workspace signals on 2026-04-22:
+Workspace signals on 2026-04-30:
 
 - `gix-hash` default hash feature: removed
 - compile-guard checks for missing hash selection in `justfile`: 31
-- `Kind::Sha1.null()` occurrences: 73
+- crates with explicit `sha256 = ...` feature declarations: 4 (`gix-hash`, `gix-ref`, `gix-worktree-stream`, `gix`)
+- `gix-traverse` hash feature declarations: `sha1` only
+- `Kind::Sha1.null()` occurrences outside this plan and changelogs: 69
 - `object-format=sha1` fixture occurrences: 10
 - clone path `unimplemented!()` for hash mismatch: 1
 - `--object-hash` CLI flag matches: 0
@@ -57,16 +62,21 @@ Workspace signals on 2026-04-22:
 Dual-hash test hooks already exist in `justfile` for at least:
 
 - `gix-filter`
+- `gix-diff`
 - `gix-commitgraph`
 - `gix-object`
+- `gix-ref-tests`
 - `gix-pack`
+- `gix-diff-tests`
+- `gix-blame`
 - `gix-refspec`
+- `gix-worktree-stream`
 - `gix-hash`
 
 ## Confirmed Done
 
 - [x] `gix-commitgraph`
-  Evidence: issue marked it complete, crate depends on `gix-hash` with `sha1` and `sha256`, and `justfile` runs it with `GIX_TEST_FIXTURE_HASH=sha1` and `sha256`.
+  Evidence: issue marked it complete, dev-dependencies enable `gix-hash` with `sha1` and `sha256`, and `justfile` runs it with `GIX_TEST_FIXTURE_HASH=sha1` and `sha256`.
 
 ## Remaining Hotspots
 
@@ -78,6 +88,12 @@ Dual-hash test hooks already exist in `justfile` for at least:
   repository object hash still falls back to SHA1 when config does not say otherwise.
 - `gix/src/clone/fetch/mod.rs`
   clone still aborts on remote hash mismatch instead of configuring repo state.
+- `gix-traverse/Cargo.toml`
+  only defines a `sha1` feature and docs.rs/dev-dependencies use `sha1`; there is no `sha256` feature despite traversal code carrying `ObjectId` and `object_hash` state.
+- `gix/Cargo.toml`
+  top-level `sha256` currently forwards only to `gix-hash/sha256`, unlike `sha1`, which fans out to the stack including `gix-traverse/sha1`.
+- `gix-worktree-stream/Cargo.toml`
+  has a `sha256` feature, but it forwards only `gix-hash/sha256`; its `sha1` feature forwards into `gix-filter`, `gix-object`, and `gix-traverse`.
 
 ## Execution Order
 
@@ -85,6 +101,8 @@ Dual-hash test hooks already exist in `justfile` for at least:
 
 - [ ] `gix-hash`
   Remove remaining SHA1/SHA256-shaped helper APIs where `Kind`-based forms can replace them.
+- [ ] feature propagation
+  Add and forward `sha256` features where crates already have hash-sensitive APIs or compile guards, starting with `gix-traverse`, then the dependent stack that needs to run under SHA256.
 - [ ] `gitoxide` CLI surface
   Decide whether to restore a flag like `--object-hash` or bless config-only selection and document it clearly.
 - [ ] `gix-refspec`
@@ -100,6 +118,8 @@ Dual-hash test hooks already exist in `justfile` for at least:
   Expand refs and reflog read/write coverage to both hash lengths.
 - [ ] `gix-index`
   Extend checksum and extension tests to SHA256-sized object ids.
+- [ ] `gix-traverse`
+  Add `sha256` feature support and traversal tests that parse SHA256 commit parents and tree ids instead of relying on SHA1-shaped fixtures.
 
 ### Batch 3: protocol and transport
 
@@ -123,6 +143,8 @@ Dual-hash test hooks already exist in `justfile` for at least:
   Remove SHA1-only sentinel assumptions where caller hash kind should drive impossible ids.
 - [ ] `gix-blame`
   Same sentinel cleanup where SHA1 null ids are only placeholders.
+- [ ] `gix-traverse`
+  Replace remaining SHA1 defaults in traversal state with caller/repository hash kind where traversal starts from generic object ids.
 - [ ] broad repo sweep
   Review remaining `Kind::Sha1.null()` occurrences one by one and separate acceptable sentinels from real SHA1 assumptions.
 
@@ -136,6 +158,7 @@ Dual-hash test hooks already exist in `justfile` for at least:
 ## Immediate Next Moves
 
 - [ ] Decide whether `--object-hash` is still required as CLI UX, or whether config plus API is enough.
+- [ ] Add `sha256` feature support to `gix-traverse` and forward it from dependent crates.
 - [ ] Make `extensions.objectFormat=sha256` parse successfully.
 - [ ] Make fetch negotiation accept `object-format=sha256`.
 - [ ] Remove clone-time `unimplemented!()` for remote hash mismatch.
