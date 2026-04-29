@@ -4,6 +4,10 @@ use gix_blame::BlameRanges;
 use gix_hash::ObjectId;
 use gix_object::bstr;
 
+fn fixture_hash_kind() -> gix_hash::Kind {
+    gix_testtools::hash_kind_from_env().unwrap_or_default()
+}
+
 struct Baseline<'a> {
     lines: bstr::Lines<'a>,
     filenames: BTreeMap<ObjectId, bstr::BString>,
@@ -16,7 +20,7 @@ mod baseline {
     use gix_hash::ObjectId;
     use gix_ref::bstr::ByteSlice;
 
-    use super::Baseline;
+    use super::{fixture_hash_kind, Baseline};
 
     // These fields are used by `git` in its porcelain output.
     const HEADER_FIELDS: [&str; 12] = [
@@ -73,7 +77,7 @@ mod baseline {
 
         fn next(&mut self) -> Option<Self::Item> {
             let mut ranges = None;
-            let mut commit_id = gix_testtools::hash_kind_from_env().unwrap_or_default().null();
+            let mut commit_id = fixture_hash_kind().null();
             let mut skip_lines: u32 = 0;
             let mut source_file_name: Option<gix_object::bstr::BString> = None;
 
@@ -155,19 +159,23 @@ impl Fixture {
     fn for_worktree_path(worktree_path: PathBuf) -> gix_testtools::Result<Fixture> {
         use gix_ref::store::WriteReflog;
 
+        let object_hash = fixture_hash_kind();
         let store = gix_ref::file::Store::at(
             worktree_path.join(".git"),
             gix_ref::store::init::Options {
                 write_reflog: WriteReflog::Disable,
+                object_hash,
                 ..Default::default()
             },
         );
-        let object_hash = gix_testtools::hash_kind_from_env().unwrap_or_default();
-        let options = gix_odb::store::init::Options {
-            object_hash,
-            ..Default::default()
-        };
-        let odb = gix_odb::at_opts(worktree_path.join(".git/objects"), Vec::new(), options)?;
+        let odb = gix_odb::at_opts(
+            worktree_path.join(".git/objects"),
+            Vec::new(),
+            gix_odb::store::init::Options {
+                object_hash,
+                ..Default::default()
+            },
+        )?;
 
         let mut reference = gix_ref::file::Store::find(&store, "HEAD")?;
 
