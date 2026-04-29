@@ -1067,11 +1067,7 @@ fn force_and_dir(
             let dir = fixture_path_inner(
                 Path::new("generated-do-not-edit")
                     .join(archive_name)
-                    .join(
-                        hash_kind
-                            .unwrap_or_else(|| hash_kind_from_env().unwrap_or_default())
-                            .to_string(),
-                    )
+                    .join(hash_kind.unwrap_or_else(self::object_hash).to_string())
                     .join(format!("{}-{}", script_identity, family_name())),
                 root,
             );
@@ -1166,7 +1162,7 @@ where
         gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
     );
 
-    let hash_kind = hash_kind_from_env().unwrap_or_default();
+    let object_hash = object_hash();
 
     let script_location = script_name.as_ref();
     let script_path = fixture_path_inner(script_location, root);
@@ -1176,10 +1172,10 @@ where
     let post_version = post_process.as_ref().map(|(v, _)| *v);
     let script_identity = {
         let mut map = SCRIPT_IDENTITY.lock();
-        let init = if hash_kind == gix_hash::Kind::Sha1 {
+        let init = if object_hash == gix_hash::Kind::Sha1 {
             script_path.clone()
         } else {
-            script_path.clone().join(hash_kind.to_string())
+            script_path.clone().join(object_hash.to_string())
         };
         let key = args.iter().fold(init, |p, a| p.join(a));
         // Include post_version in the key if present
@@ -1224,10 +1220,10 @@ where
                 }
                 ArgsInHash::No => "".into(),
             };
-            let potential_hash_suffix = if hash_kind == gix_hash::Kind::Sha1 {
+            let potential_hash_suffix = if object_hash == gix_hash::Kind::Sha1 {
                 "".into()
             } else {
-                format!("_{hash_kind}")
+                format!("_{object_hash}")
             };
             Path::new(ARCHIVE_DIR_NAME).join(format!(
                 "{}{suffix}{potential_hash_suffix}.{}",
@@ -1241,7 +1237,7 @@ where
         destination_dir,
         root,
         script_basename,
-        Some(hash_kind),
+        Some(object_hash),
         &script_identity,
     );
     let _marker = marker_if_needed(destination_dir, script_basename)?;
@@ -1262,14 +1258,14 @@ where
         |fixture_state| {
             if let FixtureState::Uninitialized(dir) = fixture_state {
                 let mut cmd = std::process::Command::new(&script_absolute_path);
-                let output = match configure_command(&mut cmd, hash_kind, &args, dir).output() {
+                let output = match configure_command(&mut cmd, object_hash, &args, dir).output() {
                     Ok(out) => out,
                     Err(err)
                         if err.kind() == std::io::ErrorKind::PermissionDenied
                             || err.raw_os_error() == Some(193) /* windows */ =>
                     {
                         cmd = std::process::Command::new(bash_program());
-                        configure_command(cmd.arg(&script_absolute_path), hash_kind, &args, dir).output()?
+                        configure_command(cmd.arg(&script_absolute_path), object_hash, &args, dir).output()?
                     }
                     Err(err) => return Err(err.into()),
                 };
@@ -1301,7 +1297,7 @@ where
 /// # Panics
 ///
 /// If the value set in `GIX_TEST_FIXTURE_HASH` is not valid.
-pub fn hash_kind_from_env() -> Option<gix_hash::Kind> {
+pub fn object_hash_from_env() -> Option<gix_hash::Kind> {
     static FIXTURE_HASH: LazyLock<Option<gix_hash::Kind>> = LazyLock::new(|| {
         env::var_os("GIX_TEST_FIXTURE_HASH").and_then(|value| value.into_string().ok()).map(|object_kind| {
         gix_hash::Kind::from_str(&object_kind).unwrap_or_else(|_| {
@@ -1313,6 +1309,11 @@ pub fn hash_kind_from_env() -> Option<gix_hash::Kind> {
     })
     });
     *FIXTURE_HASH
+}
+
+/// Like [`object_hash_from_env()`], but returns the default hash if `GIX_TEST_FIXTURE_HASH` is not set.
+pub fn object_hash() -> gix_hash::Kind {
+    object_hash_from_env().unwrap_or_default()
 }
 
 #[cfg(windows)]
