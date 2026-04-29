@@ -38,7 +38,7 @@ where
         return ControlFlow::Break(None);
     };
 
-    let Some(entry) = TreeRefIter::from_bytes(tree.data, tree.hash_kind)
+    let Some(entry) = TreeRefIter::from_bytes(tree.data, tree.object_hash)
         .filter_map(Result::ok)
         .find(|entry| component.eq(entry.filename))
     else {

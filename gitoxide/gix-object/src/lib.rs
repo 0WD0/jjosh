@@ -294,7 +294,7 @@ pub struct Data<'a> {
     /// kind of object
     pub kind: Kind,
     /// The hash kind to use for parsing this data.
-    pub hash_kind: gix_hash::Kind,
+    pub object_hash: gix_hash::Kind,
     /// decoded, decompressed data, owned by a backing store.
     pub data: &'a [u8],
 }
