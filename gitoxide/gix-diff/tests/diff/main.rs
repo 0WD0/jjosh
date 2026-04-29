@@ -1,8 +1,12 @@
 use gix_testtools::Result;
 use std::collections::HashMap;
 
-fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
-    gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("valid hex id")
+fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
+    match gix_testtools::hash_kind_from_env().unwrap_or_default() {
+        gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex_sha1.as_bytes()).expect("40 bytes hex"),
+        gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(hex_sha256.as_bytes()).expect("64 bytes hex"),
+        _ => unimplemented!(),
+    }
 }
 
 fn fixture_hash_kind() -> gix_hash::Kind {
@@ -121,16 +125,6 @@ fn assert_hash_agnostic_patch_eq(actual: &str, expected: &str) {
     pretty_assertions::assert_eq!(normalize_patch_snapshot(expected), normalize_patch_snapshot(actual));
 }
 
-macro_rules! assert_hash_agnostic_eq {
-    ($left:expr, $right:expr $(, $($arg:tt)+)?) => {{
-        pretty_assertions::assert_eq!(
-            crate::normalize_debug_snapshot(&($left)),
-            crate::normalize_debug_snapshot(&($right))
-            $(, $($arg)+)?
-        );
-    }};
-}
-
 mod blob;
 mod index;
 mod rewrites;
@@ -180,7 +174,7 @@ mod util {
     impl ObjectDb {
         /// Insert `data` and return its hash. That can be used to find it again.
         pub fn insert(&mut self, data: &str) -> Result<gix_hash::ObjectId, Error> {
-            let id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, data.as_bytes())?;
+            let id = gix_object::compute_hash(super::fixture_hash_kind(), gix_object::Kind::Blob, data.as_bytes())?;
             self.data_by_id.insert(id, data.into());
             Ok(id)
         }

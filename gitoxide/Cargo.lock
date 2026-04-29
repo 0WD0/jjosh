@@ -1711,6 +1711,7 @@ dependencies = [
  "gix-path",
  "gix-pathspec",
  "gix-tempfile",
+ "gix-testtools",
  "gix-trace",
  "gix-traverse",
  "gix-worktree",

@@ -69,7 +69,8 @@ document-features = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.8.2"
-gix-hash = { path = "../gix-hash", features = ["sha1"] }
+gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
+gix-testtools = { path = "../tests/tools" }
 
 [package.metadata.docs.rs]
 all-features = true

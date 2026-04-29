@@ -31,9 +31,6 @@ gix-object = { version = "^0.60.0", path = "../gix-object", features = ["sha1"] 
 cov-mark = "2.1.0"
 expect-test = "1.4.0"
 
-[profile.release]
-debug = true
-
 # [[bench]]
 # name = "git_repo"
 # harness = false
