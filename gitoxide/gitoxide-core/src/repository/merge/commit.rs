@@ -21,6 +21,8 @@ pub fn commit(
         tree_favor,
         in_memory,
         debug,
+        message: _,
+        update_head: _,
     }: Options,
 ) -> anyhow::Result<()> {
     if format != OutputFormat::Human {
