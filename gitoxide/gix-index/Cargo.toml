@@ -17,6 +17,11 @@ autotests = false
 doctest = false
 test = true
 
+[[bench]]
+name = "from-tree"
+harness = false
+path = "./benches/from_tree.rs"
+
 [features]
 ## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
 sha1 = ["gix-hash/sha1"]
@@ -33,7 +38,7 @@ gix-object = { version = "^0.60.0", path = "../gix-object" }
 gix-validate = { version = "^0.11.1", path = "../gix-validate" }
 gix-traverse = { version = "^0.57.0", path = "../gix-traverse" }
 gix-lock = { version = "^23.0.0", path = "../gix-lock" }
-gix-fs = { version = "^0.21.0", path = "../gix-fs" }
+gix-fs = { version = "^0.21.1", path = "../gix-fs" }
 gix-utils = { version = "^0.3.2", path = "../gix-utils" }
 
 hashbrown = "0.16.0"
@@ -60,8 +65,10 @@ rustix = { version = "1.1.2", default-features = false, features = [
 libc = { version = "0.2.182" }
 
 [dev-dependencies]
+criterion = "0.8.2"
 gix-testtools = { path = "../tests/tools" }
 gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
+gix-hashtable = { path = "../gix-hashtable" }
 
 [package.metadata.docs.rs]
 features = ["sha1", "document-features", "serde"]

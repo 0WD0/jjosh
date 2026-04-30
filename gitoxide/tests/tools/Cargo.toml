@@ -29,7 +29,7 @@ gix-hash = { version = "^0.25.0", path = "../../gix-hash", features = ["sha1"] }
 gix-lock = { version = "^23.0.0", path = "../../gix-lock" }
 gix-discover = { version = "^0.51.0", path = "../../gix-discover" }
 gix-worktree = { version = "^0.52.0", path = "../../gix-worktree" }
-gix-fs = { version = "^0.21.0", path = "../../gix-fs" }
+gix-fs = { version = "^0.21.1", path = "../../gix-fs" }
 gix-tempfile = { version = "^23.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 
 fastrand = "2.0.0"

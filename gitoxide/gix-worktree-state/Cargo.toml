@@ -22,7 +22,7 @@ sha1 = ["gix-filter/sha1", "gix-index/sha1", "gix-object/sha1", "gix-worktree/sh
 [dependencies]
 gix-worktree = { version = "^0.52.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
 gix-index = { version = "^0.51.0", path = "../gix-index" }
-gix-fs = { version = "^0.21.0", path = "../gix-fs" }
+gix-fs = { version = "^0.21.1", path = "../gix-fs" }
 gix-object = { version = "^0.60.0", path = "../gix-object" }
 gix-path = { version = "^0.12.0", path = "../gix-path" }
 gix-features = { version = "^0.48.0", path = "../gix-features" }

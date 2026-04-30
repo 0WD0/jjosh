@@ -360,7 +360,7 @@ cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
 [dependencies]
 gix-error = { version = "^0.2.3", path = "../gix-error" }
 gix-utils = { version = "^0.3.2", path = "../gix-utils" }
-gix-fs = { version = "^0.21.0", path = "../gix-fs" }
+gix-fs = { version = "^0.21.1", path = "../gix-fs" }
 gix-ref = { version = "^0.63.0", path = "../gix-ref" }
 gix-discover = { version = "^0.51.0", path = "../gix-discover" }
 gix-tempfile = { version = "^23.0.0", path = "../gix-tempfile", default-features = false }

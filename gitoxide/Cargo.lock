@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "gix-fs"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "bstr",
  "crossbeam-channel",
@@ -1935,6 +1935,7 @@ version = "0.51.0"
 dependencies = [
  "bitflags 2.11.1",
  "bstr",
+ "criterion",
  "document-features",
  "filetime",
  "fnv",
@@ -1942,6 +1943,7 @@ dependencies = [
  "gix-features",
  "gix-fs",
  "gix-hash",
+ "gix-hashtable",
  "gix-lock",
  "gix-object",
  "gix-testtools",

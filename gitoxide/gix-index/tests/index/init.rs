@@ -53,6 +53,30 @@ fn from_tree_validation() -> crate::Result {
 }
 
 #[test]
+fn from_tree_returns_file_directory_conflicts_until_fixed() -> crate::Result {
+    let worktree_dir = scripted_fixture_read_only_standalone("make_symlink_prefix_reuse_advisory.sh")?;
+    let tree_id = tree_id(&worktree_dir);
+    let odb = gix_odb::at(worktree_dir.join(".git").join("objects"))?;
+
+    let actual_state = State::from_tree(&tree_id, &odb, Default::default())?;
+    actual_state
+        .verify_entries()
+        .expect("valid, even though invariants aren't met");
+
+    let paths: Vec<_> = actual_state
+        .entries()
+        .iter()
+        .map(|entry| entry.path(&actual_state).to_owned())
+        .collect();
+    assert_eq!(
+        paths,
+        ["a", "a/post-checkout", "payload"],
+        "from_tree currently returns malformed file/directory conflicts; update this expected unfixed state once fixed"
+    );
+    Ok(())
+}
+
+#[test]
 fn new() {
     let state = State::new(gix_hash::Kind::Sha1);
     assert_eq!(state.entries().len(), 0);
