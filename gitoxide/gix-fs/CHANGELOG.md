@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.21.1 (2026-04-30)
 
 A security fix for https://github.com/GitoxideLabs/gitoxide/security/advisories/GHSA-f89h-2fjh-2r9q, 
 which could allow attackers to trick `gix clone` into writing outside of the repository.
@@ -14,7 +14,7 @@ which could allow attackers to trick `gix clone` into writing outside of the rep
 
 <csr-read-only-do-not-edit/>
 
- - 2 commits contributed to the release over the course of 2 calendar days.
+ - 3 commits contributed to the release over the course of 2 calendar days.
  - 2 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -26,6 +26,7 @@ which could allow attackers to trick `gix clone` into writing outside of the rep
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelog of gix-fs prior to release ([`e26d378`](https://github.com/GitoxideLabs/gitoxide/commit/e26d37819e59556e018700cba9c414648d6939be))
     - Revalidate cached stack leaves before directory reuse ([`93d0ff6`](https://github.com/GitoxideLabs/gitoxide/commit/93d0ff6342f9fba5e30a6a893ad11347cf6cfcbc))
     - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
 </details>

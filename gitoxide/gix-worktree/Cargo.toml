@@ -26,7 +26,7 @@ serde = ["dep:serde", "bstr/serde", "gix-index/serde", "gix-hash/serde", "gix-ob
 
 [dependencies]
 gix-index = { version = "^0.51.0", path = "../gix-index" }
-gix-fs = { version = "^0.21.0", path = "../gix-fs" }
+gix-fs = { version = "^0.21.1", path = "../gix-fs" }
 gix-hash = { version = "^0.25.0", path = "../gix-hash" }
 gix-object = { version = "^0.60.0", path = "../gix-object" }
 gix-glob = { version = "^0.26.0", path = "../gix-glob" }
