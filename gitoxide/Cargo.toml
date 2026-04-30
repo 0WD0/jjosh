@@ -329,6 +329,18 @@ bin-dir = "gitoxide-max-pure-v{ version }-{ target }/{ bin }{ binary-ext }"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+
+## Maybe one day we can enable these, unwrap and expect should't be needed.
+# unwrap_used      = "warn"
+# expect_used      = "warn"
+# panic            = "warn"
+## This is a tough one - parsers are relaying on it, but they check bounds before.
+## Those can probably be rewritten to do the bounds-check via `get` and avoid len comparisons.
+# indexing_slicing = "warn"
+## This is about overflow/underflow and securing against this particularly with untrusted input.
+## Very noisy and needs special care, probably better to focus on fuzzers instead to not pre-empt complexity.
+# arithmetic_side_effects = "warn"
+
 #
 # Reviewed and allowed lints
 needless_continue = "allow"
