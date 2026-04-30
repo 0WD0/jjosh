@@ -11,7 +11,7 @@ target_file_blob=$(echo -n ../../payload | git hash-object -w --stdin)
 subtree=$(printf '120000 blob %s\tpost-checkout\n' "$target_file_blob" | git mktree)
 
 hex2bin() {
-  perl -e 'print pack("H*", $ARGV[0])' "$1"
+   python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "$1"
 }
 
 # The root tree intentionally reuses the path prefix `a` with incompatible

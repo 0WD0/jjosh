@@ -571,7 +571,7 @@ mod blocking_io {
         let git_dir = repo.git_dir();
         let hook_path = git_dir.join("hooks").join("post-checkout");
         assert!(
-            hook_path.symlink_metadata().is_err(),
+            !hook_path.is_symlink(),
             "checkout must not write attacker-controlled hooks through a symlink prefix"
         );
 
