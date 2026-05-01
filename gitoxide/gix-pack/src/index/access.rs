@@ -223,7 +223,7 @@ pub(crate) fn lookup_prefix<'a>(
 
     // Bisect using indices
     while lower_bound < upper_bound {
-        let mid = (lower_bound + upper_bound) / 2;
+        let mid = u32::midpoint(lower_bound, upper_bound);
         let mid_sha = oid_at_index(mid);
 
         use std::cmp::Ordering::*;
@@ -283,7 +283,7 @@ pub(crate) fn lookup<'a>(
     let mut lower_bound = if first_byte != 0 { fan[first_byte - 1] } else { 0 };
 
     while lower_bound < upper_bound {
-        let mid = (lower_bound + upper_bound) / 2;
+        let mid = u32::midpoint(lower_bound, upper_bound);
         let mid_sha = oid_at_index(mid);
 
         use std::cmp::Ordering::*;

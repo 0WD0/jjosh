@@ -388,11 +388,11 @@ mod tests {
     #[test]
     fn ascii_indent_clamps_before_overflow() {
         assert_eq!(
-            IndentLevel::for_ascii_line(std::iter::repeat(b' ').take(255), 1),
+            IndentLevel::for_ascii_line(std::iter::repeat_n(b' ', 255), 1),
             IndentLevel::MAX
         );
         assert_eq!(
-            IndentLevel::for_ascii_line(std::iter::repeat(b'\t').take(8), u8::MAX),
+            IndentLevel::for_ascii_line(std::iter::repeat_n(b'\t', 8), u8::MAX),
             IndentLevel::MAX
         );
     }
