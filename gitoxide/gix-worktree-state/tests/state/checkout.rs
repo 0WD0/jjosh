@@ -8,7 +8,7 @@ use std::{
 };
 
 use gix_features::progress;
-use gix_object::{bstr::ByteSlice, Data};
+use gix_object::{Data, bstr::ByteSlice};
 use gix_testtools::tempfile::TempDir;
 use gix_worktree_state::checkout::Collision;
 use std::sync::LazyLock;
@@ -294,14 +294,18 @@ fn symlinks_to_directories_are_usable() -> crate::Result {
 
     assert_eq!(worktree_files_stripped, paths(["symlink"]));
     let symlink_path = &worktree_files[0];
-    assert!(symlink_path
-        .symlink_metadata()
-        .expect("symlink is on disk")
-        .is_symlink());
-    assert!(symlink_path
-        .metadata()
-        .expect("metadata accessible through symlink")
-        .is_dir());
+    assert!(
+        symlink_path
+            .symlink_metadata()
+            .expect("symlink is on disk")
+            .is_symlink()
+    );
+    assert!(
+        symlink_path
+            .metadata()
+            .expect("metadata accessible through symlink")
+            .is_dir()
+    );
     assert_eq!(std::fs::read_link(symlink_path)?, Path::new("."));
     assert!(outcome.collisions.is_empty());
     Ok(())
@@ -331,10 +335,12 @@ fn dangling_symlinks_can_be_created() -> crate::Result {
 
         assert_eq!(worktree_files_stripped, paths([symlink_name]));
         let symlink_path = &worktree_files[0];
-        assert!(symlink_path
-            .symlink_metadata()
-            .expect("dangling symlink is on disk")
-            .is_symlink());
+        assert!(
+            symlink_path
+                .symlink_metadata()
+                .expect("dangling symlink is on disk")
+                .is_symlink()
+        );
         assert_eq!(std::fs::read_link(symlink_path)?, Path::new(target_name));
         assert!(outcome.collisions.is_empty());
     }

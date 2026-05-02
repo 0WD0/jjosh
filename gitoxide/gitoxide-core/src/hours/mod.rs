@@ -2,12 +2,13 @@ use std::{collections::BTreeSet, io, path::Path, time::Instant};
 
 use anyhow::bail;
 use gix::{
+    Count, NestedProgress, Progress,
     actor::{Identity, IdentityRef},
     bstr::{BStr, ByteSlice},
     prelude::*,
-    progress, Count, NestedProgress, Progress,
+    progress,
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 /// Additional configuration for the hours estimation functionality.
 pub struct Context<W> {
@@ -421,7 +422,7 @@ where
 }
 
 mod core;
-use self::core::{deduplicate_identities, estimate_hours, HOURS_PER_WORKDAY};
+use self::core::{HOURS_PER_WORKDAY, deduplicate_identities, estimate_hours};
 
 mod util;
 use util::{CommitIdx, FileStats, LineStats, WorkByEmail, WorkByPerson};

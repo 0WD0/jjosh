@@ -3,10 +3,9 @@ use std::collections::BTreeSet;
 use gix_hash::ObjectId;
 
 use crate::{
-    packed, peel,
+    Target, packed, peel,
     raw::Reference,
     store_impl::{file, file::log},
-    Target,
 };
 
 pub trait Sealed {}

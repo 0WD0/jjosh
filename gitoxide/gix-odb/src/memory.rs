@@ -7,7 +7,7 @@ use std::{
 
 use gix_object::Data;
 
-use crate::{find::Header, Cache};
+use crate::{Cache, find::Header};
 
 /// An object database to read from any implementation but write to memory.
 /// Previously written objects can be returned from memory upon query, which makes the view of objects consistent.

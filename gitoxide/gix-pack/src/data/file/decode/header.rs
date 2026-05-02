@@ -2,7 +2,7 @@ use gix_features::zlib;
 
 use crate::{
     data,
-    data::{delta, file::decode::Error, File},
+    data::{File, delta, file::decode::Error},
 };
 
 /// A return value of a resolve function, which given an [`ObjectId`][gix_hash::ObjectId] determines where an object can be found.
@@ -90,7 +90,7 @@ where
                                 kind,
                                 object_size: first_delta_decompressed_size.unwrap_or(entry.decompressed_size),
                                 num_deltas: origin_num_deltas.unwrap_or_default() + num_deltas,
-                            })
+                            });
                         }
                         None => return Err(Error::DeltaBaseUnresolved(base_id)),
                     }

@@ -7,15 +7,15 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use gix::{
+    Count, Progress,
     bstr::{BStr, BString, ByteSlice},
     diff::{blob::platform::prepare_diff::Operation, rewrites::CopySource},
     features::progress,
     objs::find::Error,
     parallel::{InOrderIter, SequenceId},
     prelude::ObjectIdExt,
-    Count, Progress,
 };
-use rusqlite::{params, Statement, Transaction};
+use rusqlite::{Statement, Transaction, params};
 
 use crate::query::Options;
 

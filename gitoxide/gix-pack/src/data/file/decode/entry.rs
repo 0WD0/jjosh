@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     cache, data,
-    data::{delta, file::decode::Error, File},
+    data::{File, delta, file::decode::Error},
 };
 
 /// A return value of a resolve function, which given an [`ObjectId`][gix_hash::ObjectId] determines where an object can be found.

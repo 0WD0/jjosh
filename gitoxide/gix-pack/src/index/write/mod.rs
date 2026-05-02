@@ -58,11 +58,11 @@ impl From<ProgressId> for gix_features::progress::Id {
 pub(super) mod function {
     use std::{io, sync::atomic::AtomicBool};
 
-    use gix_features::progress::{self, prodash::DynNestedProgress, Count, Progress};
+    use gix_features::progress::{self, Count, Progress, prodash::DynNestedProgress};
 
-    use crate::cache::delta::{traverse, Tree};
+    use crate::cache::delta::{Tree, traverse};
 
-    use super::{modify_base, Error, Outcome, ProgressId, TreeEntry};
+    use super::{Error, Outcome, ProgressId, TreeEntry, modify_base};
 
     /// Write information about `entries` as obtained from a pack data file into a pack index file via the `out` stream.
     /// The resolver produced by `make_resolver` must resolve pack entries from the same pack data file that produced the

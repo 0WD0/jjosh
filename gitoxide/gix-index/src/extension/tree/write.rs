@@ -1,4 +1,4 @@
-use crate::extension::{tree, Tree};
+use crate::extension::{Tree, tree};
 
 impl Tree {
     /// Serialize this instance to `out`.

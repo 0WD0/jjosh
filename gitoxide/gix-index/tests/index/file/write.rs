@@ -1,5 +1,5 @@
 use filetime::FileTime;
-use gix_index::{entry, extension, write, write::Options, State, Version};
+use gix_index::{State, Version, entry, extension, write, write::Options};
 
 use crate::index::Fixture::*;
 

@@ -203,7 +203,7 @@ mod multiple {
 mod complex_globs {
     use bstr::BString;
     use gix_hash::ObjectId;
-    use gix_refspec::{parse::Operation, MatchGroup};
+    use gix_refspec::{MatchGroup, parse::Operation};
 
     #[test]
     fn one_sided_complex_glob_patterns_can_be_parsed() {

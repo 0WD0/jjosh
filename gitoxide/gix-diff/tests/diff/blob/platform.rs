@@ -1,7 +1,6 @@
 use gix_diff::blob::{
-    pipeline, platform,
+    Algorithm, Platform, ResourceKind, pipeline, platform,
     platform::{prepare_diff, prepare_diff::Operation},
-    Algorithm, Platform, ResourceKind,
 };
 use gix_object::{
     bstr::{BString, ByteSlice},

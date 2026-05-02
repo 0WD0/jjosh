@@ -3,7 +3,7 @@ use std::{
     io::Write,
     marker::PhantomData,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use gix_features::{interrupt, progress, progress::Progress};

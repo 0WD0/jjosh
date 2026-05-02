@@ -165,7 +165,7 @@ pub struct State {
 mod impls {
     use std::fmt::{Debug, Formatter};
 
-    use crate::{entry::Stage, State};
+    use crate::{State, entry::Stage};
 
     impl Debug for State {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -107,7 +107,7 @@ mod prepare {
 
     use bstr::ByteSlice;
 
-    use crate::{extract_interpreter, win_path_lookup, Context, Prepare};
+    use crate::{Context, Prepare, extract_interpreter, win_path_lookup};
 
     /// Builder
     impl Prepare {

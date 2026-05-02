@@ -14,7 +14,7 @@ pub(super) mod function {
 
     use std::collections::BTreeSet;
 
-    use anyhow::{anyhow, bail, Context};
+    use anyhow::{Context, anyhow, bail};
     use gix::{
         bstr::{BString, ByteSlice},
         merge::tree::TreatAsUnresolved,

@@ -2,7 +2,7 @@ use std::process::Command;
 
 use gix_hash::ObjectId;
 use gix_object::{Exists, FindExt, Write};
-use gix_odb::{store, store::iter::Ordering, Header};
+use gix_odb::{Header, store, store::iter::Ordering};
 use gix_testtools::fixture_path_standalone;
 
 use crate::{hex_to_id, odb::db};
@@ -12,6 +12,34 @@ fn all_orderings() -> [Ordering; 2] {
         Ordering::PackLexicographicalThenLooseLexicographical,
         Ordering::PackAscendingOffsetThenLooseLexicographical,
     ]
+}
+
+#[derive(Debug, Copy, Clone)]
+struct PackMetrics {
+    objects: usize,
+    packs: usize,
+}
+
+fn expected_pack_metrics(repo_dir: &std::path::Path) -> crate::Result<PackMetrics> {
+    let expected = std::fs::read_to_string(repo_dir.join("expected-count-objects"))?;
+    let mut loose = None;
+    let mut in_pack = None;
+    let mut packs = None;
+
+    for line in expected.lines() {
+        if let Some(value) = line.strip_prefix("count: ") {
+            loose = Some(value.parse::<usize>()?);
+        } else if let Some(value) = line.strip_prefix("in-pack: ") {
+            in_pack = Some(value.parse::<usize>()?);
+        } else if let Some(value) = line.strip_prefix("packs: ") {
+            packs = Some(value.parse::<usize>()?);
+        }
+    }
+
+    Ok(PackMetrics {
+        objects: loose.expect("count field") + in_pack.expect("in-pack field"),
+        packs: packs.expect("packs field"),
+    })
 }
 
 /// indices, multi-pack-index, loose odb
@@ -41,6 +69,7 @@ fn db_with_all_object_sources() -> crate::Result<(gix_odb::Handle, gix_testtools
 #[test]
 fn multi_index_access() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_writable_standalone("make_repo_multi_index.sh")?;
+    let expected = expected_pack_metrics(dir.path())?;
     let handle = gix_odb::at(dir.path().join(".git/objects"))?;
 
     assert_eq!(
@@ -72,7 +101,7 @@ fn multi_index_access() -> crate::Result {
             assert_eq!(hdr.size(), obj.data.len() as u64);
             count += 1;
         }
-        assert_eq!(count, 1732);
+        assert_eq!(count, expected.objects);
     }
 
     assert_eq!(
@@ -82,8 +111,8 @@ fn multi_index_access() -> crate::Result {
             num_refreshes: 1,
             open_reachable_indices: 1,
             known_reachable_indices: 1,
-            open_reachable_packs: 15,
-            known_packs: 15,
+            open_reachable_packs: expected.packs,
+            known_packs: expected.packs,
             unused_slots: 31,
             loose_dbs: 1,
             unreachable_indices: 0,
@@ -102,8 +131,8 @@ fn multi_index_access() -> crate::Result {
             num_refreshes: 2,
             open_reachable_indices: 1,
             known_reachable_indices: 1,
-            open_reachable_packs: 15,
-            known_packs: 15,
+            open_reachable_packs: expected.packs,
+            known_packs: expected.packs,
             unused_slots: 31,
             loose_dbs: 1,
             unreachable_indices: 0,
@@ -122,11 +151,11 @@ fn multi_index_access() -> crate::Result {
         handle.store_ref().metrics(),
         gix_odb::store::Metrics {
             num_handles: 1,
-            num_refreshes: 2 + 1 /*legit refresh with changes*/ + 1 /*a refresh attempt with no changes, causing 'contains()' to give up*/,
+            num_refreshes: 2 + 1 /*legit refresh with changes*/ + 1, /*a refresh attempt with no changes, causing 'contains()' to give up*/
             open_reachable_indices: 1,
             known_reachable_indices: 1,
             open_reachable_packs: 0,
-            known_packs: 15,
+            known_packs: expected.packs,
             unused_slots: 31,
             loose_dbs: 1,
             unreachable_indices: 0,
@@ -147,6 +176,7 @@ fn multi_index_access() -> crate::Result {
 #[test]
 fn multi_index_alloc_limit_bytes_falls_back_to_plain_indices() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_writable_standalone("make_repo_multi_index.sh")?;
+    let expected = expected_pack_metrics(dir.path())?;
     let handle = gix_odb::at_opts(
         dir.path().join(".git/objects"),
         Vec::new(),
@@ -163,7 +193,7 @@ fn multi_index_alloc_limit_bytes_falls_back_to_plain_indices() -> crate::Result 
     }
 
     assert_eq!(
-        count, 1732,
+        count, expected.objects,
         "packed objects remain reachable by falling back to plain indices"
     );
     let metrics = handle.store_ref().metrics();
@@ -171,13 +201,14 @@ fn multi_index_alloc_limit_bytes_falls_back_to_plain_indices() -> crate::Result 
         metrics.known_reachable_indices > 1,
         "a multi-index open blocked by the allocation limit must fall back to loading plain indices"
     );
-    assert_eq!(metrics.known_packs, 15);
+    assert_eq!(metrics.known_packs, expected.packs);
     Ok(())
 }
 
 #[test]
 fn multi_index_keep_open() -> crate::Result {
     let dir = gix_testtools::scripted_fixture_writable_standalone("make_repo_multi_index.sh")?;
+    let expected = expected_pack_metrics(dir.path())?;
     let (stable_handle, handle) = {
         let mut stable_handle = gix_odb::at(dir.path().join(".git/objects"))?;
         let handle = stable_handle.clone();
@@ -194,7 +225,7 @@ fn multi_index_keep_open() -> crate::Result {
             open_reachable_indices: 1,
             known_reachable_indices: 1,
             open_reachable_packs: 0,
-            known_packs: 15,
+            known_packs: expected.packs,
             unused_slots: 31,
             loose_dbs: 1,
             unreachable_indices: 0,
@@ -223,7 +254,7 @@ fn multi_index_keep_open() -> crate::Result {
             open_reachable_indices: 1,
             known_reachable_indices: 1,
             open_reachable_packs: 0, /*no pack is open anymore at least as seen from the index*/
-            known_packs: 15,
+            known_packs: expected.packs,
             unused_slots: 30,
             loose_dbs: 1,
             unreachable_indices: 1,
@@ -641,10 +672,12 @@ mod disambiguate_prefix {
     fn returns_none_if_id_does_not_exist() {
         let (handle, _tmp) = db_with_all_object_sources().unwrap();
         let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1);
-        assert!(handle
-            .disambiguate_prefix(Candidate::new(null, 7).unwrap())
-            .unwrap()
-            .is_none());
+        assert!(
+            handle
+                .disambiguate_prefix(Candidate::new(null, 7).unwrap())
+                .unwrap()
+                .is_none()
+        );
         assert_all_indices_loaded(&handle, 2, 2);
     }
 }
@@ -785,9 +818,11 @@ fn missing_objects_triggers_everything_is_loaded() {
     );
 
     let mut buf = Vec::new();
-    assert!(handle
-        .find(&hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), &mut buf)
-        .is_err());
+    assert!(
+        handle
+            .find(&hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), &mut buf)
+            .is_err()
+    );
 
     assert_eq!(
         handle.store_ref().metrics(),

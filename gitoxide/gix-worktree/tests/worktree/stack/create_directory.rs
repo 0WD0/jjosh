@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use gix_testtools::tempfile::{tempdir, TempDir};
-use gix_worktree::{stack, Stack};
+use gix_testtools::tempfile::{TempDir, tempdir};
+use gix_worktree::{Stack, stack};
 
 const IS_FILE: Option<gix_index::entry::Mode> = Some(gix_index::entry::Mode::FILE);
 const IS_DIR: Option<gix_index::entry::Mode> = Some(gix_index::entry::Mode::DIR);

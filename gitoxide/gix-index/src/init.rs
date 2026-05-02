@@ -4,11 +4,11 @@ pub mod from_tree {
 
     use bstr::{BStr, BString, ByteSlice, ByteVec};
     use gix_object::{tree, tree::EntryKind};
-    use gix_traverse::tree::{depthfirst, visit::Action, Visit};
+    use gix_traverse::tree::{Visit, depthfirst, visit::Action};
 
     use crate::{
-        entry::{Flags, Mode, Stat},
         Entry, PathStorage, State, Version,
+        entry::{Flags, Mode, Stat},
     };
 
     /// The error returned by [State::from_tree()].

@@ -1,4 +1,4 @@
-use gix_object::{tree, Exists, FindExt, Write};
+use gix_object::{Exists, FindExt, Write, tree};
 use gix_testtools::tempfile::TempDir;
 
 use crate::odb::hex_to_id;

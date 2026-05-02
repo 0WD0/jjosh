@@ -1,23 +1,23 @@
 use std::{
-    io::{stdin, BufReader},
+    io::{BufReader, stdin},
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::{CommandFactory, Parser};
 use gitoxide_core as core;
 use gitoxide_core::{pack::verify, repository::PathsOrPatterns};
-use gix::bstr::{io::BufReadExt, BString};
+use gix::bstr::{BString, io::BufReadExt};
 
 use crate::{
     plumbing::{
         options::{
-            attributes, branch, commit, commitgraph, config, credential, exclude, free, fsck, index, mailmap, merge,
-            odb, revision, tag, tree, Args, Subcommands,
+            Args, Subcommands, attributes, branch, commit, commitgraph, config, credential, exclude, free, fsck, index,
+            mailmap, merge, odb, revision, tag, tree,
         },
         show_progress,
     },

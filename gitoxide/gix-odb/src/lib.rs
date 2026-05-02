@@ -52,7 +52,7 @@
 use std::{
     cell::RefCell,
     path::PathBuf,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 use arc_swap::ArcSwap;

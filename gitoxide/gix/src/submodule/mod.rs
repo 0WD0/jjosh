@@ -9,7 +9,7 @@ use std::{
 
 pub use gix_submodule::*;
 
-use crate::{bstr::BStr, is_dir_to_mode, worktree::IndexPersistedOrInMemory, Repository, Submodule};
+use crate::{Repository, Submodule, bstr::BStr, is_dir_to_mode, worktree::IndexPersistedOrInMemory};
 
 pub(crate) type ModulesFileStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
 /// A lazily loaded and auto-updated worktree index.
@@ -160,14 +160,16 @@ impl Submodule<'_> {
     /// Please see the [plumbing crate documentation](gix_submodule::IsActivePlatform::is_active()) for details.
     pub fn is_active(&self) -> Result<bool, is_active::Error> {
         let (mut platform, mut attributes) = self.state.active_state_mut()?;
-        let is_active = platform.is_active(&self.state.repo.config.resolved, self.name.as_ref(), {
+        let is_active = platform.is_active(
+            &self.state.repo.config.resolved,
+            self.name.as_ref(),
             &mut |relative_path, case, is_dir, out| {
                 attributes
                     .set_case(case)
                     .at_entry(relative_path, Some(is_dir_to_mode(is_dir)), &self.state.repo.objects)
                     .is_ok_and(|platform| platform.matching_attributes(out))
-            }
-        })?;
+            },
+        )?;
         Ok(is_active)
     }
 
@@ -310,7 +312,7 @@ impl Submodule<'_> {
 pub mod status {
     use gix_submodule::config;
 
-    use super::{head_id, index_id, open, state, Status};
+    use super::{Status, head_id, index_id, open, state};
     use crate::Submodule;
 
     /// The error returned by [Submodule::status()].

@@ -1,4 +1,4 @@
-use gix_object::{bstr::ByteSlice, tree, tree::EntryRef, Tree, TreeRef, TreeRefIter, WriteTo};
+use gix_object::{Tree, TreeRef, TreeRefIter, WriteTo, bstr::ByteSlice, tree, tree::EntryRef};
 
 use crate::{fixture_oid, tree_fixture};
 

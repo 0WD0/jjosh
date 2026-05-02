@@ -141,7 +141,7 @@ pub(crate) mod function {
                                 NoMatch
                             } else {
                                 Match
-                            }
+                            };
                         }
                     }
 

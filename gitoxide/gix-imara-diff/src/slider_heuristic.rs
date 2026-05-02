@@ -172,19 +172,11 @@ impl IndentLevel {
     }
 
     fn map_or<T>(self, default: T, f: impl FnOnce(u8) -> T) -> T {
-        if self == Self::BLANK {
-            default
-        } else {
-            f(self.0)
-        }
+        if self == Self::BLANK { default } else { f(self.0) }
     }
 
     fn or(self, default: Self) -> Self {
-        if self == Self::BLANK {
-            default
-        } else {
-            self
-        }
+        if self == Self::BLANK { default } else { self }
     }
 }
 

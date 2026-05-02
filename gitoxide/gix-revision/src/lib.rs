@@ -22,5 +22,5 @@ pub use merge_base::function::merge_base;
 
 ///
 pub mod spec;
-pub use gix_revwalk::{graph, Graph, PriorityQueue};
+pub use gix_revwalk::{Graph, PriorityQueue, graph};
 pub use spec::types::Spec;

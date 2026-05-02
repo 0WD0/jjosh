@@ -1,6 +1,6 @@
 use crate::{
     config,
-    config::tree::{keys, Extensions, Key, Section},
+    config::tree::{Extensions, Key, Section, keys},
 };
 
 impl Extensions {

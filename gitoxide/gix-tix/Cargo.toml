@@ -7,7 +7,7 @@ repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A tool like `tig`, but minimal, fast and efficient"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.85"
 include = ["/src/**/*", "/LICENSE-*"]
 

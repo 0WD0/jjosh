@@ -12,8 +12,8 @@ mod blocking_io {
         bstr::BString,
         config::tree::{Clone, Core, Init, Key},
         remote::{
-            fetch::{refmap::SpecIndex, Shallow},
             Direction,
+            fetch::{Shallow, refmap::SpecIndex},
         },
     };
     use gix_object::bstr::ByteSlice;
@@ -242,11 +242,9 @@ mod blocking_io {
 
         let (repo, _change) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
             .with_fetch_options(gix::remote::ref_map::Options {
-                extra_refspecs: vec![gix::refspec::parse(
-                    "refs/heads/*:refs/remotes/origin/*".into(),
-                    Operation::Fetch,
-                )?
-                .into()],
+                extra_refspecs: vec![
+                    gix::refspec::parse("refs/heads/*:refs/remotes/origin/*".into(), Operation::Fetch)?.into(),
+                ],
                 ..Default::default()
             })
             .with_shallow(Shallow::Exclude {
@@ -401,12 +399,13 @@ mod blocking_io {
                         .find_reference(edit.name.as_ref())
                         .unwrap_or_else(|_| panic!("didn't find created reference: {edit:?}"));
                     if r.name().category().expect("known") != gix_ref::Category::Tag {
-                        assert!(r
-                            .name()
-                            .category_and_short_name()
-                            .expect("computable")
-                            .1
-                            .starts_with_str(remote_name));
+                        assert!(
+                            r.name()
+                                .category_and_short_name()
+                                .expect("computable")
+                                .1
+                                .starts_with_str(remote_name)
+                        );
                         match r.target() {
                             TargetRef::Object(_) => {
                                 let mut logs = r.log_iter();
@@ -825,9 +824,10 @@ fn clone_and_destination_must_be_empty() -> crate::Result {
         restricted(),
     ) {
         Ok(_) => unreachable!("this should fail as the directory isn't empty"),
-        Err(err) => assert!(err
-            .to_string()
-            .starts_with("Refusing to initialize the non-empty directory as ")),
+        Err(err) => assert!(
+            err.to_string()
+                .starts_with("Refusing to initialize the non-empty directory as ")
+        ),
     }
     Ok(())
 }

@@ -4,7 +4,7 @@ use gix_hash::ObjectId;
 use gix_object::bstr::{BStr, BString};
 use memmap2::Mmap;
 
-use crate::{file, transaction::RefEdit, FullNameRef, Namespace};
+use crate::{FullNameRef, Namespace, file, transaction::RefEdit};
 
 #[derive(Debug)]
 enum Backing {

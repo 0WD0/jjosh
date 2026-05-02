@@ -209,8 +209,8 @@ mod edit_tree {
 
     mod utils {
         use gix::{
-            bstr::{BStr, ByteSlice},
             Repository,
+            bstr::{BStr, ByteSlice},
         };
         use gix_hash::ObjectId;
 

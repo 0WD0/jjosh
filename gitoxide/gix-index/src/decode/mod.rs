@@ -1,6 +1,6 @@
 use filetime::FileTime;
 
-use crate::{entry, extension, Entry, State, Version};
+use crate::{Entry, State, Version, entry, extension};
 
 mod entries;
 ///

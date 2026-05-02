@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail};
-use gix::{worktree::archive, NestedProgress, Progress};
+use gix::{NestedProgress, Progress, worktree::archive};
 
 pub struct Options {
     pub format: Option<archive::Format>,

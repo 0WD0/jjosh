@@ -7,16 +7,18 @@ mod parse;
 #[test]
 fn is_set() {
     assert!(!Time::default().is_set());
-    assert!(Time {
-        seconds: 1,
-        ..Default::default()
-    }
-    .is_set());
+    assert!(
+        Time {
+            seconds: 1,
+            ..Default::default()
+        }
+        .is_set()
+    );
 }
 
 mod write_to {
     use bstr::ByteSlice;
-    use gix_date::{parse::TimeBuf, SecondsSinceUnixEpoch, Time};
+    use gix_date::{SecondsSinceUnixEpoch, Time, parse::TimeBuf};
 
     #[test]
     fn invalid() {

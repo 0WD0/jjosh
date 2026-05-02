@@ -985,8 +985,7 @@ where
             let (ro_dir, _res_ignored) =
                 rust_fixture_read_only_inner(name, version, object_hash, &mut make_fixture, None, root)?;
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
-            let res = make_fixture(FixtureState::Fresh(dst.path()))?;
-            res
+            make_fixture(FixtureState::Fresh(dst.path()))?
         }
         Creation::Execute => {
             let (_, res) =
@@ -1609,17 +1608,25 @@ fn extract_archive(
 }
 
 fn family_name() -> &'static str {
-    if cfg!(windows) {
-        "windows"
-    } else {
-        "unix"
-    }
+    if cfg!(windows) { "windows" } else { "unix" }
 }
 
 /// A utility to set and unset environment variables, while restoring or removing them on drop.
 #[derive(Default)]
 pub struct Env<'a> {
     altered_vars: Vec<(&'a str, Option<OsString>)>,
+}
+
+fn set_var(var: &str, value: impl AsRef<OsStr>) {
+    // SAFETY: Tests using this helper are responsible for serializing access to
+    // process-wide environment variables they mutate.
+    unsafe { env::set_var(var, value) };
+}
+
+fn remove_var(var: &str) {
+    // SAFETY: Tests using this helper are responsible for serializing access to
+    // process-wide environment variables they mutate.
+    unsafe { env::remove_var(var) };
 }
 
 impl<'a> Env<'a> {
@@ -1633,7 +1640,7 @@ impl<'a> Env<'a> {
     /// Set `var` to `value`.
     pub fn set(mut self, var: &'a str, value: impl Into<String>) -> Self {
         let prev = env::var_os(var);
-        env::set_var(var, value.into());
+        set_var(var, value.into());
         self.altered_vars.push((var, prev));
         self
     }
@@ -1641,7 +1648,7 @@ impl<'a> Env<'a> {
     /// Unset `var`.
     pub fn unset(mut self, var: &'a str) -> Self {
         let prev = env::var_os(var);
-        env::remove_var(var);
+        remove_var(var);
         self.altered_vars.push((var, prev));
         self
     }
@@ -1651,8 +1658,8 @@ impl Drop for Env<'_> {
     fn drop(&mut self) {
         for (var, prev_value) in self.altered_vars.iter().rev() {
             match prev_value {
-                Some(value) => env::set_var(var, value),
-                None => env::remove_var(var),
+                Some(value) => set_var(var, value),
+                None => remove_var(var),
             }
         }
     }
@@ -1696,11 +1703,7 @@ pub fn umask() -> u32 {
 }
 
 fn tar_extension() -> &'static str {
-    if cfg!(feature = "xz") {
-        "tar.xz"
-    } else {
-        "tar"
-    }
+    if cfg!(feature = "xz") { "tar.xz" } else { "tar" }
 }
 
 #[cfg(test)]

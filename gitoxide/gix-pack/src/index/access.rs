@@ -2,7 +2,7 @@ use std::{mem::size_of, ops::Range};
 
 use crate::{
     data,
-    index::{self, EntryIndex, PrefixLookupResult, FAN_LEN},
+    index::{self, EntryIndex, FAN_LEN, PrefixLookupResult},
 };
 
 const N32_SIZE: usize = size_of::<u32>();

@@ -129,12 +129,11 @@ impl PrepareFetch {
                     .ref_map_by_ref(
                         &mut progress,
                         remote::ref_map::Options {
-                            extra_refspecs: vec![gix_refspec::parse(
-                                "HEAD".into(),
-                                gix_refspec::parse::Operation::Fetch,
-                            )
-                            .expect("valid")
-                            .to_owned()],
+                            extra_refspecs: vec![
+                                gix_refspec::parse("HEAD".into(), gix_refspec::parse::Operation::Fetch)
+                                    .expect("valid")
+                                    .to_owned(),
+                            ],
                             ..Default::default()
                         },
                     )

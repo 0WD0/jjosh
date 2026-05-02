@@ -1,8 +1,8 @@
 mod lookup_ref_delta_objects {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use gix_hash::{oid, ObjectId};
-    use gix_object::{find::Error, Data};
+    use gix_hash::{ObjectId, oid};
+    use gix_object::{Data, find::Error};
     use gix_pack::data::{entry::Header, input, input::LookupRefDeltaObjectsIter};
 
     use crate::pack::hex_to_id;
@@ -125,8 +125,11 @@ mod lookup_ref_delta_objects {
         let actual_size = input_entries.size_hint();
         let db = FindData::new(inserted_data, &calls);
         let iter = LookupRefDeltaObjectsIter::new(input_entries, &db);
-        assert_eq!(iter.size_hint(), (actual_size.0, actual_size.1.map(|s| s * 2)),
-                  "size hints are estimated and the upper bound reflects the worst-case scenario for the amount of possible objects");
+        assert_eq!(
+            iter.size_hint(),
+            (actual_size.0, actual_size.1.map(|s| s * 2)),
+            "size hints are estimated and the upper bound reflects the worst-case scenario for the amount of possible objects"
+        );
         let actual = iter.collect::<Result<Vec<_>, _>>().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 2, "there is only two objects to insert");

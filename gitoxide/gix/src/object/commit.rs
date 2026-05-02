@@ -1,4 +1,4 @@
-use crate::{bstr, bstr::BStr, Commit, ObjectDetached, Tree};
+use crate::{Commit, ObjectDetached, Tree, bstr, bstr::BStr};
 
 mod error {
     use crate::object;

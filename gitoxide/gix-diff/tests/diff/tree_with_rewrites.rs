@@ -1,10 +1,10 @@
 use gix_diff::{
+    Rewrites,
     rewrites::{Copies, CopySource},
     tree::{recorder::Location, visit::Relation},
     tree_with_rewrites::{Change, Options},
-    Rewrites,
 };
-use gix_object::{bstr::BStr, TreeRefIter};
+use gix_object::{TreeRefIter, bstr::BStr};
 
 #[test]
 fn empty_to_new_tree_without_rename_tracking() -> crate::Result {

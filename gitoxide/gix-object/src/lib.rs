@@ -327,8 +327,8 @@ pub mod decode {
 
         impl std::error::Error for Error {}
     }
-    pub(crate) use error::empty_error;
     pub use error::Error;
+    pub(crate) use error::empty_error;
 
     /// Returned by [`loose_header()`]
     #[derive(Debug, thiserror::Error)]

@@ -1,15 +1,15 @@
 use gix_diff::{
+    Rewrites,
     blob::DiffLineStats,
     rewrites,
     rewrites::{
-        tracker::{
-            visit::{Source, SourceKind},
-            ChangeKind,
-        },
         Copies, CopySource,
+        tracker::{
+            ChangeKind,
+            visit::{Source, SourceKind},
+        },
     },
     tree::visit::Relation,
-    Rewrites,
 };
 use gix_object::tree::EntryKind;
 use pretty_assertions::assert_eq;
@@ -587,34 +587,38 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
-    assert!(track
-        .try_push_change(
-            Change {
-                id: tree_id,
-                kind: ChangeKind::Addition,
-                mode: EntryKind::Tree.into(),
-                relation: Some(Relation::Parent(tree_dst_id)),
-            },
-            "d-renamed".into()
-        )
-        .is_none());
+    assert!(
+        track
+            .try_push_change(
+                Change {
+                    id: tree_id,
+                    kind: ChangeKind::Addition,
+                    mode: EntryKind::Tree.into(),
+                    relation: Some(Relation::Parent(tree_dst_id)),
+                },
+                "d-renamed".into()
+            )
+            .is_none()
+    );
 
     let tree_src_id = 3;
     let tree_id = hex_to_id(
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
-    assert!(track
-        .try_push_change(
-            Change {
-                id: tree_id,
-                kind: ChangeKind::Addition,
-                mode: EntryKind::Tree.into(),
-                relation: Some(Relation::Parent(tree_src_id)),
-            },
-            "d".into()
-        )
-        .is_none());
+    assert!(
+        track
+            .try_push_change(
+                Change {
+                    id: tree_id,
+                    kind: ChangeKind::Addition,
+                    mode: EntryKind::Tree.into(),
+                    relation: Some(Relation::Parent(tree_src_id)),
+                },
+                "d".into()
+            )
+            .is_none()
+    );
     let odb = util::add_retained_blobs(
         &mut track,
         [
@@ -728,13 +732,17 @@ fn simple_directory_rename_by_id() -> crate::Result {
     };
     let mut track = util::new_tracker(renames_by_identity);
     let tree_dst_id = 1;
-    assert!(track
-        .try_push_change(Change::tree_addition(tree_dst_id), "d-renamed".into())
-        .is_none());
+    assert!(
+        track
+            .try_push_change(Change::tree_addition(tree_dst_id), "d-renamed".into())
+            .is_none()
+    );
     let tree_src_id = 3;
-    assert!(track
-        .try_push_change(Change::tree_deletion(tree_src_id), "d".into())
-        .is_none());
+    assert!(
+        track
+            .try_push_change(Change::tree_deletion(tree_src_id), "d".into())
+            .is_none()
+    );
     let tree_id = hex_to_id(
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -754,17 +762,19 @@ fn simple_directory_rename_by_id() -> crate::Result {
         "trees that are children are kept and matched. That way, they can quickly be pruned which is done first.\
         Those who don't need them can prune them in a later step."
     );
-    assert!(track
-        .try_push_change(
-            Change {
-                id: tree_id,
-                kind: ChangeKind::Addition,
-                mode: EntryKind::Tree.into(),
-                relation: Some(Relation::ChildOfParent(tree_dst_id)),
-            },
-            "d-renamed/subdir".into(),
-        )
-        .is_none());
+    assert!(
+        track
+            .try_push_change(
+                Change {
+                    id: tree_id,
+                    kind: ChangeKind::Addition,
+                    mode: EntryKind::Tree.into(),
+                    relation: Some(Relation::ChildOfParent(tree_dst_id)),
+                },
+                "d-renamed/subdir".into(),
+            )
+            .is_none()
+    );
     let _odb = util::add_retained_blobs(
         &mut track,
         [
@@ -922,10 +932,9 @@ fn add_only() -> crate::Result {
 
 mod util {
     use gix_diff::{
-        rewrites,
+        Rewrites, rewrites,
         rewrites::tracker::visit::{Destination, Source},
         tree::visit::Action,
-        Rewrites,
     };
 
     use crate::{rewrites::Change, util::ObjectDb};

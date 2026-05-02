@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::HashSet, io, path::PathBuf};
 
 use gix_features::zlib;
 
-use crate::store_impls::loose::{hash_path, Store, HEADER_MAX_SIZE};
+use crate::store_impls::loose::{HEADER_MAX_SIZE, Store, hash_path};
 
 /// Returned by [`Store::try_find()`]
 #[derive(thiserror::Error, Debug)]
@@ -72,7 +72,7 @@ impl Store {
                     return match err.io_error() {
                         Some(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
                         None | Some(_) => Err(err),
-                    }
+                    };
                 }
             };
             if prefix.cmp_oid(&oid) == Ordering::Equal {
@@ -235,7 +235,7 @@ impl Store {
                     action: Self::OPEN_OR_MAP_ACTION,
                     source: err,
                     path: path.to_owned(),
-                })
+                });
             }
         };
 

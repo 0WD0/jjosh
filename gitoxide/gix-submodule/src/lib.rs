@@ -55,7 +55,7 @@ impl File {
 
         let values = {
             let mut v: Vec<_> = values.into_iter().collect();
-            v.sort_by_key(|a| a.0 .0);
+            v.sort_by_key(|a| a.0.0);
             v
         };
 

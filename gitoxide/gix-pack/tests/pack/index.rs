@@ -7,7 +7,7 @@ use gix_odb::pack;
 
 use crate::{
     fixture_path, hex_to_id,
-    pack::{leaked_fixture_bytes, pack_from_memory_at, INDEX_V1, PACK_FOR_INDEX_V1, SMALL_PACK, SMALL_PACK_INDEX},
+    pack::{INDEX_V1, PACK_FOR_INDEX_V1, SMALL_PACK, SMALL_PACK_INDEX, leaked_fixture_bytes, pack_from_memory_at},
 };
 
 fn memory_backed_index(at: &str) -> gix_pack::index::File<&'static [u8]> {

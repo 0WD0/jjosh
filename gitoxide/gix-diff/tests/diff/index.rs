@@ -1,7 +1,7 @@
 use gix_diff::{
+    Rewrites,
     index::Change,
     rewrites::{Copies, CopySource},
-    Rewrites,
 };
 use gix_object::bstr::BStr;
 

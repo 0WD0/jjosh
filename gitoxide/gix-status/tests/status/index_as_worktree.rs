@@ -1,19 +1,19 @@
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use bstr::BStr;
-use filetime::{set_file_mtime, FileTime};
+use filetime::{FileTime, set_file_mtime};
 use gix_filter::eol::AutoCrlf;
 use gix_index as index;
-use gix_index::{entry, Entry};
+use gix_index::{Entry, entry};
 use gix_status::{
     index_as_worktree,
     index_as_worktree::{
-        traits::{CompareBlobs, FastEq, ReadData, SubmoduleStatus},
         Change as WorktreeChange, Conflict, Context, EntryStatus as WorktreeEntryStatus, Options, Outcome, Record,
         Recorder,
+        traits::{CompareBlobs, FastEq, ReadData, SubmoduleStatus},
     },
 };
 

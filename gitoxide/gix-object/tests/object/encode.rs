@@ -107,7 +107,7 @@ mod commit {
 }
 
 mod tree {
-    use gix_object::{tree, tree::EntryKind, WriteTo};
+    use gix_object::{WriteTo, tree, tree::EntryKind};
 
     #[test]
     fn write_to_does_not_validate() {
@@ -219,7 +219,7 @@ mod blob {
 
 mod loose_header {
     use bstr::ByteSlice;
-    use gix_object::{decode, encode, Kind};
+    use gix_object::{Kind, decode, encode};
 
     #[test]
     fn round_trip() -> Result<(), Box<dyn std::error::Error>> {

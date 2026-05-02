@@ -4,7 +4,7 @@ use gix_diff::{
     rewrites::tracker::ChangeKind,
     tree::visit::{ChangeId, Relation},
 };
-use gix_hash::{oid, ObjectId};
+use gix_hash::{ObjectId, oid};
 use gix_object::tree::{EntryKind, EntryMode};
 
 mod tracker;

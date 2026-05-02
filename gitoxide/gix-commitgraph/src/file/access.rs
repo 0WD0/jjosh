@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    file::{self, commit::Commit, COMMIT_DATA_ENTRY_SIZE_SANS_HASH},
     File,
+    file::{self, COMMIT_DATA_ENTRY_SIZE_SANS_HASH, commit::Commit},
 };
 
 /// Access

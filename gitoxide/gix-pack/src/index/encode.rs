@@ -38,7 +38,7 @@ mod function {
 
     use gix_features::progress::{self, DynNestedProgress};
 
-    use super::{fanout, HIGH_BIT, LARGE_OFFSET_THRESHOLD};
+    use super::{HIGH_BIT, LARGE_OFFSET_THRESHOLD, fanout};
     use crate::index::V2_SIGNATURE;
 
     struct Count<W> {

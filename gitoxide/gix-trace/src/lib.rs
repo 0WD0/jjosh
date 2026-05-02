@@ -35,7 +35,7 @@ pub const MAX_LEVEL: Level = Level::Coarse;
 mod enabled;
 
 #[cfg(feature = "tracing")]
-pub use enabled::{__tracing, field, Span};
+pub use enabled::{__tracing, Span, field};
 
 impl Span {
     /// Execute `f` in with this span active, consuming it.

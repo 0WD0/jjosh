@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use gix_hash::ObjectId;
 use gix_hashtable::HashSet;
-use gix_object::{tree::EntryKind, Exists, FindExt, Kind};
+use gix_object::{Exists, FindExt, Kind, tree::EntryKind};
 
 /// Perform a connectivity check.
 pub struct Connectivity<T, F>
