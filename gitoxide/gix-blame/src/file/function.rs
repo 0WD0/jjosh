@@ -3,14 +3,14 @@ use std::num::NonZeroU32;
 use gix_diff::{blob::TokenSource, tree::Visit};
 use gix_hash::ObjectId;
 use gix_object::{
-    bstr::{BStr, BString},
     FindExt,
+    bstr::{BStr, BString},
 };
 use gix_traverse::commit::find as find_commit;
 use smallvec::SmallVec;
 
-use super::{process_changes, Change, UnblamedHunk};
-use crate::{types::BlamePathEntry, BlameEntry, Error, Options, Outcome, Statistics};
+use super::{Change, UnblamedHunk, process_changes};
+use crate::{BlameEntry, Error, Options, Outcome, Statistics, types::BlamePathEntry};
 
 /// Produce a list of consecutive [`BlameEntry`] instances to indicate in which commits the ranges of the file
 /// at `suspect:<file_path>` originated in.

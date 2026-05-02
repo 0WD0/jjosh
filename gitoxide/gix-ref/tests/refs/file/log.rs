@@ -17,8 +17,10 @@ mod line {
 
         #[test]
         fn round_trips() -> crate::Result {
-            let lines = &["0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	commit (initial): c1\n",
-                         "0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	\n"];
+            let lines = &[
+                "0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	commit (initial): c1\n",
+                "0000000000000000000000000000000000000000 134385f6d781b7e97062102c6a483440bfda2a03 committer <committer@example.com> 946771200 +0000	\n",
+            ];
             for line in lines {
                 let line = log::LineRef::from_bytes(line.as_bytes())?;
                 let mut buf = Vec::new();

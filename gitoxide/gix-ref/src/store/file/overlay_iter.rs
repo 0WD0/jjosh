@@ -9,9 +9,9 @@ use std::{
 };
 
 use crate::{
+    BStr, FullName, Namespace, Reference,
     file::loose::{self, iter::SortedLoosePaths},
     store_impl::{file, packed},
-    BStr, FullName, Namespace, Reference,
 };
 
 /// An iterator stepping through sorted input of loose references and packed references, preferring loose refs over otherwise

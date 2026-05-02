@@ -4,7 +4,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
-#![deny(unsafe_code, missing_docs, rust_2018_idioms)]
+#![deny(unsafe_code, missing_docs)]
 
 use std::{ops::Range, path::PathBuf};
 
@@ -165,7 +165,7 @@ pub struct State {
 mod impls {
     use std::fmt::{Debug, Formatter};
 
-    use crate::{entry::Stage, State};
+    use crate::{State, entry::Stage};
 
     impl Debug for State {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

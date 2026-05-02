@@ -1,7 +1,7 @@
 use gix_hash::ObjectId;
 use gix_object::bstr::BString;
 
-use crate::{parse::hex_hash, store_impl::file::loose::Reference, FullName, Target};
+use crate::{FullName, Target, parse::hex_hash, store_impl::file::loose::Reference};
 
 enum MaybeUnsafeState {
     Id(ObjectId),
@@ -34,7 +34,7 @@ impl TryFrom<MaybeUnsafeState> for Target {
                         return Err(Error::RefnameValidation {
                             source: err,
                             path: name,
-                        })
+                        });
                     }
                 })
             }

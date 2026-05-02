@@ -174,8 +174,8 @@ impl Object {
 }
 
 use crate::{
-    decode::{loose_header, Error as DecodeError, LooseHeaderDecodeError},
     BlobRef, CommitRef, Kind, ObjectRef, TagRef, TreeRef,
+    decode::{Error as DecodeError, LooseHeaderDecodeError, loose_header},
 };
 
 #[derive(Debug, thiserror::Error)]

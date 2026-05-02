@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use smallvec::SmallVec;
 
-use crate::{parse, parse::ParseResult, BStr, ByteSlice, CommitRef};
+use crate::{BStr, ByteSlice, CommitRef, parse, parse::ParseResult};
 
 /// Parse the commit message after the header/message separator.
 ///

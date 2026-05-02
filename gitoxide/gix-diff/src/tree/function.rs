@@ -1,10 +1,10 @@
 use std::{borrow::BorrowMut, collections::VecDeque};
 
-use gix_object::{tree::EntryRef, FindExt, TreeRefIter};
+use gix_object::{FindExt, TreeRefIter, tree::EntryRef};
 
 use crate::tree::{
-    visit::{Change, ChangeId, Relation},
     Error, State, TreeInfoTuple, Visit,
+    visit::{Change, ChangeId, Relation},
 };
 
 /// Calculate the changes that would need to be applied to `lhs` to get `rhs` using `objects` to obtain objects as needed for traversal.

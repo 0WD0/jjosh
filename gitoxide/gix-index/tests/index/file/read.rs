@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use bstr::ByteSlice;
 use gix_index::{
-    entry::{self, Flags, Mode},
     Version,
+    entry::{self, Flags, Mode},
 };
 
 use crate::{hex_to_id, index::Fixture, loose_file_path};

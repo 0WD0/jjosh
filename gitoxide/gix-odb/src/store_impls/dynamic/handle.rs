@@ -2,13 +2,13 @@ use std::{
     cell::RefCell,
     ops::Deref,
     rc::Rc,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
 };
 
 use gix_features::threading::OwnShared;
 use gix_hash::oid;
 
-use crate::store::{handle, types, RefreshMode};
+use crate::store::{RefreshMode, handle, types};
 
 pub(crate) enum SingleOrMultiIndex {
     Single {

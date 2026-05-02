@@ -34,7 +34,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
-#![deny(missing_docs, rust_2018_idioms)]
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 use std::borrow::Cow;
@@ -327,8 +327,8 @@ pub mod decode {
 
         impl std::error::Error for Error {}
     }
-    pub(crate) use error::empty_error;
     pub use error::Error;
+    pub(crate) use error::empty_error;
 
     /// Returned by [`loose_header()`]
     #[derive(Debug, thiserror::Error)]

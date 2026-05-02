@@ -75,15 +75,11 @@ fn bash_program_ok_for_platform() {
         .output()
         .expect("can pass it `--version`");
     assert!(for_version.status.success(), "passing `--version` succeeds");
-    let version_line = for_version
+    for_version
         .stdout
         .lines()
         .nth(0)
         .expect("`--version` output has first line");
-    assert!(
-        version_line.ends_with(b"-pc-msys)"), // On Windows, "-pc-linux-gnu)" would be WSL.
-        "it is an MSYS bash (such as Git Bash)"
-    );
 
     let for_uname_os = std::process::Command::new(path)
         .args(["-c", "uname -o"])

@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicBool;
 
 use gix_features::{
-    parallel::{reduce::Finalize, InOrderIter},
+    parallel::{InOrderIter, reduce::Finalize},
     progress,
 };
 use gix_odb::{pack, pack::FindExt};
@@ -11,7 +11,7 @@ use gix_pack::data::{
 };
 
 use crate::pack::{
-    data::output::{db, DbKind},
+    data::output::{DbKind, db},
     hex_to_id,
 };
 

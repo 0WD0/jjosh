@@ -13,7 +13,7 @@ mod method {
 
     use crate::{
         hex_to_id,
-        pack::{data::file::pack_at, pack_from_memory_at, SMALL_PACK},
+        pack::{SMALL_PACK, data::file::pack_at, pack_from_memory_at},
     };
 
     #[test]
@@ -96,7 +96,7 @@ mod decode_entry {
 
     use crate::{
         fixture_path, fixup,
-        pack::{data::file::pack_at, SMALL_PACK},
+        pack::{SMALL_PACK, data::file::pack_at},
     };
 
     fn content_of(path: &str) -> Vec<u8> {
@@ -167,7 +167,7 @@ mod decode_entry {
 
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod resolve_header {
-    use crate::pack::{data::file::pack_at, SMALL_PACK};
+    use crate::pack::{SMALL_PACK, data::file::pack_at};
 
     #[test]
     fn commit() {
@@ -216,7 +216,7 @@ mod resolve_header {
 mod decompress_entry {
     use gix_object::bstr::ByteSlice;
 
-    use crate::pack::{data::file::pack_at, SMALL_PACK};
+    use crate::pack::{SMALL_PACK, data::file::pack_at};
 
     #[test]
     fn commit() {

@@ -2,7 +2,7 @@ use bstr::ByteSlice;
 use gix_diff::{blob::pipeline::WorktreeRoots, rewrites::CopySource};
 use gix_index::entry;
 use gix_status::{
-    index_as_worktree::{traits::FastEq, Change, EntryStatus},
+    index_as_worktree::{Change, EntryStatus, traits::FastEq},
     index_as_worktree_with_renames,
     index_as_worktree_with_renames::{Context, DirwalkContext, Entry, Options, Outcome, Recorder, Sorting, Summary},
 };

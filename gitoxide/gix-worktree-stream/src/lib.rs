@@ -1,7 +1,7 @@
 //! The implementation of creating an archive from a git tree, similar to `git archive`, but using an internal format.
 //!
 //! This crate can effectively be used to manipulate worktrees as streams of bytes, which can be decoded using the [`Stream`] type.
-#![deny(rust_2018_idioms, missing_docs, unsafe_code)]
+#![deny(missing_docs, unsafe_code)]
 
 use std::{path::Path, sync::Arc};
 

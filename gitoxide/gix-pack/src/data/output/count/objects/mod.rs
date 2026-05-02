@@ -119,7 +119,7 @@ mod expand {
         sync::atomic::{AtomicBool, Ordering},
     };
 
-    use gix_hash::{oid, ObjectId};
+    use gix_hash::{ObjectId, oid};
     use gix_object::{CommitRefIter, Data, TagRefIter};
 
     use super::{
@@ -128,8 +128,8 @@ mod expand {
         util,
     };
     use crate::{
-        data::{output, output::count::PackLocation},
         FindExt,
+        data::{output, output::count::PackLocation},
     };
 
     #[allow(clippy::too_many_arguments)]

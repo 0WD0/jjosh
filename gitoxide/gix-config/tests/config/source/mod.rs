@@ -36,15 +36,17 @@ fn git_config_no_system() {
         }),
         None
     );
-    assert!(Source::System
-        .storage_location(&mut |name| {
-            match name {
-                "GIT_CONFIG_NOSYSTEM" => Some("false".into()),
-                "GIT_CONFIG_SYSTEM" => None,
-                _ => unreachable!("known set"),
-            }
-        })
-        .is_some());
+    assert!(
+        Source::System
+            .storage_location(&mut |name| {
+                match name {
+                    "GIT_CONFIG_NOSYSTEM" => Some("false".into()),
+                    "GIT_CONFIG_SYSTEM" => None,
+                    _ => unreachable!("known set"),
+                }
+            })
+            .is_some()
+    );
 }
 
 #[test]

@@ -4,11 +4,11 @@ use std::{
 };
 
 use anyhow::bail;
-use gix::{objs::find::Error, worktree::state::checkout, NestedProgress, Progress};
+use gix::{NestedProgress, Progress, objs::find::Error, worktree::state::checkout};
 
 use crate::{
     index,
-    index::{parse_file, Options},
+    index::{Options, parse_file},
 };
 
 pub fn checkout_exclusive(

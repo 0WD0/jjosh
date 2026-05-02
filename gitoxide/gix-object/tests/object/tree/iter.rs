@@ -1,7 +1,7 @@
 use gix_object::{
+    TreeRefIter,
     bstr::ByteSlice,
     tree::{self, EntryRef},
-    TreeRefIter,
 };
 use pretty_assertions::assert_eq;
 
@@ -133,7 +133,7 @@ mod lookup_entry {
     }
 
     mod utils {
-        use gix_object::{tree, FindExt};
+        use gix_object::{FindExt, tree};
 
         use crate::generated_tree_root_id;
 

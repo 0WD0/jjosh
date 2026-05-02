@@ -1,6 +1,6 @@
 use std::{
     io::Write,
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
 };
 

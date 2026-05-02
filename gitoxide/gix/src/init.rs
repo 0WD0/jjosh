@@ -2,15 +2,15 @@
 use std::{borrow::Cow, path::Path};
 
 use gix_ref::{
+    Category, FullName, Target,
     store::WriteReflog,
     transaction::{PreviousValue, RefEdit},
-    Category, FullName, Target,
 };
 
 use crate::{
+    ThreadSafeRepository,
     bstr::{BString, ByteSlice},
     config::tree::Init,
-    ThreadSafeRepository,
 };
 
 /// The name of the branch to use if non is configured via git configuration.

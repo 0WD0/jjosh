@@ -10,7 +10,9 @@ pub mod entries {
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
-        #[error("Entry '{current_path}' (stage = {current_stage}) at index {current_index} should order after prior entry '{previous_path}' (stage = {previous_stage})")]
+        #[error(
+            "Entry '{current_path}' (stage = {current_stage}) at index {current_index} should order after prior entry '{previous_path}' (stage = {previous_stage})"
+        )]
         OutOfOrder {
             current_index: usize,
             current_path: BString,

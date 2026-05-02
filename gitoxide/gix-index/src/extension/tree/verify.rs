@@ -9,7 +9,9 @@ use crate::extension::Tree;
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
-    #[error("The entry {entry_id} at path '{name}' in parent tree {parent_id} wasn't found in the nodes children, making it incomplete")]
+    #[error(
+        "The entry {entry_id} at path '{name}' in parent tree {parent_id} wasn't found in the nodes children, making it incomplete"
+    )]
     MissingTreeDirectory {
         parent_id: gix_hash::ObjectId,
         entry_id: gix_hash::ObjectId,
@@ -17,7 +19,9 @@ pub enum Error {
     },
     #[error(transparent)]
     TreeNodeNotFound(#[from] gix_object::find::existing_iter::Error),
-    #[error("The tree with id {oid} should have {expected_childcount} children, but its cached representation had {actual_childcount} of them")]
+    #[error(
+        "The tree with id {oid} should have {expected_childcount} children, but its cached representation had {actual_childcount} of them"
+    )]
     TreeNodeChildcountMismatch {
         oid: gix_hash::ObjectId,
         expected_childcount: usize,

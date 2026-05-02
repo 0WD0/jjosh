@@ -1,9 +1,8 @@
 pub(crate) mod convert_to_diffable {
 
     use gix_diff::blob::{
-        pipeline,
+        ResourceKind, pipeline,
         pipeline::{Options, WorktreeRoots},
-        ResourceKind,
     };
     use gix_filter::{eol, eol::AutoCrlf};
     use gix_object::{bstr::ByteSlice, tree::EntryKind};

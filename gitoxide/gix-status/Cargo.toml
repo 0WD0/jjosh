@@ -7,9 +7,9 @@ repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dealing with 'git status'-like functionality"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>", "Pascal Kuthe <pascal.kuthe@semimod.de>"]
-edition = "2021"
+edition = "2024"
 include = ["/src/**/*", "/LICENSE-*"]
-rust-version = "1.82"
+rust-version = "1.85"
 autotests = false
 
 [lib]

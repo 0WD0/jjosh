@@ -109,7 +109,8 @@ mod find {
         );
         let target_commit_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
         assert_eq!(
-            tag_ref.inner.peeled, Some(target_commit_id),
+            tag_ref.inner.peeled,
+            Some(target_commit_id),
             "It only counts as peeled as this ref is packed, and peeling in place is a way to 'make it the target' officially."
         );
 
@@ -207,11 +208,13 @@ fn set_target_id() {
     assert_eq!(head_ref.id(), target_id, "the id was set and is observable right away");
 
     head_ref.delete().unwrap();
-    assert!(head_ref
-        .set_target_id(prev_id, "fails")
-        .unwrap_err()
-        .to_string()
-        .starts_with("Reference \"refs/heads/main\" was supposed to exist"));
+    assert!(
+        head_ref
+            .set_target_id(prev_id, "fails")
+            .unwrap_err()
+            .to_string()
+            .starts_with("Reference \"refs/heads/main\" was supposed to exist")
+    );
 }
 
 mod remote;

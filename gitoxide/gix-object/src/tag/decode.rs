@@ -1,6 +1,6 @@
 use bstr::ByteSlice;
 
-use crate::{parse, parse::ParseResult, BStr, Kind, TagRef};
+use crate::{BStr, Kind, TagRef, parse, parse::ParseResult};
 
 /// Parse a complete annotated tag object body.
 ///

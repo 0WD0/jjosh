@@ -17,7 +17,7 @@ pub fn repo(name: &str) -> crate::Result<gix::Repository> {
 }
 
 mod into_iter {
-    use gix::status::{tree_index::TrackRenames, Item, Submodule};
+    use gix::status::{Item, Submodule, tree_index::TrackRenames};
     use gix_diff::Rewrites;
     use gix_testtools::size_ok;
 

@@ -2,7 +2,7 @@ use std::ops::ControlFlow;
 
 use bstr::BStr;
 
-use crate::{tree, tree::EntryRef, TreeRef, TreeRefIter};
+use crate::{TreeRef, TreeRefIter, tree, tree::EntryRef};
 
 /// Advance a path lookup by matching the next path component against `tree`.
 ///
@@ -209,7 +209,7 @@ impl<'a> TryFrom<&'a [u8]> for tree::EntryMode {
 mod decode {
     use bstr::ByteSlice;
 
-    use crate::{tree, tree::EntryRef, TreeRef};
+    use crate::{TreeRef, tree, tree::EntryRef};
 
     pub fn fast_entry(i: &[u8], hash_len: usize) -> Option<(&[u8], EntryRef<'_>)> {
         let (mode, i) = tree::EntryMode::extract_from_bytes(i)?;

@@ -125,8 +125,8 @@ mod track_rewrites {
 
     use gix::{
         diff::{
-            rewrites::{Copies, CopySource},
             Rewrites,
+            rewrites::{Copies, CopySource},
         },
         object::tree::diff::Change,
     };

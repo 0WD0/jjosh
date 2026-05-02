@@ -3,7 +3,7 @@ use std::fs::Metadata;
 use bstr::{BStr, ByteSlice};
 use gix_fs::stack::ToNormalPathComponents;
 use gix_index::entry::Mode;
-use gix_worktree::{stack::state::ignore::Source, Stack};
+use gix_worktree::{Stack, stack::state::ignore::Source};
 
 use crate::{hex_to_id, worktree::stack::probe_case};
 

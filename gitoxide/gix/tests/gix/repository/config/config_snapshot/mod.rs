@@ -1,4 +1,4 @@
-use gix::config::tree::{gitoxide, Branch, Core, Key};
+use gix::config::tree::{Branch, Core, Key, gitoxide};
 
 use crate::{named_repo, repo_rw};
 

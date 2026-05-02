@@ -1,12 +1,13 @@
 use std::{borrow::Cow, ops::Range};
 
 use bstr::BStr;
-use gix_hash::{oid, ObjectId};
+use gix_hash::{ObjectId, oid};
 
 use crate::{
+    CommitRefIter,
     bstr::ByteSlice,
-    commit::{decode, SignedData, SIGNATURE_FIELD_NAME},
-    parse, CommitRefIter,
+    commit::{SIGNATURE_FIELD_NAME, SignedData, decode},
+    parse,
 };
 
 #[derive(Copy, Clone)]
@@ -191,7 +192,7 @@ impl<'a> CommitRefIter<'a> {
                     Self::next_inner_(input, state, hash_kind)?
                 }
             }
-            Signature { ref mut of } => {
+            Signature { of } => {
                 let who = *of;
                 let field_name = match of {
                     SignatureKind::Author => {

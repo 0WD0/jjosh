@@ -1,6 +1,6 @@
 use gix_object::bstr::{BStr, BString, ByteSlice};
 
-use crate::{store_impl::packed, FullNameRef, PartialNameRef};
+use crate::{FullNameRef, PartialNameRef, store_impl::packed};
 
 /// packed-refs specific functionality
 impl packed::Buffer {

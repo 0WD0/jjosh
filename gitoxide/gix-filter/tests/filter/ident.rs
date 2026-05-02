@@ -1,5 +1,5 @@
 mod undo {
-    use bstr::{ByteSlice, B};
+    use bstr::{B, ByteSlice};
 
     #[test]
     fn no_id_changes_nothing() -> crate::Result {
@@ -66,7 +66,7 @@ mod undo {
 }
 
 mod apply {
-    use bstr::{ByteSlice, B};
+    use bstr::{B, ByteSlice};
     use gix_filter::ident;
 
     #[test]

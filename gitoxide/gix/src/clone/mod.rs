@@ -154,9 +154,9 @@ mod access_feat {
         pub fn configure_connection(
             mut self,
             f: impl FnMut(
-                    &mut crate::remote::Connection<'_, '_, Box<dyn Transport + Send>>,
-                ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-                + 'static,
+                &mut crate::remote::Connection<'_, '_, Box<dyn Transport + Send>>,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+            + 'static,
         ) -> Self {
             self.configure_connection = Some(Box::new(f));
             self

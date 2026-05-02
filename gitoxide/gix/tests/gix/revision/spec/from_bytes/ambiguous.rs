@@ -9,8 +9,8 @@ use crate::{
 use gix::{
     prelude::{ObjectIdExt, RevSpecExt},
     revision::{
-        spec::parse::{Options, RefsHint},
         Spec,
+        spec::parse::{Options, RefsHint},
     },
 };
 
@@ -93,7 +93,10 @@ fn ranges_are_auto_disambiguated_by_committish() {
 fn blob_and_tree_can_be_disambiguated_by_type() {
     let repo = repo("ambiguous_blob_tree_commit").unwrap();
     assert_eq!(
-        parse_spec("0000000000", &repo).unwrap_err().probable_cause().to_string(),
+        parse_spec("0000000000", &repo)
+            .unwrap_err()
+            .probable_cause()
+            .to_string(),
         "Short id 0000000000 is ambiguous. Candidates are:\n\t0000000000e commit 2005-04-07 \"a2onsxbvj\"\n\t0000000000c tree\n\t0000000000b blob",
         "in theory one could disambiguate with 0000000000^{{tree}} (which works in git) or 0000000000^{{blob}} which doesn't work for some reason."
     );
@@ -163,7 +166,10 @@ fn tags_can_be_disambiguated_with_commit_specific_transformations() {
 fn duplicates_are_deduplicated_across_all_odb_types() {
     let repo = repo("duplicate_ambiguous_objects").unwrap();
     assert_eq!(
-        parse_spec_no_baseline("0000000000", &repo).unwrap_err().probable_cause().to_string(),
+        parse_spec_no_baseline("0000000000", &repo)
+            .unwrap_err()
+            .probable_cause()
+            .to_string(),
         "Short id 0000000000 is ambiguous. Candidates are:\n\t0000000000f8 tag \"v1.0.0\"\n\t000000000004 commit 2005-04-07 \"czy8f73t\"\n\t00000000006 commit 2005-04-07 \"ad2uee\"\n\t00000000008 commit 2005-04-07 \"ioiley5o\"\n\t0000000000e commit 2005-04-07 \"a2onsxbvj\"\n\t000000000002 tree\n\t00000000005 tree\n\t00000000009 tree\n\t0000000000c tree\n\t0000000000fd tree\n\t00000000001 blob\n\t00000000003 blob\n\t0000000000a blob\n\t0000000000b blob\n\t0000000000f2 blob",
         "One day we want to see 16 objects here, and not 32 just because they exist in the loose and the packed odb"
     );
@@ -199,12 +205,9 @@ fn ambiguous_40hex_refs_are_ignored_and_we_prefer_the_object_of_the_same_name() 
     );
 
     assert_eq!(
-        parse_spec_no_baseline_opts(
-            spec,
-            &repo,
-            opts_ref_hint(RefsHint::Fail)
-        )
-            .unwrap_err().probable_cause()
+        parse_spec_no_baseline_opts(spec, &repo, opts_ref_hint(RefsHint::Fail))
+            .unwrap_err()
+            .probable_cause()
             .to_string(),
         "The short hash 0000000000e4f9fbd19cf1e932319e5ad0d1d00b matched both the reference refs/heads/0000000000e4f9fbd19cf1e932319e5ad0d1d00b and at least one object"
     );

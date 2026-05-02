@@ -20,7 +20,7 @@ mod baseline {
     use gix_hash::ObjectId;
     use gix_ref::bstr::ByteSlice;
 
-    use super::{fixture_hash_kind, Baseline};
+    use super::{Baseline, fixture_hash_kind};
 
     // These fields are used by `git` in its porcelain output.
     const HEADER_FIELDS: [&str; 12] = [
@@ -434,7 +434,7 @@ fn since() -> gix_testtools::Result {
 }
 
 mod blame_ranges {
-    use crate::{fixture_path, Baseline, Fixture};
+    use crate::{Baseline, Fixture, fixture_path};
     use gix_blame::BlameRanges;
 
     #[test]

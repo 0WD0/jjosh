@@ -2,9 +2,9 @@ use gix_hashtable::HashMap;
 use std::hint::black_box;
 
 use bstr::BString;
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use gix_index::State;
-use gix_object::{tree::EntryKind, Tree, WriteTo};
+use gix_object::{Tree, WriteTo, tree::EntryKind};
 
 fn from_tree(c: &mut Criterion) {
     let mut group = c.benchmark_group("from_tree");

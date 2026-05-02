@@ -237,11 +237,11 @@ fn compute_hidden_frontier(
 ///
 mod init {
     use super::{
-        collect_parents, compute_hidden_frontier, to_queue_key, CommitDateQueue, CommitTimeOrder, Error, Sorting, State,
+        CommitDateQueue, CommitTimeOrder, Error, Sorting, State, collect_parents, compute_hidden_frontier, to_queue_key,
     };
     use crate::commit::{Either, Info, ParentIds, Parents, Simple};
     use gix_date::SecondsSinceUnixEpoch;
-    use gix_hash::{oid, ObjectId};
+    use gix_hash::{ObjectId, oid};
     use gix_object::{CommitRefIter, FindExt};
     use std::{cmp::Reverse, collections::VecDeque};
 

@@ -1,10 +1,10 @@
-use crate::{clone::PrepareCheckout, Repository};
+use crate::{Repository, clone::PrepareCheckout};
 
 ///
 pub mod main_worktree {
     use std::{path::PathBuf, sync::atomic::AtomicBool};
 
-    use crate::{clone::PrepareCheckout, Progress, Repository};
+    use crate::{Progress, Repository, clone::PrepareCheckout};
 
     /// The error returned by [`PrepareCheckout::main_worktree()`].
     #[derive(Debug, thiserror::Error)]
