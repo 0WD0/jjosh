@@ -1,5 +1,5 @@
 //! A library for performing object database integrity and connectivity checks
-#![deny(rust_2018_idioms, unsafe_code, missing_docs)]
+#![deny(unsafe_code, missing_docs)]
 
 use std::collections::VecDeque;
 

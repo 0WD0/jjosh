@@ -4,7 +4,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
-#![deny(unsafe_code, missing_docs, rust_2018_idioms)]
+#![deny(unsafe_code, missing_docs)]
 
 use std::{ops::Range, path::PathBuf};
 

@@ -25,7 +25,7 @@
 //! assert!(gix_discover::is_git(&repository_dir).is_ok());
 //! # Ok(()) }
 //! ```
-#![deny(missing_docs, rust_2018_idioms)]
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 /// The name of the `.git` directory.

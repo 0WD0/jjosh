@@ -17,7 +17,7 @@
 //! assert_eq!(shared.insert(id, 1), None);
 //! assert_eq!(shared.insert(id, 2), Some(1));
 //! ```
-#![deny(missing_docs, rust_2018_idioms)]
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 use gix_hash::ObjectId;

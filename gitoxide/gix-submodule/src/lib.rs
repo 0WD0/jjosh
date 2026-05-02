@@ -1,5 +1,5 @@
 //! Primitives for describing git submodules.
-#![deny(rust_2018_idioms, missing_docs)]
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 use std::{borrow::Cow, collections::BTreeMap};

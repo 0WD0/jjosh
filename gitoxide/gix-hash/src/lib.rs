@@ -26,7 +26,7 @@
     doc = ::document_features::document_features!()
 )]
 #![cfg_attr(all(doc, feature = "document-features"), feature(doc_cfg))]
-#![deny(missing_docs, rust_2018_idioms, unsafe_code)]
+#![deny(missing_docs, unsafe_code)]
 
 #[cfg(all(not(feature = "sha1"), not(feature = "sha256")))]
 compile_error!("Please set either the `sha1` or the `sha256` feature flag");
