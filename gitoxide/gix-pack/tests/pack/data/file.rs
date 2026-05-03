@@ -254,6 +254,22 @@ mod decompress_entry {
         );
     }
 
+    #[test]
+    fn caller_provided_buffer_ignores_alloc_limit() {
+        let p = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(64));
+        let entry = p.entry(1968).expect("valid object type");
+        let mut buf = vec![0; entry.decompressed_size as usize];
+
+        p.decompress_entry(&entry, &mut Default::default(), &mut buf)
+            .expect("caller-provided buffers should not be rejected by allocation limits");
+
+        assert_eq!(
+            buf.len(),
+            187,
+            "the buffer is larger than the alloc limit and that's alright"
+        );
+    }
+
     fn decompress_entry_at_offset(offset: u64) -> Vec<u8> {
         let p = pack_at(SMALL_PACK);
         let entry = p.entry(offset).expect("valid object type");
