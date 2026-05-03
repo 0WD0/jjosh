@@ -104,7 +104,7 @@ where
         let mut buf = [0_u8; 32];
         let used = self
             .decompress_entry_from_data_offset_2(entry.data_offset, inflate, &mut buf)?
-            .1;
+            .2;
         let buf = &buf[..used];
         let (_base_size, offset) = delta::decode_header_size(buf)?;
         let (result_size, _offset) = delta::decode_header_size(&buf[offset..])?;

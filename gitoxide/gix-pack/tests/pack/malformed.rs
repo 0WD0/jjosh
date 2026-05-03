@@ -55,6 +55,43 @@ fn oversized_delta_result_is_rejected_without_panicking() -> crate::Result {
     Ok(())
 }
 
+/// A delta entry can declare more decompressed bytes than zlib actually produces. Header parsing
+/// must only inspect the produced bytes, not the zero-filled remainder of the output buffer.
+#[test]
+fn truncated_delta_header_ignores_zero_filled_remainder() -> crate::Result {
+    let (_temp, pack, entry) = ref_delta_pack_with_declared_size(&[1, 0x80], 3)?;
+    let mut out = Vec::new();
+    let mut inflate = zlib::Inflate::default();
+
+    let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
+
+    assert!(
+        res.is_err(),
+        "truncated delta headers should not be completed by zero-filled output"
+    );
+    Ok(())
+}
+
+#[test]
+fn complete_delta_with_mismatched_declared_size_is_rejected() -> crate::Result {
+    for (name, delta, decompressed_size) in [
+        ("shorter", &[1, 1, 0x90, 1][..], 5),
+        ("longer", &[1, 1, 0x90, 1, 0][..], 4),
+    ] {
+        let (_temp, pack, entry) = ref_delta_pack_with_declared_size(delta, decompressed_size)?;
+        let mut out = Vec::new();
+        let mut inflate = zlib::Inflate::default();
+
+        let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
+
+        assert!(
+            res.is_err(),
+            "delta streams {name} than their declared size should be rejected"
+        );
+    }
+    Ok(())
+}
+
 fn encode_delta_size(mut size: u64) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
@@ -72,6 +109,20 @@ fn encode_delta_size(mut size: u64) -> Vec<u8> {
 }
 
 fn ref_delta_pack(delta: &[u8]) -> crate::Result<(tempfile::TempDir, data::File, data::Entry)> {
+    ref_delta_pack_with_declared_size(delta, delta.len() as u64)
+}
+
+/// Build a one-entry ref-delta pack while allowing the pack entry's declared decompressed size
+/// to differ from the actual zlib payload length.
+///
+/// Malformed packs can lie in either direction: the header may promise more bytes than inflate
+/// produces, leaving zero-filled slack in the caller's output buffer, or it may promise fewer
+/// bytes than the stream actually contains. The dedicated helper keeps those tests explicit,
+/// while `ref_delta_pack()` remains the shorthand for internally consistent fixtures.
+fn ref_delta_pack_with_declared_size(
+    delta: &[u8],
+    decompressed_size: u64,
+) -> crate::Result<(tempfile::TempDir, data::File, data::Entry)> {
     fn deflate(bytes: &[u8]) -> crate::Result<Vec<u8>> {
         let mut write = gix_features::zlib::stream::deflate::Write::new(Vec::new());
         write.write_all(bytes)?;
@@ -87,7 +138,7 @@ fn ref_delta_pack(delta: &[u8]) -> crate::Result<(tempfile::TempDir, data::File,
     data::entry::Header::RefDelta {
         base_id: gix_hash::Kind::Sha1.null(),
     }
-    .write_to(delta.len() as u64, &mut pack)?;
+    .write_to(decompressed_size, &mut pack)?;
     pack.extend(deflate(delta)?);
     pack.extend([0; 20]);
 

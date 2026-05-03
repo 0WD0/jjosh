@@ -147,13 +147,13 @@ where
             .map_err(Into::into)
     }
 
-    /// Like `decompress_entry_from_data_offset`, but returns consumed input and output.
+    /// Like `decompress_entry_from_data_offset`, but returns status, consumed input and output.
     pub(crate) fn decompress_entry_from_data_offset_2(
         &self,
         data_offset: data::Offset,
         inflate: &mut zlib::Inflate,
         out: &mut [u8],
-    ) -> Result<(usize, usize), Error> {
+    ) -> Result<(zlib::Status, usize, usize), Error> {
         let offset: usize = data_offset.try_into().expect("offset representable by machine");
         if offset >= self.data.len() {
             return Err(data::entry::decode::Error::Corrupt {
@@ -163,10 +163,7 @@ where
         }
 
         inflate.reset();
-        inflate
-            .once(&self.data[offset..], out)
-            .map(|(_status, consumed_in, consumed_out)| (consumed_in, consumed_out))
-            .map_err(Into::into)
+        inflate.once(&self.data[offset..], out).map_err(Into::into)
     }
 
     /// Decode an entry, resolving delta's as needed, while growing the `out` vector if there is not enough
@@ -311,17 +308,23 @@ where
             let mut relative_delta_start = 0;
             let mut biggest_result_size = 0;
             for (delta_idx, delta) in chain.iter_mut().rev().enumerate() {
-                let consumed_from_data_offset = self.decompress_entry_from_data_offset(
+                let (status, consumed_from_data_offset, consumed_out) = self.decompress_entry_from_data_offset_2(
                     delta.data_offset,
                     inflate,
                     &mut instructions[..delta.decompressed_size],
                 )?;
+                if status != zlib::Status::StreamEnd || consumed_out != delta.decompressed_size {
+                    return Err(delta::apply::Error::Corrupt {
+                        message: "delta decompressed size does not match entry header",
+                    }
+                    .into());
+                }
                 let is_last_delta_to_be_applied = delta_idx + 1 == chain_len;
                 if is_last_delta_to_be_applied {
                     consumed_input = Some(consumed_from_data_offset);
                 }
 
-                let current_delta = &instructions[..delta.decompressed_size];
+                let current_delta = &instructions[..consumed_out];
                 let (base_size, offset) = delta::decode_header_size(current_delta)?;
                 let mut bytes_consumed_by_header = offset;
                 biggest_result_size = biggest_result_size.max(base_size);
@@ -334,8 +337,8 @@ where
 
                 // the absolute location into the instructions buffer, so we keep track of the end point of the last
                 delta.data.start = relative_delta_start + bytes_consumed_by_header;
+                delta.data.end = relative_delta_start + consumed_out;
                 relative_delta_start += delta.decompressed_size;
-                delta.data.end = relative_delta_start;
 
                 instructions = &mut instructions[delta.decompressed_size..];
             }
