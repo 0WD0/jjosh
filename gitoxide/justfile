@@ -240,6 +240,8 @@ unit-tests:
     cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync --no-fail-fast
     cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials,maybe-async/is_sync --test blocking-transport --no-fail-fast
     cargo nextest run -p gix-transport --features async-client --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-traverse-tests --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-traverse-tests --no-fail-fast
     cargo nextest run -p gix-protocol --features blocking-client --no-fail-fast
     cargo nextest run -p gix-protocol --features async-client --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-blame --no-fail-fast

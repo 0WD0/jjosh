@@ -6,7 +6,15 @@ use gix_traverse::commit::simple::CommitTimeOrder;
 
 fn same_date_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
     let dir = fixture("make_traversal_repo_for_commits_same_date.sh")?;
-    let odb = gix_odb::at(dir.join(".git").join("objects"))?;
+    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
+    let odb = gix_odb::at_opts(
+        dir.join(".git").join("objects"),
+        Vec::new(),
+        gix_odb::store::init::Options {
+            object_hash,
+            ..Default::default()
+        },
+    )?;
     Ok((dir, odb))
 }
 
@@ -14,7 +22,10 @@ fn same_date_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
 fn c4_breadth_first() -> crate::Result {
     let (repo_dir, odb) = same_date_repo()?;
 
-    insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
+    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
+
+    match object_hash {
+        gix_hash::Kind::Sha1 => insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
         *   01ec18a3ebf2855708ad3c9d244306bc1fae3e9b  (HEAD -> main) m1b1
         |\  
         | * ce2e8ffaa9608a26f7b21afc1db89cadb54fd353  (branch1) b1c2
@@ -25,7 +36,21 @@ fn c4_breadth_first() -> crate::Result {
         * 17d78c64cef6c33a10a604573fd2c429e477fd63  c3
         * 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7  c2
         * 134385f6d781b7e97062102c6a483440bfda2a03  c1
-        ");
+        "),
+        gix_hash::Kind::Sha256 => insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
+        *   fb6f3cf687f7adc3da7d030935d071b738861741046d030b37e5efcc9cde5131  (HEAD -> main) m1b1
+        |\  
+        | * 5d9bb5ee5204e19d5b5c3d4f51807e4429972f7871965ee1673edb1c196721f8  (branch1) b1c2
+        | * 9b1336395000ea1dda99a04bec4ef7d4eeea969312ec4d2fa86b6527bfd8fbfd  b1c1
+        * | 0fc125d0690528eeff91d75edb3da0fa7bf75ed8eca44c0e402d4a6b6975e86a  c5
+        |/  
+        * 9a3e230fc8479e41397b78b9295510e38be525ec05a08c1ceb797547dc93ed4c  c4
+        * e47e1df5636110feefb5b858c346dbd1c0feebfc37651a238ec5a6300ed2f666  c3
+        * bbaf9640a7404a15394dae2606c5090cb44a722be2167d9d78485779aaf4e065  c2
+        * 5c4c31e0551f0d1fb410b7b9366604b050ea3388b96885063f10ba4c3e2dedd0  c1
+        "),
+        _ => unimplemented!(),
+    }
 
     let tip = hex_to_id("9556057aee5abb06912922e9f26c46386a816822"); // c4
 

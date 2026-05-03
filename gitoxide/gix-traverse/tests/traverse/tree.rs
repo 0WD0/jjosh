@@ -10,7 +10,7 @@ mod depthfirst {
     use gix_traverse::{tree, tree::recorder::Location};
 
     use super::*;
-    use crate::util::fixture_odb;
+    use crate::{normalize_debug_snapshot, util::fixture_odb};
 
     #[test]
     fn full_path_and_filename() -> crate::Result {
@@ -23,7 +23,7 @@ mod depthfirst {
             .tree();
 
         gix_traverse::tree::depthfirst(tree, &mut state, &db, &mut recorder)?;
-        insta::assert_debug_snapshot!(recorder.records, @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&recorder.records), @r#"
         [
             Entry {
                 mode: EntryMode(0o100644),
@@ -91,7 +91,7 @@ mod depthfirst {
         recorder.records.clear();
         recorder = recorder.track_location(Some(Location::FileName));
         gix_traverse::tree::depthfirst(tree, state, &db, &mut recorder)?;
-        insta::assert_debug_snapshot!(recorder.records, @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&recorder.records), @r#"
         [
             Entry {
                 mode: EntryMode(0o100644),
@@ -169,7 +169,7 @@ mod depthfirst {
             .tree();
 
         gix_traverse::tree::depthfirst(tree, &mut state, &db, &mut recorder)?;
-        insta::assert_debug_snapshot!(recorder.records.into_iter().filter(|e| e.mode.is_no_tree()).collect::<Vec<_>>(), @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&recorder.records.into_iter().filter(|e| e.mode.is_no_tree()).collect::<Vec<_>>()), @r#"
         [
             Entry {
                 mode: EntryMode(0o100644),

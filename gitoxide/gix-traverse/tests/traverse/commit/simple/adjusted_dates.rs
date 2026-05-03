@@ -5,7 +5,15 @@ use gix_traverse::commit::simple::CommitTimeOrder;
 
 fn adjusted_dates_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
     let dir = fixture("make_traversal_repo_for_commits_with_dates.sh")?;
-    let odb = gix_odb::at(dir.join(".git").join("objects"))?;
+    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
+    let odb = gix_odb::at_opts(
+        dir.join(".git").join("objects"),
+        Vec::new(),
+        gix_odb::store::init::Options {
+            object_hash,
+            ..Default::default()
+        },
+    )?;
     Ok((dir, odb))
 }
 
@@ -13,16 +21,29 @@ fn adjusted_dates_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)>
 fn head_breadth_first() -> crate::Result {
     let (repo_dir, odb) = adjusted_dates_repo()?;
 
+    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
+
     // Timestamps show b1c1 (978393600) is a year newer than c2 (946771200),
     // explaining why date-order puts b1c1 before c2.
-    insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+    match object_hash {
+        gix_hash::Kind::Sha1 => insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
         *   288e509293165cb5630d08f4185bdf2445bf6170 1009929600 (HEAD -> main) m1b1
         |\  
         | * bcb05040a6925f2ff5e10d3ae1f9264f2e8c43ac 978393600 (branch1) b1c1
         * | 9902e3c3e8f0c569b4ab295ddf473e6de763e1e7 946771200 c2
         |/  
         * 134385f6d781b7e97062102c6a483440bfda2a03 946771200 c1
-        ");
+        "),
+        gix_hash::Kind::Sha256 => insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+        *   10d977a4ec5ad49aff689ea886dd430f5cf2f618811521fa0df2ccb8c69811ae 1009929600 (HEAD -> main) m1b1
+        |\  
+        | * 3e87837a4730030fb4a6bf72d121d4e6305df46e7fd93d1f4f3f1b22845112c7 978393600 (branch1) b1c1
+        * | bbaf9640a7404a15394dae2606c5090cb44a722be2167d9d78485779aaf4e065 946771200 c2
+        |/  
+        * 5c4c31e0551f0d1fb410b7b9366604b050ea3388b96885063f10ba4c3e2dedd0 946771200 c1
+        "),
+        _ => unimplemented!(),
+    }
 
     let tip = hex_to_id("288e509293165cb5630d08f4185bdf2445bf6170"); // m1b1
 

@@ -9,8 +9,11 @@ fn simple_repo() -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
 fn head_breadth_first() -> crate::Result {
     let (repo_dir, odb) = simple_repo()?;
 
+    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
+
     // Timestamps show branch1 commits are newer than branch2, with c5 being the newest.
-    insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+    match object_hash {
+        gix_hash::Kind::Sha1 => insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
         *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4 1112912533 (HEAD -> main) merge
         |\ \  
         | | * 48e8dac19508f4238f06c8de2b10301ce64a641c 1112912353 (branch2) b2c2
@@ -24,7 +27,24 @@ fn head_breadth_first() -> crate::Result {
         * 33aa07785dd667c0196064e3be3c51dd9b4744ef 1112912173 c3
         * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83 1112912113 c2
         * 65d6af66f60b8e39fd1ba6a1423178831e764ec5 1112912053 c1
-        ");
+        "),
+        gix_hash::Kind::Sha256 => insta::assert_snapshot!(git_graph_with_time(&repo_dir)?, @r"
+        *-.   5db834abbc0bc7f4d56b2375bbe5095640b05b8e0a817c18798fb30b55c1163d 1112912533 (HEAD -> main) merge
+        |\ \  
+        | | * a9e888378d56d411a71b97e18ab3a4ee4a8267eae3f81550ef43b3e49a611944 1112912353 (branch2) b2c2
+        | | * 3dca66a931b51c6a47e83b0a4d423b1774c8d3360683c80cb736c81be5c3538b 1112912293 b2c1
+        | * | f20b45b1316fc7f3f2736c771a983f2e003b029e301a3270915fe20831fcc6ec 1112912473 (branch1) b1c2
+        | * | c981468050bd19c62b0e0a9d14b54cb21817fde64b27b8867b850d4325a0f4f9 1112912413 b1c1
+        | |/  
+        * / 1ef3045172ca9520015ead122a3d8f4a729567f4290d2dd3626950679e7e52bb 1112912533 c5
+        |/  
+        * 06ec706b9c479d9fc922c31604e88d9b54a38a430d0dbd3c4ae67ba7d2b4162a 1112912233 c4
+        * 75e848e191e09b344b8b7b21f84e3f139723df091d7c1294a034d737b7d5bd0c 1112912173 c3
+        * 16dd9ca7a213dd00c9613d353ef619b29b4f566c64265b3818357a1a5048d8be 1112912113 c2
+        * c0a25d64fa9426c62563cf5359cf551b69f8c561d5199ba40a79147c1da757ed 1112912053 c1
+        "),
+        _ => unimplemented!(),
+    }
 
     let tip = hex_to_id("f49838d84281c3988eeadd988d97dd358c9f9dc4"); // merge
 
