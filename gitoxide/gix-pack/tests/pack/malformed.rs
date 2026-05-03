@@ -198,6 +198,30 @@ fn decode_header_with_mismatched_declared_delta_size_is_rejected() -> crate::Res
     Ok(())
 }
 
+#[test]
+fn large_mismatched_declared_delta_size_is_rejected_during_full_decode() -> crate::Result {
+    for (delta_len, decompressed_size) in [(33, 34), (34, 33)] {
+        let delta = padded_delta(delta_len);
+        let pack_data = ref_delta_pack_with_declared_size(&delta, decompressed_size)?;
+        let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
+        let entry = pack.entry(12)?;
+        let mut inflate = zlib::Inflate::default();
+
+        let outcome = pack.decode_header(entry.clone(), &mut inflate, &resolve_external_header_blob)?;
+
+        assert_eq!(outcome.object_size, 1);
+
+        let mut out = Vec::new();
+        let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
+
+        assert_err_message(
+            res,
+            "Pack entry is truncated: pack entry decompressed size does not match entry header",
+        );
+    }
+    Ok(())
+}
+
 fn assert_err_message<T, E>(res: Result<T, E>, expected: &str)
 where
     E: std::fmt::Debug + std::fmt::Display,
@@ -206,6 +230,12 @@ where
         Ok(_) => panic!("operation should fail"),
         Err(err) => assert_eq!(err.to_string(), expected),
     }
+}
+
+fn padded_delta(len: usize) -> Vec<u8> {
+    let mut delta = vec![1, 1, 0x90, 1];
+    delta.resize(len, 0);
+    delta
 }
 
 fn encode_delta_size(mut size: u64) -> Vec<u8> {
