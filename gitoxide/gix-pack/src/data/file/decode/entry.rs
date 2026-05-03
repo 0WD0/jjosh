@@ -126,7 +126,7 @@ where
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let (consumed_in, _consumed_out) =
-            self.decompress_commplete_entry_from_data_offset(data_offset, inflate, out)?;
+            self.decompress_complete_entry_from_data_offset(data_offset, inflate, out)?;
         Ok(consumed_in)
     }
 
@@ -137,7 +137,7 @@ where
     /// leave zero-filled slack in the destination buffer, nor streams that require more output
     /// than the header promised. Both cases would make later delta parsing operate on bytes that
     /// are not the entry payload described by the pack header.
-    pub(crate) fn decompress_commplete_entry_from_data_offset(
+    pub(crate) fn decompress_complete_entry_from_data_offset(
         &self,
         data_offset: data::Offset,
         inflate: &mut zlib::Inflate,
@@ -318,7 +318,7 @@ where
             let mut relative_delta_start = 0;
             let mut biggest_result_size = 0;
             for (delta_idx, delta) in chain.iter_mut().rev().enumerate() {
-                let (consumed_from_data_offset, consumed_out) = self.decompress_commplete_entry_from_data_offset(
+                let (consumed_from_data_offset, consumed_out) = self.decompress_complete_entry_from_data_offset(
                     delta.data_offset,
                     inflate,
                     &mut instructions[..delta.decompressed_size],
