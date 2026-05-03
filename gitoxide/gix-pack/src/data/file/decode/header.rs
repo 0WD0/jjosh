@@ -102,9 +102,22 @@ where
     #[inline]
     fn decode_delta_object_size(&self, inflate: &mut zlib::Inflate, entry: &data::Entry) -> Result<u64, Error> {
         let mut buf = [0_u8; 32];
-        let used = self
-            .decompress_entry_from_data_offset_2(entry.data_offset, inflate, &mut buf)?
-            .2;
+        let max_size = entry.decompressed_size.min(buf.len() as u64) as usize;
+        let (status, _consumed_in, used) =
+            self.decompress_entry_from_data_offset_unchecked(entry.data_offset, inflate, &mut buf[..max_size])?;
+        if status == zlib::Status::StreamEnd {
+            if used as u64 != entry.decompressed_size {
+                return Err(data::entry::decode::Error::Corrupt {
+                    message: "pack entry decompressed to fewer bytes than declared in the entry header",
+                }
+                .into());
+            }
+        } else if entry.decompressed_size <= buf.len() as u64 {
+            return Err(data::entry::decode::Error::Corrupt {
+                message: "pack entry decompressed to more bytes than declared in the entry header",
+            }
+            .into());
+        }
         let buf = &buf[..used];
         let (_base_size, offset) = delta::decode_header_size(buf)?;
         let (result_size, _offset) = delta::decode_header_size(&buf[offset..])?;

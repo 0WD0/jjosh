@@ -86,24 +86,17 @@ where
     ///
     /// _Note_ that this method does not resolve deltified objects, but merely decompresses their content
     /// `out` is expected to be large enough to hold `entry.size` bytes.
-    ///
-    /// # Panics
-    ///
-    /// If `out` isn't large enough to hold the decompressed `entry`
     pub fn decompress_entry(
         &self,
         entry: &data::Entry,
         inflate: &mut zlib::Inflate,
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        assert!(
-            out.len() as u64 >= entry.decompressed_size,
-            "output buffer isn't large enough to hold decompressed result, want {}, have {}",
-            entry.decompressed_size,
-            out.len()
-        );
-
-        self.decompress_entry_from_data_offset(entry.data_offset, inflate, out)
+        let size: usize = entry.decompressed_size.try_into().map_err(|_| Error::OutOfMemory)?;
+        if out.len() < size {
+            return Err(Error::OutOfMemory);
+        }
+        self.decompress_entry_from_data_offset(entry.data_offset, inflate, &mut out[..size])
     }
 
     /// Obtain the [`Entry`][crate::data::Entry] at the given `offset` into the pack.
@@ -132,23 +125,40 @@ where
         inflate: &mut zlib::Inflate,
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        let offset: usize = data_offset.try_into().expect("offset representable by machine");
-        if offset >= self.data.len() {
+        let (consumed_in, _consumed_out) =
+            self.decompress_commplete_entry_from_data_offset(data_offset, inflate, out)?;
+        Ok(consumed_in)
+    }
+
+    /// Like `decompress_entry_from_data_offset`, but returns `(consumed-input, consumed-output)`.
+    ///
+    /// The compressed stream must end exactly after producing `out.len()` bytes. Pack entry
+    /// headers are untrusted, so callers must not accept streams that stop early and
+    /// leave zero-filled slack in the destination buffer, nor streams that require more output
+    /// than the header promised. Both cases would make later delta parsing operate on bytes that
+    /// are not the entry payload described by the pack header.
+    pub(crate) fn decompress_commplete_entry_from_data_offset(
+        &self,
+        data_offset: data::Offset,
+        inflate: &mut zlib::Inflate,
+        out: &mut [u8],
+    ) -> Result<(usize, usize), Error> {
+        let (status, consumed_in, consumed_out) =
+            self.decompress_entry_from_data_offset_unchecked(data_offset, inflate, out)?;
+        if status != zlib::Status::StreamEnd || consumed_out != out.len() {
             return Err(data::entry::decode::Error::Corrupt {
-                message: "an entry data offset pointing beyond pack data",
+                message: "pack entry decompressed size does not match entry header",
             }
             .into());
         }
-
-        inflate.reset();
-        inflate
-            .once(&self.data[offset..], out)
-            .map(|(_status, consumed_in, _consumed_out)| consumed_in)
-            .map_err(Into::into)
+        Ok((consumed_in, consumed_out))
     }
 
-    /// Like `decompress_entry_from_data_offset`, but returns status, consumed input and output.
-    pub(crate) fn decompress_entry_from_data_offset_2(
+    /// Like [`Self::decompress_commplete_entry_from_data_offset()`], but allows callers to inspect incomplete streams.
+    ///
+    /// This is only for callers that intentionally decompress a prefix into a smaller buffer, such as
+    /// delta header probing. Full pack entry decoding should use [`Self::decompress_commplete_entry_from_data_offset()`].
+    pub(crate) fn decompress_entry_from_data_offset_unchecked(
         &self,
         data_offset: data::Offset,
         inflate: &mut zlib::Inflate,
@@ -308,17 +318,11 @@ where
             let mut relative_delta_start = 0;
             let mut biggest_result_size = 0;
             for (delta_idx, delta) in chain.iter_mut().rev().enumerate() {
-                let (status, consumed_from_data_offset, consumed_out) = self.decompress_entry_from_data_offset_2(
+                let (consumed_from_data_offset, consumed_out) = self.decompress_commplete_entry_from_data_offset(
                     delta.data_offset,
                     inflate,
                     &mut instructions[..delta.decompressed_size],
                 )?;
-                if status != zlib::Status::StreamEnd || consumed_out != delta.decompressed_size {
-                    return Err(delta::apply::Error::Corrupt {
-                        message: "delta decompressed size does not match entry header",
-                    }
-                    .into());
-                }
                 let is_last_delta_to_be_applied = delta_idx + 1 == chain_len;
                 if is_last_delta_to_be_applied {
                     consumed_input = Some(consumed_from_data_offset);
@@ -346,6 +350,9 @@ where
             // Now we can produce a buffer like this
             // [<biggest-result-buffer, possibly filled with resolved base object data>]<biggest-result-buffer><delta-1..delta-n>
             // from [<possibly resolved base object>]<delta-1..delta-n>...
+            if base_buffer_size.is_none() {
+                biggest_result_size = biggest_result_size.max(cursor.decompressed_size);
+            }
             let biggest_result_size = self.decoded_object_size(biggest_result_size)?;
             let first_buffer_size = biggest_result_size;
             let second_buffer_size = first_buffer_size;
@@ -374,7 +381,8 @@ where
                 let base_entry = cursor;
                 debug_assert!(!base_entry.header.is_delta());
                 object_kind = base_entry.header.as_kind();
-                let out_base = &mut out[..out_size - total_delta_data_size];
+                let base_size = self.decoded_object_size(base_entry.decompressed_size)?;
+                let out_base = &mut out[..base_size];
                 self.decompress_entry_from_data_offset(base_entry.data_offset, inflate, out_base)?;
             }
 
