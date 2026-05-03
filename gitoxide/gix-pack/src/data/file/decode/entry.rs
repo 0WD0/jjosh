@@ -321,12 +321,13 @@ where
                     consumed_input = Some(consumed_from_data_offset);
                 }
 
-                let (base_size, offset) = delta::decode_header_size(instructions)?;
+                let current_delta = &instructions[..delta.decompressed_size];
+                let (base_size, offset) = delta::decode_header_size(current_delta)?;
                 let mut bytes_consumed_by_header = offset;
                 biggest_result_size = biggest_result_size.max(base_size);
                 delta.base_size = self.decoded_object_size(base_size)?;
 
-                let (result_size, offset) = delta::decode_header_size(&instructions[offset..])?;
+                let (result_size, offset) = delta::decode_header_size(&current_delta[offset..])?;
                 bytes_consumed_by_header += offset;
                 biggest_result_size = biggest_result_size.max(result_size);
                 delta.result_size = self.decoded_object_size(result_size)?;
