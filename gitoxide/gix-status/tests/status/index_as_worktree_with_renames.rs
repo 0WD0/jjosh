@@ -91,11 +91,16 @@ fn changed_and_untracked_and_renamed() {
         Some(Default::default()),
         Fixture::ReadOnly,
     );
+    let num_similarity_checks = match gix_testtools::object_hash() {
+        gix_hash::Kind::Sha1 => 11,
+        gix_hash::Kind::Sha256 => 10,
+        _ => unimplemented!(),
+    };
     assert_eq!(
         out.rewrites,
         Some(gix_diff::rewrites::Outcome {
             options: rewrites,
-            num_similarity_checks: 11,
+            num_similarity_checks,
             num_similarity_checks_skipped_for_rename_tracking_due_to_limit: 0,
             num_similarity_checks_skipped_for_copy_tracking_due_to_limit: 0,
         })
@@ -283,7 +288,8 @@ fn fixture_filtered_detailed(
         }
     };
     let git_dir = worktree.join(".git");
-    let index = gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default()).unwrap();
+    let object_hash = gix_testtools::object_hash();
+    let index = gix_index::File::at(git_dir.join("index"), object_hash, false, Default::default()).unwrap();
     let search = gix_pathspec::Search::from_specs(
         crate::index_as_worktree::to_pathspecs(pathspecs),
         None,
@@ -332,7 +338,7 @@ fn fixture_filtered_detailed(
         },
     };
     let options = Options {
-        object_hash: gix_hash::Kind::Sha1,
+        object_hash,
         tracked_file_modifications: gix_status::index_as_worktree::Options {
             fs: capabilities,
             stat: crate::index_as_worktree::TEST_OPTIONS,
@@ -344,7 +350,17 @@ fn fixture_filtered_detailed(
     };
 
     let mut recorder = Recorder::default();
-    let objects = gix_odb::at(git_dir.join("objects")).unwrap().into_arc().unwrap();
+    let objects = gix_odb::at_opts(
+        git_dir.join("objects"),
+        Vec::new(),
+        gix_odb::store::init::Options {
+            object_hash,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .into_arc()
+    .unwrap();
     let outcome = index_as_worktree_with_renames(
         &index,
         &worktree,

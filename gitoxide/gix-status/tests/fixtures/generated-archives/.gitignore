@@ -16,3 +16,9 @@ status_nonfile.tar
 status_unchanged_filter.tar
 # Uses `chmod 000` on a tracked file; the unreadable mode is not portable.
 unreadable_untracked.tar
+status_unchanged_sha256.tar
+status_changed_sha256.tar
+symlink_stack_sha256.tar
+status_nonfile_sha256.tar
+status_unchanged_filter_sha256.tar
+unreadable_untracked_sha256.tar
