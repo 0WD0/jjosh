@@ -1,2 +1,11 @@
-repo_with_loose_objects.tar
+# Not tracked: the fixtures rely on object-database state that depends on the
+# host (auto-gc/auto-repack thresholds, alternates pointing at absolute paths)
+# and so cannot be reproduced reliably from a committed archive.
+
+# `make_alternates_odb.sh` writes `$PWD/object_source/.git/objects` into
+# `.git/objects/info/alternates`; the absolute path is host-specific.
 make_alternates_odb.tar
+# Fixture deliberately uses loose objects; whether commits remain loose vs. get
+# packed depends on the host git's auto-gc/repack defaults, so the layout is
+# regenerated per run.
+repo_with_loose_objects.tar
