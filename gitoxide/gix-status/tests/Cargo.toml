@@ -28,7 +28,7 @@ gix-filter = { path = "../../gix-filter" }
 gix-path = { path = "../../gix-path" }
 gix-dir = { path = "../../gix-dir" }
 gix-odb = { path = "../../gix-odb" }
-gix-hash = { path = "../../gix-hash" }
+gix-hash = { path = "../../gix-hash", features = ["sha1", "sha256"] }
 gix-object = { path = "../../gix-object" }
 gix-features = { path = "../../gix-features", features = ["parallel"] }
 gix-pathspec = { path = "../../gix-pathspec" }
