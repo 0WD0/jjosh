@@ -178,16 +178,15 @@ mod edit_tree {
             "nulls are pruned before writing the tree, so it just rewrites the same tree"
         );
 
+        let missing_id = "a".repeat(repo.object_hash().len_in_hex());
         let err = editor
             .upsert(
                 "non-existing",
                 EntryKind::Blob,
-                gix_hash::ObjectId::from_hex("a".repeat(repo.object_hash().len_in_hex()).as_bytes())
-                    .expect("valid object id"),
+                gix_hash::ObjectId::from_hex(missing_id.as_bytes()).expect("valid object id"),
             )?
             .write()
             .unwrap_err();
-        let missing_id = "a".repeat(repo.object_hash().len_in_hex());
         assert_eq!(
             err.to_string(),
             format!("The object {missing_id} (100644) at 'non-existing' could not be found"),
@@ -733,10 +732,14 @@ mod commit {
     fn single_line_initial_commit_empty_tree_ref_nonexisting() -> crate::Result {
         let _env = freeze_time();
         let tmp = tempfile::tempdir()?;
+        let object_hash = gix_testtools::object_hash();
         let repo = gix::ThreadSafeRepository::init_opts(
             &tmp,
             gix::create::Kind::WithWorktree,
-            Default::default(),
+            gix::create::Options {
+                object_hash: Some(object_hash),
+                ..Default::default()
+            },
             restricted_and_git(),
         )?
         .to_thread_local();
@@ -909,10 +912,14 @@ fn empty_bare_in_memory_repo() -> crate::Result<gix::Repository> {
 
 fn empty_bare_repo() -> crate::Result<(tempfile::TempDir, gix::Repository)> {
     let tmp = tempfile::tempdir()?;
+    let object_hash = gix_testtools::object_hash();
     let repo = gix::ThreadSafeRepository::init_opts(
         tmp.path(),
         gix::create::Kind::Bare,
-        gix::create::Options::default(),
+        gix::create::Options {
+            object_hash: Some(object_hash),
+            ..gix::create::Options::default()
+        },
         gix::open::Options::isolated(),
     )?
     .into();

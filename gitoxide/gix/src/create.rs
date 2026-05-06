@@ -117,6 +117,9 @@ pub struct Options {
     /// If set, use these filesystem capabilities to populate the respective git-config fields.
     /// If `None`, the directory will be probed.
     pub fs_capabilities: Option<gix_fs::Capabilities>,
+    /// If set to `Some(Sha256)`, initialize the repository with SHA-256.
+    /// Otherwise, no object hash will be explicitly set for the repository.
+    pub object_hash: Option<gix_hash::Kind>,
 }
 
 /// Create a new `.git` repository of `kind` within the possibly non-existing `directory`
@@ -130,6 +133,7 @@ pub fn into(
     Options {
         fs_capabilities,
         destination_must_be_empty,
+        object_hash,
     }: Options,
 ) -> Result<gix_discover::repository::Path, Error> {
     let mut dot_git = directory.into();
@@ -214,13 +218,30 @@ pub fn into(
             let caps = fs_capabilities.unwrap_or_else(|| gix_fs::Capabilities::probe(&dot_git));
             let mut core = config.new_section("core", None).expect("valid section name");
 
-            core.push(key("repositoryformatversion"), Some("0".into()));
             core.push(key("filemode"), Some(bool(caps.executable_bit).into()));
             core.push(key("bare"), Some(bool(bare).into()));
             core.push(key("logallrefupdates"), Some(bool(!bare).into()));
             core.push(key("symlinks"), Some(bool(caps.symlink).into()));
             core.push(key("ignorecase"), Some(bool(caps.ignore_case).into()));
             core.push(key("precomposeunicode"), Some(bool(caps.precompose_unicode).into()));
+
+            match object_hash {
+                #[cfg(feature = "sha256")]
+                Some(gix_hash::Kind::Sha256) => {
+                    core.push(key("repositoryformatversion"), Some("1".into()));
+
+                    let mut extensions = config.new_section("extensions", None).expect("valid section name");
+
+                    extensions.push(
+                        key("objectformat"),
+                        Some(gix_hash::Kind::Sha256.to_string().as_bytes().into()),
+                    );
+                }
+                _ => {
+                    core.push(key("repositoryformatversion"), Some("0".into()));
+                }
+            }
+
             caps
         };
         config_file
