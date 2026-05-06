@@ -4,7 +4,7 @@
 # committed tar across all supported platforms.
 
 # Shares its script with `gix-worktree`; bakes `git check-ignore` baseline
-# output that depends on the host git version.
+# output that may depend on the host git version.
 make_ignore_and_attributes_setup.tar
 # Uses `ln -sf` to create a symlink in the working tree.
 make_mixed_without_submodules.tar
@@ -15,7 +15,7 @@ make_mixed.tar
 # the working tree depends on the test driver being available at run time;
 # generating once per host avoids drift.
 make_mixed_without_submodules_and_symlinks.tar
-# Bakes `git check-attr` baseline output, which varies by git version.
+# Bakes `git check-attr` baseline output, which may vary by git version.
 make_attributes_baseline.tar
 # Constructs intentionally malicious symlinks (e.g., `FAKE-DIR`, `FAKE-FILE`);
 # these cannot be safely unpacked on every platform.

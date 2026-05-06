@@ -1,4 +1,4 @@
-# Not tracked: the test (`from_git_dir`) drives `gix-config` through
+# The test (`from_git_dir`) drives `gix-config` through
 # `GIT_CONFIG_SYSTEM`, `HOME` and `USERPROFILE` overrides that point at the
 # generated worktree directory. The fixture is regenerated on each host so the
 # `system.config`, `.gitconfig`, `c.config`, `b.config` and XDG-shaped

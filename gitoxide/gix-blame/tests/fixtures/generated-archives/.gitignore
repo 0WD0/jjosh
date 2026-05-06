@@ -1,6 +1,6 @@
-# Not tracked: the fixture bakes `git blame --porcelain` baseline files (under
+# The fixture bakes `git blame --porcelain` baseline files (under
 # `.git/*.baseline`) produced by the host's `git` binary. The exact textual
-# output is sensitive to the git version, so the fixture is re-run locally to
+# output may be sensitive to the git version, so the fixture is re-run locally to
 # stay aligned with the comparing git on the test host. Both SHA-1 and SHA-256
 # variants share this constraint.
 make_blame_repo.tar

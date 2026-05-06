@@ -1,4 +1,4 @@
-# Not tracked: `file_metadata.sh` calls `touch -d` with extreme dates (a
+# `file_metadata.sh` calls `touch -d` with extreme dates (a
 # post-2038 future date and a pre-1970 past date) and falls back to a
 # 32-bit-fitting date when the future one is rejected. The actual mtimes that
 # end up on disk depend on the host filesystem's time_t/seconds-resolution

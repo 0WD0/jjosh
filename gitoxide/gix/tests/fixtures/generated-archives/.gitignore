@@ -9,7 +9,7 @@
 # and the worktree's `.git` pointer file; both shared with the `_bare` variant.
 /make_worktree_repo.tar
 /make_worktree_repo_bare.tar
-# Same as above, plus per-worktree `extensions.worktreeConfig` settings.
+# Same as above, plus per-worktree config created via `extensions.worktreeConfig`.
 /make_worktree_repo_with_configs.tar
 # `git clone --shared file://$PWD/base` records the host-absolute alternates
 # path; numerous sub-clones inherit that reference.
