@@ -91,6 +91,9 @@ fn changed_and_untracked_and_renamed() {
         Some(Default::default()),
         Fixture::ReadOnly,
     );
+    // The amount of checks currently depends on hashes as they are sorted,
+    // and with changes in order come changes in checks. This shold go away
+    // with proper, non-hash dependent heuristics.
     let num_similarity_checks = match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => 11,
         gix_hash::Kind::Sha256 => 10,
@@ -350,17 +353,7 @@ fn fixture_filtered_detailed(
     };
 
     let mut recorder = Recorder::default();
-    let objects = gix_odb::at_opts(
-        git_dir.join("objects"),
-        Vec::new(),
-        gix_odb::store::init::Options {
-            object_hash,
-            ..Default::default()
-        },
-    )
-    .unwrap()
-    .into_arc()
-    .unwrap();
+    let objects = crate::odb_at(&git_dir, object_hash);
     let outcome = index_as_worktree_with_renames(
         &index,
         &worktree,

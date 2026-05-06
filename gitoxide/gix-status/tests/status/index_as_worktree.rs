@@ -17,7 +17,7 @@ use gix_status::{
     },
 };
 
-use crate::{fixture_path, hex_to_id};
+use crate::{fixture_path, hex_to_id, odb_at};
 use gix_index::entry::{Flags, Mode};
 use gix_status::index_as_worktree::ConflictIndexEntry;
 use pretty_assertions::assert_eq;
@@ -194,17 +194,7 @@ fn fixture_filtered_detailed(
         ..Options::default()
     };
     let outcome = if use_odb {
-        let odb = gix_odb::at_opts(
-            git_dir.join("objects"),
-            Vec::new(),
-            gix_odb::store::init::Options {
-                object_hash,
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .into_arc()
-        .unwrap();
+        let odb = odb_at(&git_dir, object_hash);
         index_as_worktree(
             &index,
             &worktree,
