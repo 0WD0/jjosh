@@ -54,7 +54,7 @@ impl Eq for CacheKey {}
 impl Default for CacheKey {
     fn default() -> Self {
         CacheKey {
-            id: gix_hash::Kind::Sha1.null(),
+            id: gix_hash::Kind::shortest().null(),
             use_id: false,
             is_link: false,
             location: BString::default(),

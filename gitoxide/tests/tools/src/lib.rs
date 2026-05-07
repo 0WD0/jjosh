@@ -18,7 +18,7 @@
 #![deny(missing_docs)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     env,
     ffi::{OsStr, OsString},
     io::Read,
@@ -1313,6 +1313,92 @@ pub fn object_hash_from_env() -> Option<gix_hash::Kind> {
 /// Like [`object_hash_from_env()`], but returns the default hash if `GIX_TEST_FIXTURE_HASH` is not set.
 pub fn object_hash() -> gix_hash::Kind {
     object_hash_from_env().unwrap_or_default()
+}
+
+/// Normalize debug-formatted `value` so one snapshot can be reused for SHA-1 and SHA-256 fixtures.
+///
+/// The helper rewrites 40- and 64-character hexadecimal object IDs to stable `Oid(<n>)`
+/// placeholders in first-seen order while leaving the surrounding pretty-debug formatting untouched.
+/// Debug wrappers like `Sha1(<hex>)` and `Sha256(<hex>)` are collapsed to the same placeholder.
+/// It also returns the replaced object IDs in first-seen order, so `Oid(n)` can be looked up as
+/// `result.1[n - 1]`.
+pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<gix_hash::ObjectId>) {
+    normalize_hashes(&format!("{value:#?}"))
+}
+
+/// Normalize 40- and 64-character hexadecimal object IDs in `input`.
+///
+/// This is like [`normalize_debug_snapshot()`], but operates on already-formatted text.
+pub fn normalize_hashes(input: &str) -> (String, Vec<gix_hash::ObjectId>) {
+    let mut out = String::with_capacity(input.len());
+    let mut seen = HashMap::<gix_hash::ObjectId, usize>::new();
+    let mut removed = Vec::<gix_hash::ObjectId>::new();
+    let mut chars = input.chars().peekable();
+    let mut hex = String::new();
+
+    while let Some(ch) = chars.next() {
+        if ch.is_ascii_hexdigit() {
+            hex.clear();
+            hex.push(ch);
+            while let Some(ch) = chars.next_if(char::is_ascii_hexdigit) {
+                hex.push(ch);
+            }
+
+            if let Some(oid) = raw_object_id(&hex) {
+                strip_debug_hash_wrapper(&mut out, &mut chars);
+                push_normalized_oid(oid, &mut seen, &mut removed, &mut out);
+            } else {
+                out.push_str(&hex);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    (out, removed)
+}
+
+fn raw_object_id(input: &str) -> Option<gix_hash::ObjectId> {
+    if !matches!(input.len(), 40 | 64) {
+        return None;
+    }
+    gix_hash::ObjectId::from_hex(input.as_bytes()).ok()
+}
+
+fn strip_debug_hash_wrapper(out: &mut String, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    if !matches!(chars.peek(), Some(')')) {
+        return;
+    }
+    // The `Sha1(` / `Sha256(` prefix was already copied before the hex run was
+    // recognized as an object ID. Remove it, then consume the matching `)`.
+    let consume_closing_parenthesis = if out.ends_with("Sha1(") {
+        out.truncate(out.len() - "Sha1(".len());
+        true
+    } else if out.ends_with("Sha256(") {
+        out.truncate(out.len() - "Sha256(".len());
+        true
+    } else {
+        false
+    };
+    if consume_closing_parenthesis {
+        chars.next();
+    }
+}
+
+fn push_normalized_oid(
+    oid: gix_hash::ObjectId,
+    seen: &mut HashMap<gix_hash::ObjectId, usize>,
+    removed: &mut Vec<gix_hash::ObjectId>,
+    out: &mut String,
+) {
+    let normalized = *seen.entry(oid).or_insert_with(|| {
+        let current = removed.len();
+        removed.push(oid);
+        current
+    });
+
+    out.push_str("Oid(");
+    out.push_str(&(normalized + 1).to_string());
+    out.push(')');
 }
 
 #[cfg(windows)]

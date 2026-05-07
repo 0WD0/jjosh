@@ -18,6 +18,8 @@ doctest = false
 [features]
 ## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
 sha1 = ["gix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `gix-hash` crate.
+sha256 = ["gix-hash/sha256"]
 
 [dependencies]
 gix-hash = { version = "^0.25.0", path = "../gix-hash" }

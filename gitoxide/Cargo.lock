@@ -2708,6 +2708,7 @@ dependencies = [
  "gix-testtools",
  "gix-traverse",
  "gix-worktree",
+ "gix-worktree-stream",
  "parking_lot",
 ]
 

@@ -20,7 +20,7 @@ insta = "1.46.3"
 gix-traverse = { path = ".." }
 gix-testtools = { path = "../../tests/tools" }
 gix-odb = { path = "../../gix-odb" }
-gix-hash = { path = "../../gix-hash" }
+gix-hash = { path = "../../gix-hash", features = ["sha1", "sha256"] }
 gix-object = { path = "../../gix-object" }
 gix-commitgraph = { path = "../../gix-commitgraph" }
 gix-path = { path = "../../gix-path" }
