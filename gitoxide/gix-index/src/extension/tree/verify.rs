@@ -33,6 +33,12 @@ pub enum Error {
         "Expected not more than {expected} entries to be reachable from the top-level, but actual count was {actual}"
     )]
     EntriesCount { actual: u32, expected: u32 },
+    #[error("TREE entry '{name}' declared {actual} entries, but the index only contains {expected} entries")]
+    EntriesCountExceedsIndex {
+        name: BString,
+        actual: u32,
+        expected: usize,
+    },
     #[error(
         "Parent tree '{parent_id}' contained out-of order trees prev = '{previous_path}' and next = '{current_path}'"
     )]
@@ -125,6 +131,28 @@ impl Tree {
                     expected: num_entries,
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    /// Reject impossible cached entry counts using the total number of index entries as an upper bound.
+    ///
+    /// This is a cheap heuristic: it doesn't prove each cached subtree count matches its actual path range,
+    /// but no TREE node can describe more entries than the entire index contains.
+    pub(crate) fn verify_entries_count(&self, num_index_entries: usize) -> Result<(), Error> {
+        if let Some(actual) = self.num_entries {
+            if actual as usize > num_index_entries {
+                return Err(Error::EntriesCountExceedsIndex {
+                    name: self.name.as_bstr().into(),
+                    actual,
+                    expected: num_index_entries,
+                });
+            }
+        }
+
+        for child in &self.children {
+            child.verify_entries_count(num_index_entries)?;
         }
 
         Ok(())
