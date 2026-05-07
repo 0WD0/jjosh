@@ -17,6 +17,8 @@ autotests = false
 [features]
 ## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
 sha1 = ["gix-ref/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["gix-ref/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "bstr/serde", "gix-sec/serde", "gix-ref/serde", "gix-glob/serde", "gix-config-value/serde"]
 

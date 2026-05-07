@@ -90,6 +90,7 @@ check:
     cargo check -p gix-worktree-state --features sha1
     cargo check -p gix-worktree-stream 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'
     cargo check -p gix-worktree-stream --features sha1
+    cargo check -p gix-worktree-stream --features sha256
     cargo check -p gix-actor --features serde
     cargo check -p gix-date --features serde
     cargo check -p gix-dir 2>&1 >/dev/null | grep 'Please set either the `sha1` or the `sha256` feature flag'

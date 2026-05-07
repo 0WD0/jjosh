@@ -90,6 +90,7 @@ pub(crate) fn write_stream(
 
 fn byte_to_hash(b: u8) -> gix_hash::Kind {
     match b {
+        #[cfg(feature = "sha1")]
         0 => gix_hash::Kind::Sha1,
         #[cfg(feature = "sha256")]
         1 => gix_hash::Kind::Sha256,
@@ -112,6 +113,7 @@ fn byte_to_mode(b: u8) -> gix_object::tree::EntryMode {
 
 fn hash_to_byte(h: gix_hash::Kind) -> u8 {
     match h {
+        #[cfg(feature = "sha1")]
         gix_hash::Kind::Sha1 => 0,
         #[cfg(feature = "sha256")]
         gix_hash::Kind::Sha256 => 1,
