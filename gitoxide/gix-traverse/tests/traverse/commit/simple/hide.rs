@@ -1,52 +1,26 @@
 use super::*;
-use crate::util::{commit_graph, fixture, git_rev_list};
+use crate::util::{commit_graph, fixture, git_rev_list, odb_at};
 use std::{cell::Cell, rc::Rc};
 
 fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> crate::Result {
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-
     let graph = git_graph(repo_dir)?;
 
-    match object_hash {
-        gix_hash::Kind::Sha1 => {
-            insta::allow_duplicates! {
-                insta::assert_snapshot!(graph, @r"
-        *-.   f49838d84281c3988eeadd988d97dd358c9f9dc4  (HEAD -> main) merge
+    insta::allow_duplicates! {
+        insta::assert_snapshot!(graph, @r"
+        *-.   Oid(1)  (HEAD -> main) merge
         |\ \  
-        | | * 48e8dac19508f4238f06c8de2b10301ce64a641c  (branch2) b2c2
-        | | * cb6a6befc0a852ac74d74e0354e0f004af29cb79  b2c1
-        | * | 66a309480201c4157b0eae86da69f2d606aadbe7  (branch1) b1c2
-        | * | 80947acb398362d8236fcb8bf0f8a9dac640583f  b1c1
+        | | * Oid(2)  (branch2) b2c2
+        | | * Oid(3)  b2c1
+        | * | Oid(4)  (branch1) b1c2
+        | * | Oid(5)  b1c1
         | |/  
-        * / 0edb95c0c0d9933d88f532ec08fcd405d0eee882  c5
+        * / Oid(6)  c5
         |/  
-        * 8cb5f13b66ce52a49399a2c49f537ee2b812369c  c4
-        * 33aa07785dd667c0196064e3be3c51dd9b4744ef  c3
-        * ad33ff2d0c4fc77d56b5fbff6f86f332fe792d83  c2
-        * 65d6af66f60b8e39fd1ba6a1423178831e764ec5  c1
+        * Oid(7)  c4
+        * Oid(8)  c3
+        * Oid(9)  c2
+        * Oid(10)  c1
         ")
-            }
-        }
-        gix_hash::Kind::Sha256 => {
-            insta::allow_duplicates! {
-                insta::assert_snapshot!(graph, @r"
-        *-.   5db834abbc0bc7f4d56b2375bbe5095640b05b8e0a817c18798fb30b55c1163d  (HEAD -> main) merge
-        |\ \  
-        | | * a9e888378d56d411a71b97e18ab3a4ee4a8267eae3f81550ef43b3e49a611944  (branch2) b2c2
-        | | * 3dca66a931b51c6a47e83b0a4d423b1774c8d3360683c80cb736c81be5c3538b  b2c1
-        | * | f20b45b1316fc7f3f2736c771a983f2e003b029e301a3270915fe20831fcc6ec  (branch1) b1c2
-        | * | c981468050bd19c62b0e0a9d14b54cb21817fde64b27b8867b850d4325a0f4f9  b1c1
-        | |/  
-        * / 1ef3045172ca9520015ead122a3d8f4a729567f4290d2dd3626950679e7e52bb  c5
-        |/  
-        * 06ec706b9c479d9fc922c31604e88d9b54a38a430d0dbd3c4ae67ba7d2b4162a  c4
-        * 75e848e191e09b344b8b7b21f84e3f139723df091d7c1294a034d737b7d5bd0c  c3
-        * 16dd9ca7a213dd00c9613d353ef619b29b4f566c64265b3818357a1a5048d8be  c2
-        * c0a25d64fa9426c62563cf5359cf551b69f8c561d5199ba40a79147c1da757ed  c1
-        ")
-            }
-        }
-        _ => unimplemented!(),
     }
 
     Ok(())
@@ -56,31 +30,14 @@ fn assert_simple_repo_graph(repo_dir: &std::path::Path) -> crate::Result {
 fn disjoint_hidden_and_interesting() -> crate::Result {
     let (repo_dir, odb) = named_fixture("make_repos.sh", "disjoint_branches")?;
 
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-
-    match object_hash {
-        gix_hash::Kind::Sha1 => {
-            insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        * e07cf1277ff7c43090f1acfc85a46039e7de1272  (HEAD -> disjoint) b3
-        * 94cf3f3a4c782b672173423e7a4157a02957dd48  b2
-        * 34e5ff5ce3d3ba9f0a00d11a7fad72551fff0861  b1
-        * b5665181bf4c338ab16b10da0524d81b96aff209  (main) a3
-        * f0230ce37b83d8e9f51ea6322ed7e8bd148d8e28  a2
-        * 674aca0765b935ac5e7f7e9ab83af7f79272b5b0  a1
+    insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
+        * Oid(1)  (HEAD -> disjoint) b3
+        * Oid(2)  b2
+        * Oid(3)  b1
+        * Oid(4)  (main) a3
+        * Oid(5)  a2
+        * Oid(6)  a1
         ");
-        }
-        gix_hash::Kind::Sha256 => {
-            insta::assert_snapshot!(git_graph(&repo_dir)?, @r"
-        * bf186f330f50b0cfb2daaa1d470644ca4df96b02c9bac6b512d636f047dbca87  (HEAD -> disjoint) b3
-        * 176d48056d4bd0af651ffd0686723059fe0acdbb85ca16fbe0d58f693e7e2f94  b2
-        * 70844651e0c4091ceb69c98193b569fc982393c9ea9f08ca2c6dea3119814076  b1
-        * d38fb6442915c8133c90f79d70a0bd235d2d01e5271e756d6661f06cb890eaf8  (main) a3
-        * 82bcdca8aaecdf2a25932cfd33cb3fa38c41abbd15a089d9d94a0885bd40f6ee  a2
-        * 37a840f2193eeeff055c04ac3e50e58805feccb6aa30015f42583299e29dc883  a1
-        ");
-        }
-        _ => unimplemented!(),
-    }
 
     let tip = hex_to_id("e07cf1277ff7c43090f1acfc85a46039e7de1272"); // b3
     let hidden = [hex_to_id("b5665181bf4c338ab16b10da0524d81b96aff209")]; // a3
@@ -161,15 +118,7 @@ fn some_hidden_and_all_hidden() -> crate::Result {
 fn hidden_bug_repo(name: &str) -> crate::Result<(std::path::PathBuf, gix_odb::Handle)> {
     let dir = fixture("make_repo_for_hidden_bug.sh")?;
     let repo_path = dir.join(name);
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-    let odb = gix_odb::at_opts(
-        repo_path.join(".git").join("objects"),
-        Vec::new(),
-        gix_odb::store::init::Options {
-            object_hash,
-            ..Default::default()
-        },
-    )?;
+    let odb = odb_at(repo_path.join(".git").join("objects"))?;
     Ok((repo_path, odb))
 }
 
@@ -183,29 +132,15 @@ fn hidden_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
     // Expected: only A is returned (shared is reachable from H)
     let (repo_path, odb) = hidden_bug_repo("long_hidden_path")?;
 
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-
-    match object_hash {
-        gix_hash::Kind::Sha1 => insta::assert_snapshot!(git_graph(&repo_path)?, @r"
-            * b6cf469d740a02645b7b9f7cdb98977a6cd7e5ab  (HEAD -> main) A
-            | * 2955979fbddb1bddb9e1b1ca993789cacf612b18  (hidden_branch) H
-            | * ae431c4e51a81a1df4ac22a52c4e247734ee3c9d  X
-            | * ab31ef4cacc50169f2b1d753c1e4efd55d570bbc  Y
+    insta::assert_snapshot!(git_graph(&repo_path)?, @r"
+            * Oid(1)  (HEAD -> main) A
+            | * Oid(2)  (hidden_branch) H
+            | * Oid(3)  X
+            | * Oid(4)  Y
             |/  
-            * f1543941113388f8a194164420fd7da96f73c2ce  shared
+            * Oid(5)  shared
         "
-        ),
-        gix_hash::Kind::Sha256 => insta::assert_snapshot!(git_graph(&repo_path)?, @r"
-            * 544e5ea628613afe52d8b9f639ad15c06207f05afdfd3862ba0469f9487a3b75  (HEAD -> main) A
-            | * 26dab65ca45a999409bc91740e85a9d89a0b592f25eecc97b87108c11f752f83  (hidden_branch) H
-            | * f46b7d5bdf7edcc9edff1aeb3c6b8b22b51f58db4f0eb00aea7f54a0c0ca3030  X
-            | * b6d969a90974190a84d949065a4d2bddf3ac00ad24e508ee63b6be02d7507e8b  Y
-            |/  
-            * 41cefd3809f27648b97dc06d3138efcd71d70bc3da0d15159b104a91b3ee4adc  shared
-        "
-        ),
-        _ => unimplemented!(),
-    }
+    );
 
     let commits = parse_commit_names(&repo_path)?;
     let tip_a = commits["A"];
@@ -240,27 +175,14 @@ fn interesting_tip_with_longer_path_to_shared_ancestor() -> crate::Result {
     // Expected: A, B, C are returned (D is reachable from H)
     let (repo_path, odb) = hidden_bug_repo("long_interesting_path")?;
 
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-
-    match object_hash {
-        gix_hash::Kind::Sha1 => insta::assert_snapshot!(git_graph(&repo_path)?, @r"
-            * 8822f888affa916a2c945ef3b17447f29f8aabff  (HEAD -> main) A
-            * 90f80e3c031e9149cfa631493663ffe52d645aab  B
-            * 2f353d445c4c552eec8e84f0f6f73999d08a8073  C
-            | * 7e0cf8f62783a0eb1043fbe56d220308c3e0289e  (hidden_branch) H
+    insta::assert_snapshot!(git_graph(&repo_path)?, @r"
+            * Oid(1)  (HEAD -> main) A
+            * Oid(2)  B
+            * Oid(3)  C
+            | * Oid(4)  (hidden_branch) H
             |/  
-            * 359b53df58a6e26b95e276a9d1c9e2b33a3b50bf  D
-        "),
-        gix_hash::Kind::Sha256 => insta::assert_snapshot!(git_graph(&repo_path)?, @r"
-            * 8d83eea164e45ee1d1e4cc425a34eada07d1d14cb19625f01c990f2643f2230c  (HEAD -> main) A
-            * bd24326eaadefed63fc7798a90028477b7a2242a9b312fda44ac294aece0f940  B
-            * 3244a1bf907e090e7a86fbdc6e80799c8eb23891a826eb4b4946690d930efea1  C
-            | * 5e3146b97524adde32ff38e2ec7ec646b016752bd3992780b91d5bd4aca710ae  (hidden_branch) H
-            |/  
-            * 08452c44530cb302cc2f384f494d3e59664aef7b180583d8f1b5d64c7ed92ef8  D
-        "),
-        _ => unimplemented!(),
-    }
+            * Oid(5)  D
+        ");
 
     let commits = parse_commit_names(&repo_path)?;
     let tip_a = commits["A"];

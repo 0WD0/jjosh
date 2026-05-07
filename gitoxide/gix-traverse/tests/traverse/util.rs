@@ -245,34 +245,29 @@ pub fn fixture(script_name: &str) -> Result<PathBuf> {
     gix_testtools::scripted_fixture_read_only_standalone(script_name)
 }
 
+/// Get an object database handle for `objects_dir`, respecting the hash kind configured for tests.
+pub fn odb_at(objects_dir: impl Into<PathBuf>) -> Result<gix_odb::Handle> {
+    Ok(gix_odb::at_opts(
+        objects_dir,
+        Vec::new(),
+        gix_odb::store::init::Options {
+            object_hash: gix_testtools::object_hash_from_env().unwrap_or_default(),
+            ..Default::default()
+        },
+    )?)
+}
+
 /// Get an object database handle from a fixture script that creates a single repository.
 pub fn fixture_odb(script_name: &str) -> Result<gix_odb::Handle> {
     let dir = fixture(script_name)?;
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-    let odb = gix_odb::at_opts(
-        dir.join(".git").join("objects"),
-        Vec::new(),
-        gix_odb::store::init::Options {
-            object_hash,
-            ..Default::default()
-        },
-    )?;
-    Ok(odb)
+    odb_at(dir.join(".git").join("objects"))
 }
 
 /// Get a fixture path and object database for a named sub-repository within a fixture.
 pub fn named_fixture(script_name: &str, repo_name: &str) -> Result<(PathBuf, gix_odb::Handle)> {
     let dir = fixture(script_name)?;
     let repo_dir = dir.join(repo_name);
-    let object_hash = gix_testtools::object_hash_from_env().unwrap_or_default();
-    let odb = gix_odb::at_opts(
-        repo_dir.join(".git").join("objects"),
-        Vec::new(),
-        gix_odb::store::init::Options {
-            object_hash,
-            ..Default::default()
-        },
-    )?;
+    let odb = odb_at(repo_dir.join(".git").join("objects"))?;
     Ok((repo_dir, odb))
 }
 
@@ -307,7 +302,7 @@ fn git_graph_internal(repo_dir: impl AsRef<std::path::Path>, with_time: bool) ->
     if !out.status.success() {
         return Err(format!("git log failed: {err}", err = out.stderr.to_str_lossy()).into());
     }
-    Ok(out.stdout.into_string_lossy())
+    Ok(gix_testtools::normalize_hashes(&out.stdout.into_string_lossy()).0)
 }
 
 /// Parse commit names to IDs from git log output.

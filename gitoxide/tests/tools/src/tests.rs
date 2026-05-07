@@ -136,3 +136,37 @@ fn invoke_bash_runs_in_given_working_directory() {
         b"hello"
     );
 }
+
+#[test]
+fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
+    let first = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
+    let second = gix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba").expect("valid SHA1");
+    let (snapshot, ids) = normalize_debug_snapshot(&vec![first, first, second, first]);
+
+    assert_eq!(ids, vec![first, second]);
+    assert_eq!(
+        snapshot,
+        r#"[
+    Oid(1),
+    Oid(1),
+    Oid(2),
+    Oid(1),
+]"#
+    );
+}
+
+#[test]
+fn normalize_hashes_replaces_raw_object_ids() {
+    let sha1 = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
+    let sha256 = gix_hash::ObjectId::from_hex(b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
+        .expect("valid SHA256");
+
+    let (snapshot, ids) = normalize_hashes(
+        "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 \
+         473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813 \
+         e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    );
+
+    assert_eq!(ids, vec![sha1, sha256]);
+    assert_eq!(snapshot, "Oid(1) Oid(2) Oid(1)");
+}

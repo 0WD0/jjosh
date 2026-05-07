@@ -1,4 +1,5 @@
 use gix_testtools::Result;
+pub use gix_testtools::normalize_debug_snapshot;
 use std::collections::HashMap;
 
 fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {
@@ -22,58 +23,6 @@ fn open_odb(objects_dir: impl Into<std::path::PathBuf>) -> std::io::Result<gix_o
             ..Default::default()
         },
     )
-}
-
-/// Normalize debug-formatted `value` so one snapshot can be reused for
-/// SHA-1 and SHA-256 fixtures, as elaborate find & replace, returning the
-/// stringified and Oid-replaced result.
-///
-/// The helper rewrites `Sha1(<hex>)` and `Sha256(<hex>)` occurrences to stable
-/// `Oid(<n>)` placeholders in first-seen order while leaving the surrounding
-/// pretty-debug formatting untouched.
-fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> String {
-    let input = format!("{value:#?}");
-    let mut out = String::with_capacity(input.len());
-    let mut seen = HashMap::<&str, usize>::new();
-    let mut next_id = 1usize;
-    let mut cursor = input.as_str();
-
-    while !cursor.is_empty() {
-        let (prefix_len, id_start) = if cursor.starts_with("Sha1(") {
-            (5usize, 5usize)
-        } else if cursor.starts_with("Sha256(") {
-            (7usize, 7usize)
-        } else {
-            let ch = cursor.chars().next().expect("not empty");
-            out.push(ch);
-            cursor = &cursor[ch.len_utf8()..];
-            continue;
-        };
-
-        let Some(id_end) = cursor[id_start..].find(')') else {
-            out.push_str(&cursor[..prefix_len]);
-            cursor = &cursor[prefix_len..];
-            continue;
-        };
-        let id_end = id_start + id_end;
-        let oid = &cursor[id_start..id_end];
-        if !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
-            out.push_str(&cursor[..prefix_len]);
-            cursor = &cursor[prefix_len..];
-            continue;
-        }
-
-        let normalized = *seen.entry(oid).or_insert_with(|| {
-            let current = next_id;
-            next_id += 1;
-            current
-        });
-        out.push_str("Oid(");
-        out.push_str(&normalized.to_string());
-        out.push(')');
-        cursor = &cursor[id_end + 1..];
-    }
-    out
 }
 
 fn normalize_patch_snapshot(input: &str) -> String {
