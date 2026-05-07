@@ -12,7 +12,7 @@ use gix_pack::data::{
 
 use crate::pack::{
     data::output::{DbKind, db},
-    hex_to_id,
+    hex_to_id, hex_to_id_for_hash, object_hash,
 };
 
 #[test]
@@ -64,12 +64,25 @@ fn traversals() -> crate::Result {
             }
         }
     }
+    let object_hash = object_hash();
     let whole_pack = Count {
-        trees: 21,
+        trees: match object_hash {
+            gix_hash::Kind::Sha1 => 21,
+            gix_hash::Kind::Sha256 => 20,
+            _ => unimplemented!(),
+        },
         commits: 16,
-        blobs: 288,
+        blobs: match object_hash {
+            gix_hash::Kind::Sha1 => 288,
+            gix_hash::Kind::Sha256 => 323,
+            _ => unimplemented!(),
+        },
         tags: 1,
-        delta_ref: 542,
+        delta_ref: match object_hash {
+            gix_hash::Kind::Sha1 => 542,
+            gix_hash::Kind::Sha256 => 508,
+            _ => unimplemented!(),
+        },
         delta_oid: 0, // these are basically none-existing in non-legacy packs, but are used only in thin packs on the wire
     };
     let whole_pack_obj_count = ObjectCount {
@@ -82,7 +95,7 @@ fn traversals() -> crate::Result {
         DbKind::DeterministicGeneratedContent,
         DbKind::DeterministicGeneratedContentMultiIndex,
     ] {
-        let db = db(db_kind)?;
+        let db = db(db_kind, object_hash)?;
         for (
             expansion_mode,
             expected_count,
@@ -132,10 +145,18 @@ fn traversals() -> crate::Result {
                 Count {
                     trees: 3,
                     commits: 2, // todo: why more?
-                    blobs: 19,
+                    blobs: match object_hash {
+                        gix_hash::Kind::Sha1 => 19,
+                        gix_hash::Kind::Sha256 => 22,
+                        _ => unimplemented!(),
+                    },
                     tags: 0,
                     delta_ref: 5,
-                    delta_oid: 74,
+                    delta_oid: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
                 },
                 ObjectCount {
                     trees: 5,
@@ -153,7 +174,11 @@ fn traversals() -> crate::Result {
                     decoded_and_recompressed_objects: 0,
                     missing_objects: 0,
                     objects_copied_from_pack: 103,
-                    ref_delta_objects: 74,
+                    ref_delta_objects: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
                 },
                 hex_to_id("25114bd8820b393c402cd53ad8ec7f6a84bb0633"),
                 Some(hex_to_id("29ab9797aff1ca826afb699680356695d19c5acb")),
@@ -183,9 +208,17 @@ fn traversals() -> crate::Result {
                     total_objects: 103,
                 },
                 output::entry::iter_from_counts::Outcome {
-                    decoded_and_recompressed_objects: 74,
+                    decoded_and_recompressed_objects: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
                     missing_objects: 0,
-                    objects_copied_from_pack: 29,
+                    objects_copied_from_pack: match object_hash {
+                        gix_hash::Kind::Sha1 => 29,
+                        gix_hash::Kind::Sha256 => 32,
+                        _ => unimplemented!(),
+                    },
                     ref_delta_objects: 0,
                 },
                 hex_to_id("d83d42128e40957c5174920189a0390b5a70f446"),
@@ -239,13 +272,17 @@ fn traversals() -> crate::Result {
         .iter()
         .copied()
         {
-            let head = hex_to_id("dfcb5e39ac6eb30179808bbab721e8a28ce1b52e");
+            let head = hex_to_id_for_hash(
+                object_hash,
+                "dfcb5e39ac6eb30179808bbab721e8a28ce1b52e",
+                "ad454f92f046c2873aebac2686d30d5b100ee10fae1a28e2994df52a0c097cae",
+            );
             let mut commits = gix_traverse::commit::Simple::new(Some(head), db.clone())
                 .map(Result::unwrap)
                 .map(|c| c.id)
                 .collect::<Vec<_>>();
             if let Some(take) = take {
-                commits.resize(take, gix_hash::Kind::Sha1.null());
+                commits.resize(take, object_hash.null());
             }
 
             let deterministic_count_needs_single_thread = Some(1);
@@ -254,11 +291,15 @@ fn traversals() -> crate::Result {
                 Box::new(
                     commits
                         .into_iter()
-                        .chain(std::iter::once(hex_to_id(if take.is_some() {
-                            "0000000000000000000000000000000000000000"
+                        .chain(std::iter::once(if take.is_some() {
+                            object_hash.null()
                         } else {
-                            "e3fb53cbb4c346d48732a24f09cf445e49bc63d6"
-                        })))
+                            hex_to_id_for_hash(
+                                object_hash,
+                                "e3fb53cbb4c346d48732a24f09cf445e49bc63d6",
+                                "859b1fd3fd3cc6a0a016edc9f439afd33f87e524dc1fd2befd1ac550953d3b3b",
+                            )
+                        }))
                         .filter(|o| !o.is_null())
                         .map(Ok),
                 ),
@@ -313,7 +354,13 @@ fn traversals() -> crate::Result {
                 "two different ways of counting, still the same in the end"
             );
 
-            write_and_verify(db.clone(), entries, expected_pack_hash, expected_thin_pack_hash)?;
+            write_and_verify(
+                db.clone(),
+                entries,
+                object_hash,
+                expected_pack_hash,
+                expected_thin_pack_hash,
+            )?;
         }
     }
 
@@ -324,8 +371,9 @@ fn traversals() -> crate::Result {
 fn empty_pack_is_allowed() {
     assert_eq!(
         write_and_verify(
-            db(DbKind::DeterministicGeneratedContent).unwrap(),
+            db(DbKind::DeterministicGeneratedContent, object_hash()).unwrap(),
             vec![],
+            object_hash(),
             hex_to_id("029d08823bd8a8eab510ad6ac75c823cfd3ed31e"),
             None,
         )
@@ -339,6 +387,7 @@ fn empty_pack_is_allowed() {
 fn write_and_verify(
     db: gix_odb::HandleArc,
     entries: Vec<output::Entry>,
+    object_hash: gix_hash::Kind,
     _expected_pack_hash: gix_hash::ObjectId,
     _expected_thin_pack_hash: Option<gix_hash::ObjectId>,
 ) -> crate::Result {
@@ -355,7 +404,7 @@ fn write_and_verify(
             &mut pack_file,
             num_entries as u32,
             pack::data::Version::V2,
-            gix_hash::Kind::Sha1,
+            object_hash,
         );
         let mut n = pack_writer.next().expect("one entries bundle was written")?;
         n += pack_writer.next().expect("the trailer was written")?;
@@ -374,7 +423,7 @@ fn write_and_verify(
         pack_file.metadata()?.len(),
         "it reports the correct amount of written bytes"
     );
-    let pack = pack::data::File::at(&pack_file_path, gix_hash::Kind::Sha1)?;
+    let pack = pack::data::File::at(&pack_file_path, object_hash)?;
     let should_interrupt = AtomicBool::new(false);
     let hash = pack.verify_checksum(&mut progress::Discard, &should_interrupt)?;
     assert_eq!(
@@ -386,7 +435,6 @@ fn write_and_verify(
     // assert_eq!(hash, expected_pack_hash, "pack hashes are stable if the input is");
 
     // Re-generate the index from the pack for validation.
-    let object_hash = gix_hash::Kind::Sha1; // TODO: parameterize this
     let bundle = pack::Bundle::at(
         pack::Bundle::write_to_directory(
             &mut std::io::BufReader::new(std::fs::File::open(pack_file_path)?),
@@ -394,7 +442,10 @@ fn write_and_verify(
             &mut progress::Discard,
             &should_interrupt,
             Some(&db),
-            pack::bundle::write::Options::default(),
+            pack::bundle::write::Options {
+                object_hash,
+                ..Default::default()
+            },
         )?
         .data_path
         .ok_or("pack data directory should be set")?,

@@ -21,10 +21,7 @@ mod into_iter {
     use gix_diff::Rewrites;
     use gix_testtools::size_ok;
 
-    use crate::{
-        status::{repo, submodule_repo},
-        util::hex_to_id,
-    };
+    use crate::status::{repo, submodule_repo};
 
     #[test]
     fn item_size() {
@@ -55,7 +52,8 @@ mod into_iter {
         let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
         items.sort_by(|a, b| a.location().cmp(b.location()));
         assert_eq!(items.len(), 3, "1 untracked, 1 move, 1 submodule modification");
-        insta::assert_debug_snapshot!(&items[1..], @r#"
+        let snapshot = gix_testtools::normalize_debug_snapshot(&&items[1..]).0;
+        insta::assert_snapshot!(snapshot, @r#"
         [
             TreeIndex(
                 Rewrite {
@@ -64,13 +62,13 @@ mod into_iter {
                     source_entry_mode: Mode(
                         FILE,
                     ),
-                    source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    source_id: Oid(1),
                     location: "that",
                     index: 2,
                     entry_mode: Mode(
                         FILE,
                     ),
-                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    id: Oid(1),
                     copy: false,
                 },
             ),
@@ -121,7 +119,8 @@ mod into_iter {
             2,
             "1 untracked, 1 move, 0 submodule modification (ignored)"
         );
-        insta::assert_debug_snapshot!(&items, @r#"
+        let snapshot = gix_testtools::normalize_debug_snapshot(&items).0;
+        insta::assert_snapshot!(snapshot, @r#"
         [
             TreeIndex(
                 Rewrite {
@@ -130,13 +129,13 @@ mod into_iter {
                     source_entry_mode: Mode(
                         FILE,
                     ),
-                    source_id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    source_id: Oid(1),
                     location: "that",
                     index: 2,
                     entry_mode: Mode(
                         FILE,
                     ),
-                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                    id: Oid(1),
                     copy: false,
                 },
             ),
@@ -248,7 +247,8 @@ mod into_iter {
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
         let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
         items.sort_by(|a, b| a.location().cmp(b.location()));
-        insta::assert_debug_snapshot!(items, @r#"
+        let snapshot = gix_testtools::normalize_debug_snapshot(&items).0;
+        insta::assert_snapshot!(snapshot, @r#"
         [
             TreeIndex(
                 Addition {
@@ -257,7 +257,7 @@ mod into_iter {
                     entry_mode: Mode(
                         FILE,
                     ),
-                    id: Sha1(d95f3ad14dee633a758d2e331151e950dd13e4ed),
+                    id: Oid(1),
                 },
             ),
         ]
@@ -281,10 +281,9 @@ mod into_iter {
     #[test]
     fn error_during_tree_traversal_causes_failure() -> crate::Result {
         let repo = repo("untracked-only")?;
-        let platform = repo.status(gix::progress::Discard)?.head_tree(hex_to_id(
-            "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", /* empty blob, invalid tree*/
-        ));
-        let expected_err = "Could not create index from tree at e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
+        let invalid_tree_id = repo.object_hash().empty_blob();
+        let platform = repo.status(gix::progress::Discard)?.head_tree(invalid_tree_id);
+        let expected_err = format!("Could not create index from tree at {invalid_tree_id}");
         if cfg!(feature = "parallel") {
             let mut items: Vec<_> = platform.into_iter(None)?.collect();
             assert_eq!(
