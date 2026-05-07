@@ -165,8 +165,8 @@ pub fn file(
                             source_file_path: current_file_path.clone(),
                             previous_source_file_path: None,
                             commit_id: suspect,
-                            blob_id: entry.unwrap_or(ObjectId::null(gix_hash::Kind::Sha1)),
-                            previous_blob_id: ObjectId::null(gix_hash::Kind::Sha1),
+                            blob_id: entry.unwrap_or(gix_hash::Kind::shortest().null()),
+                            previous_blob_id: gix_hash::Kind::shortest().null(),
                             parent_index: 0,
                         };
                         blame_path.push(blame_path_entry);
@@ -299,7 +299,7 @@ pub fn file(
                                 previous_source_file_path: None,
                                 commit_id: suspect,
                                 blob_id: id,
-                                previous_blob_id: ObjectId::null(gix_hash::Kind::Sha1),
+                                previous_blob_id: gix_hash::Kind::shortest().null(),
                                 parent_index: index,
                             };
                             blame_path.push(blame_path_entry);
