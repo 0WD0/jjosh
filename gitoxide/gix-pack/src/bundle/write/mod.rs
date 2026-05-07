@@ -103,17 +103,13 @@ impl crate::Bundle {
                     thin_pack_lookup,
                 );
                 let pack_version = pack_entries_iter.inner.version();
-                #[cfg(feature = "sha1")]
-                let thin_pack_object_hash = gix_hash::Kind::Sha1; // Thin packs imply a pack being transported, and there we only ever know SHA1 at the moment.
-                #[cfg(not(feature = "sha1"))]
-                let thin_pack_object_hash = object_hash;
                 let pack_entries_iter = data::input::EntriesToBytesIter::new(
                     pack_entries_iter,
                     LockWriter {
                         writer: data_file.clone(),
                     },
                     pack_version,
-                    thin_pack_object_hash,
+                    object_hash,
                 );
                 (Box::new(pack_entries_iter), pack_version)
             }

@@ -19,7 +19,19 @@ pub use gix_testtools::{
 };
 
 pub fn hex_to_id(hex: &str) -> ObjectId {
-    ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
+    ObjectId::from_hex(hex.as_bytes()).expect("valid hex object id")
+}
+
+pub fn object_hash() -> gix_hash::Kind {
+    gix_testtools::object_hash()
+}
+
+pub fn hex_to_id_for_hash(object_hash: gix_hash::Kind, sha1: &str, sha256: &str) -> ObjectId {
+    hex_to_id(match object_hash {
+        gix_hash::Kind::Sha1 => sha1,
+        gix_hash::Kind::Sha256 => sha256,
+        _ => unimplemented!(),
+    })
 }
 
 /// Read fixture data into memory and intentionally leak it to obtain a `'static` byte slice.

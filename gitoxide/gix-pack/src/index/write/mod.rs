@@ -194,7 +194,7 @@ pub(super) mod function {
                      entry,
                      decompressed: bytes,
                      ..
-                 }| { modify_base(data, entry, bytes, version.hash()) },
+                 }| { modify_base(data, entry, bytes, object_hash) },
                 traverse::Options {
                     object_progress: Box::new(
                         root_progress.add_child_with_id("Resolving".into(), ProgressId::ResolveObjects.into()),
@@ -235,6 +235,7 @@ pub(super) mod function {
             sorted_pack_offsets_by_oid,
             &pack_hash,
             version,
+            object_hash,
             &mut root_progress.add_child_with_id("writing index file".into(), ProgressId::IndexBytesWritten.into()),
         )?;
         root_progress.show_throughput_with(

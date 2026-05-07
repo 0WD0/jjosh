@@ -37,32 +37,20 @@ where
     ///
     /// # Panics
     ///
-    /// Not all combinations of `object_hash` and `version` are supported currently triggering assertion errors.
+    /// Only [Version::V2](crate::data::Version::V2) is allowed for `version.
     pub fn new(input: I, output: W, version: crate::data::Version, object_hash: gix_hash::Kind) -> Self {
-        #[cfg(not(feature = "sha1"))]
-        {
-            let _ = (input, output, version, object_hash);
-            unreachable!("currently only Sha1 is supported, right now we don't know how other hashes are encoded");
-        }
-        #[cfg(feature = "sha1")]
-        {
-            assert!(
-                matches!(version, crate::data::Version::V2),
-                "currently only pack version 2 can be written",
-            );
-            assert!(
-                matches!(object_hash, gix_hash::Kind::Sha1),
-                "currently only Sha1 is supported, right now we don't know how other hashes are encoded",
-            );
-            EntriesToBytesIter {
-                input: input.peekable(),
-                output,
-                object_hash,
-                num_entries: 0,
-                trailer: None,
-                data_version: version,
-                is_done: false,
-            }
+        assert!(
+            matches!(version, crate::data::Version::V2),
+            "currently only pack version 2 can be written",
+        );
+        EntriesToBytesIter {
+            input: input.peekable(),
+            output,
+            object_hash,
+            num_entries: 0,
+            trailer: None,
+            data_version: version,
+            is_done: false,
         }
     }
 
