@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 pub use gix_testtools::Result;
 
-pub static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sync::LazyLock::new(|| {
+static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sync::LazyLock::new(|| {
     [
         (
             "85df34aa34848b8138b2b3dcff5fb5c2b734e0ce",

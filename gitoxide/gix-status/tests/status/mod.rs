@@ -37,7 +37,7 @@ fn odb_at(git_dir: &std::path::Path, object_hash: gix_hash::Kind) -> gix_odb::Ha
     .unwrap()
 }
 
-pub static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sync::LazyLock::new(|| {
+static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sync::LazyLock::new(|| {
     [
         (
             "3189cd3cb0af8586c39a838aa3e54fd72a872a41",

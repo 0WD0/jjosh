@@ -157,7 +157,7 @@ unit-tests:
     cargo nextest run --no-fail-fast
     cargo nextest run -p gix-testtools --no-fail-fast
     cargo nextest run -p gix-testtools --features xz --no-fail-fast
-    cargo nextest run -p gix-archive --no-default-features --features sha1, --no-fail-fast
+    cargo nextest run -p gix-archive --no-default-features --features sha1 --no-fail-fast
     cargo nextest run -p gix-archive --no-default-features --features sha1,tar --no-fail-fast
     cargo nextest run -p gix-archive --no-default-features --features sha1,tar_gz --no-fail-fast
     cargo nextest run -p gix-archive --no-default-features --features sha1,zip --no-fail-fast

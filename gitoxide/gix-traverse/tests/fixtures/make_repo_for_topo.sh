@@ -29,7 +29,7 @@ function collect_baselines() {
   git rev-list --topo-order HEAD > all-commits.baseline
   git rev-list --topo-order --first-parent HEAD > first-parent.baseline
 
-  case ${GIX_TEST_FIXTURE_HASH:-sha1} in
+  case ${GIT_DEFAULT_HASH:-sha1} in
     sha1)
       hash="f1cce1b5c7efcdfa106e95caa6c45a2cae48a481" ;;
     sha256)
