@@ -19,6 +19,8 @@ doctest = false
 default = ["attributes"]
 ## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
 sha1 = ["gix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `gix-hash` crate.
+sha256 = ["gix-hash/sha256"]
 ## Instantiate stacks that can access `.gitattributes` information.
 attributes = ["dep:gix-attributes", "dep:gix-validate"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.

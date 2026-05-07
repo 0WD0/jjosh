@@ -22,6 +22,8 @@ sha1 = [
     "gix-traverse/sha1",
     "gix-worktree/sha1",
 ]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["gix-hash/sha256"]
 
 [dependencies]
 gix-error = { version = "^0.2.3", path = "../gix-error" }

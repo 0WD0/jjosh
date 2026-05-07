@@ -17,6 +17,8 @@ doctest = true
 [features]
 ## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
 sha1 = ["gix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `gix-hash` crate.
+sha256 = ["gix-hash/sha256"]
 
 [dependencies]
 parking_lot = "0.12.4"

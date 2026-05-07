@@ -251,7 +251,7 @@ mod init {
                 next: Default::default(),
                 queue: gix_revwalk::PriorityQueue::new(),
                 buf: vec![],
-                object_hash: gix_hash::Kind::Sha1,
+                object_hash: gix_hash::Kind::shortest(),
                 seen: Default::default(),
                 hidden: Default::default(),
                 hidden_tips: Vec::new(),
@@ -277,7 +277,7 @@ mod init {
             next.clear();
             queue.clear();
             buf.clear();
-            *object_hash = gix_hash::Kind::Sha1;
+            *object_hash = gix_hash::Kind::shortest();
             seen.clear();
             hidden.clear();
             hidden_tips.clear();
