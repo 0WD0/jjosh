@@ -692,15 +692,32 @@ mod extensions {
 
     #[test]
     fn object_format() -> crate::Result {
-        assert_eq!(
-            Extensions::OBJECT_FORMAT.try_into_object_format(bcow("sha1"))?,
-            gix_hash::Kind::Sha1
-        );
-        assert_eq!(
-            Extensions::OBJECT_FORMAT.try_into_object_format(bcow("SHA1"))?,
-            gix_hash::Kind::Sha1,
-            "case-insensitive"
-        );
+        #[cfg(feature = "sha1")]
+        {
+            assert_eq!(
+                Extensions::OBJECT_FORMAT.try_into_object_format(bcow("sha1"))?,
+                gix_hash::Kind::Sha1
+            );
+            assert_eq!(
+                Extensions::OBJECT_FORMAT.try_into_object_format(bcow("SHA1"))?,
+                gix_hash::Kind::Sha1,
+                "case-insensitive"
+            );
+            assert!(Extensions::OBJECT_FORMAT.validate("sha1".into()).is_ok());
+        }
+        #[cfg(feature = "sha256")]
+        {
+            assert_eq!(
+                Extensions::OBJECT_FORMAT.try_into_object_format(bcow("sha256"))?,
+                gix_hash::Kind::Sha256
+            );
+            assert_eq!(
+                Extensions::OBJECT_FORMAT.try_into_object_format(bcow("SHA256"))?,
+                gix_hash::Kind::Sha256,
+                "case-insensitive"
+            );
+            assert!(Extensions::OBJECT_FORMAT.validate("sha256".into()).is_ok());
+        }
         assert_eq!(
             Extensions::OBJECT_FORMAT
                 .try_into_object_format(bcow("invalid"))
@@ -708,7 +725,6 @@ mod extensions {
                 .to_string(),
             "The key \"extensions.objectFormat=invalid\" was invalid"
         );
-        assert!(Extensions::OBJECT_FORMAT.validate("sha1".into()).is_ok());
         assert!(Extensions::OBJECT_FORMAT.validate("invalid".into()).is_err());
         Ok(())
     }

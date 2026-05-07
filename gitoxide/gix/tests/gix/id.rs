@@ -1,15 +1,11 @@
 use std::cmp::Ordering;
 
+use crate::util::hex_to_id;
 use gix::{
     config::tree::{Core, Key},
     prelude::ObjectIdExt,
 };
 use gix_object::bstr::BString;
-
-/// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
-fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
-    gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
-}
 
 #[test]
 fn prefix() -> crate::Result {
@@ -59,15 +55,17 @@ fn prefix() -> crate::Result {
 fn display_and_debug() -> crate::Result {
     let repo = crate::basic_repo()?;
     let id = repo.head_id()?;
-    assert_eq!(
-        format!("{id} {id:?}"),
-        "3189cd3cb0af8586c39a838aa3e54fd72a872a41 Sha1(3189cd3cb0af8586c39a838aa3e54fd72a872a41)"
-    );
+    let kind = match id.kind() {
+        gix_hash::Kind::Sha1 => "Sha1",
+        gix_hash::Kind::Sha256 => "Sha256",
+        _ => unimplemented!(),
+    };
+    assert_eq!(format!("{id} {id:?}"), format!("{id} {kind}({id})"));
     Ok(())
 }
 
 mod ancestors {
-    use crate::id::hex_to_id;
+    use crate::util::hex_to_id;
 
     #[test]
     fn all() -> crate::Result {

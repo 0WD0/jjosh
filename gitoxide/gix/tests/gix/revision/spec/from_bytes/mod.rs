@@ -142,12 +142,23 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
             Spec::from_id(hex_to_id("cafea31147e840161a1860c50af999917ae1536b").attach(&repo))
         );
         let err = parse_spec("cafea^{object}", &repo).unwrap_err();
-        insta::assert_snapshot!(format!("{err:#?}").replace('\\', "/").replace("windows", "unix"), @r#"
+        let actual = {
+            let mut actual = format!("{err:#?}").replace('\\', "/").replace("windows", "unix");
+            let marker = "make_rev_spec_parse_repos/";
+            if let Some(start) = actual.find(marker) {
+                let start = start + marker.len();
+                if let Some(end) = actual[start..].find("/blob.corrupt") {
+                    actual.replace_range(start..start + end, "$HASH/$SEED-unix");
+                }
+            }
+            actual
+        };
+        insta::assert_snapshot!(actual, @r#"
         delegate.peel_until(ValidObject) failed: "{object}"
         |
         └─ An error occurred while obtaining an object from the loose object store
         |
-        └─ decompression of loose object at 'tests/fixtures/generated-do-not-edit/make_rev_spec_parse_repos/sha1/2990428670-unix/blob.corrupt/objects/ca/fea31147e840161a1860c50af999917ae1536b' failed
+        └─ decompression of loose object at 'tests/fixtures/generated-do-not-edit/make_rev_spec_parse_repos/$HASH/$SEED-unix/blob.corrupt/objects/ca/fea31147e840161a1860c50af999917ae1536b' failed
         |
         └─ Could not decode zip stream, status was 'Invalid input data'
         |
@@ -207,8 +218,9 @@ fn invalid_head() {
 #[test]
 fn empty_tree_as_full_name() {
     let repo = repo("complex_graph").unwrap();
+    let empty_tree_id = repo.object_hash().empty_tree();
     assert_eq!(
-        parse_spec("4b825dc642cb6eb9a060e54bf8d69288fbee4904", &repo).unwrap(),
-        Spec::from_id(hex_to_id("4b825dc642cb6eb9a060e54bf8d69288fbee4904").attach(&repo))
+        parse_spec(empty_tree_id.to_string(), &repo).unwrap(),
+        Spec::from_id(empty_tree_id.attach(&repo))
     );
 }
