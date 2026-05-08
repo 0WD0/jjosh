@@ -443,6 +443,38 @@ pub fn main() -> Result<()> {
                 )
             },
         ),
+        Subcommands::Dirwalk(crate::plumbing::options::dirwalk::Platform {
+            statistics,
+            untracked,
+            pathspec,
+        }) => prepare_and_run(
+            "dirwalk",
+            trace,
+            auto_verbose,
+            progress,
+            progress_keep_open,
+            None,
+            move |_progress, out, err| {
+                core::repository::dirwalk::walk(
+                    repository(Mode::Lenient)?,
+                    pathspec,
+                    out,
+                    err,
+                    core::repository::dirwalk::Options {
+                        output_format: format,
+                        statistics,
+                        untracked: match untracked {
+                            crate::plumbing::options::dirwalk::Untracked::Collapsed => {
+                                core::repository::dirwalk::Untracked::Collapsed
+                            }
+                            crate::plumbing::options::dirwalk::Untracked::Matching => {
+                                core::repository::dirwalk::Untracked::Matching
+                            }
+                        },
+                    },
+                )
+            },
+        ),
         Subcommands::Submodule(platform) => match platform
             .cmds
             .unwrap_or(crate::plumbing::options::submodule::Subcommands::List { dirty_suffix: None })
