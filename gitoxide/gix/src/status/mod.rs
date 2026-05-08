@@ -167,7 +167,7 @@ pub mod is_dirty {
         //                    optimal resource usage.
         pub fn is_dirty(&self) -> Result<bool, Error> {
             {
-                let head_tree_id = self.head_tree_id()?;
+                let head_tree_id = self.head_tree_id_or_empty()?;
                 let mut index_is_dirty = false;
 
                 // Run this first as there is a high likelihood to find something, and it's very fast.

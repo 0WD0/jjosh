@@ -242,6 +242,40 @@ mod into_iter {
     }
 
     #[test]
+    fn added_unborn() -> crate::Result {
+        let repo = repo("added-unborn")?;
+        let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
+        let mut items: Vec<_> = status.by_ref().filter_map(Result::ok).collect();
+        items.sort_by(|a, b| a.location().cmp(b.location()));
+        let snapshot = gix_testtools::normalize_debug_snapshot(&items).0;
+        insta::assert_snapshot!(snapshot, @r#"
+        [
+            TreeIndex(
+                Addition {
+                    location: "added",
+                    index: 0,
+                    entry_mode: Mode(
+                        FILE,
+                    ),
+                    id: Oid(1),
+                },
+            ),
+            TreeIndex(
+                Addition {
+                    location: "dir/nested",
+                    index: 1,
+                    entry_mode: Mode(
+                        FILE,
+                    ),
+                    id: Oid(1),
+                },
+            ),
+        ]
+        "#);
+        Ok(())
+    }
+
+    #[test]
     fn untracked_added() -> crate::Result {
         let repo = repo("untracked-added")?;
         let mut status = repo.status(gix::progress::Discard)?.into_iter(None)?;
@@ -514,6 +548,28 @@ mod is_dirty {
         assert!(
             !repo.is_dirty()?,
             "untracked files aren't taken into consideration, just like `git describe` which ignores them"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unborn_head_is_not_an_error() -> crate::Result {
+        let repo = repo("untracked-unborn")?;
+
+        assert!(
+            !repo.is_dirty()?,
+            "untracked files aren't taken into consideration, even if HEAD is unborn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn added_files_in_unborn_head_are_dirty() -> crate::Result {
+        let repo = repo("added-unborn")?;
+
+        assert!(
+            repo.is_dirty()?,
+            "files added to the index make an unborn repository dirty"
         );
         Ok(())
     }
