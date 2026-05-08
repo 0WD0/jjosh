@@ -519,6 +519,17 @@ mod is_dirty {
     }
 
     #[test]
+    fn unborn_head_is_not_an_error() -> crate::Result {
+        let repo = repo("untracked-unborn")?;
+
+        assert!(
+            !repo.is_dirty()?,
+            "untracked files aren't taken into consideration, even if HEAD is unborn"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn index_changed() -> crate::Result {
         let repo = repo("git-mv")?;
         assert!(
