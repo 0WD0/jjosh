@@ -202,7 +202,7 @@ mod open {
             );
             assert_eq!(
                 status.checked_out_head_id, status.index_id,
-                "there are no HEAD changes even though the 'phantom' at modules/outer/inner as its HEAD at @~1"
+                "there are no HEAD changes even though the 'phantom' at modules/outer/inner has its HEAD at @~1"
             );
 
             let status = sm.status(gix::submodule::config::Ignore::All, false)?;

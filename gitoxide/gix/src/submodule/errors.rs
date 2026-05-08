@@ -91,7 +91,7 @@ pub mod git_dir_try_old_form {
     pub enum Error {
         #[error(transparent)]
         PathConfiguration(#[from] gix_submodule::config::path::Error),
-        #[error("The gitdir file at '{}' contains an invalid gitdir target", .gitdir_file.display())]
+        #[error("The gitdir file at '{}' contains an invalid gitdir target: {:?}", .gitdir_file.display(), .target)]
         InvalidGitDirFileTarget {
             gitdir_file: std::path::PathBuf,
             target: Option<std::path::PathBuf>,
