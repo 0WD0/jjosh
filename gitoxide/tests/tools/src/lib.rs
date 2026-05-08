@@ -61,6 +61,48 @@ pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Sen
 /// This is useful for computing values based on the fixture contents.
 pub type PostResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Build `example` from `package` and copy the executable to this test process' temporary target directory.
+///
+/// The returned executable path is stable for the lifetime of the test process and avoids races with other
+/// concurrently running tests that may cause Cargo to update the shared example binary in `target/debug/examples`.
+pub fn build_example_for_test(package: &str, example: &str, target_tmpdir: impl Into<PathBuf>) -> PathBuf {
+    let mut cargo = std::process::Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from(env!("CARGO"))));
+    let res = cargo
+        .args(["build", "-p", package, "--example", example])
+        .status()
+        .expect("cargo should run fine");
+    assert!(res.success(), "cargo invocation should be successful");
+
+    let target_tmpdir = target_tmpdir.into();
+    let shared_path = target_tmpdir
+        .ancestors()
+        .nth(1)
+        .expect("first parent in target dir")
+        .join("debug")
+        .join("examples")
+        .join(format!("{example}{}", std::env::consts::EXE_SUFFIX));
+
+    let stable_path = target_tmpdir.join(format!(
+        "{example}-{}{}",
+        std::process::id(),
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut last_err = None;
+    for _ in 0..10 {
+        match std::fs::copy(&shared_path, &stable_path) {
+            Ok(_) => return stable_path,
+            Err(err) => {
+                last_err = Some(err);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+    panic!(
+        "driver at {} could be copied for stable test execution: {last_err:?}",
+        shared_path.display()
+    );
+}
+
 /// Indicates the state of a fixture when a closure is called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixtureState<'a> {

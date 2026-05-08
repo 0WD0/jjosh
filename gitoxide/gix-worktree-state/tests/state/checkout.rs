@@ -15,24 +15,8 @@ use std::sync::LazyLock;
 
 use crate::fixture_path;
 
-static DRIVER: LazyLock<PathBuf> = LazyLock::new(|| {
-    let mut cargo = std::process::Command::new(env!("CARGO"));
-    let res = cargo
-        .args(["build", "-p=gix-filter", "--example", "arrow"])
-        .status()
-        .expect("cargo should run fine");
-    assert!(res.success(), "cargo invocation should be successful");
-
-    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .ancestors()
-        .nth(1)
-        .expect("first parent in target dir")
-        .join("debug")
-        .join("examples")
-        .join(if cfg!(windows) { "arrow.exe" } else { "arrow" });
-    assert!(path.is_file(), "Expecting driver to be located at {}", path.display());
-    path
-});
+static DRIVER: LazyLock<PathBuf> =
+    LazyLock::new(|| gix_testtools::build_example_for_test("gix-filter", "arrow", env!("CARGO_TARGET_TMPDIR")));
 
 fn driver_exe() -> String {
     let mut exe = DRIVER.to_string_lossy().into_owned();
