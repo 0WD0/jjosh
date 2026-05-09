@@ -8,7 +8,7 @@ use gix_pack::data;
 
 #[test]
 fn artifact_inputs_can_be_opened_without_panicking() {
-    for path in crate::pack::fuzz_artifact_paths("data_file") {
+    for path in crate::fuzz_artifact_paths("data_file") {
         _ = data::File::from_data(
             std::fs::read(&path).expect("artifact is readable"),
             path,

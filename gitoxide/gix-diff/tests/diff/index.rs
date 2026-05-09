@@ -1376,7 +1376,7 @@ mod util {
     use gix_diff::rewrites;
 
     fn repo_workdir() -> crate::Result<PathBuf> {
-        gix_testtools::scripted_fixture_read_only_standalone("make_diff_for_rewrites_repo.sh")
+        crate::scripted_fixture_read_only("make_diff_for_rewrites_repo.sh")
     }
 
     pub fn repo_with_indices(

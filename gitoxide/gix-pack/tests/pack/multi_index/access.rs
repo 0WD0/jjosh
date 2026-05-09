@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 
 use super::multi_index;
-use crate::{
-    object_hash,
-    pack::{hex_to_id_for_hash, leaked_fixture_bytes},
-};
+use crate::{hex_to_id_for_hash, leaked_fixture_bytes, object_hash};
 
 /// Load a multi-index fixture into memory and instantiate a memory-backed multi-index file from it.
 fn multi_index_from_memory(object_hash: gix_hash::Kind) -> gix_pack::multi_index::File<&'static [u8]> {

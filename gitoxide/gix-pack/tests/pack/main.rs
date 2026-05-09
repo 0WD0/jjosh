@@ -14,9 +14,9 @@ const V2_PACKS_AND_INDICES: &[(&str, &str)] = &[(SMALL_PACK_INDEX, SMALL_PACK), 
 use std::path::PathBuf;
 
 use gix_hash::ObjectId;
-pub use gix_testtools::{
-    fixture_path_standalone as fixture_path, scripted_fixture_read_only_standalone as scripted_fixture_read_only,
-};
+
+pub use gix_testtools::fixture_path;
+pub use gix_testtools::scripted_fixture_read_only;
 
 pub fn hex_to_id(hex: &str) -> ObjectId {
     ObjectId::from_hex(hex.as_bytes()).expect("valid hex object id")
@@ -50,14 +50,18 @@ pub(crate) fn pack_from_memory_at(at: &str) -> gix_pack::data::File<&'static [u8
 }
 
 pub(crate) fn fuzz_artifact_paths(target: &str) -> Vec<PathBuf> {
-    let mut paths = std::fs::read_dir(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../fuzz/artifacts")
-            .join(target),
-    )
-    .expect("artifact directory exists")
-    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-    .collect::<Vec<_>>();
+    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let old_test_crate_root = crate_root.join("../fuzz/artifacts").join(target);
+    let folded_test_root = crate_root.join("fuzz/artifacts").join(target);
+    let artifact_root = if old_test_crate_root.is_dir() {
+        old_test_crate_root
+    } else {
+        folded_test_root
+    };
+    let mut paths = std::fs::read_dir(artifact_root)
+        .expect("artifact directory exists")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect::<Vec<_>>();
     paths.sort();
     paths
 }

@@ -1001,7 +1001,7 @@ mod util {
     }
 
     fn new_platform_no_worktree() -> gix_diff::blob::Platform {
-        let root = gix_testtools::scripted_fixture_read_only_standalone("make_blob_repo.sh").expect("valid fixture");
+        let root = crate::scripted_fixture_read_only("make_blob_repo.sh").expect("valid fixture");
         let attributes = gix_worktree::Stack::new(
             root,
             gix_worktree::stack::State::AttributesStack(gix_worktree::stack::state::Attributes::new(

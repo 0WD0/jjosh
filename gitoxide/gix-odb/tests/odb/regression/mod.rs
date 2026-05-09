@@ -1,7 +1,7 @@
 mod repo_with_small_packs {
     use gix_object::Find;
 
-    use crate::odb::{db_small_packs, hex_to_id};
+    use crate::{db_small_packs, hex_to_id};
 
     #[test]
     fn all_packed_objects_can_be_found() -> crate::Result {
@@ -17,13 +17,12 @@ mod repo_with_small_packs {
     }
 
     #[test]
-    #[cfg(feature = "gix-features-parallel")]
+    #[cfg(feature = "parallel")]
     fn multi_threaded_access_will_not_panic() -> crate::Result {
         for arg in ["no", "without-multi-index"] {
-            let base =
-                gix_testtools::scripted_fixture_read_only_with_args_standalone("make_repo_multi_index.sh", Some(arg))?
-                    .join(".git")
-                    .join("objects");
+            let base = crate::scripted_fixture_read_only_with_args("make_repo_multi_index.sh", Some(arg))?
+                .join(".git")
+                .join("objects");
             let store = gix_odb::at(base)?;
             let (tx, barrier) = crossbeam_channel::unbounded::<()>();
             let handles = (0..std::thread::available_parallelism()?.get()).map(|tid| {

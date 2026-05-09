@@ -1,5 +1,5 @@
 use gix_testtools::Result;
-pub use gix_testtools::normalize_debug_snapshot;
+pub use gix_testtools::{normalize_debug_snapshot, scripted_fixture_read_only, scripted_fixture_read_only_with_args};
 use std::collections::HashMap;
 
 fn hex_to_id(hex_sha1: &str, hex_sha256: &str) -> gix_hash::ObjectId {

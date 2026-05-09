@@ -10,7 +10,6 @@ authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 include = ["/src/**/*", "/LICENSE-*"]
 rust-version = "1.85"
-autotests = false
 
 [lib]
 doctest = false
@@ -20,6 +19,8 @@ doctest = false
 sha1 = ["gix-index/sha1"]
 ## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
 sha256 = ["gix-index/sha256"]
+## Enable support for thread-safety.
+parallel = ["gix-features/parallel"]
 
 [dependencies]
 gix-worktree = { version = "^0.52.0", path = "../gix-worktree", default-features = false, features = ["attributes"] }
@@ -35,7 +36,17 @@ thiserror = "2.0.18"
 bstr = { version = "1.12.0", default-features = false }
 
 [dev-dependencies]
-gix-worktree-state = { path = ".", features = ["sha1"] }
+gix-worktree-state = { path = ".", features = ["sha1", "sha256"] }
+gix-object = { path = "../gix-object" }
+gix-discover = { path = "../gix-discover" }
+gix-filter = { path = "../gix-filter" }
+gix-index = { path = "../gix-index" }
+gix-hash = { path = "../gix-hash", features = ["sha256"] }
+gix-fs = { path = "../gix-fs" }
+gix-testtools = { path = "../tests/tools", default-features = false }
+gix-odb = { path = "../gix-odb" }
+symlink = "0.1.0"
+walkdir = "2.3.2"
 
 [package.metadata.docs.rs]
 features = ["sha1"]

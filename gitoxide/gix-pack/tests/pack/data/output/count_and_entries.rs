@@ -10,7 +10,7 @@ use gix_pack::data::{
     output::{count, entry},
 };
 
-use crate::pack::{
+use crate::{
     data::output::{DbKind, db},
     hex_to_id, hex_to_id_for_hash, object_hash,
 };
@@ -368,6 +368,7 @@ fn traversals() -> crate::Result {
 }
 
 #[test]
+#[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
 fn empty_pack_is_allowed() {
     assert_eq!(
         write_and_verify(
@@ -385,7 +386,7 @@ fn empty_pack_is_allowed() {
 }
 
 fn write_and_verify(
-    db: gix_odb::HandleArc,
+    _db: gix_odb::HandleArc,
     entries: Vec<output::Entry>,
     object_hash: gix_hash::Kind,
     _expected_pack_hash: gix_hash::ObjectId,
@@ -434,42 +435,45 @@ fn write_and_verify(
     // TODO: figure out why these hashes change, also depending on the machine, even though they are indeed stable.
     // assert_eq!(hash, expected_pack_hash, "pack hashes are stable if the input is");
 
-    // Re-generate the index from the pack for validation.
-    let bundle = pack::Bundle::at(
-        pack::Bundle::write_to_directory(
-            &mut std::io::BufReader::new(std::fs::File::open(pack_file_path)?),
-            Some(tmp_dir.path()),
+    #[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
+    {
+        // Re-generate the index from the pack for validation.
+        let bundle = pack::Bundle::at(
+            pack::Bundle::write_to_directory(
+                &mut std::io::BufReader::new(std::fs::File::open(pack_file_path)?),
+                Some(tmp_dir.path()),
+                &mut progress::Discard,
+                &should_interrupt,
+                Some(&_db),
+                pack::bundle::write::Options {
+                    object_hash,
+                    ..Default::default()
+                },
+            )?
+            .data_path
+            .ok_or("pack data directory should be set")?,
+            object_hash,
+        )?;
+        // TODO: figure out why these hashes change, also depending on the machine, even though they are indeed stable.
+        // if let Some(thin_pack_checksum) = expected_thin_pack_hash {
+        //     let actual_checksum = bundle.pack.verify_checksum(progress::Discard, &should_interrupt)?;
+        //     assert_eq!(
+        //         actual_checksum, thin_pack_checksum,
+        //         "the thin pack is written reproducibly and checksums pan out"
+        //     );
+        // }
+
+        bundle.verify_integrity(
             &mut progress::Discard,
             &should_interrupt,
-            Some(&db),
-            pack::bundle::write::Options {
-                object_hash,
-                ..Default::default()
+            gix_pack::index::verify::integrity::Options {
+                verify_mode: pack::index::verify::Mode::HashCrc32DecodeEncode,
+                traversal: pack::index::traverse::Algorithm::Lookup,
+                make_pack_lookup_cache: || pack::cache::Never,
+                thread_limit: None,
             },
-        )?
-        .data_path
-        .ok_or("pack data directory should be set")?,
-        object_hash,
-    )?;
-    // TODO: figure out why these hashes change, also depending on the machine, even though they are indeed stable.
-    // if let Some(thin_pack_checksum) = expected_thin_pack_hash {
-    //     let actual_checksum = bundle.pack.verify_checksum(progress::Discard, &should_interrupt)?;
-    //     assert_eq!(
-    //         actual_checksum, thin_pack_checksum,
-    //         "the thin pack is written reproducibly and checksums pan out"
-    //     );
-    // }
-
-    bundle.verify_integrity(
-        &mut progress::Discard,
-        &should_interrupt,
-        gix_pack::index::verify::integrity::Options {
-            verify_mode: pack::index::verify::Mode::HashCrc32DecodeEncode,
-            traversal: pack::index::traverse::Algorithm::Lookup,
-            make_pack_lookup_cache: || pack::cache::Never,
-            thread_limit: None,
-        },
-    )?;
+        )?;
+    }
 
     Ok(())
 }

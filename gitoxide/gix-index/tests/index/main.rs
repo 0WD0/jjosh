@@ -1,3 +1,10 @@
+use std::path::{Path, PathBuf};
+
+use gix_hash::ObjectId;
+use gix_testtools::size_ok;
+
+pub use gix_testtools::{Result, scripted_fixture_read_only};
+
 mod access;
 mod entry;
 mod file;
@@ -5,24 +12,18 @@ mod fs;
 mod fuzzed;
 mod init;
 
-use std::path::{Path, PathBuf};
-
-use gix_hash::ObjectId;
-use gix_testtools::size_ok;
-
 pub fn hex_to_id(hex: &str) -> ObjectId {
     ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
 }
 
 pub fn fixture_index_path(name: &str) -> PathBuf {
-    let dir =
-        gix_testtools::scripted_fixture_read_only_standalone(Path::new("make_index").join(name).with_extension("sh"))
-            .expect("script works");
+    let dir = gix_testtools::scripted_fixture_read_only(Path::new("make_index").join(name).with_extension("sh"))
+        .expect("script works");
     dir.join(".git").join("index")
 }
 
 pub fn loose_file_path(name: &str) -> PathBuf {
-    gix_testtools::fixture_path_standalone(Path::new("loose_index").join(name).with_extension("git-index"))
+    gix_testtools::fixture_path(Path::new("loose_index").join(name).with_extension("git-index"))
 }
 
 #[test]

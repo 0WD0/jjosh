@@ -5,7 +5,7 @@ use std::{
 
 #[test]
 fn artifact_inputs_can_be_opened_without_panicking() {
-    for path in crate::pack::fuzz_artifact_paths("index_file") {
+    for path in crate::fuzz_artifact_paths("index_file") {
         _ = gix_pack::index::File::from_data(
             std::fs::read(&path).expect("artifact is readable"),
             path,

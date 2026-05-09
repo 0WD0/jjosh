@@ -6,7 +6,7 @@ use gix_index::{
     entry::{self, Flags, Mode},
 };
 
-use crate::{hex_to_id, index::Fixture, loose_file_path};
+use crate::{Fixture, hex_to_id, loose_file_path};
 
 fn verify(index: gix_index::File) -> gix_index::File {
     index.verify_integrity().unwrap();
@@ -333,10 +333,7 @@ fn v2_split_index_recursion_is_handled_gracefully() {
 
 #[test]
 fn split_index_and_regular_index_of_same_content_are_indeed_the_same() {
-    let base = gix_testtools::scripted_fixture_read_only_standalone(
-        Path::new("make_index").join("v2_split_vs_regular_index.sh"),
-    )
-    .unwrap();
+    let base = crate::scripted_fixture_read_only(Path::new("make_index").join("v2_split_vs_regular_index.sh")).unwrap();
 
     let split = verify(
         gix_index::File::at(

@@ -150,12 +150,8 @@ trait IsExcluded {
 /// `.gitignore` next to the generated archive and delegates the line matching to this function.
 #[cfg(not(feature = "worktree-exclusions"))]
 fn is_excluded_by_lines(lines: &str, archive: &Path) -> bool {
-    let filename = archive
-        .file_name()
-        .unwrap_or_else(|| archive.as_os_str())
-        .to_string_lossy()
-        .replace('\\', "/");
     let archive = archive.to_string_lossy().replace('\\', "/");
+    let filename = archive.rsplit('/').next().unwrap_or(&archive);
     lines.lines().any(|line| {
         let pattern = line.trim();
         if pattern.is_empty() || pattern.starts_with('#') {
@@ -165,7 +161,7 @@ fn is_excluded_by_lines(lines: &str, archive: &Path) -> bool {
         let candidate = if pattern.contains('/') {
             archive.as_str()
         } else {
-            filename.as_str()
+            filename
         };
         wildcard_match(pattern, candidate)
     })

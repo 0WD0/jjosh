@@ -391,7 +391,7 @@ fn new_platform(
     drivers: impl IntoIterator<Item = gix_diff::blob::Driver>,
     mode: gix_diff::blob::pipeline::Mode,
 ) -> Platform {
-    let root = gix_testtools::scripted_fixture_read_only_standalone("make_blob_repo.sh").expect("valid fixture");
+    let root = crate::scripted_fixture_read_only("make_blob_repo.sh").expect("valid fixture");
     let attributes = gix_worktree::Stack::new(
         &root,
         gix_worktree::stack::State::AttributesStack(gix_worktree::stack::state::Attributes::new(

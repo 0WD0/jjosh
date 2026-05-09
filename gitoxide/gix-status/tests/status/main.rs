@@ -2,20 +2,22 @@ use std::collections::HashMap;
 
 use gix_hash::ObjectId;
 use gix_testtools::Creation;
-pub use gix_testtools::Result;
+pub use gix_testtools::{
+    Result, scripted_fixture_read_only, scripted_fixture_writable, scripted_fixture_writable_with_args_single_archive,
+};
 
 mod index_as_worktree;
+#[cfg(feature = "worktree-rewrites")]
 mod index_as_worktree_with_renames;
 
 mod stack;
 
 pub fn fixture_path(name: &str) -> std::path::PathBuf {
-    gix_testtools::scripted_fixture_read_only_standalone(std::path::Path::new(name).with_extension("sh"))
-        .expect("script works")
+    crate::scripted_fixture_read_only(std::path::Path::new(name).with_extension("sh")).expect("script works")
 }
 
 pub fn fixture_path_rw_slow(name: &str) -> gix_testtools::tempfile::TempDir {
-    gix_testtools::scripted_fixture_writable_with_args_standalone_single_archive(
+    crate::scripted_fixture_writable_with_args_single_archive(
         std::path::Path::new(name).with_extension("sh"),
         None::<String>,
         Creation::Execute,
