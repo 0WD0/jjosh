@@ -200,6 +200,59 @@ fn untr_extension_with_oids() {
 }
 
 #[test]
+fn untr_extension_empty() {
+    let file = file("untracked_cache_empty");
+    let untracked = file.untracked().expect("untracked cache extension present");
+
+    assert_eq!(untracked.info_exclude(), None);
+    assert_eq!(untracked.excludes_file(), None);
+    assert_eq!(untracked.exclude_filename_per_dir(), ".gitignore");
+    assert_eq!(untracked.dir_flags(), 6);
+    assert!(untracked.directories().is_empty());
+}
+
+#[test]
+fn untr_extension_populated() {
+    let file = file("untracked_cache_populated");
+    let untracked = file.untracked().expect("untracked cache extension present");
+
+    dbg!(untracked.info_exclude());
+    dbg!(untracked.excludes_file());
+
+    assert_eq!(
+        untracked.info_exclude().map(|s| s.id),
+        Some(gix_hash::ObjectId::empty_blob(gix_hash::Kind::Sha1))
+    );
+    assert_eq!(untracked.excludes_file(), None);
+    assert_eq!(untracked.exclude_filename_per_dir(), ".gitignore");
+    assert_eq!(untracked.dir_flags(), 6);
+
+    let mut dirs = untracked.directories().to_vec();
+    dirs.sort_by(|a, b| a.name().cmp(b.name()));
+    assert_eq!(dirs.len(), 4);
+
+    assert_eq!(dirs[0].name(), "");
+    let mut untracked_entries = dirs[0].untracked_entries().to_vec();
+    untracked_entries.sort();
+    assert_eq!(untracked_entries, vec!["dthree/", "dtwo/", "three"]);
+    assert_eq!(dirs[0].sub_directories, vec![1, 2, 3]);
+
+    assert_eq!(dirs[1].name(), "done");
+    assert!(dirs[1].untracked_entries.is_empty());
+    assert!(dirs[1].sub_directories.is_empty());
+
+    assert_eq!(dirs[2].name(), "dthree");
+    assert_eq!(dirs[2].untracked_entries, vec!["three"]);
+    assert!(dirs[2].sub_directories.is_empty());
+    assert!(dirs[2].check_only());
+
+    assert_eq!(dirs[3].name(), "dtwo");
+    assert_eq!(dirs[3].untracked_entries, vec!["two"]);
+    assert!(dirs[3].sub_directories.is_empty());
+    assert!(dirs[3].check_only());
+}
+
+#[test]
 fn fsmn_v1() {
     let file = loose_file("FSMN");
     assert_eq!(file.version(), Version::V2);
