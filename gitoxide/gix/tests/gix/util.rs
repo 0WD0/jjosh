@@ -59,6 +59,10 @@ static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sy
             "f94ec43f5a88d139270047a2517ca02b9e73c79d5da45ede9e370e14f7eae720",
         ),
         (
+            "362cb5539acbd3c8ca355471f97c6a68d3db0da7",
+            "5f0ae0c252472dba8c416420b90ce2aead95561489c1f3d46cc1f8c201a8a7e4",
+        ),
+        (
             "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
             "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
         ),
@@ -146,13 +150,10 @@ static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sy
 pub fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
     match gix_testtools::object_hash_from_env().unwrap_or_default() {
         gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex"),
-        gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(
-            SHA1_TO_SHA256_HASHES
-                .get(hex)
-                .unwrap_or_else(|| panic!("40 bytes hash to be present in mapping hex={hex}"))
-                .as_bytes(),
-        )
-        .expect("64 bytes hex"),
+        gix_hash::Kind::Sha256 => {
+            gix_hash::ObjectId::from_hex(SHA1_TO_SHA256_HASHES.get(hex).copied().unwrap_or(hex).as_bytes())
+                .expect("hex object id")
+        }
         _ => unimplemented!(),
     }
 }

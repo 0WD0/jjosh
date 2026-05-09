@@ -53,3 +53,8 @@
 # alongside `.git/info/exclude` content.
 /make_worktree_repo_with_info_exclude.tar
 /make_worktree_repo_with_info_exclude_sha256.tar
+# Embeds historical SHA-1 reflog entries verbatim.
+/make_rev_parse_repo_sha256.tar
+# Is based on Git's SHA-1 disambiguation tests and relies on exact SHA-1
+# prefixes in object names, refs, and expected messages.
+/make_rev_spec_parse_repos_sha256.tar
