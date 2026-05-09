@@ -170,3 +170,70 @@ fn normalize_hashes_replaces_raw_object_ids() {
     assert_eq!(ids, vec![sha1, sha256]);
     assert_eq!(snapshot, "Oid(1) Oid(2) Oid(1)");
 }
+
+#[test]
+#[cfg(not(feature = "worktree-exclusions"))]
+fn gitignore_fallback_matches_archive_basename_patterns() {
+    let lines = "\n# generated fixture archives\nrust-*.tar\n";
+
+    assert!(is_excluded_by_lines(
+        lines,
+        Path::new("tests/fixtures/generated-archives/rust-basic.tar")
+    ));
+    assert!(!is_excluded_by_lines(
+        lines,
+        Path::new("tests/fixtures/generated-archives/script-basic.tar")
+    ));
+}
+
+#[test]
+#[cfg(not(feature = "worktree-exclusions"))]
+fn gitignore_fallback_matches_paths_relative_to_fixture_base() {
+    let lines = "generated-archives/rust-*.tar\n";
+
+    assert!(is_excluded_by_lines(
+        lines,
+        Path::new("generated-archives/rust-basic.tar")
+    ));
+    assert!(!is_excluded_by_lines(
+        lines,
+        Path::new("other-generated-archives/rust-basic.tar")
+    ));
+}
+
+#[test]
+#[cfg(not(feature = "worktree-exclusions"))]
+fn gitignore_fallback_treats_leading_slash_as_rooted_pattern() {
+    let lines = "/generated-archives/rust-*.tar\n";
+
+    assert!(is_excluded_by_lines(
+        lines,
+        Path::new("generated-archives/rust-basic.tar")
+    ));
+}
+
+#[test]
+#[cfg(not(feature = "worktree-exclusions"))]
+fn gitignore_fallback_ignores_blank_lines_and_comments() {
+    let lines = "\n  \n# generated-archives/rust-*.tar\ngenerated-archives/script-*.tar\n";
+
+    assert!(is_excluded_by_lines(
+        lines,
+        Path::new("generated-archives/script-basic.tar")
+    ));
+    assert!(!is_excluded_by_lines(
+        lines,
+        Path::new("generated-archives/rust-basic.tar")
+    ));
+}
+
+#[test]
+#[cfg(not(feature = "worktree-exclusions"))]
+fn gitignore_fallback_normalizes_windows_path_separators() {
+    let lines = "generated-archives/rust-*.tar\n";
+
+    assert!(is_excluded_by_lines(
+        lines,
+        Path::new(r"generated-archives\rust-basic.tar")
+    ));
+}

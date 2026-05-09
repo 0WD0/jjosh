@@ -12,7 +12,6 @@ keywords = ["git-config", "git", "config", "gitoxide"]
 categories = ["config", "parser-implementations"]
 include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 rust-version = "1.85"
-autotests = false
 
 [features]
 ## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
@@ -41,6 +40,10 @@ document-features = { version = "0.2.0", optional = true }
 [dev-dependencies]
 criterion = "0.8.2"
 gix-config = { path = ".", features = ["sha1"] }
+gix-testtools = { path = "../tests/tools", default-features = false }
+serial_test = { version = "3.4.0", default-features = false }
+bytesize = "2.3.1"
+cap = { version = "0.1.2", features = ["stats"] }
 
 [[bench]]
 name = "large_config_file"

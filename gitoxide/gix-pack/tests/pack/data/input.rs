@@ -5,7 +5,7 @@ mod lookup_ref_delta_objects {
     use gix_object::{Data, find::Error};
     use gix_pack::data::{entry::Header, input, input::LookupRefDeltaObjectsIter};
 
-    use crate::pack::hex_to_id;
+    use crate::hex_to_id;
 
     const D_A: &[u8] = b"a";
     const D_B: &[u8] = b"bb";

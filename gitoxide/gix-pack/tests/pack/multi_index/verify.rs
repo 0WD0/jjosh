@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 use gix_features::progress;
 use maplit::btreemap;
 
-use crate::{object_hash, pack::multi_index::multi_index};
+use crate::{multi_index::multi_index, object_hash};
 
 #[test]
 fn checksum() -> crate::Result {

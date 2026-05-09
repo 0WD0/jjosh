@@ -10,7 +10,6 @@ authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
 include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 rust-version = "1.85"
-autotests = false
 
 
 [lib]
@@ -29,6 +28,9 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "smallvec/serde", "gix-hash/serde"]
+## Enable parallel implementations of common algorithms.
+## If not set, there can be no parallelism.
+parallel = ["gix-features/parallel"]
 
 [dependencies]
 gix-features = { version = "^0.48.0", path = "../gix-features", features = [
@@ -68,9 +70,12 @@ libc = { version = "0.2.186" }
 
 [dev-dependencies]
 criterion = "0.8.2"
-gix-testtools = { path = "../tests/tools" }
+gix-testtools = { path = "../tests/tools", default-features = false }
 gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
 gix-hashtable = { path = "../gix-hashtable" }
+gix-odb = { path = "../gix-odb" }
+gix-object = { path = "../gix-object" }
+filetime = "0.2.27"
 
 [package.metadata.docs.rs]
 features = ["sha1", "document-features", "serde"]

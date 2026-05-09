@@ -1,4 +1,4 @@
-use crate::{hex_to_id, odb::db};
+use crate::{db, hex_to_id};
 
 fn find_header(db: impl gix_odb::Header, hex_id: &str) -> gix_odb::find::Header {
     db.try_header(&hex_to_id(hex_id))

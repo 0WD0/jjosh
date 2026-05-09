@@ -242,7 +242,7 @@ pub fn hex_to_id(hex: &str) -> ObjectId {
 
 /// Get the path to a fixture directory from a script that creates a single repository.
 pub fn fixture(script_name: &str) -> Result<PathBuf> {
-    gix_testtools::scripted_fixture_read_only_standalone(script_name)
+    crate::scripted_fixture_read_only(script_name)
 }
 
 /// Get an object database handle for `objects_dir`, respecting the hash kind configured for tests.

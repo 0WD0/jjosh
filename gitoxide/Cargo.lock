@@ -1650,6 +1650,8 @@ name = "gix-config"
 version = "0.56.0"
 dependencies = [
  "bstr",
+ "bytesize",
+ "cap",
  "criterion",
  "document-features",
  "gix-config",
@@ -1659,25 +1661,12 @@ dependencies = [
  "gix-path",
  "gix-ref",
  "gix-sec",
+ "gix-testtools",
  "serde",
+ "serial_test",
  "smallvec",
  "thiserror 2.0.18",
  "unicode-bom",
-]
-
-[[package]]
-name = "gix-config-tests"
-version = "0.0.0"
-dependencies = [
- "bstr",
- "bytesize",
- "cap",
- "gix-config",
- "gix-path",
- "gix-ref",
- "gix-sec",
- "gix-testtools",
- "serial_test",
 ]
 
 [[package]]
@@ -1745,6 +1734,7 @@ dependencies = [
  "gix-imara-diff",
  "gix-index",
  "gix-object",
+ "gix-odb",
  "gix-path",
  "gix-pathspec",
  "gix-tempfile",
@@ -1752,28 +1742,11 @@ dependencies = [
  "gix-trace",
  "gix-traverse",
  "gix-worktree",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-diff-tests"
-version = "0.0.0"
-dependencies = [
- "gix-diff",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-pathspec",
- "gix-testtools",
- "gix-traverse",
- "gix-worktree",
  "insta",
  "pretty_assertions",
+ "serde",
  "shell-words",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1983,6 +1956,7 @@ dependencies = [
  "gix-hashtable",
  "gix-lock",
  "gix-object",
+ "gix-odb",
  "gix-testtools",
  "gix-traverse",
  "gix-utils",
@@ -1995,20 +1969,6 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-index-tests"
-version = "0.0.0"
-dependencies = [
- "bstr",
- "filetime",
- "gix-features",
- "gix-hash",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-testtools",
 ]
 
 [[package]]
@@ -2129,44 +2089,35 @@ name = "gix-odb"
 version = "0.80.0"
 dependencies = [
  "arc-swap",
+ "crossbeam-channel",
  "document-features",
+ "filetime",
+ "gix-actor",
+ "gix-date",
  "gix-features",
  "gix-fs",
  "gix-hash",
  "gix-hashtable",
  "gix-object",
+ "gix-odb",
  "gix-pack",
  "gix-path",
  "gix-quote",
+ "gix-testtools",
+ "maplit",
  "memmap2",
  "parking_lot",
+ "pretty_assertions",
  "serde",
  "tempfile",
  "thiserror 2.0.18",
 ]
 
 [[package]]
-name = "gix-odb-tests"
-version = "0.0.0"
-dependencies = [
- "crossbeam-channel",
- "filetime",
- "gix-actor",
- "gix-date",
- "gix-features",
- "gix-hash",
- "gix-object",
- "gix-odb",
- "gix-pack",
- "gix-testtools",
- "maplit",
- "pretty_assertions",
-]
-
-[[package]]
 name = "gix-pack"
 version = "0.70.0"
 dependencies = [
+ "bstr",
  "clru",
  "document-features",
  "gix-chunk",
@@ -2176,32 +2127,19 @@ dependencies = [
  "gix-hash",
  "gix-hashtable",
  "gix-object",
+ "gix-odb",
+ "gix-pack",
  "gix-path",
  "gix-tempfile",
  "gix-testtools",
  "gix-traverse",
+ "maplit",
  "memmap2",
  "parking_lot",
  "serde",
  "smallvec",
  "thiserror 2.0.18",
  "uluru",
-]
-
-[[package]]
-name = "gix-pack-tests"
-version = "0.0.0"
-dependencies = [
- "bstr",
- "gix-features",
- "gix-hash",
- "gix-object",
- "gix-odb",
- "gix-pack",
- "gix-testtools",
- "gix-traverse",
- "maplit",
- "memmap2",
 ]
 
 [[package]]
@@ -2318,27 +2256,6 @@ dependencies = [
  "document-features",
  "gix-actor",
  "gix-date",
- "gix-features",
- "gix-fs",
- "gix-hash",
- "gix-lock",
- "gix-object",
- "gix-path",
- "gix-tempfile",
- "gix-testtools",
- "gix-utils",
- "gix-validate",
- "memmap2",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-ref-tests"
-version = "0.0.0"
-dependencies = [
- "gix-actor",
- "gix-date",
  "gix-discover",
  "gix-features",
  "gix-fs",
@@ -2346,10 +2263,15 @@ dependencies = [
  "gix-lock",
  "gix-object",
  "gix-odb",
- "gix-ref",
+ "gix-path",
+ "gix-tempfile",
  "gix-testtools",
+ "gix-utils",
  "gix-validate",
  "insta",
+ "memmap2",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2451,34 +2373,15 @@ dependencies = [
  "gix-hash",
  "gix-index",
  "gix-object",
- "gix-path",
- "gix-pathspec",
- "gix-worktree",
- "portable-atomic",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-status-tests"
-version = "0.0.0"
-dependencies = [
- "bstr",
- "filetime",
- "gix-diff",
- "gix-dir",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-index",
- "gix-object",
  "gix-odb",
  "gix-path",
  "gix-pathspec",
  "gix-status",
  "gix-testtools",
  "gix-worktree",
+ "portable-atomic",
  "pretty_assertions",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2585,23 +2488,13 @@ dependencies = [
  "gix-hash",
  "gix-hashtable",
  "gix-object",
- "gix-revwalk",
- "smallvec",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-traverse-tests"
-version = "0.0.0"
-dependencies = [
- "gix-commitgraph",
- "gix-hash",
- "gix-object",
  "gix-odb",
  "gix-path",
+ "gix-revwalk",
  "gix-testtools",
- "gix-traverse",
  "insta",
+ "smallvec",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2646,15 +2539,20 @@ dependencies = [
  "bstr",
  "document-features",
  "gix-attributes",
+ "gix-discover",
+ "gix-features",
  "gix-fs",
  "gix-glob",
  "gix-hash",
  "gix-ignore",
  "gix-index",
  "gix-object",
+ "gix-odb",
  "gix-path",
+ "gix-testtools",
  "gix-validate",
  "serde",
+ "symlink",
 ]
 
 [[package]]
@@ -2662,22 +2560,6 @@ name = "gix-worktree-state"
 version = "0.30.0"
 dependencies = [
  "bstr",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-index",
- "gix-object",
- "gix-path",
- "gix-worktree",
- "gix-worktree-state",
- "io-close",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "gix-worktree-state-tests"
-version = "0.0.0"
-dependencies = [
  "gix-discover",
  "gix-features",
  "gix-filter",
@@ -2686,9 +2568,13 @@ dependencies = [
  "gix-index",
  "gix-object",
  "gix-odb",
+ "gix-path",
  "gix-testtools",
+ "gix-worktree",
  "gix-worktree-state",
+ "io-close",
  "symlink",
+ "thiserror 2.0.18",
  "walkdir",
 ]
 
@@ -2710,27 +2596,6 @@ dependencies = [
  "gix-worktree",
  "gix-worktree-stream",
  "parking_lot",
-]
-
-[[package]]
-name = "gix-worktree-tests"
-version = "0.0.0"
-dependencies = [
- "bstr",
- "gix-attributes",
- "gix-discover",
- "gix-features",
- "gix-fs",
- "gix-glob",
- "gix-hash",
- "gix-ignore",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-testtools",
- "gix-worktree",
- "symlink",
 ]
 
 [[package]]

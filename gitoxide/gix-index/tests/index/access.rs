@@ -1,7 +1,7 @@
 use bstr::{BString, ByteSlice};
 use gix_index::entry::Stage;
 
-use crate::index::Fixture;
+use crate::Fixture;
 
 fn icase_fixture() -> gix_index::File {
     Fixture::Generated("v2_icase_name_clashes").open()

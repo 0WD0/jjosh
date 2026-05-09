@@ -11,10 +11,7 @@ mod method {
 
     use gix_features::progress;
 
-    use crate::{
-        hex_to_id,
-        pack::{SMALL_PACK, data::file::pack_at, pack_from_memory_at},
-    };
+    use crate::{SMALL_PACK, data::file::pack_at, hex_to_id, pack_from_memory_at};
 
     #[test]
     fn checksum() {
@@ -94,10 +91,7 @@ mod decode_entry {
     use bstr::ByteSlice;
     use gix_pack::{cache, data::decode::entry::ResolvedBase};
 
-    use crate::{
-        fixture_path, fixup,
-        pack::{SMALL_PACK, data::file::pack_at},
-    };
+    use crate::{SMALL_PACK, data::file::pack_at, fixture_path, fixup};
 
     fn content_of(path: &str) -> Vec<u8> {
         fixup(std::fs::read(fixture_path(path)).expect("valid fixture"))
@@ -167,7 +161,7 @@ mod decode_entry {
 
 /// All hardcoded offsets are obtained via `git pack-verify --verbose  tests/fixtures/packs/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx`
 mod resolve_header {
-    use crate::pack::{SMALL_PACK, data::file::pack_at};
+    use crate::{SMALL_PACK, data::file::pack_at};
 
     #[test]
     fn commit() {
@@ -216,7 +210,7 @@ mod resolve_header {
 mod decompress_entry {
     use gix_object::bstr::ByteSlice;
 
-    use crate::pack::{SMALL_PACK, data::file::pack_at};
+    use crate::{SMALL_PACK, data::file::pack_at};
 
     #[test]
     fn commit() {

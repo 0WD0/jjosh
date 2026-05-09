@@ -54,11 +54,9 @@ mod iter {
     use std::path::PathBuf;
 
     fn reflog_dir() -> crate::Result<PathBuf> {
-        Ok(
-            gix_testtools::scripted_fixture_read_only_standalone("make_repo_for_reflog.sh")?
-                .join(".git")
-                .join("logs"),
-        )
+        Ok(crate::scripted_fixture_read_only("make_repo_for_reflog.sh")?
+            .join(".git")
+            .join("logs"))
     }
     fn reflog(name: &str) -> crate::Result<Vec<u8>> {
         Ok(std::fs::read(reflog_dir()?.join(name))?)
