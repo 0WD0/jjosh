@@ -1,13 +1,34 @@
+use std::io;
 use std::str::FromStr;
 
 use crate::{Error, Time};
-use smallvec::SmallVec;
 
 /// A container for just enough bytes to hold the largest-possible [`time`](Time) instance.
-/// It's used in conjunction with
 #[derive(Default, Clone)]
 pub struct TimeBuf {
-    buf: SmallVec<[u8; Time::MAX.size()]>,
+    idx: usize,
+    buf: [u8; Time::MAX.size()],
+}
+
+struct TimeBufWriter<'a>(&'a mut TimeBuf);
+
+impl io::Write for TimeBufWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+        let idx = self.0.idx;
+        let end_idx = idx
+            .checked_add(buf.len())
+            .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
+        if end_idx > Time::MAX.size() {
+            return Err(io::Error::from(io::ErrorKind::StorageFull));
+        }
+        self.0.buf[idx..end_idx].copy_from_slice(buf);
+        self.0.idx = end_idx;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl TimeBuf {
@@ -15,13 +36,13 @@ impl TimeBuf {
     /// signature fields in Git commits, also known as anything parseable as [raw format](function::parse_header()).
     pub fn as_str(&self) -> &str {
         // Time serializes as ASCII, which is a subset of UTF-8.
-        let time_bytes = self.buf.as_slice();
+        let time_bytes = &self.buf[..self.idx];
         std::str::from_utf8(time_bytes).expect("time serializes as valid UTF-8")
     }
 
     /// Clear the previous content.
     fn clear(&mut self) {
-        self.buf.clear();
+        self.idx = 0;
     }
 }
 
@@ -30,7 +51,7 @@ impl Time {
     /// and return `buf` as `&str` for easy consumption.
     pub fn to_str<'a>(&self, buf: &'a mut TimeBuf) -> &'a str {
         buf.clear();
-        self.write_to(&mut buf.buf)
+        self.write_to(&mut TimeBufWriter(buf))
             .expect("write to memory of just the right size cannot fail");
         buf.as_str()
     }

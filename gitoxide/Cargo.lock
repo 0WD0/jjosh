@@ -1715,7 +1715,6 @@ dependencies = [
  "jiff",
  "pretty_assertions",
  "serde",
- "smallvec",
 ]
 
 [[package]]
