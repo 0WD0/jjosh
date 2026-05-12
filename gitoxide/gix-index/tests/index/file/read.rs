@@ -54,8 +54,8 @@ fn with_untracked_snapshot_filters(run: impl FnOnce()) {
     settings.set_filters(vec![
         (r#"(identifier: )"[^"]*""#, r#"$1"[redacted]""#),
         (
-            r"(?s)Stat \{\s+mtime: Time \{\s+secs: \d+,\s+nsecs: \d+,\s+\},\s+ctime: Time \{\s+secs: \d+,\s+nsecs: \d+,\s+\},\s+dev: \d+,\s+ino: \d+,\s+uid: \d+,\s+gid: \d+,\s+size: \d+,\s+\}",
-            "Stat { ... }",
+            r"(?s)Stat \{\s+mtime: Time \{\s+secs: (\d+),\s+nsecs: (\d+),\s+\},\s+ctime: Time \{\s+secs: (\d+),\s+nsecs: (\d+),\s+\},\s+dev: \d+,\s+ino: \d+,\s+uid: \d+,\s+gid: \d+,\s+size: \d+,\s+\}",
+            "Stat { mtime: Time { secs: $1, nsecs: $2 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... }",
         ),
     ]);
     settings.bind(run);
@@ -253,7 +253,7 @@ fn untr_extension_populated() {
             identifier: "[redacted]",
             info_exclude: Some(
                 OidStat {
-                    stat: Stat { ... },
+                    stat: Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
                 },
             ),
@@ -274,7 +274,7 @@ fn untr_extension_populated() {
                         3,
                     ],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: false,
@@ -284,7 +284,7 @@ fn untr_extension_populated() {
                     untracked_entries: [],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: false,
@@ -296,7 +296,7 @@ fn untr_extension_populated() {
                     ],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,
@@ -308,7 +308,7 @@ fn untr_extension_populated() {
                     ],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,
@@ -334,7 +334,7 @@ fn untr_extension_nested() {
             identifier: "[redacted]",
             info_exclude: Some(
                 OidStat {
-                    stat: Stat { ... },
+                    stat: Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
                 },
             ),
@@ -355,7 +355,7 @@ fn untr_extension_nested() {
                         5,
                     ],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: false,
@@ -370,7 +370,7 @@ fn untr_extension_nested() {
                         2,
                     ],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: Some(
                         Sha1(55535cdccae965cd0ea191aa22df1145a983b2f9),
@@ -386,7 +386,7 @@ fn untr_extension_nested() {
                         3,
                     ],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,
@@ -398,7 +398,7 @@ fn untr_extension_nested() {
                     ],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,
@@ -410,7 +410,7 @@ fn untr_extension_nested() {
                     ],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,
@@ -422,7 +422,7 @@ fn untr_extension_nested() {
                     ],
                     sub_directories: [],
                     stat: Some(
-                        Stat { ... },
+                        Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { secs: [redacted], nsecs: [redacted] }, ... },
                     ),
                     exclude_file_oid: None,
                     check_only: true,

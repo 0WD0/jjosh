@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
+. "$(dirname -- "${BASH_SOURCE[0]}")/shared.sh"
+
 GIT_FORCE_UNTRACKED_CACHE=true
 export GIT_FORCE_UNTRACKED_CACHE
 
@@ -24,4 +26,21 @@ git add tracked-root-one tracked-root-two tracked-dir-with-ignore/tracked-file t
 mkdir -p .git/info
 : >.git/info/exclude
 git update-index --untracked-cache
+seed_untracked_cache_times \
+    . \
+    .git/info/exclude \
+    tracked-dir-with-ignore \
+    tracked-dir-with-ignore/.gitignore \
+    tracked-dir-with-ignore/tracked-file \
+    tracked-dir-with-ignore/visible-untracked-file \
+    tracked-dir-with-ignore/nested-untracked-dir \
+    tracked-dir-with-ignore/nested-untracked-dir/deep-untracked-dir \
+    tracked-dir-with-ignore/nested-untracked-dir/deep-untracked-dir/deep-untracked-file \
+    untracked-dir-2 \
+    untracked-dir-2/untracked-file-two \
+    untracked-dir-3 \
+    untracked-dir-3/untracked-file-three \
+    tracked-root-one \
+    tracked-root-two \
+    untracked-root-file
 git status --porcelain >/dev/null
