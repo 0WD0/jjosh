@@ -103,6 +103,9 @@ mod write_to {
             assert_eq!(output.as_bstr(), expected);
             assert_eq!(time.size(), output.len());
 
+            let mut buf = TimeBuf::default();
+            assert_eq!(time.to_str(&mut buf), expected);
+
             let actual = output.as_bstr().to_string().parse::<Time>().expect("round-trippable");
             assert_eq!(time, actual);
         }
@@ -113,7 +116,7 @@ mod write_to {
     fn max() -> gix_testtools::Result {
         let mut buf = Vec::new();
         Time::MAX.write_to(&mut buf)?;
-        assert_eq!(Time::MAX.size(), 25, "The largest possible serialized size");
+        assert_eq!(Time::MAX.size(), 25, "The serialized size of the largest possible time");
 
         let expected = "9223372036854775807 +9959";
         assert_eq!(buf.as_bstr(), expected);
@@ -121,6 +124,25 @@ mod write_to {
 
         let mut buf = TimeBuf::default();
         assert_eq!(Time::MAX.to_str(&mut buf), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn min() -> gix_testtools::Result {
+        let mut buf = Vec::new();
+        Time::MIN.write_to(&mut buf)?;
+        assert_eq!(
+            Time::MIN.size(),
+            26,
+            "The serialized size of the smallest possible time"
+        );
+
+        let expected = "-9223372036854775808 -9959";
+        assert_eq!(buf.as_bstr(), expected);
+        assert_eq!(buf.len(), Time::MIN.size());
+
+        let mut buf = TimeBuf::default();
+        assert_eq!(Time::MIN.to_str(&mut buf), expected);
         Ok(())
     }
 }

@@ -3,26 +3,32 @@ use std::str::FromStr;
 
 use crate::{Error, Time};
 
-/// A container for just enough bytes to hold the largest-possible [`time`](Time) instance.
+/// A container for just enough bytes to hold the largest possible serialization of a [`Time`].
 #[derive(Default, Clone)]
 pub struct TimeBuf {
-    idx: usize,
-    buf: [u8; Time::MAX.size()],
+    /// One past the last byte written into `buf`.
+    end_idx: usize,
+    /// Fixed storage large enough for the widest raw time serialization.
+    buf: [u8; Time::MIN.size()],
 }
 
+/// Adapter to make [`TimeBuf`] writable only while `Time::to_str()` serializes into it.
+///
+/// This keeps [`TimeBuf`] as plain reusable storage: callers can inspect the finished bytes through
+/// [`TimeBuf::as_str()`], but cannot append arbitrary bytes or leave it in a partially-written state.
 struct TimeBufWriter<'a>(&'a mut TimeBuf);
 
 impl io::Write for TimeBufWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
-        let idx = self.0.idx;
+        let idx = self.0.end_idx;
         let end_idx = idx
             .checked_add(buf.len())
             .ok_or_else(|| io::Error::from(io::ErrorKind::OutOfMemory))?;
-        if end_idx > Time::MAX.size() {
+        if end_idx > Time::MIN.size() {
             return Err(io::Error::from(io::ErrorKind::StorageFull));
         }
         self.0.buf[idx..end_idx].copy_from_slice(buf);
-        self.0.idx = end_idx;
+        self.0.end_idx = end_idx;
         Ok(buf.len())
     }
 
@@ -36,13 +42,13 @@ impl TimeBuf {
     /// signature fields in Git commits, also known as anything parseable as [raw format](function::parse_header()).
     pub fn as_str(&self) -> &str {
         // Time serializes as ASCII, which is a subset of UTF-8.
-        let time_bytes = &self.buf[..self.idx];
+        let time_bytes = &self.buf[..self.end_idx];
         std::str::from_utf8(time_bytes).expect("time serializes as valid UTF-8")
     }
 
     /// Clear the previous content.
     fn clear(&mut self) {
-        self.idx = 0;
+        self.end_idx = 0;
     }
 }
 
