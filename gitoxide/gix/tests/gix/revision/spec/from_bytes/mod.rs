@@ -1,7 +1,7 @@
 use gix::{prelude::ObjectIdExt, revision::Spec};
 pub use util::*;
 
-use crate::util::hex_to_id;
+use crate::util::hex_to_id_sha1_only;
 
 mod ambiguous;
 mod regex;
@@ -15,7 +15,7 @@ mod peel;
 mod sibling_branch {
     use crate::{
         revision::spec::from_bytes::{parse_spec, repo},
-        util::hex_to_id,
+        util::hex_to_id_sha1_only,
     };
 
     #[test]
@@ -31,7 +31,7 @@ mod sibling_branch {
                 assert_eq!(actual.second_reference(), None);
                 assert_eq!(
                     actual.single().expect("just one"),
-                    hex_to_id("55e825ebe8fd2ff78cad3826afb696b96b576a7e")
+                    hex_to_id_sha1_only("55e825ebe8fd2ff78cad3826afb696b96b576a7e")
                 );
             }
         }
@@ -44,7 +44,7 @@ mod index {
 
     use crate::{
         revision::spec::from_bytes::{parse_spec, repo},
-        util::hex_to_id,
+        util::hex_to_id_sha1_only,
     };
 
     #[test]
@@ -53,7 +53,7 @@ mod index {
         let actual = parse_spec(":file", &repo).unwrap();
         assert_eq!(
             actual,
-            Spec::from_id(hex_to_id("fe27474251f7f8368742f01fbd3bd5666b630a82").attach(&repo))
+            Spec::from_id(hex_to_id_sha1_only("fe27474251f7f8368742f01fbd3bd5666b630a82").attach(&repo))
         );
         assert_eq!(
             actual.path_and_mode().expect("set"),
@@ -115,7 +115,7 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
         let repo = repo("blob.bad").unwrap();
         assert_eq!(
             parse_spec("e328", &repo).unwrap(),
-            Spec::from_id(hex_to_id("e32851d29feb48953c6f40b2e06d630a3c49608a").attach(&repo)),
+            Spec::from_id(hex_to_id_sha1_only("e32851d29feb48953c6f40b2e06d630a3c49608a").attach(&repo)),
             "we are able to return objects even though they are 'bad' when trying to decode them, like git",
         );
         let err = parse_spec("e328^{object}", &repo).unwrap_err();
@@ -139,7 +139,7 @@ fn bad_objects_are_valid_until_they_are_actually_read_from_the_odb() {
         let repo = repo("blob.corrupt").unwrap();
         assert_eq!(
             parse_spec("cafea", &repo).unwrap(),
-            Spec::from_id(hex_to_id("cafea31147e840161a1860c50af999917ae1536b").attach(&repo))
+            Spec::from_id(hex_to_id_sha1_only("cafea31147e840161a1860c50af999917ae1536b").attach(&repo))
         );
         let err = parse_spec("cafea^{object}", &repo).unwrap_err();
         let actual = {
@@ -173,7 +173,7 @@ fn access_blob_through_tree() {
     let actual = parse_spec("0000000000cdc:a0blgqsjc", &repo).unwrap();
     assert_eq!(
         actual,
-        Spec::from_id(hex_to_id("0000000000b36b6aa7ea4b75318ed078f55505c3").attach(&repo))
+        Spec::from_id(hex_to_id_sha1_only("0000000000b36b6aa7ea4b75318ed078f55505c3").attach(&repo))
     );
     assert_eq!(
         actual.path_and_mode().expect("set"),

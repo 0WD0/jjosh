@@ -147,15 +147,29 @@ static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sy
 });
 
 /// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
+///
+/// This takes `GIX_TEST_FEATURE_HASH` into account, so it maps SHA-1 hashes to their
+/// corresponding SHA-256 hashes.
 pub fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
     match gix_testtools::object_hash_from_env().unwrap_or_default() {
         gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex"),
-        gix_hash::Kind::Sha256 => {
-            gix_hash::ObjectId::from_hex(SHA1_TO_SHA256_HASHES.get(hex).copied().unwrap_or(hex).as_bytes())
-                .expect("hex object id")
-        }
+        gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(
+            SHA1_TO_SHA256_HASHES
+                .get(hex)
+                .expect("40 bytes hash to be present in mapping")
+                .as_bytes(),
+        )
+        .expect("64 bytes hex"),
         _ => unimplemented!(),
     }
+}
+
+/// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
+///
+/// This does not take `GIX_TEST_FEATURE_HASH` into account, so it does not map SHA-1 hashes to
+/// SHA-256 hashes. Use this for tests that don't need a mapping.
+pub fn hex_to_id_sha1_only(hex: &str) -> gix_hash::ObjectId {
+    gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
 }
 
 pub fn freeze_time() -> gix_testtools::Env<'static> {
