@@ -138,6 +138,71 @@ fn invoke_bash_runs_in_given_working_directory() {
 }
 
 #[test]
+fn split_git_arguments_handles_multiline_whitespace() {
+    assert_eq!(
+        split_git_arguments(
+            "log
+             --graph
+             --oneline",
+        )
+        .expect("valid arguments"),
+        ["log", "--graph", "--oneline"]
+    );
+}
+
+#[test]
+fn split_git_arguments_handles_quoted_arguments() {
+    assert_eq!(
+        split_git_arguments(
+            "commit
+             -m 'subject with spaces'
+             --author=\"A U Thor <author@example.com>\"",
+        )
+        .expect("valid arguments"),
+        [
+            "commit",
+            "-m",
+            "subject with spaces",
+            "--author=A U Thor <author@example.com>"
+        ]
+    );
+}
+
+#[test]
+fn split_git_arguments_handles_empty_quoted_arguments() {
+    assert_eq!(
+        split_git_arguments("diff -- pathspec:''").expect("valid arguments"),
+        ["diff", "--", "pathspec:"]
+    );
+    assert_eq!(
+        split_git_arguments("diff -- ''").expect("valid arguments"),
+        ["diff", "--", ""]
+    );
+}
+
+#[test]
+fn split_git_arguments_handles_escaped_whitespace() {
+    assert_eq!(
+        split_git_arguments(r"add path\ with\ spaces").expect("valid arguments"),
+        ["add", "path with spaces"]
+    );
+}
+
+#[test]
+fn split_git_arguments_concatenates_quoted_and_unquoted_parts() {
+    assert_eq!(
+        split_git_arguments(r#"commit -m prefix" quoted "suffix"#).expect("valid arguments"),
+        ["commit", "-m", "prefix quoted suffix"]
+    );
+}
+
+#[test]
+fn split_git_arguments_rejects_unterminated_quotes() {
+    assert!(split_git_arguments("commit -m 'unterminated").is_err());
+    assert!(split_git_arguments("commit -m \"unterminated").is_err());
+}
+
+#[test]
 fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
     let first = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
     let second = gix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba").expect("valid SHA1");
