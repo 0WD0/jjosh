@@ -172,7 +172,7 @@ mod non_bare {
             tmp.path(),
             gix::create::Kind::WithWorktree,
             gix::create::Options {
-                destination_must_be_empty: true,
+                destination_must_be_empty: Some(true),
                 ..Default::default()
             },
             gix::open::Options::isolated(),

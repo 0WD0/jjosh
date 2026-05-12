@@ -73,7 +73,12 @@ impl PrepareFetch {
 impl Drop for PrepareFetch {
     fn drop(&mut self) {
         if let Some(repo) = self.repo.take() {
-            std::fs::remove_dir_all(repo.workdir().unwrap_or_else(|| repo.path())).ok();
+            if self.destination_was_empty {
+                std::fs::remove_dir_all(repo.workdir().unwrap_or_else(|| repo.path())).ok();
+            } else {
+                // The destination held pre-existing user files; only remove the `.git` we created.
+                std::fs::remove_dir_all(repo.path()).ok();
+            }
         }
     }
 }

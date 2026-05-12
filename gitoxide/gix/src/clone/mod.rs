@@ -42,6 +42,9 @@ pub struct PrepareFetch {
     /// The name of the reference to fetch. If `None`, the reference pointed to by `HEAD` will be checked out.
     #[cfg_attr(not(feature = "blocking-network-client"), allow(dead_code))]
     ref_name: Option<gix_ref::PartialName>,
+    /// `true` iff the destination directory was empty (or did not exist) when this handle was created.
+    /// When `false`, drop will avoid removing pre-existing user files and only clean up the `.git` we created.
+    destination_was_empty: bool,
 }
 
 /// The error returned by [`PrepareFetch::new()`].
@@ -102,7 +105,17 @@ impl PrepareFetch {
         mut create_opts: crate::create::Options,
         open_opts: crate::open::Options,
     ) -> Result<Self, Error> {
-        create_opts.destination_must_be_empty = true;
+        if create_opts.destination_must_be_empty.is_none() {
+            create_opts.destination_must_be_empty = Some(true);
+        }
+
+        // Capture this before init_opts creates `.git`, otherwise the check below would see our own files.
+        let destination_was_empty = match std::fs::read_dir(path) {
+            Ok(mut entries) => entries.next().is_none(),
+            // Non-existent (or unreadable) — init_opts will create the directory.
+            Err(_) => true,
+        };
+
         let mut repo = crate::ThreadSafeRepository::init_opts(path, kind, create_opts, open_opts)?.to_thread_local();
         url.canonicalize(repo.options.current_dir_or_empty())
             .map_err(|err| Error::CanonicalizeUrl {
@@ -122,6 +135,7 @@ impl PrepareFetch {
             configure_connection: None,
             shallow: remote::fetch::Shallow::NoChange,
             ref_name: None,
+            destination_was_empty,
         })
     }
 }
@@ -136,6 +150,9 @@ pub struct PrepareCheckout {
     pub(self) repo: Option<crate::Repository>,
     /// The name of the reference to check out. If `None`, the reference pointed to by `HEAD` will be checked out.
     pub(self) ref_name: Option<gix_ref::PartialName>,
+    /// `true` iff the destination directory was empty (or did not exist) when the parent [`PrepareFetch`] was created.
+    /// When `false`, drop must avoid removing pre-existing user files and only clean up the `.git` we created.
+    pub(self) destination_was_empty: bool,
 }
 
 // This module encapsulates functionality that works with both feature toggles. Can be combined with `fetch`

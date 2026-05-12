@@ -110,10 +110,17 @@ fn create_dir(p: &Path) -> Result<(), Error> {
 /// Options for use in [`into()`];
 #[derive(Copy, Clone, Default)]
 pub struct Options {
-    /// If true, and the kind of repository to create has a worktree, then the destination directory must be empty.
+    /// Control whether the destination directory must be empty when creating a repository with a worktree.
     ///
-    /// By default repos with worktree can be initialized into a non-empty repository as long as there is no `.git` directory.
-    pub destination_must_be_empty: bool,
+    /// - `None` (default): worktree repos may be initialized into a non-empty directory as long as no `.git`
+    ///   directory is present. [`crate::clone::PrepareFetch::new`] interprets `None` as `Some(true)` to preserve
+    ///   the historical strict-by-default behavior for clones.
+    /// - `Some(true)`: require an empty destination directory.
+    /// - `Some(false)`: explicitly allow initialization into a non-empty destination directory (still requires
+    ///   that no `.git` directory is present).
+    ///
+    /// Bare repositories always require an empty destination, regardless of this option.
+    pub destination_must_be_empty: Option<bool>,
     /// If set, use these filesystem capabilities to populate the respective git-config fields.
     /// If `None`, the directory will be probed.
     pub fs_capabilities: Option<gix_fs::Capabilities>,
@@ -135,7 +142,7 @@ pub fn into(
     let mut dot_git = directory.into();
     let bare = matches!(kind, Kind::Bare);
 
-    if bare || destination_must_be_empty {
+    if bare || destination_must_be_empty.unwrap_or(false) {
         let num_entries_in_dot_git = fs::read_dir(&dot_git)
             .or_else(|err| {
                 if err.kind() == std::io::ErrorKind::NotFound {
