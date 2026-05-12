@@ -22,6 +22,14 @@ pub fn fixture_index_path(name: &str) -> PathBuf {
     dir.join(".git").join("index")
 }
 
+pub fn fixture_index_path_needs_archive(name: &str) -> PathBuf {
+    let dir = gix_testtools::scripted_fixture_read_only_needs_archive(
+        Path::new("make_index").join(name).with_extension("sh"),
+    )
+    .expect("script works");
+    dir.join(".git").join("index")
+}
+
 pub fn loose_file_path(name: &str) -> PathBuf {
     gix_testtools::fixture_path(Path::new("loose_index").join(name).with_extension("git-index"))
 }

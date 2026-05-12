@@ -7,8 +7,40 @@ use crate::{
     util::{read_u32, split_at_byte_exclusive, var_int},
 };
 
+impl UntrackedCache {
+    /// Something identifying the location and machine that this cache is for.
+    pub fn identifier(&self) -> &bstr::BStr {
+        self.identifier.as_ref()
+    }
+
+    /// Stat and object id for the `.git/info/exclude` file, if available.
+    pub fn info_exclude(&self) -> Option<&OidStat> {
+        self.info_exclude.as_ref()
+    }
+
+    /// Stat and object id for the `core.excludesfile`, if available.
+    pub fn excludes_file(&self) -> Option<&OidStat> {
+        self.excludes_file.as_ref()
+    }
+
+    /// Usually `.gitignore`.
+    pub fn exclude_filename_per_dir(&self) -> &bstr::BStr {
+        self.exclude_filename_per_dir.as_ref()
+    }
+
+    /// The directory flags Git used while populating the cache.
+    pub fn dir_flags(&self) -> u32 {
+        self.dir_flags
+    }
+
+    /// A list of directories and sub-directories, with `directories[0]` being the root.
+    pub fn directories(&self) -> &[Directory] {
+        &self.directories
+    }
+}
+
 /// A structure to track filesystem stat information along with an object id, linking a worktree file with what's in our ODB.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct OidStat {
     /// The file system stat information
     pub stat: entry::Stat,
@@ -29,7 +61,7 @@ impl OidStat {
 }
 
 /// A directory with information about its untracked files, and its sub-directories
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Directory {
     /// The directories name, or an empty string if this is the root directory.
     pub name: BString,
@@ -48,6 +80,7 @@ pub struct Directory {
 
 impl Directory {
     /// The directory name, or an empty string if this is the root directory.
+    /// `/` is always used as path-separator.
     pub fn name(&self) -> &bstr::BStr {
         self.name.as_ref()
     }

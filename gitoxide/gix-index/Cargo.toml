@@ -76,6 +76,7 @@ gix-hashtable = { path = "../gix-hashtable" }
 gix-odb = { path = "../gix-odb" }
 gix-object = { path = "../gix-object" }
 filetime = "0.2.27"
+insta = { version = "1.46.3", features = ["filters"] }
 
 [package.metadata.docs.rs]
 features = ["sha1", "document-features", "serde"]

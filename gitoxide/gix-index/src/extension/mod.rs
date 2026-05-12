@@ -45,7 +45,7 @@ pub struct Link {
 
 /// The extension for untracked files.
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct UntrackedCache {
     /// Something identifying the location and machine that this cache is for.
     /// Should the repository be copied to a different machine, the entire cache can immediately be invalidated.
@@ -60,38 +60,6 @@ pub struct UntrackedCache {
 
     /// A list of directories and sub-directories, with `directories[0]` being the root.
     directories: Vec<untracked_cache::Directory>,
-}
-
-impl UntrackedCache {
-    /// Something identifying the location and machine that this cache is for.
-    pub fn identifier(&self) -> &bstr::BStr {
-        self.identifier.as_ref()
-    }
-
-    /// Stat and object id for the `.git/info/exclude` file, if available.
-    pub fn info_exclude(&self) -> Option<&untracked_cache::OidStat> {
-        self.info_exclude.as_ref()
-    }
-
-    /// Stat and object id for the `core.excludesfile`, if available.
-    pub fn excludes_file(&self) -> Option<&untracked_cache::OidStat> {
-        self.excludes_file.as_ref()
-    }
-
-    /// Usually `.gitignore`.
-    pub fn exclude_filename_per_dir(&self) -> &bstr::BStr {
-        self.exclude_filename_per_dir.as_ref()
-    }
-
-    /// The directory flags Git used while populating the cache.
-    pub fn dir_flags(&self) -> u32 {
-        self.dir_flags
-    }
-
-    /// A list of directories and sub-directories, with `directories[0]` being the root.
-    pub fn directories(&self) -> &[untracked_cache::Directory] {
-        &self.directories
-    }
 }
 
 /// The extension for keeping state on recent information provided by the filesystem monitor.

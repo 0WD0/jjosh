@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-export XDG_CONFIG_HOME=$(pwd)/config
-
 git init -q
 
-mkdir done dtwo dthree
-touch one two three done/one dtwo/two dthree/three
-git add one two done/one
+mkdir tracked-dir untracked-dir-2 untracked-dir-3
+touch tracked-root-one tracked-root-two untracked-root-file \
+    tracked-dir/tracked-file \
+    untracked-dir-2/untracked-file-two \
+    untracked-dir-3/untracked-file-three
+git add tracked-root-one tracked-root-two tracked-dir/tracked-file
 : >.git/info/exclude
 git update-index --untracked-cache

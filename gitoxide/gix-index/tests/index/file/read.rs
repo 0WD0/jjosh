@@ -32,9 +32,33 @@ pub(crate) fn try_file(name: &str) -> Result<gix_index::File, gix_index::file::i
 pub(crate) fn file(name: &str) -> gix_index::File {
     try_file(name).unwrap()
 }
+/// Needed if we have to freeze the fixture if contents depends on filesystem traversal order
+/// This is Ok and similar to our manual copies of indices, except that it can be regenerated.
+fn file_needs_archive(name: &str) -> gix_index::File {
+    let file = gix_index::File::at(
+        crate::fixture_index_path_needs_archive(name),
+        gix_hash::Kind::Sha1,
+        false,
+        Default::default(),
+    )
+    .unwrap();
+    verify(file)
+}
 fn file_opt(name: &str, opts: gix_index::decode::Options) -> gix_index::File {
     let file = gix_index::File::at(crate::fixture_index_path(name), gix_hash::Kind::Sha1, false, opts).unwrap();
     verify(file)
+}
+
+fn with_untracked_snapshot_filters(run: impl FnOnce()) {
+    let mut settings = insta::Settings::clone_current();
+    settings.set_filters(vec![
+        (r#"(identifier: )"[^"]*""#, r#"$1"[redacted]""#),
+        (
+            r"(?s)Stat \{\s+mtime: Time \{\s+secs: \d+,\s+nsecs: \d+,\s+\},\s+ctime: Time \{\s+secs: \d+,\s+nsecs: \d+,\s+\},\s+dev: \d+,\s+ino: \d+,\s+uid: \d+,\s+gid: \d+,\s+size: \d+,\s+\}",
+            "Stat { ... }",
+        ),
+    ]);
+    settings.bind(run);
 }
 
 #[test]
@@ -201,55 +225,212 @@ fn untr_extension_with_oids() {
 
 #[test]
 fn untr_extension_empty() {
-    let file = file("untracked_cache_empty");
+    let file = file_needs_archive("untracked_cache_empty");
     let untracked = file.untracked().expect("untracked cache extension present");
 
-    assert_eq!(untracked.info_exclude(), None);
-    assert_eq!(untracked.excludes_file(), None);
-    assert_eq!(untracked.exclude_filename_per_dir(), ".gitignore");
-    assert_eq!(untracked.dir_flags(), 6);
-    assert!(untracked.directories().is_empty());
+    with_untracked_snapshot_filters(|| {
+        insta::assert_debug_snapshot!(untracked, @r#"
+        UntrackedCache {
+            identifier: "[redacted]",
+            info_exclude: None,
+            excludes_file: None,
+            exclude_filename_per_dir: ".gitignore",
+            dir_flags: 6,
+            directories: [],
+        }
+        "#);
+    });
 }
 
 #[test]
 fn untr_extension_populated() {
-    let file = file("untracked_cache_populated");
+    let file = file_needs_archive("untracked_cache_populated");
     let untracked = file.untracked().expect("untracked cache extension present");
 
-    dbg!(untracked.info_exclude());
-    dbg!(untracked.excludes_file());
+    with_untracked_snapshot_filters(|| {
+        insta::assert_debug_snapshot!(untracked, @r#"
+        UntrackedCache {
+            identifier: "[redacted]",
+            info_exclude: Some(
+                OidStat {
+                    stat: Stat { ... },
+                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                },
+            ),
+            excludes_file: None,
+            exclude_filename_per_dir: ".gitignore",
+            dir_flags: 6,
+            directories: [
+                Directory {
+                    name: "",
+                    untracked_entries: [
+                        "untracked-root-file",
+                        "untracked-dir-3/",
+                        "untracked-dir-2/",
+                    ],
+                    sub_directories: [
+                        1,
+                        2,
+                        3,
+                    ],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: false,
+                },
+                Directory {
+                    name: "tracked-dir",
+                    untracked_entries: [],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: false,
+                },
+                Directory {
+                    name: "untracked-dir-2",
+                    untracked_entries: [
+                        "untracked-file-two",
+                    ],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+                Directory {
+                    name: "untracked-dir-3",
+                    untracked_entries: [
+                        "untracked-file-three",
+                    ],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+            ],
+        }
+        "#);
+    });
+}
 
-    assert_eq!(
-        untracked.info_exclude().map(|s| s.id),
-        Some(gix_hash::ObjectId::empty_blob(gix_hash::Kind::Sha1))
-    );
-    assert_eq!(untracked.excludes_file(), None);
-    assert_eq!(untracked.exclude_filename_per_dir(), ".gitignore");
-    assert_eq!(untracked.dir_flags(), 6);
+/// This mirrors Git's sparse/subdir untracked-cache coverage: a directory can
+/// carry its own exclude-file oid, and nested untracked directories are
+/// serialized depth-first while root sub-directory indices still point at
+/// the corresponding directory records.
+#[test]
+fn untr_extension_nested() {
+    let file = file_needs_archive("untracked_cache_nested");
+    let untracked = file.untracked().expect("untracked cache extension present");
 
-    let mut dirs = untracked.directories().to_vec();
-    dirs.sort_by(|a, b| a.name().cmp(b.name()));
-    assert_eq!(dirs.len(), 4);
-
-    assert_eq!(dirs[0].name(), "");
-    let mut untracked_entries = dirs[0].untracked_entries().to_vec();
-    untracked_entries.sort();
-    assert_eq!(untracked_entries, vec!["dthree/", "dtwo/", "three"]);
-    assert_eq!(dirs[0].sub_directories, vec![1, 2, 3]);
-
-    assert_eq!(dirs[1].name(), "done");
-    assert!(dirs[1].untracked_entries.is_empty());
-    assert!(dirs[1].sub_directories.is_empty());
-
-    assert_eq!(dirs[2].name(), "dthree");
-    assert_eq!(dirs[2].untracked_entries, vec!["three"]);
-    assert!(dirs[2].sub_directories.is_empty());
-    assert!(dirs[2].check_only());
-
-    assert_eq!(dirs[3].name(), "dtwo");
-    assert_eq!(dirs[3].untracked_entries, vec!["two"]);
-    assert!(dirs[3].sub_directories.is_empty());
-    assert!(dirs[3].check_only());
+    with_untracked_snapshot_filters(|| {
+        insta::assert_debug_snapshot!(untracked, @r#"
+        UntrackedCache {
+            identifier: "[redacted]",
+            info_exclude: Some(
+                OidStat {
+                    stat: Stat { ... },
+                    id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                },
+            ),
+            excludes_file: None,
+            exclude_filename_per_dir: ".gitignore",
+            dir_flags: 6,
+            directories: [
+                Directory {
+                    name: "",
+                    untracked_entries: [
+                        "untracked-root-file",
+                        "untracked-dir-3/",
+                        "untracked-dir-2/",
+                    ],
+                    sub_directories: [
+                        1,
+                        4,
+                        5,
+                    ],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: false,
+                },
+                Directory {
+                    name: "tracked-dir-with-ignore",
+                    untracked_entries: [
+                        "visible-untracked-file",
+                        "nested-untracked-dir/",
+                    ],
+                    sub_directories: [
+                        2,
+                    ],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: Some(
+                        Sha1(55535cdccae965cd0ea191aa22df1145a983b2f9),
+                    ),
+                    check_only: false,
+                },
+                Directory {
+                    name: "nested-untracked-dir",
+                    untracked_entries: [
+                        "deep-untracked-dir/",
+                    ],
+                    sub_directories: [
+                        3,
+                    ],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+                Directory {
+                    name: "deep-untracked-dir",
+                    untracked_entries: [
+                        "deep-untracked-file",
+                    ],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+                Directory {
+                    name: "untracked-dir-2",
+                    untracked_entries: [
+                        "untracked-file-two",
+                    ],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+                Directory {
+                    name: "untracked-dir-3",
+                    untracked_entries: [
+                        "untracked-file-three",
+                    ],
+                    sub_directories: [],
+                    stat: Some(
+                        Stat { ... },
+                    ),
+                    exclude_file_oid: None,
+                    check_only: true,
+                },
+            ],
+        }
+        "#);
+    });
 }
 
 #[test]
