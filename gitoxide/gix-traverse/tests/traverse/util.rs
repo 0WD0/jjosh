@@ -232,7 +232,7 @@ pub fn hex_to_id(hex: &str) -> ObjectId {
         gix_hash::Kind::Sha256 => ObjectId::from_hex(
             SHA1_TO_SHA256_HASHES
                 .get(hex)
-                .expect("40 bytes hash to be present in mapping")
+                .unwrap_or_else(|| panic!("SHA-1 {hex} wasn't mapped to SHA-256 yet"))
                 .as_bytes(),
         )
         .expect("64 bytes hex"),
