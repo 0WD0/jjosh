@@ -42,9 +42,8 @@ pub struct PrepareFetch {
     /// The name of the reference to fetch. If `None`, the reference pointed to by `HEAD` will be checked out.
     #[cfg_attr(not(feature = "blocking-network-client"), allow(dead_code))]
     ref_name: Option<gix_ref::PartialName>,
-    /// `true` iff the destination directory was empty (or did not exist) when this handle was created.
-    /// When `false`, drop will avoid removing pre-existing user files and only clean up the `.git` we created.
-    destination_was_empty: bool,
+    /// If `true`, drop removes the entire worktree. Otherwise leave it alone.
+    remove_worktree_on_drop: bool,
 }
 
 /// The error returned by [`PrepareFetch::new()`].
@@ -110,10 +109,12 @@ impl PrepareFetch {
         }
 
         // Capture this before init_opts creates `.git`, otherwise the check below would see our own files.
-        let destination_was_empty = match std::fs::read_dir(path) {
+        let remove_worktree_on_drop = match std::fs::read_dir(path) {
             Ok(mut entries) => entries.next().is_none(),
-            // Non-existent (or unreadable) — init_opts will create the directory.
-            Err(_) => true,
+            // Non-existent destinations will be created by init_opts.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
+            // If we can't verify emptiness, keep cleanup conservative and leave the destination untouched.
+            Err(_) => false,
         };
 
         let mut repo = crate::ThreadSafeRepository::init_opts(path, kind, create_opts, open_opts)?.to_thread_local();
@@ -135,7 +136,7 @@ impl PrepareFetch {
             configure_connection: None,
             shallow: remote::fetch::Shallow::NoChange,
             ref_name: None,
-            destination_was_empty,
+            remove_worktree_on_drop,
         })
     }
 }
@@ -150,9 +151,21 @@ pub struct PrepareCheckout {
     pub(self) repo: Option<crate::Repository>,
     /// The name of the reference to check out. If `None`, the reference pointed to by `HEAD` will be checked out.
     pub(self) ref_name: Option<gix_ref::PartialName>,
-    /// `true` iff the destination directory was empty (or did not exist) when the parent [`PrepareFetch`] was created.
-    /// When `false`, drop must avoid removing pre-existing user files and only clean up the `.git` we created.
-    pub(self) destination_was_empty: bool,
+    /// If `true`, drop removes the entire worktree. Otherwise leave it alone.
+    pub(self) remove_worktree_on_drop: bool,
+}
+
+fn cleanup_clone_destination_on_drop(repo: &crate::Repository, remove_worktree_on_drop: bool) {
+    let path_to_remove = if remove_worktree_on_drop {
+        Some(repo.workdir().unwrap_or_else(|| repo.path()))
+    } else {
+        // The destination held pre-existing user files. Leave everything, including the `.git` we created,
+        // so the user can inspect or clean up the partially cloned repository with Git tooling.
+        None
+    };
+    if let Some(path_to_remove) = path_to_remove {
+        std::fs::remove_dir_all(path_to_remove).ok();
+    }
 }
 
 // This module encapsulates functionality that works with both feature toggles. Can be combined with `fetch`

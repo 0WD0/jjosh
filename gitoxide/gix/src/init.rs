@@ -42,8 +42,10 @@ pub enum Error {
 impl ThreadSafeRepository {
     /// Create a repository with work-tree within `directory`, creating intermediate directories as needed.
     ///
-    /// Fails without action if there is already a `.git` repository inside of `directory`, but
-    /// won't mind if the `directory` otherwise is non-empty.
+    /// Fails without action if the destination directory isn't empty unless
+    /// [`create::Options::destination_must_be_empty`][crate::create::Options::destination_must_be_empty] is `None`
+    /// or `Some(false)`. Note that initialization still fails if a `.git` directory already exists in
+    /// the destination.
     pub fn init(
         directory: impl AsRef<Path>,
         kind: crate::create::Kind,

@@ -108,16 +108,20 @@ fn create_dir(p: &Path) -> Result<(), Error> {
 }
 
 /// Options for use in [`into()`];
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Default, Clone)]
 pub struct Options {
     /// Control whether the destination directory must be empty when creating a repository with a worktree.
     ///
-    /// - `None` (default): worktree repos may be initialized into a non-empty directory as long as no `.git`
-    ///   directory is present. [`crate::clone::PrepareFetch::new`] interprets `None` as `Some(true)` to preserve
-    ///   the historical strict-by-default behavior for clones.
+    /// - `None` (default): initialize like Git and allow a non-empty destination directory, as long as no `.git`
+    ///   directory is present.
     /// - `Some(true)`: require an empty destination directory.
-    /// - `Some(false)`: explicitly allow initialization into a non-empty destination directory (still requires
-    ///   that no `.git` directory is present).
+    /// - `Some(false)`: explicitly allow initialization into a non-empty destination directory (still requires that no
+    ///   `.git` directory is present).
+    ///
+    /// For clones, checkout failure cleanup is based on whether the destination was already present and non-empty before
+    /// initialization began, not on this option alone. In particular, if the destination was empty or had to be created,
+    /// cleanup may remove the entire destination, including the created `.git` directory. Preservation of the destination
+    /// for inspection or manual cleanup is only guaranteed when the destination was non-empty before the clone started.
     ///
     /// Bare repositories always require an empty destination, regardless of this option.
     pub destination_must_be_empty: Option<bool>,
