@@ -1401,6 +1401,10 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env_remove("GIT_ASKPASS")
         .env_remove("SSH_ASKPASS")
         .env("MSYS", msys_for_git_bash_on_windows)
+        .env(
+            "XDG_CONFIG_HOME",
+            script_result_directory.join(".gix-testtools-xdg-config"),
+        )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", NULL_DEVICE)
         .env("GIT_TERMINAL_PROMPT", "false")

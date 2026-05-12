@@ -65,6 +65,23 @@ fn configure_command_clears_external_config() {
 }
 
 #[test]
+fn configure_command_overrides_xdg_config_home() {
+    let temp = tempfile::TempDir::new().expect("can create temp dir");
+    let mut cmd = std::process::Command::new(GIT_PROGRAM);
+    cmd.env("XDG_CONFIG_HOME", temp.path().join("external-config"));
+    configure_command(&mut cmd, gix_hash::Kind::default(), ["--version"], temp.path());
+
+    let xdg_config_home = cmd
+        .get_envs()
+        .find_map(|(key, value)| (key == "XDG_CONFIG_HOME").then_some(value))
+        .flatten();
+    assert_eq!(
+        xdg_config_home,
+        Some(temp.path().join(".gix-testtools-xdg-config").as_os_str())
+    );
+}
+
+#[test]
 #[cfg(windows)]
 fn bash_program_ok_for_platform() {
     let path = bash_program();
