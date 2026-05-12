@@ -984,6 +984,7 @@ where
         &archive_name,
         object_hash,
         &script_identity,
+        None,
     );
     let _marker = marker_if_needed(destination_dir, archive_name)?;
 
@@ -1024,15 +1025,19 @@ fn force_and_dir(
     archive_name: impl AsRef<Path>,
     object_hash: Option<gix_hash::Kind>,
     script_identity: &dyn std::fmt::Display,
+    cache_variant: Option<&str>,
 ) -> (bool, PathBuf) {
     destination_dir.map_or_else(
         || {
-            let dir = fixture_base.join(
+            let mut dir = fixture_base.join(
                 Path::new("generated-do-not-edit")
                     .join(archive_name)
-                    .join(object_hash.unwrap_or_else(self::object_hash).to_string())
-                    .join(format!("{}-{}", script_identity, family_name())),
+                    .join(object_hash.unwrap_or_else(self::object_hash).to_string()),
             );
+            if let Some(cache_variant) = cache_variant {
+                dir = dir.join(cache_variant);
+            }
+            let dir = dir.join(format!("{}-{}", script_identity, family_name()));
             (false, dir)
         },
         |d| (true, d.to_owned()),
@@ -1207,6 +1212,7 @@ where
         script_basename,
         Some(object_hash),
         &script_identity,
+        needs_archive.then_some("archive"),
     );
     let _marker = marker_if_needed(destination_dir, script_basename)?;
 
