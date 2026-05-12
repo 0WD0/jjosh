@@ -530,6 +530,31 @@ pub fn scripted_fixture_read_only(script_name: impl AsRef<Path>) -> Result<PathB
     scripted_fixture_read_only_with_args(script_name, None::<String>)
 }
 
+/// Like [`scripted_fixture_read_only()`], but uses a matching existing archive even if
+/// `GIX_TEST_IGNORE_ARCHIVES` is set.
+///
+/// Use this only for fixtures whose generated contents are not stable across
+/// platforms or filesystems and must therefore be frozen by the checked-in
+/// archive.
+///
+/// CI normally sets `GIX_TEST_IGNORE_ARCHIVES` so fixture scripts are rerun and
+/// tracked archives are proven reproducible. This helper is the opt-out for
+/// fixtures where rerunning the producer can legitimately change
+/// without changing semantics, for example when Git writes entries in filesystem
+/// traversal order.
+pub fn scripted_fixture_read_only_needs_archive(script_name: impl AsRef<Path>) -> Result<PathBuf> {
+    scripted_fixture_read_only_with_args_inner::<fn(FixtureState<'_>) -> PostResult, ()>(
+        script_name,
+        None::<String>,
+        None,
+        ArgsInHash::Yes,
+        default_excludes(),
+        None::<(u32, _)>,
+        true,
+    )
+    .map(|(dir, _)| dir)
+}
+
 /// Run the executable at `script_name`, like `make_repo.sh` to produce a writable directory to which
 /// the tempdir is returned. It will be removed automatically, courtesy of [`tempfile::TempDir`].
 ///
@@ -598,6 +623,7 @@ where
                 args_in_hash,
                 excludes,
                 post_process.as_mut().map(|(v, f)| (*v, f)),
+                false,
             )?;
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
             (dst, _res_ignored)
@@ -611,6 +637,7 @@ where
                 args_in_hash,
                 excludes,
                 post_process.as_mut().map(|(v, f)| (*v, f)),
+                false,
             )?;
             (dst, post_result)
         }
@@ -648,6 +675,7 @@ pub fn scripted_fixture_read_only_with_args(
         ArgsInHash::Yes,
         default_excludes(),
         None::<(u32, _)>,
+        false,
     )
     .map(|(dir, _)| dir)
 }
@@ -674,6 +702,7 @@ pub fn scripted_fixture_read_only_with_args_single_archive(
         ArgsInHash::No,
         default_excludes(),
         None::<(u32, _)>,
+        false,
     )
     .map(|(dir, _)| dir)
 }
@@ -698,6 +727,7 @@ pub fn scripted_fixture_read_only_with_post<T>(
         ArgsInHash::Yes,
         default_excludes(),
         Some((version, post_process)),
+        false,
     )
     .map(|(path, opt)| (path, opt.expect("post_process was provided")))
 }
@@ -718,6 +748,7 @@ pub fn scripted_fixture_read_only_with_args_with_post<T>(
         ArgsInHash::Yes,
         default_excludes(),
         Some((version, post_process)),
+        false,
     )
     .map(|(path, opt)| (path, opt.expect("post_process was provided")))
 }
@@ -738,6 +769,7 @@ pub fn scripted_fixture_read_only_with_args_single_archive_with_post<T>(
         ArgsInHash::No,
         default_excludes(),
         Some((version, post_process)),
+        false,
     )
     .map(|(path, opt)| (path, opt.expect("post_process was provided")))
 }
@@ -960,6 +992,7 @@ where
         &script_result_directory,
         script_identity,
         force_run,
+        false,
         excludes,
         &format!("using Rust closure '{name}'"),
         make_fixture,
@@ -1006,11 +1039,13 @@ fn force_and_dir(
     )
 }
 
+#[expect(clippy::too_many_arguments)]
 fn run_fixture_generator_with_marker_handling<T, F>(
     archive_file_path: &Path,
     script_result_directory: &Path,
     script_identity: u32,
     force_run: bool,
+    needs_archive: bool,
     excludes: &dyn IsExcluded,
     description: &str,
     make_fixture: F,
@@ -1029,7 +1064,12 @@ where
             })?;
         }
         std::fs::create_dir_all(script_result_directory)?;
-        match extract_archive(archive_file_path, script_result_directory, script_identity) {
+        match extract_archive(
+            archive_file_path,
+            script_result_directory,
+            script_identity,
+            needs_archive,
+        ) {
             Ok((archive_id, platform)) => {
                 eprintln!(
                     "Extracted fixture from archive '{}' ({}, {:?})",
@@ -1082,6 +1122,7 @@ fn scripted_fixture_read_only_with_args_inner<F, T>(
     args_in_hash: ArgsInHash,
     excludes: &dyn IsExcluded,
     post_process: Option<(u32, F)>,
+    needs_archive: bool,
 ) -> Result<(PathBuf, Option<T>)>
 where
     F: FnMut(FixtureState<'_>) -> PostResult<T>,
@@ -1181,6 +1222,7 @@ where
         &script_result_directory,
         script_identity_for_archive,
         force_run,
+        needs_archive,
         excludes,
         &format!("using script '{}'", script_location.display()),
         |fixture_state| {
@@ -1541,12 +1583,13 @@ fn extract_archive(
     archive: &Path,
     destination_dir: &Path,
     required_script_identity: u32,
+    needs_archive: bool,
 ) -> std::io::Result<(u32, Option<String>)> {
     let archive_buf: Vec<u8> = {
         let mut buf = Vec::new();
         #[cfg_attr(feature = "xz", allow(unused_mut))]
         let mut input_archive = std::fs::File::open(archive)?;
-        if env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
+        if !needs_archive && env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
             return Err(std::io::Error::other(format!(
                 "Ignoring archive at '{}' as GIX_TEST_IGNORE_ARCHIVES is set.",
                 archive.display()
