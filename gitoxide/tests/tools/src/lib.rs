@@ -1244,6 +1244,90 @@ pub fn object_hash() -> gix_hash::Kind {
     object_hash_from_env().unwrap_or_default()
 }
 
+/// Run `git` in `current_dir` with shell-like whitespace-separated `arguments`, returning stdout as UTF-8.
+///
+/// Note that Git is run as isolated as possible, just like scripts.
+///
+/// Arguments may be split across multiple lines. Single and double quotes can be used to keep whitespace
+/// within an argument, for example `commit -m 'a message with spaces'`.
+pub fn git(current_dir: impl AsRef<Path>, arguments: &str) -> Result<String> {
+    let args = split_git_arguments(arguments)?;
+    let cwd = current_dir.as_ref();
+    let mut cmd = std::process::Command::new(GIT_PROGRAM);
+    let output = configure_command(&mut cmd, object_hash(), args.iter().map(String::as_str), cwd)
+        .current_dir(cwd)
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "{cmd:?} failed with status {}\nstdout: {}\nstderr: {}",
+            output.status,
+            output.stdout.as_bstr(),
+            output.stderr.as_bstr()
+        )
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+fn split_git_arguments(input: &str) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    let mut arg = String::new();
+    let mut quote = None;
+    let mut has_arg = false;
+    let mut chars = input.chars();
+
+    while let Some(ch) = chars.next() {
+        match quote {
+            Some('\'') => {
+                if ch == '\'' {
+                    quote = None;
+                } else {
+                    arg.push(ch);
+                }
+            }
+            Some('"') => {
+                if ch == '"' {
+                    quote = None;
+                } else if ch == '\\' {
+                    if let Some(next) = chars.next() {
+                        arg.push(next);
+                    }
+                } else {
+                    arg.push(ch);
+                }
+            }
+            Some(_) => unreachable!("only single and double quotes are set"),
+            None => {
+                if ch.is_whitespace() {
+                    if has_arg {
+                        args.push(std::mem::take(&mut arg));
+                        has_arg = false;
+                    }
+                } else if matches!(ch, '\'' | '"') {
+                    quote = Some(ch);
+                    has_arg = true;
+                } else if ch == '\\' {
+                    if let Some(next) = chars.next() {
+                        arg.push(next);
+                    }
+                    has_arg = true;
+                } else {
+                    arg.push(ch);
+                    has_arg = true;
+                }
+            }
+        }
+    }
+
+    if let Some(quote) = quote {
+        return Err(format!("unterminated {quote:?} quote in git arguments").into());
+    }
+    if has_arg {
+        args.push(arg);
+    }
+    Ok(args)
+}
+
 /// Normalize debug-formatted `value` so one snapshot can be reused for SHA-1 and SHA-256 fixtures.
 ///
 /// The helper rewrites 40- and 64-character hexadecimal object IDs to stable `Oid(<n>)`

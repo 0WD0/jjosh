@@ -36,20 +36,20 @@ fn decode_uses_the_tree_id_hash_kind() -> crate::Result {
         _ => unimplemented!(),
     };
 
-    let bogus_sha256_entry_id = other_hash.null();
+    let bogus_other_hash_entry_id = other_hash.null();
     let mut data = b"100644 file\0".to_vec();
-    data.extend_from_slice(bogus_sha256_entry_id.as_bytes());
+    data.extend_from_slice(bogus_other_hash_entry_id.as_bytes());
 
-    let bogux_sha256_tree_id = other_hash.empty_tree();
-    let tree = gix::Tree::from_data(bogux_sha256_tree_id, data, &repo);
+    let bogus_other_hash_tree_id = other_hash.empty_tree();
+    let tree = gix::Tree::from_data(bogus_other_hash_tree_id, data, &repo);
     let decoded = tree.decode()?;
 
     assert_eq!(decoded.entries.len(), 1);
     assert_eq!(decoded.entries[0].filename, b"file".as_bstr());
-    assert_eq!(decoded.entries[0].oid, bogus_sha256_entry_id.as_ref());
+    assert_eq!(decoded.entries[0].oid, bogus_other_hash_entry_id.as_ref());
     assert_eq!(
-        bogus_sha256_entry_id.kind(),
-        bogux_sha256_tree_id.kind(),
+        bogus_other_hash_entry_id.kind(),
+        bogus_other_hash_tree_id.kind(),
         "both kinds are expected to match, the `repo.object_hash()` doesn't matter here"
     );
     Ok(())

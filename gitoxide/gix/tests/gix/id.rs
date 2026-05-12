@@ -53,14 +53,19 @@ fn prefix() -> crate::Result {
 
 #[test]
 fn display_and_debug() -> crate::Result {
-    let repo = crate::basic_repo()?;
-    let id = repo.head_id()?;
-    let kind = match id.kind() {
-        gix_hash::Kind::Sha1 => "Sha1",
-        gix_hash::Kind::Sha256 => "Sha256",
+    let expected = match gix_testtools::object_hash() {
+        gix_hash::Kind::Sha1 => {
+            "3189cd3cb0af8586c39a838aa3e54fd72a872a41 Sha1(3189cd3cb0af8586c39a838aa3e54fd72a872a41)"
+        }
+        gix_hash::Kind::Sha256 => {
+            "735ec3eb1e74b0815da6d8aeca80ffbffdca25a2b624cc54d5d34caca9bc4dec Sha256(735ec3eb1e74b0815da6d8aeca80ffbffdca25a2b624cc54d5d34caca9bc4dec)"
+        }
         _ => unimplemented!(),
     };
-    assert_eq!(format!("{id} {id:?}"), format!("{id} {kind}({id})"));
+
+    let repo = crate::basic_repo()?;
+    let id = repo.head_id()?;
+    assert_eq!(format!("{id} {id:?}"), expected);
     Ok(())
 }
 
