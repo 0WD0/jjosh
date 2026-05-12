@@ -65,6 +65,23 @@ fn configure_command_clears_external_config() {
 }
 
 #[test]
+fn configure_command_overrides_xdg_config_home() {
+    let temp = tempfile::TempDir::new().expect("can create temp dir");
+    let mut cmd = std::process::Command::new(GIT_PROGRAM);
+    cmd.env("XDG_CONFIG_HOME", temp.path().join("external-config"));
+    configure_command(&mut cmd, gix_hash::Kind::default(), ["--version"], temp.path());
+
+    let xdg_config_home = cmd
+        .get_envs()
+        .find_map(|(key, value)| (key == "XDG_CONFIG_HOME").then_some(value))
+        .flatten();
+    assert_eq!(
+        xdg_config_home,
+        Some(temp.path().join(".gix-testtools-xdg-config").as_os_str())
+    );
+}
+
+#[test]
 #[cfg(windows)]
 fn bash_program_ok_for_platform() {
     let path = bash_program();
@@ -301,4 +318,29 @@ fn gitignore_fallback_normalizes_windows_path_separators() {
         lines,
         Path::new(r"generated-archives\rust-basic.tar")
     ));
+}
+
+#[test]
+fn archive_required_fixtures_use_a_separate_cache_directory() {
+    // Archive-required fixtures must not share the normal generated fixture
+    // cache. Otherwise, a previous script run can leave platform-specific
+    // output behind and make a later archive-required request skip extraction.
+    // Using different paths makes sure they are actually from the archive if they exist.
+    let fixture_base = Path::new("tests").join("fixtures");
+    let (_, generated_dir) = force_and_dir(None, &fixture_base, "scripted", Some(gix_hash::Kind::Sha1), &1234, None);
+    let (_, archived_dir) = force_and_dir(
+        None,
+        &fixture_base,
+        "scripted",
+        Some(gix_hash::Kind::Sha1),
+        &1234,
+        Some("archive"),
+    );
+
+    assert_ne!(generated_dir, archived_dir);
+    assert!(
+        archived_dir
+            .components()
+            .any(|component| component.as_os_str() == "archive")
+    );
 }
