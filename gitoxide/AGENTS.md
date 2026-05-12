@@ -94,6 +94,16 @@ Follow "purposeful conventional commits" style:
 - Run tests before making changes to understand existing issues
 - Use `GIX_TEST_IGNORE_ARCHIVES=1` when testing on macOS/Windows
 - Journey tests validate CLI behavior end-to-end
+- Fixture scripts should document what behavior they exercise and what makes
+  the fixture special. Leave clear-text breadcrumbs so future readers can tell
+  which details are essential to the test. Use markdown doc-strings when available.
+- Stabilize fixtures whose generated contents can vary by using the
+  `_needs_archive` variants of functions in `gix-testtools`; these always use
+  packaged archived fixtures instead of platform-local generated output.
+- Use assertion descriptions to state what is being asserted. For `assert*!`
+  macros this is the last parameter; for `insta::assert*` macros it is the
+  second parameter. Prefer messages that explain the invariant, not just that an
+  assertion failed.
 
 ## Architecture Decisions
 
