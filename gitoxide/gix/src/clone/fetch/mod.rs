@@ -318,6 +318,7 @@ impl PrepareFetch {
             crate::clone::PrepareCheckout {
                 repo: repo.into(),
                 ref_name: self.ref_name.clone(),
+                remove_worktree_on_drop: self.remove_worktree_on_drop,
             },
             fetch_outcome,
         ))

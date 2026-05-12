@@ -20,6 +20,9 @@ mod blocking_io {
     use gix_ref::TargetRef;
     use gix_refspec::parse::Operation;
 
+    const EXISTING_CONTENT: &[u8] = b"Pre-existing user content.\n";
+    const EXISTING_HEAD_CONTENT: &[u8] = b"ref: refs/heads/pre-existing\n";
+
     fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
         let commits = repo.shallow_commits()?.expect(expected);
         Ok(std::iter::once(commits.head)
@@ -586,6 +589,144 @@ mod blocking_io {
     }
 
     #[test]
+    fn fetch_and_checkout_into_non_empty_directory() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty");
+        let existing_path = destination.join("existing.txt");
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?;
+        let (mut checkout, _out) =
+            prepare.fetch_then_checkout(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())?;
+
+        let index = repo.index()?;
+        assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+
+        assert_eq!(std::fs::read(&existing_path)?, EXISTING_CONTENT);
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_into_non_empty_directory_does_not_overwrite_pre_existing_tracked_file() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty-with-conflicting-file");
+        let existing_path = destination.join("file");
+        let remote_file_content = std::fs::read(remote::repo("base").workdir().expect("non-bare").join("file"))?;
+        assert_ne!(
+            EXISTING_CONTENT, remote_file_content,
+            "the fixture must differ from the file that checkout would write"
+        );
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?;
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, outcome) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert_eq!(
+            std::fs::read(&existing_path)?,
+            EXISTING_CONTENT,
+            "checkout must not overwrite the pre-existing tracked path"
+        );
+        assert_eq!(repo.index()?.entries().len(), 1, "the index is still written");
+        assert_eq!(
+            outcome.collisions,
+            [gix_worktree_state::checkout::Collision {
+                path: BString::from("file"),
+                error_kind: std::io::ErrorKind::AlreadyExists
+            }],
+            "the pre-existing tracked path is reported as a normal checkout collision"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_into_non_empty_directory_with_existing_dot_git_is_rejected() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty-with-dot-git");
+        let existing_path = destination.join("existing.txt");
+        let dot_git = destination.join(".git");
+        let head_path = dot_git.join("HEAD");
+
+        let err = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )
+        .map(drop)
+        .expect_err("an existing .git directory must not be reused for clone");
+
+        assert!(
+            matches!(
+                err,
+                gix::clone::Error::Init(gix::init::Error::Init(gix::create::Error::DirectoryExists { ref path }))
+                    if *path == dot_git
+            ),
+            "unexpected error: {err}"
+        );
+        assert_eq!(std::fs::read(&existing_path)?, EXISTING_CONTENT);
+        assert_eq!(std::fs::read(&head_path)?, EXISTING_HEAD_CONTENT);
+        Ok(())
+    }
+
+    #[test]
+    fn drop_after_failed_fetch_into_non_empty_directory_preserves_destination() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty");
+        let existing_path = destination.join("existing.txt");
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?
+        .with_ref_name(Some("does-not-exist"))?;
+
+        prepare
+            .fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())
+            .expect_err("non-existing ref must fail");
+        drop(prepare);
+
+        assert_eq!(
+            std::fs::read(&existing_path)?,
+            EXISTING_CONTENT,
+            "pre-existing user files must survive a failed clone+drop"
+        );
+        assert!(
+            destination.join(".git").is_dir(),
+            "the .git directory we created should remain for user cleanup"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn fetch_and_checkout_specific_ref() -> crate::Result {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let remote_repo = remote::repo("base");
@@ -829,6 +970,26 @@ fn clone_and_destination_must_be_empty() -> crate::Result {
                 .starts_with("Refusing to initialize the non-empty directory as ")
         ),
     }
+    Ok(())
+}
+
+#[test]
+fn clone_with_worktree_and_destination_must_be_empty() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+    let destination = fixture.path().join("non-empty");
+    let err = gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        &destination,
+        gix::create::Kind::WithWorktree,
+        Default::default(),
+        restricted(),
+    )
+    .map(drop)
+    .expect_err("this should fail as the directory isn't empty");
+    assert!(
+        err.to_string()
+            .starts_with("Refusing to initialize the non-empty directory as ")
+    );
     Ok(())
 }
 
