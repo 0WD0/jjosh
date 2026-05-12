@@ -136,33 +136,36 @@ mod traverse {
                     .collect::<Vec<_>>()
                 );
 
-                // Generated through `git log --graph --oneline`.
-                //
-                // SHA-1:
-                //
-                // f99771f A
-                // |\
-                // | * 2d9d136 C
-                // | |
-                // |  \
-                // *-. | dfd0954 (tag: b-tag) B
-                // |\ \|
-                // | | * 27e7157 (grafted) F
-                // | * b515286 (grafted) E
-                // * 82024b2 (grafted) D
-                //
-                // SHA-256:
-                //
-                // e36613f A
-                // |\
-                // | * 1e485b4 C
-                // | |
-                // |  \
-                // *-. | 94c0c58 (tag: b-tag) B
-                // |\ \|
-                // | | * c2eec0d (grafted) F
-                // | * a5d87b4 (grafted) E
-                // * 125ce6c (grafted) D
+                if !toggle && name == "shallow" {
+                    let graph = gix_testtools::git(repo.git_dir(), "log --graph --oneline")?;
+                    match gix_testtools::object_hash() {
+                        gix_hash::Kind::Sha1 => insta::assert_snapshot!(graph, @r"
+*   f99771f A
+|\  
+| * 2d9d136 C
+| |   
+|  \  
+*-. | dfd0954 B
+|\ \| 
+| | * 27e7157 F
+| * b515286 E
+* 82024b2 D
+"),
+                        gix_hash::Kind::Sha256 => insta::assert_snapshot!(graph, @r"
+*   e36613f A
+|\  
+| * 1e485b4 C
+| |   
+|  \  
+*-. | 94c0c58 B
+|\ \| 
+| | * c2eec0d F
+| * a5d87b4 E
+* 125ce6c D
+"),
+                        _ => unimplemented!(),
+                    }
+                }
             }
         }
         Ok(())

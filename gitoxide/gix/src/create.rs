@@ -117,8 +117,9 @@ pub struct Options {
     /// If set, use these filesystem capabilities to populate the respective git-config fields.
     /// If `None`, the directory will be probed.
     pub fs_capabilities: Option<gix_fs::Capabilities>,
-    /// If set to `Some(Sha256)`, initialize the repository with SHA-256.
-    /// Otherwise, no object hash will be explicitly set for the repository.
+    /// If set to `Some(Sha256)`, write `extensions.objectFormat=sha256`.
+    /// Otherwise, create a repository without an explicit object-format extension,
+    /// which is interpreted as legacy SHA-1.
     pub object_hash: Option<gix_hash::Kind>,
 }
 
@@ -231,7 +232,6 @@ pub fn into(
                     core.push(key("repositoryformatversion"), Some("1".into()));
 
                     let mut extensions = config.new_section("extensions", None).expect("valid section name");
-
                     extensions.push(
                         key("objectformat"),
                         Some(gix_hash::Kind::Sha256.to_string().as_bytes().into()),
