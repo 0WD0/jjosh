@@ -251,7 +251,7 @@ pub fn odb_at(objects_dir: impl Into<PathBuf>) -> Result<gix_odb::Handle> {
         objects_dir,
         Vec::new(),
         gix_odb::store::init::Options {
-            object_hash: gix_testtools::object_hash_from_env().unwrap_or_default(),
+            object_hash: gix_testtools::object_hash(),
             ..Default::default()
         },
     )?)
