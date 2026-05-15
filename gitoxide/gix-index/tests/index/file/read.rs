@@ -20,25 +20,41 @@ pub(crate) fn loose_file(name: &str) -> gix_index::File {
     let file = gix_index::File::at(path, gix_hash::Kind::Sha1, false, Default::default()).unwrap();
     verify(file)
 }
+
 pub(crate) fn try_file(name: &str, needs_archive: bool) -> Result<gix_index::File, gix_index::file::init::Error> {
     let path = if needs_archive {
         crate::fixture_index_path_needs_archive(name)
     } else {
         crate::fixture_index_path(name)
     };
-    let file = gix_index::File::at(path, gix_hash::Kind::Sha1, false, Default::default())?;
+    let object_hash = if needs_archive {
+        // Fixtures that need an archive contain hard-coded SHA-1 hashes.
+        gix_hash::Kind::Sha1
+    } else {
+        gix_testtools::object_hash()
+    };
+    let file = gix_index::File::at(path, object_hash, false, Default::default())?;
     Ok(verify(file))
 }
+
 pub(crate) fn file(name: &str) -> gix_index::File {
     try_file(name, false).unwrap()
 }
+
 /// Needed if we have to freeze the fixture if contents depends on filesystem traversal order
 /// This is Ok and similar to our manual copies of indices, except that it can be regenerated.
 fn file_needs_archive(name: &str) -> gix_index::File {
     try_file(name, true).unwrap()
 }
+
 fn file_opt(name: &str, opts: gix_index::decode::Options) -> gix_index::File {
-    let file = gix_index::File::at(crate::fixture_index_path(name), gix_hash::Kind::Sha1, false, opts).unwrap();
+    let file = gix_index::File::at(
+        crate::fixture_index_path(name),
+        gix_testtools::object_hash(),
+        false,
+        opts,
+    )
+    .unwrap();
     verify(file)
 }
 
@@ -117,6 +133,10 @@ fn v2_empty() {
 
 #[test]
 fn v2_empty_skip_hash() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = loose_file("skip_hash");
     assert_eq!(file.version(), Version::V2);
     assert_eq!(file.entries().len(), 0);
@@ -134,6 +154,10 @@ fn v2_empty_skip_hash() {
 
 #[test]
 fn v2_with_multiple_entries_without_eoie_ext() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = file_needs_archive("v2_more_files");
     with_index_file_snapshot_filters(true, || {
         insta::assert_snapshot!(format!("{file:#?}"), @r#"
@@ -201,7 +225,7 @@ fn find_shared_index_for(index: impl AsRef<Path>) -> PathBuf {
 fn split_index_without_any_extension() {
     let file = gix_index::File::at(
         find_shared_index_for(crate::fixture_index_path("v2_split_index")),
-        gix_hash::Kind::Sha1,
+        gix_testtools::object_hash(),
         false,
         Default::default(),
     )
@@ -264,6 +288,10 @@ fn untr_extension_with_oids() {
 
 #[test]
 fn untr_extension_empty() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = file_needs_archive("untracked_cache_empty");
 
     with_index_file_snapshot_filters(false, || {
@@ -306,6 +334,10 @@ fn untr_extension_empty() {
 
 #[test]
 fn untr_extension_populated() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = file_needs_archive("untracked_cache_populated");
 
     with_index_file_snapshot_filters(true, || {
@@ -410,6 +442,10 @@ fn untr_extension_populated() {
 /// the corresponding directory records.
 #[test]
 fn untr_extension_nested() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = file_needs_archive("untracked_cache_nested");
 
     with_index_file_snapshot_filters(true, || {
@@ -681,7 +717,7 @@ fn split_index_and_regular_index_of_same_content_are_indeed_the_same() {
     let split = verify(
         gix_index::File::at(
             base.join("split/.git/index"),
-            gix_hash::Kind::Sha1,
+            gix_testtools::object_hash(),
             false,
             Default::default(),
         )
@@ -696,7 +732,7 @@ fn split_index_and_regular_index_of_same_content_are_indeed_the_same() {
     let regular = verify(
         gix_index::File::at(
             base.join("regular/.git/index"),
-            gix_hash::Kind::Sha1,
+            gix_testtools::object_hash(),
             false,
             Default::default(),
         )
