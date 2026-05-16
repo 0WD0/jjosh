@@ -47,7 +47,7 @@ impl Proxy<'_> {
     /// Note that the location might not exist.
     pub fn base(&self) -> std::io::Result<PathBuf> {
         let git_dir = self.git_dir.join("gitdir");
-        let base_dot_git = gix_discover::path::from_plain_file(&git_dir).ok_or_else(|| {
+        let base_dot_git = gix_discover::path::from_plain_file_relative_to_file(&git_dir).ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("Required file '{}' does not exist", git_dir.display()),
