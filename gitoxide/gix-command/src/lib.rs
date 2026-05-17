@@ -304,6 +304,16 @@ mod prepare {
                     }
                     None => {
                         let shell = prep.shell_program.unwrap_or_else(|| gix_path::env::shell().into());
+                        // Passed as `command_name` after `-c <script>`; the shell uses it
+                        // as `$0`, which prefixes its own diagnostic messages. If the
+                        // shell path has no extractable basename — reachable only via
+                        // degenerate input like `""` or `/` — fall back to `_`, the
+                        // conventional placeholder for an unused `$0`, rather than
+                        // making a false claim about which shell is running.
+                        let arg0 = std::path::Path::new(&shell)
+                            .file_name()
+                            .unwrap_or(std::ffi::OsStr::new("_"))
+                            .to_os_string();
                         let mut cmd = Command::new(shell);
                         cmd.arg("-c");
                         if !prep.args.is_empty() {
@@ -322,12 +332,7 @@ mod prepare {
                             }
                         }
                         cmd.arg(prep.command);
-                        // Pass "sh" as the script name (`$0`) so that shell-produced
-                        // error messages are prefixed `sh: ...` rather than `--: ...`.
-                        // `--` looks like the conventional end-of-options marker but is
-                        // not treated specially here: it would simply become `$0`.
-                        // See https://github.com/GitoxideLabs/gitoxide/issues/1842.
-                        cmd.arg("sh");
+                        cmd.arg(arg0);
                         cmd
                     }
                 }
