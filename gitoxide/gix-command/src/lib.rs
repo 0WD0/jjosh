@@ -322,7 +322,12 @@ mod prepare {
                             }
                         }
                         cmd.arg(prep.command);
-                        cmd.arg("--");
+                        // Pass "sh" as the script name (`$0`) so that shell-produced
+                        // error messages are prefixed `sh: ...` rather than `--: ...`.
+                        // `--` looks like the conventional end-of-options marker but is
+                        // not treated specially here: it would simply become `$0`.
+                        // See https://github.com/GitoxideLabs/gitoxide/issues/1842.
+                        cmd.arg("sh");
                         cmd
                     }
                 }
