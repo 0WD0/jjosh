@@ -228,6 +228,12 @@ mod prepare {
             .expect("`prepare` tests must be run where 'sh' path is valid Unicode")
     });
 
+    // The basename of the default shell, used as the `command_name` operand
+    // after `-c <script>` and observable inside the shell as `$0`. The default
+    // shell is `gix_path::env::shell()`, documented as `/bin/sh` on Unix and a
+    // path ending in `sh.exe` on Windows.
+    const SH_BASENAME: &str = if cfg!(windows) { "sh.exe" } else { "sh" };
+
     fn quoted(input: &[&str]) -> String {
         input.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(" ")
     }
@@ -249,7 +255,7 @@ mod prepare {
         let cmd = std::process::Command::from(
             gix_command::prepare("   ").command_may_be_shell_script_allow_manual_argument_splitting(),
         );
-        assert_eq!(format!("{cmd:?}"), quoted(&[*SH, "-c", "   ", "sh"]));
+        assert_eq!(format!("{cmd:?}"), quoted(&[*SH, "-c", "   ", SH_BASENAME]));
     }
 
     #[test]
@@ -290,7 +296,7 @@ mod prepare {
             if cfg!(windows) {
                 quoted(&["ls", "first", "second", "third"])
             } else {
-                quoted(&[*SH, "-c", "ls first second third", "sh"])
+                quoted(&[*SH, "-c", "ls first second third", SH_BASENAME])
             },
             "with shell, this works as it performs word splitting"
         );
@@ -308,7 +314,7 @@ mod prepare {
             if cfg!(windows) {
                 quoted(&["ls", "first", "second", "third"])
             } else {
-                quoted(&["/somepath/to/bash", "-c", "ls first second third", "sh"])
+                quoted(&["/somepath/to/bash", "-c", "ls first second third", "bash"])
             },
             "with shell, this works as it performs word splitting on Windows, but on linux (or without splitting) it uses the given shell"
         );
@@ -327,7 +333,7 @@ mod prepare {
                 quoted(&["ls", "--foo", "a b", "additional"])
             } else {
                 let sh = *SH;
-                format!(r#""{sh}" "-c" "ls --foo \"a b\" \"$@\"" "sh" "additional""#)
+                format!(r#""{sh}" "-c" "ls --foo \"a b\" \"$@\"" "{SH_BASENAME}" "additional""#)
             },
             "with shell, this works as it performs word splitting, on windows we can avoid the shell"
         );
@@ -350,7 +356,10 @@ mod prepare {
         let cmd = std::process::Command::from(
             gix_command::prepare(r#"ls --foo="a b""#).command_may_be_shell_script_disallow_manual_argument_splitting(),
         );
-        assert_eq!(format!("{cmd:?}"), quoted(&[*SH, "-c", r#"ls --foo=\"a b\""#, "sh"]));
+        assert_eq!(
+            format!("{cmd:?}"),
+            quoted(&[*SH, "-c", r#"ls --foo=\"a b\""#, SH_BASENAME])
+        );
     }
 
     #[test]
@@ -358,7 +367,7 @@ mod prepare {
         let cmd = std::process::Command::from(gix_command::prepare("ls").arg("--foo=a b").with_shell());
         assert_eq!(
             format!("{cmd:?}"),
-            quoted(&[*SH, "-c", r#"ls \"$@\""#, "sh", "--foo=a b"])
+            quoted(&[*SH, "-c", r#"ls \"$@\""#, SH_BASENAME, "--foo=a b"])
         );
     }
 
@@ -372,7 +381,7 @@ mod prepare {
         );
         assert_eq!(
             format!("{cmd:?}"),
-            quoted(&[*SH, "-c", r#"'ls' \"$@\""#, "sh", "--foo=a b"]),
+            quoted(&[*SH, "-c", r#"'ls' \"$@\""#, SH_BASENAME, "--foo=a b"]),
             "looks strange thanks to debug printing, but is the right amount of quotes actually"
         );
     }
@@ -391,7 +400,7 @@ mod prepare {
                 *SH,
                 "-c",
                 r#"'C:\\Users\\O'\\''Shaughnessy\\with space.exe' \"$@\""#,
-                "sh",
+                SH_BASENAME,
                 r"--foo='a b'"
             ]),
             "again, a lot of extra backslashes, but it's correct outside of the debug formatting"
@@ -406,7 +415,7 @@ mod prepare {
         let sh = *SH;
         assert_eq!(
             format!("{cmd:?}"),
-            format!(r#""{sh}" "-c" "ls --foo=~/path" "sh""#),
+            format!(r#""{sh}" "-c" "ls --foo=~/path" "{SH_BASENAME}""#),
             "splitting can also handle quotes"
         );
     }
@@ -418,7 +427,7 @@ mod prepare {
         let sh = *SH;
         assert_eq!(
             format!("{cmd:?}"),
-            format!(r#""{sh}" "-c" "~/bin/exe --foo \"a b\"" "sh""#),
+            format!(r#""{sh}" "-c" "~/bin/exe --foo \"a b\"" "{SH_BASENAME}""#),
             "this always needs a shell as we need tilde expansion"
         );
     }
@@ -433,7 +442,7 @@ mod prepare {
         let sh = *SH;
         assert_eq!(
             format!("{cmd:?}"),
-            format!(r#""{sh}" "-c" "echo \"$@\" >&2" "sh" "store""#),
+            format!(r#""{sh}" "-c" "echo \"$@\" >&2" "{SH_BASENAME}" "store""#),
             "this is how credential helpers have to work as for some reason they don't get '$@' added in Git.\
             We deal with it by not doubling the '$@' argument, which seems more flexible."
         );
@@ -450,7 +459,28 @@ mod prepare {
         let sh = *SH;
         assert_eq!(
             format!("{cmd:?}"),
-            format!(r#""{sh}" "-c" "echo \"$@\" >&2" "sh" "store""#)
+            format!(r#""{sh}" "-c" "echo \"$@\" >&2" "{SH_BASENAME}" "store""#)
+        );
+    }
+
+    #[test]
+    fn shell_program_with_no_basename_uses_underscore_placeholder() {
+        // Defensive fallback for degenerate input that should not occur in
+        // practice. If a caller passes a shell path whose `file_name()` is
+        // `None` (empty string, `/`, etc.), the `command_name` operand falls
+        // back to `_`, the conventional placeholder for an unused `$0` used
+        // in shell one-liners. Such a "shell" would not produce a runnable
+        // command — the fallback only keeps the construction total in the
+        // face of bad input, without making a false claim about the shell.
+        let cmd = std::process::Command::from(
+            gix_command::prepare("echo hi")
+                .command_may_be_shell_script_disallow_manual_argument_splitting()
+                .with_shell_program(""),
+        );
+        assert_eq!(
+            format!("{cmd:?}"),
+            quoted(&["", "-c", "echo hi", "_"]),
+            "with no basename available, the command_name operand is '_', not a guessed shell name"
         );
     }
 }
@@ -646,6 +676,41 @@ mod spawn {
                 .wait_with_output()?;
             assert!(out.status.success());
             assert_eq!(out.stdout.as_bstr(), "arg");
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn dollar_zero_in_minus_c_is_basename_of_default_shell() -> crate::Result {
+            let out = gix_command::prepare(r#"printf %s "$0""#)
+                .command_may_be_shell_script()
+                .spawn()?
+                .wait_with_output()?;
+            assert_eq!(
+                out.stdout.as_bstr(),
+                "sh",
+                "with the default shell on Unix, $0 should be the shell's basename, \
+                 since that is the command_name passed after the -c operand"
+            );
+            Ok(())
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn dollar_zero_in_minus_c_reflects_with_shell_program() -> crate::Result {
+            let out = std::process::Command::from(
+                gix_command::prepare(r#"printf %s "$0""#)
+                    .command_may_be_shell_script()
+                    .with_shell_program(gix_testtools::bash_program()),
+            )
+            .spawn()?
+            .wait_with_output()?;
+            assert_eq!(
+                out.stdout.as_bstr(),
+                "bash",
+                "$0 should be the basename of the shell selected via with_shell_program, \
+                 so a configured bash identifies as 'bash' rather than as some other shell"
+            );
             Ok(())
         }
     }
