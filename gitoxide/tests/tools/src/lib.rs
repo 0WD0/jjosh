@@ -317,6 +317,17 @@ const GIT_PROGRAM: &str = "git.exe";
 #[cfg(not(windows))]
 const GIT_PROGRAM: &str = "git";
 
+const DISABLE_AUTO_MAINTENANCE_CONFIG: &[(&str, &str)] = &[("maintenance.auto", "false"), ("gc.auto", "0")];
+
+const ISOLATED_GIT_CONFIG: &[(&str, &str)] = &[
+    ("commit.gpgsign", "false"),
+    ("tag.gpgsign", "false"),
+    ("init.defaultBranch", "main"),
+    ("protocol.file.allow", "always"),
+    ("maintenance.auto", "false"),
+    ("gc.auto", "0"),
+];
+
 static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let output = std::process::Command::new(GIT_PROGRAM)
         .arg("--exec-path")
@@ -421,7 +432,8 @@ impl Drop for AutoRevertToPreviousCWD {
 
 /// Run `git` in `working_dir` with all provided `args`.
 pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
-    std::process::Command::new(GIT_PROGRAM)
+    let mut cmd = std::process::Command::new(GIT_PROGRAM);
+    apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
         .current_dir(working_dir)
         .args(args)
         .status()
@@ -436,7 +448,8 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
 ///
 /// This function expects the script to succeed and will panic otherwise.
 pub fn invoke_bash(cwd: impl AsRef<Path>, script: &str) {
-    let status = std::process::Command::new(bash_program())
+    let mut cmd = std::process::Command::new(bash_program());
+    let status = apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
         .current_dir(cwd)
         .arg("-c")
         .arg(script)
@@ -458,12 +471,15 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
         listener.local_addr().expect("listener address is available").port()
     };
 
-    let child =
-        std::process::Command::new(GIT_CORE_DIR.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }))
+    let child = {
+        let mut cmd =
+            std::process::Command::new(GIT_CORE_DIR.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }));
+        apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
             .current_dir(working_dir)
             .args(["--verbose", "--base-path=.", "--export-all", "--user-path"])
             .arg(format!("--port={free_port}"))
-            .spawn()?;
+            .spawn()?
+    };
 
     let server_addr = addr_at(free_port);
     for time in gix_lock::backoff::Quadratic::default_with_random() {
@@ -1504,16 +1520,27 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_COMMITTER_DATE", "2000-01-02 00:00:00 +0000")
         .env("GIT_COMMITTER_EMAIL", "committer@example.com")
         .env("GIT_COMMITTER_NAME", "committer")
-        .env("GIT_CONFIG_COUNT", "4")
-        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-        .env("GIT_CONFIG_VALUE_0", "false")
-        .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
-        .env("GIT_CONFIG_VALUE_1", "false")
-        .env("GIT_CONFIG_KEY_2", "init.defaultBranch")
-        .env("GIT_CONFIG_VALUE_2", "main")
-        .env("GIT_CONFIG_KEY_3", "protocol.file.allow")
-        .env("GIT_CONFIG_VALUE_3", "always")
-        .env("GIT_DEFAULT_HASH", object_hash.to_string())
+        .env("GIT_DEFAULT_HASH", object_hash.to_string());
+    apply_git_config_by_environment(cmd, ISOLATED_GIT_CONFIG)
+}
+
+/// Apply command-scoped Git `config` to `cmd`, and return it.
+///
+/// This sets `GIT_CONFIG_COUNT` and matching `GIT_CONFIG_KEY_<n>` /
+/// `GIT_CONFIG_VALUE_<n>` environment variables, which Git treats like
+/// command-line `-c <key>=<value>` entries for the spawned process. Existing
+/// values for these variables on `cmd` are overwritten for the configured
+/// indices.
+pub fn apply_git_config_by_environment<'a>(
+    cmd: &'a mut std::process::Command,
+    config: &[(&str, &str)],
+) -> &'a mut std::process::Command {
+    cmd.env("GIT_CONFIG_COUNT", config.len().to_string());
+    for (idx, (key, value)) in config.iter().enumerate() {
+        cmd.env(format!("GIT_CONFIG_KEY_{idx}"), key);
+        cmd.env(format!("GIT_CONFIG_VALUE_{idx}"), value);
+    }
+    cmd
 }
 
 /// Get the path attempted as a `bash` interpreter, for fixture scripts having no `#!` we can use.

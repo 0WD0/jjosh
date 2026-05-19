@@ -1,5 +1,7 @@
 use std::{fs, io, io::prelude::*, path::PathBuf};
 
+const DISABLE_AUTO_MAINTENANCE_CONFIG: &[(&str, &str)] = &[("maintenance.auto", "false"), ("gc.auto", "0")];
+
 fn bash_program() -> io::Result<()> {
     use std::io::IsTerminal;
     if !std::io::stdout().is_terminal() {
@@ -54,7 +56,8 @@ fn git_daemon(url_file: PathBuf) -> io::Result<()> {
         let stdin = stream_to_stdio(stream.try_clone()?);
         let stdout = stream_to_stdio(stream);
 
-        let mut child = Command::new("git")
+        let mut cmd = Command::new("git");
+        let mut child = gix_testtools::apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
             .args([
                 "-c",
                 "uploadpack.allowrefinwant",
