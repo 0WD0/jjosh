@@ -155,6 +155,46 @@ fn invoke_bash_runs_in_given_working_directory() {
 }
 
 #[test]
+fn invoke_bash_disables_auto_maintenance_for_git_commands() {
+    let dir = tempfile::TempDir::new().expect("can create temp dir");
+    invoke_bash(
+        dir.path(),
+        "git config --get maintenance.auto > out && git config --get gc.auto >> out",
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("out")).expect("script wrote output"),
+        "false\n0\n",
+        "Git commands run from the shell should not run automatic maintenance"
+    );
+}
+
+#[test]
+fn run_git_disables_auto_maintenance() -> Result {
+    let dir = tempfile::TempDir::new().expect("can create temp dir");
+    let status = run_git(dir.path(), &["config", "--get", "maintenance.auto"])?;
+    assert!(status.success(), "command-scope maintenance.auto should be visible");
+    let status = run_git(dir.path(), &["config", "--get", "gc.auto"])?;
+    assert!(status.success(), "command-scope gc.auto should be visible");
+    Ok(())
+}
+
+#[test]
+fn git_helper_disables_auto_maintenance() -> Result {
+    let dir = tempfile::TempDir::new().expect("can create temp dir");
+    assert_eq!(
+        git(dir.path(), "config --get maintenance.auto")?,
+        "false\n",
+        "Git commands run through gix-testtools should not run automatic maintenance"
+    );
+    assert_eq!(
+        git(dir.path(), "config --get gc.auto")?,
+        "0\n",
+        "Auto-gc should be disabled for Git commands run through gix-testtools"
+    );
+    Ok(())
+}
+
+#[test]
 fn split_git_arguments_handles_multiline_whitespace() {
     assert_eq!(
         split_git_arguments(

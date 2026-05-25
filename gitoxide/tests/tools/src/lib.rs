@@ -206,18 +206,46 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     pattern.ends_with('*') || remainder.is_empty()
 }
 
-/// A wrapper for a running git-daemon process which is killed automatically on drop.
+/// A wrapper for a running git-daemon which is stopped automatically on drop.
 ///
 /// Note that we will swallow any errors, assuming that the test would have failed if the daemon crashed.
 pub struct GitDaemon {
-    child: std::process::Child,
+    process: GitDaemonProcess,
     /// The base url under which all repositories are hosted, typically `git://127.0.0.1:port`.
     pub url: String,
 }
 
+enum GitDaemonProcess {
+    #[cfg(not(unix))]
+    Child(std::process::Child),
+    #[cfg(unix)]
+    Inetd {
+        shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        server_addr: std::net::SocketAddr,
+        listener_thread: Option<std::thread::JoinHandle<()>>,
+    },
+}
+
 impl Drop for GitDaemon {
     fn drop(&mut self) {
-        self.child.kill().ok();
+        match &mut self.process {
+            #[cfg(not(unix))]
+            GitDaemonProcess::Child(child) => {
+                child.kill().ok();
+            }
+            #[cfg(unix)]
+            GitDaemonProcess::Inetd {
+                shutdown,
+                server_addr,
+                listener_thread,
+            } => {
+                shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
+                std::net::TcpStream::connect(*server_addr).ok();
+                if let Some(listener_thread) = listener_thread.take() {
+                    listener_thread.join().ok();
+                }
+            }
+        }
     }
 }
 
@@ -316,6 +344,17 @@ fn default_excludes() -> &'static dyn IsExcluded {
 const GIT_PROGRAM: &str = "git.exe";
 #[cfg(not(windows))]
 const GIT_PROGRAM: &str = "git";
+
+const DISABLE_AUTO_MAINTENANCE_CONFIG: &[(&str, &str)] = &[("maintenance.auto", "false"), ("gc.auto", "0")];
+
+const ISOLATED_GIT_CONFIG: &[(&str, &str)] = &[
+    ("commit.gpgsign", "false"),
+    ("tag.gpgsign", "false"),
+    ("init.defaultBranch", "main"),
+    ("protocol.file.allow", "always"),
+    ("maintenance.auto", "false"),
+    ("gc.auto", "0"),
+];
 
 static GIT_CORE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let output = std::process::Command::new(GIT_PROGRAM)
@@ -421,7 +460,8 @@ impl Drop for AutoRevertToPreviousCWD {
 
 /// Run `git` in `working_dir` with all provided `args`.
 pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
-    std::process::Command::new(GIT_PROGRAM)
+    let mut cmd = std::process::Command::new(GIT_PROGRAM);
+    apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
         .current_dir(working_dir)
         .args(args)
         .status()
@@ -436,7 +476,8 @@ pub fn run_git(working_dir: &Path, args: &[&str]) -> std::io::Result<std::proces
 ///
 /// This function expects the script to succeed and will panic otherwise.
 pub fn invoke_bash(cwd: impl AsRef<Path>, script: &str) {
-    let status = std::process::Command::new(bash_program())
+    let mut cmd = std::process::Command::new(bash_program());
+    let status = apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
         .current_dir(cwd)
         .arg("-c")
         .arg(script)
@@ -448,8 +489,22 @@ pub fn invoke_bash(cwd: impl AsRef<Path>, script: &str) {
     assert!(status.success(), "bash script failed with {status}");
 }
 
-/// Spawn a git daemon process to host all repository at or below `working_dir`.
+/// Spawn a git daemon to host all repositories at or below `working_dir`.
+///
+/// It runs in the background until the [`GitDaemon`] is dropped.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
+    #[cfg(unix)]
+    {
+        spawn_git_daemon_inetd(working_dir)
+    }
+    #[cfg(not(unix))]
+    {
+        spawn_git_daemon_process(working_dir)
+    }
+}
+
+#[cfg(not(unix))]
+fn spawn_git_daemon_process(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
     let mut ports: Vec<_> = (9419u16..9419 + 100).collect();
     fastrand::shuffle(&mut ports);
     let addr_at = |port| std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -458,12 +513,15 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
         listener.local_addr().expect("listener address is available").port()
     };
 
-    let child =
-        std::process::Command::new(GIT_CORE_DIR.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }))
+    let child = {
+        let mut cmd =
+            std::process::Command::new(GIT_CORE_DIR.join(if cfg!(windows) { "git-daemon.exe" } else { "git-daemon" }));
+        apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
             .current_dir(working_dir)
             .args(["--verbose", "--base-path=.", "--export-all", "--user-path"])
             .arg(format!("--port={free_port}"))
-            .spawn()?;
+            .spawn()?
+    };
 
     let server_addr = addr_at(free_port);
     for time in gix_lock::backoff::Quadratic::default_with_random() {
@@ -473,9 +531,100 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
         }
     }
     Ok(GitDaemon {
-        child,
+        process: GitDaemonProcess::Child(child),
         url: format!("git://{server_addr}"),
     })
+}
+
+#[cfg(unix)]
+fn spawn_git_daemon_inetd(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
+    use std::{
+        net::{TcpListener, TcpStream},
+        os::fd::{FromRawFd, IntoRawFd},
+        process::Stdio,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    fn stream_to_stdio(stream: TcpStream) -> Stdio {
+        // SAFETY: `into_raw_fd()` transfers ownership of the socket fd, and `Stdio`
+        // takes over closing it in the spawned child.
+        unsafe { Stdio::from_raw_fd(stream.into_raw_fd()) }
+    }
+
+    let working_dir = working_dir.as_ref().to_owned();
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let server_addr = listener.local_addr()?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let listener_thread = std::thread::spawn({
+        let shutdown = shutdown.clone();
+        move || {
+            for incoming in listener.incoming() {
+                let stream = match incoming {
+                    Ok(stream) => stream,
+                    Err(_) => break,
+                };
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let peer_addr = stream.peer_addr().ok();
+                let stdin = match stream.try_clone() {
+                    Ok(stream) => stream_to_stdio(stream),
+                    Err(_) => continue,
+                };
+                let stdout = stream_to_stdio(stream);
+                let mut cmd = std::process::Command::new(GIT_PROGRAM);
+                let Ok(mut child) = apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
+                    .args([
+                        "-c",
+                        "uploadpack.allowrefinwant",
+                        "daemon",
+                        "--inetd",
+                        "--verbose",
+                        "--base-path=.",
+                        "--export-all",
+                        "--user-path",
+                    ])
+                    .current_dir(&working_dir)
+                    .stdin(stdin)
+                    .stdout(stdout)
+                    .stderr(Stdio::null())
+                    .envs(remote_env(peer_addr))
+                    .spawn()
+                else {
+                    continue;
+                };
+
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+        }
+    });
+
+    Ok(GitDaemon {
+        process: GitDaemonProcess::Inetd {
+            shutdown,
+            server_addr,
+            listener_thread: Some(listener_thread),
+        },
+        url: format!("git://{server_addr}"),
+    })
+}
+
+#[cfg(unix)]
+fn remote_env(peer_addr: Option<std::net::SocketAddr>) -> Vec<(&'static str, String)> {
+    peer_addr
+        .map(|addr| {
+            vec![
+                ("REMOTE_ADDR", addr.ip().to_string()),
+                ("REMOTE_PORT", addr.port().to_string()),
+            ]
+        })
+        .unwrap_or_default()
 }
 
 /// Don't add a suffix to the archive name as `args` are platform dependent, non-deterministic,
@@ -1504,16 +1653,27 @@ fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         .env("GIT_COMMITTER_DATE", "2000-01-02 00:00:00 +0000")
         .env("GIT_COMMITTER_EMAIL", "committer@example.com")
         .env("GIT_COMMITTER_NAME", "committer")
-        .env("GIT_CONFIG_COUNT", "4")
-        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-        .env("GIT_CONFIG_VALUE_0", "false")
-        .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
-        .env("GIT_CONFIG_VALUE_1", "false")
-        .env("GIT_CONFIG_KEY_2", "init.defaultBranch")
-        .env("GIT_CONFIG_VALUE_2", "main")
-        .env("GIT_CONFIG_KEY_3", "protocol.file.allow")
-        .env("GIT_CONFIG_VALUE_3", "always")
-        .env("GIT_DEFAULT_HASH", object_hash.to_string())
+        .env("GIT_DEFAULT_HASH", object_hash.to_string());
+    apply_git_config_by_environment(cmd, ISOLATED_GIT_CONFIG)
+}
+
+/// Apply command-scoped Git `config` to `cmd`, and return it.
+///
+/// This sets `GIT_CONFIG_COUNT` and matching `GIT_CONFIG_KEY_<n>` /
+/// `GIT_CONFIG_VALUE_<n>` environment variables, which Git treats like
+/// command-line `-c <key>=<value>` entries for the spawned process. Existing
+/// values for these variables on `cmd` are overwritten for the configured
+/// indices.
+pub fn apply_git_config_by_environment<'a>(
+    cmd: &'a mut std::process::Command,
+    config: &[(&str, &str)],
+) -> &'a mut std::process::Command {
+    cmd.env("GIT_CONFIG_COUNT", config.len().to_string());
+    for (idx, (key, value)) in config.iter().enumerate() {
+        cmd.env(format!("GIT_CONFIG_KEY_{idx}"), key);
+        cmd.env(format!("GIT_CONFIG_VALUE_{idx}"), value);
+    }
+    cmd
 }
 
 /// Get the path attempted as a `bash` interpreter, for fixture scripts having no `#!` we can use.
