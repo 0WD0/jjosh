@@ -304,6 +304,16 @@ mod prepare {
                     }
                     None => {
                         let shell = prep.shell_program.unwrap_or_else(|| gix_path::env::shell().into());
+                        // Passed as `command_name` after `-c <script>`; the shell uses it
+                        // as `$0`, which prefixes its own diagnostic messages. If the
+                        // shell path has no extractable basename — reachable only via
+                        // degenerate input like `""` or `/` — fall back to `_`, the
+                        // conventional placeholder for an unused `$0`, rather than
+                        // making a false claim about which shell is running.
+                        let arg0 = std::path::Path::new(&shell)
+                            .file_name()
+                            .unwrap_or(std::ffi::OsStr::new("_"))
+                            .to_os_string();
                         let mut cmd = Command::new(shell);
                         cmd.arg("-c");
                         if !prep.args.is_empty() {
@@ -322,7 +332,7 @@ mod prepare {
                             }
                         }
                         cmd.arg(prep.command);
-                        cmd.arg("--");
+                        cmd.arg(arg0);
                         cmd
                     }
                 }

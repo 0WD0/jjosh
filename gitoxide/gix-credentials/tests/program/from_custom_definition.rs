@@ -13,6 +13,12 @@ static SH: LazyLock<&'static str> = LazyLock::new(|| {
         .expect("some `from_custom_definition` tests must be run where 'sh' path is valid Unicode")
 });
 
+// The basename of the default shell, used as the `command_name` operand after
+// `-c <script>` and observable inside the shell as `$0`. The default shell is
+// `gix_path::env::shell()`, documented as `/bin/sh` on Unix and a path ending
+// in `sh.exe` on Windows.
+const SH_BASENAME: &str = if cfg!(windows) { "sh.exe" } else { "sh" };
+
 #[test]
 fn empty() {
     let prog = Program::from_custom_definition("");
@@ -57,7 +63,7 @@ fn name_with_special_args() {
     assert!(matches!(&prog.kind, Kind::ExternalName{name_and_args} if name_and_args == input));
     assert_eq!(
         format!("{:?}", prog.to_command(&helper::Action::Store("egal".into()))),
-        format!(r#""{sh}" "-c" "{git} credential-name --arg --bar=~/folder/in/home \"$@\"" "--" "store""#)
+        format!(r#""{sh}" "-c" "{git} credential-name --arg --bar=~/folder/in/home \"$@\"" "{SH_BASENAME}" "store""#)
     );
 }
 
@@ -85,7 +91,7 @@ fn path_with_args_that_definitely_need_shell() {
         if cfg!(windows) {
             r#""/abs/name" "--arg" "--bar=a b" "store""#.to_owned()
         } else {
-            format!(r#""{sh}" "-c" "/abs/name --arg --bar=\"a b\" \"$@\"" "--" "store""#)
+            format!(r#""{sh}" "-c" "/abs/name --arg --bar=\"a b\" \"$@\"" "{SH_BASENAME}" "store""#)
         }
     );
 }
@@ -113,7 +119,7 @@ fn path_with_simple_args() {
         if cfg!(windows) {
             r#""/abs/name" "a" "b" "store""#.to_owned()
         } else {
-            format!(r#""{sh}" "-c" "/abs/name a b \"$@\"" "--" "store""#)
+            format!(r#""{sh}" "-c" "/abs/name a b \"$@\"" "{SH_BASENAME}" "store""#)
         },
         "a shell is used as there are arguments, and it's generally more flexible, but on windows we split ourselves"
     );
