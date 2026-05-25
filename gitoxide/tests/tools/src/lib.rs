@@ -206,18 +206,46 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     pattern.ends_with('*') || remainder.is_empty()
 }
 
-/// A wrapper for a running git-daemon process which is killed automatically on drop.
+/// A wrapper for a running git-daemon which is stopped automatically on drop.
 ///
 /// Note that we will swallow any errors, assuming that the test would have failed if the daemon crashed.
 pub struct GitDaemon {
-    child: std::process::Child,
+    process: GitDaemonProcess,
     /// The base url under which all repositories are hosted, typically `git://127.0.0.1:port`.
     pub url: String,
 }
 
+enum GitDaemonProcess {
+    #[cfg(not(unix))]
+    Child(std::process::Child),
+    #[cfg(unix)]
+    Inetd {
+        shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        server_addr: std::net::SocketAddr,
+        listener_thread: Option<std::thread::JoinHandle<()>>,
+    },
+}
+
 impl Drop for GitDaemon {
     fn drop(&mut self) {
-        self.child.kill().ok();
+        match &mut self.process {
+            #[cfg(not(unix))]
+            GitDaemonProcess::Child(child) => {
+                child.kill().ok();
+            }
+            #[cfg(unix)]
+            GitDaemonProcess::Inetd {
+                shutdown,
+                server_addr,
+                listener_thread,
+            } => {
+                shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
+                std::net::TcpStream::connect(*server_addr).ok();
+                if let Some(listener_thread) = listener_thread.take() {
+                    listener_thread.join().ok();
+                }
+            }
+        }
     }
 }
 
@@ -461,8 +489,22 @@ pub fn invoke_bash(cwd: impl AsRef<Path>, script: &str) {
     assert!(status.success(), "bash script failed with {status}");
 }
 
-/// Spawn a git daemon process to host all repository at or below `working_dir`.
+/// Spawn a git daemon to host all repositories at or below `working_dir`.
+///
+/// It runs in the background until the [`GitDaemon`] is dropped.
 pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
+    #[cfg(unix)]
+    {
+        spawn_git_daemon_inetd(working_dir)
+    }
+    #[cfg(not(unix))]
+    {
+        spawn_git_daemon_process(working_dir)
+    }
+}
+
+#[cfg(not(unix))]
+fn spawn_git_daemon_process(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
     let mut ports: Vec<_> = (9419u16..9419 + 100).collect();
     fastrand::shuffle(&mut ports);
     let addr_at = |port| std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -489,9 +531,100 @@ pub fn spawn_git_daemon(working_dir: impl AsRef<Path>) -> std::io::Result<GitDae
         }
     }
     Ok(GitDaemon {
-        child,
+        process: GitDaemonProcess::Child(child),
         url: format!("git://{server_addr}"),
     })
+}
+
+#[cfg(unix)]
+fn spawn_git_daemon_inetd(working_dir: impl AsRef<Path>) -> std::io::Result<GitDaemon> {
+    use std::{
+        net::{TcpListener, TcpStream},
+        os::fd::{FromRawFd, IntoRawFd},
+        process::Stdio,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    fn stream_to_stdio(stream: TcpStream) -> Stdio {
+        // SAFETY: `into_raw_fd()` transfers ownership of the socket fd, and `Stdio`
+        // takes over closing it in the spawned child.
+        unsafe { Stdio::from_raw_fd(stream.into_raw_fd()) }
+    }
+
+    let working_dir = working_dir.as_ref().to_owned();
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let server_addr = listener.local_addr()?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let listener_thread = std::thread::spawn({
+        let shutdown = shutdown.clone();
+        move || {
+            for incoming in listener.incoming() {
+                let stream = match incoming {
+                    Ok(stream) => stream,
+                    Err(_) => break,
+                };
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let peer_addr = stream.peer_addr().ok();
+                let stdin = match stream.try_clone() {
+                    Ok(stream) => stream_to_stdio(stream),
+                    Err(_) => continue,
+                };
+                let stdout = stream_to_stdio(stream);
+                let mut cmd = std::process::Command::new(GIT_PROGRAM);
+                let Ok(mut child) = apply_git_config_by_environment(&mut cmd, DISABLE_AUTO_MAINTENANCE_CONFIG)
+                    .args([
+                        "-c",
+                        "uploadpack.allowrefinwant",
+                        "daemon",
+                        "--inetd",
+                        "--verbose",
+                        "--base-path=.",
+                        "--export-all",
+                        "--user-path",
+                    ])
+                    .current_dir(&working_dir)
+                    .stdin(stdin)
+                    .stdout(stdout)
+                    .stderr(Stdio::null())
+                    .envs(remote_env(peer_addr))
+                    .spawn()
+                else {
+                    continue;
+                };
+
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+        }
+    });
+
+    Ok(GitDaemon {
+        process: GitDaemonProcess::Inetd {
+            shutdown,
+            server_addr,
+            listener_thread: Some(listener_thread),
+        },
+        url: format!("git://{server_addr}"),
+    })
+}
+
+#[cfg(unix)]
+fn remote_env(peer_addr: Option<std::net::SocketAddr>) -> Vec<(&'static str, String)> {
+    peer_addr
+        .map(|addr| {
+            vec![
+                ("REMOTE_ADDR", addr.ip().to_string()),
+                ("REMOTE_PORT", addr.port().to_string()),
+            ]
+        })
+        .unwrap_or_default()
 }
 
 /// Don't add a suffix to the archive name as `args` are platform dependent, non-deterministic,
