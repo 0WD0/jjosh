@@ -235,6 +235,66 @@ fn from_existing_worktree() -> crate::Result {
     Ok(())
 }
 
+#[test]
+fn from_existing_worktree_with_relative_linking_files() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let main = fixture.join("main");
+    let linked = fixture.join("linked");
+    let private_git_dir = main.join(".git/worktrees/linked");
+    assert_eq!(
+        std::fs::read_to_string(linked.join(".git"))?,
+        "gitdir: ../main/.git/worktrees/linked\n",
+        "the linked checkout uses a relative gitdir file"
+    );
+    let backlink = std::fs::read_to_string(private_git_dir.join("gitdir"))?;
+    assert_eq!(
+        backlink, "../../../../linked/.git\n",
+        "the private git dir points back to the checkout with a relative path"
+    );
+
+    for discover_path in [&linked, &private_git_dir] {
+        let (path, trust) = gix_discover::upwards(discover_path)?;
+        assert_eq!(trust, expected_trust());
+        let (actual_git_dir, actual_worktree) = path.into_repository_and_work_tree_directories();
+        assert_eq!(
+            gix_path::realpath(&actual_git_dir)?,
+            gix_path::realpath(&private_git_dir)?,
+            "discovery resolves the private git dir from relative worktree metadata"
+        );
+        assert_eq!(
+            actual_worktree.as_deref().map(gix_path::realpath).transpose()?,
+            Some(gix_path::realpath(&linked)?),
+            "discovery resolves the linked worktree from relative worktree metadata"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn from_symlinked_worktree_with_relative_linking_files() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let main = fixture.join("actual/main");
+    let linked_symlink = fixture.join("linked-symlink");
+
+    let (path, trust) = gix_discover::upwards(&linked_symlink)?;
+    assert_eq!(trust, expected_trust());
+    let (actual_git_dir, actual_worktree) = path.into_repository_and_work_tree_directories();
+    assert_eq!(
+        gix_path::realpath(&actual_git_dir)?,
+        gix_path::realpath(main.join(".git/worktrees/linked"))?,
+        "the private git dir is found through a relative gitdir file reached via a symlinked checkout"
+    );
+    assert_eq!(
+        actual_worktree.as_deref(),
+        Some(linked_symlink.as_path()),
+        "the discovered worktree remains the user-provided symlinked checkout"
+    );
+
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn cross_fs() -> crate::Result {

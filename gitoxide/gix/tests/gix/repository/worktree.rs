@@ -262,6 +262,58 @@ fn from_nonbare_parent_repo() {
 }
 
 #[test]
+fn linked_worktree_proxy_base_with_relative_linking_files() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let main = fixture.join("main");
+    let linked = fixture.join("linked");
+    let private_git_dir = main.join(".git/worktrees/linked");
+    let repo = gix::open(&main)?;
+    let worktrees = repo.worktrees()?;
+    assert_eq!(worktrees.len(), 1, "the relative-path fixture has one linked worktree");
+    let proxy = worktrees.into_iter().next().expect("one worktree");
+
+    assert_eq!(
+        gix_path::realpath(proxy.base()?)?,
+        gix_path::realpath(&linked)?,
+        "proxy bases resolve relative worktrees/<id>/gitdir paths against the private git dir"
+    );
+    let linked_repo = proxy.into_repo()?;
+    assert_eq!(
+        linked_repo.workdir().map(gix_path::realpath).transpose()?,
+        Some(gix_path::realpath(&linked)?)
+    );
+    assert_eq!(linked_repo.git_dir(), private_git_dir);
+
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn linked_worktree_proxy_base_with_symlinked_main_repo() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
+    let linked = fixture.join("actual/linked");
+    let main_symlink = fixture.join("main-symlink");
+
+    let repo = gix::open(&main_symlink)?;
+    let worktrees = repo.worktrees()?;
+    assert_eq!(worktrees.len(), 1, "the relative-path fixture has one linked worktree");
+    let proxy = worktrees.into_iter().next().expect("one worktree");
+
+    assert_eq!(
+        gix_path::realpath(proxy.base()?)?,
+        gix_path::realpath(&linked)?,
+        "proxy bases preserve symlink semantics when resolving relative worktrees/<id>/gitdir paths"
+    );
+    let repo = proxy.into_repo()?;
+    assert_eq!(
+        repo.workdir().map(gix_path::realpath).transpose()?,
+        Some(gix_path::realpath(&linked)?)
+    );
+
+    Ok(())
+}
+
+#[test]
 fn from_nonbare_parent_repo_set_workdir() -> gix_testtools::Result {
     if gix_testtools::should_skip_as_git_version_is_smaller_than(2, 31, 0) {
         return Ok(());
