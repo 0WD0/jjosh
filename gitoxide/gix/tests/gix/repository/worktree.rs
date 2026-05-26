@@ -263,7 +263,7 @@ fn from_nonbare_parent_repo() {
 
 #[test]
 fn linked_worktree_proxy_base_with_relative_linking_files() -> crate::Result {
-    let fixture = gix_testtools::scripted_fixture_read_only("make_worktree_relative_linking.sh")?;
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let main = fixture.join("main");
     let linked = fixture.join("linked");
     let private_git_dir = main.join(".git/worktrees/linked");
@@ -287,10 +287,10 @@ fn linked_worktree_proxy_base_with_relative_linking_files() -> crate::Result {
     Ok(())
 }
 
-#[cfg(unix)]
 #[test]
+#[cfg(unix)]
 fn linked_worktree_proxy_base_with_symlinked_main_repo() -> crate::Result {
-    let fixture = gix_testtools::scripted_fixture_read_only("make_worktree_relative_linking.sh")?;
+    let fixture = gix_testtools::scripted_fixture_read_only_needs_archive("make_worktree_relative_linking.sh")?;
     let linked = fixture.join("actual/linked");
     let main_symlink = fixture.join("main-symlink");
 
