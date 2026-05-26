@@ -11,6 +11,7 @@ mod blocking_io {
     use gix::{
         bstr::BString,
         config::tree::{Clone, Core, Init, Key},
+        refs::transaction::PreviousValue,
         remote::{
             Direction,
             fetch::{Shallow, refmap::SpecIndex},
@@ -117,6 +118,62 @@ mod blocking_io {
         assert_eq!(
             refspec_str, "+refs/heads/main:refs/remotes/origin/main",
             "shallow clone refspec should not use wildcard and should be the main branch: {refspec_str}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn shallow_clone_with_ambiguous_branch_and_tag_name_prefers_branch() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_remote_repos.sh")?;
+        let remote_repo = gix::open_opts(fixture.path().join("base"), restricted())?;
+        let branch_name = "b";
+        remote_repo.tag_reference(
+            branch_name,
+            remote_repo.find_reference("refs/heads/main")?.id(),
+            PreviousValue::MustNotExist,
+        )?;
+
+        let destination = gix_testtools::tempfile::TempDir::new()?;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            destination.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?
+        .with_ref_name(Some(branch_name))?
+        .with_shallow(Shallow::DepthAtRemote(1.try_into()?));
+
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        let checked_out_ref = repo.head_ref()?.expect("head points to ref");
+        assert_eq!(
+            checked_out_ref.name().as_bstr(),
+            "refs/heads/b",
+            "branches win over same-named tags, matching git clone --branch"
+        );
+        assert_eq!(
+            checked_out_ref
+                .remote_ref_name(gix::remote::Direction::Fetch)
+                .transpose()?
+                .unwrap()
+                .as_bstr(),
+            "refs/heads/b",
+            "branch merge configuration records the chosen branch"
+        );
+
+        let remote = repo.find_remote("origin")?;
+        let refspecs: Vec<_> = remote
+            .refspecs(Direction::Fetch)
+            .iter()
+            .map(|spec| spec.to_ref().to_bstring().to_str().expect("valid utf8").to_owned())
+            .collect();
+        assert_eq!(
+            refspecs,
+            vec!["+refs/heads/b:refs/remotes/origin/b"],
+            "the shallow clone follows only the chosen branch"
         );
 
         Ok(())

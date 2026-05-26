@@ -134,9 +134,6 @@ impl PrepareFetch {
                     )
                     .await?;
                 let (_target, full_ref_name) = util::find_custom_refname(&refmap, ref_name)?;
-                let full_ref_name = full_ref_name.ok_or_else(|| Error::RefNameMissing {
-                    wanted: ref_name.clone(),
-                })?;
                 Some(full_ref_name.try_into()?)
             } else {
                 // For shallow clones without a specified ref, we need to determine the ref to clone.

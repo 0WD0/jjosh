@@ -1,7 +1,7 @@
 use std::{borrow::Cow, io::Write};
 
 use gix_ref::{
-    FullNameRef, PartialName,
+    Category, FullNameRef, PartialName,
     transaction::{LogChange, RefLog},
 };
 
@@ -73,7 +73,10 @@ pub fn update_head(
         transaction::{PreviousValue, RefEdit},
     };
     let head_info = match ref_name {
-        Some(ref_name) => Some(find_custom_refname(ref_map, ref_name)?),
+        Some(ref_name) => {
+            let (target, full_ref_name) = find_custom_refname(ref_map, ref_name)?;
+            Some((Some(target), Some(full_ref_name)))
+        }
         None => ref_map.remote_refs.iter().find_map(|r| {
             Some(match r {
                 gix_protocol::handshake::Ref::Symbolic {
@@ -186,12 +189,11 @@ pub fn update_head(
 pub(super) fn find_custom_refname<'a>(
     ref_map: &'a crate::remote::fetch::RefMap,
     ref_name: &PartialName,
-) -> Result<(Option<&'a gix_hash::oid>, Option<&'a BStr>), Error> {
+) -> Result<(&'a gix_hash::oid, &'a BStr), Error> {
     let group = gix_refspec::MatchGroup::from_fetch_specs(Some(
         gix_refspec::parse(ref_name.as_ref().as_bstr(), gix_refspec::parse::Operation::Fetch)
             .expect("partial names are valid refs"),
     ));
-    // TODO: to fix ambiguity, implement priority system
     let filtered_items: Vec<_> = ref_map
         .mappings
         .iter()
@@ -206,6 +208,25 @@ pub(super) fn find_custom_refname<'a>(
             object: None,
         })
         .collect();
+
+    let requested_name = ref_name.as_ref().as_bstr();
+    let find_item = |name: &BStr| filtered_items.iter().find(|item| item.full_ref_name == name).copied();
+    // Preserve gix's documented full-ref support, then match git clone --branch by trying heads before tags.
+    if let Some(item) = find_item(requested_name) {
+        return Ok((item.target, item.full_ref_name));
+    }
+    if !requested_name.starts_with(b"refs/") {
+        let branch_name = Category::LocalBranch.to_full_name(requested_name)?;
+        if let Some(item) = find_item(branch_name.as_bstr()) {
+            return Ok((item.target, item.full_ref_name));
+        }
+
+        let tag_name = Category::Tag.to_full_name(requested_name)?;
+        if let Some(item) = find_item(tag_name.as_bstr()) {
+            return Ok((item.target, item.full_ref_name));
+        }
+    }
+
     let res = group.match_lhs(filtered_items.iter().copied());
     match res.mappings.len() {
         0 => Err(Error::RefNameMissing {
@@ -215,7 +236,7 @@ pub(super) fn find_custom_refname<'a>(
             let item = filtered_items[res.mappings[0]
                 .item_index
                 .expect("we map by name only and have no object-id in refspec")];
-            Ok((Some(item.target), Some(item.full_ref_name)))
+            Ok((item.target, item.full_ref_name))
         }
         _ => Err(Error::RefNameAmbiguous {
             wanted: ref_name.clone(),
