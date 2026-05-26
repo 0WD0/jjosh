@@ -96,20 +96,32 @@ pub fn repository_kind(git_dir: &Path) -> Option<RepositoryKind> {
     }
 }
 
-/// Reads a plain path from a file that contains it as its only content, with trailing newlines trimmed.
+/// Reads a plain path from a file that contains it as its only content, with trailing whitespace trimmed.
+///
+/// Empty or whitespace-only path files are invalid.
 pub fn from_plain_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
     read_plain_file_content(path).map(|res| res.map(gix_path::from_bstring))
 }
 
 /// Reads a plain path from a file like [`from_plain_file()`], resolving relative paths against
 /// the file's containing directory as needed.
+///
+/// The `path` argument is expected to name the path file itself, which is always supposed to be
+/// a file path.
 pub fn from_plain_file_relative_to_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
     read_plain_file_content(path).map(|res| {
-        res.map(|buf| {
+        res.and_then(|buf| {
             let plain_path = gix_path::from_bstring(buf);
-            match (plain_path.is_relative(), path.parent()) {
-                (true, Some(parent)) => parent.join(plain_path),
-                _ => plain_path,
+            if !plain_path.is_relative() {
+                return Ok(plain_path);
+            }
+            match path.parent() {
+                Some(parent) => Ok(parent.join(plain_path)),
+                _ => Err(std::io::Error::other(format!(
+                    "'{path}' has no parent, but '{plain_path}' is relative. It's impossible",
+                    path = path.display(),
+                    plain_path = plain_path.display()
+                ))),
             }
         })
     })
