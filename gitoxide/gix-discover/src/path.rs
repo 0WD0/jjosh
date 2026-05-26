@@ -44,6 +44,30 @@ fn read_regular_file_content_with_size_limit(path: &std::path::Path) -> std::io:
     Ok(buf)
 }
 
+/// Read a plain path file, returning `None` if the file is missing.
+///
+/// Linked-worktree `gitdir` files are plain path files in Git, not `gitdir:`
+/// files. Match Git's `get_linked_worktree()` behavior by trimming trailing
+/// whitespace before interpreting the content. Empty or whitespace-only path
+/// files are invalid.
+fn read_plain_file_content(path: &std::path::Path) -> Option<std::io::Result<Vec<u8>>> {
+    use bstr::ByteSlice;
+    let mut buf = match read_regular_file_content_with_size_limit(path) {
+        Ok(buf) => buf,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => return Some(Err(err)),
+    };
+    let trimmed_len = buf.trim_end().len();
+    buf.truncate(trimmed_len);
+    if buf.is_empty() {
+        return Some(Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Refusing to read an empty path from '{}'", path.display()),
+        )));
+    }
+    Some(Ok(buf))
+}
+
 /// Guess the kind of repository by looking at its `git_dir` path and return it.
 /// Return `None` if `git_dir` isn't called `.git` or isn't within `.git/worktrees` or `.git/modules`, or if it's
 /// a `.git` suffix like in `foo.git`.
@@ -74,15 +98,21 @@ pub fn repository_kind(git_dir: &Path) -> Option<RepositoryKind> {
 
 /// Reads a plain path from a file that contains it as its only content, with trailing newlines trimmed.
 pub fn from_plain_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
-    use bstr::ByteSlice;
-    let mut buf = match read_regular_file_content_with_size_limit(path) {
-        Ok(buf) => buf,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(err) => return Some(Err(err)),
-    };
-    let trimmed_len = buf.trim_end().len();
-    buf.truncate(trimmed_len);
-    Some(Ok(gix_path::from_bstring(buf)))
+    read_plain_file_content(path).map(|res| res.map(gix_path::from_bstring))
+}
+
+/// Reads a plain path from a file like [`from_plain_file()`], resolving relative paths against
+/// the file's containing directory as needed.
+pub fn from_plain_file_relative_to_file(path: &std::path::Path) -> Option<std::io::Result<PathBuf>> {
+    read_plain_file_content(path).map(|res| {
+        res.map(|buf| {
+            let plain_path = gix_path::from_bstring(buf);
+            match (plain_path.is_relative(), path.parent()) {
+                (true, Some(parent)) => parent.join(plain_path),
+                _ => plain_path,
+            }
+        })
+    })
 }
 
 /// Reads typical `gitdir: ` files from disk as used by worktrees and submodules.

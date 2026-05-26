@@ -106,7 +106,7 @@ pub(crate) fn git_with_metadata(
         let worktree_and_common_dir = crate::path::from_plain_file(&common_dir)
             .and_then(Result::ok)
             .and_then(|cd| {
-                crate::path::from_plain_file(&dot_git.join("gitdir"))
+                crate::path::from_plain_file_relative_to_file(&dot_git.join("gitdir"))
                     .and_then(Result::ok)
                     .map(|worktree_gitfile| (crate::path::without_dot_git_dir(worktree_gitfile), cd))
             });
