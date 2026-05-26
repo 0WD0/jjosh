@@ -116,6 +116,7 @@ impl PrepareFetch {
         let target_ref = if use_single_branch_for_shallow {
             // Determine target branch from user-specified ref_name or default branch
             if let Some(ref_name) = &self.ref_name {
+                let prev_tags = std::mem::replace(&mut remote.fetch_tags, remote::fetch::Tags::None);
                 let mut connection = remote.connect(remote::Direction::Fetch).await?;
                 if let Some(f) = self.configure_connection.as_mut() {
                     f(&mut connection).map_err(Error::RemoteConnection)?;
@@ -134,6 +135,8 @@ impl PrepareFetch {
                     )
                     .await?;
                 let (_target, full_ref_name) = util::find_custom_refname(&refmap, ref_name)?;
+                drop(connection);
+                remote.fetch_tags = prev_tags;
                 Some(full_ref_name.try_into()?)
             } else {
                 // For shallow clones without a specified ref, we need to determine the ref to clone.
