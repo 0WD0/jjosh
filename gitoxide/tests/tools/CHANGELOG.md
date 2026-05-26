@@ -5,6 +5,150 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.19.0 (2026-05-26)
+
+### New Features
+
+ - <csr-id-e4bdd1fbf9c00853e76cfe34c98990422dc504a9/> greatly improve the index `File` debug output.
+   This allows tests to rely on it more with insta, and not miss a thing.
+ - <csr-id-36d84982d42f5955da3e6288a4da7e152089476a/> allow fixtures to require checked-in archives`
+   Add `scripted_fixture_read_only_needs_archive()` for fixtures whose generated
+   output can vary in byte order across platforms or filesystems. The helper
+   still validates archive identity, but bypasses GIX_TEST_IGNORE_ARCHIVES and
+   re-extracts the checked-in archive so tests can opt into frozen fixture bytes
+   when rerunning the producer is non-deterministic,
+   for instance due to filesystem order.
+ - <csr-id-fa02742da12e6f2fe18da2b16674a25f3a581648/> add `git` utility to call `git` easily like `git(cwd, "log --oneline")`
+ - <csr-id-33c0a8bbe7be5ba232b884334202f09b70bab622/> add `invoke_bash` test helper()
+ - <csr-id-2a5e787ffaa10e850d9131928715df177dee5c77/> Add `hash_kind_from_env()` to obtain the value of `GIX_TEST_FIXTURE_HASH`
+   This is useful when tests want to inspect the hash under test.
+ - <csr-id-7f50c3003ebfdcff044d142591ece1dcdab0b0ac/> use `GIX_TEST_FIXTURE_HASH` environment variable.
+   For now, there is no direct way to set it, but that may change
+   once we have tests that need it.
+ - <csr-id-61c504dfdd6505eeeda22a6c4254c7342b78d6e3/> Add variants of `scripted_fixture_read_only` that allow for Rust post modification.
+   That way, we can have the benefit of scripts *and* Rust for final tweaks.
+ - <csr-id-501da557fcccabf79961e441d0bb9a3e8841b906/> add rust_fixture_read_only and rust_fixture_writable functions to gix-testtools
+
+### Bug Fixes
+
+ - <csr-id-cad26e94a6f711105a08e39998f0a64d0a3903ba/> disable automatic Git maintenance in gix-testtools, add `apply_git_config_by_environment` utility
+   Disable maintenance.auto and gc.auto through command-scope Git config for
+   gix-testtools process execution, including fixture scripts, helper-launched Git,
+   cargo example builds, git-daemon wrappers, and shell helpers.
+ - <csr-id-83ab103077a76683b97755b3acd59c67b83a2def/> also override XDG_CONFIG_HOME for test-scripts and commands runs.
+
+### New Features (BREAKING)
+
+ - <csr-id-c8253522f181385afbe0279d6c24f5eab9b73f0f/> Make `gix-testtools` independent of `gix` crates
+   This means that a trait implementation has to always be passed
+   for what boils down to ignore handling.
+   
+   The `standalone` portion of the API is also removed.
+ - <csr-id-85961b590c86038b125de5546debb844414f51ca/> add `object_hash()` function and rename `hash_kind_from_env()` to `object_hash_from_env()`
+   For consistency and convenience.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-91c854e7b9f41738d0fde825cd474b8c00c1a49b/> remove `winnow` and replace it with hand-implemented parsers everywhere.
+   This will allow for simplified maintenance and editing (both human and machine)
+   down the road, and enable additional performance optimisations.
+   
+   Parser compbinators to me ultimately were a failed experiment as I couldn't maintain
+   them anyway, with it being too difficult for me to grasp and express everything
+   in its very own kind of language, with a lot of different things to consider.
+   
+   Note that this also removes detailed errors from all parsers that previously
+   used `winnow`, with the option to re-add those if there is demand.
+ - <csr-id-f4bb1063ce0b09a6d076d9c45d7f505cf31a1c85/> rename `Creation::ExecuteScipt` to `Creation::Execute`
+   This is more fitting since the arrival of Rust-based fixtures.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 70 commits contributed to the release.
+ - 14 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.4, gix-date v0.15.4, gix-actor v0.41.1, gix-trace v0.1.20, gix-validate v0.11.2, gix-path v0.12.1, gix-utils v0.3.3, gix-features v0.48.1, gix-hash v0.25.1, gix-hashtable v0.15.1, gix-object v0.61.0, gix-glob v0.26.1, gix-quote v0.7.2, gix-attributes v0.33.1, gix-command v0.9.1, gix-packetline v0.21.4, gix-filter v0.31.0, gix-fs v0.21.2, gix-chunk v0.7.2, gix-commitgraph v0.37.1, gix-revwalk v0.32.0, gix-traverse v0.58.0, gix-worktree-stream v0.33.0, gix-archive v0.33.0, gix-bitmap v0.3.2, gix-tempfile v23.0.1, gix-lock v23.0.1, gix-index v0.52.0, gix-config-value v0.18.1, gix-pathspec v0.18.1, gix-ignore v0.21.1, gix-worktree v0.53.0, gix-imara-diff v0.2.2, gix-diff v0.64.0, gix-blame v0.14.0, gix-ref v0.64.0, gix-sec v0.14.1, gix-config v0.57.0, gix-prompt v0.15.1, gix-url v0.36.1, gix-credentials v0.38.1, gix-discover v0.52.0, gix-dir v0.26.0, gix-mailmap v0.33.1, gix-revision v0.46.0, gix-merge v0.17.0, gix-negotiate v0.32.0, gix-pack v0.71.0, gix-odb v0.81.0, gix-refspec v0.42.0, gix-shallow v0.12.1, gix-transport v0.57.1, gix-protocol v0.62.0, gix-status v0.31.0, gix-submodule v0.31.0, gix-worktree-state v0.31.0, gix v0.84.0, gix-fsck v0.22.0, gitoxide-core v0.58.0, gitoxide v0.54.0, safety bump 27 crates ([`10c58bb`](https://github.com/GitoxideLabs/gitoxide/commit/10c58bb56597d9335611da121aac21f9b09b6e5b))
+    - Merge pull request #2612 from GitoxideLabs/improvements ([`4377485`](https://github.com/GitoxideLabs/gitoxide/commit/43774856ea44f6ec2176802aca0bc5facd7c7ad7))
+    - `spawn_git_daemon` now spawns the git daemon on a free port automatically ([`123cdaf`](https://github.com/GitoxideLabs/gitoxide/commit/123cdaf01e0ba7eea82d5acd1f2362cb2e236a85))
+    - Disable automatic Git maintenance in gix-testtools, add `apply_git_config_by_environment` utility ([`cad26e9`](https://github.com/GitoxideLabs/gitoxide/commit/cad26e94a6f711105a08e39998f0a64d0a3903ba))
+    - Merge pull request #2591 from AaronMoat/untracked-extension-reading ([`85c6087`](https://github.com/GitoxideLabs/gitoxide/commit/85c608725f11c47d5236b1d825e31c9b575493e5))
+    - Greatly improve the index `File` debug output. ([`e4bdd1f`](https://github.com/GitoxideLabs/gitoxide/commit/e4bdd1fbf9c00853e76cfe34c98990422dc504a9))
+    - Also override XDG_CONFIG_HOME for test-scripts and commands runs. ([`83ab103`](https://github.com/GitoxideLabs/gitoxide/commit/83ab103077a76683b97755b3acd59c67b83a2def))
+    - Allow fixtures to require checked-in archives` ([`36d8498`](https://github.com/GitoxideLabs/gitoxide/commit/36d84982d42f5955da3e6288a4da7e152089476a))
+    - Merge pull request #2578 from cruessler/run-gix-tests-with-sha-256 ([`2d4a6f2`](https://github.com/GitoxideLabs/gitoxide/commit/2d4a6f22bb7bf8a8f83b39aa3ccf5d1c2c30f13e))
+    - Add `git` utility to call `git` easily like `git(cwd, "log --oneline")` ([`fa02742`](https://github.com/GitoxideLabs/gitoxide/commit/fa02742da12e6f2fe18da2b16674a25f3a581648))
+    - Merge pull request #2590 from GitoxideLabs/independent-testtools ([`575113d`](https://github.com/GitoxideLabs/gitoxide/commit/575113dfb10b3ba12eb57f57a81b241e773968bd))
+    - Adapt to changes in `gix-testtools` ([`ce9e6bd`](https://github.com/GitoxideLabs/gitoxide/commit/ce9e6bded2cb47cc9b995f8882d98c09ba5c2c8b))
+    - Make `gix-testtools` independent of `gix` crates ([`c825352`](https://github.com/GitoxideLabs/gitoxide/commit/c8253522f181385afbe0279d6c24f5eab9b73f0f))
+    - Merge pull request #2589 from GitoxideLabs/fix-status-in-unborn-repo ([`ba7d9a4`](https://github.com/GitoxideLabs/gitoxide/commit/ba7d9a47287e7d6184eedbe345e066716b95fd01))
+    - Stabilize filter-driver example use in parallel tests to remove flake ([`db16a05`](https://github.com/GitoxideLabs/gitoxide/commit/db16a0508aa22278ceb8fa9dfa631276954a3304))
+    - Merge pull request #2573 from cruessler/run-gix-traverse-tests-with-sha-256 ([`278d7ec`](https://github.com/GitoxideLabs/gitoxide/commit/278d7ec395124b3ce00db6f3e029265bfec8ccd1))
+    - Review ([`1cd36be`](https://github.com/GitoxideLabs/gitoxide/commit/1cd36be4bcd9ffaf13b0ddb3305777bbf9bb8034))
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Merge pull request #2559 from GitoxideLabs/fix/symlink-prefix-reuse-worktree-escape-ghsa-f89h-2fjh-2r9q ([`3af9b4a`](https://github.com/GitoxideLabs/gitoxide/commit/3af9b4adcbca28e7072b96d266b716efb483893c))
+    - Release gix-fs v0.21.1 ([`d3e4c17`](https://github.com/GitoxideLabs/gitoxide/commit/d3e4c176f52a685f0405427ad7070014a6baf92b))
+    - Merge pull request #2543 from cruessler/run-gix-worktree-stream-tests-with-sha-256 ([`23af41a`](https://github.com/GitoxideLabs/gitoxide/commit/23af41ab13d4fa894c2c2774a096fef5438bef7d))
+    - Adapt to changes in `gix-testtools`and rename `hash_kind` -> `object_hash` ([`d9648e8`](https://github.com/GitoxideLabs/gitoxide/commit/d9648e85c53616fe2fb79e19ee0a42967127cc2f))
+    - Add `object_hash()` function and rename `hash_kind_from_env()` to `object_hash_from_env()` ([`85961b5`](https://github.com/GitoxideLabs/gitoxide/commit/85961b590c86038b125de5546debb844414f51ca))
+    - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
+    - Cargo fmt to fix CI ([`d1237b7`](https://github.com/GitoxideLabs/gitoxide/commit/d1237b7aaacf54a25e7a6e6d3151a6cc6715ea88))
+    - Release gix-error v0.2.3, gix-date v0.15.3, gix-actor v0.41.0, gix-path v0.12.0, gix-features v0.48.0, gix-hash v0.25.0, gix-hashtable v0.15.0, gix-object v0.60.0, gix-glob v0.26.0, gix-attributes v0.33.0, gix-command v0.9.0, gix-filter v0.30.0, gix-fs v0.21.0, gix-commitgraph v0.37.0, gix-revwalk v0.31.0, gix-traverse v0.57.0, gix-worktree-stream v0.32.0, gix-archive v0.32.0, gix-tempfile v23.0.0, gix-lock v23.0.0, gix-index v0.51.0, gix-config-value v0.18.0, gix-pathspec v0.18.0, gix-ignore v0.21.0, gix-worktree v0.52.0, gix-imara-diff v0.2.1, gix-diff v0.63.0, gix-blame v0.13.0, gix-ref v0.63.0, gix-sec v0.14.0, gix-config v0.56.0, gix-prompt v0.15.0, gix-url v0.36.0, gix-credentials v0.38.0, gix-discover v0.51.0, gix-dir v0.25.0, gix-mailmap v0.33.0, gix-revision v0.45.0, gix-merge v0.16.0, gix-negotiate v0.31.0, gix-pack v0.70.0, gix-odb v0.80.0, gix-refspec v0.41.0, gix-shallow v0.12.0, gix-transport v0.57.0, gix-protocol v0.61.0, gix-status v0.30.0, gix-submodule v0.30.0, gix-worktree-state v0.30.0, gix v0.83.0, gix-fsck v0.21.0, gitoxide-core v0.57.0, gitoxide v0.53.0, safety bump 48 crates ([`53f880c`](https://github.com/GitoxideLabs/gitoxide/commit/53f880c7604232c367870088176e42efd8a5b783))
+    - Fix CI - and probably prevent `can't connect to localhost` in journey tests ([`09687eb`](https://github.com/GitoxideLabs/gitoxide/commit/09687eba6bb3e0f398e0c0bef1e3f19f5f8b8cc0))
+    - Remove `winnow` and replace it with hand-implemented parsers everywhere. ([`91c854e`](https://github.com/GitoxideLabs/gitoxide/commit/91c854e7b9f41738d0fde825cd474b8c00c1a49b))
+    - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
+    - Update changelogs prior to release ([`f9fbcba`](https://github.com/GitoxideLabs/gitoxide/commit/f9fbcba28278f3fb2ad7969c2d00ac6765165724))
+    - Merge pull request #2511 from GitoxideLabs/improvements ([`1fc129d`](https://github.com/GitoxideLabs/gitoxide/commit/1fc129d45062703b62d4bb281c71b2223359264d))
+    - Add `invoke_bash` test helper() ([`33c0a8b`](https://github.com/GitoxideLabs/gitoxide/commit/33c0a8bbe7be5ba232b884334202f09b70bab622))
+    - Merge pull request #2499 from GitoxideLabs/dependabot/cargo/cargo-17cc682121 ([`44020e0`](https://github.com/GitoxideLabs/gitoxide/commit/44020e01d2f037d94a3625fbc323d203718dcc66))
+    - Bump the cargo group with 26 updates ([`9d04035`](https://github.com/GitoxideLabs/gitoxide/commit/9d040352ca432b23e666eb0163267170d0926401))
+    - Merge pull request #2496 from GitoxideLabs/improvements ([`2aedd14`](https://github.com/GitoxideLabs/gitoxide/commit/2aedd14c6d967022e6c4e9cc347ab86e58785216))
+    - Remove unnecessary message when using fixtures ([`e68a42a`](https://github.com/GitoxideLabs/gitoxide/commit/e68a42a50e005c8be666a0d994bcf54a052bbf1c))
+    - Merge pull request #2448 from cruessler/add-sha-256-to-gix-refspec ([`9a78ae2`](https://github.com/GitoxideLabs/gitoxide/commit/9a78ae2c4f0a1a290d067413787ecfdf486fa616))
+    - Add `hash_kind_from_env()` to obtain the value of `GIX_TEST_FIXTURE_HASH` ([`2a5e787`](https://github.com/GitoxideLabs/gitoxide/commit/2a5e787ffaa10e850d9131928715df177dee5c77))
+    - Make `hash_kind_from_env` public ([`726e1b9`](https://github.com/GitoxideLabs/gitoxide/commit/726e1b90161fec68e8f207d3c821367e5a9fecd8))
+    - Merge pull request #2480 from GitoxideLabs/report ([`98bae84`](https://github.com/GitoxideLabs/gitoxide/commit/98bae84fe534879899489c6f2c5e8cfcc863116d))
+    - Release gix-error v0.2.1, gix-date v0.15.1, gix-path v0.11.2, gix-features v0.46.2, gix-hash v0.23.0, gix-hashtable v0.13.0, gix-object v0.58.0, gix-packetline v0.21.2, gix-filter v0.28.0, gix-fs v0.19.2, gix-commitgraph v0.35.0, gix-revwalk v0.29.0, gix-traverse v0.55.0, gix-worktree-stream v0.30.0, gix-archive v0.30.0, gix-tempfile v21.0.2, gix-lock v21.0.2, gix-index v0.49.0, gix-pathspec v0.16.1, gix-ignore v0.19.1, gix-worktree v0.50.0, gix-diff v0.61.0, gix-blame v0.11.0, gix-ref v0.61.0, gix-sec v0.13.2, gix-config v0.54.0, gix-prompt v0.14.1, gix-credentials v0.37.1, gix-discover v0.49.0, gix-dir v0.23.0, gix-revision v0.43.0, gix-merge v0.14.0, gix-negotiate v0.29.0, gix-pack v0.68.0, gix-odb v0.78.0, gix-refspec v0.39.0, gix-shallow v0.10.0, gix-transport v0.55.1, gix-protocol v0.59.0, gix-status v0.28.0, gix-submodule v0.28.0, gix-worktree-state v0.28.0, gix v0.81.0, gix-fsck v0.19.0, gitoxide-core v0.55.0, gitoxide v0.52.0, safety bump 31 crates ([`c389a2c`](https://github.com/GitoxideLabs/gitoxide/commit/c389a2ccb32b36c1178a1352a2bb3229aef3b016))
+    - Merge pull request #2454 from GitoxideLabs/dependabot/cargo/cargo-da044b9bb0 ([`6183fd0`](https://github.com/GitoxideLabs/gitoxide/commit/6183fd092d7acd43763fe15be400ce81e7172775))
+    - Bump the cargo group with 68 updates ([`6bdb331`](https://github.com/GitoxideLabs/gitoxide/commit/6bdb33145e8aa81ba0dae5caafc675c591569715))
+    - Merge pull request #2441 from cruessler/remove-sha-1-from-default-features ([`e8bf096`](https://github.com/GitoxideLabs/gitoxide/commit/e8bf096c07205a41089a697a9726f075d3515643))
+    - Adapt to sha1 not being default feature of `gix-hash` ([`e71c703`](https://github.com/GitoxideLabs/gitoxide/commit/e71c703f0b8ca209f8aa912cbaf5aa26551496ef))
+    - Merge pull request #2442 from GitoxideLabs/report ([`f7277f3`](https://github.com/GitoxideLabs/gitoxide/commit/f7277f3c9e3e5130edb714ff5bd3db06b7f589b3))
+    - Release gix-error v0.2.0, gix-date v0.15.0, gix-actor v0.40.0, gix-object v0.57.0, gix-quote v0.7.0, gix-attributes v0.31.0, gix-command v0.8.0, gix-filter v0.27.0, gix-chunk v0.7.0, gix-commitgraph v0.34.0, gix-revwalk v0.28.0, gix-traverse v0.54.0, gix-worktree-stream v0.29.0, gix-archive v0.29.0, gix-bitmap v0.3.0, gix-index v0.48.0, gix-pathspec v0.16.0, gix-worktree v0.49.0, gix-diff v0.60.0, gix-blame v0.10.0, gix-ref v0.60.0, gix-config v0.53.0, gix-prompt v0.14.0, gix-url v0.35.2, gix-credentials v0.37.0, gix-discover v0.48.0, gix-dir v0.22.0, gix-mailmap v0.32.0, gix-revision v0.42.0, gix-merge v0.13.0, gix-negotiate v0.28.0, gix-pack v0.67.0, gix-odb v0.77.0, gix-refspec v0.38.0, gix-shallow v0.9.0, gix-transport v0.55.0, gix-protocol v0.58.0, gix-status v0.27.0, gix-submodule v0.27.0, gix-worktree-state v0.27.0, gix v0.80.0, gix-fsck v0.18.0, gitoxide-core v0.54.0, gitoxide v0.51.0, safety bump 42 crates ([`ecf90fc`](https://github.com/GitoxideLabs/gitoxide/commit/ecf90fccb9d43bff320c17f46fdc3f5832533a52))
+    - Merge pull request #2377 from cruessler/add-sha-256-to-gix-commitgraph ([`228caf7`](https://github.com/GitoxideLabs/gitoxide/commit/228caf7191eed5fd9e2095cc5a60179b374156b5))
+    - Refactor ([`8ccd760`](https://github.com/GitoxideLabs/gitoxide/commit/8ccd760621a54d14ca9386b2123d7fedb02931ac))
+    - Use `GIX_TEST_FIXTURE_HASH` environment variable. ([`7f50c30`](https://github.com/GitoxideLabs/gitoxide/commit/7f50c3003ebfdcff044d142591ece1dcdab0b0ac))
+    - Merge branch 'release' ([`9327b73`](https://github.com/GitoxideLabs/gitoxide/commit/9327b73785227f1322a327cb48fbb0800e1286ae))
+    - Release gix-error v0.1.0, gix-date v0.14.0, gix-actor v0.39.0, gix-trace v0.1.18, gix-path v0.11.1, gix-features v0.46.1, gix-hash v0.22.1, gix-object v0.56.0, gix-quote v0.6.2, gix-attributes v0.30.1, gix-command v0.7.1, gix-packetline v0.21.1, gix-filter v0.26.0, gix-fs v0.19.1, gix-chunk v0.6.0, gix-commitgraph v0.33.0, gix-revwalk v0.27.0, gix-traverse v0.53.0, gix-worktree-stream v0.28.0, gix-archive v0.28.0, gix-bitmap v0.2.16, gix-tempfile v21.0.1, gix-lock v21.0.1, gix-index v0.47.0, gix-config-value v0.17.1, gix-pathspec v0.15.1, gix-worktree v0.48.0, gix-diff v0.59.0, gix-blame v0.9.0, gix-ref v0.59.0, gix-sec v0.13.1, gix-config v0.52.0, gix-prompt v0.13.1, gix-url v0.35.1, gix-credentials v0.36.0, gix-discover v0.47.0, gix-dir v0.21.0, gix-mailmap v0.31.0, gix-revision v0.41.0, gix-merge v0.12.0, gix-negotiate v0.27.0, gix-pack v0.66.0, gix-odb v0.76.0, gix-refspec v0.37.0, gix-shallow v0.8.1, gix-transport v0.54.0, gix-protocol v0.57.0, gix-status v0.26.0, gix-submodule v0.26.0, gix-worktree-state v0.26.0, gix v0.79.0, safety bump 35 crates ([`d66ac10`](https://github.com/GitoxideLabs/gitoxide/commit/d66ac1057a5b7bfb608d4e6be585c69fb692bfee))
+    - Merge pull request #2415 from GitoxideLabs/improvements ([`5c9e6ae`](https://github.com/GitoxideLabs/gitoxide/commit/5c9e6ae8e7d0a2a0a67a05f2d222fb10f0216d60))
+    - Rename `Creation::ExecuteScipt` to `Creation::Execute` ([`f4bb106`](https://github.com/GitoxideLabs/gitoxide/commit/f4bb1063ce0b09a6d076d9c45d7f505cf31a1c85))
+    - Merge pull request #2414 from GitoxideLabs/improvements ([`a3e7b6e`](https://github.com/GitoxideLabs/gitoxide/commit/a3e7b6eb7330e2d83df492b301ac4975d17c1fd2))
+    - Make sure rust-scripts are always executed in the final destination. ([`8c97151`](https://github.com/GitoxideLabs/gitoxide/commit/8c9715103950c80bcb96489d6c509dc3555b984e))
+    - Merge pull request #2413 from GitoxideLabs/improvements ([`70a250c`](https://github.com/GitoxideLabs/gitoxide/commit/70a250c4ad08954db1364f9dcb7d7b743e4cba1d))
+    - Change the signature of `post` Rust closures to allow returning values. ([`594fe4c`](https://github.com/GitoxideLabs/gitoxide/commit/594fe4c56c9b02641261329b4677f994f7da9469))
+    - Add variants of `scripted_fixture_read_only` that allow for Rust post modification. ([`61c504d`](https://github.com/GitoxideLabs/gitoxide/commit/61c504dfdd6505eeeda22a6c4254c7342b78d6e3))
+    - Better docs for Rust fixture method in test tools ([`fd0328f`](https://github.com/GitoxideLabs/gitoxide/commit/fd0328ff752104bcb4bd3137bd3392cf082919eb))
+    - Merge pull request #2412 from GitoxideLabs/copilot/add-execute-rust-closures-again ([`675ce68`](https://github.com/GitoxideLabs/gitoxide/commit/675ce68914406b06d69415e938835015aa04a616))
+    - Address Copilot review ([`b63bf6f`](https://github.com/GitoxideLabs/gitoxide/commit/b63bf6f59bc0f80b334feb2d21a4e0fc4891a923))
+    - Deduplicate testtools marker implementation ([`fff844b`](https://github.com/GitoxideLabs/gitoxide/commit/fff844bb4d3dfcd20f9c033815e9de7e35a8270a))
+    - Refactor ([`ab33ceb`](https://github.com/GitoxideLabs/gitoxide/commit/ab33ceb5d897b699abc29c6cc33b314327b915e5))
+    - Add rust_fixture_read_only and rust_fixture_writable functions to gix-testtools ([`501da55`](https://github.com/GitoxideLabs/gitoxide/commit/501da557fcccabf79961e441d0bb9a3e8841b906))
+    - Merge pull request #2407 from GitoxideLabs/dependabot/cargo/cargo-fb4135702f ([`8bceefb`](https://github.com/GitoxideLabs/gitoxide/commit/8bceefbfc5f897517bfdd24744695a82cfa0d5be))
+    - Bump the cargo group with 59 updates ([`7ce3c55`](https://github.com/GitoxideLabs/gitoxide/commit/7ce3c5587aec1ca813039c047783b9cb2a106826))
+    - Merge pull request #2398 from GitoxideLabs/release ([`3b6650a`](https://github.com/GitoxideLabs/gitoxide/commit/3b6650a66e957d124964c7f41cc9895d4292598b))
+</details>
+
 ## 0.18.0 (2026-01-23)
 
 ### Bug Fixes (BREAKING)
@@ -15,8 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-read-only-do-not-edit/>
 
- - 4 commits contributed to the release.
- - 12 days passed between releases.
+ - 5 commits contributed to the release over the course of 1 calendar day.
+ - 13 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -27,6 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-testtools v0.18.0 ([`73d45f6`](https://github.com/GitoxideLabs/gitoxide/commit/73d45f6c71eec3d9468cd1fdf77f05ad21373a15))
     - Merge pull request #2395 from GitoxideLabs/improvements ([`766ab10`](https://github.com/GitoxideLabs/gitoxide/commit/766ab10104c5f3a2edfe5550791a8d5e78479b3b))
     - Let `writable` fixture functions take `AsRef<Path>` just like the read functions. ([`d6b9d97`](https://github.com/GitoxideLabs/gitoxide/commit/d6b9d97dac91db3714069928c89b16f515b3f226))
     - Merge pull request #2393 from GitoxideLabs/report ([`f7d0975`](https://github.com/GitoxideLabs/gitoxide/commit/f7d09758d245aaa89409e39bb6ba1ed6b7118ea5))
@@ -439,14 +584,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      maybe those should be unset there anyway, for clarity?)
 - https://git-scm.com/docs/git#Documentation/git.txt-codeGITCONFIGGLOBALcode
 
-### Other
-
- - <csr-id-3b173054c76f5113f36beca3ba5a3a44642e1915/> Fix description of `gix_testtools::Env::unset`
-   The `unset` method inadvertently had the same docstring as `set`,
-   even though this was not correct for `unset`. This fixes that, and
-   also rewords the `Env` docstring to better account for the ability
-   to unset.
-
 ### New Features (BREAKING)
 
  - <csr-id-0899c2ee36a714573b223ae85114fb7284fc661e/> on Windows, also instruct msys to create real symlinks
@@ -591,9 +728,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Merge branch 'fix-1440' ([`f87322e`](https://github.com/GitoxideLabs/gitoxide/commit/f87322e185704d9d4368ae88e95892635a976e4a))
 </details>
 
-<csr-unknown>
-As a way to check that all intended generated arhives are committed(which is the motivating use case for this feature), orIf actually using CI to generate archives that will be uploadedas artifacts, orIn unusual non-CI environments that are mis-detected as CI(though that should usually be investigated and fixed, since somesoftware performs destructive operations more readily withoutinteractive checks when CI is detected).On Windows, run git --exec-path to find the git-coredirectory. Then check if a bash.exe exists at the expectedlocation relative to that. In Git for Windows installations,this will usually work. If so, use that path (with ..components resolved away).On Windows, if a specific bash.exe is not found in that way,then fall back to using the relative path bash.exe. This is topreserve the ability to run bash on Windows systems where itmay have worked before even without bash.exe in an expectedlocation provided by a Git for Windows installation.On most Windows systems, even if no WSL distribution is installedand even if WSL itself is not set up, the System32 directorycontains a bash.exe program associated with WSL. This programattempts to use WSL to run bash in an installed distribution.The wsl.exe program also provides this functionality and isfavored for this purpose, but the bash.exe program is stillpresent and is likely to remain for many years for compatibility.Even when this bash is usable, it is not suited for runningmost shell scripts meant to operate on the native Windows system.In particular, it is not suitable for running our fixturescripts, which need to use the native git to prepare fixturesto be used natively, among other requirements that would not besatisfied with WSL (except when the tests are actually running inWSL).Since some fixtures are .gitignored because creating them onthe test system (rather than another system) is part of the test,this has caused breakage in most Windows environments unlessPATH is modified – either explicitly or by testing in an MSYS2environment, such as the Git Bash environment – whether or notGIX_TEST_IGNORE_ARCHIVES is set. This was the cause of #1359.Although using a Git Bash environment or otherwise adjusting thepath currently works, the reasons it works are subtle and relyon non-guaranteed behavior of std::process::Command path searchthat may change without warning.On Windows, processes are created by calling the CreateProcessWAPI function. CreateProcessW is capable of performing a PATHsearch, but this PATH search is not secure in most uses, sinceit includes the current directory (and searches it before PATHdirectories) unless NoDefaultCurrentDirectoryInExePath is setin the caller’s environment.While it is the most relevant to security, the CWD is not theonly location CreateProcessW searches before searching PATHdirectories (and regardless of where, if anywhere, they may alsoappear in PATH). Another such location is the System32directory. This is to say that, even when another directory withbash.exe precedes System32 in PATH, an executable searchwill still find the WSL-associated bash.exe in System32unless it deviates from the algorithm CreateProcessW uses.To avoid including the CWD in the search, std::process::Commandperforms its own path search, then passes the resolved path toCreateProcessW. The path search it performs is currently almostthe same the algorithm CreateProcessW uses, other than notautomatically including the CWD. But there are some other subtledifferences.One such difference is that, when the Command instance isconfigured to create a modified child environment (for example,by env calls), the PATH for the child is searched early on.This precedes a search of the System32 directory. It is doneeven if none of the customizations of the child environmentmodify its PATH.This behavior is not guaranteed, and it may change at any time.It is also the behavior we rely on inadvertently every time werun bash on Windows with a std::process::Command instanceconstructed by passing bash or bash.exe as the programargument: it so happens that we are also customizing the childenvironment, and due to implementation details in the Ruststandard library, this manages to find a non-WSL bash whenthe tests are run in Git Bash, in GitHub Actions jobs, and insome other cases.If in the future this is not done, or narrowed to be done onlywhen PATH is one of the environment variables customized forthe child process, then putting the directory with the desiredbash.exe earlier than the System32 directory in PATH willno longer prevent std::proces::Command from finding thebash.exe in System32 as CreateProcessW would and using it.Then it would be nontrivial to run the test suite on Windows.<csr-unknown/>
-
 ## 0.15.0 (2024-06-23)
 
 Now by default, `tar` files will be written which works better when checking them into
@@ -674,14 +808,6 @@ A maintenance release with updated dependencies, and possibly minor improvements
 <csr-id-ef54aab9e5521add4154ee8d902d62612a9d8d4a/>
 <csr-id-7f7db9794c23b87c8ea50b7bcf38955c9d977624/>
 <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/>
-
-### Chore
-
- - <csr-id-ef54aab9e5521add4154ee8d902d62612a9d8d4a/> switch `nom` to `winnow` in remaining uses in `gix-object`, `gix-ref`, and `gix-actor` for ~20% more performance.
-   It's likely that over time, these parsers will get even faster due to improvements to `winnow`.
-   Thanks, Ed Page, for single-handedly performing this transition.
- - <csr-id-7f7db9794c23b87c8ea50b7bcf38955c9d977624/> curtail `bstr` features to exactly what's needed.
- - <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/> Add `clippy::redundant-closure-for-method-calls` lint
 
 ### New Features
 
@@ -779,10 +905,6 @@ A maintenance release with updated dependencies, and possibly minor improvements
 
 <csr-id-b973f19274bb2d8218e5ff63ce0a81f34985f54c/>
 
-### Chore
-
- - <csr-id-b973f19274bb2d8218e5ff63ce0a81f34985f54c/> upgrade dependencies
-
 ### Documentation
 
  - <csr-id-cc48c35d0ecf35824910c5b6ecc62fe9b2aff1b5/> fix minor typos
@@ -817,11 +939,6 @@ A maintenance release with updated dependencies, and possibly minor improvements
 <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
 <csr-id-29bf8ca8399b6d4941aa242b9f08c74e59a179bb/>
 <csr-id-1d5ab44145ccbc2064ee8cc7acebb62db82c45aa/>
-
-### Chore
-
- - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
- - <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
 
 ### New Features
 
@@ -879,15 +996,6 @@ A maintenance release with updated dependencies, and possibly minor improvements
    This is now fixed by dropping the lock after the script identity was
    obtained.
  - <csr-id-004dab17deab4c360adb5ac428f6b4951c974fe3/> `_with_args(…)` functions now allow non-static strings
-
-### Other
-
- - <csr-id-29bf8ca8399b6d4941aa242b9f08c74e59a179bb/> try to disable GPG signing with environment variables…
-   …but it's not picked up at all even though it's definitely present.
-
-### Test
-
- - <csr-id-1d5ab44145ccbc2064ee8cc7acebb62db82c45aa/> ensure tests use 'merge.ff false' and recreate fixtures on each run
 
 ### Changed (BREAKING)
 
