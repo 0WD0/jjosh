@@ -111,7 +111,7 @@ impl gix_object::Write for crate::Repository {
         if self.objects.exists(&oid) {
             return Ok(oid);
         }
-        self.objects.write_buf(object, from)
+        self.objects.write_buf_with_known_id(object, from, oid)
     }
 
     fn write_stream(
@@ -126,6 +126,33 @@ impl gix_object::Write for crate::Repository {
             return Err(format!("Found {bytes} bytes in stream, but had {size} bytes declared").into());
         }
         self.write_buf(kind, &buf)
+    }
+
+    fn write_buf_with_known_id(
+        &self,
+        object: gix_object::Kind,
+        from: &[u8],
+        id: gix_hash::ObjectId,
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+        if self.objects.exists(&id) {
+            return Ok(id);
+        }
+        self.objects.write_buf_with_known_id(object, from, id)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: gix_object::Kind,
+        size: u64,
+        from: &mut dyn std::io::Read,
+        id: gix_hash::ObjectId,
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+        let mut buf = self.empty_reusable_buffer();
+        let bytes = std::io::copy(from, buf.deref_mut())?;
+        if size != bytes {
+            return Err(format!("Found {bytes} bytes in stream, but had {size} bytes declared").into());
+        }
+        self.write_buf_with_known_id(kind, &buf, id)
     }
 }
 
