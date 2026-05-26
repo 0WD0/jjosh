@@ -5,13 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.81.0 (2026-05-26)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 19 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2590 from GitoxideLabs/independent-testtools ([`575113d`](https://github.com/GitoxideLabs/gitoxide/commit/575113dfb10b3ba12eb57f57a81b241e773968bd))
+    - Move single-file directories in tests to simple module files. ([`1bc4ce3`](https://github.com/GitoxideLabs/gitoxide/commit/1bc4ce34214455968d00a3c94da2d7582a664a41))
+    - Adapt to changes in `gix-testtools` ([`ce9e6bd`](https://github.com/GitoxideLabs/gitoxide/commit/ce9e6bded2cb47cc9b995f8882d98c09ba5c2c8b))
+    - Merge pull request #2573 from cruessler/run-gix-traverse-tests-with-sha-256 ([`278d7ec`](https://github.com/GitoxideLabs/gitoxide/commit/278d7ec395124b3ce00db6f3e029265bfec8ccd1))
+    - Cleanup the `justfile` and automate feature tests ([`db7b97b`](https://github.com/GitoxideLabs/gitoxide/commit/db7b97b6e3858c44f1ab8c42af2017e8259c64d7))
+    - `sha1` and `sha256` forwardings for all crates ([`09b982c`](https://github.com/GitoxideLabs/gitoxide/commit/09b982c97fd7802819e49e5613c588d9aab008bb))
+    - Merge pull request #2575 from SarthakB11/fix/issue-2316 ([`4743361`](https://github.com/GitoxideLabs/gitoxide/commit/4743361e69238245b77f5687620b20652e62a23c))
+    - Review ([`1980190`](https://github.com/GitoxideLabs/gitoxide/commit/19801900fdce7b7db3ab4da9866c44d7fea5598e))
+    - Document why each fixture archive is .gitignored ([`e3d5a04`](https://github.com/GitoxideLabs/gitoxide/commit/e3d5a0474574dbb546a61eefc91a03c2df72df74))
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Merge pull request #2559 from GitoxideLabs/fix/symlink-prefix-reuse-worktree-escape-ghsa-f89h-2fjh-2r9q ([`3af9b4a`](https://github.com/GitoxideLabs/gitoxide/commit/3af9b4adcbca28e7072b96d266b716efb483893c))
+    - Release gix-fs v0.21.1 ([`d3e4c17`](https://github.com/GitoxideLabs/gitoxide/commit/d3e4c176f52a685f0405427ad7070014a6baf92b))
+    - Merge pull request #2543 from cruessler/run-gix-worktree-stream-tests-with-sha-256 ([`23af41a`](https://github.com/GitoxideLabs/gitoxide/commit/23af41ab13d4fa894c2c2774a096fef5438bef7d))
+    - Adapt to changes in `gix_object::Data` ([`4309fa4`](https://github.com/GitoxideLabs/gitoxide/commit/4309fa4a98fd613f8e346ed0274d0edec8dfab1f))
+    - Use source's object_hash in TryFrom ([`78b7fdf`](https://github.com/GitoxideLabs/gitoxide/commit/78b7fdf7e99482cbd8755534bc5dddb06e2bb24f))
+    - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
+</details>
+
 ## 0.80.0 (2026-04-28)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 2 commits contributed to the release over the course of 2 calendar days.
+ - 3 commits contributed to the release over the course of 2 calendar days.
  - 3 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.3, gix-date v0.15.3, gix-actor v0.41.0, gix-path v0.12.0, gix-features v0.48.0, gix-hash v0.25.0, gix-hashtable v0.15.0, gix-object v0.60.0, gix-glob v0.26.0, gix-attributes v0.33.0, gix-command v0.9.0, gix-filter v0.30.0, gix-fs v0.21.0, gix-commitgraph v0.37.0, gix-revwalk v0.31.0, gix-traverse v0.57.0, gix-worktree-stream v0.32.0, gix-archive v0.32.0, gix-tempfile v23.0.0, gix-lock v23.0.0, gix-index v0.51.0, gix-config-value v0.18.0, gix-pathspec v0.18.0, gix-ignore v0.21.0, gix-worktree v0.52.0, gix-imara-diff v0.2.1, gix-diff v0.63.0, gix-blame v0.13.0, gix-ref v0.63.0, gix-sec v0.14.0, gix-config v0.56.0, gix-prompt v0.15.0, gix-url v0.36.0, gix-credentials v0.38.0, gix-discover v0.51.0, gix-dir v0.25.0, gix-mailmap v0.33.0, gix-revision v0.45.0, gix-merge v0.16.0, gix-negotiate v0.31.0, gix-pack v0.70.0, gix-odb v0.80.0, gix-refspec v0.41.0, gix-shallow v0.12.0, gix-transport v0.57.0, gix-protocol v0.61.0, gix-status v0.30.0, gix-submodule v0.30.0, gix-worktree-state v0.30.0, gix v0.83.0, gix-fsck v0.21.0, gitoxide-core v0.57.0, gitoxide v0.53.0, safety bump 48 crates ([`53f880c`](https://github.com/GitoxideLabs/gitoxide/commit/53f880c7604232c367870088176e42efd8a5b783))
     - Fix CI - and probably prevent `can't connect to localhost` in journey tests ([`09687eb`](https://github.com/GitoxideLabs/gitoxide/commit/09687eba6bb3e0f398e0c0bef1e3f19f5f8b8cc0))
     - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
 </details>
@@ -287,13 +327,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/>
 
-### Other
-
- - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
-   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
-   
-   This fixes the docs.rs build
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -527,12 +560,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
-### Chore
-
- - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
-   That way clippy will allow to use the fantastic `Option::is_some_and()`
-   and friends.
-
 ### Bug Fixes
 
  - <csr-id-724601d474ce4acd30ee482e77fd96be2fe3425b/> improve handling of overflows when there are more pack than we can hold.
@@ -645,41 +672,6 @@ A maintenance release without user-facing changes.
    objects back from there.
    
    That way it can present a consistent view to objects from two locations.
-
-### Other
-
- - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
-   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
-   
-   - Markdown documentation, except changelogs and other such files
-     where such changes should not be made.
-   
-   - Documentation comments (in .rs files).
-   
-   - Manifest (.toml) files, for the value of the `repository` key.
-   
-   - The comments appearing at the top of a sample hook that contains
-     a repository URL as an example.
-   
-   When making these changes, I also allowed my editor to remove
-   trailing whitespace in any lines in files already being edited
-   (since, in this case, there was no disadvantage to allowing this).
-   
-   The gitoxide repository URL changed when the repository was moved
-   into the recently created GitHub organization `GitoxideLabs`, as
-   detailed in #1406. Please note that, although I believe updating
-   the URLs to their new canonical values is useful, this is not
-   needed to fix any broken links, since `Byron/gitoxide` URLs
-   redirect (and hopefully will always redirect) to the coresponding
-   `GitoxideLabs/gitoxide` URLs.
-   
-   While this change should not break any URLs, some affected URLs
-   were already broken. This updates them, but they are still broken.
-   They will be fixed in a subsequent commit.
-   
-   This also does not update `Byron/gitoxide` URLs in test fixtures
-   or test cases, nor in the `Makefile`. (It may make sense to change
-   some of those too, but it is not really a documentation change.)
 
 ### Commit Statistics
 
@@ -992,15 +984,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/>
 
-### Chore
-
-- <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/> change `rust-version` manifest field back to 1.65.
-  They didn't actually need to be higher to work, and changing them
-  unecessarily can break downstream CI.
-
-  Let's keep this value as low as possible, and only increase it when
-  more recent features are actually used.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1024,11 +1007,6 @@ A maintenance release without user-facing changes.
 ## 0.56.0 (2023-12-29)
 
 <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/>
-
-### Chore
-
-- <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/> upgrade MSRV to v1.70
-  Our MSRV follows the one of `helix`, which in turn follows Firefox.
 
 ### Commit Statistics
 
@@ -1165,12 +1143,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-ed327f6163f54756e58c20f86a563a97efb256ca/>
 
-### Chore (BREAKING)
-
-- <csr-id-ed327f6163f54756e58c20f86a563a97efb256ca/> update to the latest `prodash`
-  It makes proper usage of `Progress` types easier and allows them to be used
-  as `dyn` traits as well.
-
 ### Bug Fixes (BREAKING)
 
  - <csr-id-072ee32f693a31161cd6a843da6582d13efbb20b/> use `dyn` trait where possible.
@@ -1216,10 +1188,6 @@ A maintenance release without user-facing changes.
 ## 0.51.0 (2023-08-22)
 
 <csr-id-01c6ef62e260246f1623bdf05f49c03eff14ac69/>
-
-### Chore
-
-- <csr-id-01c6ef62e260246f1623bdf05f49c03eff14ac69/> reorganize tests to get rid of feature toggles that are for internal testing only
 
 ### Commit Statistics
 
@@ -1381,10 +1349,6 @@ A maintenance release without user-facing changes.
 ## 0.48.0 (2023-06-22)
 
 <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/>
-
-### Chore
-
-- <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/> Add `clippy::redundant-closure-for-method-calls` lint
 
 ### New Features
 
@@ -1658,15 +1622,6 @@ A maintenance release without user-facing changes.
 
 ## 0.41.0 (2023-03-01)
 
-### Bug Fixes
-
- - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
-   This also means that the `git-*` prefixed crates of the `gitoxide` project
-   are effectively unmaintained.
-   Use the crates with the `gix-*` prefix instead.
-   
-   If you were using `git-repository`, then `gix` is its substitute.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1719,16 +1674,6 @@ A maintenance release without user-facing changes.
 <csr-id-91c8fc1f0c50af55d7cb233bbe813c6d12fe11bc/>
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
 <csr-id-c800fdd331e6d7a0b8d756ba822915259f26e9e8/>
-
-### Refactor (BREAKING)
-
-- <csr-id-ebc7f47708a63c3df4415ba0e702660d976dfb3e/> remove pack-cache from `Find::try_find(…)`
-  With the new architecture this can be an implementation detail without
-  forcing it to be Sync.
-- <csr-id-2290d006705ff47ad780b009fe58ee422b3285af/> move git_pack::data::Object to git_object::Data, massively alter git_odb::Find trait
-  This will break a lot, but has to happen to prepare these traits for the
-  next generation of object databases.
-- <csr-id-598698b88c194bc0e6ef69539f9fa7246ebfab70/> move loose header manipulation from git-pack to git-object
 
 ### Bug Fixes (BREAKING)
 
@@ -1792,48 +1737,6 @@ A maintenance release without user-facing changes.
  - <csr-id-ad1b9ea17eb4b98ebd2fddebe82a8fee1d63e9dd/> various changes to the `loose::Store`
    - Change `path` field to read-only `path()` method
 
-### Refactor
-
-- <csr-id-46636e64c9a48ec0e85e014ac0cc8b48846d8462/> flatten errors into one
-  By adding one variant, one can remove the previous 'sub-error', for which
-  there is no precedent in the codebase yet.
-- <csr-id-e0b8636f96e4bfe1bc72b5aa6ad4c4c8538ff92c/> replace bare u32 `data::Id` typedef
-- <csr-id-5d57c1f7e3b9a84f7b46a4378015572155f3104b/> Use borrowed::Id in trees for full type safety
-- <csr-id-47ca6ab2ff0cbf8801d0a82cebbbeb8c4f62cdae/> a simpler implementation to skip the header
-
-### Other
-
-- <csr-id-2d6960f886c1165f0bdb6f2d653388e1e0b57a2d/> try LRU-like contains implementation
-  Which unfortunately isn't really faster at all even though it totally
-  should be.
-- <csr-id-424c9b3a2b467f5a1e339700257cd4ab72e2e692/> Try to make Handle usable for pack creation
-  It's nearly there, but for some reason the boxed dyn traits don't get to
-  be Send even though it's specified.
-- <csr-id-b1c82a7959fba1541642fc8dfae46b27848f2ba3/> :Find for Arc and Rc
-- <csr-id-9235106986e14551a28693bfe4ea92f046c65406/> :Find implementation for linked::Store
-- <csr-id-747a13e9a1fe5200c53055dd961507c9fef667e1/> :borrowed::Object => git-odb::data::Object
-- <csr-id-4c77e4c97641ab3b02b56aaa702a7d2ca5bced7c/> :Db::init() with a few tests
-- <csr-id-d53c4b0f91f1b29769c9430f2d1c0bcab1170c75/> add link to simplified/polonius version in the docs
-- <csr-id-b317200b72096573d511d229c6e61e74e7ba14db/> Only check alternates for objects not found in packs or loose
-  This matches the behavior of git.
-- <csr-id-eaae9c1bc723209d793eb93f5587fa2604d5cd92/> Avoid double-lookup in packs without polonius
-  Split object lookup into two steps: looking up the object index, and
-  looking up the object itself given the index. This avoids passing in the
-  buffer (and thus looking like an unconditional borrow to non-polonius)
-  until we're committed to returning from the loop.
-- <csr-id-13159eb972ed78ce4ebee2313b288023cec91c47/> try to get rid of tree-traversal Boxed error…
-  …which really complicates things downstream as these now have to deal
-  with another type argument, or of to try to turn it into a Box anyway.
-
-  The latter seems to be…troubling so I can't make it compile.
-- <csr-id-0092c256b3bfaf2818566540e660cdefcf68d246/> See if tree compaction saves considerable amounts of memory
-  No, it's not worth it.
-- <csr-id-9945eba749afb020e0deaaa5bb01fda6ff9ccd84/> try to use a customized version of just pieces of Miniz-oxide
-- <csr-id-cfd8a25f9125c48afe4b66eab6b6ecf71097c486/> fanout table, but slowly I get it :D
-- <csr-id-1525f36d29574699d2fcb16b70678121030fd109/> discard idea of making traversal even more generic
-- <csr-id-4ff21686c32a6edc84ea041c3040f33ae24f9519/> first silly attempt to randomly remove an allocation
-- <csr-id-91c8fc1f0c50af55d7cb233bbe813c6d12fe11bc/> get rid of failure crate in favor of quick-error
-
 ### Bug Fixes
 
  - <csr-id-4fffa9a9198cf3012fa8215796aab3d456519ff3/> remove panic-assertions in `loose` `lookup_prefix`
@@ -1844,11 +1747,6 @@ A maintenance release without user-facing changes.
  - <csr-id-41d494365d281056c5e9466860db808bd85143e9/> improve error messages when objects aren't found
  - <csr-id-9c14de391a1a9f1055922164d1757c9aa9720807/> support Rust 1.52
  - <csr-id-b605c1fa0494b10872d3c2e6ecce0e39f1a90a9e/> linked::Store now assures unique IDs across compound stores
-
-### Chore
-
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-c800fdd331e6d7a0b8d756ba822915259f26e9e8/> remove unused dependencies
 
 ### Documentation
 
@@ -3525,9 +3423,9 @@ A maintenance release without user-facing changes.
 
 ### Refactor
 
-- <csr-id-46636e64c9a48ec0e85e014ac0cc8b48846d8462/> flatten errors into one
-  By adding one variant, one can remove the previous 'sub-error', for which
-  there is no precedent in the codebase yet.
+ - <csr-id-46636e64c9a48ec0e85e014ac0cc8b48846d8462/> flatten errors into one
+   By adding one variant, one can remove the previous 'sub-error', for which
+   there is no precedent in the codebase yet.
 
 ## 0.38.0 (2022-12-19)
 
@@ -3603,7 +3501,7 @@ Maintenance release without user-facing changes.
 
 ### Chore
 
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
+ - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
 
 ### New Features
 
@@ -3682,22 +3580,22 @@ A maintenance release without user-facing changes.
 
 ### Refactor
 
-- <csr-id-e0b8636f96e4bfe1bc72b5aa6ad4c4c8538ff92c/> replace bare u32 `data::Id` typedef
+ - <csr-id-e0b8636f96e4bfe1bc72b5aa6ad4c4c8538ff92c/> replace bare u32 `data::Id` typedef
 
 ### Other
 
-- <csr-id-2d6960f886c1165f0bdb6f2d653388e1e0b57a2d/> try LRU-like contains implementation
-  Which unfortunately isn't really faster at all even though it totally
-  should be.
-- <csr-id-424c9b3a2b467f5a1e339700257cd4ab72e2e692/> Try to make Handle usable for pack creation
-  It's nearly there, but for some reason the boxed dyn traits don't get to
-  be Send even though it's specified.
-- <csr-id-b1c82a7959fba1541642fc8dfae46b27848f2ba3/> :Find for Arc and Rc
-- <csr-id-9235106986e14551a28693bfe4ea92f046c65406/> :Find implementation for linked::Store
+ - <csr-id-2d6960f886c1165f0bdb6f2d653388e1e0b57a2d/> try LRU-like contains implementation
+   Which unfortunately isn't really faster at all even though it totally
+   should be.
+ - <csr-id-424c9b3a2b467f5a1e339700257cd4ab72e2e692/> Try to make Handle usable for pack creation
+   It's nearly there, but for some reason the boxed dyn traits don't get to
+   be Send even though it's specified.
+ - <csr-id-b1c82a7959fba1541642fc8dfae46b27848f2ba3/> :Find for Arc and Rc
+ - <csr-id-9235106986e14551a28693bfe4ea92f046c65406/> :Find implementation for linked::Store
 
 ### Chore
 
-- <csr-id-c800fdd331e6d7a0b8d756ba822915259f26e9e8/> remove unused dependencies
+ - <csr-id-c800fdd331e6d7a0b8d756ba822915259f26e9e8/> remove unused dependencies
 
 ### New Features
 
@@ -3822,8 +3720,8 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Other
 
-- <csr-id-747a13e9a1fe5200c53055dd961507c9fef667e1/> :borrowed::Object => gix-odb::data::Object
-- <csr-id-4c77e4c97641ab3b02b56aaa702a7d2ca5bced7c/> :Db::init() with a few tests
+ - <csr-id-747a13e9a1fe5200c53055dd961507c9fef667e1/> :borrowed::Object => gix-odb::data::Object
+ - <csr-id-4c77e4c97641ab3b02b56aaa702a7d2ca5bced7c/> :Db::init() with a few tests
 
 ## v0.10.0 (2021-04-08)
 
@@ -3833,14 +3731,14 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Other
 
-- <csr-id-d53c4b0f91f1b29769c9430f2d1c0bcab1170c75/> add link to simplified/polonius version in the docs
-- <csr-id-b317200b72096573d511d229c6e61e74e7ba14db/> Only check alternates for objects not found in packs or loose
-  This matches the behavior of git.
-- <csr-id-eaae9c1bc723209d793eb93f5587fa2604d5cd92/> Avoid double-lookup in packs without polonius
-  Split object lookup into two steps: looking up the object index, and
-  looking up the object itself given the index. This avoids passing in the
-  buffer (and thus looking like an unconditional borrow to non-polonius)
-  until we're committed to returning from the loop.
+ - <csr-id-d53c4b0f91f1b29769c9430f2d1c0bcab1170c75/> add link to simplified/polonius version in the docs
+ - <csr-id-b317200b72096573d511d229c6e61e74e7ba14db/> Only check alternates for objects not found in packs or loose
+   This matches the behavior of git.
+ - <csr-id-eaae9c1bc723209d793eb93f5587fa2604d5cd92/> Avoid double-lookup in packs without polonius
+   Split object lookup into two steps: looking up the object index, and
+   looking up the object itself given the index. This avoids passing in the
+   buffer (and thus looking like an unconditional borrow to non-polonius)
+   until we're committed to returning from the loop.
 
 ## v0.9.1 (2021-04-03)
 
@@ -3862,11 +3760,11 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Other
 
-- <csr-id-13159eb972ed78ce4ebee2313b288023cec91c47/> try to get rid of tree-traversal Boxed error…
-  …which really complicates things downstream as these now have to deal
-  with another type argument, or of to try to turn it into a Box anyway.
-
-  The latter seems to be…troubling so I can't make it compile.
+ - <csr-id-13159eb972ed78ce4ebee2313b288023cec91c47/> try to get rid of tree-traversal Boxed error…
+   …which really complicates things downstream as these now have to deal
+   with another type argument, or of to try to turn it into a Box anyway.
+   
+   The latter seems to be…troubling so I can't make it compile.
 
 ## v0.4.1 (2020-09-18)
 
@@ -3875,16 +3773,16 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Other
 
-- <csr-id-0092c256b3bfaf2818566540e660cdefcf68d246/> See if tree compaction saves considerable amounts of memory
-  No, it's not worth it.
+ - <csr-id-0092c256b3bfaf2818566540e660cdefcf68d246/> See if tree compaction saves considerable amounts of memory
+   No, it's not worth it.
 
 ### Other
 
-- <csr-id-13159eb972ed78ce4ebee2313b288023cec91c47/> try to get rid of tree-traversal Boxed error…
-  …which really complicates things downstream as these now have to deal
-  with another type argument, or of to try to turn it into a Box anyway.
-
-  The latter seems to be…troubling so I can't make it compile.
+ - <csr-id-13159eb972ed78ce4ebee2313b288023cec91c47/> try to get rid of tree-traversal Boxed error…
+   …which really complicates things downstream as these now have to deal
+   with another type argument, or of to try to turn it into a Box anyway.
+   
+   The latter seems to be…troubling so I can't make it compile.
 
 ## v0.4.0 (2020-09-12)
 
@@ -3892,8 +3790,8 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Other
 
-- <csr-id-0092c256b3bfaf2818566540e660cdefcf68d246/> See if tree compaction saves considerable amounts of memory
-  No, it's not worth it.
+ - <csr-id-0092c256b3bfaf2818566540e660cdefcf68d246/> See if tree compaction saves considerable amounts of memory
+   No, it's not worth it.
 
 ## v0.3.0 (2020-08-12)
 
@@ -3904,13 +3802,13 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Refactor
 
-- <csr-id-5d57c1f7e3b9a84f7b46a4378015572155f3104b/> Use borrowed::Id in trees for full type safety
+ - <csr-id-5d57c1f7e3b9a84f7b46a4378015572155f3104b/> Use borrowed::Id in trees for full type safety
 
 ### Other
 
-- <csr-id-9945eba749afb020e0deaaa5bb01fda6ff9ccd84/> try to use a customized version of just pieces of Miniz-oxide
-- <csr-id-cfd8a25f9125c48afe4b66eab6b6ecf71097c486/> fanout table, but slowly I get it :D
-- <csr-id-1525f36d29574699d2fcb16b70678121030fd109/> discard idea of making traversal even more generic
+ - <csr-id-9945eba749afb020e0deaaa5bb01fda6ff9ccd84/> try to use a customized version of just pieces of Miniz-oxide
+ - <csr-id-cfd8a25f9125c48afe4b66eab6b6ecf71097c486/> fanout table, but slowly I get it :D
+ - <csr-id-1525f36d29574699d2fcb16b70678121030fd109/> discard idea of making traversal even more generic
 
 ## v0.1.0 (2020-07-12)
 
@@ -3920,10 +3818,10 @@ A maintenance release to properly dealing with previously breaking changes in `g
 
 ### Refactor
 
-- <csr-id-47ca6ab2ff0cbf8801d0a82cebbbeb8c4f62cdae/> a simpler implementation to skip the header
+ - <csr-id-47ca6ab2ff0cbf8801d0a82cebbbeb8c4f62cdae/> a simpler implementation to skip the header
 
 ### Other
 
-- <csr-id-4ff21686c32a6edc84ea041c3040f33ae24f9519/> first silly attempt to randomly remove an allocation
-- <csr-id-91c8fc1f0c50af55d7cb233bbe813c6d12fe11bc/> get rid of failure crate in favor of quick-error
+ - <csr-id-4ff21686c32a6edc84ea041c3040f33ae24f9519/> first silly attempt to randomly remove an allocation
+ - <csr-id-91c8fc1f0c50af55d7cb233bbe813c6d12fe11bc/> get rid of failure crate in favor of quick-error
 

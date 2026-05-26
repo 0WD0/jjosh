@@ -5,13 +5,188 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.64.0 (2026-05-26)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 15 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2590 from GitoxideLabs/independent-testtools ([`575113d`](https://github.com/GitoxideLabs/gitoxide/commit/575113dfb10b3ba12eb57f57a81b241e773968bd))
+    - Adapt to changes in `gix-testtools` ([`ce9e6bd`](https://github.com/GitoxideLabs/gitoxide/commit/ce9e6bded2cb47cc9b995f8882d98c09ba5c2c8b))
+    - Merge pull request #2575 from SarthakB11/fix/issue-2316 ([`4743361`](https://github.com/GitoxideLabs/gitoxide/commit/4743361e69238245b77f5687620b20652e62a23c))
+    - Review ([`1980190`](https://github.com/GitoxideLabs/gitoxide/commit/19801900fdce7b7db3ab4da9866c44d7fea5598e))
+    - Document why each fixture archive is .gitignored ([`e3d5a04`](https://github.com/GitoxideLabs/gitoxide/commit/e3d5a0474574dbb546a61eefc91a03c2df72df74))
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Merge pull request #2559 from GitoxideLabs/fix/symlink-prefix-reuse-worktree-escape-ghsa-f89h-2fjh-2r9q ([`3af9b4a`](https://github.com/GitoxideLabs/gitoxide/commit/3af9b4adcbca28e7072b96d266b716efb483893c))
+    - Release gix-fs v0.21.1 ([`d3e4c17`](https://github.com/GitoxideLabs/gitoxide/commit/d3e4c176f52a685f0405427ad7070014a6baf92b))
+    - Merge pull request #2543 from cruessler/run-gix-worktree-stream-tests-with-sha-256 ([`23af41a`](https://github.com/GitoxideLabs/gitoxide/commit/23af41ab13d4fa894c2c2774a096fef5438bef7d))
+    - Adapt to changes in `gix_object::Data` ([`4309fa4`](https://github.com/GitoxideLabs/gitoxide/commit/4309fa4a98fd613f8e346ed0274d0edec8dfab1f))
+    - Adapt to changes in `gix-testtools`and rename `hash_kind` -> `object_hash` ([`d9648e8`](https://github.com/GitoxideLabs/gitoxide/commit/d9648e85c53616fe2fb79e19ee0a42967127cc2f))
+    - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
+</details>
+
+## 0.63.0 (2026-04-28)
+
+### New Features
+
+ - <csr-id-d5f9bf5a664cbb0d101aadd48abfa9354403295e/> add `Category::is_remote_tracking_branch()`.
+   Mere convenience.
+
+### Bug Fixes
+
+ - <csr-id-1bf4099e3bb0c1fc81d8d139bd6531203a164104/> don't fail reflog creation if newlines are used in the configured user name
+   > Look at https://github.com/GitoxideLabs/gitoxide/issues/2491 and compare this with what Git at /Users/b
+     yron/dev/github.com/git/git does. I think it will allow newlines and just trim whitespace. Once validat
+     ed, create a test in `gix-ref` to reproduce the issue, then fix it.
+
+### New Features (BREAKING)
+
+ - <csr-id-731248f18ff5bc655143e9808fe717ac6d24edf6/> add `sha-256` support to `gix-ref`.
+   This predominantly restricts parsing so it won't allow any hash
+   but the one that was passed.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-d4439cd5b5aa82c126198aa57de6a9ebbc15d371/> Limit Commit and Tag parsing to a given `gix_hash::Kind`
+   Doing so adds conformity with Git, but also simplifies the parser
+   which now only parse hex-hashes of a single valid length.
+ - <csr-id-91c854e7b9f41738d0fde825cd474b8c00c1a49b/> remove `winnow` and replace it with hand-implemented parsers everywhere.
+   This will allow for simplified maintenance and editing (both human and machine)
+   down the road, and enable additional performance optimisations.
+   
+   Parser compbinators to me ultimately were a failed experiment as I couldn't maintain
+   them anyway, with it being too difficult for me to grasp and express everything
+   in its very own kind of language, with a lot of different things to consider.
+   
+   Note that this also removes detailed errors from all parsers that previously
+   used `winnow`, with the option to re-add those if there is demand.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 9 commits contributed to the release over the course of 2 calendar days.
+ - 3 days passed between releases.
+ - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2491](https://github.com/GitoxideLabs/gitoxide/issues/2491)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2491](https://github.com/GitoxideLabs/gitoxide/issues/2491)**
+    - Don't fail reflog creation if newlines are used in the configured user name ([`1bf4099`](https://github.com/GitoxideLabs/gitoxide/commit/1bf4099e3bb0c1fc81d8d139bd6531203a164104))
+ * **Uncategorized**
+    - Release gix-error v0.2.3, gix-date v0.15.3, gix-actor v0.41.0, gix-path v0.12.0, gix-features v0.48.0, gix-hash v0.25.0, gix-hashtable v0.15.0, gix-object v0.60.0, gix-glob v0.26.0, gix-attributes v0.33.0, gix-command v0.9.0, gix-filter v0.30.0, gix-fs v0.21.0, gix-commitgraph v0.37.0, gix-revwalk v0.31.0, gix-traverse v0.57.0, gix-worktree-stream v0.32.0, gix-archive v0.32.0, gix-tempfile v23.0.0, gix-lock v23.0.0, gix-index v0.51.0, gix-config-value v0.18.0, gix-pathspec v0.18.0, gix-ignore v0.21.0, gix-worktree v0.52.0, gix-imara-diff v0.2.1, gix-diff v0.63.0, gix-blame v0.13.0, gix-ref v0.63.0, gix-sec v0.14.0, gix-config v0.56.0, gix-prompt v0.15.0, gix-url v0.36.0, gix-credentials v0.38.0, gix-discover v0.51.0, gix-dir v0.25.0, gix-mailmap v0.33.0, gix-revision v0.45.0, gix-merge v0.16.0, gix-negotiate v0.31.0, gix-pack v0.70.0, gix-odb v0.80.0, gix-refspec v0.41.0, gix-shallow v0.12.0, gix-transport v0.57.0, gix-protocol v0.61.0, gix-status v0.30.0, gix-submodule v0.30.0, gix-worktree-state v0.30.0, gix v0.83.0, gix-fsck v0.21.0, gitoxide-core v0.57.0, gitoxide v0.53.0, safety bump 48 crates ([`53f880c`](https://github.com/GitoxideLabs/gitoxide/commit/53f880c7604232c367870088176e42efd8a5b783))
+    - Add `Category::is_remote_tracking_branch()`. ([`d5f9bf5`](https://github.com/GitoxideLabs/gitoxide/commit/d5f9bf5a664cbb0d101aadd48abfa9354403295e))
+    - Address auto-review ([`87b2da8`](https://github.com/GitoxideLabs/gitoxide/commit/87b2da8b66dfaa8a0b4e11ac947b1ec4164c163f))
+    - Add `sha-256` support to `gix-ref`. ([`731248f`](https://github.com/GitoxideLabs/gitoxide/commit/731248f18ff5bc655143e9808fe717ac6d24edf6))
+    - Limit Commit and Tag parsing to a given `gix_hash::Kind` ([`d4439cd`](https://github.com/GitoxideLabs/gitoxide/commit/d4439cd5b5aa82c126198aa57de6a9ebbc15d371))
+    - Remove `winnow` and replace it with hand-implemented parsers everywhere. ([`91c854e`](https://github.com/GitoxideLabs/gitoxide/commit/91c854e7b9f41738d0fde825cd474b8c00c1a49b))
+    - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
+    - Merge pull request #2529 from GitoxideLabs/reflog-newline-handling ([`2c3a08e`](https://github.com/GitoxideLabs/gitoxide/commit/2c3a08e7d255df7d939af3d59c42aa0d6a21b76a))
+</details>
+
+## 0.62.0 (2026-04-24)
+
+### Bug Fixes
+
+ - <csr-id-5b229c6f560ff832ca1b2b72032e025e1ca235c3/> Restore `Category::to_full_name()` to be able to produce any full name.
+   Previously it learned to reject certain invalid branch names, but this has to
+   be done separately and led to some unpleasant changes in `gix` as well.
+ - <csr-id-4b4fba211a8caa797c21a46a50d610ac871a346b/> reject the creation of `refs/heads/HEAD` just like Git in `Category::to_full_name()`
+   See https://github.com/git/git/blob/cf2139f8e1680b076e115bc0b349e369b4b0ecc4/refs.c#L776-L778
+   for the source of this rule.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 15 commits contributed to the release over the course of 32 calendar days.
+ - 32 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Update changelogs prior to release ([`f9fbcba`](https://github.com/GitoxideLabs/gitoxide/commit/f9fbcba28278f3fb2ad7969c2d00ac6765165724))
+    - Merge pull request #2530 from GitoxideLabs/advisories ([`63b8419`](https://github.com/GitoxideLabs/gitoxide/commit/63b841907ce30b36bb50da5aae3a9e1a06eadf64))
+    - Add fuzz tests for 10 more crates, and related fixes ([`0396152`](https://github.com/GitoxideLabs/gitoxide/commit/03961523d0208a12b7b480b14d57793049600283))
+    - Merge pull request #2497 from cruessler/pass-hash-len-to-tree-ref-iter ([`7d50c30`](https://github.com/GitoxideLabs/gitoxide/commit/7d50c30040b8854a0129d86bd30535cb570ca75e))
+    - Adapt to changes in `gix-object` ([`6df1d55`](https://github.com/GitoxideLabs/gitoxide/commit/6df1d553b03e2809aa4f651e3ec48aad4688696e))
+    - Merge pull request #2518 from GitoxideLabs/improvements ([`444a92b`](https://github.com/GitoxideLabs/gitoxide/commit/444a92b0fa1df406cf2f36f8dbe82c2859e04e0b))
+    - Make `package.include` patterns more specific so they don't match ignored files ([`c2c917f`](https://github.com/GitoxideLabs/gitoxide/commit/c2c917fce56c40a9af0d06bd603b7d1d2e51474f))
+    - Merge pull request #2507 from GitoxideLabs/improvements ([`e51c40b`](https://github.com/GitoxideLabs/gitoxide/commit/e51c40bd5c206305197bd635014f51930b5d8fc2))
+    - Restore `Category::to_full_name()` to be able to produce any full name. ([`5b229c6`](https://github.com/GitoxideLabs/gitoxide/commit/5b229c6f560ff832ca1b2b72032e025e1ca235c3))
+    - Merge pull request #2505 from GitoxideLabs/improvements ([`420c5df`](https://github.com/GitoxideLabs/gitoxide/commit/420c5df55003d7df6df5dc7e98a7b50cb1ebebbf))
+    - Address auto-review ([`6a5a0ec`](https://github.com/GitoxideLabs/gitoxide/commit/6a5a0ec153829aa7938f4485cc7e920be2492f9b))
+    - Reject the creation of `refs/heads/HEAD` just like Git in `Category::to_full_name()` ([`4b4fba2`](https://github.com/GitoxideLabs/gitoxide/commit/4b4fba211a8caa797c21a46a50d610ac871a346b))
+    - Merge pull request #2499 from GitoxideLabs/dependabot/cargo/cargo-17cc682121 ([`44020e0`](https://github.com/GitoxideLabs/gitoxide/commit/44020e01d2f037d94a3625fbc323d203718dcc66))
+    - Bump the cargo group with 26 updates ([`9d04035`](https://github.com/GitoxideLabs/gitoxide/commit/9d040352ca432b23e666eb0163267170d0926401))
+    - Merge pull request #2480 from GitoxideLabs/report ([`98bae84`](https://github.com/GitoxideLabs/gitoxide/commit/98bae84fe534879899489c6f2c5e8cfcc863116d))
+</details>
+
+## 0.61.0 (2026-03-22)
+
+### New Features
+
+ - <csr-id-383291689c659a2cc0bee7687f5a9b9f7a3659a4/> add `sha1` and `sha256` features to `gix`.
+   This way one can control which hashes are compiled in exactly,
+   while having reasonable defaults automatically.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 7 commits contributed to the release.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.1, gix-date v0.15.1, gix-path v0.11.2, gix-features v0.46.2, gix-hash v0.23.0, gix-hashtable v0.13.0, gix-object v0.58.0, gix-packetline v0.21.2, gix-filter v0.28.0, gix-fs v0.19.2, gix-commitgraph v0.35.0, gix-revwalk v0.29.0, gix-traverse v0.55.0, gix-worktree-stream v0.30.0, gix-archive v0.30.0, gix-tempfile v21.0.2, gix-lock v21.0.2, gix-index v0.49.0, gix-pathspec v0.16.1, gix-ignore v0.19.1, gix-worktree v0.50.0, gix-diff v0.61.0, gix-blame v0.11.0, gix-ref v0.61.0, gix-sec v0.13.2, gix-config v0.54.0, gix-prompt v0.14.1, gix-credentials v0.37.1, gix-discover v0.49.0, gix-dir v0.23.0, gix-revision v0.43.0, gix-merge v0.14.0, gix-negotiate v0.29.0, gix-pack v0.68.0, gix-odb v0.78.0, gix-refspec v0.39.0, gix-shallow v0.10.0, gix-transport v0.55.1, gix-protocol v0.59.0, gix-status v0.28.0, gix-submodule v0.28.0, gix-worktree-state v0.28.0, gix v0.81.0, gix-fsck v0.19.0, gitoxide-core v0.55.0, gitoxide v0.52.0, safety bump 31 crates ([`c389a2c`](https://github.com/GitoxideLabs/gitoxide/commit/c389a2ccb32b36c1178a1352a2bb3229aef3b016))
+    - Merge pull request #2454 from GitoxideLabs/dependabot/cargo/cargo-da044b9bb0 ([`6183fd0`](https://github.com/GitoxideLabs/gitoxide/commit/6183fd092d7acd43763fe15be400ce81e7172775))
+    - Bump the cargo group with 68 updates ([`6bdb331`](https://github.com/GitoxideLabs/gitoxide/commit/6bdb33145e8aa81ba0dae5caafc675c591569715))
+    - Merge pull request #2441 from cruessler/remove-sha-1-from-default-features ([`e8bf096`](https://github.com/GitoxideLabs/gitoxide/commit/e8bf096c07205a41089a697a9726f075d3515643))
+    - Add `sha1` and `sha256` features to `gix`. ([`3832916`](https://github.com/GitoxideLabs/gitoxide/commit/383291689c659a2cc0bee7687f5a9b9f7a3659a4))
+    - Adapt to sha1 not being default feature of `gix-hash` ([`e71c703`](https://github.com/GitoxideLabs/gitoxide/commit/e71c703f0b8ca209f8aa912cbaf5aa26551496ef))
+    - Merge pull request #2442 from GitoxideLabs/report ([`f7277f3`](https://github.com/GitoxideLabs/gitoxide/commit/f7277f3c9e3e5130edb714ff5bd3db06b7f589b3))
+</details>
+
 ## 0.60.0 (2026-02-22)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 10 calendar days.
+ - 4 commits contributed to the release over the course of 10 calendar days.
  - 12 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.0, gix-date v0.15.0, gix-actor v0.40.0, gix-object v0.57.0, gix-quote v0.7.0, gix-attributes v0.31.0, gix-command v0.8.0, gix-filter v0.27.0, gix-chunk v0.7.0, gix-commitgraph v0.34.0, gix-revwalk v0.28.0, gix-traverse v0.54.0, gix-worktree-stream v0.29.0, gix-archive v0.29.0, gix-bitmap v0.3.0, gix-index v0.48.0, gix-pathspec v0.16.0, gix-worktree v0.49.0, gix-diff v0.60.0, gix-blame v0.10.0, gix-ref v0.60.0, gix-config v0.53.0, gix-prompt v0.14.0, gix-url v0.35.2, gix-credentials v0.37.0, gix-discover v0.48.0, gix-dir v0.22.0, gix-mailmap v0.32.0, gix-revision v0.42.0, gix-merge v0.13.0, gix-negotiate v0.28.0, gix-pack v0.67.0, gix-odb v0.77.0, gix-refspec v0.38.0, gix-shallow v0.9.0, gix-transport v0.55.0, gix-protocol v0.58.0, gix-status v0.27.0, gix-submodule v0.27.0, gix-worktree-state v0.27.0, gix v0.80.0, gix-fsck v0.18.0, gitoxide-core v0.54.0, gitoxide v0.51.0, safety bump 42 crates ([`ecf90fc`](https://github.com/GitoxideLabs/gitoxide/commit/ecf90fccb9d43bff320c17f46fdc3f5832533a52))
     - Merge pull request #2377 from cruessler/add-sha-256-to-gix-commitgraph ([`228caf7`](https://github.com/GitoxideLabs/gitoxide/commit/228caf7191eed5fd9e2095cc5a60179b374156b5))
     - Use `GIX_TEST_FIXTURE_HASH` for `gix-commitgraph` and `gix-pack`. ([`d51b858`](https://github.com/GitoxideLabs/gitoxide/commit/d51b858a6710367162dd2aeecd9f82c5ca7038c4))
     - Merge branch 'release' ([`9327b73`](https://github.com/GitoxideLabs/gitoxide/commit/9327b73785227f1322a327cb48fbb0800e1286ae))
@@ -165,13 +341,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.54.1 (2025-10-23)
 
 <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/>
-
-### Other
-
- - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
-   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
-   
-   This fixes the docs.rs build
 
 ### Commit Statistics
 
@@ -446,46 +615,6 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 
 <csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/>
 
-### Other
-
- - <csr-id-d1b357ec53b9e2be2483ae130e25401be795f139/> Clarify `write::Error::IllegalCharacter` description
-   The description contains a literal `\n` sequence, which seems to be
-   for clarification or to facilitate searching for that sequence, but
-   it was originally just concatenated to the end of the message. This
-   parenthesizes it instead.
-
-### Bug Fixes (BREAKING)
-
- - <csr-id-f5385595987e0be84fb56827682df013bf54e09c/> prefixed ref iteration now properly deals with slashes.
-   Previously, `refs/heads/foo/bar` would be listed when running
-   `repo.references()?.prefixed("refs/heads/b")`. The code identified that
-   the last component was not a directory and started to match it as a
-   filename prefix for all files in all recursive directories, effectively
-   matching `refs/heads/**/b*`.
-   
-   This commit fixes that bug but also allows to use a trailing `/` in the
-   prefix, allowing to filter for `refs/heads/foo/` and not get
-   `refs/heads/foo-bar` as a result.
-
-### New Features (BREAKING)
-
- - <csr-id-108a8ca9cbc808499cc943208e2bca638362a743/> Use `&RelativePath` in `*::prefixed()` methods.
-   That way there now is a type to capture requirements.
-
-### Bug Fixes
-
- - <csr-id-b07f907ba2e01849744c72df35dac57b624f2f85/> Adapt to changes in gix-actor
-   Use the committer date and author date that are now backed by bytes and
-   interpret these bytes into a `gix_date::Time` on demand.
- - <csr-id-38b63c2fc9d407b3c634d8b0c72d4d0c104aa5ad/> make `fs::walkdir_sorted_new()` sort entries by paths literally
-   This follows up 7b1b5bf864e74706aefeb1213e8bdb0545d5464a. Since packed-refs
-   appears to be sorted by full ref name, loose-refs should also be emitted in
-   that order.
-   
-   The comparison function is copied from gix::diff::object::tree::EntryRef.
-   Non-utf8 file names are simply mapped to "" on Windows. We could add some
-   fallback, but callers can't handle such file names anyway.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -531,12 +660,6 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 ## 0.50.0 (2025-01-18)
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
-
-### Chore
-
- - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
-   That way clippy will allow to use the fantastic `Option::is_some_and()`
-   and friends.
 
 ### Commit Statistics
 
@@ -652,51 +775,6 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 
  - <csr-id-cdac4a9b04959b0fc71009b5c828cdcb10a38828/> remove workspace lints from Cargo manifests of fuzz-projects.
    They are not part of the parent workspace.
-
-### Other
-
- - <csr-id-65f69f72a8a08b3b2462362ec10d1748be48019b/> Fix some broken links to commit/blob URLs
-   A few of the links discovered to have been broken while updating
-   them are easy to fix. This fixes those.
-   
-   They were broken due to changes in the repository structure or
-   contents that were not fully reflected when the links were last
-   updated. For example, when `git-*` crates were renamed to their
-   current `gix-*` names, URLs were updated, but some of these were
-   GitHub URLs where the commit hash was for a commit prior to the
-   rename.
- - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
-   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
-   
-   - Markdown documentation, except changelogs and other such files
-     where such changes should not be made.
-   
-   - Documentation comments (in .rs files).
-   
-   - Manifest (.toml) files, for the value of the `repository` key.
-   
-   - The comments appearing at the top of a sample hook that contains
-     a repository URL as an example.
-   
-   When making these changes, I also allowed my editor to remove
-   trailing whitespace in any lines in files already being edited
-   (since, in this case, there was no disadvantage to allowing this).
-   
-   The gitoxide repository URL changed when the repository was moved
-   into the recently created GitHub organization `GitoxideLabs`, as
-   detailed in #1406. Please note that, although I believe updating
-   the URLs to their new canonical values is useful, this is not
-   needed to fix any broken links, since `Byron/gitoxide` URLs
-   redirect (and hopefully will always redirect) to the coresponding
-   `GitoxideLabs/gitoxide` URLs.
-   
-   While this change should not break any URLs, some affected URLs
-   were already broken. This updates them, but they are still broken.
-   They will be fixed in a subsequent commit.
-   
-   This also does not update `Byron/gitoxide` URLs in test fixtures
-   or test cases, nor in the `Makefile`. (It may make sense to change
-   some of those too, but it is not really a documentation change.)
 
 ### Bug Fixes (BREAKING)
 
@@ -835,10 +913,6 @@ A maintenance release without user-facing changes.
 ## 0.45.0 (2024-07-23)
 
 <csr-id-ec1d6b44d7f65ded8ea34914350e723275121776/>
-
-### Other
-
- - <csr-id-ec1d6b44d7f65ded8ea34914350e723275121776/> gix-date is test only dep
 
 ### Bug Fixes (BREAKING)
 
@@ -1069,15 +1143,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/>
 
-### Chore
-
-- <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/> change `rust-version` manifest field back to 1.65.
-  They didn't actually need to be higher to work, and changing them
-  unecessarily can break downstream CI.
-
-  Let's keep this value as low as possible, and only increase it when
-  more recent features are actually used.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1101,11 +1166,6 @@ A maintenance release without user-facing changes.
 ## 0.40.0 (2023-12-29)
 
 <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/>
-
-### Chore
-
-- <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/> upgrade MSRV to v1.70
-  Our MSRV follows the one of `helix`, which in turn follows Firefox.
 
 ### New Features
 
@@ -1323,12 +1383,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-ef54aab9e5521add4154ee8d902d62612a9d8d4a/>
 
-### Chore
-
-- <csr-id-ef54aab9e5521add4154ee8d902d62612a9d8d4a/> switch `nom` to `winnow` in remaining uses in `gix-object`, `gix-ref`, and `gix-actor` for ~20% more performance.
-  It's likely that over time, these parsers will get even faster due to improvements to `winnow`.
-  Thanks, Ed Page, for single-handedly performing this transition.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1399,13 +1453,6 @@ A maintenance release without user-facing changes.
 ## 0.33.3 (2023-08-02)
 
 <csr-id-5f6cf22cd8eda37c151e67b83cdb36d953ee3793/>
-
-### Other
-
-- <csr-id-5f6cf22cd8eda37c151e67b83cdb36d953ee3793/> improve documentation about the `Change` type.
-  Further, we update internal logic to decide when to write a reflog
-  for symrefs. Now we will always do it when possible, i.e. there is
-  object ids available.
 
 ### Commit Statistics
 
@@ -1561,10 +1608,6 @@ A maintenance release without user-facing changes.
 ## 0.31.0 (2023-06-22)
 
 <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/>
-
-### Chore
-
-- <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/> Add `clippy::redundant-closure-for-method-calls` lint
 
 ### Commit Statistics
 
@@ -1904,12 +1947,6 @@ A maintenance release without user-facing changes.
 
 ### Bug Fixes
 
- - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
-   This also means that the `git-*` prefixed crates of the `gitoxide` project
-   are effectively unmaintained.
-   Use the crates with the `gix-*` prefix instead.
-   
-   If you were using `git-repository`, then `gix` is its substitute.
  - <csr-id-135d317065aae87af302beb6c26bb6ca8e30b6aa/> compatibility with `bstr` v1.3, use `*.as_bytes()` instead of `.as_ref()`.
    `as_ref()` relies on a known target type which isn't always present. However, once
    there is only one implementation, that's no problem, but when that changes compilation
@@ -1949,27 +1986,6 @@ A maintenance release without user-facing changes.
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
 <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
 
-### Refactor (BREAKING)
-
-- <csr-id-ebc7f47708a63c3df4415ba0e702660d976dfb3e/> remove pack-cache from `Find::try_find(…)`
-  With the new architecture this can be an implementation detail without
-  forcing it to be Sync.
-- <csr-id-2290d006705ff47ad780b009fe58ee422b3285af/> move git_pack::data::Object to git_object::Data, massively alter git_odb::Find trait
-  This will break a lot, but has to happen to prepare these traits for the
-  next generation of object databases.
-- <csr-id-0e1875363fea09452789d7a90fc6860a7996d6d3/> `file::Store::base` is now `file::Store::base()` and read-only
-  That way, file databases can't be repositioned anymore, it's recommended
-  to recreate it if that's desired.
-
-### Other (BREAKING)
-
-- <csr-id-c46dec311c76a83dba136be5dba6b70d739c354d/> remove `Target::must_exist()`
-  It was a remainder of an old API which since has been replaced
-  with a more explicit approach.
-- <csr-id-951c050ecbb70c9de216603e55c7cfbc89a067e3/> Reference::logs() -> Reference::log_iter()
-  The latter now returns a standard Platform to iterate over all
-  reflog entries from oldest to newest or vice versa.
-
 ### New Features (BREAKING)
 
  - <csr-id-3d8fa8fef9800b1576beab8a5bc39b821157a5ed/> upgrade edition to 2021 in most crates.
@@ -1984,10 +2000,6 @@ A maintenance release without user-facing changes.
    in edition 2021.
  - <csr-id-0ace957c595c8a38afb7de1462cdc73b617d2a76/> Turn `FullNameRef` into an actual reference type.
    That way `Cow<'_, FullNameRef>` works as expected.
-
-### Chore (BREAKING)
-
-- <csr-id-725210dc401406fe9450eae9d375b0238d645027/> replace `quick-error` with `thiserror`
 
 ### Changed (BREAKING)
 
@@ -2053,19 +2065,6 @@ A maintenance release without user-facing changes.
    to clone one `file::Store` instance per thread, each of which can
    use its own namespace.
  - <csr-id-95247322a8191edfa7fac9c5aa72b40239f3aa88/> move `git_ref::file::WriteRefLog` to `git_ref::store::WriteRefLog`
-
-### Other
-
-- <csr-id-4ed4b2da50557aff540685441f4b5c7d5e582977/> add panicking `Target::id()` and `TargetRef::id()`
-- <csr-id-293bfc0278c5983c0beaec93253fb51f00d81156/> loose reference iteration with non-dir prefixes…
-  Previously it was expected for the prefix `Path` to always exist for
-  the prefix to be valid. This, however, is not similar to packed
-  prefixes, which allow non-dir prefixes as well.
-
-  Now we will check if the prefix is actually a directory, and if not
-  split it into its parent directory and the filename portion. The latter
-  is then used for prefix matching file names within that directory.
-- <csr-id-90e6128727932f917c485f411e623fc6a9c2ad4d/> improve changelog format
 
 ### Bug Fixes
 
@@ -2167,11 +2166,6 @@ A maintenance release without user-facing changes.
    managing the packed-refs buffer, allowing it to stay more persistent.
  - <csr-id-c0fc4f6f1b42c117275be85e1c2e6893b58007ba/> PartialNameRef<'static>::join() for building paths on the fly
  - <csr-id-b7aab9efd42975e8f2dcb5c97e51495996175702/> Allow `PartialNameRef` to be created from owned items
-
-### Chore
-
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
 
 ### Documentation
 
@@ -3315,7 +3309,7 @@ A maintenance release without user-facing changes.
 
 ### Chore (BREAKING)
 
-- <csr-id-725210dc401406fe9450eae9d375b0238d645027/> replace `quick-error` with `thiserror`
+ - <csr-id-725210dc401406fe9450eae9d375b0238d645027/> replace `quick-error` with `thiserror`
 
 ## 0.15.4 (2022-08-28)
 
@@ -3334,8 +3328,8 @@ Maintenance release without user-facing changes.
 
 ### Chore
 
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
+ - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
+ - <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
 
 ### New Features
 
@@ -3573,15 +3567,15 @@ a 'frozen' version of the packed buffer for any amount of operations.
 
 ### Other (BREAKING)
 
-- <csr-id-951c050ecbb70c9de216603e55c7cfbc89a067e3/> Reference::logs() -> Reference::log_iter()
-  The latter now returns a standard Platform to iterate over all
-  reflog entries from oldest to newest or vice versa.
+ - <csr-id-951c050ecbb70c9de216603e55c7cfbc89a067e3/> Reference::logs() -> Reference::log_iter()
+   The latter now returns a standard Platform to iterate over all
+   reflog entries from oldest to newest or vice versa.
 
 ### Refactor (BREAKING)
 
-- <csr-id-0e1875363fea09452789d7a90fc6860a7996d6d3/> `file::Store::base` is now `file::Store::base()` and read-only
-  That way, file databases can't be repositioned anymore, it's recommended
-  to recreate it if that's desired.
+ - <csr-id-0e1875363fea09452789d7a90fc6860a7996d6d3/> `file::Store::base` is now `file::Store::base()` and read-only
+   That way, file databases can't be repositioned anymore, it's recommended
+   to recreate it if that's desired.
 
 ## 0.9.1 (2021-11-16)
 
@@ -3605,19 +3599,19 @@ as `gix-traverse` is signalling a breaking change.
 
 ### Other
 
-- <csr-id-293bfc0278c5983c0beaec93253fb51f00d81156/> loose reference iteration with non-dir prefixes…
-  Previously it was expected for the prefix `Path` to always exist for
-  the prefix to be valid. This, however, is not similar to packed
-  prefixes, which allow non-dir prefixes as well.
-
-  Now we will check if the prefix is actually a directory, and if not
-  split it into its parent directory and the filename portion. The latter
-  is then used for prefix matching file names within that directory.
-- <csr-id-90e6128727932f917c485f411e623fc6a9c2ad4d/> improve changelog format
+ - <csr-id-293bfc0278c5983c0beaec93253fb51f00d81156/> loose reference iteration with non-dir prefixes…
+   Previously it was expected for the prefix `Path` to always exist for
+   the prefix to be valid. This, however, is not similar to packed
+   prefixes, which allow non-dir prefixes as well.
+   
+   Now we will check if the prefix is actually a directory, and if not
+   split it into its parent directory and the filename portion. The latter
+   is then used for prefix matching file names within that directory.
+ - <csr-id-90e6128727932f917c485f411e623fc6a9c2ad4d/> improve changelog format
 
 ### Other
 
-- <csr-id-4ed4b2da50557aff540685441f4b5c7d5e582977/> add panicking `Target::id()` and `TargetRef::id()`
+ - <csr-id-4ed4b2da50557aff540685441f4b5c7d5e582977/> add panicking `Target::id()` and `TargetRef::id()`
 
 ## v0.7.3 (2021-09-10)
 
@@ -3628,14 +3622,14 @@ as `gix-traverse` is signalling a breaking change.
 
 ### Other
 
-- <csr-id-293bfc0278c5983c0beaec93253fb51f00d81156/> loose reference iteration with non-dir prefixes…
-  Previously it was expected for the prefix `Path` to always exist for
-  the prefix to be valid. This, however, is not similar to packed
-  prefixes, which allow non-dir prefixes as well.
-
-  Now we will check if the prefix is actually a directory, and if not
-  split it into its parent directory and the filename portion. The latter
-  is then used for prefix matching file names within that directory.
+ - <csr-id-293bfc0278c5983c0beaec93253fb51f00d81156/> loose reference iteration with non-dir prefixes…
+   Previously it was expected for the prefix `Path` to always exist for
+   the prefix to be valid. This, however, is not similar to packed
+   prefixes, which allow non-dir prefixes as well.
+   
+   Now we will check if the prefix is actually a directory, and if not
+   split it into its parent directory and the filename portion. The latter
+   is then used for prefix matching file names within that directory.
 
 ## v0.7.2 (2021-09-10)
 
@@ -3643,7 +3637,7 @@ as `gix-traverse` is signalling a breaking change.
 
 ### Other
 
-- <csr-id-90e6128727932f917c485f411e623fc6a9c2ad4d/> improve changelog format
+ - <csr-id-90e6128727932f917c485f411e623fc6a9c2ad4d/> improve changelog format
 
 ## v0.7.1 (2021-09-08)
 

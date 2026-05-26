@@ -5,13 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.58.0 (2026-05-26)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 14 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2595 from cruessler/add-hex-to-id-sha1-only ([`87433ed`](https://github.com/GitoxideLabs/gitoxide/commit/87433ed33eee9ba974111d20b854f6acb07cd4a6))
+    - Review ([`f962ed1`](https://github.com/GitoxideLabs/gitoxide/commit/f962ed1feafd6a6d72c760781bba5c3894c0a938))
+    - Merge pull request #2590 from GitoxideLabs/independent-testtools ([`575113d`](https://github.com/GitoxideLabs/gitoxide/commit/575113dfb10b3ba12eb57f57a81b241e773968bd))
+    - Adapt to changes in `gix-testtools` ([`ce9e6bd`](https://github.com/GitoxideLabs/gitoxide/commit/ce9e6bded2cb47cc9b995f8882d98c09ba5c2c8b))
+    - Merge pull request #2573 from cruessler/run-gix-traverse-tests-with-sha-256 ([`278d7ec`](https://github.com/GitoxideLabs/gitoxide/commit/278d7ec395124b3ce00db6f3e029265bfec8ccd1))
+    - Address auto-review ([`0ec3bb7`](https://github.com/GitoxideLabs/gitoxide/commit/0ec3bb7f516c6ac17a91cb2a5452643d4d5576fb))
+    - `sha1` and `sha256` forwardings for all crates ([`09b982c`](https://github.com/GitoxideLabs/gitoxide/commit/09b982c97fd7802819e49e5613c588d9aab008bb))
+    - Review ([`1cd36be`](https://github.com/GitoxideLabs/gitoxide/commit/1cd36be4bcd9ffaf13b0ddb3305777bbf9bb8034))
+    - Use `GIX_TEST_FIXTURE_HASH` for `gix-traverse-tests` ([`9f064a3`](https://github.com/GitoxideLabs/gitoxide/commit/9f064a3fd12f6fecdf2741622d02aa29359443e6))
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
+</details>
+
 ## 0.57.0 (2026-04-28)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 2 commits contributed to the release over the course of 2 calendar days.
+ - 3 commits contributed to the release over the course of 2 calendar days.
  - 3 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.3, gix-date v0.15.3, gix-actor v0.41.0, gix-path v0.12.0, gix-features v0.48.0, gix-hash v0.25.0, gix-hashtable v0.15.0, gix-object v0.60.0, gix-glob v0.26.0, gix-attributes v0.33.0, gix-command v0.9.0, gix-filter v0.30.0, gix-fs v0.21.0, gix-commitgraph v0.37.0, gix-revwalk v0.31.0, gix-traverse v0.57.0, gix-worktree-stream v0.32.0, gix-archive v0.32.0, gix-tempfile v23.0.0, gix-lock v23.0.0, gix-index v0.51.0, gix-config-value v0.18.0, gix-pathspec v0.18.0, gix-ignore v0.21.0, gix-worktree v0.52.0, gix-imara-diff v0.2.1, gix-diff v0.63.0, gix-blame v0.13.0, gix-ref v0.63.0, gix-sec v0.14.0, gix-config v0.56.0, gix-prompt v0.15.0, gix-url v0.36.0, gix-credentials v0.38.0, gix-discover v0.51.0, gix-dir v0.25.0, gix-mailmap v0.33.0, gix-revision v0.45.0, gix-merge v0.16.0, gix-negotiate v0.31.0, gix-pack v0.70.0, gix-odb v0.80.0, gix-refspec v0.41.0, gix-shallow v0.12.0, gix-transport v0.57.0, gix-protocol v0.61.0, gix-status v0.30.0, gix-submodule v0.30.0, gix-worktree-state v0.30.0, gix v0.83.0, gix-fsck v0.21.0, gitoxide-core v0.57.0, gitoxide v0.53.0, safety bump 48 crates ([`53f880c`](https://github.com/GitoxideLabs/gitoxide/commit/53f880c7604232c367870088176e42efd8a5b783))
     - Adapt to changes in `gix-object` ([`91bfab0`](https://github.com/GitoxideLabs/gitoxide/commit/91bfab0694673b3234b52f30fa9c8ec4322ddb9d))
     - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
 </details>
@@ -500,12 +535,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
-### Chore
-
- - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
-   That way clippy will allow to use the fantastic `Option::is_some_and()`
-   and friends.
-
 ### New Features (BREAKING)
 
  - <csr-id-22f8939d862c74f2f55c74fded2f066a6d6536a1/> `tree::depthfirst()` traversal
@@ -639,41 +668,6 @@ A maintenance release without user-facing changes.
 ## 0.42.0 (2024-10-22)
 
 <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
-
-### Other
-
- - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
-   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
-   
-   - Markdown documentation, except changelogs and other such files
-     where such changes should not be made.
-   
-   - Documentation comments (in .rs files).
-   
-   - Manifest (.toml) files, for the value of the `repository` key.
-   
-   - The comments appearing at the top of a sample hook that contains
-     a repository URL as an example.
-   
-   When making these changes, I also allowed my editor to remove
-   trailing whitespace in any lines in files already being edited
-   (since, in this case, there was no disadvantage to allowing this).
-   
-   The gitoxide repository URL changed when the repository was moved
-   into the recently created GitHub organization `GitoxideLabs`, as
-   detailed in #1406. Please note that, although I believe updating
-   the URLs to their new canonical values is useful, this is not
-   needed to fix any broken links, since `Byron/gitoxide` URLs
-   redirect (and hopefully will always redirect) to the coresponding
-   `GitoxideLabs/gitoxide` URLs.
-   
-   While this change should not break any URLs, some affected URLs
-   were already broken. This updates them, but they are still broken.
-   They will be fixed in a subsequent commit.
-   
-   This also does not update `Byron/gitoxide` URLs in test fixtures
-   or test cases, nor in the `Makefile`. (It may make sense to change
-   some of those too, but it is not really a documentation change.)
 
 ### New Features (BREAKING)
 
@@ -960,15 +954,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/>
 
-### Chore
-
-- <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/> change `rust-version` manifest field back to 1.65.
-  They didn't actually need to be higher to work, and changing them
-  unecessarily can break downstream CI.
-
-  Let's keep this value as low as possible, and only increase it when
-  more recent features are actually used.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -992,11 +977,6 @@ A maintenance release without user-facing changes.
 ## 0.36.0 (2023-12-29)
 
 <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/>
-
-### Chore
-
-- <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/> upgrade MSRV to v1.70
-  Our MSRV follows the one of `helix`, which in turn follows Firefox.
 
 ### Commit Statistics
 
@@ -1137,10 +1117,6 @@ A maintenance release without user-facing changes.
 ## 0.31.0 (2023-08-22)
 
 <csr-id-229bd4899213f749a7cc124aa2b82a1368fba40f/>
-
-### Chore
-
-- <csr-id-229bd4899213f749a7cc124aa2b82a1368fba40f/> don't call crate 'WIP' in manifest anymore.
 
 ### Commit Statistics
 
@@ -1467,15 +1443,6 @@ A maintenance release without user-facing changes.
    That way, the recorder can be used in other applications to keep track of the full
    path *or* the filename.
 
-### Bug Fixes
-
- - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
-   This also means that the `git-*` prefixed crates of the `gitoxide` project
-   are effectively unmaintained.
-   Use the crates with the `gix-*` prefix instead.
-   
-   If you were using `git-repository`, then `gix` is its substitute.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1508,19 +1475,6 @@ A maintenance release without user-facing changes.
 <csr-id-329d183ad4e256a4f9cdeb34589b5f3432495f79/>
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
 <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/>
-
-### Refactor (BREAKING)
-
-- <csr-id-ebc7f47708a63c3df4415ba0e702660d976dfb3e/> remove pack-cache from `Find::try_find(…)`
-  With the new architecture this can be an implementation detail without
-  forcing it to be Sync.
-- <csr-id-2290d006705ff47ad780b009fe58ee422b3285af/> move git_pack::data::Object to git_object::Data, massively alter git_odb::Find trait
-  This will break a lot, but has to happen to prepare these traits for the
-  next generation of object databases.
-
-### Other (BREAKING)
-
-- <csr-id-2f2d856efe733d3cf81110c0e0607d2e7c40d968/> Avoid duplicate module paths in 'tree' and 'commit'
 
 ### Bug Fixes (BREAKING)
 
@@ -1558,27 +1512,6 @@ A maintenance release without user-facing changes.
  - <csr-id-5cf9323dbe09789e806ed55d865281298af1a11b/> rename `commit::Ancestors::mode()` to `*::parents()`
    The previous name was too generic to be helpful or discoverable.
 
-### Test
-
-- <csr-id-1d5ab44145ccbc2064ee8cc7acebb62db82c45aa/> ensure tests use 'merge.ff false' and recreate fixtures on each run
-
-### Other
-
-- <csr-id-7bce49c1d27cb279b61ff51de0038e01fcf3561e/> commit traversal along the first parent…
-  …which allows to traverse only the 'mainline' part of the commit
-  ancestry, ignoring merges entirely.
-
-  This kind of traversal is more suited to algorithms which want
-  to see a linear history as well as segments of commits between
-  references.
-- <csr-id-cbc5b8171cdef5933d684c481300d9fcff43cf4b/> try git-cliff…
-  …but to no avail as it simpy won't work for us if we don't follow
-  conventional commits properly, especially the absence of breaking
-  changes support is a real issue.
-
-  It's probably better to just implement it ourselves in smart-release.
-- <csr-id-329d183ad4e256a4f9cdeb34589b5f3432495f79/> object_id
-
 ### Bug Fixes
 
  - <csr-id-153dad1450d1d0416601a07548e853253fe150f6/> Ordering of tips is now enforced if topo-order isn't chosen.
@@ -1601,11 +1534,6 @@ A maintenance release without user-facing changes.
    work, with such a cache being slower than accessing the same buffer
    again.
  - <csr-id-eb36a3dda83a46ad59078a904f4e277f298a24e1/> Add sorting mode to ancestor traversal  #270
-
-### Chore
-
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
 
 ### Documentation
 
@@ -1985,8 +1913,8 @@ Maintenance release without user-facing changes.
 
 ### Chore
 
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
+ - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
+ - <csr-id-533e887e80c5f7ede8392884562e1c5ba56fb9a8/> remove default link to cargo doc everywhere
 
 ## 0.16.1 (2022-08-17)
 
@@ -2040,7 +1968,7 @@ A maintenance release without user-facing changes.
 
 ### Test
 
-- <csr-id-1d5ab44145ccbc2064ee8cc7acebb62db82c45aa/> ensure tests use 'merge.ff false' and recreate fixtures on each run
+ - <csr-id-1d5ab44145ccbc2064ee8cc7acebb62db82c45aa/> ensure tests use 'merge.ff false' and recreate fixtures on each run
 
 ### New Features
 
@@ -2080,20 +2008,20 @@ Some module paths have been removed to avoid path duplication, possibly leading 
 
 ### Other
 
-- <csr-id-cbc5b8171cdef5933d684c481300d9fcff43cf4b/> try git-cliff…
-  …but to no avail as it simpy won't work for us if we don't follow
-  conventional commits properly, especially the absence of breaking
-  changes support is a real issue.
-
-  It's probably better to just implement it ourselves in smart-release.
-- <csr-id-329d183ad4e256a4f9cdeb34589b5f3432495f79/> object_id
-- <csr-id-7bce49c1d27cb279b61ff51de0038e01fcf3561e/> commit traversal along the first parent…
-  …which allows to traverse only the 'mainline' part of the commit
-  ancestry, ignoring merges entirely.
-
-  This kind of traversal is more suited to algorithms which want
-  to see a linear history as well as segments of commits between
-  references.
+ - <csr-id-cbc5b8171cdef5933d684c481300d9fcff43cf4b/> try git-cliff…
+   …but to no avail as it simpy won't work for us if we don't follow
+   conventional commits properly, especially the absence of breaking
+   changes support is a real issue.
+   
+   It's probably better to just implement it ourselves in smart-release.
+ - <csr-id-329d183ad4e256a4f9cdeb34589b5f3432495f79/> object_id
+ - <csr-id-7bce49c1d27cb279b61ff51de0038e01fcf3561e/> commit traversal along the first parent…
+   …which allows to traverse only the 'mainline' part of the commit
+   ancestry, ignoring merges entirely.
+   
+   This kind of traversal is more suited to algorithms which want
+   to see a linear history as well as segments of commits between
+   references.
 
 ### BREAKING
 

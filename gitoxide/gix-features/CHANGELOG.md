@@ -5,19 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
-
-### Chore (BREAKING)
-
- - <csr-id-2358b1d250d3d2348210fb61dcb95ebe7aa6314b/> Upgrade `prodash` and `crosstermion` to the latest version.
-   This will fix the `cargo deny` issue as it brings in a newer `lru` crate.
+## 0.48.1 (2026-05-26)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 4 calendar days.
- - 4 days passed between releases.
+ - 6 commits contributed to the release over the course of 28 calendar days.
+ - 28 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Bump the cargo group across 1 directory with 10 updates ([`4c77f81`](https://github.com/GitoxideLabs/gitoxide/commit/4c77f81e19b86979495abcf46401a4f226163177))
+    - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
+</details>
+
+## 0.48.0 (2026-04-28)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 2 commits contributed to the release over the course of 2 calendar days.
+ - 3 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.3, gix-date v0.15.3, gix-actor v0.41.0, gix-path v0.12.0, gix-features v0.48.0, gix-hash v0.25.0, gix-hashtable v0.15.0, gix-object v0.60.0, gix-glob v0.26.0, gix-attributes v0.33.0, gix-command v0.9.0, gix-filter v0.30.0, gix-fs v0.21.0, gix-commitgraph v0.37.0, gix-revwalk v0.31.0, gix-traverse v0.57.0, gix-worktree-stream v0.32.0, gix-archive v0.32.0, gix-tempfile v23.0.0, gix-lock v23.0.0, gix-index v0.51.0, gix-config-value v0.18.0, gix-pathspec v0.18.0, gix-ignore v0.21.0, gix-worktree v0.52.0, gix-imara-diff v0.2.1, gix-diff v0.63.0, gix-blame v0.13.0, gix-ref v0.63.0, gix-sec v0.14.0, gix-config v0.56.0, gix-prompt v0.15.0, gix-url v0.36.0, gix-credentials v0.38.0, gix-discover v0.51.0, gix-dir v0.25.0, gix-mailmap v0.33.0, gix-revision v0.45.0, gix-merge v0.16.0, gix-negotiate v0.31.0, gix-pack v0.70.0, gix-odb v0.80.0, gix-refspec v0.41.0, gix-shallow v0.12.0, gix-transport v0.57.0, gix-protocol v0.61.0, gix-status v0.30.0, gix-submodule v0.30.0, gix-worktree-state v0.30.0, gix v0.83.0, gix-fsck v0.21.0, gitoxide-core v0.57.0, gitoxide v0.53.0, safety bump 48 crates ([`53f880c`](https://github.com/GitoxideLabs/gitoxide/commit/53f880c7604232c367870088176e42efd8a5b783))
+    - Merge pull request #2540 from GitoxideLabs/reporting ([`4d5ba23`](https://github.com/GitoxideLabs/gitoxide/commit/4d5ba231685e8ff36195603c57193aa1cd21fa8e))
+</details>
+
+## 0.47.0 (2026-04-24)
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-c0ab0f43d4549eb97a04e8a9bfa6b9921cb24197/> remove insecure `leb64` and secure `leb64_from_read` from overflows
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 32 calendar days.
+ - 33 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -28,6 +75,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Update changelogs prior to release ([`f9fbcba`](https://github.com/GitoxideLabs/gitoxide/commit/f9fbcba28278f3fb2ad7969c2d00ac6765165724))
+    - Merge pull request #2530 from GitoxideLabs/advisories ([`63b8419`](https://github.com/GitoxideLabs/gitoxide/commit/63b841907ce30b36bb50da5aae3a9e1a06eadf64))
+    - Address auto-review ([`7429b15`](https://github.com/GitoxideLabs/gitoxide/commit/7429b1544363d283a47eda2d5e40eb7b00a6efbc))
+    - Remove insecure `leb64` and secure `leb64_from_read` from overflows ([`c0ab0f4`](https://github.com/GitoxideLabs/gitoxide/commit/c0ab0f43d4549eb97a04e8a9bfa6b9921cb24197))
+    - Merge pull request #2518 from GitoxideLabs/improvements ([`444a92b`](https://github.com/GitoxideLabs/gitoxide/commit/444a92b0fa1df406cf2f36f8dbe82c2859e04e0b))
+    - Make `package.include` patterns more specific so they don't match ignored files ([`c2c917f`](https://github.com/GitoxideLabs/gitoxide/commit/c2c917fce56c40a9af0d06bd603b7d1d2e51474f))
+    - Merge pull request #2480 from GitoxideLabs/report ([`98bae84`](https://github.com/GitoxideLabs/gitoxide/commit/98bae84fe534879899489c6f2c5e8cfcc863116d))
+    - Merge branch 'main' into report ([`7eb98cb`](https://github.com/GitoxideLabs/gitoxide/commit/7eb98cb262a8ef10666191cf6157dbbf7ea1714d))
+    - Merge pull request #2458 from datdenkikniet/direct-u8 ([`2ce6dde`](https://github.com/GitoxideLabs/gitoxide/commit/2ce6dde60100e13cba042a74fefc0b80463d5d19))
+    - Refactor ([`24a4d6b`](https://github.com/GitoxideLabs/gitoxide/commit/24a4d6b311fcd5d48d79fa1680fb993154ac2a2b))
+</details>
+
+## 0.46.2 (2026-03-22)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 4 commits contributed to the release.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.2.1, gix-date v0.15.1, gix-path v0.11.2, gix-features v0.46.2, gix-hash v0.23.0, gix-hashtable v0.13.0, gix-object v0.58.0, gix-packetline v0.21.2, gix-filter v0.28.0, gix-fs v0.19.2, gix-commitgraph v0.35.0, gix-revwalk v0.29.0, gix-traverse v0.55.0, gix-worktree-stream v0.30.0, gix-archive v0.30.0, gix-tempfile v21.0.2, gix-lock v21.0.2, gix-index v0.49.0, gix-pathspec v0.16.1, gix-ignore v0.19.1, gix-worktree v0.50.0, gix-diff v0.61.0, gix-blame v0.11.0, gix-ref v0.61.0, gix-sec v0.13.2, gix-config v0.54.0, gix-prompt v0.14.1, gix-credentials v0.37.1, gix-discover v0.49.0, gix-dir v0.23.0, gix-revision v0.43.0, gix-merge v0.14.0, gix-negotiate v0.29.0, gix-pack v0.68.0, gix-odb v0.78.0, gix-refspec v0.39.0, gix-shallow v0.10.0, gix-transport v0.55.1, gix-protocol v0.59.0, gix-status v0.28.0, gix-submodule v0.28.0, gix-worktree-state v0.28.0, gix v0.81.0, gix-fsck v0.19.0, gitoxide-core v0.55.0, gitoxide v0.52.0, safety bump 31 crates ([`c389a2c`](https://github.com/GitoxideLabs/gitoxide/commit/c389a2ccb32b36c1178a1352a2bb3229aef3b016))
+    - Merge pull request #2454 from GitoxideLabs/dependabot/cargo/cargo-da044b9bb0 ([`6183fd0`](https://github.com/GitoxideLabs/gitoxide/commit/6183fd092d7acd43763fe15be400ce81e7172775))
+    - Bump the cargo group with 68 updates ([`6bdb331`](https://github.com/GitoxideLabs/gitoxide/commit/6bdb33145e8aa81ba0dae5caafc675c591569715))
+    - Merge branch 'release' ([`9327b73`](https://github.com/GitoxideLabs/gitoxide/commit/9327b73785227f1322a327cb48fbb0800e1286ae))
+</details>
+
+## 0.46.1 (2026-02-10)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 9 commits contributed to the release over the course of 19 calendar days.
+ - 19 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-error v0.1.0, gix-date v0.14.0, gix-actor v0.39.0, gix-trace v0.1.18, gix-path v0.11.1, gix-features v0.46.1, gix-hash v0.22.1, gix-object v0.56.0, gix-quote v0.6.2, gix-attributes v0.30.1, gix-command v0.7.1, gix-packetline v0.21.1, gix-filter v0.26.0, gix-fs v0.19.1, gix-chunk v0.6.0, gix-commitgraph v0.33.0, gix-revwalk v0.27.0, gix-traverse v0.53.0, gix-worktree-stream v0.28.0, gix-archive v0.28.0, gix-bitmap v0.2.16, gix-tempfile v21.0.1, gix-lock v21.0.1, gix-index v0.47.0, gix-config-value v0.17.1, gix-pathspec v0.15.1, gix-worktree v0.48.0, gix-diff v0.59.0, gix-blame v0.9.0, gix-ref v0.59.0, gix-sec v0.13.1, gix-config v0.52.0, gix-prompt v0.13.1, gix-url v0.35.1, gix-credentials v0.36.0, gix-discover v0.47.0, gix-dir v0.21.0, gix-mailmap v0.31.0, gix-revision v0.41.0, gix-merge v0.12.0, gix-negotiate v0.27.0, gix-pack v0.66.0, gix-odb v0.76.0, gix-refspec v0.37.0, gix-shallow v0.8.1, gix-transport v0.54.0, gix-protocol v0.57.0, gix-status v0.26.0, gix-submodule v0.26.0, gix-worktree-state v0.26.0, gix v0.79.0, safety bump 35 crates ([`d66ac10`](https://github.com/GitoxideLabs/gitoxide/commit/d66ac1057a5b7bfb608d4e6be585c69fb692bfee))
+    - Merge pull request #2410 from GitoxideLabs/dependabot/cargo/bytes-1.11.1 ([`7415d31`](https://github.com/GitoxideLabs/gitoxide/commit/7415d31ac734db6158c88f6de38ca77692495373))
+    - Bump bytes from 1.11.0 to 1.11.1 ([`14d8909`](https://github.com/GitoxideLabs/gitoxide/commit/14d890906694dcc43f2b39e3f751a47c4668b039))
+    - Merge pull request #2407 from GitoxideLabs/dependabot/cargo/cargo-fb4135702f ([`8bceefb`](https://github.com/GitoxideLabs/gitoxide/commit/8bceefbfc5f897517bfdd24744695a82cfa0d5be))
+    - Bump the cargo group with 59 updates ([`7ce3c55`](https://github.com/GitoxideLabs/gitoxide/commit/7ce3c5587aec1ca813039c047783b9cb2a106826))
+    - Merge pull request #2399 from musicinmybrain/zlib-rs-0.6 ([`a7f2348`](https://github.com/GitoxideLabs/gitoxide/commit/a7f234818a6e61b89fd5dd3e4f4ed11c4f1e95e9))
+    - Use configuration to initialise default values for `zlib` inflate and deflate. ([`00cae95`](https://github.com/GitoxideLabs/gitoxide/commit/00cae95d4b4700b92783d45d5a9ba2701e6fdcdc))
+    - Update zlib-rs to 0.6.0 ([`2a8cdf1`](https://github.com/GitoxideLabs/gitoxide/commit/2a8cdf1df438399aa44a956272d7ef3985ca1517))
+    - Merge pull request #2393 from GitoxideLabs/report ([`f7d0975`](https://github.com/GitoxideLabs/gitoxide/commit/f7d09758d245aaa89409e39bb6ba1ed6b7118ea5))
+</details>
+
+## 0.46.0 (2026-01-22)
+
+### Chore (BREAKING)
+
+ - <csr-id-2358b1d250d3d2348210fb61dcb95ebe7aa6314b/> Upgrade `prodash` and `crosstermion` to the latest version.
+   This will fix the `cargo deny` issue as it brings in a newer `lru` crate.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 7 commits contributed to the release over the course of 16 calendar days.
+ - 16 days passed between releases.
+ - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2363](https://github.com/GitoxideLabs/gitoxide/issues/2363)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2363](https://github.com/GitoxideLabs/gitoxide/issues/2363)**
+    - Regenerate all changelogs with a more recent CSR version ([`cbbdef5`](https://github.com/GitoxideLabs/gitoxide/commit/cbbdef5095b894a944a526fb57dfebeb0f3ab5eb))
+ * **Uncategorized**
+    - Release gix-error v0.0.0, gix-date v0.13.0, gix-actor v0.38.0, gix-validate v0.11.0, gix-path v0.11.0, gix-features v0.46.0, gix-hash v0.22.0, gix-hashtable v0.12.0, gix-object v0.55.0, gix-glob v0.24.0, gix-attributes v0.30.0, gix-command v0.7.0, gix-packetline v0.21.0, gix-filter v0.25.0, gix-fs v0.19.0, gix-chunk v0.5.0, gix-commitgraph v0.32.0, gix-revwalk v0.26.0, gix-traverse v0.52.0, gix-worktree-stream v0.27.0, gix-archive v0.27.0, gix-tempfile v21.0.0, gix-lock v21.0.0, gix-index v0.46.0, gix-config-value v0.17.0, gix-pathspec v0.15.0, gix-ignore v0.19.0, gix-worktree v0.47.0, gix-diff v0.58.0, gix-blame v0.8.0, gix-ref v0.58.0, gix-sec v0.13.0, gix-config v0.51.0, gix-prompt v0.13.0, gix-url v0.35.0, gix-credentials v0.35.0, gix-discover v0.46.0, gix-dir v0.20.0, gix-mailmap v0.30.0, gix-revision v0.40.0, gix-merge v0.11.0, gix-negotiate v0.26.0, gix-pack v0.65.0, gix-odb v0.75.0, gix-refspec v0.36.0, gix-shallow v0.8.0, gix-transport v0.53.0, gix-protocol v0.56.0, gix-status v0.25.0, gix-submodule v0.25.0, gix-worktree-state v0.25.0, gix v0.78.0, gix-fsck v0.17.0, gitoxide-core v0.53.0, gitoxide v0.50.0, safety bump 50 crates ([`562e684`](https://github.com/GitoxideLabs/gitoxide/commit/562e684319fa649db6a96c0a22d64bbe3c11e9e6))
+    - Fixes to make a release work. ([`fa302a1`](https://github.com/GitoxideLabs/gitoxide/commit/fa302a115918289ca2c4b33f5aa576f478e46092))
+    - Merge pull request #2364 from GitoxideLabs/changelogs ([`0a333e5`](https://github.com/GitoxideLabs/gitoxide/commit/0a333e5941a0a58727c694fcf7dc48f95d7481db))
     - Merge pull request #2353 from GitoxideLabs/improvements ([`ee0a1f6`](https://github.com/GitoxideLabs/gitoxide/commit/ee0a1f6cc99831d7c5f96b657df6ebca5ee5638c))
     - Upgrade `prodash` and `crosstermion` to the latest version. ([`2358b1d`](https://github.com/GitoxideLabs/gitoxide/commit/2358b1d250d3d2348210fb61dcb95ebe7aa6314b))
     - Merge pull request #2346 from GitoxideLabs/release ([`c663b3f`](https://github.com/GitoxideLabs/gitoxide/commit/c663b3f05791db86d2e0a683e26e149f620bf2e4))
@@ -115,13 +254,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.44.1 (2025-10-23)
 
 <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/>
-
-### Other
-
- - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
-   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
-   
-   This fixes the docs.rs build
 
 ### Commit Statistics
 
@@ -459,12 +591,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
-### Chore
-
- - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
-   That way clippy will allow to use the fantastic `Option::is_some_and()`
-   and friends.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -517,41 +643,6 @@ A maintenance release without user-facing changes.
 ## 0.39.0 (2024-10-22)
 
 <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
-
-### Other
-
- - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
-   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
-   
-   - Markdown documentation, except changelogs and other such files
-     where such changes should not be made.
-   
-   - Documentation comments (in .rs files).
-   
-   - Manifest (.toml) files, for the value of the `repository` key.
-   
-   - The comments appearing at the top of a sample hook that contains
-     a repository URL as an example.
-   
-   When making these changes, I also allowed my editor to remove
-   trailing whitespace in any lines in files already being edited
-   (since, in this case, there was no disadvantage to allowing this).
-   
-   The gitoxide repository URL changed when the repository was moved
-   into the recently created GitHub organization `GitoxideLabs`, as
-   detailed in #1406. Please note that, although I believe updating
-   the URLs to their new canonical values is useful, this is not
-   needed to fix any broken links, since `Byron/gitoxide` URLs
-   redirect (and hopefully will always redirect) to the coresponding
-   `GitoxideLabs/gitoxide` URLs.
-   
-   While this change should not break any URLs, some affected URLs
-   were already broken. This updates them, but they are still broken.
-   They will be fixed in a subsequent commit.
-   
-   This also does not update `Byron/gitoxide` URLs in test fixtures
-   or test cases, nor in the `Makefile`. (It may make sense to change
-   some of those too, but it is not really a documentation change.)
 
 ### Bug Fixes (BREAKING)
 
@@ -734,15 +825,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/>
 
-### Chore
-
-- <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/> change `rust-version` manifest field back to 1.65.
-  They didn't actually need to be higher to work, and changing them
-  unecessarily can break downstream CI.
-
-  Let's keep this value as low as possible, and only increase it when
-  more recent features are actually used.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -766,11 +848,6 @@ A maintenance release without user-facing changes.
 ## 0.37.0 (2023-12-29)
 
 <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/>
-
-### Chore
-
-- <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/> upgrade MSRV to v1.70
-  Our MSRV follows the one of `helix`, which in turn follows Firefox.
 
 ### Commit Statistics
 
@@ -920,12 +997,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-ed327f6163f54756e58c20f86a563a97efb256ca/>
 
-### Chore (BREAKING)
-
-- <csr-id-ed327f6163f54756e58c20f86a563a97efb256ca/> update to the latest `prodash`
-  It makes proper usage of `Progress` types easier and allows them to be used
-  as `dyn` traits as well.
-
 ### New Features (BREAKING)
 
  - <csr-id-24dd870919ba444aa8099c63a78ea120d47ec28e/> use `prodash::Count` to indicate that nothing more than counting is performed, in place of `prodash::Progress`
@@ -1020,7 +1091,6 @@ A maintenance release without user-facing changes.
 ### New Features
 
  - <csr-id-2a76929ece48c3b0fbdba7e08ae5d7e647db4d36/> add `in_parallel_with_finalize` to support a usecase for `gix-worktree`
- - <csr-id-717950977fa758812bc4dd5713f96995bddc491a/> add `interrupt::Write` to auto-fail writes on interrupt.
 
 ### Changed (BREAKING)
 
@@ -1081,10 +1151,6 @@ A maintenance release without user-facing changes.
 ## 0.31.0 (2023-06-22)
 
 <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/>
-
-### Chore
-
-- <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/> Add `clippy::redundant-closure-for-method-calls` lint
 
 ### New Features
 
@@ -1283,13 +1349,6 @@ A maintenance release without any user-facing changes.
 
 <csr-id-cce96ee1382d3d56d77820a2aba6e2d17b52f91c/>
 
-### Chore
-
-- <csr-id-cce96ee1382d3d56d77820a2aba6e2d17b52f91c/> replace `quick-error` with `thiserror`
-  This increases the compile time of the crate alone if there is no proc-macro
-  in the dependency tree, but will ever so slightly improve compile times for `gix`
-  as a whole.
-
 ### New Features
 
  - <csr-id-7a442313c57f58fec5217484f268516711c3d52b/> make `bytesize` available in `progress`.
@@ -1347,12 +1406,6 @@ A maintenance release without any user-facing changes.
 
 ### Bug Fixes
 
- - <csr-id-e14dc7d475373d2c266e84ff8f1826c68a34ab92/> note that crates have been renamed from `git-*` to `gix-*`.
-   This also means that the `git-*` prefixed crates of the `gitoxide` project
-   are effectively unmaintained.
-   Use the crates with the `gix-*` prefix instead.
-   
-   If you were using `git-repository`, then `gix` is its substitute.
  - <csr-id-135d317065aae87af302beb6c26bb6ca8e30b6aa/> compatibility with `bstr` v1.3, use `*.as_bytes()` instead of `.as_ref()`.
    `as_ref()` relies on a known target type which isn't always present. However, once
    there is only one implementation, that's no problem, but when that changes compilation
@@ -1404,10 +1457,6 @@ A maintenance release without any user-facing changes.
    neater import paths and more convenience.
  - <csr-id-8945d95f7fa88562d37ff67ac6e38bead73dd2df/> `interrupt::Iter`, rename `interrupt::Iter` -> `interrupt::IterWithError`
 
-### Chore (BREAKING)
-
-- <csr-id-5bf0034fb3918e57562b7089ceba83d63a1854bf/> upgrade to prodash v23
-
 ### Changed (BREAKING)
 
  - <csr-id-38446dc8824afef30ef121598de3451d13b9262c/> remove `fs-jwalk-single-threaded` in favor of `fs-walkdir-parallel`.
@@ -1437,11 +1486,6 @@ A maintenance release without any user-facing changes.
    `Repository` and `thread_local!()` is the only way to make this
    work.
 
-### Other
-
-- <csr-id-ab6f98b905f13ed2a7c0c483f34fab63141fbc5b/> try-join with static typing works, but…
-  …seems like a lot of effort. Probably not worth continuing here
-
 ### Bug Fixes
 
  - <csr-id-234cd10ca55482ce1a840ce3244308d249895bcc/> Assure std::io::copy() doesn't hang when we cause an interrupt
@@ -1452,11 +1496,6 @@ A maintenance release without any user-facing changes.
 ### Documentation
 
  - <csr-id-39ed9eda62b7718d5109135e5ad406fb1fe2978c/> fix typos
-
-### Chore
-
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-- <csr-id-361892ca15aa648802f6701ab6a5a30aedde3449/> update sha-1 dependency to 0.10
 
 ### New Features
 
@@ -2096,7 +2135,7 @@ A maintenance release without user-facing changes.
 
 ### Chore (BREAKING)
 
-- <csr-id-5bf0034fb3918e57562b7089ceba83d63a1854bf/> upgrade to prodash v23
+ - <csr-id-5bf0034fb3918e57562b7089ceba83d63a1854bf/> upgrade to prodash v23
 
 ## 0.25.1 (2022-12-26)
 
@@ -2197,7 +2236,7 @@ A maintenance release without breaking changes.
 
 ### Chore
 
-- <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
+ - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
 
 ### New Features
 
@@ -2307,7 +2346,7 @@ A maintenance release thanks to upgrade to `prodash` 18.
 
 ### Chore
 
-- <csr-id-361892ca15aa648802f6701ab6a5a30aedde3449/> update sha-1 dependency to 0.10
+ - <csr-id-361892ca15aa648802f6701ab6a5a30aedde3449/> update sha-1 dependency to 0.10
 
 ## 0.19.0 (2022-01-19)
 
@@ -2315,7 +2354,7 @@ A maintenance release thanks to upgrade to `prodash` 18.
 
 ### Chore
 
-- <csr-id-361892ca15aa648802f6701ab6a5a30aedde3449/> update sha-1 dependency to 0.10
+ - <csr-id-361892ca15aa648802f6701ab6a5a30aedde3449/> update sha-1 dependency to 0.10
 
 ### New Features
 
@@ -2413,6 +2452,6 @@ This release contains no functional changes.
 
 ### Other
 
-- <csr-id-ab6f98b905f13ed2a7c0c483f34fab63141fbc5b/> try-join with static typing works, but…
-  …seems like a lot of effort. Probably not worth continuing here
+ - <csr-id-ab6f98b905f13ed2a7c0c483f34fab63141fbc5b/> try-join with static typing works, but…
+   …seems like a lot of effort. Probably not worth continuing here
 

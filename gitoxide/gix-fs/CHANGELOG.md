@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.21.2 (2026-05-26)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 5 commits contributed to the release over the course of 25 calendar days.
+ - 25 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Raise MSRV for hash dependency updates ([`3675a8d`](https://github.com/GitoxideLabs/gitoxide/commit/3675a8d61b17845a783bc27912a3f52ac273a4af))
+    - Merge pull request #2559 from GitoxideLabs/fix/symlink-prefix-reuse-worktree-escape-ghsa-f89h-2fjh-2r9q ([`3af9b4a`](https://github.com/GitoxideLabs/gitoxide/commit/3af9b4adcbca28e7072b96d266b716efb483893c))
+</details>
+
 ## 0.21.1 (2026-04-30)
 
 A security fix for https://github.com/GitoxideLabs/gitoxide/security/advisories/GHSA-f89h-2fjh-2r9q, 
@@ -14,7 +39,7 @@ which could allow attackers to trick `gix clone` into writing outside of the rep
 
 <csr-read-only-do-not-edit/>
 
- - 3 commits contributed to the release over the course of 2 calendar days.
+ - 4 commits contributed to the release over the course of 2 calendar days.
  - 2 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -26,6 +51,7 @@ which could allow attackers to trick `gix clone` into writing outside of the rep
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-fs v0.21.1 ([`d3e4c17`](https://github.com/GitoxideLabs/gitoxide/commit/d3e4c176f52a685f0405427ad7070014a6baf92b))
     - Update changelog of gix-fs prior to release ([`e26d378`](https://github.com/GitoxideLabs/gitoxide/commit/e26d37819e59556e018700cba9c414648d6939be))
     - Revalidate cached stack leaves before directory reuse ([`93d0ff6`](https://github.com/GitoxideLabs/gitoxide/commit/93d0ff6342f9fba5e30a6a893ad11347cf6cfcbc))
     - Merge pull request #2546 from GitoxideLabs/fix-2545 ([`adb8328`](https://github.com/GitoxideLabs/gitoxide/commit/adb8328952478c443ead5f5a8c6851928b377b37))
@@ -253,10 +279,6 @@ which could allow attackers to trick `gix clone` into writing outside of the rep
 
  - <csr-id-9315dbf9c8853d908cc34350190ced8852313d7d/> Probe executable bits by checking if we can change them
 
-### Refactor
-
- - <csr-id-d8ac7f803c5331f3291a3a1a2fbd411c7e166f9a/> make clear what the new mode is used for.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -437,13 +459,6 @@ A maintenance release without user-facing changes.
 
 ## 0.14.0 (2025-04-04)
 
-### Bug Fixes
-
- - <csr-id-d139fa469cef4d2a2c351ba4c7f34a090a03c233/> `ToNormalPathComponent` now also validates the component if it's not a `Path`.
-   Previously it was possible for strings or BString/BStr to contain non-normal
-   components, now there is much more validation.
- - <csr-id-8624586f4d9df726afe1c6939b952e4241865571/> make `is_executable()` more permissive by taking the group and 'other' permissions into account.
-
 ### New Features
 
  - <csr-id-f93aa6187d3b0d3d1eae193eae3de2e5af10b2d0/> add `FileSnapshot::into_owned_or_cloned()`.
@@ -506,12 +521,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/>
 
-### Chore
-
- - <csr-id-17835bccb066bbc47cc137e8ec5d9fe7d5665af0/> bump `rust-version` to 1.70
-   That way clippy will allow to use the fantastic `Option::is_some_and()`
-   and friends.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -568,41 +577,6 @@ A maintenance release without user-facing changes.
 ## 0.12.0 (2024-10-22)
 
 <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/>
-
-### Other
-
- - <csr-id-64ff0a77062d35add1a2dd422bb61075647d1a36/> Update gitoxide repository URLs
-   This updates `Byron/gitoxide` URLs to `GitoxideLabs/gitoxide` in:
-   
-   - Markdown documentation, except changelogs and other such files
-     where such changes should not be made.
-   
-   - Documentation comments (in .rs files).
-   
-   - Manifest (.toml) files, for the value of the `repository` key.
-   
-   - The comments appearing at the top of a sample hook that contains
-     a repository URL as an example.
-   
-   When making these changes, I also allowed my editor to remove
-   trailing whitespace in any lines in files already being edited
-   (since, in this case, there was no disadvantage to allowing this).
-   
-   The gitoxide repository URL changed when the repository was moved
-   into the recently created GitHub organization `GitoxideLabs`, as
-   detailed in #1406. Please note that, although I believe updating
-   the URLs to their new canonical values is useful, this is not
-   needed to fix any broken links, since `Byron/gitoxide` URLs
-   redirect (and hopefully will always redirect) to the coresponding
-   `GitoxideLabs/gitoxide` URLs.
-   
-   While this change should not break any URLs, some affected URLs
-   were already broken. This updates them, but they are still broken.
-   They will be fixed in a subsequent commit.
-   
-   This also does not update `Byron/gitoxide` URLs in test fixtures
-   or test cases, nor in the `Makefile`. (It may make sense to change
-   some of those too, but it is not really a documentation change.)
 
 ### Commit Statistics
 
@@ -902,15 +876,6 @@ A maintenance release without user-facing changes.
 
 <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/>
 
-### Chore
-
-- <csr-id-3bd09ef120945a9669321ea856db4079a5dab930/> change `rust-version` manifest field back to 1.65.
-  They didn't actually need to be higher to work, and changing them
-  unecessarily can break downstream CI.
-
-  Let's keep this value as low as possible, and only increase it when
-  more recent features are actually used.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -934,11 +899,6 @@ A maintenance release without user-facing changes.
 ## 0.9.0 (2023-12-29)
 
 <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/>
-
-### Chore
-
-- <csr-id-aea89c3ad52f1a800abb620e9a4701bdf904ff7d/> upgrade MSRV to v1.70
-  Our MSRV follows the one of `helix`, which in turn follows Firefox.
 
 ### Commit Statistics
 
@@ -1138,10 +1098,6 @@ A maintenance release without user-facing changes.
 
 A maintenance release without user-facing changes.
 
-### New Features
-
- - <csr-id-a9eab8d59442be19e05be4912c756188675b2bda/> add `is_executable()` function to determine if metadata of a file is executable.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -1192,10 +1148,6 @@ A maintenance release without user-facing changes.
 ## 0.2.0 (2023-06-06)
 
 <csr-id-dbc6cbb4363c2532f81b0bd6e351c4577bb9e9a3/>
-
-### Chore
-
-- <csr-id-dbc6cbb4363c2532f81b0bd6e351c4577bb9e9a3/> inline format args
 
 ### Commit Statistics
 
