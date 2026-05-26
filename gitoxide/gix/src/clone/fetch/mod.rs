@@ -116,7 +116,28 @@ impl PrepareFetch {
         let target_ref = if use_single_branch_for_shallow {
             // Determine target branch from user-specified ref_name or default branch
             if let Some(ref_name) = &self.ref_name {
-                Some(Category::LocalBranch.to_full_name(ref_name.as_ref().as_bstr())?)
+                let prev_tags = std::mem::replace(&mut remote.fetch_tags, remote::fetch::Tags::None);
+                let mut connection = remote.connect(remote::Direction::Fetch).await?;
+                if let Some(f) = self.configure_connection.as_mut() {
+                    f(&mut connection).map_err(Error::RemoteConnection)?;
+                }
+                let refmap = connection
+                    .ref_map_by_ref(
+                        &mut progress,
+                        remote::ref_map::Options {
+                            extra_refspecs: vec![
+                                gix_refspec::parse(ref_name.as_ref().as_bstr(), gix_refspec::parse::Operation::Fetch)
+                                    .expect("partial names are valid refspecs")
+                                    .to_owned(),
+                            ],
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                let (_target, full_ref_name) = util::find_custom_refname(&refmap, ref_name)?;
+                drop(connection);
+                remote.fetch_tags = prev_tags;
+                Some(full_ref_name.try_into()?)
             } else {
                 // For shallow clones without a specified ref, we need to determine the ref to clone.
                 // Just fetch HEAD for that.
@@ -177,10 +198,15 @@ impl PrepareFetch {
         if remote.fetch_specs.is_empty() {
             if let Some(target_ref) = &target_ref {
                 // Single-branch refspec for shallow clones
-                let short_name = target_ref.shorten();
+                let destination = match target_ref.category_and_short_name() {
+                    Some((Category::LocalBranch, short_name)) => {
+                        format!("refs/remotes/{remote_name}/{short_name}")
+                    }
+                    _ => target_ref.to_string(),
+                };
                 remote = remote
                     .with_refspecs(
-                        Some(format!("+{target_ref}:refs/remotes/{remote_name}/{short_name}").as_str()),
+                        Some(format!("+{target_ref}:{destination}").as_str()),
                         remote::Direction::Fetch,
                     )
                     .expect("valid refspec");
