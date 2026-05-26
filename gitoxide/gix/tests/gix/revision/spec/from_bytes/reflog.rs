@@ -28,6 +28,30 @@ fn nth_prior_checkout() {
 }
 
 #[test]
+fn nth_prior_checkout_to_deleted_branch_fails_like_git() -> crate::Result {
+    let repo = repo("deleted_prior_checkout")?;
+    let err = parse_spec("@{-1}", &repo).expect_err("deleted prior checkout branch must not resolve by object id");
+    assert!(
+        err.probable_cause()
+            .to_string()
+            .contains("Previous checkout 'prev-target' does not resolve"),
+        "error should explain that the reflog name no longer resolves"
+    );
+    Ok(())
+}
+
+#[test]
+fn nth_prior_checkout_to_deleted_branch_named_like_object_matches_git() -> crate::Result {
+    let repo = repo("deleted_prior_checkout_named_like_object")?;
+    assert_eq!(
+        parse_spec("@{-1}", &repo)?,
+        Spec::from_id(hex_to_id_sha1_only("0123456789012345678901234567890123456789").attach(&repo)),
+        "full object ids are accepted as previous checkout names, even without matching objects"
+    );
+    Ok(())
+}
+
+#[test]
 fn by_index_unborn_head() {
     let repo = &repo("new").unwrap();
 
