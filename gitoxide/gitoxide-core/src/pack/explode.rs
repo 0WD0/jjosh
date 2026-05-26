@@ -105,6 +105,18 @@ impl gix::objs::Write for OutputWriter {
         }
     }
 
+    fn write_buf_with_known_id(
+        &self,
+        kind: object::Kind,
+        from: &[u8],
+        id: ObjectId,
+    ) -> Result<ObjectId, gix::objs::write::Error> {
+        match self {
+            OutputWriter::Loose(db) => db.write_buf_with_known_id(kind, from, id),
+            OutputWriter::Sink(db) => db.write_buf_with_known_id(kind, from, id),
+        }
+    }
+
     fn write_stream(
         &self,
         kind: object::Kind,
@@ -114,6 +126,19 @@ impl gix::objs::Write for OutputWriter {
         match self {
             OutputWriter::Loose(db) => db.write_stream(kind, size, from),
             OutputWriter::Sink(db) => db.write_stream(kind, size, from),
+        }
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: object::Kind,
+        size: u64,
+        from: &mut dyn Read,
+        id: ObjectId,
+    ) -> Result<ObjectId, gix::objs::write::Error> {
+        match self {
+            OutputWriter::Loose(db) => db.write_stream_with_known_id(kind, size, from, id),
+            OutputWriter::Sink(db) => db.write_stream_with_known_id(kind, size, from, id),
         }
     }
 }
