@@ -73,6 +73,19 @@ mod write {
                 db.try_find(&oid, &mut buf2)?.expect("id present").decode()?,
                 obj.decode()?
             );
+            let actual = db.write_buf_with_known_id(obj.kind, obj.data, oid)?;
+            assert_eq!(actual, oid);
+            assert_eq!(
+                db.try_find(&oid, &mut buf2)?.expect("id present").decode()?,
+                obj.decode()?
+            );
+            let mut from = obj.data;
+            let actual = db.write_stream_with_known_id(obj.kind, obj.data.len() as u64, &mut from, oid)?;
+            assert_eq!(actual, oid);
+            assert_eq!(
+                db.try_find(&oid, &mut buf2)?.expect("id present").decode()?,
+                obj.decode()?
+            );
         }
         Ok(())
     }

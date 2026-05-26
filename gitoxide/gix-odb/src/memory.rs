@@ -227,6 +227,38 @@ where
         map.borrow_mut().insert(id, (kind, buf));
         Ok(id)
     }
+
+    fn write_buf_with_known_id(
+        &self,
+        kind: gix_object::Kind,
+        from: &[u8],
+        id: gix_hash::ObjectId,
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+        let Some(map) = self.memory.as_ref() else {
+            return self.inner.write_buf_with_known_id(kind, from, id);
+        };
+
+        map.borrow_mut().insert(id, (kind, from.to_owned()));
+        Ok(id)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: gix_object::Kind,
+        size: u64,
+        from: &mut dyn std::io::Read,
+        id: gix_hash::ObjectId,
+    ) -> Result<gix_hash::ObjectId, gix_object::write::Error> {
+        let Some(map) = self.memory.as_ref() else {
+            return self.inner.write_stream_with_known_id(kind, size, from, id);
+        };
+
+        let mut buf = Vec::new();
+        from.read_to_end(&mut buf)?;
+
+        map.borrow_mut().insert(id, (kind, buf));
+        Ok(id)
+    }
 }
 
 impl<T> Deref for Proxy<T> {
