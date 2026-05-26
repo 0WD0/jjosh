@@ -267,7 +267,7 @@ jobs:
         include:
           - test-args: ""
           - os: windows-11-arm
-            test-args: "--skip fuzzed_timeout --skip performance --skip speed"
+            test-args: "--skip performance --skip speed"
 
     runs-on: ${{ matrix.os }}
 
@@ -336,7 +336,7 @@ jobs:
         include:
           - test-args: ""
           - os: windows-11-arm
-            test-args: "--skip fuzzed-timeout --skip performance --skip speed"
+            test-args: "--skip performance --skip speed"
 
     runs-on: ${{ matrix.os }}
 
