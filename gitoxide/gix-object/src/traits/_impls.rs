@@ -16,8 +16,27 @@ where
         (*self).write_buf(object, from)
     }
 
+    fn write_buf_with_known_id(
+        &self,
+        object: Kind,
+        from: &[u8],
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        (*self).write_buf_with_known_id(object, from, id)
+    }
+
     fn write_stream(&self, kind: Kind, size: u64, from: &mut dyn Read) -> Result<ObjectId, crate::write::Error> {
         (*self).write_stream(kind, size, from)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: Kind,
+        size: u64,
+        from: &mut dyn Read,
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        (*self).write_stream_with_known_id(kind, size, from, id)
     }
 }
 
@@ -33,8 +52,27 @@ where
         self.deref().write_buf(object, from)
     }
 
+    fn write_buf_with_known_id(
+        &self,
+        object: Kind,
+        from: &[u8],
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        self.deref().write_buf_with_known_id(object, from, id)
+    }
+
     fn write_stream(&self, kind: Kind, size: u64, from: &mut dyn Read) -> Result<ObjectId, crate::write::Error> {
         self.deref().write_stream(kind, size, from)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: Kind,
+        size: u64,
+        from: &mut dyn Read,
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        self.deref().write_stream_with_known_id(kind, size, from, id)
     }
 }
 
@@ -50,8 +88,27 @@ where
         self.deref().write_buf(object, from)
     }
 
+    fn write_buf_with_known_id(
+        &self,
+        object: Kind,
+        from: &[u8],
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        self.deref().write_buf_with_known_id(object, from, id)
+    }
+
     fn write_stream(&self, kind: Kind, size: u64, from: &mut dyn Read) -> Result<ObjectId, crate::write::Error> {
         self.deref().write_stream(kind, size, from)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: Kind,
+        size: u64,
+        from: &mut dyn Read,
+        id: ObjectId,
+    ) -> Result<ObjectId, crate::write::Error> {
+        self.deref().write_stream_with_known_id(kind, size, from, id)
     }
 }
 

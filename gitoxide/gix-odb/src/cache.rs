@@ -153,6 +153,25 @@ mod impls {
         ) -> Result<ObjectId, gix_object::write::Error> {
             self.inner.write_stream(kind, size, from)
         }
+
+        fn write_buf_with_known_id(
+            &self,
+            kind: Kind,
+            from: &[u8],
+            id: ObjectId,
+        ) -> Result<ObjectId, gix_object::write::Error> {
+            self.inner.write_buf_with_known_id(kind, from, id)
+        }
+
+        fn write_stream_with_known_id(
+            &self,
+            kind: Kind,
+            size: u64,
+            from: &mut dyn Read,
+            id: ObjectId,
+        ) -> Result<ObjectId, gix_object::write::Error> {
+            self.inner.write_stream_with_known_id(kind, size, from, id)
+        }
     }
 
     impl<S> gix_object::Find for Cache<S>

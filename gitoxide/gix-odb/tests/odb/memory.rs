@@ -101,6 +101,66 @@ fn with_memory() -> crate::Result {
     Ok(())
 }
 
+#[test]
+fn with_memory_trusts_known_id() -> crate::Result {
+    let odb = db()?;
+    let kind = gix_object::Kind::Blob;
+    let bytes = b"content";
+    let id = gix_hash::Kind::Sha1.null();
+
+    assert_eq!(odb.write_buf_with_known_id(kind, bytes, id)?, id);
+    assert_eq!(odb.num_objects_in_memory(), 1);
+
+    let mut buf = Vec::new();
+    let object = odb.find(&id, &mut buf)?;
+    assert_eq!(object.kind, kind);
+    assert_eq!(object.data, bytes);
+
+    let stream_bytes = b"streamed content";
+    let stream_id = gix_object::compute_hash(gix_hash::Kind::Sha1, kind, stream_bytes)?;
+    assert_eq!(
+        odb.write_stream_with_known_id(kind, stream_bytes.len() as u64, &mut stream_bytes.as_slice(), stream_id)?,
+        stream_id
+    );
+    assert_eq!(odb.num_objects_in_memory(), 2);
+
+    let object = odb.find(&stream_id, &mut buf)?;
+    assert_eq!(object.kind, kind);
+    assert_eq!(object.data, stream_bytes);
+
+    Ok(())
+}
+
+#[test]
+fn without_memory_forwards_known_id_writes() -> crate::Result {
+    let (mut odb, _tmp) = db_rw()?;
+    odb.take_object_memory().expect("it starts out with memory set");
+
+    let kind = gix_object::Kind::Blob;
+    let bytes = b"content";
+    let id = gix_hash::Kind::Sha1.null();
+
+    assert_eq!(odb.write_buf_with_known_id(kind, bytes, id)?, id);
+
+    let mut buf = Vec::new();
+    let object = odb.find(&id, &mut buf)?;
+    assert_eq!(object.kind, kind);
+    assert_eq!(object.data, bytes);
+
+    let stream_bytes = b"streamed content";
+    let stream_id = gix_object::compute_hash(gix_hash::Kind::Sha1, kind, stream_bytes)?;
+    assert_eq!(
+        odb.write_stream_with_known_id(kind, stream_bytes.len() as u64, &mut stream_bytes.as_slice(), stream_id)?,
+        stream_id
+    );
+
+    let object = odb.find(&stream_id, &mut buf)?;
+    assert_eq!(object.kind, kind);
+    assert_eq!(object.data, stream_bytes);
+
+    Ok(())
+}
+
 fn db() -> crate::Result<gix_odb::memory::Proxy<gix_odb::Handle>> {
     let odb = gix_odb::at(crate::scripted_fixture_read_only("repo_with_loose_objects.sh")?.join(".git/objects"))?;
     Ok(gix_odb::memory::Proxy::new(odb, gix_hash::Kind::Sha1))

@@ -265,7 +265,7 @@ impl crate::Repository {
         }
 
         self.objects
-            .write_buf(kind, buf)
+            .write_buf_with_known_id(kind, buf, oid)
             .map(|oid| oid.attach(self))
             .map_err(Into::into)
     }
@@ -295,7 +295,7 @@ impl crate::Repository {
             return Ok(oid.attach(self));
         }
         self.objects
-            .write_buf(gix_object::Kind::Blob, bytes)
+            .write_buf_with_known_id(gix_object::Kind::Blob, bytes, oid)
             .map_err(Into::into)
             .map(|oid| oid.attach(self))
     }
@@ -322,7 +322,7 @@ impl crate::Repository {
         }
 
         self.objects
-            .write_buf(gix_object::Kind::Blob, buf)
+            .write_buf_with_known_id(gix_object::Kind::Blob, buf, oid)
             .map_err(Into::into)
             .map(|oid| oid.attach(self))
     }
