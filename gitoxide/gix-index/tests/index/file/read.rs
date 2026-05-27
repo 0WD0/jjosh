@@ -5,6 +5,7 @@ use gix_index::{
     Version,
     entry::{self, Flags, Mode},
 };
+use gix_testtools::normalize_debug_snapshot;
 
 use crate::{Fixture, hex_to_id, loose_file_path};
 
@@ -20,25 +21,36 @@ pub(crate) fn loose_file(name: &str) -> gix_index::File {
     let file = gix_index::File::at(path, gix_hash::Kind::Sha1, false, Default::default()).unwrap();
     verify(file)
 }
+
 pub(crate) fn try_file(name: &str, needs_archive: bool) -> Result<gix_index::File, gix_index::file::init::Error> {
     let path = if needs_archive {
         crate::fixture_index_path_needs_archive(name)
     } else {
         crate::fixture_index_path(name)
     };
-    let file = gix_index::File::at(path, gix_hash::Kind::Sha1, false, Default::default())?;
+    let object_hash = gix_testtools::object_hash();
+    let file = gix_index::File::at(path, object_hash, false, Default::default())?;
     Ok(verify(file))
 }
+
 pub(crate) fn file(name: &str) -> gix_index::File {
     try_file(name, false).unwrap()
 }
+
 /// Needed if we have to freeze the fixture if contents depends on filesystem traversal order
 /// This is Ok and similar to our manual copies of indices, except that it can be regenerated.
 fn file_needs_archive(name: &str) -> gix_index::File {
     try_file(name, true).unwrap()
 }
+
 fn file_opt(name: &str, opts: gix_index::decode::Options) -> gix_index::File {
-    let file = gix_index::File::at(crate::fixture_index_path(name), gix_hash::Kind::Sha1, false, opts).unwrap();
+    let file = gix_index::File::at(
+        crate::fixture_index_path(name),
+        gix_testtools::object_hash(),
+        false,
+        opts,
+    )
+    .unwrap();
     verify(file)
 }
 
@@ -58,6 +70,7 @@ fn with_index_file_snapshot_filters(has_stable_mtimes: bool, run: impl FnOnce())
     let mut filters = vec![
         (r#"(path: )"[^"]*""#, r#"$1"[redacted]""#),
         (r#"(identifier: )"[^"]*""#, r#"$1"[redacted]""#),
+        (r"(object_hash: )Sha(1|256)", "$1[redacted]"),
         (
             r"(?s)FileTime \{\s+seconds: \d+,\s+nanos: \d+,\s+\}",
             "FileTime { ... }",
@@ -117,6 +130,10 @@ fn v2_empty() {
 
 #[test]
 fn v2_empty_skip_hash() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = loose_file("skip_hash");
     assert_eq!(file.version(), Version::V2);
     assert_eq!(file.entries().len(), 0);
@@ -134,6 +151,10 @@ fn v2_empty_skip_hash() {
 
 #[test]
 fn v2_with_multiple_entries_without_eoie_ext() {
+    if gix_testtools::object_hash() != gix_hash::Kind::Sha1 {
+        return;
+    }
+
     let file = file_needs_archive("v2_more_files");
     with_index_file_snapshot_filters(true, || {
         insta::assert_snapshot!(format!("{file:#?}"), @r#"
@@ -142,7 +163,7 @@ fn v2_with_multiple_entries_without_eoie_ext() {
             checksum: Some(
                 Sha1(43bcf12743f506ab5fefaf13f8f5a7eed3d747fe),
             ),
-            object_hash: Sha1,
+            object_hash: [redacted],
             timestamp: FileTime { ... },
             version: V2,
             entries: [
@@ -201,7 +222,7 @@ fn find_shared_index_for(index: impl AsRef<Path>) -> PathBuf {
 fn split_index_without_any_extension() {
     let file = gix_index::File::at(
         find_shared_index_for(crate::fixture_index_path("v2_split_index")),
-        gix_hash::Kind::Sha1,
+        gix_testtools::object_hash(),
         false,
         Default::default(),
     )
@@ -267,19 +288,19 @@ fn untr_extension_empty() {
     let file = file_needs_archive("untracked_cache_empty");
 
     with_index_file_snapshot_filters(false, || {
-        insta::assert_debug_snapshot!(&file, @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&file).0, @r#"
         File {
             path: "[redacted]",
             checksum: Some(
-                Sha1(e6e8bff2dab8feaa4cf41fd352248b0fc10acb56),
+                Oid(1),
             ),
-            object_hash: Sha1,
+            object_hash: [redacted],
             timestamp: FileTime { ... },
             version: V2,
             entries: [
-                        Mode(FILE) e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-dir/tracked-file,
-                        Mode(FILE) e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-one,
-                        Mode(FILE) e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-two,
+                        Mode(FILE) Oid(2) tracked-dir/tracked-file,
+                        Mode(FILE) Oid(2) tracked-root-one,
+                        Mode(FILE) Oid(2) tracked-root-two,
             ],
             path_backing_size_bytes: 56,
             is_sparse: false,
@@ -309,19 +330,19 @@ fn untr_extension_populated() {
     let file = file_needs_archive("untracked_cache_populated");
 
     with_index_file_snapshot_filters(true, || {
-        insta::assert_debug_snapshot!(&file, @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&file).0, @r#"
         File {
             path: "[redacted]",
             checksum: Some(
-                Sha1(dabefe909b6858676ca56f46db0d9a30ad0d2a97),
+                Oid(1),
             ),
-            object_hash: Sha1,
+            object_hash: [redacted],
             timestamp: FileTime { ... },
             version: V2,
             entries: [
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-dir/tracked-file,
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-one,
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-two,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(2) tracked-dir/tracked-file,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(2) tracked-root-one,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(2) tracked-root-two,
             ],
             path_backing_size_bytes: 56,
             is_sparse: false,
@@ -336,7 +357,7 @@ fn untr_extension_populated() {
                     info_exclude: Some(
                         OidStat {
                             stat: Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { ... }, ... },
-                            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                            id: Oid(2),
                         },
                     ),
                     excludes_file: None,
@@ -413,20 +434,20 @@ fn untr_extension_nested() {
     let file = file_needs_archive("untracked_cache_nested");
 
     with_index_file_snapshot_filters(true, || {
-        insta::assert_debug_snapshot!(&file, @r#"
+        insta::assert_snapshot!(normalize_debug_snapshot(&file).0, @r#"
         File {
             path: "[redacted]",
             checksum: Some(
-                Sha1(bf50cd966cc718b67d3a326d01aa111f78901c1e),
+                Oid(1),
             ),
-            object_hash: Sha1,
+            object_hash: [redacted],
             timestamp: FileTime { ... },
             version: V2,
             entries: [
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } 55535cdccae965cd0ea191aa22df1145a983b2f9 tracked-dir-with-ignore/.gitignore,
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-dir-with-ignore/tracked-file,
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-one,
-                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 tracked-root-two,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(2) tracked-dir-with-ignore/.gitignore,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(3) tracked-dir-with-ignore/tracked-file,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(3) tracked-root-one,
+                        Mode(FILE) mtime: Time { secs: 2147483647, nsecs: 123456789 } Oid(3) tracked-root-two,
             ],
             path_backing_size_bytes: 102,
             is_sparse: false,
@@ -441,7 +462,7 @@ fn untr_extension_nested() {
                     info_exclude: Some(
                         OidStat {
                             stat: Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { ... }, ... },
-                            id: Sha1(e69de29bb2d1d6434b8b29ae775ad8c2e48c5391),
+                            id: Oid(3),
                         },
                     ),
                     excludes_file: None,
@@ -479,7 +500,7 @@ fn untr_extension_nested() {
                                 Stat { mtime: Time { secs: 2147483647, nsecs: 123456789 }, ctime: Time { ... }, ... },
                             ),
                             exclude_file_oid: Some(
-                                Sha1(55535cdccae965cd0ea191aa22df1145a983b2f9),
+                                Oid(2),
                             ),
                             check_only: false,
                         },
@@ -681,7 +702,7 @@ fn split_index_and_regular_index_of_same_content_are_indeed_the_same() {
     let split = verify(
         gix_index::File::at(
             base.join("split/.git/index"),
-            gix_hash::Kind::Sha1,
+            gix_testtools::object_hash(),
             false,
             Default::default(),
         )
@@ -696,7 +717,7 @@ fn split_index_and_regular_index_of_same_content_are_indeed_the_same() {
     let regular = verify(
         gix_index::File::at(
             base.join("regular/.git/index"),
-            gix_hash::Kind::Sha1,
+            gix_testtools::object_hash(),
             false,
             Default::default(),
         )

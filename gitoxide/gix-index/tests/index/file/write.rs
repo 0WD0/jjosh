@@ -23,12 +23,22 @@ fn roundtrips() -> crate::Result {
     ];
 
     for (fixture, options) in input {
+        // Loose fixtures only exist as SHA-1 version.
+        if gix_testtools::object_hash() != gix_hash::Kind::Sha1 && matches!(fixture, Loose(_)) {
+            continue;
+        }
+
         let expected = fixture.open();
         let expected_bytes = std::fs::read(fixture.to_path())?;
         let mut out_bytes = Vec::new();
 
         let (actual_version, _digest) = expected.write_to(&mut out_bytes, options)?;
-        let (actual, _) = State::from_bytes(&out_bytes, FileTime::now(), gix_hash::Kind::Sha1, Default::default())?;
+        let (actual, _) = State::from_bytes(
+            &out_bytes,
+            FileTime::now(),
+            gix_testtools::object_hash(),
+            Default::default(),
+        )?;
 
         let name = fixture.to_name();
         compare_states_against_baseline(&actual, actual_version, &expected, options, name);
@@ -109,7 +119,12 @@ fn roundtrips_sparse_index() -> crate::Result {
         let mut out_bytes = Vec::new();
 
         let (actual_version, _) = expected.write_to(&mut out_bytes, options)?;
-        let (actual, _) = State::from_bytes(&out_bytes, FileTime::now(), gix_hash::Kind::Sha1, Default::default())?;
+        let (actual, _) = State::from_bytes(
+            &out_bytes,
+            FileTime::now(),
+            gix_testtools::object_hash(),
+            Default::default(),
+        )?;
 
         compare_states_against_baseline(&actual, actual_version, &expected, options, fixture.to_name());
         // TODO: make this work and re-enable it, once this is done the fixtures can be merged into the main "roundtrip" test
@@ -143,6 +158,11 @@ fn state_comparisons_with_various_extension_configurations() {
         // TODO: this fails because git writes the sdir extension in this case while gitoxide doesn't
         // Generated("v2_sparse_index_no_dirs"),
     ] {
+        // Loose fixtures only exist as SHA-1 version.
+        if gix_testtools::object_hash() != gix_hash::Kind::Sha1 && matches!(fixture, Loose(_)) {
+            continue;
+        }
+
         for options in [
             options_with(write::Extensions::None),
             options_with(write::Extensions::All),
@@ -162,7 +182,7 @@ fn state_comparisons_with_various_extension_configurations() {
             let (actual_version, _digest) = expected.write_to(&mut out, options).unwrap();
 
             let (actual, _) =
-                State::from_bytes(&out, FileTime::now(), gix_hash::Kind::Sha1, Default::default()).unwrap();
+                State::from_bytes(&out, FileTime::now(), gix_testtools::object_hash(), Default::default()).unwrap();
             compare_states(&actual, actual_version, &expected, options, fixture);
         }
     }
@@ -193,7 +213,8 @@ fn remove_flag_is_respected() -> crate::Result {
     let mut buf = Vec::<u8>::new();
     index.write_to(&mut buf, Default::default())?;
 
-    let (state, _checksum) = State::from_bytes(&buf, FileTime::now(), gix_hash::Kind::Sha1, Default::default())?;
+    let (state, _checksum) =
+        State::from_bytes(&buf, FileTime::now(), gix_testtools::object_hash(), Default::default())?;
     assert_eq!(
         state.entries().len(),
         total_entries - entries_to_remove,

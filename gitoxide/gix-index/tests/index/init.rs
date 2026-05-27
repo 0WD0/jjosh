@@ -1,6 +1,6 @@
 use std::{error::Error, path::Path};
 
-use crate::scripted_fixture_read_only;
+use crate::{odb_at, scripted_fixture_read_only};
 use gix_index::State;
 
 #[test]
@@ -18,9 +18,13 @@ fn from_tree() -> crate::Result {
         let tree_id = tree_id(&worktree_dir);
 
         let git_dir = worktree_dir.join(".git");
-        let expected_state =
-            gix_index::File::at(git_dir.join("index"), gix_hash::Kind::Sha1, false, Default::default())?;
-        let odb = gix_odb::at(git_dir.join("objects"))?;
+        let expected_state = gix_index::File::at(
+            git_dir.join("index"),
+            gix_testtools::object_hash(),
+            false,
+            Default::default(),
+        )?;
+        let odb = odb_at(git_dir.join("objects"))?;
         let actual_state = State::from_tree(&tree_id, &odb, Default::default())?;
 
         compare_states(&actual_state, &expected_state, fixture);
@@ -40,7 +44,7 @@ fn from_tree_validation() -> crate::Result {
         let worktree_dir = root.join(repo_name);
         let tree_id = tree_id(&worktree_dir);
         let git_dir = worktree_dir.join(".git");
-        let odb = gix_odb::at(git_dir.join("objects"))?;
+        let odb = odb_at(git_dir.join("objects"))?;
 
         let err = State::from_tree(&tree_id, &odb, Default::default()).unwrap_err();
         assert_eq!(
@@ -56,7 +60,7 @@ fn from_tree_validation() -> crate::Result {
 fn from_tree_returns_file_directory_conflicts_until_fixed() -> crate::Result {
     let worktree_dir = scripted_fixture_read_only("make_symlink_prefix_reuse_advisory.sh")?;
     let tree_id = tree_id(&worktree_dir);
-    let odb = gix_odb::at(worktree_dir.join(".git").join("objects"))?;
+    let odb = odb_at(worktree_dir.join(".git").join("objects"))?;
 
     let actual_state = State::from_tree(&tree_id, &odb, Default::default())?;
     actual_state

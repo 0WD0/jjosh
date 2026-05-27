@@ -5,3 +5,4 @@
 # range (e.g., ext4 vs HFS+/APFS vs NTFS), so they cannot be round-tripped
 # through a committed tar — the fixture must be regenerated per host.
 file_metadata.tar
+file_metadata_sha256.tar

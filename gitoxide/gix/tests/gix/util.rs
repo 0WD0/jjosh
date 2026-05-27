@@ -151,7 +151,7 @@ static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sy
 /// This takes `GIX_TEST_FIXTURE_HASH` into account, so it maps SHA-1 hashes to their
 /// corresponding SHA-256 hashes.
 pub fn hex_to_id(hex: &str) -> gix_hash::ObjectId {
-    match gix_testtools::object_hash_from_env().unwrap_or_default() {
+    match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex"),
         gix_hash::Kind::Sha256 => gix_hash::ObjectId::from_hex(
             SHA1_TO_SHA256_HASHES
