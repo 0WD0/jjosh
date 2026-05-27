@@ -48,6 +48,7 @@ mod from_state {
         ];
 
         for (fixture, expected_version) in fixtures {
+            // Loose fixtures are pre-created and only exist as SHA-1 variants.
             if gix_testtools::object_hash() != gix_hash::Kind::Sha1 && matches!(fixture, Loose(_)) {
                 continue;
             }

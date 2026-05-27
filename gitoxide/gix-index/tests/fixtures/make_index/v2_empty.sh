@@ -3,6 +3,7 @@ set -eu -o pipefail
 
 git init -q
 
+# Create an empty index.
 case ${GIX_TEST_FIXTURE_HASH:-sha1} in
   sha1)
     git read-tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904 ;;

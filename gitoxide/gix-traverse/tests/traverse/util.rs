@@ -227,7 +227,7 @@ static SHA1_TO_SHA256_HASHES: std::sync::LazyLock<HashMap<&str, &str>> = std::sy
 
 /// Convert a hexadecimal hash into its corresponding `ObjectId` or _panic_.
 pub fn hex_to_id(hex: &str) -> ObjectId {
-    match gix_testtools::object_hash_from_env().unwrap_or_default() {
+    match gix_testtools::object_hash() {
         gix_hash::Kind::Sha1 => ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex"),
         gix_hash::Kind::Sha256 => ObjectId::from_hex(
             SHA1_TO_SHA256_HASHES
