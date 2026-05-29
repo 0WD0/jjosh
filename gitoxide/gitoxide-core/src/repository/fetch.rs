@@ -93,9 +93,7 @@ pub(crate) mod function {
                 if negotiation_info {
                     print_negotiate_info(&mut out, negotiate.as_ref())?;
                 }
-                if let Some((negotiate, path)) =
-                    open_negotiation_graph.and_then(|path| negotiate.as_ref().map(|n| (n, path)))
-                {
+                if let Some((negotiate, path)) = negotiate.as_ref().zip(open_negotiation_graph) {
                     render_graph(&repo, &negotiate.graph, &path, progress)?;
                 }
                 Ok::<_, anyhow::Error>(())
