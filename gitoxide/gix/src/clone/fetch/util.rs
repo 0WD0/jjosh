@@ -197,11 +197,7 @@ pub(super) fn find_custom_refname<'a>(
     let filtered_items: Vec<_> = ref_map
         .mappings
         .iter()
-        .filter_map(|m| {
-            m.remote
-                .as_name()
-                .and_then(|name| m.remote.as_id().map(|id| (name, id)))
-        })
+        .filter_map(|m| m.remote.as_name().zip(m.remote.as_id()))
         .map(|(full_ref_name, target)| gix_refspec::match_group::Item {
             full_ref_name,
             target,
