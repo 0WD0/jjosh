@@ -182,6 +182,14 @@ on your needs, for _Linux_, _MacOS_ and _Windows_.
 
 [releases]: https://github.com/GitoxideLabs/gitoxide/releases
 
+### Install with Homebrew
+
+For macOS and Linux, `gitoxide` can be installed from [Homebrew](https://brew.sh):
+
+```sh
+brew install gitoxide
+```
+
 ### Download from Arch Linux repository
 
 For Arch Linux you can download `gitoxide` from `community` repository:
