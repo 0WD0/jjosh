@@ -253,6 +253,12 @@ where
             total_delta_data_size = total_delta_data_size
                 .checked_add(cursor.decompressed_size)
                 .ok_or(Error::OutOfMemory)?;
+            if self
+                .alloc_limit_bytes
+                .is_some_and(|limit| total_delta_data_size > limit as u64)
+            {
+                return Err(Error::OutOfMemory);
+            }
             let decompressed_size = self.decoded_object_size(cursor.decompressed_size)?;
             chain.push(Delta {
                 data: Range {
