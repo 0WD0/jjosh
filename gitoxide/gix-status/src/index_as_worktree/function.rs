@@ -156,6 +156,14 @@ where
             let mut out = Vec::new();
             let mut idx = 0;
             while let Some(entry) = chunk_entries.get(idx) {
+                // Allow a cooperative early-out *within* a chunk: once `should_interrupt` is set
+                // (e.g. by a caller that only needs to know whether *any* change exists, like
+                // `Repository::is_dirty`), stop promptly instead of finishing the whole chunk.
+                // Without this, an in-flight chunk would run to completion (~several hundred entries)
+                // even after another worker already found the first change.
+                if should_interrupt.load(Ordering::Relaxed) {
+                    break;
+                }
                 let absolute_entry_index = entry_offset + idx;
                 if idx == 0 && entry.stage_raw() != 0 {
                     let offset = entry_offset.checked_sub(1).and_then(|prev_idx| {
