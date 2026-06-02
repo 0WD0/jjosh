@@ -45,11 +45,11 @@ gix-lock = { version = "^23.0.0", path = "../gix-lock" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
 gix-utils = { version = "^0.3.3", path = "../gix-utils" }
 
-hashbrown = "0.17.0"
+hashbrown = "0.17.1"
 fnv = "1.0.7"
 thiserror = "2.0.18"
 memmap2 = "0.9.10"
-filetime = "0.2.27"
+filetime = "0.2.29"
 bstr = { version = "1.12.0", default-features = false }
 
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
@@ -75,7 +75,7 @@ gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
 gix-hashtable = { path = "../gix-hashtable" }
 gix-odb = { path = "../gix-odb" }
 gix-object = { path = "../gix-object" }
-filetime = "0.2.27"
+filetime = "0.2.29"
 insta = { version = "1.46.3", features = ["filters"] }
 
 [package.metadata.docs.rs]
