@@ -22,6 +22,8 @@ pub use events_type::{Events, SectionRef};
 mod comment;
 mod error;
 ///
+pub mod format;
+///
 pub mod section;
 
 #[cfg(test)]
