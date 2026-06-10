@@ -129,3 +129,20 @@ EOF
   baseline any
   baseline_selected any my-binary recursive unspecified
 )
+
+mkdir macro-expansion
+(cd macro-expansion
+  git init
+  cat <<'EOF' > .gitattributes
+[attr]mylfs filter=lfs
+*.bin mylfs
+special.bin -mylfs
+unspec.bin !mylfs
+valued.bin mylfs=foo
+EOF
+
+  for path in normal.bin special.bin unspec.bin valued.bin
+  do
+    baseline "$path"
+  done
+)
