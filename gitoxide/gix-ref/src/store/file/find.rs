@@ -164,10 +164,16 @@ impl file::Store {
         let full_name = precomposed_partial_name
             .unwrap_or(partial_name)
             .construct_full_name_ref(inbetween, path_buf, consider_pseudo_ref);
-        let content_buf = self.ref_contents(full_name).map_err(|err| Error::ReadFileContents {
-            source: err,
-            path: self.reference_path(full_name),
-        })?;
+        let content_buf = match self.ref_contents(full_name) {
+            Ok(content_buf) => content_buf,
+            Err(err) if err.kind() == io::ErrorKind::NotADirectory => return Ok(None),
+            Err(err) => {
+                return Err(Error::ReadFileContents {
+                    source: err,
+                    path: self.reference_path(full_name),
+                });
+            }
+        };
 
         match content_buf {
             None => {
