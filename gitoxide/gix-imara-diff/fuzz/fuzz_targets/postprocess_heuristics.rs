@@ -12,8 +12,8 @@ struct Input<'a> {
     ident_level: u8,
 }
 
-/// It's possible to cause slow-enough inputs (due to post-processing) on `max-time=60s runs=100` fuzzer runs
-/// if the input is very large. However, this seems unrealistics, and they aren't exponential either.
+/// It's possible to cause slow-enough inputs (due to Myers, usually) on `max-time=60s runs=100` fuzzer runs
+/// if the input is very large and repetitive.
 const MAX_INPUT_BYTES: usize = 128 * 1024;
 
 /// Tests postprocessing with different heuristics:
