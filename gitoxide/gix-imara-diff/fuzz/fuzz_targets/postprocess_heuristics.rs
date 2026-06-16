@@ -12,6 +12,10 @@ struct Input<'a> {
     ident_level: u8,
 }
 
+/// It's possible to cause slow-enough inputs (due to Myers, usually) on `max-time=60s runs=100` fuzzer runs
+/// if the input is very large and repetitive.
+const MAX_INPUT_BYTES: usize = 128 * 1024;
+
 /// Tests postprocessing with different heuristics:
 /// - No heuristic
 /// - Line heuristic (default indent-based)
@@ -24,6 +28,10 @@ fn do_fuzz(
         ident_level,
     }: Input<'_>,
 ) {
+    if before.len().saturating_add(after.len()) > MAX_INPUT_BYTES {
+        return;
+    }
+
     let input = InternedInput::new(before, after);
 
     // Test with different algorithms
@@ -46,10 +54,7 @@ fn do_fuzz(
         diff3.postprocess_with_heuristic(
             &input,
             IndentHeuristic::new(|token| {
-                IndentLevel::for_ascii_line(
-                    input.interner[token].as_bytes().iter().copied(),
-                    ident_level,
-                )
+                IndentLevel::for_ascii_line(input.interner[token].as_bytes().iter().copied(), ident_level)
             }),
         );
         let _ = diff3.count_additions();
