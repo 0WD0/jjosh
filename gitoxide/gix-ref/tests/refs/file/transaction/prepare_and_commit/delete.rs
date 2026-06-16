@@ -249,18 +249,12 @@ fn rename_a_to_a_slash_b_in_one_transaction() -> crate::Result {
         .unwrap_err();
 
     match err {
-        #[cfg(unix)]
         Error::Io(err) => {
             assert_eq!(
                 err.kind(),
                 std::io::ErrorKind::NotADirectory,
-                "For now this isn't supported in the same transaction."
+                "For now this isn't supported in the same transaction, and path-prefix collisions are reported early."
             );
-        }
-        #[cfg(windows)]
-        Error::LockAcquire { .. } => {
-            // It's bad that the error differs on Windows, but then again, doing this kind of pseudo-db on a filesystem
-            // probably is never going to be great, so let's wait for ref-tables.
         }
         err => unreachable!("unexpected error variant: {err:?}"),
     }

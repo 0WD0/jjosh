@@ -76,6 +76,22 @@ mod set_namespace {
     }
 }
 
+#[test]
+fn try_find_reference_with_existing_ref_as_path_prefix_returns_none() -> crate::Result {
+    let (repo, _tmp) = crate::repo_rw("make_references_repo.sh")?;
+    std::fs::create_dir_all(repo.git_dir().join("refs/heads"))?;
+    std::fs::write(
+        repo.git_dir().join("refs/heads/A"),
+        repo.head_id()?.to_hex().to_string(),
+    )?;
+
+    assert!(
+        repo.try_find_reference("refs/heads/A/new")?.is_none(),
+        "a ref whose path prefix is an existing ref does not exist"
+    );
+    Ok(())
+}
+
 mod iter_references {
     use crate::util::hex_to_id;
 

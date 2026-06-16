@@ -194,4 +194,33 @@ mod loose {
         }
         Ok(())
     }
+
+    #[test]
+    fn prefix_file_collision_is_not_found() -> crate::Result {
+        let (_tmp, store) = crate::file::store_writable("make_ref_repository.sh")?;
+
+        assert!(
+            store.try_find("refs/heads/A/new")?.is_none(),
+            "a ref whose path prefix is an existing loose ref does not exist"
+        );
+        assert!(
+            store.try_find_loose("refs/heads/A/new")?.is_none(),
+            "a loose ref whose path prefix is an existing ref does not exist"
+        );
+
+        std::fs::write(
+            store.git_dir().join("packed-refs"),
+            format!(
+                "# pack-refs with: peeled fully-peeled sorted\n{} refs/heads/A/new\n",
+                hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03")
+            ),
+        )?;
+        store.force_refresh_packed_buffer()?;
+        assert!(
+            store.try_find("refs/heads/A/new")?.is_none(),
+            "a ref whose path prefix is an existing loose ref does not exist, even if a packed ref matches"
+        );
+
+        Ok(())
+    }
 }
