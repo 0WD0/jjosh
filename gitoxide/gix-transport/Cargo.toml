@@ -89,7 +89,7 @@ gix-command = { version = "^0.9.1", path = "../gix-command" }
 gix-features = { version = "^0.48.1", path = "../gix-features" }
 gix-url = { version = "^0.36.1", path = "../gix-url" }
 gix-sec = { version = "^0.14.1", path = "../gix-sec" }
-gix-packetline = { version = "^0.21.4", path = "../gix-packetline" }
+gix-packetline = { version = "^0.21.5", path = "../gix-packetline" }
 gix-credentials = { version = "^0.38.1", path = "../gix-credentials", optional = true }
 gix-quote = { version = "^0.7.2", path = "../gix-quote" }
 

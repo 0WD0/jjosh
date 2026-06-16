@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-packetline"
-version = "0.21.4"
+version = "0.21.5"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project implementing the pkt-line serialization format"
@@ -30,12 +30,12 @@ serde = ["dep:serde", "bstr/serde", "faster-hex/serde"]
 
 [[test]]
 name = "async-packetline"
-path = "tests/async-packetline.rs"
+path = "tests/packetline/main-async.rs"
 required-features = ["async-io"]
 
 [[test]]
 name = "blocking-packetline"
-path = "tests/blocking-packetline.rs"
+path = "tests/packetline/main-blocking.rs"
 required-features = ["blocking-io", "maybe-async/is_sync"]
 
 [dependencies]
