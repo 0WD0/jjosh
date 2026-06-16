@@ -268,6 +268,39 @@ fn given_attributes_are_made_available_in_given_order() -> crate::Result {
 }
 
 #[test]
+fn macro_attributes_expand_only_when_macro_is_set() -> crate::Result {
+    let (mut group, mut collection, base, input) = baseline::user_attributes("macro-expansion")?;
+
+    let mut buf = Vec::new();
+    group.add_patterns_file(
+        base.join(".gitattributes"),
+        false,
+        None,
+        &mut buf,
+        &mut collection,
+        true, /* use macros */
+    )?;
+
+    let mut out = Outcome::default();
+    out.initialize(&collection);
+    let mut count = 0;
+    for (rela_path, expected) in (baseline::Expectations { lines: input.lines() }) {
+        count += 1;
+        out.reset();
+        group.pattern_matching_relative_path(rela_path, Case::Sensitive, Some(false), &mut out);
+        assert_references(&out);
+        let actual: Vec<_> = out
+            .iter()
+            .filter_map(|m| (!m.assignment.state.is_unspecified()).then_some(m.assignment))
+            .collect();
+        assert_eq!(actual, expected, "we match git check-attr -a for {rela_path:?}");
+    }
+    assert_ne!(count, 0, "should have seen some baseline samples");
+
+    Ok(())
+}
+
+#[test]
 fn size_of_outcome() {
     let actual = std::mem::size_of::<Outcome>();
     let expected = 840;
