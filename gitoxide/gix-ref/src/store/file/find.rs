@@ -291,7 +291,7 @@ impl file::Store {
             )));
         }
 
-        let ref_path = base.join(relative_path);
+        let ref_path = base.join(&relative_path);
         match std::fs::File::open(&ref_path) {
             Ok(mut file) => {
                 let mut buf = Vec::with_capacity(128);
@@ -300,12 +300,43 @@ impl file::Store {
                 }
                 Ok(buf.into())
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                #[cfg(windows)]
+                if path_has_file_prefix(base.as_ref(), relative_path.as_ref()) {
+                    return Err(io::Error::new(io::ErrorKind::NotADirectory, err));
+                }
+                Ok(None)
+            }
             #[cfg(windows)]
-            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => Ok(None),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                if path_has_file_prefix(base.as_ref(), relative_path.as_ref()) {
+                    Err(io::Error::new(io::ErrorKind::NotADirectory, err))
+                } else {
+                    Ok(None)
+                }
+            }
             Err(err) => Err(err),
         }
     }
+}
+
+#[cfg(windows)]
+fn path_has_file_prefix(base: &Path, relative_path: &Path) -> bool {
+    let mut path = base.to_owned();
+    let mut components = relative_path.components().peekable();
+    while let Some(component) = components.next() {
+        if components.peek().is_none() {
+            break;
+        }
+        path.push(component.as_os_str());
+        match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => return true,
+            Ok(_) => {}
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return false,
+            Err(_) => {}
+        }
+    }
+    false
 }
 
 ///
