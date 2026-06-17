@@ -37,9 +37,7 @@ mod repo_with_small_packs {
                             let id = id?;
                             assert!(
                                 store.try_find(&id, &mut buf).is_ok(),
-                                "Thread {} could not find {}",
-                                tid,
-                                id
+                                "Thread {tid} could not find {id}"
                             );
                             count += 1;
                         }
