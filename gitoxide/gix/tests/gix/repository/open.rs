@@ -11,6 +11,32 @@ fn open_permissions_is_isolated() {
 }
 
 #[test]
+#[serial_test::serial]
+fn discover_with_git_dir_environment_override_sets_trust() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    let initialized = gix::init(tmp.path())?;
+    let _env = gix_testtools::Env::new()
+        .unset("GIT_WORK_TREE")
+        .set("GIT_DIR", initialized.git_dir().to_string_lossy().into_owned());
+
+    let repo = gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
+        tmp.path(),
+        Default::default(),
+        gix_sec::trust::Mapping {
+            full: crate::restricted(),
+            reduced: crate::restricted(),
+        },
+    )?;
+
+    assert_eq!(
+        repo.git_dir(),
+        initialized.git_dir(),
+        "the git-dir from the environment opens without panicking on missing trust"
+    );
+    Ok(())
+}
+
+#[test]
 fn on_root_with_decomposed_unicode() -> crate::Result {
     let tmp = gix_testtools::tempfile::TempDir::new()?;
 
