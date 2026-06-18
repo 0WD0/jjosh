@@ -91,6 +91,8 @@ pub enum Error {
          set core.repositoryFormatVersion=1 to use it, or remove extensions.objectFormat to fall back to the default Sha1 format (if supported by this build)"
     )]
     ObjectFormatRequiresV1,
+    #[error("Unsupported repository format version {version}; only versions 0 and 1 are supported")]
+    UnsupportedRepositoryFormatVersion { version: usize },
     #[error(transparent)]
     CoreAbbrev(#[from] abbrev::Error),
     #[error("Could not read configuration file at \"{}\"", path.display())]

@@ -108,7 +108,7 @@ fn create_dir(p: &Path) -> Result<(), Error> {
 }
 
 /// Options for use in [`into()`];
-#[derive(Copy, Default, Clone)]
+#[derive(Copy, Clone)]
 pub struct Options {
     /// Control whether the destination directory must be empty when creating a repository with a worktree.
     ///
@@ -132,6 +132,31 @@ pub struct Options {
     /// Otherwise, create a repository without an explicit object-format extension,
     /// which is interpreted as legacy SHA-1.
     pub object_hash: Option<gix_hash::Kind>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            destination_must_be_empty: None,
+            fs_capabilities: None,
+            object_hash: default_object_hash(),
+        }
+    }
+}
+
+fn default_object_hash() -> Option<gix_hash::Kind> {
+    #[cfg(feature = "sha1")]
+    {
+        None
+    }
+    #[cfg(all(not(feature = "sha1"), feature = "sha256"))]
+    {
+        Some(gix_hash::Kind::Sha256)
+    }
+    #[cfg(all(not(feature = "sha1"), not(feature = "sha256")))]
+    {
+        unreachable!("hash support features are validated by gix-hash")
+    }
 }
 
 /// Create a new `.git` repository of `kind` within the possibly non-existing `directory`
@@ -284,5 +309,24 @@ fn bool(v: bool) -> &'static str {
     match v {
         true => "true",
         false => "false",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn default_object_hash_matches_available_hash_support() {
+        let object_hash = super::Options::default().object_hash;
+        #[cfg(feature = "sha1")]
+        assert_eq!(
+            object_hash, None,
+            "SHA1-capable builds keep Git's implicit legacy object format"
+        );
+        #[cfg(all(not(feature = "sha1"), feature = "sha256"))]
+        assert_eq!(
+            object_hash,
+            Some(gix_hash::Kind::Sha256),
+            "SHA256-only builds must initialize repositories that can be reopened"
+        );
     }
 }

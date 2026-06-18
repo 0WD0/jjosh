@@ -45,11 +45,12 @@ impl StageOne {
             .map(|version| Core::REPOSITORY_FORMAT_VERSION.try_into_usize(version))
             .transpose()?
             .unwrap_or_default();
-        let object_hash = match config.string(Extensions::OBJECT_FORMAT) {
-            // objectFormat is honored from repository format version 1 onwards.
-            Some(format) if repo_format_version >= 1 => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
-            Some(_) => return Err(Error::ObjectFormatRequiresV1),
-            None => legacy_object_hash()?,
+        let object_hash = match (repo_format_version, config.string(Extensions::OBJECT_FORMAT)) {
+            // objectFormat is a repository format version 1 extension.
+            (1, Some(format)) => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
+            (0, Some(_)) => return Err(Error::ObjectFormatRequiresV1),
+            (0 | 1, None) => legacy_object_hash()?,
+            (version, _) => return Err(Error::UnsupportedRepositoryFormatVersion { version }),
         };
 
         let extension_worktree = util::config_bool(

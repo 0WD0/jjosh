@@ -178,6 +178,18 @@ EOF
   )
 done
 
+git init repository-format-v2-with-objectformat-sha1
+(cd repository-format-v2-with-objectformat-sha1
+  # Future repository formats may change invariants beyond the object hash. Git
+  # refuses such repositories before interpreting extensions; gix should too.
+  cat <<EOF >>.git/config
+[core]
+	repositoryFormatVersion = 2
+[extensions]
+	objectFormat = sha1
+EOF
+)
+
 git init ssl-verify-disabled
 (cd ssl-verify-disabled
   git config http.sslVerify false

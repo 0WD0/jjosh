@@ -378,6 +378,24 @@ mod object_format_extension {
         }
         Ok(())
     }
+
+    #[test]
+    fn rejects_future_repository_format_versions() -> crate::Result {
+        let err = named_subrepo_opts(
+            "make_config_repos.sh",
+            "repository-format-v2-with-objectformat-sha1",
+            gix::open::Options::isolated(),
+        )
+        .expect_err("future repository format versions must be rejected");
+        assert!(
+            matches!(
+                err,
+                gix::open::Error::Config(gix::config::Error::UnsupportedRepositoryFormatVersion { version: 2 })
+            ),
+            "future repository format versions must be rejected before interpreting extensions, got {err:?}"
+        );
+        Ok(())
+    }
 }
 
 mod open_path_as_is {
