@@ -45,15 +45,13 @@ impl StageOne {
             .map(|version| Core::REPOSITORY_FORMAT_VERSION.try_into_usize(version))
             .transpose()?
             .unwrap_or_default();
-        let object_hash = (repo_format_version != 1)
-            .then_some(Ok(gix_hash::Kind::Sha1))
-            .or_else(|| {
-                config
-                    .string(Extensions::OBJECT_FORMAT)
-                    .map(|format| Extensions::OBJECT_FORMAT.try_into_object_format(format))
-            })
-            .transpose()?
-            .unwrap_or(gix_hash::Kind::Sha1);
+        let object_hash = match (repo_format_version, config.string(Extensions::OBJECT_FORMAT)) {
+            // objectFormat is a repository format version 1 extension.
+            (1, Some(format)) => Extensions::OBJECT_FORMAT.try_into_object_format(format)?,
+            (0, Some(_)) => return Err(Error::ObjectFormatRequiresV1),
+            (0 | 1, None) => legacy_object_hash()?,
+            (version, _) => return Err(Error::UnsupportedRepositoryFormatVersion { version }),
+        };
 
         let extension_worktree = util::config_bool(
             &config,
@@ -101,6 +99,22 @@ impl StageOne {
             precompose_unicode,
             protect_windows,
         })
+    }
+}
+
+/// Return the object hash for a repository that does not set `extensions.objectFormat`.
+///
+/// Git interprets a missing objectFormat as the original Sha1 layout, so we return
+/// gix_hash::Kind::Sha1 whenever this build can handle it.
+/// In Sha256-only builds we cannot open such a repository, so return an error instead.
+fn legacy_object_hash() -> Result<gix_hash::Kind, Error> {
+    #[cfg(feature = "sha1")]
+    {
+        Ok(gix_hash::Kind::Sha1)
+    }
+    #[cfg(not(feature = "sha1"))]
+    {
+        Err(Error::UnsupportedObjectFormat { name: "sha1".into() })
     }
 }
 

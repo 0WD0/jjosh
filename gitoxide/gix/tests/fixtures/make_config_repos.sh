@@ -165,6 +165,31 @@ mkdir not-a-repo-with-files;
   touch this that
 )
 
+for format in sha1 sha256; do
+  git init "objectformat-$format-with-repository-format-v0"
+  (cd "objectformat-$format-with-repository-format-v0"
+    # use overrides to get a repository that Git refuses to open/edit.
+    cat <<EOF >>.git/config
+[core]
+	repositoryFormatVersion = 0
+[extensions]
+	objectFormat = $format
+EOF
+  )
+done
+
+git init repository-format-v2-with-objectformat-sha1
+(cd repository-format-v2-with-objectformat-sha1
+  # Future repository formats may change invariants beyond the object hash. Git
+  # refuses such repositories before interpreting extensions; gix should too.
+  cat <<EOF >>.git/config
+[core]
+	repositoryFormatVersion = 2
+[extensions]
+	objectFormat = sha1
+EOF
+)
+
 git init ssl-verify-disabled
 (cd ssl-verify-disabled
   git config http.sslVerify false
