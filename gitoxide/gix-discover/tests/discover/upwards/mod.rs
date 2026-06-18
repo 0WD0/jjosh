@@ -13,6 +13,34 @@ fn expected_trust() -> gix_sec::Trust {
 mod ceiling_dirs;
 
 #[test]
+fn can_override_computed_trust() -> crate::Result {
+    let dir = repo_path()?.join("some/very/deeply/nested/subdir");
+    let overridden_trust = match expected_trust() {
+        gix_sec::Trust::Full => gix_sec::Trust::Reduced,
+        gix_sec::Trust::Reduced => gix_sec::Trust::Full,
+    };
+
+    let (path, trust) = gix_discover::upwards_opts(
+        &dir,
+        gix_discover::upwards::Options {
+            trust: gix_discover::upwards::TrustPolicy::Assume(overridden_trust),
+            ..Default::default()
+        },
+    )?;
+
+    assert_eq!(
+        path.kind(),
+        Kind::WorkTree { linked_git_dir: None },
+        "discovery still finds the worktree"
+    );
+    assert_eq!(
+        trust, overridden_trust,
+        "the caller-provided trust is returned instead of the computed ownership trust"
+    );
+    Ok(())
+}
+
+#[test]
 fn from_bare_git_dir() -> crate::Result {
     let dir = repo_path()?.join("bare.git");
     let (path, trust) = gix_discover::upwards(&dir)?;
