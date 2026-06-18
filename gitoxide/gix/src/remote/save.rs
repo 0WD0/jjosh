@@ -77,6 +77,7 @@ impl Remote<'_> {
         // section provided by another source (e.g. global config like `remote.<name>.prune`) would
         // be mutated in place, mixing foreign metadata with our values and getting lost when the
         // caller writes back only the local sections. In that case, create a fresh local section.
+        // We assume that `config.meta()` is truly the 'identity' of the configuration file.
         let target_meta = config.meta().clone();
         let mut section = config
             .section_mut_or_create_new_filter("remote", Some(name.as_ref()), |meta| *meta == target_meta)

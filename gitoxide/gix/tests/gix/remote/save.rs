@@ -124,11 +124,10 @@ mod save_as_to {
         use gix::bstr::ByteSlice;
         // A repo with no remotes, opened so that `remote.origin` exists only as a non-local (`Api`)
         // override, mirroring global configuration like `remote.origin.prune = true` (issue #1951).
-        let repo = gix::ThreadSafeRepository::open_opts(
+        let repo = gix::open_opts(
             gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?,
             gix::open::Options::isolated().config_overrides(["remote.origin.prune=true"]),
-        )?
-        .to_thread_local();
+        )?;
 
         let mut config = repo.config_snapshot().plumbing().clone();
         let local_meta = config.meta().clone();
