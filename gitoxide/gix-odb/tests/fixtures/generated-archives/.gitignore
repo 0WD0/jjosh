@@ -14,3 +14,9 @@ repo_with_loose_objects.tar
 repo_with_loose_objects_sha256.tar
 # The fixuture is 2MB in size, so let's not track it (like its SHA-1 sibling)
 make_repo_multi_index_sha256.tar
+# The fixuture is 2MB in size, so let's not track it (like its SHA-1 sibling)
+make_replaced_history_sha256.tar
+# The fixuture is 2MB in size, so let's not track it (like its SHA-1 sibling)
+make_repo_multi_index_no_sha256.tar
+# The fixuture is 2MB in size, so let's not track it (like its SHA-1 sibling)
+make_repo_multi_index_without-multi-index_sha256.tar
