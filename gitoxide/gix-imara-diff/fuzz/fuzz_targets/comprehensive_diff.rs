@@ -1,9 +1,13 @@
 #![no_main]
 
 use imara_diff::{Algorithm, Diff, InternedInput};
-use libfuzzer_sys::fuzz_target;
+use libfuzzer_sys::{Corpus, fuzz_target};
 
-use libfuzzer_sys::arbitrary;
+use libfuzzer_sys::arbitrary::{self, Arbitrary, Unstructured};
+
+/// Keep libFuzzer from spending its whole timeout budget in Myers on oversized,
+/// repetitive inputs while preserving room for historical regression fixtures.
+const MAX_FUZZ_INPUT_BYTES: usize = 150 * 1024;
 
 #[derive(arbitrary::Arbitrary, Debug)]
 struct Input<'a> {
@@ -67,6 +71,15 @@ fn do_fuzz(
     }
 }
 
-fuzz_target!(|input: Input<'_>| {
+fuzz_target!(|data: &[u8]| -> Corpus {
+    if data.len() > MAX_FUZZ_INPUT_BYTES {
+        return Corpus::Reject;
+    }
+
+    let Ok(input) = Input::arbitrary_take_rest(Unstructured::new(data)) else {
+        return Corpus::Reject;
+    };
+
     do_fuzz(input);
+    Corpus::Keep
 });
