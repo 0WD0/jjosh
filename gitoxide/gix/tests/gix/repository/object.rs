@@ -165,6 +165,33 @@ mod edit_tree {
     }
 
     #[test]
+    fn remove_leaf_rejects_tree_entries() -> crate::Result {
+        let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
+        let head_tree_id = repo.head_tree_id()?;
+        let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
+        let mut editor = repo.edit_tree(head_tree_id)?;
+
+        editor.upsert("A/one", EntryKind::Blob, this_id)?;
+        let err = match editor.remove_leaf("A") {
+            Ok(_) => unreachable!("removing a tree as leaf must fail"),
+            Err(err) => err,
+        };
+        assert_eq!(
+            err.to_string(),
+            "Cannot remove 'A' as leaf entry because it is a tree",
+            "leaf-only removal must reject non-leaf entries"
+        );
+
+        let actual = editor.remove_leaf("A/one")?.write()?;
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            display_tree_snapshot(head_tree_id, &repo),
+            "removing the leaf prunes the now-empty intermediate tree ('A')"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn missing_objects_and_illformed_path_components_trigger_error() -> crate::Result {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let tree = repo.head_tree_id()?.object()?.into_tree();
