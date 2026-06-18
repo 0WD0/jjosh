@@ -153,6 +153,7 @@ impl ThreadSafeRepository {
 
         let git_dir_trust = gix_sec::Trust::from_path_ownership(&git_dir)?;
         let mut options = trust_map.into_value_by_level(git_dir_trust);
+        options.git_dir_trust = git_dir_trust.into();
         options.current_dir = Some(cwd);
         ThreadSafeRepository::open_from_paths(git_dir, worktree_dir, options)
     }
