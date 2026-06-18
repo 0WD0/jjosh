@@ -1,5 +1,5 @@
 mod types;
-pub use types::{Error, Options};
+pub use types::{Error, Options, TrustPolicy};
 
 mod util;
 
@@ -8,7 +8,7 @@ pub(crate) mod function {
 
     use gix_sec::Trust;
 
-    use super::{Error, Options};
+    use super::{Error, Options, TrustPolicy};
     #[cfg(unix)]
     use crate::upwards::util::device_id;
     use crate::{
@@ -27,14 +27,14 @@ pub(crate) mod function {
     pub fn discover_opts(
         directory: &Path,
         Options {
-            required_trust,
+            trust,
             ceiling_dirs,
             match_ceiling_dir_or_error,
             cross_fs,
             current_dir,
             dot_git_only,
         }: Options<'_>,
-    ) -> Result<(crate::repository::Path, Trust), Error> {
+    ) -> Result<(crate::repository::Path, gix_sec::Trust), Error> {
         // Normalize the path so that `Path::parent()` _actually_ gives
         // us the parent directory. (`Path::parent` just strips off the last
         // path component, which means it will not do what you expect when
@@ -67,9 +67,15 @@ pub(crate) mod function {
                 .or_else(|_| dir.as_ref().strip_prefix(cwd.as_ref()))
                 .is_ok();
 
-        let filter_by_trust = |x: &Path| -> Result<Option<Trust>, Error> {
-            let trust = Trust::from_path_ownership(x).map_err(|err| Error::CheckTrust { path: x.into(), err })?;
-            Ok((trust >= required_trust).then_some(trust))
+        let filter_by_trust = |x: &Path| -> Result<Result<Trust, Trust>, Error> {
+            match trust {
+                TrustPolicy::Required(required) => {
+                    let trust =
+                        Trust::from_path_ownership(x).map_err(|err| Error::CheckTrust { path: x.into(), err })?;
+                    Ok(if trust >= required { Ok(trust) } else { Err(required) })
+                }
+                TrustPolicy::Assume(trust) => Ok(Ok(trust)),
+            }
         };
 
         let max_height = if !ceiling_dirs.is_empty() {
@@ -134,7 +140,7 @@ pub(crate) mod function {
                     None => is_git(&cursor),
                 } {
                     match filter_by_trust(&cursor)? {
-                        Some(trust) => {
+                        Ok(trust) => {
                             // TODO: test this more, it definitely doesn't always find the shortest path to a directory
                             let path = if dir_made_absolute {
                                 shorten_path_with_cwd(cursor, cwd.as_ref())
@@ -150,11 +156,11 @@ pub(crate) mod function {
                                 trust,
                             ));
                         }
-                        None => {
+                        Err(required) => {
                             break 'outer Err(Error::NoTrustedGitRepository {
                                 path: dir.into_owned(),
                                 candidate: cursor,
-                                required: required_trust,
+                                required,
                             });
                         }
                     }
@@ -198,7 +204,7 @@ pub(crate) mod function {
     /// the trust level derived from Path ownership.
     ///
     /// Fail if no valid-looking git repository could be found.
-    pub fn discover(directory: &Path) -> Result<(crate::repository::Path, Trust), Error> {
+    pub fn discover(directory: &Path) -> Result<(crate::repository::Path, gix_sec::Trust), Error> {
         discover_opts(directory, Default::default())
     }
 }

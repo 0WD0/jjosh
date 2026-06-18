@@ -27,10 +27,9 @@ impl ThreadSafeRepository {
     /// for instantiations.
     ///
     /// Note that [trust overrides](crate::open::Options::with()) in the `trust_map` are not effective here and we will
-    /// always override it with the determined trust value. This is a precaution as the API user is unable to actually know
-    /// if the directory that is discovered can indeed be trusted (or else they'd have to implement the discovery themselves
-    /// and be sure that no attacker ever gets access to a directory structure. The cost of this is a permission check, which
-    /// seems acceptable).
+    /// always override it with the determined trust value as per [gix_discover::upwards::Options::trust].
+    /// This value, however, can be set to [assume a given trust level](gix_discover::upwards::TrustPolicy::Assume) to let
+    /// callers control the trust level without re-determining it.
     pub fn discover_opts(
         directory: impl AsRef<Path>,
         options: upwards::Options<'_>,
