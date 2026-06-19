@@ -306,6 +306,86 @@ fn from_empty_removal() -> crate::Result {
 
     Ok(())
 }
+
+#[test]
+fn from_empty_remove_accepts_empty_segments_after_unreachable_paths() -> crate::Result {
+    let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
+    let odb = StorageOdb::new(storage.clone());
+    let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
+
+    let actual = edit
+        .upsert(Some("file"), EntryKind::Blob, any_blob())?
+        .upsert(["dir", "file"], EntryKind::Blob, any_blob())?
+        .remove(["missing", ""])?
+        .remove(["file", ""])?
+        .remove(["dir", "missing", ""])?
+        .write(&mut write)?;
+
+    insta::assert_snapshot!(
+        crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
+        "empty path components after an unreachable removal target are not reached or validated",
+        @r#"
+        Oid(1)
+        ├── dir
+        │   └── file Oid(2).100644
+        └── file Oid(2).100644
+    "#
+    );
+    Ok(())
+}
+
+#[test]
+fn from_empty_remove_leaf_rejects_tree_entries() -> crate::Result {
+    let (storage, mut write, _num_writes_and_clear) = new_inmemory_writes();
+    let odb = StorageOdb::new(storage.clone());
+    let mut edit = gix_object::tree::Editor::new(Tree::default(), &odb, hash_kind());
+
+    edit.upsert(["A", "one"], EntryKind::Blob, any_blob())?;
+
+    let err = edit.remove_leaf(Some("A")).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Cannot remove 'A' as leaf entry because it is a tree",
+        "leaf-only removal must reject non-leaf entries"
+    );
+
+    edit.remove_leaf(["A", "one"])?;
+    let actual = edit.write(&mut write)?;
+    assert_eq!(actual, empty_tree(), "the leaf itself can still be removed");
+
+    let actual = edit
+        .upsert(Some("empty-dir"), EntryKind::Tree, empty_tree())?
+        .remove_leaf(["empty-dir", "missing"])?
+        .write(&mut write)?;
+    insta::assert_snapshot!(
+        crate::normalize_tree_snapshot(&display_tree(actual, &storage)),
+        "an absent leaf below an empty tree is a no-op and must not prune the tree",
+        @r#"
+        Oid(1)
+        └── empty-dir (empty)
+    "#
+    );
+    edit.remove_leaf(["empty-dir", ""])?;
+    edit.remove_leaf(["empty-dir", "missing", ""])?;
+    edit.remove_leaf(["missing", ""])?;
+    edit.upsert(["non-empty", "file"], EntryKind::Blob, any_blob())?
+        .remove_leaf(["non-empty", "missing", ""])?
+        .remove_leaf(["non-empty", "file", ""])?;
+
+    let actual = edit
+        .set_root(Tree::default())
+        .upsert(Some("empty-dir"), EntryKind::Tree, empty_tree())?
+        .upsert(["empty-dir", "file"], EntryKind::Blob, any_blob())?
+        .remove_leaf(["empty-dir", "file"])?
+        .write(&mut write)?;
+    assert_eq!(
+        actual,
+        empty_tree(),
+        "leaf-only removal still descends into edited subtrees backed by an empty tree"
+    );
+    Ok(())
+}
+
 #[test]
 fn from_existing_remove() -> crate::Result {
     let (storage, mut write, num_writes_and_clear) = new_inmemory_writes();

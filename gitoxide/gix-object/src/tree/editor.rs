@@ -39,6 +39,8 @@ pub enum Error {
     EmptyPathComponent,
     #[error(transparent)]
     FindExistingObject(#[from] crate::find::existing_object::Error),
+    #[error("Cannot remove '{rela_path}' as leaf entry because it is a tree")]
+    CannotRemoveNonLeaf { rela_path: BString },
 }
 
 /// Lifecycle
@@ -85,15 +87,28 @@ impl Editor<'_> {
 
     /// Remove the entry at `rela_path`, loading all trees on the path accordingly.
     /// It's no error if the entry doesn't exist, or if `rela_path` doesn't lead to an existing entry at all.
-    ///
-    /// Note that trying to remove a path with an empty component is also forbidden.
     pub fn remove<I, C>(&mut self, rela_path: I) -> Result<&mut Self, Error>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        self.upsert_or_remove_at_pathbuf(rela_path, None)
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::Any))
+    }
+
+    /// Remove a non-tree entry at `rela_path`, loading all trees on the path accordingly.
+    /// It's no error if the entry doesn't exist, or if `rela_path` doesn't lead to an existing entry at all.
+    ///
+    /// Return an error if the entry exists and is a tree, as that would otherwise also remove all entries below it.
+    /// Empty path components are rejected if reached while loading the path. This is useful to not unintentionally
+    /// remove a directory.
+    pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self, Error>
+    where
+        I: IntoIterator<Item = C>,
+        C: AsRef<BStr>,
+    {
+        self.path_buf.borrow_mut().clear();
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::LeafOnly))
     }
 
     /// Obtain the entry at `rela_path` or return `None` if none was found, or the tree wasn't yet written
@@ -130,7 +145,7 @@ impl Editor<'_> {
         C: AsRef<BStr>,
     {
         self.path_buf.borrow_mut().clear();
-        self.upsert_or_remove_at_pathbuf(rela_path, Some((kind, id, UpsertMode::Normal)))
+        self.upsert_or_remove_at_pathbuf(rela_path, EditMode::Upsert(kind, id, UpsertMode::Normal))
     }
 
     fn get_inner<I, C>(&self, rela_path: I) -> Option<&tree::Entry>
@@ -251,11 +266,7 @@ impl Editor<'_> {
         unreachable!("we exit as soon as everything is consumed")
     }
 
-    fn upsert_or_remove_at_pathbuf<I, C>(
-        &mut self,
-        rela_path: I,
-        kind_and_id: Option<(EntryKind, ObjectId, UpsertMode)>,
-    ) -> Result<&mut Self, Error>
+    fn upsert_or_remove_at_pathbuf<I, C>(&mut self, rela_path: I, edit: EditMode) -> Result<&mut Self, Error>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<BStr>,
@@ -263,7 +274,7 @@ impl Editor<'_> {
         let mut path_buf = self.path_buf.borrow_mut();
         let mut cursor = self.trees.get_mut(path_buf.as_bstr()).expect("root is always present");
         let mut rela_path = rela_path.into_iter().peekable();
-        let new_kind_is_tree = kind_and_id.is_some_and(|(kind, _, _)| kind == EntryKind::Tree);
+        let new_kind_is_tree = matches!(edit, EditMode::Upsert(EntryKind::Tree, _, _));
         while let Some(name) = rela_path.next() {
             let name = name.as_ref();
             if name.is_empty() {
@@ -289,9 +300,14 @@ impl Editor<'_> {
                         })
                 }) {
                 Ok(idx) => {
-                    match kind_and_id {
-                        None => {
+                    match edit {
+                        EditMode::Remove(mode) => {
                             if is_last {
+                                if mode == RemoveMode::LeafOnly && cursor.entries[idx].mode.is_tree() {
+                                    return Err(Error::CannotRemoveNonLeaf {
+                                        rela_path: path_with_component(path_buf.as_bstr(), name),
+                                    });
+                                }
                                 cursor.entries.remove(idx);
                                 break;
                             } else {
@@ -303,7 +319,7 @@ impl Editor<'_> {
                                 }
                             }
                         }
-                        Some((kind, id, _mode)) => {
+                        EditMode::Upsert(kind, id, _mode) => {
                             let entry = &mut cursor.entries[idx];
                             if is_last {
                                 // unconditionally overwrite what's there.
@@ -324,9 +340,9 @@ impl Editor<'_> {
                         }
                     }
                 }
-                Err(insertion_idx) => match kind_and_id {
-                    None => break,
-                    Some((kind, id, _mode)) => {
+                Err(insertion_idx) => match edit {
+                    EditMode::Remove(_) => break,
+                    EditMode::Upsert(kind, id, _mode) => {
                         cursor.entries.insert(
                             insertion_idx,
                             tree::Entry {
@@ -342,12 +358,15 @@ impl Editor<'_> {
             if needs_sorting {
                 cursor.entries.sort();
             }
-            if is_last && kind_and_id.is_some_and(|(_, _, mode)| mode == UpsertMode::Normal) {
+            if is_last && matches!(edit, EditMode::Upsert(_, _, UpsertMode::Normal)) {
                 break;
             }
+            let stop_at_unedited_empty_tree = matches!(edit, EditMode::Remove(RemoveMode::LeafOnly))
+                && tree_to_lookup.is_some_and(|id| id.is_empty_tree());
             push_path_component(&mut path_buf, name);
             cursor = match self.trees.entry(path_buf.clone()) {
                 hash_map::Entry::Occupied(e) => e.into_mut(),
+                hash_map::Entry::Vacant(_) if stop_at_unedited_empty_tree => break,
                 hash_map::Entry::Vacant(e) => e.insert(
                     if let Some(tree_id) = tree_to_lookup.filter(|tree_id| !tree_id.is_empty_tree()) {
                         self.find.find_tree(&tree_id, &mut self.tree_buf)?.into()
@@ -381,7 +400,7 @@ mod cursor {
         Tree, tree,
         tree::{
             Editor, EntryKind,
-            editor::{Cursor, UpsertMode, WriteMode},
+            editor::{Cursor, EditMode, RemoveMode, UpsertMode, WriteMode},
         },
     };
 
@@ -409,7 +428,7 @@ mod cursor {
             self.path_buf.borrow_mut().clear();
             self.upsert_or_remove_at_pathbuf(
                 rela_path,
-                Some((EntryKind::Tree, self.object_hash.null(), UpsertMode::AssureTreeOnly)),
+                EditMode::Upsert(EntryKind::Tree, self.object_hash.null(), UpsertMode::AssureTreeOnly),
             )?;
             let prefix = self.path_buf.borrow_mut().clone();
             Ok(Cursor {
@@ -442,7 +461,7 @@ mod cursor {
         {
             self.parent.path_buf.borrow_mut().clone_from(&self.prefix);
             self.parent
-                .upsert_or_remove_at_pathbuf(rela_path, Some((kind, id, UpsertMode::Normal)))?;
+                .upsert_or_remove_at_pathbuf(rela_path, EditMode::Upsert(kind, id, UpsertMode::Normal))?;
             Ok(self)
         }
 
@@ -453,7 +472,20 @@ mod cursor {
             C: AsRef<BStr>,
         {
             self.parent.path_buf.borrow_mut().clone_from(&self.prefix);
-            self.parent.upsert_or_remove_at_pathbuf(rela_path, None)?;
+            self.parent
+                .upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::Any))?;
+            Ok(self)
+        }
+
+        /// Like [`Editor::remove_leaf()`], but with the constraint of only editing in this cursor's tree.
+        pub fn remove_leaf<I, C>(&mut self, rela_path: I) -> Result<&mut Self, super::Error>
+        where
+            I: IntoIterator<Item = C>,
+            C: AsRef<BStr>,
+        {
+            self.parent.path_buf.borrow_mut().clone_from(&self.prefix);
+            self.parent
+                .upsert_or_remove_at_pathbuf(rela_path, EditMode::Remove(RemoveMode::LeafOnly))?;
             Ok(self)
         }
 
@@ -470,6 +502,21 @@ enum UpsertMode {
     Normal,
     /// Only make sure there is a tree at the given location (requires kind tree and null-id)
     AssureTreeOnly,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum RemoveMode {
+    /// Remove any entry, including entire subtrees.
+    Any,
+    /// Only remove leaf entries, and reject an existing tree at the target path.
+    LeafOnly,
+}
+
+#[derive(Copy, Clone)]
+enum EditMode {
+    Remove(RemoveMode),
+    /// Insert or replace an entry of `kind` and `id` according to the given mode.
+    Upsert(EntryKind, ObjectId, UpsertMode),
 }
 
 enum WriteMode {
@@ -503,4 +550,15 @@ fn push_path_component(base: &mut BString, component: &[u8]) -> usize {
     }
     base.push_str(component);
     prev_len
+}
+
+fn path_with_component(base: &BStr, component: &BStr) -> BString {
+    if base.is_empty() {
+        component.into()
+    } else {
+        let mut out = base.to_owned();
+        out.push_byte(b'/');
+        out.push_str(component);
+        out
+    }
 }
