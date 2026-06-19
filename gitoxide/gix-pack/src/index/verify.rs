@@ -221,7 +221,7 @@ where
             None => self
                 .verify_checksum(
                     &mut progress
-                        .add_child_with_id("Sha1 of index".into(), integrity::ProgressId::ChecksumBytes.into()),
+                        .add_child_with_id("checksum of index".into(), integrity::ProgressId::ChecksumBytes.into()),
                     should_interrupt,
                 )
                 .map_err(index::traverse::Error::IndexVerify)
