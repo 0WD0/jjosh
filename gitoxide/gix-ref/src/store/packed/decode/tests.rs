@@ -86,6 +86,69 @@ mod reference {
     }
 }
 
+mod record_at_offset {
+    use crate::store_impl::packed::decode;
+
+    const INPUT: &[u8] = b"1111111111111111111111111111111111111111 refs/heads/main
+2222222222222222222222222222222222222222 refs/tags/v1
+^3333333333333333333333333333333333333333
+4444444444444444444444444444444444444444 refs/tags/v2\n";
+
+    fn offset_of(needle: &[u8]) -> usize {
+        INPUT
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .expect("needle is present in input")
+    }
+
+    #[test]
+    fn first_record_starts_at_zero() {
+        let offset = offset_of(b"refs/heads/main");
+        assert_eq!(
+            decode::record_start_at_offset(INPUT, offset),
+            0,
+            "offsets before the first line ending belong to the first record",
+        );
+        assert_eq!(decode::record_at_offset(INPUT, offset), INPUT);
+    }
+
+    #[test]
+    fn offset_on_later_record_finds_that_record_start() {
+        let record_start = offset_of(b"2222222222222222222222222222222222222222");
+        let offset = offset_of(b"refs/tags/v1");
+        assert_eq!(
+            decode::record_start_at_offset(INPUT, offset),
+            record_start,
+            "offsets within a later ref line resolve to that ref line",
+        );
+        assert_eq!(decode::record_at_offset(INPUT, offset), &INPUT[record_start..]);
+    }
+
+    #[test]
+    fn offset_on_peeled_line_finds_owning_record_start() {
+        let record_start = offset_of(b"2222222222222222222222222222222222222222");
+        let offset = offset_of(b"^3333333333333333333333333333333333333333");
+        assert_eq!(
+            decode::record_start_at_offset(INPUT, offset),
+            record_start,
+            "peeled lines are part of the preceding packed-ref record",
+        );
+        assert_eq!(decode::record_at_offset(INPUT, offset), &INPUT[record_start..]);
+    }
+
+    #[test]
+    fn offset_after_peeled_record_finds_next_record_start() {
+        let record_start = offset_of(b"4444444444444444444444444444444444444444");
+        let offset = offset_of(b"refs/tags/v2");
+        assert_eq!(
+            decode::record_start_at_offset(INPUT, offset),
+            record_start,
+            "the record after a peeled line starts at its own hash",
+        );
+        assert_eq!(decode::record_at_offset(INPUT, offset), &INPUT[record_start..]);
+    }
+}
+
 mod name_at_record_start {
     use crate::store_impl::packed::decode;
 
@@ -102,12 +165,22 @@ mod name_at_record_start {
     }
 
     #[test]
-    fn extracts_name_terminated_by_cr() {
+    fn extracts_name_terminated_by_crlf() {
         let input = b"d53c4b0f91f1b29769c9430f2d1c0bcab1170c75 refs/heads/main\r\n";
         assert_eq!(
             decode::name_at_record_start(input, SHA1),
             Some(b"refs/heads/main".as_slice()),
-            "CR is treated as a name terminator, matching `until_line_end_without_separator`",
+            "CRLF is accepted, matching `parse::newline`",
+        );
+    }
+
+    #[test]
+    fn rejects_name_terminated_by_bare_cr() {
+        let input = b"d53c4b0f91f1b29769c9430f2d1c0bcab1170c75 refs/heads/main\rrefs/heads/next\n";
+        assert_eq!(
+            decode::name_at_record_start(input, SHA1),
+            None,
+            "bare CR is rejected so the binary-search fast path agrees with the full record parser",
         );
     }
 

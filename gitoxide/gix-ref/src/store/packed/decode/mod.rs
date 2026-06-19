@@ -105,10 +105,7 @@ pub fn reference<'a>(input: &mut &'a [u8], object_hash: gix_hash::Kind) -> Resul
 ///
 /// Returns `None` when the record does not have the expected
 /// `<hash><space><name><newline>` shape (including an empty name or input
-/// shorter than the hash plus separator). The caller is expected to treat
-/// `None` as a parse failure and flip its parse-failure flag so a search
-/// miss can be surfaced as [`super::Error::Parse`] rather than silently
-/// reported as `Ok(None)`.
+/// shorter than the hash plus separator).
 pub(crate) fn name_at_record_start(input: &[u8], object_hash: gix_hash::Kind) -> Option<&[u8]> {
     let hex_len = object_hash.len_in_hex();
     if input.get(hex_len) != Some(&b' ') {
@@ -119,7 +116,38 @@ pub(crate) fn name_at_record_start(input: &[u8], object_hash: gix_hash::Kind) ->
     if end == 0 {
         return None;
     }
+    if after[end] == b'\r' && after.get(end + 1) != Some(&b'\n') {
+        return None;
+    }
     Some(&after[..end])
+}
+
+/// Return the byte offset of the packed-refs record containing `offset`.
+///
+/// If `offset` points into a peeled object line, the returned offset points to
+/// the owning reference record instead.
+pub(crate) fn record_start_at_offset(input: &[u8], offset: usize) -> usize {
+    input[..offset]
+        .rfind(b"\n")
+        .and_then(|pos| {
+            let candidate = pos + 1;
+            let b = input.get(candidate)?;
+            if *b == b'^' {
+                input[..pos].rfind(b"\n").map(|pos| pos + 1)
+            } else {
+                Some(candidate)
+            }
+        })
+        .unwrap_or(0)
+}
+
+/// Return the packed-refs record containing `offset`.
+///
+/// The returned slice begins at the owning reference line. It includes the
+/// remainder of `input`, which is enough for callers that only need to parse
+/// the first record.
+pub(crate) fn record_at_offset(input: &[u8], offset: usize) -> &[u8] {
+    &input[record_start_at_offset(input, offset)..]
 }
 
 #[cfg(test)]
