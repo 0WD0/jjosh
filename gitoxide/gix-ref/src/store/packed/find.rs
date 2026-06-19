@@ -1,4 +1,4 @@
-use gix_object::bstr::{BStr, BString, ByteSlice};
+use gix_object::bstr::{BStr, BString};
 
 use crate::{FullNameRef, PartialNameRef, store_impl::packed};
 
@@ -71,34 +71,29 @@ impl packed::Buffer {
     /// is the beginning of the line at which `name` could be inserted to still be in sort order.
     pub(in crate::store_impl::packed) fn binary_search_by(&self, full_name: &BStr) -> Result<usize, (bool, usize)> {
         let a = self.as_ref();
-        let search_start_of_record = |ofs: usize| {
-            a[..ofs]
-                .rfind(b"\n")
-                .and_then(|pos| {
-                    let candidate = pos + 1;
-                    a.get(candidate).and_then(|b| {
-                        if *b == b'^' {
-                            a[..pos].rfind(b"\n").map(|pos| pos + 1)
-                        } else {
-                            Some(candidate)
-                        }
-                    })
-                })
-                .unwrap_or(0)
-        };
         let mut encountered_parse_failure = false;
         a.binary_search_by_key(&full_name.as_ref(), |b: &u8| {
             let ofs = std::ptr::from_ref::<u8>(b) as usize - a.as_ptr() as usize;
-            let mut line = &a[search_start_of_record(ofs)..];
-            packed::decode::reference(&mut line, self.object_hash)
-                .map(|r| r.name.as_bstr().as_bytes())
-                .inspect_err(|_err| {
+            let line = packed::decode::record_at_offset(a, ofs);
+            // The binary search only needs the name bytes for ordered
+            // comparison; skip ref-name and hex-hash validation here and let
+            // the final match site re-parse the record via `decode::reference`
+            // (which validates fully). This saves the `log₂(n)` per-query.
+            match packed::decode::name_at_record_start(line, self.object_hash) {
+                Some(name) => name,
+                None => {
                     encountered_parse_failure = true;
-                })
-                .unwrap_or(&[])
+                    &[]
+                }
+            }
         })
-        .map(search_start_of_record)
-        .map_err(|pos| (encountered_parse_failure, search_start_of_record(pos)))
+        .map(|pos| packed::decode::record_start_at_offset(a, pos))
+        .map_err(|pos| {
+            (
+                encountered_parse_failure,
+                packed::decode::record_start_at_offset(a, pos),
+            )
+        })
     }
 }
 
