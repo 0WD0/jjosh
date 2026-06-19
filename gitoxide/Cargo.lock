@@ -1460,6 +1460,7 @@ dependencies = [
  "tracing",
  "tracing-forest 0.2.0",
  "tracing-subscriber",
+ "unicode-width",
 ]
 
 [[package]]
