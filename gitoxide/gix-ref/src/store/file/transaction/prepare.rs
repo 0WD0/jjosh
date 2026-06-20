@@ -13,6 +13,9 @@ use crate::{
 
 impl Transaction<'_, '_> {
     /// Read the current value of a reference from loose storage, falling back to packed refs.
+    ///
+    /// Must be called while holding the lock for `name` so the subsequent CAS check
+    /// compares against a value that cannot be changed concurrently.
     fn read_existing_ref(
         store: &file::Store,
         name: &FullNameRef,
@@ -71,6 +74,12 @@ impl Transaction<'_, '_> {
             "locks can only be acquired once and it's all or nothing"
         );
 
+        // Reject Windows reserved device names before acquiring the lock.
+        // The lock file itself (e.g. `CON.lock`) is also a device name,
+        // so acquiring it would fail or open the device instead of
+        // returning the configured validation error.
+        store.check_windows_device_name(change.update.name.as_ref())?;
+
         let lock = match &mut change.update.change {
             Change::Delete { expected, .. } => {
                 let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
@@ -86,8 +95,6 @@ impl Transaction<'_, '_> {
                     .into()
                 };
 
-                // Read the ref while holding the lock so the CAS check below
-                // compares against a value that cannot be changed concurrently.
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
                 match (&expected, &existing_ref) {
@@ -143,8 +150,6 @@ impl Transaction<'_, '_> {
                 // with `NotADirectory`, surfaced as `Error::Io` by `lock_acquire_error`.
                 let mut lock = (!has_global_lock).then(obtain_lock).transpose()?;
 
-                // Read the ref while holding the lock so the CAS check below
-                // compares against a value that cannot be changed concurrently.
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
                 match (&expected, &existing_ref) {
