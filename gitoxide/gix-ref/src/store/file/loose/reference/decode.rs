@@ -61,8 +61,8 @@ impl Reference {
 ///
 /// A *symbolic* reference starts with `ref: `, may have additional spaces before
 /// the path, and returns [`MaybeUnsafeState::UnvalidatedPath`] with the path
-/// bytes up to the next line ending or the end of input. The path is validated
-/// later when it is converted into a [`Target`].
+/// bytes up to the next NUL byte (just like Git), line ending, or the end of input. The path
+/// is validated later when it is converted into a [`Target`].
 ///
 /// A *direct* reference starts with a hexadecimal object id and returns
 /// [`MaybeUnsafeState::Id`].
@@ -74,7 +74,10 @@ fn parse(mut i: &[u8], object_hash: gix_hash::Kind) -> Result<MaybeUnsafeState, 
         while i.first() == Some(&b' ') {
             i = &i[1..];
         }
-        let path_end = i.iter().position(|b| *b == b'\r' || *b == b'\n').unwrap_or(i.len());
+        let path_end = i
+            .iter()
+            .position(|b| *b == b'\0' || *b == b'\r' || *b == b'\n')
+            .unwrap_or(i.len());
         let path = i[..path_end].into();
         Ok(MaybeUnsafeState::UnvalidatedPath(path))
     } else {
