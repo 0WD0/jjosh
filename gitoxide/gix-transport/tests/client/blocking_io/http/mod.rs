@@ -740,27 +740,17 @@ fn handshake_v2_surfaces_sha256_object_format() -> crate::Result {
     assert_eq!(
         capabilities
             .iter()
-            .map(|v| {
-                (
-                    v.name().to_owned(),
-                    v.values().map(|v| v.map(ToOwned::to_owned).collect::<Vec<_>>()),
-                )
-            })
+            .map(|v| (v.name().to_owned(), v.value().map(ToOwned::to_owned)))
             .collect::<Vec<_>>(),
         [
-            ("agent", Some(&["git/github-gdf51a71f0236"][..])),
+            ("agent", Some("git/github-gdf51a71f0236")),
             ("ls-refs", None),
-            ("fetch", Some(&["shallow", "filter"][..])),
+            ("fetch", Some("shallow filter")),
             ("server-option", None),
-            ("object-format", Some(&["sha256"][..])),
+            ("object-format", Some("sha256")),
         ]
         .iter()
-        .map(|(k, v)| {
-            (
-                k.as_bytes().into(),
-                v.map(|v| v.iter().map(|v| v.as_bytes().into()).collect::<Vec<_>>()),
-            )
-        })
+        .map(|(k, v)| (k.as_bytes().into(), v.map(|v| v.as_bytes().into())))
         .collect::<Vec<_>>(),
         "the sha256 object-format advertised over http is surfaced from the V2 handshake"
     );
