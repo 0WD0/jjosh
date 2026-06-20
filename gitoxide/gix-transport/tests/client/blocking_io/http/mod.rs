@@ -720,6 +720,43 @@ fn handshake_and_lsrefs_and_fetch_v2_service_announced() -> crate::Result {
     handshake_and_lsrefs_and_fetch_v2_impl("v2/http-handshake-service-announced.response")
 }
 
+#[test]
+fn handshake_v2_surfaces_sha256_object_format() -> crate::Result {
+    let (_server, mut c) = mock::serve_and_connect(
+        "v2/http-handshake-sha256.response",
+        "path/not/important/due/to/mock",
+        Protocol::V2,
+    )?;
+    let SetServiceResponse {
+        actual_protocol,
+        capabilities,
+        refs,
+    } = c.handshake(Service::UploadPack, &[])?;
+    assert_eq!(actual_protocol, Protocol::V2);
+    assert!(
+        refs.is_none(),
+        "refs are only returned in V1, as V2 favors a separate command (with more options)"
+    );
+    assert_eq!(
+        capabilities
+            .iter()
+            .map(|v| (v.name().to_owned(), v.value().map(ToOwned::to_owned)))
+            .collect::<Vec<_>>(),
+        [
+            ("agent", Some("git/github-gdf51a71f0236")),
+            ("ls-refs", None),
+            ("fetch", Some("shallow filter")),
+            ("server-option", None),
+            ("object-format", Some("sha256")),
+        ]
+        .iter()
+        .map(|(k, v)| (k.as_bytes().into(), v.map(|v| v.as_bytes().into())))
+        .collect::<Vec<_>>(),
+        "the sha256 object-format advertised over http is surfaced from the V2 handshake"
+    );
+    Ok(())
+}
+
 fn handshake_and_lsrefs_and_fetch_v2_impl(handshake_fixture: &str) -> crate::Result {
     let (server, mut c) = mock::serve_and_connect(handshake_fixture, "path/not/important/due/to/mock", Protocol::V2)?;
     assert!(

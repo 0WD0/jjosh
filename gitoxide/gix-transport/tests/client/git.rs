@@ -452,3 +452,42 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
     );
     Ok(())
 }
+
+#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+async fn handshake_v2_with_sha256_object_format() -> crate::Result {
+    let mut out = Vec::new();
+    let input = fixture_bytes("v2/handshake-sha256.response");
+    let mut c = Connection::new(
+        input.as_slice(),
+        &mut out,
+        Protocol::V2,
+        "/bar.git",
+        Some(("example.org", None)),
+        git::ConnectMode::Daemon,
+        false,
+    );
+    let res = c.handshake(Service::UploadPack, &[]).await?;
+    assert_eq!(res.actual_protocol, Protocol::V2);
+    assert!(
+        res.refs.is_none(),
+        "V2 needs a separate trip for getting refs (with additional capabilities)"
+    );
+    assert_eq!(
+        res.capabilities
+            .iter()
+            .map(|c| (c.name().to_owned(), c.value().map(ToOwned::to_owned)))
+            .collect::<Vec<_>>(),
+        [
+            ("agent", Some("git/2.40.0")),
+            ("ls-refs", None),
+            ("fetch", Some("shallow")),
+            ("server-option", None),
+            ("object-format", Some("sha256")),
+        ]
+        .iter()
+        .map(|(k, v)| (k.as_bytes().into(), v.map(|v| v.as_bytes().into())))
+        .collect::<Vec<_>>(),
+        "the sha256 object-format advertised by the server is surfaced from the V2 handshake"
+    );
+    Ok(())
+}

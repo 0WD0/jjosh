@@ -1,0 +1,3 @@
+# These are byte-exact protocol captures (CRLF headers, pkt-line length
+# prefixes, Content-Length matching the body), never convert line endings.
+* -text
