@@ -299,6 +299,28 @@ mod parse {
         );
 
         #[test]
+        fn symbolic_ignores_nul_suffix_like_git() {
+            use std::convert::TryInto;
+
+            let reference = Reference::try_from_path(
+                "HEAD".try_into().expect("valid static name"),
+                b"ref: refs/heads/main\0hidden-head-metadata",
+                gix_hash::Kind::Sha1,
+            )
+            .expect("Git ignores bytes past the first NUL in symbolic ref files, so this parses as well");
+            assert_eq!(
+                reference.kind(),
+                gix_ref::Kind::Symbolic,
+                "the ref is still symbolic despite ignored trailing metadata"
+            );
+            assert_eq!(
+                reference.target.to_ref().try_name().map(gix_ref::FullNameRef::as_bstr),
+                Some(b"refs/heads/main".as_bstr()),
+                "only the target before the first NUL is used"
+            );
+        }
+
+        #[test]
         fn peeled_sha256() {
             use std::convert::TryInto;
 
