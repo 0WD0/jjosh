@@ -53,7 +53,7 @@ impl RefMap {
         let num_explicit_specs = fetch_refspecs.len();
         let group = gix_refspec::MatchGroup::from_fetch_specs(all_refspecs.iter().map(gix_refspec::RefSpec::to_ref));
         let object_hash = extract_object_hash(capabilities)?;
-        let null = gix_hash::ObjectId::null(object_hash);
+        let null = object_hash.null();
         let (res, fixes) = group
             .match_lhs(remote_refs.iter().map(|r| {
                 let (full_ref_name, target, object) = r.unpack();
@@ -102,8 +102,7 @@ impl RefMap {
 ///
 /// When the capability is absent, the server is implicitly speaking Sha1 - older servers
 /// don't advertise it at all, and even newer ones may omit it for empty repositories.
-/// In builds whose `gix-hash` lacks the `sha1` feature, this is reported as an unsupported
-/// format rather than panicking.
+/// In builds whose `gix-hash` lacks the `sha1` feature, it's treated as unknown object format error.
 fn extract_object_hash(capabilities: &Capabilities) -> Result<gix_hash::Kind, Error> {
     let object_format = match capabilities.capability("object-format").and_then(|c| c.value()) {
         Some(object_format) => object_format.to_str().map_err(|_| Error::UnknownObjectFormat {

@@ -32,6 +32,10 @@ pub enum Error {
     SaveConfig(#[from] crate::remote::save::AsError),
     #[error("Failed to write repository configuration to disk")]
     SaveConfigIo(#[from] std::io::Error),
+    #[error("Failed to acquire lock to write repository configuration to disk")]
+    SaveConfigLockAcquire(#[from] gix_lock::acquire::Error),
+    #[error("Failed to commit lock after writing repository configuration to disk")]
+    SaveConfigLockCommit(#[from] gix_lock::commit::Error<gix_lock::File>),
     #[error("The remote HEAD points to a reference named {head_ref_name:?} which is invalid.")]
     InvalidHeadRef {
         source: gix_validate::reference::name::Error,
@@ -54,9 +58,9 @@ pub enum Error {
     ReferenceName(#[from] gix_validate::reference::name::Error),
     #[error(
         "Remote now uses {remote} even though the local repository was reconfigured to {local} \
-         to match the remote's previously advertised object format. The server is advertising \
-         inconsistent formats; if the correct one is known, pass `create::Options {{ \
-         object_hash: Some(gix_hash::Kind::{remote:?}), .. }}` to `PrepareFetch::new` to pin it."
+        to match the remote's previously advertised object format. The server is advertising \
+        inconsistent formats; if the correct one is known, pass `create::Options {{ \
+        object_hash: Some(gix_hash::Kind::{remote:?}), .. }}` to `PrepareFetch::new` to pin it."
     )]
     IncompatibleObjectHash {
         local: gix_hash::Kind,
@@ -65,18 +69,6 @@ pub enum Error {
     #[cfg(feature = "sha256")]
     #[error("Failed to reopen the local repository after adopting the remote's object format")]
     ReopenWithObjectHash(#[from] crate::open::Error),
-}
-
-// Outcome of one `fetch_only` attempt.
-enum Attempt {
-    // Fetch completed: the persisted repository and its outcome.
-    Done(crate::Repository, crate::remote::fetch::Outcome),
-    // Remote and local object formats differ; the caller adopts the remote's and retries.
-    #[cfg(feature = "sha256")]
-    AdoptObjectHash {
-        remote_name: BString,
-        remote_object_hash: gix_hash::Kind,
-    },
 }
 
 /// Modification
@@ -426,6 +418,18 @@ impl PrepareFetch {
             fetch_outcome,
         ))
     }
+}
+
+// Outcome of one `fetch_only` attempt.
+enum Attempt {
+    // Fetch completed: the persisted repository and its outcome.
+    Done(crate::Repository, crate::remote::fetch::Outcome),
+    // Remote and local object formats differ; the caller adopts the remote's and retries.
+    #[cfg(feature = "sha256")]
+    AdoptObjectHash {
+        remote_name: BString,
+        remote_object_hash: gix_hash::Kind,
+    },
 }
 
 mod util;

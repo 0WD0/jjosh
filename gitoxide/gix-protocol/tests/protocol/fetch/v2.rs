@@ -175,7 +175,7 @@ async fn ref_in_want() -> crate::Result {
         helper_unused,
         progress::Discard,
         FetchConnection::TerminateOnSuccessfulCompletion,
-        "agent",
+        agent,
         false,
     )
     .await?;
@@ -232,7 +232,7 @@ async fn ref_in_want_sha256() -> crate::Result {
         helper_unused,
         progress::Discard,
         FetchConnection::TerminateOnSuccessfulCompletion,
-        "agent",
+        agent,
         false,
     )
     .await?;

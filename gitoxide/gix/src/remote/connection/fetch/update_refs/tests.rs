@@ -46,7 +46,7 @@ mod update {
         let repo = gix::open_opts(dir.path().join(name), restricted()).unwrap();
         (repo, dir)
     }
-    /// Resolve `name` to its peeled object id, so expected ids track the fixture's hash (sha1 or sha256).
+    /// Resolve `name` to its peeled object id, so expected ids track the fixture's hash.
     fn peeled_id(repo: &gix::Repository, name: &str) -> gix_hash::ObjectId {
         repo.find_reference(name)
             .expect("reference exists")
@@ -508,10 +508,8 @@ mod update {
                             force_create_reflog: false,
                             message: "action: storing head".into(),
                         },
-                        expected: PreviousValue::ExistingMustMatch(Target::Object(hex_to_id(
-                            "f99771fe6a1b535783af3163eba95a927aae21d5",
-                        ))),
-                        new: Target::Object(hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5")),
+                        expected: PreviousValue::ExistingMustMatch(Target::Object(main_id)),
+                        new: Target::Object(main_id),
                     },
                     name: "refs/heads/HEAD".try_into().expect("valid"),
                     deref: false,
@@ -597,7 +595,7 @@ mod update {
                         expected: PreviousValue::MustExistAndMatch(Target::Symbolic(
                             "refs/heads/main".try_into().expect("valid"),
                         )),
-                        new: Target::Object(hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5")),
+                        new: Target::Object(main_id),
                     },
                     name: "refs/heads/symbolic".try_into().expect("valid"),
                     deref: false,
@@ -674,7 +672,7 @@ mod update {
         match &edit.change {
             Change::Update { log, new, .. } => {
                 assert_eq!(log.message, "action: storing ref");
-                let target = hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5");
+                let target = peeled_id(&repo, "refs/heads/main");
                 assert_eq!(
                     new.try_id(),
                     Some(target.as_ref()),
@@ -804,7 +802,7 @@ mod update {
         match &edit.change {
             Change::Update { log, new, .. } => {
                 assert_eq!(log.message, "action: storing ref");
-                let target = hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5");
+                let target = peeled_id(&repo, "refs/heads/main");
                 assert_eq!(
                     new.try_id(),
                     Some(target.as_ref()),
@@ -954,7 +952,7 @@ mod update {
         let references = remote_repo.references().unwrap();
         let mut references: Vec<_> = references.all().unwrap().map(|r| into_remote_ref(r.unwrap())).collect();
         references.push(into_remote_ref(remote_repo.find_reference("HEAD").unwrap()));
-        let null = gix_hash::ObjectId::null(remote_repo.object_hash());
+        let null = remote_repo.object_hash().null();
         let mappings = group
             .match_lhs(references.iter().map(|r| remote_ref_to_item(r, &null)))
             .mappings

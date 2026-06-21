@@ -34,6 +34,12 @@ pub fn write_remote_to_local_config_file(
 /// The remote we may have already persisted to that file is removed as well, so that a
 /// retried fetch re-adds it exactly once rather than duplicating the section.
 ///
+/// This relies on the initial reference database not having persisted any hash-format-dependent
+/// state. That is true for the current file-based ref store, but a future reftable backend must
+/// not be initialized with the wrong hash and then reused. If clone learns the remote hash only
+/// after repository creation, initialize a non-reftable reference database first, then convert it
+/// to reftable once the remote hash is known.
+///
 /// Note that while `.git/config` is rewritten, the passed `repo` handle and its in-memory
 /// configuration are never mutated, so on error the caller can keep using it. Should the
 /// rewrite itself fail, the on-disk configuration may be incomplete, but as the clone
@@ -74,7 +80,10 @@ pub(super) fn reinitialize_with_object_hash(
         // In a freshly initialized repository, this section exists solely to carry `objectformat`.
         config.remove_section("extensions", None);
     }
-    std::fs::write(&config_path, config.to_bstring())?;
+    let mut lock =
+        gix_lock::File::acquire_to_update_resource(&config_path, gix_lock::acquire::Fail::Immediately, None)?;
+    lock.write_all(&config.to_bstring())?;
+    lock.commit()?;
 
     Ok(crate::ThreadSafeRepository::open_opts(git_dir, repo.options.clone())?.to_thread_local())
 }
