@@ -85,6 +85,27 @@ mod blocking_and_async_io {
         try_repo_rw(name).unwrap()
     }
 
+    fn commit_empty(repo: &gix::Repository, message: &str) -> crate::Result<gix::ObjectId> {
+        Ok(repo
+            .commit(
+                "HEAD",
+                message,
+                gix::hash::ObjectId::empty_tree(repo.object_hash()),
+                gix::commit::NO_PARENT_IDS,
+            )?
+            .detach())
+    }
+
+    fn init_repo(path: &std::path::Path) -> crate::Result<gix::Repository> {
+        Ok(gix::ThreadSafeRepository::init_opts(
+            path,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options::default(),
+            crate::restricted(),
+        )?
+        .to_thread_local())
+    }
+
     fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
         let commits = repo.shallow_commits()?.expect(expected);
         Ok(std::iter::once(commits.head)
@@ -273,6 +294,59 @@ mod blocking_and_async_io {
             }
             _ => unreachable!("we get a pack as alternates are unrelated"),
         }
+        Ok(())
+    }
+
+    #[maybe_async::test(
+        feature = "blocking-network-client",
+        async(feature = "async-network-client-async-std", async_std::test)
+    )]
+    async fn local_transport_fetches_head_against_remote_refs() -> crate::Result {
+        let remote_dir = TempDir::new()?;
+        let remote_repo = init_repo(remote_dir.path())?;
+        let remote_main = commit_empty(&remote_repo, "remote-main")?;
+
+        let local_dir = TempDir::new()?;
+        let local_repo = init_repo(local_dir.path())?;
+        let local_main = commit_empty(&local_repo, "local-main")?;
+        assert_ne!(
+            remote_main, local_main,
+            "the regression requires matching refnames to resolve to different objects locally and remotely"
+        );
+
+        let daemon = spawn_git_daemon_if_async(remote_repo.workdir().expect("non-bare"))?;
+        let mut remote = into_daemon_remote_if_async(
+            local_repo
+                .remote_at(remote_repo.workdir().expect("non-bare"))?
+                .with_fetch_tags(fetch::Tags::None),
+            daemon.as_ref(),
+            None,
+        );
+        remote.replace_refspecs(Some("+HEAD:refs/test/repo"), Fetch)?;
+
+        let outcome = remote
+            .connect(Fetch)
+            .await?
+            .prepare_fetch(gix::progress::Discard, Default::default())
+            .await?
+            .receive(gix::progress::Discard, &AtomicBool::default())
+            .await?;
+
+        assert!(
+            matches!(outcome.status, Status::Change { .. }),
+            "the remote object is missing locally and must be fetched"
+        );
+        let fetched = local_repo.find_reference("refs/test/repo")?;
+        assert_eq!(
+            fetched.target().try_id(),
+            Some(remote_main.as_ref()),
+            "HEAD must resolve through the remote's symbolic target, not through the local ref with the same name"
+        );
+        assert_eq!(
+            local_repo.find_reference("refs/heads/main")?.id(),
+            local_main,
+            "the local HEAD branch remains distinct from the fetched remote HEAD"
+        );
         Ok(())
     }
 
