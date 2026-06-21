@@ -15,6 +15,10 @@ pub enum Error {
 impl File {
     /// Write the index to `out` with `options`, to be readable by [`File::at()`], returning the version that was actually written
     /// to retain all information of this index.
+    ///
+    /// Note that the `tree` (tree-cache) extension is written as-is and is **not** recomputed or
+    /// invalidated to match the current entries; see [`File::write()`] for the implications and the
+    /// recommended workaround.
     pub fn write_to(
         &self,
         mut out: impl std::io::Write,
@@ -38,6 +42,28 @@ impl File {
     /// Write ourselves to the path we were read from after acquiring a lock, using `options`.
     ///
     /// Note that the hash produced will be stored which is why we need to be mutable.
+    ///
+    /// ### The `tree` (tree-cache) extension is written as-is
+    ///
+    /// The `tree` extension (tree-cache) is serialized from its current in-memory state; it is
+    /// **not** recomputed or invalidated to match the entries. So if entries were modified since the
+    /// index was read, the tree-cache is written back still marked valid even though it is now stale.
+    ///
+    /// Git uses the tree-cache to skip unchanged directories when building a tree (on `git commit` /
+    /// `git write-tree`), so a stale-but-valid tree-cache can make a later commit capture outdated
+    /// subtree content; more generally, `git status` and later commits can disagree about what is
+    /// staged.
+    ///
+    /// Until the tree-cache is updated on write (see [issue #2421]), remove it with
+    /// [`State::remove_tree()`](crate::State::remove_tree()) before writing whenever entries were
+    /// changed:
+    ///
+    /// ```ignore
+    /// index.remove_tree();
+    /// index.write(gix_index::write::Options::default())?;
+    /// ```
+    ///
+    /// [issue #2421]: https://github.com/GitoxideLabs/gitoxide/issues/2421
     pub fn write(&mut self, options: write::Options) -> Result<(), Error> {
         let _span = gix_features::trace::detail!("gix_index::File::write()", path = ?self.path);
         let mut lock = std::io::BufWriter::with_capacity(
