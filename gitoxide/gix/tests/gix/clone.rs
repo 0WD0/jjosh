@@ -420,12 +420,12 @@ mod blocking_io {
             .expect("packed refs should be present");
         assert_eq!(
             repo.refs.loose_iter()?.count(),
-            2,
-            "HEAD and an actual symbolic ref we received"
+            1,
+            "HEAD is the only remaining loose symbolic ref as born remote symrefs are stored peeled"
         );
         assert_eq!(
             packed_refs.iter()?.count(),
-            14,
+            15,
             "all non-symbolic refs should be stored, if reachable from our refs"
         );
         let sig = repo
@@ -519,17 +519,15 @@ mod blocking_io {
             _ => unreachable!("clones are always causing changes and dry-runs aren't possible"),
         }
 
+        let remote_repo = remote::repo("base");
         let remote_head = repo
             .find_reference(&format!("refs/remotes/{remote_name}/HEAD"))
             .expect("remote HEAD present");
+        let remote_head_id = remote_repo.head_id()?;
         assert_eq!(
-            remote_head
-                .target()
-                .try_name()
-                .expect("remote HEAD is symbolic")
-                .as_bstr(),
-            format!("refs/remotes/{remote_name}/main"),
-            "it points to the local tracking branch of what the remote actually points to"
+            remote_head.target().try_id(),
+            Some(remote_head_id.as_ref()),
+            "remote HEAD is stored as the peeled object id advertised by the remote"
         );
 
         let head = repo.head()?;
@@ -545,7 +543,7 @@ mod blocking_io {
         );
         assert_eq!(
             referent.name().as_bstr(),
-            remote::repo("base").head_name()?.expect("symbolic").as_bstr(),
+            remote_repo.head_name()?.expect("symbolic").as_bstr(),
             "local clone always adopts the name of the remote"
         );
 
