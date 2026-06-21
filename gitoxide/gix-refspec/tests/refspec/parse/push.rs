@@ -39,11 +39,17 @@ fn exclude() {
     ));
     assert!(matches!(
         try_parse("^a*", Operation::Push).unwrap_err(),
-        Error::NegativeGlobPattern
+        Error::NegativePartialName
     ));
     assert_parse(
         "^refs/heads/a",
         Instruction::Push(Push::Exclude { src: b("refs/heads/a") }),
+    );
+    assert_parse(
+        "^refs/heads/*-deploy",
+        Instruction::Push(Push::Exclude {
+            src: b("refs/heads/*-deploy"),
+        }),
     );
 }
 

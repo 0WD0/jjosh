@@ -33,6 +33,7 @@ mkdir base
   git checkout -b sub/f4 main
   git checkout -b sub/subdir/f5 main
   git checkout -b suub/f6 main
+  git checkout -b deploy-deploy main
 )
 
 git clone --shared ./base clone
@@ -82,6 +83,7 @@ git clone --shared ./base clone
   baseline "^main" "refs/heads/*:refs/remotes/origin/*"
   baseline "^refs/heads/main" "refs/heads/*:refs/remotes/origin/*"
   baseline "refs/heads/*:refs/remotes/origin/*" "^refs/heads/main"
+  baseline "refs/heads/*:refs/remotes/origin/*" "^refs/heads/*-deploy"
   baseline "refs/heads/*:refs/remotes/origin/*" "refs/heads/main:refs/remotes/new-origin/main"
   baseline "refs/heads/*:refs/remotes/origin/*" "refs/heads/main:refs/remotes/origin/main"
   baseline "refs/heads/f1:refs/remotes/origin/conflict" "refs/heads/f2:refs/remotes/origin/conflict"

@@ -127,12 +127,12 @@ pub(crate) mod function {
         if mode == Mode::Negative {
             match src {
                 Some(spec) => {
-                    if src_had_pattern {
-                        return Err(Error::NegativeGlobPattern);
-                    } else if looks_like_object_hash(spec) {
+                    if looks_like_object_hash(spec) {
                         return Err(Error::NegativeObjectHash);
                     } else if !spec.starts_with(b"refs/") && spec != "HEAD" {
                         return Err(Error::NegativePartialName);
+                    } else if src_had_pattern {
+                        validate_negative_pattern(spec)?;
                     }
                 }
                 None => return Err(Error::NegativeEmpty),
@@ -149,6 +149,24 @@ pub(crate) mod function {
 
     fn looks_like_object_hash(spec: &BStr) -> bool {
         spec.len() >= gix_hash::Kind::shortest().len_in_hex() && spec.iter().all(u8::is_ascii_hexdigit)
+    }
+
+    fn validate_negative_pattern(spec: &BStr) -> Result<(), Error> {
+        if spec.iter().filter(|b| **b == b'*').take(2).count() > 1 {
+            return Err(Error::PatternUnsupported { pattern: spec.into() });
+        }
+
+        validate_partial_name_with_single_glob(spec)?;
+        Ok(())
+    }
+
+    fn validate_partial_name_with_single_glob(spec: &BStr) -> Result<(), Error> {
+        let mut buf = smallvec::SmallVec::<[u8; 256]>::with_capacity(spec.len());
+        buf.extend_from_slice(spec);
+        let glob_pos = buf.find_byte(b'*').expect("glob present");
+        buf[glob_pos] = b'a';
+        gix_validate::reference::name_partial(buf.as_bstr())?;
+        Ok(())
     }
 
     fn validated(
@@ -170,11 +188,7 @@ pub(crate) mod function {
                 if has_globs {
                     // For one-sided refspecs, skip validation of glob patterns
                     if !is_one_sided {
-                        let mut buf = smallvec::SmallVec::<[u8; 256]>::with_capacity(spec.len());
-                        buf.extend_from_slice(spec);
-                        let glob_pos = buf.find_byte(b'*').expect("glob present");
-                        buf[glob_pos] = b'a';
-                        gix_validate::reference::name_partial(buf.as_bstr())?;
+                        validate_partial_name_with_single_glob(spec)?;
                     }
                 } else {
                     gix_validate::reference::name_partial(spec)

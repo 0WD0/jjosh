@@ -40,11 +40,29 @@ fn complex_patterns_with_more_than_one_asterisk() {
         }
     }
 
-    // Negative specs with multiple patterns still fail
+    // Negative specs with partial patterns still fail.
     assert!(matches!(
         try_parse("^*/*", Operation::Fetch).unwrap_err(),
-        Error::NegativeGlobPattern
+        Error::NegativePartialName
     ));
+    // Negative refspec patterns follow Git's single-asterisk refspec-pattern rule.
+    for op in [Operation::Fetch, Operation::Push] {
+        assert!(matches!(
+            try_parse("^refs/heads/qa/*/*", op).unwrap_err(),
+            Error::PatternUnsupported { .. }
+        ));
+        for spec in [
+            "^refs/heads/a*?",
+            "^refs/heads/a[bc]*",
+            "^refs/heads/*..bad",
+            "^refs/heads/*/",
+        ] {
+            assert!(
+                matches!(try_parse(spec, op).unwrap_err(), Error::ReferenceName(_)),
+                "{spec}"
+            );
+        }
+    }
 }
 
 #[test]

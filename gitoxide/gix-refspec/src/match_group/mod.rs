@@ -114,9 +114,14 @@ impl<'spec> MatchGroup<'spec> {
         }
     }
 
-    /// Match all `items` against all *fetch* specs present in this group, returning deduplicated mappings from destination to source.
+    /// Match all `items` against the right-hand side of all *fetch* specs present in this group,
+    /// returning deduplicated mappings from destination to source.
     /// `items` are expected to be tracking references in the local clone, which will be matched and reverse-mapped to obtain their remote counterparts,
     /// i.e. *right side of refspecs is mapped to their left side*.
+    ///
+    /// Even though this method starts by matching `items` against the right-hand side of positive refspecs,
+    /// negative fetch refspecs still exclude refs by their left-hand/source side. For that reason, once a
+    /// mapping has been reverse-mapped to its source ref, negative refspecs are applied to the mapping's `lhs`.
     /// *Note that this method is correct only for fetch-specs*, even though it also *works for push-specs*.
     ///
     /// Note that negative matches are not part of the return value, so they are not observable but will be used to remove mappings.
@@ -164,7 +169,7 @@ impl<'spec> MatchGroup<'spec> {
                     SourceRef::ObjectId(_) => true,
                     SourceRef::FullName(name) => {
                         !matcher
-                            .matches_rhs(Item {
+                            .matches_lhs(Item {
                                 full_ref_name: name.as_ref(),
                                 target: &null_id,
                                 object: None,
