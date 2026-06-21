@@ -234,12 +234,12 @@ pub(crate) fn update(
                             Mode::New,
                             reflog_msg,
                             name,
-                            PreviousValue::ExistingMustMatch(new_value_by_remote(repo, remote, mappings)?),
+                            PreviousValue::ExistingMustMatch(new_value_by_remote(remote, mappings)?),
                         )
                     }
                 };
 
-                let new = new_value_by_remote(repo, remote, mappings)?;
+                let new = new_value_by_remote(remote, mappings)?;
                 let type_change = match (&previous_value, &new) {
                     (
                         PreviousValue::ExistingMustMatch(Target::Object(_))
@@ -388,11 +388,12 @@ fn update_needs_adjustment_as_edits_symbolic_target_is_missing(
     }
 }
 
-fn new_value_by_remote(
-    repo: &Repository,
-    remote: &Source,
-    mappings: &[fetch::refmap::Mapping],
-) -> Result<Target, update::Error> {
+/// Convert the remote source into the value to write locally.
+///
+/// Symbolic remote refs are preserved only if their target is part of the ref mapping, in which case the
+/// remote target is rewritten to its corresponding local ref. Otherwise, use the advertised target object id
+/// and write a direct ref, as the remote symbolic target is outside the set of refs this fetch updates.
+fn new_value_by_remote(remote: &Source, mappings: &[fetch::refmap::Mapping]) -> Result<Target, update::Error> {
     let remote_id = remote.as_id();
     Ok(
         if let Source::Ref(
@@ -419,16 +420,7 @@ fn new_value_by_remote(
                     // If we can't map it, it's usually a an unborn branch causing this, or a the target isn't covered
                     // by any refspec so we don't officially pull it in.
                     match remote_id {
-                        Some(desired_id) => {
-                            if repo.try_find_reference(target)?.is_some() {
-                                // We are allowed to change a direct reference to a symbolic one, which may point to other objects
-                                // than the remote. The idea is that we are fine as long as the resulting refs are valid.
-                                Target::Symbolic(target.try_into()?)
-                            } else {
-                                // born branches that we don't have in our refspecs we create peeled. That way they can be used.
-                                Target::Object(desired_id.to_owned())
-                            }
-                        }
+                        Some(desired_id) => Target::Object(desired_id.to_owned()),
                         // Unborn branches we create as such, with the location they point to on the remote which helps mirroring.
                         None => Target::Symbolic(target.try_into()?),
                     }

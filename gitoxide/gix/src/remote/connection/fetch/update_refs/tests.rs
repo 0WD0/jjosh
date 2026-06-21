@@ -481,10 +481,10 @@ mod update {
                             force_create_reflog: false,
                             message: "action: storing head".into(),
                         },
-                        expected: PreviousValue::ExistingMustMatch(Target::Symbolic(
-                            "refs/heads/main".try_into().expect("valid"),
-                        )),
-                        new: Target::Symbolic("refs/heads/main".try_into().expect("valid")),
+                        expected: PreviousValue::ExistingMustMatch(Target::Object(hex_to_id(
+                            "f99771fe6a1b535783af3163eba95a927aae21d5",
+                        ))),
+                        new: Target::Object(hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5")),
                     },
                     name: "refs/heads/HEAD".try_into().expect("valid"),
                     deref: false,
@@ -529,34 +529,9 @@ mod update {
                 }),
             ),
             (
-                // direct becomes symbolic
+                // unmapped symbolic refs are peeled, so the direct ref remains direct
                 "refs/heads/symbolic",
                 "refs/remotes/origin/a",
-                fetch::refs::Update {
-                    mode: fetch::refs::update::Mode::NoChangeNeeded,
-                    type_change: Some(TypeChange::DirectToSymbolic),
-                    edit_index: Some(0),
-                },
-                Some(RefEdit {
-                    change: Change::Update {
-                        log: LogChange {
-                            mode: RefLog::AndReference,
-                            force_create_reflog: false,
-                            message: "action: no update will be performed".into(),
-                        },
-                        expected: PreviousValue::MustExistAndMatch(Target::Object(hex_to_id(
-                            "f99771fe6a1b535783af3163eba95a927aae21d5",
-                        ))),
-                        new: Target::Symbolic("refs/heads/main".try_into().expect("valid")),
-                    },
-                    name: "refs/remotes/origin/a".try_into().expect("valid"),
-                    deref: false,
-                }),
-            ),
-            (
-                // symbolic to symbolic (same)
-                "refs/heads/symbolic",
-                "refs/heads/symbolic",
                 fetch::refs::Update {
                     mode: fetch::refs::update::Mode::NoChangeNeeded,
                     type_change: None,
@@ -569,10 +544,35 @@ mod update {
                             force_create_reflog: false,
                             message: "action: no update will be performed".into(),
                         },
+                        expected: PreviousValue::MustExistAndMatch(Target::Object(hex_to_id(
+                            "f99771fe6a1b535783af3163eba95a927aae21d5",
+                        ))),
+                        new: Target::Object(hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5")),
+                    },
+                    name: "refs/remotes/origin/a".try_into().expect("valid"),
+                    deref: false,
+                }),
+            ),
+            (
+                // symbolic refs with unmapped targets are peeled, even if source and destination names match
+                "refs/heads/symbolic",
+                "refs/heads/symbolic",
+                fetch::refs::Update {
+                    mode: fetch::refs::update::Mode::NoChangeNeeded,
+                    type_change: Some(TypeChange::SymbolicToDirect),
+                    edit_index: Some(0),
+                },
+                Some(RefEdit {
+                    change: Change::Update {
+                        log: LogChange {
+                            mode: RefLog::AndReference,
+                            force_create_reflog: false,
+                            message: "action: no update will be performed".into(),
+                        },
                         expected: PreviousValue::MustExistAndMatch(Target::Symbolic(
                             "refs/heads/main".try_into().expect("valid"),
                         )),
-                        new: Target::Symbolic("refs/heads/main".try_into().expect("valid")),
+                        new: Target::Object(hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5")),
                     },
                     name: "refs/heads/symbolic".try_into().expect("valid"),
                     deref: false,
@@ -593,10 +593,14 @@ mod update {
             )
             .unwrap();
 
-            assert_eq!(out.edits.len(), usize::from(expected_edit.is_some()));
-            assert_eq!(out.updates, vec![expected_update]);
+            assert_eq!(
+                out.edits.len(),
+                usize::from(expected_edit.is_some()),
+                "{source}:{destination}"
+            );
+            assert_eq!(out.updates, vec![expected_update], "{source}:{destination}");
             if let Some(expected) = expected_edit {
-                assert_eq!(out.edits, vec![expected]);
+                assert_eq!(out.edits, vec![expected], "{source}:{destination}");
             }
         }
     }
@@ -647,7 +651,7 @@ mod update {
                 assert_eq!(log.message, "action: storing ref");
                 assert!(
                     new.try_name().is_some(),
-                    "remote falls back to peeled id as it's the only thing we seem to have locally, it won't refer to a non-existing local ref"
+                    "the remote symref target is mapped, so it is rewritten to the corresponding local tracking ref"
                 );
             }
             _ => unreachable!("only updates"),
@@ -675,9 +679,14 @@ mod update {
             out.updates,
             vec![fetch::refs::Update {
                 mode: fetch::refs::update::Mode::NoChangeNeeded,
-                type_change: Some(fetch::refs::update::TypeChange::DirectToSymbolic),
+                type_change: None,
                 edit_index: Some(0)
             }],
+            concat!(
+                "the remote symref target is not mapped, so new_value_by_remote() stores the advertised object id ",
+                "instead of a symbolic target; the local destination is already direct, so the update is direct-to-direct ",
+                "and has no type_change"
+            )
         );
     }
 
