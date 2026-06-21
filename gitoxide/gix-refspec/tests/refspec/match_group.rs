@@ -63,7 +63,11 @@ mod single {
 }
 
 mod multiple {
+    use bstr::BString;
+    use gix_hash::ObjectId;
     use gix_refspec::{
+        MatchGroup,
+        match_group::Item,
         match_group::validate::Fix,
         parse::{Error, Operation},
     };
@@ -106,6 +110,45 @@ mod multiple {
         );
         baseline::agrees_with_fetch_specs(["^refs/heads/main", "refs/heads/*:refs/remotes/origin/*"]);
         baseline::agrees_with_fetch_specs(["refs/heads/*:refs/remotes/origin/*", "^refs/heads/main"]);
+        baseline::agrees_with_fetch_specs(["refs/heads/*:refs/remotes/origin/*", "^refs/heads/*-deploy"]);
+    }
+
+    #[test]
+    fn reverse_fetch_mapping_honors_negative_source_patterns() {
+        let specs = ["refs/heads/*:refs/remotes/origin/*", "^refs/heads/*-deploy"]
+            .into_iter()
+            .map(|spec| gix_refspec::parse(spec.into(), Operation::Fetch).expect("valid refspec"));
+        let target = ObjectId::from_hex(b"1111111111111111111111111111111111111111").expect("valid object id");
+        let refs = [
+            BString::from("refs/remotes/origin/main"),
+            BString::from("refs/remotes/origin/foo-deploy"),
+        ];
+        let items: Vec<_> = refs
+            .iter()
+            .map(|name| Item {
+                full_ref_name: name.as_ref(),
+                target: &target,
+                object: None,
+            })
+            .collect();
+
+        let outcome = MatchGroup::from_fetch_specs(specs).match_rhs(items.iter().copied());
+        insta::assert_debug_snapshot!(outcome.mappings, @r#"
+        [
+            Mapping {
+                item_index: Some(
+                    0,
+                ),
+                lhs: FullName(
+                    "refs/heads/main",
+                ),
+                rhs: Some(
+                    "refs/remotes/origin/main",
+                ),
+                spec_index: 0,
+            },
+        ]
+        "#);
     }
 
     #[test]
