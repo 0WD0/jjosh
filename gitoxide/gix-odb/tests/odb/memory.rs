@@ -1,13 +1,7 @@
 use gix_object::{Exists, FindExt, Write, tree};
 use gix_testtools::tempfile::TempDir;
 
-use crate::id_for_hash;
-
-/// The 2-entry tree written by the `with`/`without_memory` tests; its serialized size grows under
-/// SHA-256 because each of the two entries embeds one raw object id (20 bytes for SHA-1, 32 for SHA-256).
-fn expected_new_tree_size() -> u64 {
-    104 + 2 * (gix_testtools::object_hash().len_in_bytes() as u64 - 20)
-}
+use crate::hex_to_id_for_hash;
 
 #[test]
 fn without_memory() -> crate::Result {
@@ -16,7 +10,7 @@ fn without_memory() -> crate::Result {
     let mut buf = Vec::new();
     let mem = odb.take_object_memory().expect("it starts out with memory set");
     assert_eq!(mem.len(), 0, "no object is stored initially");
-    let existing = id_for_hash(
+    let existing = hex_to_id_for_hash(
         "21d3ba9a26b790a4858d67754ae05d04dfce4d0c",
         "95997c02e30a106c5413e7a68e7758c6b3c70e951f7471ee48d75c06edc7d234",
     );
@@ -34,7 +28,7 @@ fn without_memory() -> crate::Result {
     let new_tree_id = odb.write(&tree)?;
     assert_eq!(
         new_tree_id,
-        id_for_hash(
+        hex_to_id_for_hash(
             "249b0b4106a5e9e7875e446a26468e22ec47a05c",
             "e0fcb04b8efaa91993f9880a111c25ae4f2ebd2db8737504e14548a194e31c84",
         )
@@ -63,7 +57,7 @@ fn with_memory() -> crate::Result {
         "let's be sure we didn't accidentally write anything"
     );
     let mut buf = Vec::new();
-    let existing = id_for_hash(
+    let existing = hex_to_id_for_hash(
         "21d3ba9a26b790a4858d67754ae05d04dfce4d0c",
         "95997c02e30a106c5413e7a68e7758c6b3c70e951f7471ee48d75c06edc7d234",
     );
@@ -86,7 +80,7 @@ fn with_memory() -> crate::Result {
     let new_tree_id = odb.write(&tree)?;
     assert_eq!(
         new_tree_id,
-        id_for_hash(
+        hex_to_id_for_hash(
             "249b0b4106a5e9e7875e446a26468e22ec47a05c",
             "e0fcb04b8efaa91993f9880a111c25ae4f2ebd2db8737504e14548a194e31c84",
         )
@@ -194,4 +188,8 @@ fn db_rw() -> crate::Result<(gix_odb::memory::Proxy<gix_odb::Handle>, TempDir)> 
     let tmp = crate::scripted_fixture_writable("repo_with_loose_objects.sh")?;
     let odb = crate::odb_at(tmp.path().join(".git/objects"))?;
     Ok((gix_odb::memory::Proxy::new(odb, gix_testtools::object_hash()), tmp))
+}
+
+fn expected_new_tree_size() -> u64 {
+    104 + 2 * (gix_testtools::object_hash().len_in_bytes() as u64 - 20)
 }

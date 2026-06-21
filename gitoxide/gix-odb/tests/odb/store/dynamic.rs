@@ -5,12 +5,9 @@ use gix_object::{Exists, FindExt, Write};
 use gix_odb::{Header, store, store::iter::Ordering};
 use gix_testtools::fixture_path;
 
-use crate::{db, hex_to_id, id_for_hash};
+use crate::{db, hex_to_id, hex_to_id_for_hash};
 
-/// A syntactically valid object id matching the handle's own hash length, all bytes `0xaa`,
-/// which is guaranteed to be missing from any fixture. Handy to force a store refresh on lookup.
-/// Deriving the length from the handle keeps it correct for both static SHA-1 fixtures and
-/// hash-parameterized scripted fixtures.
+/// A syntactically valid object id matching the handle's own hash length, all bytes `0xaa`.
 fn missing_id(handle: &gix_odb::Handle) -> ObjectId {
     ObjectId::from_hex("a".repeat(handle.store_ref().object_hash().len_in_hex()).as_bytes())
         .expect("valid hex of the store's hash length")
@@ -317,13 +314,13 @@ fn object_replacement() -> crate::Result {
     let dir = crate::scripted_fixture_read_only("make_replaced_history.sh")?;
     let handle = crate::odb_at(dir.join(".git/objects"))?;
     let mut buf = Vec::new();
-    let short_history_link = id_for_hash(
+    let short_history_link = hex_to_id_for_hash(
         "434e5a872d6738d1fffd1e11e52a1840b73668c6",
         "c179086705a0bde4427fdb3ba08e69a4adb63ed8a403693d87f38797004861de",
     );
     let third_commit = handle.find_commit(&short_history_link, &mut buf)?;
 
-    let orphan_of_new_history = id_for_hash(
+    let orphan_of_new_history = hex_to_id_for_hash(
         "0703c317e28068f39834ae61e7ab941b7d672322",
         "cef644a397bdab210ac612ec4c37efa4c82b77a2d51e1fbc86327aa987b3eb7a",
     );
@@ -345,7 +342,7 @@ fn object_replacement() -> crate::Result {
     let hdr = handle.try_header(&orphan_of_new_history)?.expect("present");
     assert_eq!(hdr.kind(), gix_object::Kind::Commit);
 
-    let long_history_tip = id_for_hash(
+    let long_history_tip = hex_to_id_for_hash(
         "71f537d9d78bf6ae89a29a17e54b95a914d3d2ef",
         "f4281801102775cb861f46ab1f285218691cb21000f9ae2abea8dd2c05556c6c",
     );
@@ -362,7 +359,7 @@ fn object_replacement() -> crate::Result {
     drop(orphan);
 
     let replaced = handle.find_commit(&short_history_link, &mut buf)?;
-    let long_history_second_id = id_for_hash(
+    let long_history_second_id = hex_to_id_for_hash(
         "753ccf815e7b69c9147db5bbf633fe5f7da24ad7",
         "169cd5b44271f67a6a75d23cc480456142ea348bf6fa769678afd4e277150643",
     );
