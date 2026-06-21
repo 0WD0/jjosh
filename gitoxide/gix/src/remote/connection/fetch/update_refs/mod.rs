@@ -234,12 +234,12 @@ pub(crate) fn update(
                             Mode::New,
                             reflog_msg,
                             name,
-                            PreviousValue::ExistingMustMatch(new_value_by_remote(remote, mappings)?),
+                            PreviousValue::ExistingMustMatch(new_value_by_remote(remote)?),
                         )
                     }
                 };
 
-                let new = new_value_by_remote(remote, mappings)?;
+                let new = new_value_by_remote(remote)?;
                 let type_change = match (&previous_value, &new) {
                     (
                         PreviousValue::ExistingMustMatch(Target::Object(_))
@@ -390,41 +390,19 @@ fn update_needs_adjustment_as_edits_symbolic_target_is_missing(
 
 /// Convert the remote source into the value to write locally.
 ///
-/// Symbolic remote refs are preserved only if their target is part of the ref mapping, in which case the
-/// remote target is rewritten to its corresponding local ref. Otherwise, use the advertised target object id
-/// and write a direct ref, as the remote symbolic target is outside the set of refs this fetch updates.
-fn new_value_by_remote(remote: &Source, mappings: &[fetch::refmap::Mapping]) -> Result<Target, update::Error> {
+/// Born symbolic remote refs are written as direct refs to the advertised target object id.
+/// Unborn remote refs remain symbolic as there is no object id to write.
+fn new_value_by_remote(remote: &Source) -> Result<Target, update::Error> {
     let remote_id = remote.as_id();
     Ok(
         if let Source::Ref(
             gix_protocol::handshake::Ref::Symbolic { target, .. } | gix_protocol::handshake::Ref::Unborn { target, .. },
         ) = &remote
         {
-            match mappings.iter().find_map(|m| {
-                m.remote.as_name().and_then(|name| {
-                    (name == target)
-                        .then(|| m.local.as_ref().and_then(|local| local.try_into().ok()))
-                        .flatten()
-                })
-            }) {
-                // Map the target on the remote to the local branch name, which should be covered by refspecs.
-                Some(local_branch) => {
-                    // This is always safe because…
-                    // - the reference may exist already
-                    // - if it doesn't exist it will be created - we are here because it's in the list of mappings after all
-                    // - if it exists and is updated, and the update is rejected due to non-fastforward for instance, the
-                    //   target reference still exists and we can point to it.
-                    Target::Symbolic(local_branch)
-                }
-                None => {
-                    // If we can't map it, it's usually a an unborn branch causing this, or a the target isn't covered
-                    // by any refspec so we don't officially pull it in.
-                    match remote_id {
-                        Some(desired_id) => Target::Object(desired_id.to_owned()),
-                        // Unborn branches we create as such, with the location they point to on the remote which helps mirroring.
-                        None => Target::Symbolic(target.try_into()?),
-                    }
-                }
+            match remote_id {
+                Some(desired_id) => Target::Object(desired_id.to_owned()),
+                // Unborn branches we create as such, with the location they point to on the remote which helps mirroring.
+                None => Target::Symbolic(target.try_into()?),
             }
         } else {
             Target::Object(remote_id.expect("unborn case handled earlier").to_owned())

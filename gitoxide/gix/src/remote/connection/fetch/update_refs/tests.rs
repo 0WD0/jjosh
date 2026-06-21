@@ -649,9 +649,11 @@ mod update {
         match &edit.change {
             Change::Update { log, new, .. } => {
                 assert_eq!(log.message, "action: storing ref");
-                assert!(
-                    new.try_name().is_some(),
-                    "the remote symref target is mapped, so it is rewritten to the corresponding local tracking ref"
+                let target = hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5");
+                assert_eq!(
+                    new.try_id(),
+                    Some(target.as_ref()),
+                    "git writes fetched born remote symrefs as direct refs, even when the symref target is also mapped"
                 );
             }
             _ => unreachable!("only updates"),
@@ -734,7 +736,7 @@ mod update {
     }
 
     #[test]
-    fn remote_symbolic_refs_can_be_written_locally_and_point_to_tracking_branch() {
+    fn remote_symbolic_refs_are_peeled_even_if_their_target_is_mapped() {
         let repo = repo("two-origins");
         let (mut mappings, specs) = mapping_from_spec("HEAD:refs/remotes/origin/new-HEAD", &repo);
         mappings.push(Mapping {
@@ -777,10 +779,11 @@ mod update {
         match &edit.change {
             Change::Update { log, new, .. } => {
                 assert_eq!(log.message, "action: storing ref");
+                let target = hex_to_id("f99771fe6a1b535783af3163eba95a927aae21d5");
                 assert_eq!(
-                    new.try_name().expect("symbolic ref").as_bstr(),
-                    "refs/remotes/origin/main",
-                    "remote is symbolic, so local will be symbolic as well, but is rewritten to tracking branch"
+                    new.try_id(),
+                    Some(target.as_ref()),
+                    "git writes fetched born remote symrefs as direct refs, even when the symref target is also mapped"
                 );
             }
             _ => unreachable!("only updates"),
