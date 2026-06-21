@@ -23,7 +23,7 @@ mod repo_with_small_packs {
             let base = crate::scripted_fixture_read_only_with_args("make_repo_multi_index.sh", Some(arg))?
                 .join(".git")
                 .join("objects");
-            let store = gix_odb::at(base)?;
+            let store = crate::odb_at(base)?;
             let (tx, barrier) = crossbeam_channel::unbounded::<()>();
             let handles = (0..std::thread::available_parallelism()?.get()).map(|tid| {
                 std::thread::spawn({
@@ -37,9 +37,7 @@ mod repo_with_small_packs {
                             let id = id?;
                             assert!(
                                 store.try_find(&id, &mut buf).is_ok(),
-                                "Thread {} could not find {}",
-                                tid,
-                                id
+                                "Thread {tid} could not find {id}"
                             );
                             count += 1;
                         }
