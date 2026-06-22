@@ -5,13 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.57.2 (2026-06-22)
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 11 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
+ - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2656 from GitoxideLabs/dev/aratiu/sha256-transport-fixtures ([`1ad9639`](https://github.com/GitoxideLabs/gitoxide/commit/1ad963935be3cbc01f0abc99e7f50078e0d20433))
+    - Review ([`d056a3f`](https://github.com/GitoxideLabs/gitoxide/commit/d056a3f90e05930e433cd3fe921e2b48d93ef2ba))
+    - Pin protocol fixtures as binary to preserve line endings ([`00a11c7`](https://github.com/GitoxideLabs/gitoxide/commit/00a11c788c27d3b91e88a556e18e7bdeb8064869))
+    - Test v2 http handshake surfaces sha256 object-format ([`f49907e`](https://github.com/GitoxideLabs/gitoxide/commit/f49907eb2a3ce5740520b329e84d13854b5215d8))
+    - Test v2 handshake surfaces sha256 object-format ([`e493ebe`](https://github.com/GitoxideLabs/gitoxide/commit/e493ebea01257c679c26398bba0a3c84adfea418))
+    - Test sha256 object-format capability parsing ([`6d897ce`](https://github.com/GitoxideLabs/gitoxide/commit/6d897ce043dc9e257d5e633fd74d7f8bdfb2dab4))
+    - Merge pull request #2638 from GitoxideLabs/fix-packetline-panic ([`9edeec9`](https://github.com/GitoxideLabs/gitoxide/commit/9edeec91ab122892829bd39455668082e7f4f84e))
+    - Release gix-packetline v0.21.5 ([`98d2433`](https://github.com/GitoxideLabs/gitoxide/commit/98d24338eec68080e463d6622ea0fe5798d460c3))
+    - Merge pull request #2635 from GitoxideLabs/dependabot/cargo/cargo-7b971a5e8c ([`155ff6d`](https://github.com/GitoxideLabs/gitoxide/commit/155ff6d345ba49ff72cb25c08a8b9dfae8c41bc7))
+    - Bump the cargo group with 40 updates ([`9402adc`](https://github.com/GitoxideLabs/gitoxide/commit/9402adc4c854f72906392a157b848a0ff36900a2))
+    - Merge pull request #2618 from GitoxideLabs/report ([`f7d4f33`](https://github.com/GitoxideLabs/gitoxide/commit/f7d4f33b58503996ae90497b69ce4c3a757982ac))
+</details>
+
 ## 0.57.1 (2026-05-26)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 7 commits contributed to the release over the course of 28 calendar days.
+ - 8 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.4, gix-date v0.15.4, gix-actor v0.41.1, gix-trace v0.1.20, gix-validate v0.11.2, gix-path v0.12.1, gix-utils v0.3.3, gix-features v0.48.1, gix-hash v0.25.1, gix-hashtable v0.15.1, gix-object v0.61.0, gix-glob v0.26.1, gix-quote v0.7.2, gix-attributes v0.33.1, gix-command v0.9.1, gix-packetline v0.21.4, gix-filter v0.31.0, gix-fs v0.21.2, gix-chunk v0.7.2, gix-commitgraph v0.37.1, gix-revwalk v0.32.0, gix-traverse v0.58.0, gix-worktree-stream v0.33.0, gix-archive v0.33.0, gix-bitmap v0.3.2, gix-tempfile v23.0.1, gix-lock v23.0.1, gix-index v0.52.0, gix-config-value v0.18.1, gix-pathspec v0.18.1, gix-ignore v0.21.1, gix-worktree v0.53.0, gix-imara-diff v0.2.2, gix-diff v0.64.0, gix-blame v0.14.0, gix-ref v0.64.0, gix-sec v0.14.1, gix-config v0.57.0, gix-prompt v0.15.1, gix-url v0.36.1, gix-credentials v0.38.1, gix-discover v0.52.0, gix-dir v0.26.0, gix-mailmap v0.33.1, gix-revision v0.46.0, gix-merge v0.17.0, gix-negotiate v0.32.0, gix-pack v0.71.0, gix-odb v0.81.0, gix-refspec v0.42.0, gix-shallow v0.12.1, gix-transport v0.57.1, gix-protocol v0.62.0, gix-status v0.31.0, gix-submodule v0.31.0, gix-worktree-state v0.31.0, gix v0.84.0, gix-fsck v0.22.0, gitoxide-core v0.58.0, gitoxide v0.54.0, safety bump 27 crates ([`10c58bb`](https://github.com/GitoxideLabs/gitoxide/commit/10c58bb56597d9335611da121aac21f9b09b6e5b))
     - Merge pull request #2573 from cruessler/run-gix-traverse-tests-with-sha-256 ([`278d7ec`](https://github.com/GitoxideLabs/gitoxide/commit/278d7ec395124b3ce00db6f3e029265bfec8ccd1))
     - Cleanup the `justfile` and automate feature tests ([`db7b97b`](https://github.com/GitoxideLabs/gitoxide/commit/db7b97b6e3858c44f1ab8c42af2017e8259c64d7))
     - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))

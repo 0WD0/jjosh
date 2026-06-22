@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-transport"
-version = "0.57.1"
+version = "0.57.2"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project dedicated to implementing the git transport layer"

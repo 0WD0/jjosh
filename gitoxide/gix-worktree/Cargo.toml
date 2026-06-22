@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-worktree"
-version = "0.53.0"
+version = "0.54.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 license = "MIT OR Apache-2.0"
 description = "A crate of the gitoxide project for shared worktree related types and utilities."
@@ -28,13 +28,13 @@ serde = ["dep:serde", "bstr/serde", "gix-index/serde", "gix-hash/serde", "gix-ob
 parallel = ["gix-features/parallel"]
 
 [dependencies]
-gix-index = { version = "^0.52.0", path = "../gix-index" }
+gix-index = { version = "^0.53.0", path = "../gix-index" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
-gix-object = { version = "^0.61.0", path = "../gix-object" }
+gix-object = { version = "^0.62.0", path = "../gix-object" }
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
 gix-path = { version = "^0.12.1", path = "../gix-path" }
-gix-attributes = { version = "^0.33.1", path = "../gix-attributes", optional = true }
+gix-attributes = { version = "^0.33.2", path = "../gix-attributes", optional = true }
 gix-validate = { version = "^0.11.2", path = "../gix-validate", optional = true }
 gix-ignore = { version = "^0.21.1", path = "../gix-ignore" }
 gix-features = { version = "^0.48.1", path = "../gix-features", optional = true }
