@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.55.0 (2026-06-22)
+
+## 0.54.0 (2026-05-26)
+
+### New Features
+
+ - <csr-id-add4cf4c0d2ce0f331a619ffd31f709a3b9f0bff/> `gix dirwalk` as a way to run gix-dir directly
+   This is mostly for testing walks specifically, without needing them as part
+   of `gix clean` or `gix status`.
+ - <csr-id-6ab327e54a71ca5e4d555bfedfffd81359d8b529/> add `gix merge tree --message ''` to allow creating commits
+   This is useful for controlling cherry-picks precisely.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 7 commits contributed to the release over the course of 26 calendar days.
+ - 28 days passed between releases.
+ - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Merge pull request #2584 from GitoxideLabs/improvements ([`1322a36`](https://github.com/GitoxideLabs/gitoxide/commit/1322a36599d252a822dbc4548763a2db75816075))
+    - `gix dirwalk` as a way to run gix-dir directly ([`add4cf4`](https://github.com/GitoxideLabs/gitoxide/commit/add4cf4c0d2ce0f331a619ffd31f709a3b9f0bff))
+    - Merge pull request #2568 from GitoxideLabs/dependabot/cargo/cargo-56d6b174d8 ([`ab2fee1`](https://github.com/GitoxideLabs/gitoxide/commit/ab2fee14651202fcb7b3d8178932090c73492014))
+    - Update crates to Rust 2024 edition ([`2cb17b2`](https://github.com/GitoxideLabs/gitoxide/commit/2cb17b2e7f6009693a55af907614f705a29d8c29))
+    - Remove rust_2018_idioms lint declarations ([`e10d5f6`](https://github.com/GitoxideLabs/gitoxide/commit/e10d5f662df2ee05f973a3167ad215a330ee74e1))
+    - Merge pull request #2557 from GitoxideLabs/cherry-pick ([`0771cb2`](https://github.com/GitoxideLabs/gitoxide/commit/0771cb2fc6e1b08a2d8e14b9f1226f555ed59b79))
+    - Add `gix merge tree --message ''` to allow creating commits ([`6ab327e`](https://github.com/GitoxideLabs/gitoxide/commit/6ab327e54a71ca5e4d555bfedfffd81359d8b529))
+</details>
+
 ## 0.53.0 (2026-04-28)
 
 ## 0.52.1 (2026-04-24)
@@ -84,13 +121,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New Features
 
  - <csr-id-924cd62f7ef74f479114c80cee0db0ba5f522579/> allow credential fill with `gix credential fill` to run without a repo
-
-### Other
-
- - <csr-id-6f469a6fea59c88e6c69a5f94b0bc8a5977cb75b/> Remove `doc_auto_cfg` feature to fix docs.rs documentation.
-   It is part of `doc_cfg` feature since https://github.com/rust-lang/rust/pull/138907
-   
-   This fixes the docs.rs build
 
 ### Commit Statistics
 
@@ -213,29 +243,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <csr-id-f952c101cc8686e685074e8604e0f332c06d6767/>
 
-### Other
-
- - <csr-id-f952c101cc8686e685074e8604e0f332c06d6767/> Add missing command docs + small style fixups
-   Changes that affect the help/usage text shown at runtime:
-   
-   - Add descriptions for a few `gix` commands that didn't have it:
-     `gix is-clean`, `gix is-changed`, and `gix env`.
-   
-   - Add a description of the debug-only `ein panic` command.
-   
-   - Small spacing and capitalization improvements for consistency.
-   
-   - Add a line break in a `///` block for brevity of the top line.
-   
-   Changes to code style that do not affect what is shown at runtime:
-   
-   - Add `.` at the end of some `///` first lines. (This doesn't
-     affect runtime behavior because `clap` normalizes this away.)
-   
-   - Put `///` above all `#[...]` in a few places where it wasn't.
-   
-   - Adjust comment wrapping in a couple of places for clarity.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -264,10 +271,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New Features
 
  - <csr-id-dbb15328d7b26aaa51ceadcd5a8cb021155023b3/> add first 'debug' version of `gix diff file`
-
-### Refactor
-
- - <csr-id-dd366a52d46078729a6e36468211b97c92c2921d/> use revspecs for revision and path
 
 ### Commit Statistics
 
@@ -453,33 +456,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    the (probably rarer) case of hidden nested worktrees of the current
    repository.
 
-### Other
-
- - <csr-id-28ac6572722f7ea31795dc0417521c70bcb6ec8f/> switch from `time` to `jiff`
-   This swaps out `time` for `jiff`. It doesn't completely remove `time`
-   from the dependency tree. The last remaining use of `time` is in
-   `prodash`, outside of the gitoxide project.
-
-### Other
-
- - <csr-id-786bfec7c2cf25a68705b6ef09ba6390600742b8/> Unify style in config support info
-   This builds on b31d6b7 (#1531) by adjusting the capitalization and
-   quoting style of string arguments in `progress.rs` that help
-   document the status of what configuration options are and are not
-   planned.
-   
-   - Since I believe these strings are not usually rendered as
-     Markdown, and most places that code formatting in Markdown would
-     be used were already written with single quotes, this applies
-     that quoting style consistently.
-   
-   - This applies initial capitalization, which was sometimes but not
-     always done. It does not apply a consistent style for when a
-     string will end in a `.`, which seems already to differ
-     deliberately for reasons of clarity. That can be adjusted later.
-   
-   - A small amount of minor rewording for clarity is also included.
-
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
@@ -539,16 +515,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - <csr-id-9bf01e42b8d8964dfd1e099d645082c10bdabcdf/> `gix clone` with `--ref` support.
    `--ref` is similar to `--branch`, but was renamed as it also supports
    tags for example.
-
-### Other
-
- - <csr-id-202f3e48a96b38d32b11d28449358c7d1f3546ff/> Make it easier to compile gitoxide as dynlib
-   And also optimize compilation time: By making `plumbing` and `porcelain`
-   as modules the `lib.rs`, they can be compiled after the rmeta for the
-   dependencies are generated.
-   
-   For the `uni.rs` which uses both `plumbing` and `porcelain`, this would avoid
-   compiling these two modules twice.
 
 ### Commit Statistics
 
@@ -945,17 +911,6 @@ strings. The above can, on MacOS, launch the calculator app when using it with `
    This flag can be derived from options, but thus far we have no higher-level
    writing of the index so this has to do to see the difference in performance.
 
-### Refactor
-
- - <csr-id-d3ac691446c9d029eb4f04d111887fa06720939d/> both `ein` and `gix` now share some code via the `gitoxide` library.
-   This can slightly improve compile times as well, even though it wasn't measured.
-
-### Chore (BREAKING)
-
- - <csr-id-ed327f6163f54756e58c20f86a563a97efb256ca/> update to the latest `prodash`
-   It makes proper usage of `Progress` types easier and allows them to be used
-   as `dyn` traits as well.
-
 ### Bug Fixes (BREAKING)
 
  - <csr-id-072ee32f693a31161cd6a843da6582d13efbb20b/> use `dyn` trait where possible.
@@ -1106,10 +1061,6 @@ This release fixes a possibility for V1 fetches to deadlock if negotiation would
  - <csr-id-096838ffa529148b2da3a2382a2d1fdbfe5bee5b/> `gix fetch --negotiation-info` to provide additional information about the negotiation phase.
  - <csr-id-bd32e393fedd01e27a4f6984281bcc3182c63b67/> `bit revision list --svg` to create a visual graph of commits.
    It's mainly a test of how well `layout-rs` performs.
-
-### Chore
-
- - <csr-id-bcad5c22049d56a25ef69d6c7a3344e78f9a1d4d/> Add `clippy::redundant-closure-for-method-calls` lint
 
 ### Commit Statistics
 
@@ -1379,10 +1330,6 @@ A maintenance release without user-facing changes.
 ## 0.21.0 (2023-02-09)
 
 <csr-id-1d9a5e925890883e9e712db14ac82411ad2fdfc3/>
-
-### Chore
-
- - <csr-id-1d9a5e925890883e9e712db14ac82411ad2fdfc3/> upgrade to clap 4.1
 
 ### New Features
 
@@ -1766,10 +1713,6 @@ It's also an attempt to trigger CI to build binary releases.
 
 <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/>
 
-### Chore
-
- - <csr-id-f7f136dbe4f86e7dee1d54835c420ec07c96cd78/> uniformize deny attributes
-
 ### New Features
 
  - <csr-id-45a30f0f31a99cda5cf105408e9c3905f43071f2/> Support for `-c/--config` in `gix`
@@ -2005,10 +1948,6 @@ It's also an attempt to trigger CI to build binary releases.
 
 Adapt to changes in `gix-features` which change `Send + Sync` to `Send + Clone`. This happens to allow non-sync implementations (i.e. thread-local), along with `Sync` ones
 which usually are `Clone` too as they are passed by immutable reference (which is `Clone + Copy`).
-
-### Refactor (BREAKING)
-
- - <csr-id-4d2d433e7e98ac42db858688edac06e68ee4d10d/> Remove light* features, add 'lean-async' in its place; remove termion support
 
 ### Changed (BREAKING)
 
