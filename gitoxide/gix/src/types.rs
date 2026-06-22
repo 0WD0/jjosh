@@ -243,6 +243,27 @@ pub struct Remote<'repo> {
     pub repo: &'repo Repository,
 }
 
+/// A remote without access to its source repository.
+///
+/// It's needed to allow flipping the underlying repository object hash.
+/// Git solves this by carefully partially initialising the repository,
+/// but doing this (including the transformation) seems easier.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+pub(crate) struct RemoteDetached {
+    /// The remotes symbolic name, only present if persisted in git configuration files.
+    pub(crate) name: Option<remote::Name<'static>>,
+    /// The url of the host to talk to, after application of replacements. If it is unset, the `push_url` must be set.
+    /// and fetches aren't possible.
+    pub(crate) url: Option<gix_url::Url>,
+    /// The rewritten `url`, if it was rewritten.
+    pub(crate) url_alias: Option<gix_url::Url>,
+    /// Refspecs for use when fetching.
+    pub(crate) fetch_specs: Vec<gix_refspec::RefSpec>,
+    /// Tell us what to do with tags when fetched.
+    pub(crate) fetch_tags: remote::fetch::Tags,
+}
+
 /// A utility to make matching against pathspecs simple.
 ///
 /// Note that to perform pathspec matching, attribute access might need to be provided. For that, we use our own

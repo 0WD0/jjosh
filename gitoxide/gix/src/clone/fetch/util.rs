@@ -17,7 +17,7 @@ enum WriteMode {
 }
 
 #[allow(clippy::result_large_err)]
-pub fn write_remote_to_local_config_file(
+pub fn append_remote_to_local_config_file(
     remote: &mut crate::Remote<'_>,
     remote_name: BString,
 ) -> Result<gix_config::File<'static>, Error> {
@@ -29,10 +29,8 @@ pub fn write_remote_to_local_config_file(
 }
 
 /// Reconfigure the freshly-initialized, still-empty repository `repo` to use `object_hash`
-/// by rewriting its configuration file on disk, and return the reopened repository.
-///
-/// The remote we may have already persisted to that file is removed as well, so that a
-/// retried fetch re-adds it exactly once rather than duplicating the section.
+/// by rewriting the object-format related entries in its local configuration file on disk,
+/// and reload the repository handle.
 ///
 /// This relies on the initial reference database not having persisted any hash-format-dependent
 /// state. That is true for the current file-based ref store, but a future reftable backend must
@@ -40,15 +38,15 @@ pub fn write_remote_to_local_config_file(
 /// after repository creation, initialize a non-reftable reference database first, then convert it
 /// to reftable once the remote hash is known.
 ///
-/// Note that while `.git/config` is rewritten, the passed `repo` handle and its in-memory
-/// configuration are never mutated, so on error the caller can keep using it. Should the
-/// rewrite itself fail, the on-disk configuration may be incomplete, but as the clone
-/// destination is removed when `PrepareFetch` is dropped without persisting, such a
-/// partial write won't outlive the failed clone.
+/// Existing local configuration, including the remote section written during clone setup,
+/// is preserved. Only local sections are written back to `.git/config`,
+///
+/// The returned repository is reopened from disk so the object hash change affects all
+/// hash-dependent state. Callers that need in-memory configuration from `repo` must
+/// transfer it to the returned handle.
 #[cfg(feature = "sha256")]
 pub(super) fn reinitialize_with_object_hash(
     repo: &crate::Repository,
-    remote_name: &BStr,
     object_hash: gix_hash::Kind,
 ) -> Result<crate::Repository, Error> {
     use gix_config::parse::section::ValueName;
@@ -57,7 +55,6 @@ pub(super) fn reinitialize_with_object_hash(
     let config_path = git_dir.join("config");
 
     let mut config = gix_config::File::from_path_no_includes(config_path.clone(), gix_config::Source::Local)?;
-    config.remove_section("remote", Some(remote_name));
     // Mirror what `crate::create` writes at init time: only SHA-256 repositories get
     // `repositoryformatversion = 1` along with the `objectformat` extension.
     let is_sha256 = object_hash == gix_hash::Kind::Sha256;
@@ -82,7 +79,7 @@ pub(super) fn reinitialize_with_object_hash(
     }
     let mut lock =
         gix_lock::File::acquire_to_update_resource(&config_path, gix_lock::acquire::Fail::Immediately, None)?;
-    lock.write_all(&config.to_bstring())?;
+    config.write_to_filter(&mut lock, |section| section.meta().source == gix_config::Source::Local)?;
     lock.commit()?;
 
     Ok(crate::ThreadSafeRepository::open_opts(git_dir, repo.options.clone())?.to_thread_local())
@@ -113,6 +110,11 @@ fn write_to_local_config(config: &gix_config::File<'static>, mode: WriteMode) ->
     config.write_to_filter(&mut local_config, |s| s.meta().source == gix_config::Source::Local)
 }
 
+/// Append `config` to `repo`'s in-memory resolved configuration.
+///
+/// This is used after writing clone-specific local configuration to `.git/config`,
+/// as the `repo` handle was opened before that write and won't observe it until
+/// it is either updated in memory or reopened.
 pub fn append_config_to_repo_config(repo: &mut Repository, config: gix_config::File<'static>) {
     let repo_config = gix_features::threading::OwnShared::make_mut(&mut repo.config.resolved);
     repo_config.append(config);

@@ -12,9 +12,8 @@ use crate::{
         cache::util::ApplyLeniency,
         tree::{Clone, Fetch},
     },
-    remote,
     remote::{
-        connection::fetch::config,
+        connection::fetch::{PrepareDetached, config},
         fetch,
         fetch::{Error, Outcome, Prepare, RefLogMessage, Status, negotiate::Algorithm, outcome, refs},
     },
@@ -71,7 +70,27 @@ where
     /// - `gitoxide.userAgent` is read to obtain the application user agent for git servers and for HTTP servers as well.
     ///
     #[gix_protocol::maybe_async::maybe_async]
-    pub async fn receive<P>(mut self, progress: P, should_interrupt: &AtomicBool) -> Result<Outcome, Error>
+    pub async fn receive<P>(self, progress: P, should_interrupt: &AtomicBool) -> Result<Outcome, Error>
+    where
+        P: gix_features::progress::NestedProgress,
+        P::SubProgress: 'static,
+    {
+        let Prepare { inner, repo } = self;
+        inner.receive(repo, progress, should_interrupt).await
+    }
+}
+
+impl<T> PrepareDetached<'_, T>
+where
+    T: Transport,
+{
+    #[gix_protocol::maybe_async::maybe_async]
+    pub(crate) async fn receive<P>(
+        mut self,
+        repo: &crate::Repository,
+        progress: P,
+        should_interrupt: &AtomicBool,
+    ) -> Result<Outcome, Error>
     where
         P: gix_features::progress::NestedProgress,
         P::SubProgress: 'static,
@@ -88,7 +107,6 @@ where
 
         let mut con = self.con.take().expect("receive() can only be called once");
         let mut handshake = con.handshake.take().expect("receive() can only be called once");
-        let repo = con.remote.repo;
 
         let expected_object_hash = repo.object_hash();
         if ref_map.object_hash != expected_object_hash {
@@ -153,7 +171,7 @@ where
             thread_limit: config::index_threads(repo)?,
             index_version: config::pack_index_version(repo)?,
             iteration_mode: gix_pack::data::input::Mode::Verify,
-            object_hash: con.remote.repo.object_hash(),
+            object_hash: repo.object_hash(),
         };
         let mut write_pack_bundle = None;
 
@@ -203,7 +221,7 @@ where
                 .take()
                 .unwrap_or_else(|| RefLogMessage::Prefixed { action: "fetch".into() }),
             &self.ref_map.mappings,
-            con.remote.refspecs(remote::Direction::Fetch),
+            con.remote.fetch_refspecs(),
             &self.ref_map.extra_refspecs,
             con.remote.fetch_tags,
             self.dry_run,

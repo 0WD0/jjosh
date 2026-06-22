@@ -1,6 +1,6 @@
 use crate::{
     Remote,
-    remote::{Connection, connection::AuthenticateFn},
+    remote::{Connection, connection::AuthenticateFn, connection::ConnectionDetached},
 };
 #[cfg(feature = "async-network-client")]
 use gix_transport::client::async_io::Transport;
@@ -8,7 +8,7 @@ use gix_transport::client::async_io::Transport;
 use gix_transport::client::blocking_io::Transport;
 
 /// Builder
-impl<'a, T> Connection<'a, '_, T>
+impl<'remote, 'repo, T> Connection<'remote, '_, 'repo, T>
 where
     T: Transport,
 {
@@ -23,12 +23,18 @@ where
     /// Use the [`configured_credentials()`](Connection::configured_credentials()) method to obtain the implementation
     /// that would otherwise be used, which can be useful to proxy the default configuration and obtain information about the
     /// URLs to authenticate with.
-    pub fn with_credentials(
-        mut self,
-        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'a,
-    ) -> Self {
-        self.authenticate = Some(Box::new(helper));
-        self
+    pub fn with_credentials<'b>(
+        self,
+        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'b,
+    ) -> Connection<'remote, 'b, 'repo, T> {
+        Connection {
+            remote: self.remote,
+            authenticate: Some(Box::new(helper)),
+            transport_options: self.transport_options,
+            transport: self.transport,
+            handshake: self.handshake,
+            trace: self.trace,
+        }
     }
 
     /// Provide configuration to be used before the first handshake is conducted.
@@ -45,14 +51,29 @@ where
 }
 
 /// Mutation
-impl<'a, T> Connection<'a, '_, T>
+impl<T> ConnectionDetached<'_, T>
+where
+    T: Transport,
+{
+    pub(crate) fn configured_credentials(
+        &self,
+        repo: &crate::Repository,
+        url: gix_url::Url,
+    ) -> Result<AuthenticateFn<'static>, crate::config::credential_helpers::Error> {
+        let (mut cascade, _action_with_normalized_url, prompt_opts) = repo.config_snapshot().credential_helpers(url)?;
+        Ok(Box::new(move |action| cascade.invoke(action, prompt_opts.clone())) as AuthenticateFn<'_>)
+    }
+}
+
+/// Mutation
+impl<'auth, T> Connection<'_, 'auth, '_, T>
 where
     T: Transport,
 {
     /// Like [`with_credentials()`](Self::with_credentials()), but without consuming the connection.
     pub fn set_credentials(
         &mut self,
-        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'a,
+        helper: impl FnMut(gix_credentials::helper::Action) -> gix_credentials::protocol::Result + 'auth,
     ) -> &mut Self {
         self.authenticate = Some(Box::new(helper));
         self
@@ -66,7 +87,7 @@ where
 }
 
 /// Access
-impl<'repo, T> Connection<'_, 'repo, T>
+impl<'auth, 'repo, T> Connection<'_, 'auth, 'repo, T>
 where
     T: Transport,
 {
@@ -94,5 +115,16 @@ where
     /// call [`with_transport_options()`](Connection::with_transport_options()).
     pub fn transport_mut(&mut self) -> &mut T {
         &mut self.transport.inner
+    }
+
+    pub(crate) fn into_detached(self) -> ConnectionDetached<'auth, T> {
+        ConnectionDetached {
+            remote: self.remote.detached(),
+            authenticate: self.authenticate,
+            transport_options: self.transport_options,
+            transport: self.transport,
+            handshake: self.handshake,
+            trace: self.trace,
+        }
     }
 }

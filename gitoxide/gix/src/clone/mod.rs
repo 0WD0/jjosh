@@ -11,7 +11,7 @@ type ConfigureRemoteFn =
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
 type ConfigureConnectionFn = Box<
     dyn FnMut(
-        &mut remote::Connection<'_, '_, Box<dyn Transport + Send>>,
+        &mut remote::Connection<'_, '_, '_, Box<dyn Transport + Send>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
 >;
 
@@ -184,7 +184,7 @@ mod access_feat {
         pub fn configure_connection(
             mut self,
             f: impl FnMut(
-                &mut crate::remote::Connection<'_, '_, Box<dyn Transport + Send>>,
+                &mut crate::remote::Connection<'_, '_, '_, Box<dyn Transport + Send>>,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
             + 'static,
         ) -> Self {
