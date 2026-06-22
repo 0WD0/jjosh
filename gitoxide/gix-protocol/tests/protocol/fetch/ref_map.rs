@@ -37,7 +37,6 @@ mod from_refs {
         );
     }
 
-    #[cfg(feature = "sha1")]
     #[test]
     fn missing_object_format_defaults_to_sha1() {
         let caps = caps_with(b"symref=HEAD:refs/heads/main agent=git/2.54.0");
