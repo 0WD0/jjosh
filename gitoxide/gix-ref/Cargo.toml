@@ -41,7 +41,7 @@ thiserror = "2.0.18"
 serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
 
 # packed refs
-memmap2 = "0.9.10"
+memmap2 = "0.9.11"
 
 document-features = { version = "0.2.1", optional = true }
 
