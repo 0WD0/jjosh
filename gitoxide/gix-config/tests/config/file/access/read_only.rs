@@ -1,13 +1,24 @@
-use std::borrow::Cow;
-
-use bstr::BStr;
+use bstr::BString;
 use gix_config::{
     Boolean, Color, File, Integer, color,
     file::{Metadata, init},
     integer, path,
 };
 
-use crate::file::cow_str;
+use crate::file::bstring;
+
+#[test]
+fn parsed_section_header_legacy_check_uses_backing_buffer() -> crate::Result {
+    let config = File::try_from(
+        "[remote.origin]\n\turl = https://example.com\n[remote \"upstream\"]\n\turl = https://example.com\n",
+    )?;
+    let sections = config.sections().collect::<Vec<_>>();
+
+    assert!(sections[0].header().is_legacy());
+    assert!(!sections[1].header().is_legacy());
+
+    Ok(())
+}
 
 /// Asserts we can cast into all variants of our type
 #[test]
@@ -41,15 +52,15 @@ fn get_value_for_all_provided_values() -> crate::Result {
         )?;
 
         assert!(!config.value::<Boolean>("core.bool-explicit")?.0);
-        assert!(!config.boolean("core.bool-explicit").expect("exists")?);
-        assert!(!config.boolean("core.bool-explicit").expect("exists")?);
+        assert!(!config.boolean("core.bool-explicit")?.expect("exists"));
+        assert!(!config.boolean("core.bool-explicit")?.expect("exists"));
 
         assert!(
             config.value::<Boolean>("core.bool-implicit").is_err(),
             "this cannot work like in git as the original value isn't there for us"
         );
         assert!(
-            config.boolean("core.bool-implicit").expect("present")?,
+            config.boolean("core.bool-implicit")?.expect("present"),
             "implicit booleans resolve to being true"
         );
         assert_eq!(
@@ -69,13 +80,13 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
         assert_eq!(
             config.string("core.empty-equals"),
-            Some(cow_str("")),
+            Some(bstring("")),
             "mere presence with equal sign is always the empty implicit string"
         );
         assert!(config.path("core.empty-equals").is_some(), "this is an empty path…");
         assert_eq!(
             config.string("core.empty-explicit"),
-            Some(cow_str("")),
+            Some(bstring("")),
             "and so is an explicit empty string"
         );
         assert!(
@@ -84,10 +95,10 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
         assert_eq!(
             config.strings("core.bool-implicit").expect("present"),
-            &[cow_str("")],
+            &[bstring("")],
             "unset values show up as empty within a string array"
         );
-        assert_eq!(config.strings("core.bool-implicit").expect("present"), &[cow_str("")]);
+        assert_eq!(config.strings("core.bool-implicit").expect("present"), &[bstring("")]);
 
         assert_eq!(config.string("doesn't.exist"), None);
 
@@ -125,32 +136,22 @@ fn get_value_for_all_provided_values() -> crate::Result {
         );
 
         {
-            let string = config.value::<Cow<'_, BStr>>("core.other")?;
-            assert_eq!(string, cow_str("hello world"));
-            assert!(
-                matches!(string, Cow::Borrowed(_)),
-                "no copy is made, we reference the `file` itself"
-            );
+            let string = config.value::<BString>("core.other")?;
+            assert_eq!(string, bstring("hello world"));
         }
 
-        assert_eq!(config.string("core.other-quoted").unwrap(), cow_str("hello world"));
+        assert_eq!(config.string("core.other-quoted").unwrap(), bstring("hello world"));
 
         {
             let strings = config.strings("core.other-quoted").unwrap();
-            assert_eq!(strings, vec![cow_str("hello"), cow_str("hello world")]);
-            assert!(matches!(strings[0], Cow::Borrowed(_)));
-            assert!(matches!(strings[1], Cow::Borrowed(_)));
+            assert_eq!(strings, vec![bstring("hello"), bstring("hello world")]);
         }
 
         {
-            let cow = config.string("core.other").expect("present");
-            assert_eq!(cow.as_ref(), "hello world");
-            assert!(matches!(cow, Cow::Borrowed(_)));
+            let value = config.string("core.other").expect("present");
+            assert_eq!(value, "hello world");
         }
-        assert_eq!(
-            config.string("core.other-quoted").expect("present").as_ref(),
-            "hello world"
-        );
+        assert_eq!(config.string("core.other-quoted").expect("present"), "hello world");
 
         {
             let actual = config.value::<gix_config::Path>("core.location")?;
@@ -158,7 +159,6 @@ fn get_value_for_all_provided_values() -> crate::Result {
 
             let home = std::env::current_dir()?;
             let expected = home.join("tmp");
-            assert!(matches!(actual.value, Cow::Borrowed(_)));
             assert_eq!(
                 actual
                     .interpolate(path::interpolate::Context {
@@ -203,7 +203,7 @@ fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
         "implicit bool is invisible to `value` and boolean is the only value we want. Would have to special case it."
     );
     assert!(
-        file.boolean("core.bool-implicit").expect("present")?,
+        file.boolean("core.bool-implicit")?.expect("present"),
         "correct handling of booleans is implemented specifically"
     );
 
@@ -243,10 +243,21 @@ fn value_names_are_case_insensitive() -> crate::Result {
 }
 
 #[test]
+fn section_value_access_is_case_insensitive() -> crate::Result {
+    let file = File::try_from("[core]\nMixedCase = one\nMIXEDCASE = two")?;
+    let section = file.section("core", None)?;
+
+    assert_eq!(section.values("mixedcase"), vec![bstring("one"), bstring("two")]);
+    assert_eq!(section.value("mIxEdCaSe"), Some(bstring("two")));
+    assert!(section.contains_value_name("mixedcase"));
+    Ok(())
+}
+
+#[test]
 fn single_section() {
     let config = File::try_from("[core]\na=b\nc").unwrap();
     let first_value = config.string("core.a").unwrap();
-    assert_eq!(first_value, cow_str("b"));
+    assert_eq!(first_value, bstring("b"));
 
     assert!(
         config.raw_value("core.c").is_err(),
@@ -274,7 +285,7 @@ fn sections_by_name() -> crate::Result {
 
     let config = File::try_from(config)?;
     let value = config.string_by("remote", Some("origin".into()), "url").unwrap();
-    assert_eq!(value, cow_str("git@github.com:GitoxideLabs/gitoxide.git"));
+    assert_eq!(value, bstring("git@github.com:GitoxideLabs/gitoxide.git"));
     Ok(())
 }
 
@@ -296,10 +307,10 @@ fn unknown_section() -> crate::Result {
         gix_config::lookup::existing::Error::SubSectionMissing
     ));
 
-    config.set_raw_value_by("present", Some("subsection".into()), "key", "value")?;
+    config.set_raw_value_by("present", "subsection", "key", "value")?;
     assert!(config.section("present", Some("subsection".into())).is_ok());
 
-    config.set_raw_value_by("new", Some("subsection".into()), "key", "value")?;
+    config.set_raw_value_by("new", "subsection", "key", "value")?;
     assert!(config.section("new", Some("subsection".into())).is_ok());
 
     for id in config.sections_and_ids().map(|(_, id)| id).collect::<Vec<_>>() {
@@ -328,8 +339,8 @@ fn multi_line_value_plain() {
     let config = File::try_from(config).unwrap();
 
     let expected = r#"!git status         && git add -A         && git commit -m "$1"         && git push -f         && git log -1         && :"#;
-    assert_eq!(config.raw_value("alias.save").unwrap().as_ref(), expected);
-    assert_eq!(config.string("alias.save").unwrap().as_ref(), expected);
+    assert_eq!(config.raw_value("alias.save").unwrap(), expected);
+    assert_eq!(config.string("alias.save").unwrap(), expected);
 }
 
 #[test]
@@ -341,12 +352,12 @@ fn complex_quoted_values() {
     let config = File::try_from(config).unwrap();
     let expected = "hi\nho\n\ttheri\\\" \"";
     assert_eq!(
-        config.raw_value("core.escape-sequence").unwrap().as_ref(),
+        config.raw_value("core.escape-sequence").unwrap(),
         expected,
         "raw_value is normalized…"
     );
     assert_eq!(
-        config.string("core.escape-sequence").unwrap().as_ref(),
+        config.string("core.escape-sequence").unwrap(),
         expected,
         "…and so is the comfort API"
     );
@@ -368,7 +379,7 @@ fn multi_line_value_outer_quotes_unescaped_inner_quotes() {
 "#;
     let config = File::try_from(config).unwrap();
     let expected = r#"!f() {            git status;            git add -A;            git commit -m $1;            git push -f;            git log -1;          };         f;          unset f"#;
-    assert_eq!(config.raw_value("alias.save").unwrap().as_ref(), expected);
+    assert_eq!(config.raw_value("alias.save").unwrap(), expected);
 }
 
 #[test]
@@ -387,7 +398,7 @@ fn multi_line_value_outer_quotes_escaped_inner_quotes() {
 "#;
     let config = File::try_from(config).unwrap();
     let expected = r#"!f() {            git status;            git add -A;            git commit -m "$1";            git push -f;            git log -1;          };         f;          unset f"#;
-    assert_eq!(config.raw_value("alias.save").unwrap().as_ref(), expected);
+    assert_eq!(config.raw_value("alias.save").unwrap(), expected);
 }
 
 #[test]
@@ -398,7 +409,7 @@ fn overrides_with_implicit_booleans_work_in_single_section() {
             b
         "#;
     let config = File::try_from(config).unwrap();
-    assert_eq!(config.boolean("a.b"), Some(Ok(true)), "empty implicit booleans ");
+    assert_eq!(config.boolean("a.b"), Ok(Some(true)), "empty implicit booleans ");
 }
 
 #[test]
@@ -410,5 +421,5 @@ fn overrides_with_implicit_booleans_work_across_sections() {
             b
         "#;
     let config = File::try_from(config).unwrap();
-    assert_eq!(config.boolean("a.b"), Some(Ok(true)), "empty implicit booleans ");
+    assert_eq!(config.boolean("a.b"), Ok(Some(true)), "empty implicit booleans ");
 }

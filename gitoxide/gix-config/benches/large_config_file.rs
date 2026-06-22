@@ -9,7 +9,7 @@ fn gix_config(c: &mut Criterion) {
 }
 
 fn parser(c: &mut Criterion) {
-    c.bench_function("Parser large config file", |b| {
+    c.bench_function("Parse large config file", |b| {
         b.iter(|| Events::try_from(black_box(CONFIG_FILE)).unwrap());
     });
 }

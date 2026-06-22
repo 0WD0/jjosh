@@ -20,5 +20,7 @@ pub mod existing {
         SubSectionMissing,
         #[error("The key does not exist in the requested section")]
         KeyMissing,
+        #[error(transparent)]
+        ValueName(#[from] crate::parse::section::value_name::Error),
     }
 }

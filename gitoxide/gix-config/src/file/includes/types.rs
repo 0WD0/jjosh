@@ -13,6 +13,8 @@ pub enum Error {
     #[error(transparent)]
     Parse(#[from] parse::Error),
     #[error(transparent)]
+    Span(#[from] parse::span::Error),
+    #[error(transparent)]
     Interpolate(#[from] interpolate::Error),
     #[error("The maximum allowed length {} of the file include chain built by following nested resolve_includes is exceeded", .max_depth)]
     IncludeDepthExceeded { max_depth: u8 },

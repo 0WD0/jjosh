@@ -125,7 +125,7 @@ mod init {
                 meta
             };
             let modules = gix_config::File::from_parse_events_no_includes(
-                gix_config::parse::Events::from_bytes_owned(bytes, None)?,
+                gix_config::parse::Events::from_bytes(bytes, None)?,
                 metadata,
             );
 

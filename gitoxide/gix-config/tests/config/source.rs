@@ -60,8 +60,7 @@ fn git_config_system() {
                     unexpected => unreachable!("unexpected env var: {unexpected}"),
                 }
             })
-            .expect("set")
-            .as_ref(),
+            .expect("set"),
         Path::new("alternative"),
         "we respect the system config variable for overrides"
     );
@@ -79,8 +78,7 @@ fn git_config_global() {
                     );
                     Some("alternative".into())
                 })
-                .expect("set")
-                .as_ref(),
+                .expect("set"),
             Path::new("alternative"),
             "we respect the global config variable for 'git' overrides"
         );

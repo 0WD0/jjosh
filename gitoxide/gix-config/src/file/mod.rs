@@ -1,12 +1,11 @@
 //! A high level wrapper around a single or multiple `git-config` file, for reading and mutation.
 use std::{
-    borrow::Cow,
     collections::HashMap,
     ops::{Add, AddAssign},
     path::PathBuf,
 };
 
-use bstr::BStr;
+use bstr::BString;
 use gix_features::threading::OwnShared;
 
 mod mutable;
@@ -45,10 +44,20 @@ pub mod set_raw_value {
     #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
+        Lookup(#[from] crate::lookup::existing::Error),
+        #[error(transparent)]
         Header(#[from] crate::parse::section::header::Error),
         #[error(transparent)]
         ValueName(#[from] crate::parse::section::value_name::Error),
+        #[error(transparent)]
+        Span(#[from] crate::parse::span::Error),
     }
+}
+
+/// Convert ergonomic subsection inputs into an optional owned name.
+pub trait IntoBStringOpt {
+    /// Convert into an optional owned subsection name.
+    fn into_bstring_opt(self) -> Option<bstr::BString>;
 }
 
 /// Additional information about a section.
@@ -66,13 +75,31 @@ pub struct Metadata {
     pub trust: gix_sec::Trust,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SectionData {
+    pub(crate) header: crate::parse::section::HeaderData,
+    pub(crate) body: section::BodyData,
+    pub(crate) meta: OwnShared<Metadata>,
+    pub(crate) id: SectionId,
+}
+
+/// A fully owned, self-contained configuration section.
+///
+/// Use [`Section::to_ref()`] for read-only access and [`Section::to_mut()`] for mutation. This type is returned when
+/// removing sections from a [`File`][crate::File] and can be inserted again with [`File::push_section()`](crate::File::push_section()).
+#[derive(Clone, Debug)]
+pub struct Section {
+    backing: Vec<u8>,
+    data: SectionData,
+}
+
 /// A section in a git-config file, like `[core]` or `[remote "origin"]`, along with all of its keys.
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Section<'a> {
-    header: crate::parse::section::Header<'a>,
-    body: section::Body<'a>,
-    meta: OwnShared<Metadata>,
-    id: SectionId,
+///
+/// This is a view into data owned by its [`File`][crate::File].
+#[derive(Copy, Clone, Debug)]
+pub struct SectionRef<'a> {
+    data: &'a SectionData,
+    backing: &'a [u8],
 }
 
 /// A strongly typed index into some range.
@@ -122,11 +149,11 @@ impl Default for SectionId {
 /// of section ids with the matched section and name, and is used for precedence
 /// management.
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub(crate) enum SectionBodyIdsLut<'a> {
+pub(crate) enum SectionBodyIdsLut {
     /// The list of section ids to use for obtaining the section body.
     Terminal(Vec<SectionId>),
     /// A hashmap from sub-section names to section ids.
-    NonTerminal(HashMap<Cow<'a, BStr>, Vec<SectionId>>),
+    NonTerminal(HashMap<BString, Vec<SectionId>>),
 }
 #[cfg(test)]
 mod tests;

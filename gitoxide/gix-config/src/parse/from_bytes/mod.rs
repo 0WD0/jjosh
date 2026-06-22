@@ -1,12 +1,14 @@
-use std::borrow::Cow;
-
 use bstr::{BStr, ByteSlice};
 
-use crate::parse::{Comment, Error, Event, error::ParseNode, section};
+use crate::parse::{Comment, Error, Event, MaybeDecoded, Span, error::ParseNode, section};
 
 type ParseResult<T> = Result<T, ()>;
 
-/// Attempt to zero-copy parse the provided `input`, passing results to `dispatch`.
+/// Parse `input` into span-delineated events, passing results to `dispatch`.
+///
+/// `input` is the backing buffer for every emitted span and the parser does not copy it. A caller
+/// retaining events after this function returns must also retain `input` unchanged, or provide an
+/// identical copy when resolving their spans.
 ///
 /// The `input` is a complete Git config file. A UTF BOM is skipped, leading
 /// comments, whitespace, newlines, and Git-compatible key/value pairs before
@@ -14,29 +16,28 @@ type ParseResult<T> = Result<T, ()>;
 /// sections are parsed until EOF.
 ///
 /// On success, all input is consumed.
-/// On failure, the returned [`Error`] reports the line number, the parser node
-/// that was active, and the remaining bytes at the point where parsing stopped.
-pub fn from_bytes<'i>(mut input: &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> Result<(), Error> {
-    let original = input;
+/// Inputs larger than [`u32::MAX`] bytes are rejected as spans use compact 32-bit offsets. On other
+/// failures, the returned [`Error`] reports the line number, the parser node that was active, and
+/// the remaining bytes at the point where parsing stopped.
+pub(crate) fn from_bytes(mut input: &[u8], dispatch: &mut dyn FnMut(Event)) -> Result<(), Error> {
+    ensure_supported_input_size(input.len())?;
+    let backing = input;
 
     let bom = unicode_bom::Bom::from(input);
     input = &input[bom.len()..];
 
     loop {
         let before = input;
-        if let Ok(comment) = comment(&mut input) {
+        if let Ok(comment) = comment(backing, &mut input) {
             dispatch(Event::Comment(comment));
         } else if let Ok(whitespace) = take_spaces1(&mut input) {
-            dispatch(Event::Whitespace(Cow::Borrowed(whitespace)));
+            dispatch(Event::Whitespace(Span::new(backing, whitespace)));
         } else if let Ok(newline) = take_newlines1(&mut input) {
-            dispatch(Event::Newline(Cow::Borrowed(newline)));
+            dispatch(Event::Newline(Span::new(backing, newline)));
         } else if !input.starts_with(b"[") {
             let mut node = ParseNode::SectionHeader;
-            key_value_pair(&mut input, &mut node, dispatch).map_err(|_| Error {
-                line_number: newlines_from(original, input),
-                last_attempted_parser: node,
-                parsed_until: input.as_bstr().into(),
-            })?;
+            key_value_pair(backing, &mut input, &mut node, dispatch)
+                .map_err(|_| Error::parse(newlines_from(backing, input), node, input.as_bstr().into()))?;
         }
         if input.len() == before.len() {
             break;
@@ -49,11 +50,15 @@ pub fn from_bytes<'i>(mut input: &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) 
 
     let mut node = ParseNode::SectionHeader;
     while !input.is_empty() {
-        section(&mut input, &mut node, dispatch).map_err(|_| Error {
-            line_number: newlines_from(original, input),
-            last_attempted_parser: node,
-            parsed_until: input.as_bstr().into(),
-        })?;
+        section(backing, &mut input, &mut node, dispatch)
+            .map_err(|_| Error::parse(newlines_from(backing, input), node, input.as_bstr().into()))?;
+    }
+    Ok(())
+}
+
+fn ensure_supported_input_size(len: usize) -> Result<(), Error> {
+    if len > u32::MAX as usize {
+        return Err(Error::input_too_large(len));
     }
     Ok(())
 }
@@ -67,12 +72,12 @@ fn newlines_from(original: &[u8], rest: &[u8]) -> usize {
     original[..consumed].iter().filter(|c| **c == b'\n').count()
 }
 
-/// Parse a single Git config comment.
+/// Parse a single Git config comment from `i`, computing slices from `backing`.
 ///
 /// A comment starts with `;` or `#` and continues until, but not including, the
 /// next `\n` or EOF. On success, `i` is advanced to the newline or empty suffix
-/// and the returned [`Comment`] borrows the marker and text from the input.
-fn comment<'i>(i: &mut &'i [u8]) -> ParseResult<Comment<'i>> {
+/// and the returned [`Comment`] stores its text as a span into `backing`.
+fn comment(backing: &[u8], i: &mut &[u8]) -> ParseResult<Comment> {
     let Some((&tag, rest)) = i.split_first() else {
         return Err(());
     };
@@ -84,7 +89,7 @@ fn comment<'i>(i: &mut &'i [u8]) -> ParseResult<Comment<'i>> {
     *i = &rest[end..];
     Ok(Comment {
         tag,
-        text: Cow::Borrowed(text),
+        text: Span::new(backing, text),
     })
 }
 
@@ -92,25 +97,25 @@ fn comment<'i>(i: &mut &'i [u8]) -> ParseResult<Comment<'i>> {
 ///
 /// A section starts with a [`section_header`]. The body may contain whitespace,
 /// newlines, key/value pairs, and comments in sequence. Parsed items are emitted
-/// to `dispatch`, `node` is updated before parsing key names and values for
+/// to `dispatch` with their spans referring to `backing`; `node` is updated before parsing key names and values for
 /// error reporting, and `i` is advanced past all consumed section content.
-fn section<'i>(i: &mut &'i [u8], node: &mut ParseNode, dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResult<()> {
-    let header = section_header(i)?;
+fn section(backing: &[u8], i: &mut &[u8], node: &mut ParseNode, dispatch: &mut dyn FnMut(Event)) -> ParseResult<()> {
+    let header = section_header(backing, i)?;
     dispatch(Event::SectionHeader(header));
 
     loop {
         let before = *i;
 
         if let Ok(v) = take_spaces1(i) {
-            dispatch(Event::Whitespace(Cow::Borrowed(v.as_bstr())));
+            dispatch(Event::Whitespace(Span::new(backing, v)));
         }
         if let Ok(v) = take_newlines1(i) {
-            dispatch(Event::Newline(Cow::Borrowed(v.as_bstr())));
+            dispatch(Event::Newline(Span::new(backing, v)));
         }
 
-        key_value_pair(i, node, dispatch)?;
+        key_value_pair(backing, i, node, dispatch)?;
 
-        if let Ok(comment) = comment(i) {
+        if let Ok(comment) = comment(backing, i) {
             dispatch(Event::Comment(comment));
         }
 
@@ -128,8 +133,8 @@ fn section<'i>(i: &mut &'i [u8], node: &mut ParseNode, dispatch: &mut dyn FnMut(
 /// `[name "subsection"]` form. Section names contain ASCII alphanumeric bytes,
 /// `-`, and `.`, and may be empty only for compatibility with Git's quoted
 /// subsection form. Quoted subsection names are parsed by [`sub_section`]. On
-/// success, `i` is advanced past the closing `]`.
-fn section_header<'i>(i: &mut &'i [u8]) -> ParseResult<section::Header<'i>> {
+/// success, `i` is advanced past the closing `]`, and header spans refer to `backing`.
+fn section_header(backing: &[u8], i: &mut &[u8]) -> ParseResult<section::HeaderData> {
     let mut c = *i;
     c = c.strip_prefix(b"[").ok_or(())?;
     let name = {
@@ -145,13 +150,15 @@ fn section_header<'i>(i: &mut &'i [u8]) -> ParseResult<section::Header<'i>> {
         }
         *i = rest;
         return match name.find_byte(b'.') {
-            Some(index) => Ok(section::Header {
-                name: section::Name(Cow::Borrowed(name[..index].as_bstr())),
-                separator: name.get(index..=index).map(|s| Cow::Borrowed(s.as_bstr())),
-                subsection_name: name.get(index + 1..).map(|s| Cow::Borrowed(s.as_bstr())),
+            Some(index) => Ok(section::HeaderData {
+                name: Span::new(backing, name[..index].as_bstr()),
+                separator: name.get(index..=index).map(|sep| Span::new(backing, sep)),
+                subsection_name: name
+                    .get(index + 1..)
+                    .map(|name| crate::parse::MaybeDecoded::raw(Span::new(backing, name))),
             }),
-            None => Ok(section::Header {
-                name: section::Name(Cow::Borrowed(name.as_bstr())),
+            None => Ok(section::HeaderData {
+                name: Span::new(backing, name.as_bstr()),
                 separator: None,
                 subsection_name: None,
             }),
@@ -163,14 +170,14 @@ fn section_header<'i>(i: &mut &'i [u8]) -> ParseResult<section::Header<'i>> {
         return Err(());
     };
     c = rest;
-    let subsection_name = quoted_sub_section(&mut c)?;
+    let subsection_name = quoted_sub_section(backing, &mut c)?;
     let Some(rest) = c.strip_prefix(b"\"]") else {
         return Err(());
     };
     *i = rest;
-    Ok(section::Header {
-        name: section::Name(Cow::Borrowed(name)),
-        separator: Some(Cow::Borrowed(whitespace)),
+    Ok(section::HeaderData {
+        name: Span::new(backing, name),
+        separator: Some(Span::new(backing, whitespace)),
         subsection_name: Some(subsection_name),
     })
 }
@@ -186,14 +193,16 @@ fn is_section_char(c: u8) -> bool {
 ///
 /// Input starts immediately after the opening quote in `[section "sub"]`.
 /// Parsing stops before the closing quote. Backslash escapes copy the escaped
-/// byte into an owned buffer; otherwise the returned value borrows from the
-/// input. Newlines are rejected. On success, `i` is advanced to the closing
+/// byte into an owned buffer; its raw spelling is retained as a span into `backing`.
+/// Newlines are rejected. On success, `i` is advanced to the closing
 /// quote.
 /// NUL byte are explicitly allowed.
-fn quoted_sub_section<'i>(i: &mut &'i [u8]) -> ParseResult<Cow<'i, BStr>> {
+fn quoted_sub_section(backing: &[u8], i: &mut &[u8]) -> ParseResult<crate::parse::MaybeDecoded> {
     let mut c = *i;
     let input = c;
     let mut out: Option<Vec<u8>> = None;
+    // Number of raw bytes consumed from `input`. It identifies the prefix to copy when the first
+    // escape requires a decoded value, and the complete raw span once parsing finishes.
     let mut borrowed_len = 0usize;
     while let Some(&b) = c.first() {
         match b {
@@ -219,17 +228,19 @@ fn quoted_sub_section<'i>(i: &mut &'i [u8]) -> ParseResult<Cow<'i, BStr>> {
         }
     }
     *i = c;
-    Ok(match out {
-        Some(out) => Cow::Owned(out.into()),
-        None => Cow::Borrowed(input[..borrowed_len].as_bstr()),
-    })
+    let raw = Span::new(backing, input[..borrowed_len].as_bstr());
+    let out = MaybeDecoded {
+        raw,
+        decoded: out.map(Into::into),
+    };
+    Ok(out)
 }
 
 /// Parse a config key or value name.
 ///
 /// Names must start with an ASCII alphabetic byte and may continue with ASCII
 /// alphanumeric bytes or `-`. On success, `i` is advanced past the name and the
-/// returned value borrows the consumed bytes.
+/// returned value refers to the consumed bytes.
 fn config_name<'i>(i: &mut &'i [u8]) -> ParseResult<&'i BStr> {
     if !i.first().is_some_and(u8::is_ascii_alphabetic) {
         return Err(());
@@ -247,37 +258,42 @@ fn config_name<'i>(i: &mut &'i [u8]) -> ParseResult<&'i BStr> {
 ///
 /// If a key name is present, this emits [`Event::SectionValueName`], optional
 /// whitespace, and then the value events produced by [`config_value`]. If no
-/// key name is present, this succeeds without emitting anything.
+/// key name is present, this succeeds without emitting anything. Emitted spans refer to `backing`.
 /// `node` is updated to distinguish name and value parse errors.
-fn key_value_pair<'i>(i: &mut &'i [u8], node: &mut ParseNode, dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResult<()> {
+fn key_value_pair(
+    backing: &[u8],
+    i: &mut &[u8],
+    node: &mut ParseNode,
+    dispatch: &mut dyn FnMut(Event),
+) -> ParseResult<()> {
     *node = ParseNode::Name;
     let Ok(name) = config_name(i) else { return Ok(()) };
 
-    dispatch(Event::SectionValueName(section::ValueName(Cow::Borrowed(name))));
+    dispatch(Event::SectionValueName(Span::new(backing, name)));
 
     if let Ok(whitespace) = take_spaces1(i) {
-        dispatch(Event::Whitespace(Cow::Borrowed(whitespace)));
+        dispatch(Event::Whitespace(Span::new(backing, whitespace)));
     }
 
     *node = ParseNode::Value;
-    config_value(i, dispatch)
+    config_value(backing, i, dispatch)
 }
 
 /// Parse the value portion of a key/value pair.
 ///
 /// If `=` is present, this emits [`Event::KeyValueSeparator`], optional
 /// whitespace, and delegates to [`value`]. If `=` is absent, the key is an
-/// implicit boolean and an empty [`Event::Value`] is emitted.
-fn config_value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResult<()> {
+/// implicit boolean and an empty [`Event::Value`] is emitted. Emitted spans refer to `backing`.
+fn config_value(backing: &[u8], i: &mut &[u8], dispatch: &mut dyn FnMut(Event)) -> ParseResult<()> {
     if let Some(rest) = i.strip_prefix(b"=") {
         *i = rest;
         dispatch(Event::KeyValueSeparator);
         if let Ok(whitespace) = take_spaces1(i) {
-            dispatch(Event::Whitespace(Cow::Borrowed(whitespace)));
+            dispatch(Event::Whitespace(Span::new(backing, whitespace)));
         }
-        value(i, dispatch)
+        value(backing, i, dispatch)
     } else {
-        dispatch(Event::Value(Cow::Borrowed("".into())));
+        dispatch(Event::Value(Span::default()));
         Ok(())
     }
 }
@@ -292,8 +308,8 @@ fn config_value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> Pa
 /// [`Event::ValueNotDone`] followed directly by an empty [`Event::ValueDone`].
 /// Otherwise a single [`Event::Value`] is emitted with trailing ASCII whitespace
 /// trimmed from the logical value.
-/// On success, `i` is advanced to the first unconsumed delimiter or EOF.
-fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResult<()> {
+/// On success, `i` is advanced to the first unconsumed delimiter or EOF, and emitted spans refer to `backing`.
+fn value(backing: &[u8], i: &mut &[u8], dispatch: &mut dyn FnMut(Event)) -> ParseResult<()> {
     let input = *i;
     let mut cursor = 0usize;
     let mut value_start = 0usize;
@@ -319,8 +335,8 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
                 let mut consumed = 1usize;
                 let Some(mut b) = input.get(cursor).copied() else {
                     let value = input[value_start..escape_index].as_bstr();
-                    dispatch(Event::ValueNotDone(Cow::Borrowed(value)));
-                    dispatch(Event::ValueDone(Cow::Borrowed("".into())));
+                    dispatch(Event::ValueNotDone(Span::new(backing, value)));
+                    dispatch(Event::ValueDone(Span::default()));
                     *i = &[];
                     return Ok(());
                 };
@@ -336,10 +352,10 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
                     b'\n' => {
                         partial_value_found = true;
                         let value = input[value_start..escape_index].as_bstr();
-                        dispatch(Event::ValueNotDone(Cow::Borrowed(value)));
+                        dispatch(Event::ValueNotDone(Span::new(backing, value)));
                         let nl_start = escape_index + 1;
                         let nl = input[nl_start..nl_start + consumed].as_bstr();
-                        dispatch(Event::Newline(Cow::Borrowed(nl)));
+                        dispatch(Event::Newline(Span::new(backing, nl)));
                         cursor += 1;
                         value_start = cursor;
                         value_end = None;
@@ -361,7 +377,7 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
 
     let end = value_end.unwrap_or(cursor);
     if end == value_start {
-        dispatch(Event::Value(Cow::Borrowed("".into())));
+        dispatch(Event::Value(Span::default()));
         *i = &input[cursor..];
         return Ok(());
     }
@@ -374,9 +390,9 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
         .unwrap_or(value_start);
     let value = input[value_start..value_end_no_trailing_whitespace].as_bstr();
     if partial_value_found {
-        dispatch(Event::ValueDone(Cow::Borrowed(value)));
+        dispatch(Event::ValueDone(Span::new(backing, value)));
     } else {
-        dispatch(Event::Value(Cow::Borrowed(value)));
+        dispatch(Event::Value(Span::new(backing, value)));
     }
     *i = &input[value_end_no_trailing_whitespace..];
     Ok(())
@@ -386,7 +402,7 @@ fn value<'i>(i: &mut &'i [u8], dispatch: &mut dyn FnMut(Event<'i>)) -> ParseResu
 ///
 /// At least one space or horizontal tab must be present at the current cursor.
 /// On success, `i` is advanced past the whitespace run and the returned
-/// [`BStr`] borrows the consumed bytes.
+/// [`BStr`] refers to the consumed bytes.
 fn take_spaces1<'i>(i: &mut &'i [u8]) -> ParseResult<&'i BStr> {
     let len = i.iter().take_while(|c| **c == b' ' || **c == b'\t').count();
     if len == 0 {
@@ -401,7 +417,7 @@ fn take_spaces1<'i>(i: &mut &'i [u8]) -> ParseResult<&'i BStr> {
 ///
 /// Both `\n` and `\r\n` are accepted. At least one line ending must be present
 /// at the current cursor. On success, `i` is advanced past the newline run and
-/// the returned [`BStr`] borrows the consumed bytes.
+/// the returned [`BStr`] refers to the consumed bytes.
 fn take_newlines1<'i>(i: &mut &'i [u8]) -> ParseResult<&'i BStr> {
     let mut c = *i;
     let input = c;

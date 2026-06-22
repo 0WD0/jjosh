@@ -1,93 +1,95 @@
 use std::borrow::Cow;
 
-use gix_config::value::normalize_bstr;
-
-use crate::file::cow_str;
+use gix_config::value::normalize;
 
 #[test]
-fn not_modified_is_borrowed() {
-    let cow = normalize_bstr("hello world");
-    assert_eq!(cow, cow_str("hello world"));
-    assert!(matches!(cow, Cow::Borrowed(_)));
+fn input_without_quotes_or_escapes_is_unchanged() {
+    assert!(
+        matches!(
+            normalize("hello world"),
+            Cow::Borrowed(value) if value == "hello world"
+        ),
+        "normalization leaves every byte unchanged, so the output can borrow the entire input"
+    );
 }
 
 #[test]
-fn modified_is_owned() {
-    let cow = normalize_bstr("hello \"world\"");
-    assert_eq!(cow, cow_str("hello world"));
-    assert!(matches!(cow, Cow::Owned(_)));
+fn embedded_quotes_are_removed() {
+    assert!(matches!(
+        normalize("hello \"world\""),
+        Cow::Owned(value) if value == "hello world"
+    ));
 }
 
 #[test]
-fn empty_quotes_are_zero_copy() {
-    let cow = normalize_bstr("\"\"");
-    assert_eq!(cow, cow_str(""));
-    assert!(matches!(cow, Cow::Borrowed(_)));
+fn empty_quotes_are_empty() {
+    assert!(
+        matches!(normalize("\"\""), Cow::Borrowed(value) if value.is_empty()),
+        "removing the quotes leaves the empty subslice between them, so the output can borrow that subslice"
+    );
 }
 
 #[test]
-fn all_quoted_is_optimized() {
-    let cow = normalize_bstr("\"hello world\"");
-    assert_eq!(cow, cow_str("hello world"));
-    assert!(matches!(cow, Cow::Borrowed(_)));
+fn all_quoted_is_unquoted() {
+    assert!(
+        matches!(
+            normalize("\"hello world\""),
+            Cow::Borrowed(value) if value == "hello world"
+        ),
+        "removing only the enclosing bytes leaves a contiguous inner subslice that can be borrowed"
+    );
 }
 
 #[test]
-fn all_quote_optimization_is_correct() {
-    let cow = normalize_bstr(r#""hello" world\""#);
-    assert_eq!(cow, cow_str("hello world\""));
-    assert!(matches!(cow, Cow::Owned(_)));
+fn an_escaped_trailing_quote_is_preserved() {
+    assert_eq!(&*normalize(r#""hello" world\""#), "hello world\"");
 }
 
 #[test]
 fn quotes_right_next_to_each_other() {
-    let cow = normalize_bstr("\"hello\"\" world\"");
-    assert_eq!(cow, cow_str("hello world").clone());
-    assert!(matches!(cow, Cow::Owned(_)));
+    assert_eq!(&*normalize("\"hello\"\" world\""), "hello world");
 }
 
 #[test]
 fn escaped_quotes_are_kept() {
-    let cow = normalize_bstr(r#""hello \"\" world""#);
-    assert_eq!(cow, cow_str("hello \"\" world").clone());
-    assert!(matches!(cow, Cow::Owned(_)));
+    assert_eq!(&*normalize(r#""hello \"\" world""#), "hello \"\" world");
 }
 
 #[test]
 fn empty_string() {
-    let cow = normalize_bstr("");
-    assert_eq!(cow, cow_str(""));
-    assert!(matches!(cow, Cow::Borrowed(_)));
+    assert!(
+        matches!(normalize(""), Cow::Borrowed(value) if value.is_empty()),
+        "the normalized output is identical to the empty input, so it can borrow the input"
+    );
 }
 
 #[test]
-fn inner_quotes_are_removed() {
-    assert_eq!(normalize_bstr(r#"5"hello world""#), cow_str("5hello world"));
-    assert_eq!(normalize_bstr(r#"true"""#), cow_str("true"));
-    assert_eq!(normalize_bstr(r#"fa"lse""#), cow_str("false"));
+fn quotes_are_removed_from_partially_quoted_values() {
+    assert_eq!(&*normalize(r#"5"hello world""#), "5hello world");
+    assert_eq!(&*normalize(r#"true"""#), "true");
+    assert_eq!(&*normalize(r#"fa"lse""#), "false");
 }
 
 #[test]
-fn newline_tab_backspace_are_escapable() {
-    assert_eq!(normalize_bstr(r"\n\ta\b"), cow_str("\n\t"));
+fn newline_tab_and_backspace_escapes_are_interpreted() {
+    assert_eq!(&*normalize(r"\n\ta\b"), "\n\t");
 }
 
 #[test]
 fn tabs_are_not_resolved_to_spaces_unlike_what_git_does() {
-    assert_eq!(normalize_bstr("\t"), cow_str("\t"));
+    assert!(
+        matches!(normalize("\t"), Cow::Borrowed(value) if value == "\t"),
+        "a literal tab is not an escape sequence, so normalization can borrow the unchanged input"
+    );
 }
 
 #[test]
-fn other_escapes_are_ignored_entirely() {
+fn unsupported_escapes_drop_the_backslash() {
     assert_eq!(
-        normalize_bstr(r"\x"),
-        cow_str("x"),
+        &*normalize(r"\x"),
+        "x",
         "however, these would cause failure on parsing level so we ignore it similar to subsections"
     );
-    assert_eq!(normalize_bstr(r#""\x""#), cow_str("x"), "same if within quotes");
-    assert_eq!(
-        normalize_bstr(r#""\"#),
-        cow_str(""),
-        "freestanding escapes are ignored as well"
-    );
+    assert_eq!(&*normalize(r#""\x""#), "x", "same if within quotes");
+    assert_eq!(&*normalize(r#""\"#), "", "freestanding escapes are ignored as well");
 }

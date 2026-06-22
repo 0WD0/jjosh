@@ -9,7 +9,7 @@ use gix_config::file::{
 use gix_ref::FullName;
 use gix_testtools::tempfile::tempdir;
 
-use crate::file::{cow_str, init::from_paths::includes::conditional::git_init};
+use crate::file::{bstring, init::from_paths::includes::conditional::git_init};
 
 type Result = crate::Result;
 
@@ -249,7 +249,7 @@ value = branch-override-by-include
     .expect("non-empty");
     assert_eq!(
         config.string_by("section", None, "value"),
-        Some(cow_str(match expect {
+        Some(bstring(match expect {
             Value::OverrideByInclude => "branch-override-by-include",
             Value::Base => "base-value",
         })),

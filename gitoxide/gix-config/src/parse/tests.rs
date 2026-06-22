@@ -1,36 +1,31 @@
 mod section {
-    use std::borrow::Cow;
-
-    use bstr::BStr;
-
-    use crate::parse::{Comment, Event, Events, Section, section, section::Header};
+    use crate::parse::{Comment, Event, Events, SectionRef, section};
 
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn size_of_events() {
         assert_eq!(
-            std::mem::size_of::<Section<'_>>(),
-            96,
+            std::mem::size_of::<SectionRef>(),
+            40,
             "this value should only ever decrease"
         );
-        assert_eq!(std::mem::size_of::<Events<'_>>(), 616);
-        assert_eq!(std::mem::size_of::<Event<'_>>(), 72);
-        assert_eq!(std::mem::size_of::<Header<'_>>(), 72);
-        assert_eq!(std::mem::size_of::<Comment<'_>>(), 32);
-        assert_eq!(std::mem::size_of::<Option<Cow<'_, BStr>>>(), 24);
-        assert_eq!(std::mem::size_of::<section::Name<'_>>(), 24);
-        assert_eq!(std::mem::size_of::<section::ValueName<'_>>(), 24);
+        assert_eq!(std::mem::size_of::<Events>(), 512);
+        assert_eq!(std::mem::size_of::<crate::parse::Span>(), 8);
+        assert_eq!(std::mem::size_of::<Event>(), 56);
+        assert_eq!(std::mem::size_of::<Comment>(), 12);
+        assert_eq!(std::mem::size_of::<section::Name>(), 24);
+        assert_eq!(std::mem::size_of::<section::ValueName>(), 24);
     }
 
     mod header {
         mod unvalidated {
-            use crate::parse::section::unvalidated::Key;
+            use crate::parse::section::unvalidated::KeyRef;
 
             #[test]
             fn section_name_only() {
                 assert_eq!(
-                    Key::parse("core").unwrap(),
-                    Key {
+                    KeyRef::parse("core").unwrap(),
+                    KeyRef {
                         section_name: "core",
                         subsection_name: None
                     }
@@ -40,8 +35,8 @@ mod section {
             #[test]
             fn section_name_and_subsection() {
                 assert_eq!(
-                    Key::parse("core.bare").unwrap(),
-                    Key {
+                    KeyRef::parse("core.bare").unwrap(),
+                    KeyRef {
                         section_name: "core",
                         subsection_name: Some("bare".into())
                     }
@@ -51,97 +46,99 @@ mod section {
             #[test]
             fn section_name_and_subsection_with_separators() {
                 assert_eq!(
-                    Key::parse("remote.https:///home/user.git").unwrap(),
-                    Key {
+                    KeyRef::parse("remote.https:///home/user.git").unwrap(),
+                    KeyRef {
                         section_name: "remote",
                         subsection_name: Some("https:///home/user.git".into())
                     }
                 );
             }
         }
+    }
+}
 
-        mod write_to {
-            use std::borrow::Cow;
+mod span {
+    use crate::parse::Span;
 
-            use crate::parse::section;
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn reports_range_and_rebase_overflow() {
+        assert!(Span::range(u32::MAX as usize + 1, 0).is_err());
+        assert!(Span::range(0, u32::MAX as usize + 1).is_err());
 
-            fn header(name: &str, subsection: impl Into<Option<(&'static str, &'static str)>>) -> section::Header<'_> {
-                let name = section::Name(Cow::Borrowed(name.into()));
-                if let Some((separator, subsection_name)) = subsection.into() {
-                    section::Header {
-                        name,
-                        separator: Some(Cow::Borrowed(separator.into())),
-                        subsection_name: Some(Cow::Borrowed(subsection_name.into())),
-                    }
-                } else {
-                    section::Header {
-                        name,
-                        separator: None,
-                        subsection_name: None,
-                    }
-                }
-            }
-
-            #[test]
-            fn legacy_subsection_format_does_not_use_escapes() {
-                let invalid = header("invalid", Some((".", r#"\ ""#)));
-                assert_eq!(
-                    invalid.to_bstring(),
-                    r#"[invalid.\ "]"#,
-                    "no escaping happens for legacy subsections"
-                );
-                assert!(invalid.is_legacy());
-            }
-
-            #[test]
-            fn subsections_escape_two_characters_only() {
-                let invalid = header("invalid", Some((" ", "\\ \"\npost newline")));
-                assert_eq!(
-                    invalid.to_bstring(),
-                    "[invalid \"\\\\ \\\"\npost newline\"]",
-                    "newlines are actually invalid in subsection, but they are possible due to unvalidated instance creation"
-                );
-                assert!(!invalid.is_legacy());
-            }
-
-            #[test]
-            fn empty_section_name_with_quoted_subsection() {
-                let header = header("", Some((" ", "core")));
-                let mut out = Vec::new();
-                header.write_to(&mut out).unwrap();
-                assert_eq!(
-                    out, br#"[ "core"]"#,
-                    "Git accepts this as an empty section name with `core` as subsection, and we keep it"
-                );
-                assert!(!header.is_legacy());
-            }
-
-            #[test]
-            fn nul_byte_in_quoted_subsection() {
-                let header = header("hello", Some((" ", "hello\0")));
-                let mut out = Vec::new();
-                header.write_to(&mut out).unwrap();
-                assert_eq!(
-                    out, b"[hello \"hello\0\"]",
-                    "Git accepts NUL bytes in quoted subsection names, and we preserve them"
-                );
-                assert!(!header.is_legacy());
-            }
-        }
+        let mut span = Span::range(u32::MAX as usize, 0).expect("the maximum offset is representable");
+        assert_eq!(span.rebase(1), Err(crate::parse::span::Error));
     }
 }
 
 mod event {
     mod write_to {
-        use crate::parse::Events;
+        use crate::parse::{EventRef, Events};
+
+        fn header(
+            name: &'static str,
+            subsection: impl Into<Option<(&'static str, &'static str)>>,
+        ) -> EventRef<'static> {
+            let (separator, subsection_name) =
+                subsection.into().map_or((None, None), |(separator, subsection_name)| {
+                    (Some(separator.into()), Some(subsection_name.into()))
+                });
+            EventRef::SectionHeader {
+                name: name.into(),
+                separator,
+                subsection_name,
+            }
+        }
+
+        fn write_event(event: EventRef<'_>) -> Vec<u8> {
+            let mut out = Vec::new();
+            event.write_to(&mut out).expect("writing to memory succeeds");
+            out
+        }
 
         fn write_events(input: &str) -> Vec<u8> {
-            let events = Events::from_str(input).unwrap().into_vec();
+            let events = Events::from_str(input).unwrap();
             let mut out = Vec::new();
-            for event in &events {
+            for event in events.iter() {
                 event.write_to(&mut out).unwrap();
             }
             out
+        }
+
+        #[test]
+        fn legacy_subsection_format_does_not_use_escapes() {
+            assert_eq!(
+                write_event(header("invalid", Some((".", r#"\ ""#)))),
+                br#"[invalid.\ "]"#,
+                "no escaping happens for legacy subsections"
+            );
+        }
+
+        #[test]
+        fn subsections_escape_two_characters_only() {
+            assert_eq!(
+                write_event(header("invalid", Some((" ", "\\ \"\npost newline")))),
+                b"[invalid \"\\\\ \\\"\npost newline\"]",
+                "newlines are invalid in validated subsections, but EventRef can represent them"
+            );
+        }
+
+        #[test]
+        fn empty_section_name_with_quoted_subsection() {
+            assert_eq!(
+                write_event(header("", Some((" ", "core")))),
+                br#"[ "core"]"#,
+                "Git accepts an empty section name with `core` as subsection"
+            );
+        }
+
+        #[test]
+        fn nul_byte_in_quoted_subsection() {
+            assert_eq!(
+                write_event(header("hello", Some((" ", "hello\0")))),
+                b"[hello \"hello\0\"]",
+                "Git accepts NUL bytes in quoted subsection names"
+            );
         }
 
         #[test]
@@ -169,67 +166,128 @@ mod event {
 pub(crate) mod util {
     //! This module is only included for tests, and contains common unit test helper
     //! functions.
+    //!
+    //! Parsed events store spans into a separate backing buffer, so their fields cannot be inspected
+    //! or compared meaningfully without the backing buffer. The `Owned*` types resolve those spans into
+    //! owned byte strings, allowing tests to compare event contents independently of span coordinates
+    //! and to retain expected or actual values after a temporary backing buffer is dropped.
 
-    use std::borrow::Cow;
+    use bstr::BString;
 
-    use crate::parse::{Comment, Event, section};
+    use crate::parse::{Event, section};
 
-    pub fn section_header(
-        name: &str,
-        subsection: impl Into<Option<(&'static str, &'static str)>>,
-    ) -> section::Header<'_> {
-        let name = section::Name::try_from(name).unwrap();
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) struct OwnedHeader {
+        pub(crate) name: BString,
+        pub(crate) separator: Option<BString>,
+        pub(crate) subsection_name: Option<BString>,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) enum OwnedEvent {
+        Comment(OwnedComment),
+        SectionHeader(OwnedHeader),
+        SectionValueName(BString),
+        Value(BString),
+        Newline(BString),
+        ValueNotDone(BString),
+        ValueDone(BString),
+        Whitespace(BString),
+        KeyValueSeparator,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) struct OwnedComment {
+        pub(crate) tag: u8,
+        pub(crate) text: BString,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub(crate) struct OwnedSection {
+        pub(crate) header: OwnedHeader,
+        pub(crate) events: Vec<OwnedEvent>,
+    }
+
+    pub(crate) fn own_event(event: &Event, backing: &[u8]) -> OwnedEvent {
+        match event {
+            Event::Comment(comment) => OwnedEvent::Comment(OwnedComment {
+                tag: comment.tag,
+                text: comment.text.to_bstring_in(backing),
+            }),
+            Event::SectionHeader(header) => OwnedEvent::SectionHeader(own_header(header, backing)),
+            Event::SectionValueName(name) => OwnedEvent::SectionValueName(name.to_bstring_in(backing)),
+            Event::Value(value) => OwnedEvent::Value(value.to_bstring_in(backing)),
+            Event::Newline(value) => OwnedEvent::Newline(value.to_bstring_in(backing)),
+            Event::ValueNotDone(value) => OwnedEvent::ValueNotDone(value.to_bstring_in(backing)),
+            Event::ValueDone(value) => OwnedEvent::ValueDone(value.to_bstring_in(backing)),
+            Event::Whitespace(value) => OwnedEvent::Whitespace(value.to_bstring_in(backing)),
+            Event::KeyValueSeparator => OwnedEvent::KeyValueSeparator,
+        }
+    }
+
+    pub(crate) fn own_header(header: &section::HeaderData, backing: &[u8]) -> OwnedHeader {
+        OwnedHeader {
+            name: header.name.to_bstring_in(backing),
+            separator: header.separator.map(|separator| separator.to_bstring_in(backing)),
+            subsection_name: header
+                .subsection_name
+                .as_ref()
+                .map(|subsection_name| subsection_name.value_in(backing).to_owned()),
+        }
+    }
+
+    pub fn section_header(name: &str, subsection: impl Into<Option<(&'static str, &'static str)>>) -> OwnedHeader {
         if let Some((separator, subsection_name)) = subsection.into() {
-            section::Header {
-                name,
-                separator: Some(Cow::Borrowed(separator.into())),
-                subsection_name: Some(Cow::Borrowed(subsection_name.into())),
+            OwnedHeader {
+                name: name.into(),
+                separator: Some(separator.into()),
+                subsection_name: Some(subsection_name.into()),
             }
         } else {
-            section::Header {
-                name,
+            OwnedHeader {
+                name: name.into(),
                 separator: None,
                 subsection_name: None,
             }
         }
     }
 
-    pub(crate) fn name_event(name: &'static str) -> Event<'static> {
-        Event::SectionValueName(section::ValueName(Cow::Borrowed(name.into())))
+    pub(crate) fn name_event(name: &'static str) -> OwnedEvent {
+        OwnedEvent::SectionValueName(name.into())
     }
 
-    pub(crate) fn value_event(value: &'static str) -> Event<'static> {
-        Event::Value(Cow::Borrowed(value.into()))
+    pub(crate) fn value_event(value: &'static str) -> OwnedEvent {
+        OwnedEvent::Value(value.into())
     }
 
-    pub(crate) fn value_not_done_event(value: &'static str) -> Event<'static> {
-        Event::ValueNotDone(Cow::Borrowed(value.into()))
+    pub(crate) fn value_not_done_event(value: &'static str) -> OwnedEvent {
+        OwnedEvent::ValueNotDone(value.into())
     }
 
-    pub(crate) fn value_done_event(value: &'static str) -> Event<'static> {
-        Event::ValueDone(Cow::Borrowed(value.into()))
+    pub(crate) fn value_done_event(value: &'static str) -> OwnedEvent {
+        OwnedEvent::ValueDone(value.into())
     }
 
-    pub(crate) fn newline_event() -> Event<'static> {
+    pub(crate) fn newline_event() -> OwnedEvent {
         newline_custom_event("\n")
     }
 
-    pub(crate) fn newline_custom_event(value: &'static str) -> Event<'static> {
-        Event::Newline(Cow::Borrowed(value.into()))
+    pub(crate) fn newline_custom_event(value: &'static str) -> OwnedEvent {
+        OwnedEvent::Newline(value.into())
     }
 
-    pub(crate) fn whitespace_event(value: &'static str) -> Event<'static> {
-        Event::Whitespace(Cow::Borrowed(value.into()))
+    pub(crate) fn whitespace_event(value: &'static str) -> OwnedEvent {
+        OwnedEvent::Whitespace(value.into())
     }
 
-    pub(crate) fn comment_event(tag: char, msg: &'static str) -> Event<'static> {
-        Event::Comment(comment(tag, msg))
+    pub(crate) fn comment_event(tag: char, msg: &'static str) -> OwnedEvent {
+        OwnedEvent::Comment(comment(tag, msg))
     }
 
-    pub(crate) fn comment(comment_tag: char, comment: &'static str) -> Comment<'static> {
-        Comment {
+    pub(crate) fn comment(comment_tag: char, comment: &'static str) -> OwnedComment {
+        OwnedComment {
             tag: comment_tag as u8,
-            text: Cow::Borrowed(comment.into()),
+            text: comment.into(),
         }
     }
 

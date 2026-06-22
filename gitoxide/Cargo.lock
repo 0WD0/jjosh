@@ -1729,6 +1729,7 @@ dependencies = [
  "gix-ref",
  "gix-sec",
  "gix-testtools",
+ "gix-utils",
  "serde",
  "serial_test",
  "smallvec",
