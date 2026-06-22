@@ -6,7 +6,7 @@ use gix_transport::client::blocking_io::Transport;
 
 use crate::{
     bstr::BString,
-    remote::{Connection, Direction, fetch},
+    remote::{Connection, connection::ConnectionDetached, fetch},
 };
 
 /// The error returned by [`Connection::ref_map()`].
@@ -66,7 +66,7 @@ impl Default for Options {
     }
 }
 
-impl<T> Connection<'_, '_, T>
+impl<T> Connection<'_, '_, '_, T>
 where
     T: Transport,
 {
@@ -89,11 +89,28 @@ where
     #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub async fn ref_map(
-        mut self,
+        self,
         progress: impl Progress,
         options: Options,
     ) -> Result<(fetch::RefMap, gix_protocol::Handshake), Error> {
-        let refmap = self.ref_map_by_ref(progress, options).await?;
+        let repo = self.remote.repo;
+        self.into_detached().ref_map(repo, progress, options).await
+    }
+}
+
+impl<T> ConnectionDetached<'_, T>
+where
+    T: Transport,
+{
+    #[allow(clippy::result_large_err)]
+    #[gix_protocol::maybe_async::maybe_async]
+    pub(crate) async fn ref_map(
+        mut self,
+        repo: &crate::Repository,
+        progress: impl Progress,
+        options: Options,
+    ) -> Result<(fetch::RefMap, gix_protocol::Handshake), Error> {
+        let refmap = self.ref_map_by_ref(repo, progress, options).await?;
         let handshake = self
             .handshake
             .expect("refmap always performs handshake and stores it if it succeeds");
@@ -104,6 +121,7 @@ where
     #[gix_protocol::maybe_async::maybe_async]
     pub(crate) async fn ref_map_by_ref(
         &mut self,
+        repo: &crate::Repository,
         mut progress: impl Progress,
         Options {
             prefix_from_spec_as_filter_on_remote,
@@ -122,16 +140,15 @@ where
         let authenticate = match self.authenticate.as_mut() {
             Some(f) => f,
             None => {
-                let url = self.remote.url(Direction::Fetch).map_or_else(
+                let url = self.remote.fetch_url().map_or_else(
                     || gix_url::parse(url.as_ref()).expect("valid URL to be provided by transport"),
                     ToOwned::to_owned,
                 );
-                credentials_storage = self.configured_credentials(url)?;
+                credentials_storage = self.configured_credentials(repo, url)?;
                 &mut credentials_storage
             }
         };
 
-        let repo = self.remote.repo;
         if self.transport_options.is_none() {
             self.transport_options = repo
                 .transport_options(url.as_ref(), self.remote.name().map(crate::remote::Name::as_bstr))
@@ -158,7 +175,7 @@ where
         };
 
         let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(
-            self.remote.repo.config.user_agent_tuple(),
+            repo.config.user_agent_tuple(),
             prefix_from_spec_as_filter_on_remote,
             context,
         )?;

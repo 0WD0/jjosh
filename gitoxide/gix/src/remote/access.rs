@@ -1,5 +1,7 @@
 use gix_refspec::RefSpec;
 
+#[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+use crate::types::RemoteDetached;
 use crate::{Remote, bstr::BStr, remote};
 
 /// Access
@@ -42,6 +44,31 @@ impl<'repo> Remote<'repo> {
                 .or(self.push_url.as_ref())
                 .or_else(|| self.url(remote::Direction::Fetch)),
         }
+    }
+
+    /// Return a clone of this remote without its repository reference.
+    #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+    pub(crate) fn detached(&self) -> RemoteDetached {
+        self.clone().into()
+    }
+}
+
+/// Access
+#[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+impl RemoteDetached {
+    /// Return the name of this remote or `None` if it wasn't persisted to disk yet.
+    pub(crate) fn name(&self) -> Option<&remote::Name<'static>> {
+        self.name.as_ref()
+    }
+
+    /// Return the set of ref-specs used for fetching, which may be empty, in order of occurrence in the configuration.
+    pub(crate) fn fetch_refspecs(&self) -> &[RefSpec] {
+        &self.fetch_specs
+    }
+
+    /// Return the fetch URL with rewrites from `url.<base>.insteadOf`.
+    pub(crate) fn fetch_url(&self) -> Option<&gix_url::Url> {
+        self.url_alias.as_ref().or(self.url.as_ref())
     }
 }
 
@@ -101,5 +128,30 @@ impl Remote<'_> {
         };
         *dst = specs;
         Ok(())
+    }
+}
+
+#[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
+impl From<Remote<'_>> for RemoteDetached {
+    fn from(
+        Remote {
+            name,
+            url,
+            url_alias,
+            fetch_specs,
+            fetch_tags,
+            push_url: _,
+            push_url_alias: _,
+            push_specs: _,
+            repo: _,
+        }: Remote<'_>,
+    ) -> Self {
+        RemoteDetached {
+            name,
+            url,
+            url_alias,
+            fetch_specs,
+            fetch_tags,
+        }
     }
 }

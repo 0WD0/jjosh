@@ -9,6 +9,7 @@ use crate::{
     remote,
     remote::{
         Connection,
+        connection::ConnectionDetached,
         fetch::{DryRun, RefMap},
         ref_map,
     },
@@ -120,7 +121,7 @@ pub mod prepare {
     }
 }
 
-impl<'remote, 'repo, T> Connection<'remote, 'repo, T>
+impl<'auth, 'repo, T> Connection<'_, 'auth, 'repo, T>
 where
     T: Transport,
 {
@@ -139,15 +140,33 @@ where
     #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub async fn prepare_fetch(
-        mut self,
+        self,
         progress: impl Progress,
         options: ref_map::Options,
-    ) -> Result<Prepare<'remote, 'repo, T>, prepare::Error> {
-        if self.remote.refspecs(remote::Direction::Fetch).is_empty() && options.extra_refspecs.is_empty() {
+    ) -> Result<Prepare<'auth, 'repo, T>, prepare::Error> {
+        let repo = self.remote.repo;
+        let inner = self.into_detached().prepare_fetch(repo, progress, options).await?;
+        Ok(Prepare { inner, repo })
+    }
+}
+
+impl<'remote, T> ConnectionDetached<'remote, T>
+where
+    T: Transport,
+{
+    #[allow(clippy::result_large_err)]
+    #[gix_protocol::maybe_async::maybe_async]
+    pub(crate) async fn prepare_fetch(
+        mut self,
+        repo: &crate::Repository,
+        progress: impl Progress,
+        options: ref_map::Options,
+    ) -> Result<PrepareDetached<'remote, T>, prepare::Error> {
+        if self.remote.fetch_refspecs().is_empty() && options.extra_refspecs.is_empty() {
             return Err(prepare::Error::MissingRefSpecs);
         }
-        let ref_map = self.ref_map_by_ref(progress, options).await?;
-        Ok(Prepare {
+        let ref_map = self.ref_map_by_ref(repo, progress, options).await?;
+        Ok(PrepareDetached {
             con: Some(self),
             ref_map,
             dry_run: DryRun::No,
@@ -164,6 +183,17 @@ where
 {
     /// Return the `ref_map` (that includes the server handshake) which was part of listing refs prior to fetching a pack.
     pub fn ref_map(&self) -> &RefMap {
+        &self.inner.ref_map
+    }
+}
+
+#[allow(dead_code)]
+impl<T> PrepareDetached<'_, T>
+where
+    T: Transport,
+{
+    /// Return the `ref_map` (that includes the server handshake) which was part of listing refs prior to fetching a pack.
+    pub(crate) fn ref_map(&self) -> &RefMap {
         &self.ref_map
     }
 }
@@ -179,7 +209,16 @@ pub struct Prepare<'remote, 'repo, T>
 where
     T: Transport,
 {
-    con: Option<Connection<'remote, 'repo, T>>,
+    inner: PrepareDetached<'remote, T>,
+    repo: &'repo crate::Repository,
+}
+
+/// A repository-detached preparation for a fetch operation.
+pub(crate) struct PrepareDetached<'remote, T>
+where
+    T: Transport,
+{
+    con: Option<ConnectionDetached<'remote, T>>,
     ref_map: RefMap,
     dry_run: DryRun,
     reflog_message: Option<RefLogMessage>,
@@ -196,7 +235,7 @@ where
     ///
     /// This works by not actually fetching the pack after negotiating it, nor will refs be updated.
     pub fn with_dry_run(mut self, enabled: bool) -> Self {
-        self.dry_run = if enabled { DryRun::Yes } else { DryRun::No };
+        self.inner.dry_run = if enabled { DryRun::Yes } else { DryRun::No };
         self
     }
 
@@ -205,6 +244,33 @@ where
     /// This improves performance and allows case-sensitive filesystems to deal with ref names that would otherwise
     /// collide.
     pub fn with_write_packed_refs_only(mut self, enabled: bool) -> Self {
+        let changed = self.inner.with_write_packed_refs_only(enabled);
+        self.inner = changed;
+        self
+    }
+
+    /// Set the reflog message to use when updating refs after fetching a pack.
+    pub fn with_reflog_message(mut self, reflog_message: RefLogMessage) -> Self {
+        self.inner.reflog_message = reflog_message.into();
+        self
+    }
+
+    /// Define what to do when the current repository is a shallow clone.
+    ///
+    /// *Has no effect if the current repository is not as shallow clone.*
+    pub fn with_shallow(mut self, shallow: remote::fetch::Shallow) -> Self {
+        self.inner.shallow = shallow;
+        self
+    }
+}
+
+/// Builder
+#[allow(dead_code)]
+impl<T> PrepareDetached<'_, T>
+where
+    T: Transport,
+{
+    pub(crate) fn with_write_packed_refs_only(mut self, enabled: bool) -> Self {
         self.write_packed_refs = if enabled {
             WritePackedRefs::Only
         } else {
@@ -213,16 +279,12 @@ where
         self
     }
 
-    /// Set the reflog message to use when updating refs after fetching a pack.
-    pub fn with_reflog_message(mut self, reflog_message: RefLogMessage) -> Self {
+    pub(crate) fn with_reflog_message(mut self, reflog_message: RefLogMessage) -> Self {
         self.reflog_message = reflog_message.into();
         self
     }
 
-    /// Define what to do when the current repository is a shallow clone.
-    ///
-    /// *Has no effect if the current repository is not as shallow clone.*
-    pub fn with_shallow(mut self, shallow: remote::fetch::Shallow) -> Self {
+    pub(crate) fn with_shallow(mut self, shallow: remote::fetch::Shallow) -> Self {
         self.shallow = shallow;
         self
     }

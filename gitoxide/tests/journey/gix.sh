@@ -157,6 +157,37 @@ title "gix (with repository)"
       )
     )
   )
+  if test "$kind" = "max" || test "$kind" = "max-pure"; then
+  title "gix fetch"
+  (when "running 'fetch'"
+    snapshot="$snapshot/fetch"
+    (with "a SHA-256 repository"
+      (sandbox
+        git init --object-format=sha256 -q remote
+        (
+          cd remote
+          git checkout -q -b main
+          echo first >file
+          git add file
+          git commit -q -m "first"
+        )
+        git clone -q "$PWD/remote" clone
+        (
+          cd remote
+          echo second >file
+          git commit -q -am "second"
+        )
+
+        it "fetches from origin" && {
+          expect_run_sh $SUCCESSFULLY "cd clone && \"$exe_plumbing\" --no-verbose fetch"
+        }
+        it "updates the remote-tracking branch" && {
+          expect_run_sh $SUCCESSFULLY 'test "$(git -C clone rev-parse refs/remotes/origin/main)" = "$(git -C remote rev-parse refs/heads/main)"'
+        }
+      )
+    )
+  )
+  fi
 )
 
 title "gix attributes"
@@ -386,6 +417,28 @@ title "gix commit-graph"
     if test "$kind" = "max" || test "$kind" = "max-pure"; then
     (with "the 'clone' sub-command"
         snapshot="$snapshot/clone"
+        (with "a SHA-256 remote"
+          (sandbox
+            git init --object-format=sha256 -q remote
+            (
+              cd remote
+              git checkout -q -b main
+              echo first >file
+              git add file
+              git commit -q -m "first"
+            )
+
+            it "adopts the remote object format" && {
+              expect_run $SUCCESSFULLY "$exe_plumbing" clone "$PWD/remote" clone
+            }
+            it "persists the adopted object format" && {
+              expect_run_sh $SUCCESSFULLY 'test "$(git -C clone config --get extensions.objectformat)" = sha256'
+            }
+            it "persists the origin remote" && {
+              expect_run_sh $SUCCESSFULLY 'test -n "$(git -C clone config --get remote.origin.url)"'
+            }
+          )
+        )
         (with "an ambiguous ssh username which could be mistaken for an argument"
           snapshot="$snapshot/fail-ambiguous-username"
           (with "explicit ssh (true url with scheme)"
