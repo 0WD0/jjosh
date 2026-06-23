@@ -2182,6 +2182,7 @@ version = "0.72.0"
 dependencies = [
  "bstr",
  "clru",
+ "criterion",
  "document-features",
  "gix-chunk",
  "gix-diff",
@@ -2201,6 +2202,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "smallvec",
+ "tempfile",
  "thiserror 2.0.18",
  "uluru",
 ]
