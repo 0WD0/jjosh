@@ -49,7 +49,16 @@ impl Entry {
     pub fn pack_offset(&self) -> data::Offset {
         self.data_offset - self.header_size() as u64
     }
-    /// The amount of bytes used to describe this entry in the pack. The header starts at [`Self::pack_offset()`]
+    /// The amount of bytes used to describe this entry in the pack.
+    ///
+    /// For entries decoded from pack data this returns the actual encoded header length, including
+    /// non-canonical overlong size encodings accepted by Git. This is the length to use for offset
+    /// reconstruction because the header starts at [`Self::pack_offset()`] and the compressed data
+    /// starts at [`Entry::data_offset`].
+    ///
+    /// If [`Entry::encoded_header_size`] is `0`, the actual encoded length is unknown and this falls
+    /// back to [`Header::size()`], which computes the canonical serialized length from the decoded
+    /// header and decompressed size.
     pub fn header_size(&self) -> usize {
         if self.encoded_header_size == 0 {
             self.header.size(self.decompressed_size)

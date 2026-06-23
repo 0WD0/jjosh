@@ -180,8 +180,24 @@ mod tests {
             .expect("non-canonical size encodings are accepted by git");
 
         assert_eq!(entry.header, data::entry::Header::Blob);
-        assert_eq!(entry.decompressed_size, 3);
-        assert_eq!(entry.header_size(), 2);
+        assert_eq!(
+            entry.decompressed_size, 3,
+            "`0xb3` is `1011_0011`: the low nibble `0011` is size 3, and the continued `0x00` adds no size bits"
+        );
+        assert_eq!(
+            entry.encoded_header_size, 2,
+            "the decoded entry records the actual encoded header length, not the canonical length, and has an extra byte 0x00"
+        );
+        assert_eq!(
+            entry.header.size(entry.decompressed_size),
+            1,
+            "canonical re-encoding of a blob with size 3 needs only the single byte `0x33`"
+        );
+        assert_eq!(
+            entry.header_size(),
+            2,
+            "`header_size()` reports the two bytes actually consumed from `b3 00`, unlike `Header::size()` which canonicalizes to one byte"
+        );
         assert_eq!(entry.pack_offset(), pack_offset);
         assert_eq!(entry.data_offset, pack_offset + 2);
     }
@@ -201,13 +217,23 @@ mod tests {
             entry.header,
             data::entry::Header::OfsDelta {
                 base_distance: base_distance.into()
-            }
+            },
+            "the base_distance is correct, which wouldn't be the case without using the consumed size"
         );
-        assert_eq!(entry.header_size(), 3);
-        assert_eq!(entry.pack_offset(), pack_offset);
+        assert_eq!(
+            entry.header_size(),
+            3,
+            "`e4 00` consumes two size-header bytes before the one-byte ofs-delta base distance. entry.size() would be 2"
+        );
+        assert_eq!(
+            entry.pack_offset(),
+            pack_offset,
+            "`pack_offset()` subtracts the actual three-byte header from `data_offset`, preserving the entry start"
+        );
         assert_eq!(
             entry.checked_base_pack_offset(base_distance.into()),
-            Some(pack_offset - u64::from(base_distance))
+            Some(pack_offset - u64::from(base_distance)),
+            "ofs-delta base distances are relative to the entry start, so preserving `pack_offset()` keeps the base lookup correct"
         );
     }
 }
