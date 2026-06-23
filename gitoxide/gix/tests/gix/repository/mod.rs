@@ -104,7 +104,8 @@ mod dirwalk {
             ("empty-core-excludes".into(), Repository),
             ("non-bare-repo-without-index".into(), Repository),
             ("non-bare-without-worktree".into(), Directory),
-            ("some".into(), Directory),
+            // `some/` (a tree of only empty directories) is skipped now that empty trees collapse to an
+            // empty directory and aren't emitted by default, matching Git which treats it as clean (#2490).
             ("unborn".into(), Repository),
         ];
         assert_eq!(
