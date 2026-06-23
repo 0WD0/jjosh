@@ -222,6 +222,42 @@ mod open {
     }
 
     #[test]
+    fn status_uses_detached_worktree_from_symlinked_git_dir() -> crate::Result {
+        let root =
+            gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("linked-git-dir-detached-worktree");
+        let repo = gix::open_opts(root.join("home"), gix::open::Options::isolated())?;
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+        let submodule_workdir = gix_path::realpath(root.join("home/.config/awesome/lain"))?;
+
+        assert_eq!(
+            sm.work_dir()?,
+            submodule_workdir,
+            "submodule workdir must stay anchored in the detached worktree"
+        );
+        assert_eq!(
+            sm.open()?.expect("submodule repository exists").workdir(),
+            Some(submodule_workdir.as_path()),
+            "opening the submodule must use its actual checkout, not a path derived from the symlink parent"
+        );
+
+        #[cfg(feature = "status")]
+        {
+            let status = sm.status(gix::submodule::config::Ignore::None, false)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(false),
+                "status must succeed and report the clean detached-worktree submodule"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn broken_gitlink_target_is_reported() -> crate::Result {
         let repo = repo("submodule-with-missing-gitlink-target")?;
         let sm = repo
