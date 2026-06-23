@@ -78,6 +78,8 @@ pub mod organize;
 pub mod pack;
 #[cfg(feature = "query")]
 pub mod query;
+#[cfg(feature = "blocking-client")]
+pub mod remote;
 pub mod repository;
 
 mod discover;

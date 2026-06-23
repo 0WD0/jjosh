@@ -921,6 +921,36 @@ pub fn main() -> Result<()> {
                     move |_progress, out, _err| core::mailmap::verify(path, format, out),
                 ),
             },
+            #[cfg(feature = "gitoxide-core-blocking-client")]
+            free::Subcommands::Remote(subcommands) => match subcommands {
+                free::remote::Subcommands::Refs {
+                    protocol,
+                    refs_directory,
+                    write_reflog,
+                    url,
+                } => prepare_and_run(
+                    "remote-refs",
+                    trace,
+                    verbose,
+                    progress,
+                    progress_keep_open,
+                    core::remote::PROGRESS_RANGE,
+                    move |progress, out, _err| {
+                        core::remote::refs(
+                            protocol,
+                            &url,
+                            refs_directory,
+                            progress,
+                            core::remote::Context {
+                                format,
+                                out,
+                                object_hash,
+                                write_reflog,
+                            },
+                        )
+                    },
+                ),
+            },
             free::Subcommands::Pack(subcommands) => match subcommands {
                 free::pack::Subcommands::Create {
                     repository,
