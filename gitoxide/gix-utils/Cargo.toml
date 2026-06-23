@@ -18,6 +18,14 @@ doctest = true
 bstr = ["dep:bstr"]
 
 [dependencies]
-fastrand = "2.0.0"
+# We seed our own thread-local `Rng` (see `src/rng.rs`), so `fastrand`'s global generator and its
+# `std` default feature aren't needed.
+fastrand = { version = "2.4.1", default-features = false }
 bstr = { version = "1.12.0", default-features = false, features = ["std"], optional = true }
 unicode-normalization = { version = "0.1.19", default-features = false }
+
+# Used by `rng` to obtain a high-entropy, process-distinct seed. Excluded on
+# `wasm32-unknown-unknown`, which has no entropy backend by default; there `rng` falls back to a
+# best-effort seed (see `src/rng.rs`).
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+getrandom = "0.4"
