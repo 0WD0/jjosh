@@ -80,6 +80,11 @@ path = "tests/blocking-transport-http.rs"
 required-features = ["http-client-curl", "http-client-insecure-credentials", "maybe-async/is_sync"]
 
 [[test]]
+name = "blocking-transport-http-reqwest"
+path = "tests/blocking-transport-http-reqwest.rs"
+required-features = ["http-client-reqwest", "maybe-async/is_sync"]
+
+[[test]]
 name = "async-transport"
 path = "tests/async-transport.rs"
 required-features = ["async-client"]

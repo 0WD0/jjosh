@@ -148,7 +148,7 @@ impl Default for Remote {
                 {
                     Ok(res) => res,
                     Err(err) => {
-                        let (kind, err) = match err.status() {
+                        let err = match err.status() {
                             Some(status) => {
                                 let kind = if status == reqwest::StatusCode::UNAUTHORIZED {
                                     std::io::ErrorKind::PermissionDenied
@@ -157,12 +157,14 @@ impl Default for Remote {
                                 } else {
                                     std::io::ErrorKind::Other
                                 };
-                                (kind, format!("Received HTTP status {}", status.as_str()))
+                                std::io::Error::new(kind, format!("Received HTTP status {}", status.as_str()))
                             }
-                            None => (std::io::ErrorKind::Other, err.to_string()),
+                            // Preserve the `reqwest::Error` as the source so the underlying cause -- e.g. a
+                            // connection or TLS failure -- isn't lost. It was previously stringified, which
+                            // dead-ended `source()` and hid the real reason a request failed. See #2140.
+                            None => std::io::Error::other(err),
                         };
-                        let err = Err(std::io::Error::new(kind, err));
-                        headers_tx.channel.send(err).ok();
+                        headers_tx.channel.send(Err(err)).ok();
                         continue;
                     }
                 };
