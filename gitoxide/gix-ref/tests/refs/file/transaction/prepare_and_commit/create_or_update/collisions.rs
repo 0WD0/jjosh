@@ -89,9 +89,9 @@ fn packed_refs_lock_is_mandatory_for_multiple_ongoing_transactions_even_if_one_d
 
 #[test]
 fn conflicting_creation_into_packed_refs() -> crate::Result {
-    let (_dir, store) = empty_store()?;
+    let (dir, store) = empty_store()?;
     let mut buf = TimeBuf::default();
-    store
+    let transaction = store
         .transaction()
         .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
             Box::new(EmptyCommit),
@@ -104,8 +104,18 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
             ],
             Fail::Immediately,
             Fail::Immediately,
-        )?
-        .commit(committer().to_ref(&mut buf))?;
+        );
+
+    if !case_sensitive(dir.path()) {
+        assert_eq!(
+            transaction.unwrap_err().to_string(),
+            "A lock could not be obtained for reference \"refs/A\"",
+            "packed ref updates still acquire loose locks before their CAS read"
+        );
+        return Ok(());
+    }
+
+    transaction?.commit(committer().to_ref(&mut buf))?;
 
     assert_eq!(
         store.cached_packed_buffer()?.expect("created").iter()?.count(),
@@ -121,8 +131,7 @@ fn conflicting_creation_into_packed_refs() -> crate::Result {
     assert!(store.reflog_exists("refs/A")?);
     assert!(!store.reflog_exists("refs/symbolic")?, "and they can't have reflogs");
 
-    // The following works because locks aren't actually obtained if there would be no change.
-    // Otherwise there would be a conflict on case-insensitive filesystems
+    // This works as case-sensitive filesystems can lock both paths independently.
     let null = crate::fixture_hash_kind().null();
     store
         .transaction()

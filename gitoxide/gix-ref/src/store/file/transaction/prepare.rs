@@ -66,7 +66,6 @@ impl Transaction<'_, '_> {
         lock_fail_mode: gix_lock::acquire::Fail,
         packed: Option<&packed::Buffer>,
         change: &mut Edit,
-        has_global_lock: bool,
         direct_to_packed_refs: bool,
     ) -> Result<(), Error> {
         use std::io::Write;
@@ -84,17 +83,12 @@ impl Transaction<'_, '_> {
         let lock = match &mut change.update.change {
             Change::Delete { expected, .. } => {
                 let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
-                let lock = if has_global_lock {
-                    None
-                } else {
-                    gix_lock::Marker::acquire_to_hold_resource(
-                        base.join(relative_path.as_ref()),
-                        lock_fail_mode,
-                        Some(base.clone().into_owned()),
-                    )
-                    .map_err(|err| Self::lock_acquire_error(err, "borrowcheck won't allow change.name()"))?
-                    .into()
-                };
+                let lock = gix_lock::Marker::acquire_to_hold_resource(
+                    base.join(relative_path.as_ref()),
+                    lock_fail_mode,
+                    Some(base.clone().into_owned()),
+                )
+                .map_err(|err| Self::lock_acquire_error(err, "borrowcheck won't allow change.name()"))?;
 
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
@@ -130,7 +124,7 @@ impl Transaction<'_, '_> {
                     *expected = PreviousValue::MustExistAndMatch(existing.target);
                 }
 
-                lock
+                Some(lock)
             }
             Change::Update { expected, new, .. } => {
                 let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
@@ -147,7 +141,7 @@ impl Transaction<'_, '_> {
                         )
                     })
                 };
-                let mut lock = (!has_global_lock).then(obtain_lock).transpose()?;
+                let mut lock = obtain_lock()?;
 
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
@@ -210,13 +204,14 @@ impl Transaction<'_, '_> {
                     (true, matches!(new, Target::Symbolic(_)))
                 };
 
+                let keep_lock_for_loose_source_delete = direct_to_packed_refs && matches!(new, Target::Object(_));
                 if (is_effective && !direct_to_packed_refs) || is_symbolic {
-                    let mut lock = lock.take().map_or_else(obtain_lock, Ok)?;
-
                     lock.with_mut(|file| match new {
                         Target::Object(oid) => writeln!(file, "{oid}"),
                         Target::Symbolic(name) => writeln!(file, "ref: {}", name.0),
                     })?;
+                    Some(lock.close()?)
+                } else if keep_lock_for_loose_source_delete {
                     Some(lock.close()?)
                 } else {
                     None
@@ -389,7 +384,6 @@ impl Transaction<'_, '_> {
                 ref_files_lock_fail_mode,
                 self.packed_transaction.as_ref().and_then(packed::Transaction::buffer),
                 change,
-                self.packed_transaction.is_some(),
                 matches!(
                     self.packed_refs,
                     PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(_)
