@@ -2585,7 +2585,7 @@ version = "0.3.3"
 dependencies = [
  "bstr",
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.4.3",
  "unicode-normalization",
 ]
 

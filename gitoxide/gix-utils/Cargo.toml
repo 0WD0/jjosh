@@ -18,7 +18,9 @@ doctest = true
 bstr = ["dep:bstr"]
 
 [dependencies]
-fastrand = "2.0.0"
+# We seed our own thread-local `Rng` (see `src/rng.rs`), so `fastrand`'s global generator and its
+# `std` default feature aren't needed.
+fastrand = { version = "2.4.1", default-features = false }
 bstr = { version = "1.12.0", default-features = false, features = ["std"], optional = true }
 unicode-normalization = { version = "0.1.19", default-features = false }
 

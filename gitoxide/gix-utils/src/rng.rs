@@ -11,36 +11,48 @@
 //!
 //! See <https://github.com/GitoxideLabs/gitoxide/issues/1816> for details.
 
-use std::{cell::RefCell, ops::RangeBounds};
+use std::{cell::Cell, ops::RangeBounds};
 
 thread_local! {
-    static RNG: RefCell<fastrand::Rng> = RefCell::new(fastrand::Rng::with_seed(seed()));
+    static RNG: Cell<fastrand::Rng> = Cell::new(new_rng());
 }
 
 /// Return a `usize` in the given `range`, drawn from a per-thread generator that is seeded to differ
 /// across concurrently running processes.
 pub fn usize(range: impl RangeBounds<usize>) -> usize {
-    RNG.with(|rng| rng.borrow_mut().usize(range))
+    RNG.with(|cell| {
+        // `fastrand::Rng` is a single `u64`, so move it out behind a cheap placeholder, advance it,
+        // and put it back. A `Cell` is enough and avoids `RefCell`'s runtime borrow tracking.
+        let mut rng = cell.replace(fastrand::Rng::with_seed(0));
+        let n = rng.usize(range);
+        cell.set(rng);
+        n
+    })
 }
 
-/// Obtain a high-entropy seed from the operating system, so that generators in separate processes
-/// don't share a sequence.
+/// Seed a generator from a high-entropy OS source, so that generators in separate processes don't
+/// share a sequence.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn new_rng() -> fastrand::Rng {
+    fastrand::Rng::with_seed(seed())
+}
+
+/// `wasm32-unknown-unknown` has no OS entropy source and traps at runtime on APIs like
+/// `std::process::id()` and `Instant::now()`; it also runs a single process, so the cross-process
+/// concern doesn't apply. Use a fixed seed there.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn new_rng() -> fastrand::Rng {
+    fastrand::Rng::with_seed(0x9e37_79b9_7f4a_7c15)
+}
+
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn seed() -> u64 {
     getrandom::u64().unwrap_or_else(|_| fallback_seed())
 }
 
-/// `wasm32-unknown-unknown` has no entropy source available by default and runs a single process,
-/// so the cross-process concern doesn't apply; use a best-effort seed instead.
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-fn seed() -> u64 {
-    fallback_seed()
-}
-
-/// A best-effort seed combining values that vary across threads and processes, used only when a
-/// high-entropy source is unavailable. `std::process::id()` is the reliable differentiator across
-/// concurrent processes; `Instant::now()` is deliberately avoided as it panics on
-/// `wasm32-unknown-unknown`.
+/// A best-effort seed used only when the OS entropy source is unavailable. `std::process::id()` is
+/// the reliable differentiator across concurrent processes.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn fallback_seed() -> u64 {
     use std::hash::{BuildHasher, Hash, Hasher};
 
