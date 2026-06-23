@@ -50,6 +50,7 @@ impl Transaction<'_, '_> {
     /// Map a lock-acquisition failure to our error type, surfacing genuine I/O errors
     /// (such as a path collision reported as `NotADirectory`) as [`Error::Io`] rather than
     /// burying them in [`Error::LockAcquire`], which is reserved for actual contention.
+    // This happens for path collisions where `a` is a ref file, and `a/b` is the lock to be created.
     fn lock_acquire_error(err: gix_lock::acquire::Error, full_name: &str) -> Error {
         match err {
             gix_lock::acquire::Error::Io(err) => Error::Io(err),
@@ -146,8 +147,6 @@ impl Transaction<'_, '_> {
                         )
                     })
                 };
-                // A path collision (`a/b` where `a` is a ref file) makes lock acquisition fail
-                // with `NotADirectory`, surfaced as `Error::Io` by `lock_acquire_error`.
                 let mut lock = (!has_global_lock).then(obtain_lock).transpose()?;
 
                 let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;

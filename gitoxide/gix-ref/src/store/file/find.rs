@@ -279,20 +279,22 @@ impl file::Store {
     /// If `prohibit_windows_device_names` is set, check that `name` does not
     /// contain a path component that matches a reserved Windows device name.
     pub(crate) fn check_windows_device_name(&self, name: &FullNameRef) -> io::Result<()> {
-        if self.prohibit_windows_device_names {
-            let (_, relative_path) = self.reference_path_with_base(name);
-            if relative_path
-                .components()
-                .filter_map(|c| gix_path::try_os_str_into_bstr(c.as_os_str().into()).ok())
-                .any(|c| gix_validate::path::component_is_windows_device(c.as_ref()))
-            {
-                return Err(std::io::Error::other(format!(
-                    "Illegal use of reserved Windows device name in \"{}\"",
-                    name.as_bstr()
-                )));
-            }
+        if !self.prohibit_windows_device_names {
+            return Ok(());
         }
-        Ok(())
+        let (_, relative_path) = self.reference_path_with_base(name);
+        if relative_path
+            .components()
+            .filter_map(|c| gix_path::try_os_str_into_bstr(c.as_os_str().into()).ok())
+            .any(|c| gix_validate::path::component_is_windows_device(c.as_ref()))
+        {
+            Err(std::io::Error::other(format!(
+                "Illegal use of reserved Windows device name in \"{}\"",
+                name.as_bstr()
+            )))
+        } else {
+            Ok(())
+        }
     }
 
     /// Read the file contents with a verified full reference path and return it in the given vector if possible.
