@@ -12,6 +12,10 @@ pub enum Subcommands {
     /// Subcommands for interacting with pack files and indices
     #[clap(subcommand)]
     Pack(pack::Subcommands),
+    /// Subcommands for interacting with remote hosts.
+    #[cfg(feature = "gitoxide-core-blocking-client")]
+    #[clap(subcommand)]
+    Remote(remote::Subcommands),
     /// Subcommands for interacting with a worktree index, typically at .git/index
     Index(index::Platform),
     /// Show information about repository discovery and when opening a repository at the current path.
@@ -100,6 +104,37 @@ pub mod index {
             empty_files: bool,
             /// The directory into which to write all index entries.
             directory: PathBuf,
+        },
+    }
+}
+
+///
+#[cfg(feature = "gitoxide-core-blocking-client")]
+pub mod remote {
+    use std::path::PathBuf;
+
+    use gitoxide_core as core;
+
+    #[derive(Debug, clap::Subcommand)]
+    pub enum Subcommands {
+        /// Print all references available on the remote, optionally writing them to a ref store.
+        Refs {
+            /// The protocol version to use. Valid values are 1 and 2.
+            #[clap(long, short = 'p')]
+            protocol: Option<core::net::Protocol>,
+
+            /// The git-dir-like directory into which to write refs with a ref-store transaction.
+            ///
+            /// The directory is created if needed and existing refs may be overwritten.
+            #[clap(long, short = 'd')]
+            refs_directory: Option<PathBuf>,
+
+            /// Write reflog entries while updating refs.
+            #[clap(long, requires = "refs_directory")]
+            write_reflog: bool,
+
+            /// The URL or path of the remote to list.
+            url: String,
         },
     }
 }

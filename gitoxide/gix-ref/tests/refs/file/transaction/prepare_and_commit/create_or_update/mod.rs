@@ -494,6 +494,55 @@ fn windows_device_name_is_illegal_with_enabled_windows_protections() -> crate::R
     Ok(())
 }
 
+/// Regression test for the ordering of validation vs. lock acquisition.
+///
+/// On Windows, the lock path `refs/heads/CON.lock` is itself a reserved device
+/// name, so acquiring it would fail (or accidentally open the device) before
+/// the configured device-name validation could run. We can't observe that on
+/// non-Windows directly, but we can demonstrate the ordering by pre-creating
+/// the would-be lock file: if device-name validation runs first we still get
+/// the validation error; if lock acquisition runs first we'd get
+/// `LockAcquire(PermanentlyLocked)` instead.
+#[cfg(not(windows))]
+#[test]
+fn windows_device_name_check_runs_before_lock_acquisition() -> crate::Result {
+    let (keep, mut store) = empty_store()?;
+    store.prohibit_windows_device_names = true;
+
+    let refs_heads = keep.path().join("refs").join("heads");
+    std::fs::create_dir_all(&refs_heads)?;
+    std::fs::write(refs_heads.join("CON.lock"), b"")?;
+
+    let err = store
+        .transaction()
+        .prepare(
+            Some(RefEdit {
+                change: Change::Update {
+                    log: LogChange {
+                        mode: RefLog::AndReference,
+                        force_create_reflog: false,
+                        message: "ignored".into(),
+                    },
+                    new: Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242")),
+                    expected: PreviousValue::Any,
+                },
+                name: "refs/heads/CON".try_into()?,
+                deref: false,
+            }),
+            Fail::Immediately,
+            Fail::Immediately,
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        err.source().expect("inner").to_string(),
+        "Illegal use of reserved Windows device name in \"refs/heads/CON\"",
+        "device-name validation must short-circuit before lock acquisition; otherwise the \
+         pre-existing lock file would surface as `LockAcquire(PermanentlyLocked)`"
+    );
+    Ok(())
+}
+
 #[test]
 fn symbolic_head_missing_referent_then_update_referent() -> crate::Result {
     for reflog_writemode in &[WriteReflog::Normal, WriteReflog::Disable, WriteReflog::Always] {

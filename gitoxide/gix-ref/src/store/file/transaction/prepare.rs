@@ -12,6 +12,55 @@ use crate::{
 };
 
 impl Transaction<'_, '_> {
+    /// Read the current value of a reference from loose storage, falling back to packed refs.
+    ///
+    /// Must be called while holding the lock for `name` so the subsequent CAS check
+    /// compares against a value that cannot be changed concurrently.
+    fn read_existing_ref(
+        store: &file::Store,
+        name: &FullNameRef,
+        packed: Option<&packed::Buffer>,
+    ) -> Result<Option<Reference>, Error> {
+        store
+            .ref_contents(name)
+            .map_err(Error::from)
+            .and_then(|maybe_loose| {
+                maybe_loose
+                    .map(|buf| {
+                        loose::Reference::try_from_path(name.to_owned(), &buf, store.object_hash)
+                            .map(Reference::from)
+                            .map_err(Error::from)
+                    })
+                    .transpose()
+            })
+            .or_else(|err| match err {
+                Error::ReferenceDecode(_) => Ok(None),
+                other => Err(other),
+            })
+            .and_then(|maybe_loose| match (maybe_loose, packed) {
+                (None, Some(packed)) => packed
+                    .try_find(name)
+                    .map(|opt| opt.map(Into::into))
+                    .map_err(Error::from),
+                (None, None) => Ok(None),
+                (maybe_loose, _) => Ok(maybe_loose),
+            })
+    }
+
+    /// Map a lock-acquisition failure to our error type, surfacing genuine I/O errors
+    /// (such as a path collision reported as `NotADirectory`) as [`Error::Io`] rather than
+    /// burying them in [`Error::LockAcquire`], which is reserved for actual contention.
+    // This happens for path collisions where `a` is a ref file, and `a/b` is the lock to be created.
+    fn lock_acquire_error(err: gix_lock::acquire::Error, full_name: &str) -> Error {
+        match err {
+            gix_lock::acquire::Error::Io(err) => Error::Io(err),
+            source => Error::LockAcquire {
+                source,
+                full_name: full_name.into(),
+            },
+        }
+    }
+
     fn lock_ref_and_apply_change(
         store: &file::Store,
         lock_fail_mode: gix_lock::acquire::Fail,
@@ -26,30 +75,12 @@ impl Transaction<'_, '_> {
             "locks can only be acquired once and it's all or nothing"
         );
 
-        let existing_ref = store
-            .ref_contents(change.update.name.as_ref())
-            .map_err(Error::from)
-            .and_then(|maybe_loose| {
-                maybe_loose
-                    .map(|buf| {
-                        loose::Reference::try_from_path(change.update.name.clone(), &buf, store.object_hash)
-                            .map(Reference::from)
-                            .map_err(Error::from)
-                    })
-                    .transpose()
-            })
-            .or_else(|err| match err {
-                Error::ReferenceDecode(_) => Ok(None),
-                other => Err(other),
-            })
-            .and_then(|maybe_loose| match (maybe_loose, packed) {
-                (None, Some(packed)) => packed
-                    .try_find(change.update.name.as_ref())
-                    .map(|opt| opt.map(Into::into))
-                    .map_err(Error::from),
-                (None, None) => Ok(None),
-                (maybe_loose, _) => Ok(maybe_loose),
-            })?;
+        // Reject Windows reserved device names before acquiring the lock.
+        // The lock file itself (e.g. `CON.lock`) is also a device name,
+        // so acquiring it would fail or open the device instead of
+        // returning the configured validation error.
+        store.check_windows_device_name(change.update.name.as_ref())?;
+
         let lock = match &mut change.update.change {
             Change::Delete { expected, .. } => {
                 let (base, relative_path) = store.reference_path_with_base(change.update.name.as_ref());
@@ -61,12 +92,11 @@ impl Transaction<'_, '_> {
                         lock_fail_mode,
                         Some(base.clone().into_owned()),
                     )
-                    .map_err(|err| Error::LockAcquire {
-                        source: err,
-                        full_name: "borrowcheck won't allow change.name()".into(),
-                    })?
+                    .map_err(|err| Self::lock_acquire_error(err, "borrowcheck won't allow change.name()"))?
                     .into()
                 };
+
+                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
                 match (&expected, &existing_ref) {
                     (PreviousValue::MustNotExist, _) => {
@@ -110,12 +140,16 @@ impl Transaction<'_, '_> {
                         lock_fail_mode,
                         Some(base.clone().into_owned()),
                     )
-                    .map_err(|err| Error::LockAcquire {
-                        source: err,
-                        full_name: "borrowcheck won't allow change.name() and this will be corrected by caller".into(),
+                    .map_err(|err| {
+                        Self::lock_acquire_error(
+                            err,
+                            "borrowcheck won't allow change.name() and this will be corrected by caller",
+                        )
                     })
                 };
                 let mut lock = (!has_global_lock).then(obtain_lock).transpose()?;
+
+                let existing_ref = Self::read_existing_ref(store, change.update.name.as_ref(), packed)?;
 
                 match (&expected, &existing_ref) {
                     (PreviousValue::Any, _)

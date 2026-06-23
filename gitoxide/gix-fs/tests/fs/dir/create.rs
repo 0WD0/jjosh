@@ -110,9 +110,9 @@ mod iter {
 
         let mut it = create::Iter::new(&new_dir);
         assert!(
-            matches!(it.next(), Some(Err(Permanent{ dir, err, .. })) if err.kind() == AlreadyExists
+            matches!(it.next(), Some(Err(Permanent{ dir, err, .. })) if err.kind() == NotADirectory
                                                                     && dir == new_dir),
-            "parent dir is not present and we run out of attempts"
+            "a non-directory in the path is reported precisely as NotADirectory"
         );
         assert!(it.next().is_none(), "iterator depleted");
         assert!(new_dir.is_file(), "file is untouched");
