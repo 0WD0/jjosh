@@ -23,6 +23,9 @@
 pub mod backoff;
 
 ///
+pub mod rng;
+
+///
 pub mod buffers;
 
 ///

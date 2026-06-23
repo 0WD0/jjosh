@@ -1915,7 +1915,6 @@ version = "0.21.2"
 dependencies = [
  "bstr",
  "crossbeam-channel",
- "fastrand",
  "gix-features",
  "gix-path",
  "gix-utils",
@@ -2586,6 +2585,7 @@ version = "0.3.3"
 dependencies = [
  "bstr",
  "fastrand",
+ "getrandom 0.4.2",
  "unicode-normalization",
 ]
 

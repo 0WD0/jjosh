@@ -82,7 +82,7 @@ impl Capabilities {
         // can change the executable bit.
         // The equivalent test by git itself is here:
         // https://github.com/git/git/blob/f0ef5b6d9bcc258e4cbef93839d1b7465d5212b9/setup.c#L2367-L2379
-        let rand = fastrand::usize(..);
+        let rand = gix_utils::rng::usize(..);
         let test_path = root.join(format!("_test_executable_bit{rand}"));
         let res = std::fs::OpenOptions::new()
             .create_new(true)
@@ -164,7 +164,7 @@ impl Capabilities {
     }
 
     fn probe_precompose_unicode(root: &Path) -> std::io::Result<bool> {
-        let rand = fastrand::usize(..);
+        let rand = gix_utils::rng::usize(..);
         let precomposed = format!("ä{rand}");
         let decomposed = format!("a\u{308}{rand}");
 
@@ -179,7 +179,7 @@ impl Capabilities {
     }
 
     fn probe_symlink(root: &Path) -> std::io::Result<bool> {
-        let rand = fastrand::usize(..);
+        let rand = gix_utils::rng::usize(..);
         let link_path = root.join(format!("__file_link{rand}"));
         if crate::symlink::create("dangling".as_ref(), &link_path).is_err() {
             return Ok(false);
