@@ -222,7 +222,6 @@ mod open {
     }
 
     #[test]
-    #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
     fn status_uses_detached_worktree_from_symlinked_git_dir() -> crate::Result {
         let root =
             gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("linked-git-dir-detached-worktree");
