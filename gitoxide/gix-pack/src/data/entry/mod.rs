@@ -33,8 +33,7 @@ impl Entry {
     /// Compute the pack offset to the base entry of the object represented by this entry, or
     /// return `None` if the distance would underflow or is invalid.
     pub fn checked_base_pack_offset(&self, distance: u64) -> Option<data::Offset> {
-        let pack_offset = self.data_offset - self.header_size() as u64;
-        Header::verified_base_pack_offset(pack_offset, distance)
+        Header::verified_base_pack_offset(self.pack_offset(), distance)
     }
 
     /// Compute the pack offset to the base entry of the object represented by this entry.
@@ -50,9 +49,22 @@ impl Entry {
     pub fn pack_offset(&self) -> data::Offset {
         self.data_offset - self.header_size() as u64
     }
-    /// The amount of bytes used to describe this entry in the pack. The header starts at [`Self::pack_offset()`]
+    /// The amount of bytes used to describe this entry in the pack.
+    ///
+    /// For entries decoded from pack data this returns the actual encoded header length, including
+    /// non-canonical overlong size encodings accepted by Git. This is the length to use for offset
+    /// reconstruction because the header starts at [`Self::pack_offset()`] and the compressed data
+    /// starts at [`Entry::data_offset`].
+    ///
+    /// If [`Entry::encoded_header_size`] is `0`, the actual encoded length is unknown and this falls
+    /// back to [`Header::size()`], which computes the canonical serialized length from the decoded
+    /// header and decompressed size.
     pub fn header_size(&self) -> usize {
-        self.header.size(self.decompressed_size)
+        if self.encoded_header_size == 0 {
+            self.header.size(self.decompressed_size)
+        } else {
+            self.encoded_header_size.into()
+        }
     }
 }
 

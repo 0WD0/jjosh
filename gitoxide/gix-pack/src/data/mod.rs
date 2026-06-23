@@ -20,6 +20,23 @@ pub struct Entry {
     pub decompressed_size: u64,
     /// absolute offset to compressed object data in the pack, just behind the entry's header
     pub data_offset: Offset,
+    /// The amount of bytes used to encode the entry header in the pack.
+    ///
+    /// Git accepts non-canonical size encodings in pack entry headers. These are encodings that
+    /// continue the variable-length size field even though the remaining size bits are zero, for
+    /// example `b3 00` for a blob of size `3` instead of the canonical single-byte `33`.
+    ///
+    /// Git does not usually write such headers itself, but they can appear when pack data is reused
+    /// verbatim, for example when a server constructs fetch or clone responses from already stored
+    /// pack entries. Readers have to preserve the byte length that was actually consumed: recomputing
+    /// the canonical length from the decoded size would shift [`Entry::pack_offset()`] backwards and
+    /// make ofs-delta base-offset calculations refer to the wrong entry.
+    ///
+    /// A value of `0` means the actual length is unknown, causing [`Entry::header_size()`] to
+    /// recompute the canonical length from the decoded size. This is useful for deserializing data
+    /// produced by older versions.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub encoded_header_size: u16,
 }
 
 mod file;

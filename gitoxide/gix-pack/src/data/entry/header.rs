@@ -113,7 +113,12 @@ impl Header {
         Ok(written)
     }
 
-    /// The size of the header in bytes when serialized
+    /// The size of the header in bytes when written in canonical form.
+    ///
+    /// This is the number of bytes [`Self::write_to()`] would emit for `decompressed_size`.
+    /// It does not inspect existing pack bytes and therefore does not preserve non-canonical
+    /// overlong size encodings. Use [`data::Entry::header_size()`] for decoded entries when the
+    /// result has to match the header length present in the pack.
     pub fn size(&self, decompressed_size: u64) -> usize {
         self.write_to(decompressed_size, &mut io::sink())
             .expect("io::sink() to never fail")

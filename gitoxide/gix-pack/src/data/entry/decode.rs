@@ -58,6 +58,7 @@ impl data::Entry {
             header: object,
             decompressed_size: size,
             data_offset: pack_offset + consumed as u64,
+            encoded_header_size: consumed.try_into().expect("pack entry headers fit into u16"),
         })
     }
 
@@ -96,6 +97,7 @@ impl data::Entry {
             header: object,
             decompressed_size: size,
             data_offset: pack_offset + consumed as u64,
+            encoded_header_size: consumed.try_into().expect("pack entry headers fit into u16"),
         })
     }
 }
@@ -121,12 +123,6 @@ fn streaming_parse_header_info(read: &mut dyn io::Read) -> Result<(u8, u64, usiz
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "pack entry header overflowed"))?;
         shift += 7;
     }
-    if i != encoded_pack_entry_header_size(size) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "pack entry header uses a non-canonical size encoding",
-        ));
-    }
     Ok((type_id, size, i))
 }
 
@@ -148,11 +144,6 @@ fn parse_header_info(data: &[u8]) -> Result<(u8, u64, usize), Error> {
         let component = u64::from(c & 0b0111_1111).checked_shl(shift).ok_or(Error::Overflow)?;
         size = size.checked_add(component).ok_or(Error::Overflow)?;
         shift += 7;
-    }
-    if i != encoded_pack_entry_header_size(size) {
-        return Err(Error::Corrupt {
-            message: "pack entry header uses a non-canonical size encoding",
-        });
     }
     Ok((type_id, size, i))
 }
@@ -178,35 +169,71 @@ fn parse_leb64(data: &[u8]) -> Result<(u64, usize), Error> {
     Ok((value, i))
 }
 
-/// Return the canonical byte length of a pack-entry size header for `size`.
-///
-/// We use this to reject overlong size encodings during parsing.
-/// That matters for our delta resolution implementation, which later reconstructs an entry's
-/// pack offset from `data_offset - header_size()`. If we accepted non-canonical encodings here,
-/// `header_size()` would compute the canonical length while `data_offset` would reflect the
-/// actually consumed bytes, breaking that invariant and allowing malformed delta entries to point
-/// back to themselves or otherwise walk the wrong base objects.
-fn encoded_pack_entry_header_size(mut size: u64) -> usize {
-    let mut bytes = 1;
-    size >>= 4;
-    while size != 0 {
-        bytes += 1;
-        size >>= 7;
-    }
-    bytes
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn rejects_non_canonical_pack_entry_header_encoding() {
-        assert!(matches!(
-            data::Entry::from_bytes(&[0xed, 0x00], 0, gix_hash::Kind::Sha1.len_in_bytes()),
-            Err(Error::Corrupt {
-                message: "pack entry header uses a non-canonical size encoding"
-            })
-        ));
+    fn accepts_non_canonical_pack_entry_header_encoding() {
+        let pack_offset = 42;
+        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1.len_in_bytes())
+            .expect("non-canonical size encodings are accepted by git");
+
+        assert_eq!(entry.header, data::entry::Header::Blob);
+        assert_eq!(
+            entry.decompressed_size, 3,
+            "`0xb3` is `1011_0011`: the low nibble `0011` is size 3, and the continued `0x00` adds no size bits"
+        );
+        assert_eq!(
+            entry.encoded_header_size, 2,
+            "the decoded entry records the actual encoded header length, not the canonical length, and has an extra byte 0x00"
+        );
+        assert_eq!(
+            entry.header.size(entry.decompressed_size),
+            1,
+            "canonical re-encoding of a blob with size 3 needs only the single byte `0x33`"
+        );
+        assert_eq!(
+            entry.header_size(),
+            2,
+            "`header_size()` reports the two bytes actually consumed from `b3 00`, unlike `Header::size()` which canonicalizes to one byte"
+        );
+        assert_eq!(entry.pack_offset(), pack_offset);
+        assert_eq!(entry.data_offset, pack_offset + 2);
+    }
+
+    #[test]
+    fn non_canonical_pack_entry_header_keeps_ofs_delta_base_offsets_correct() {
+        let pack_offset = 100;
+        let base_distance = 5;
+        let entry = data::Entry::from_bytes(
+            &[0xe4, 0x00, base_distance],
+            pack_offset,
+            gix_hash::Kind::Sha1.len_in_bytes(),
+        )
+        .expect("non-canonical ofs-delta size encodings are accepted by git");
+
+        assert_eq!(
+            entry.header,
+            data::entry::Header::OfsDelta {
+                base_distance: base_distance.into()
+            },
+            "the base_distance is correct, which wouldn't be the case without using the consumed size"
+        );
+        assert_eq!(
+            entry.header_size(),
+            3,
+            "`e4 00` consumes two size-header bytes before the one-byte ofs-delta base distance. entry.size() would be 2"
+        );
+        assert_eq!(
+            entry.pack_offset(),
+            pack_offset,
+            "`pack_offset()` subtracts the actual three-byte header from `data_offset`, preserving the entry start"
+        );
+        assert_eq!(
+            entry.checked_base_pack_offset(base_distance.into()),
+            Some(pack_offset - u64::from(base_distance)),
+            "ofs-delta base distances are relative to the entry start, so preserving `pack_offset()` keeps the base lookup correct"
+        );
     }
 }
