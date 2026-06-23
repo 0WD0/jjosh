@@ -134,6 +134,20 @@ git init submodule-with-divergent-gitlink
   git -C .git/modules/outer/inner update-ref HEAD "$(git -C ../module1 rev-parse @~1)"
 )
 
+mkdir linked-git-dir-detached-worktree
+(cd linked-git-dir-detached-worktree
+  mkdir -p home store
+  git init store/dots
+  ln -s ../store/dots/.git home/.git
+  git -C store/dots config core.worktree ../../../home
+  git -C home submodule add ../../module1 .config/awesome/lain
+  git -C home commit -m "add detached-worktree submodule"
+  echo "Git resolves the symlinked top-level .git to the real git dir before applying relative core.worktree." \
+    >baseline.note
+  git -C home status --porcelain=v1 >status.baseline
+  git -C home/.config/awesome/lain rev-parse --show-toplevel >submodule-worktree.baseline
+)
+
 git init submodule-with-missing-gitlink-target
 (cd submodule-with-missing-gitlink-target
   git submodule add ../module1 m1

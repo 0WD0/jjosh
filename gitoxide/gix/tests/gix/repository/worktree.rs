@@ -143,6 +143,22 @@ mod with_core_worktree_config {
         Ok(())
     }
 
+    #[test]
+    #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
+    fn relative_from_symlinked_git_dir() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh")?;
+        let root = fixture.join("linked-git-dir-detached-worktree");
+        let repo = gix::open_opts(root.join("home"), crate::restricted())?;
+        let git_worktree = std::fs::read_to_string(root.join("worktree.baseline"))?;
+
+        assert_eq!(
+            gix_path::realpath(repo.workdir().expect("core.worktree is configured"))?,
+            gix_path::realpath(git_worktree.trim_end())?,
+            "relative core.worktree values from repository config are resolved against the real git dir"
+        );
+        Ok(())
+    }
+
     fn repo(name: &str) -> gix::Repository {
         let dir = gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh").unwrap();
         gix::open_opts(dir.join(name), crate::restricted()).unwrap()

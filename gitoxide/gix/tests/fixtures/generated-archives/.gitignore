@@ -45,6 +45,9 @@
 # entries containing host-absolute worktree paths; also adds a worktree.
 /make_submodule_with_worktree.tar
 /make_submodule_with_worktree_sha256.tar
+# Both files are 3.2 MB in size for some reason, let's not increase the repo size on each change.
+/make_submodules.tar
+/make_submodules_sha256.tar
 # Uses `mkfifo`, `ln -s`, executable-bit changes, and adds a submodule —
 # none of which round-trip cleanly through a committed tar across platforms.
 /repo_with_untracked_files.tar
