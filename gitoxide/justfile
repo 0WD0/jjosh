@@ -207,6 +207,8 @@ unit-tests:
     cargo nextest run -p gix-transport --features async-client --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-traverse --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-traverse --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-merge --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-merge --no-fail-fast
     cargo nextest run -p gix-protocol --features blocking-client --no-fail-fast
     cargo nextest run -p gix-protocol --features blocking-client,sha256 --no-fail-fast
     cargo nextest run -p gix-protocol --features async-client --no-fail-fast

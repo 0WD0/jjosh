@@ -168,8 +168,17 @@ impl Iterator for Expectations<'_> {
             "diff3" => ConflictStyle::Diff3,
             unknown => unreachable!("Unknown conflict style: '{unknown}'"),
         };
-        let odb = gix_odb::at(subdir_path.join(".git/objects")).expect("object dir exists");
-        let objects = gix_odb::memory::Proxy::new(odb, gix_hash::Kind::Sha1);
+        let object_hash = gix_testtools::object_hash();
+        let odb = gix_odb::at_opts(
+            subdir_path.join(".git/objects"),
+            Vec::new(),
+            gix_odb::store::init::Options {
+                object_hash,
+                ..Default::default()
+            },
+        )
+        .expect("object dir exists");
+        let objects = gix_odb::memory::Proxy::new(odb, object_hash);
         let our_commit_id = gix_hash::ObjectId::from_hex(our_commit_id.as_bytes()).unwrap();
         let their_commit_id = gix_hash::ObjectId::from_hex(their_commit_id.as_bytes()).unwrap();
         let merge_info = parse_merge_info(std::fs::read_to_string(subdir_path.join(merge_info_filename)).unwrap());
