@@ -21,7 +21,7 @@ fn artifact_inputs_can_be_opened_without_panicking() {
 /// while attempting to read the base object id.
 #[test]
 fn truncated_ref_delta_metadata_is_reported_without_panicking() {
-    let result = catch_unwind(|| data::Entry::from_bytes(&[0x70], 0, gix_hash::Kind::Sha1.len_in_bytes()));
+    let result = catch_unwind(|| data::Entry::from_bytes(&[0x70], 0, gix_hash::Kind::Sha1));
 
     assert!(
         result

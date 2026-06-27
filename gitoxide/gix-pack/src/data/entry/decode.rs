@@ -20,12 +20,9 @@ pub enum Error {
 /// Decoding
 impl data::Entry {
     /// Decode an entry from the given entry data `d`, providing the `pack_offset` to allow tracking the start of the entry data section.
-    ///
-    /// # Panics
-    ///
-    /// If we cannot understand the header, garbage data is likely to trigger this.
-    pub fn from_bytes(d: &[u8], pack_offset: data::Offset, hash_len: usize) -> Result<data::Entry, Error> {
+    pub fn from_bytes(d: &[u8], pack_offset: data::Offset, object_hash: gix_hash::Kind) -> Result<data::Entry, Error> {
         let (type_id, size, mut consumed) = parse_header_info(d)?;
+        let hash_len = object_hash.len_in_bytes();
 
         use crate::data::entry::Header::*;
         let object = match type_id {
@@ -187,7 +184,7 @@ mod tests {
     #[test]
     fn accepts_non_canonical_pack_entry_header_encoding() {
         let pack_offset = 42;
-        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1.len_in_bytes())
+        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1)
             .expect("non-canonical size encodings are accepted by git");
 
         assert_eq!(entry.header, data::entry::Header::Blob);
@@ -217,12 +214,8 @@ mod tests {
     fn non_canonical_pack_entry_header_keeps_ofs_delta_base_offsets_correct() {
         let pack_offset = 100;
         let base_distance = 5;
-        let entry = data::Entry::from_bytes(
-            &[0xe4, 0x00, base_distance],
-            pack_offset,
-            gix_hash::Kind::Sha1.len_in_bytes(),
-        )
-        .expect("non-canonical ofs-delta size encodings are accepted by git");
+        let entry = data::Entry::from_bytes(&[0xe4, 0x00, base_distance], pack_offset, gix_hash::Kind::Sha1)
+            .expect("non-canonical ofs-delta size encodings are accepted by git");
 
         assert_eq!(
             entry.header,
