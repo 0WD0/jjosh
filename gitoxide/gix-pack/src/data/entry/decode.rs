@@ -20,12 +20,9 @@ pub enum Error {
 /// Decoding
 impl data::Entry {
     /// Decode an entry from the given entry data `d`, providing the `pack_offset` to allow tracking the start of the entry data section.
-    ///
-    /// # Panics
-    ///
-    /// If we cannot understand the header, garbage data is likely to trigger this.
-    pub fn from_bytes(d: &[u8], pack_offset: data::Offset, hash_len: usize) -> Result<data::Entry, Error> {
+    pub fn from_bytes(d: &[u8], pack_offset: data::Offset, object_hash: gix_hash::Kind) -> Result<data::Entry, Error> {
         let (type_id, size, mut consumed) = parse_header_info(d)?;
+        let hash_len = object_hash.len_in_bytes();
 
         use crate::data::entry::Header::*;
         let object = match type_id {
@@ -38,12 +35,16 @@ impl data::Entry {
                 delta
             }
             REF_DELTA => {
+                let hash = d
+                    .get(consumed..)
+                    .and_then(|d| d.get(..hash_len))
+                    .ok_or(Error::Corrupt {
+                        message: "ref-delta base object id",
+                    })?;
                 let delta = RefDelta {
-                    base_id: gix_hash::ObjectId::from_bytes_or_panic(d.get(consumed..consumed + hash_len).ok_or(
-                        Error::Corrupt {
-                            message: "ref-delta base object id",
-                        },
-                    )?),
+                    base_id: gix_hash::ObjectId::try_from(hash).map_err(|_| Error::Corrupt {
+                        message: "unsupported object hash length",
+                    })?,
                 };
                 consumed += hash_len;
                 delta
@@ -58,7 +59,7 @@ impl data::Entry {
             header: object,
             decompressed_size: size,
             data_offset: pack_offset + consumed as u64,
-            encoded_header_size: consumed.try_into().expect("pack entry headers fit into u16"),
+            encoded_header_size: encoded_header_size(consumed)?,
         })
     }
 
@@ -97,9 +98,16 @@ impl data::Entry {
             header: object,
             decompressed_size: size,
             data_offset: pack_offset + consumed as u64,
-            encoded_header_size: consumed.try_into().expect("pack entry headers fit into u16"),
+            encoded_header_size: encoded_header_size(consumed)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
         })
     }
+}
+
+fn encoded_header_size(consumed: usize) -> Result<u16, Error> {
+    consumed.try_into().map_err(|_| Error::Corrupt {
+        message: "entry header size does not fit into u16",
+    })
 }
 
 #[inline]
@@ -176,7 +184,7 @@ mod tests {
     #[test]
     fn accepts_non_canonical_pack_entry_header_encoding() {
         let pack_offset = 42;
-        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1.len_in_bytes())
+        let entry = data::Entry::from_bytes(&[0xb3, 0x00], pack_offset, gix_hash::Kind::Sha1)
             .expect("non-canonical size encodings are accepted by git");
 
         assert_eq!(entry.header, data::entry::Header::Blob);
@@ -206,12 +214,8 @@ mod tests {
     fn non_canonical_pack_entry_header_keeps_ofs_delta_base_offsets_correct() {
         let pack_offset = 100;
         let base_distance = 5;
-        let entry = data::Entry::from_bytes(
-            &[0xe4, 0x00, base_distance],
-            pack_offset,
-            gix_hash::Kind::Sha1.len_in_bytes(),
-        )
-        .expect("non-canonical ofs-delta size encodings are accepted by git");
+        let entry = data::Entry::from_bytes(&[0xe4, 0x00, base_distance], pack_offset, gix_hash::Kind::Sha1)
+            .expect("non-canonical ofs-delta size encodings are accepted by git");
 
         assert_eq!(
             entry.header,
@@ -234,6 +238,17 @@ mod tests {
             entry.checked_base_pack_offset(base_distance.into()),
             Some(pack_offset - u64::from(base_distance)),
             "ofs-delta base distances are relative to the entry start, so preserving `pack_offset()` keeps the base lookup correct"
+        );
+    }
+
+    #[test]
+    fn oversized_encoded_header_size_is_rejected() {
+        assert!(
+            matches!(
+                encoded_header_size(usize::from(u16::MAX) + 1),
+                Err(Error::Corrupt { message }) if message == "entry header size does not fit into u16"
+            ),
+            "entry header lengths that cannot be stored in the Entry metadata must be rejected"
         );
     }
 }

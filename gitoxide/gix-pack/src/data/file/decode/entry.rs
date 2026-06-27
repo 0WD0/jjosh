@@ -111,7 +111,7 @@ where
         }
 
         let object_data = &self.data[pack_offset..];
-        data::Entry::from_bytes(object_data, offset, self.hash_len)
+        data::Entry::from_bytes(object_data, offset, self.object_hash)
     }
 
     /// Decompress the object expected at the given data offset, sans pack header. This information is only

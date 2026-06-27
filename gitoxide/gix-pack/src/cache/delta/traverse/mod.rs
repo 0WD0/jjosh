@@ -170,7 +170,7 @@ where
                             node,
                             state,
                             resolve_data,
-                            object_hash.len_in_bytes(),
+                            object_hash,
                             threads_left,
                             should_interrupt,
                         )

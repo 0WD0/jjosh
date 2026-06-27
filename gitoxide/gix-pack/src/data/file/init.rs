@@ -51,7 +51,6 @@ where
             id,
             version: kind,
             num_objects,
-            hash_len,
             object_hash,
             alloc_limit_bytes: None,
         })
