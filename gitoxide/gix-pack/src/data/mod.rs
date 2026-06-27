@@ -96,9 +96,8 @@ pub struct File<T = MMap> {
     pub id: Id,
     version: Version,
     num_objects: u32,
-    /// The size of the hash contained within. This is entirely determined by the caller, and repositories have to know which hash to use
+    /// The kind of hash contained within. This is entirely determined by the caller, and repositories have to know which hash to use
     /// based on their configuration.
-    hash_len: usize,
     object_hash: gix_hash::Kind,
     /// The maximum size of a single allocation caused by user-controlled on-disk pack data.
     ///
@@ -135,7 +134,7 @@ where
     }
     /// The position of the byte one past the last pack entry, or in other terms, the first byte of the trailing hash.
     pub fn pack_end(&self) -> usize {
-        self.data.len() - self.hash_len
+        self.data.len() - self.object_hash.len_in_bytes()
     }
 
     /// The path to the pack data file on disk
