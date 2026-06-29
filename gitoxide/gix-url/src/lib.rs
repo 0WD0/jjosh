@@ -222,6 +222,11 @@ impl Url {
     ///
     /// This is automatically set correctly for parsed URLs, but can be set here for urls
     /// created by constructor.
+    ///
+    /// Setting `use_alternate_form` to `false` forces canonical serialization. For SCP-like SSH URLs this
+    /// can be lossy: `user@host:path/repo` and `user@host:/path/repo` both serialize as
+    /// `ssh://user@host/path/repo`, even though Git treats their repository paths as
+    /// `path/repo` and `/path/repo` respectively when invoking the remote service.
     pub fn serialize_alternate_form(mut self, use_alternate_form: bool) -> Self {
         self.serialize_alternative_form = use_alternate_form;
         self
