@@ -2,7 +2,7 @@ use std::{
     any::Any,
     borrow::Cow,
     error::Error,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     io::Write,
     process::{self, Stdio},
 };
@@ -76,6 +76,7 @@ impl SpawnProcessOnDemand {
             trace,
         }
     }
+
     fn new_local(path: BString, version: Protocol, trace: bool) -> SpawnProcessOnDemand {
         SpawnProcessOnDemand {
             url: gix_url::Url::from_parts(gix_url::Scheme::File, None, None, None, None, path.clone(), true)
@@ -93,6 +94,39 @@ impl SpawnProcessOnDemand {
             desired_version: version,
             trace,
         }
+    }
+
+    fn prepare_command(
+        &self,
+        service: Service,
+    ) -> Result<(gix_command::Prepare, Option<ssh::ProgramKind>, OsString), client::Error> {
+        let (mut cmd, ssh_kind, cmd_name) = match &self.ssh_cmd {
+            Some((command, kind)) => (
+                kind.prepare_invocation(command, &self.url, self.desired_version, self.ssh_disallow_shell)
+                    .map_err(client::Error::SshInvocation)?
+                    .stderr(Stdio::piped()),
+                Some(*kind),
+                command.to_owned(),
+            ),
+            None => (
+                gix_command::prepare(service.as_str()).stderr(Stdio::null()),
+                None,
+                OsString::from(service.as_str()),
+            ),
+        };
+        if self.path.trim().first() == Some(&b'-') {
+            return Err(client::Error::AmbiguousPath {
+                path: self.path.clone(),
+            });
+        }
+        let repo_path = if self.ssh_cmd.is_some() {
+            cmd.args.push(service.as_str().into());
+            gix_quote::single(self.path.as_ref()).to_os_str_lossy().into_owned()
+        } else {
+            self.path.to_os_str_lossy().into_owned()
+        };
+        cmd.args.push(repo_path);
+        Ok((cmd, ssh_kind, cmd_name))
     }
 }
 
@@ -207,34 +241,9 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
         service: Service,
         extra_parameters: &'a [(&'a str, Option<&'a str>)],
     ) -> Result<SetServiceResponse<'_>, client::Error> {
-        let (mut cmd, ssh_kind, cmd_name) = match &self.ssh_cmd {
-            Some((command, kind)) => (
-                kind.prepare_invocation(command, &self.url, self.desired_version, self.ssh_disallow_shell)
-                    .map_err(client::Error::SshInvocation)?
-                    .stderr(Stdio::piped()),
-                Some(*kind),
-                Cow::Owned(command.to_owned()),
-            ),
-            None => (
-                gix_command::prepare(service.as_str()).stderr(Stdio::null()),
-                None,
-                Cow::Borrowed(OsStr::new(service.as_str())),
-            ),
-        };
+        let (mut cmd, ssh_kind, cmd_name) = self.prepare_command(service)?;
         cmd.stdin = Stdio::piped();
         cmd.stdout = Stdio::piped();
-        if self.path.trim().first() == Some(&b'-') {
-            return Err(client::Error::AmbiguousPath {
-                path: self.path.clone(),
-            });
-        }
-        let repo_path = if self.ssh_cmd.is_some() {
-            cmd.args.push(service.as_str().into());
-            gix_quote::single(self.path.as_ref()).to_os_str_lossy().into_owned()
-        } else {
-            self.path.to_os_str_lossy().into_owned()
-        };
-        cmd.args.push(repo_path);
 
         let mut cmd = std::process::Command::from(cmd);
         for env_to_remove in ENV_VARS_TO_REMOVE {
@@ -245,7 +254,7 @@ impl client::blocking_io::Transport for SpawnProcessOnDemand {
         gix_features::trace::debug!(command = ?cmd, "gix_transport::SpawnProcessOnDemand");
         let mut child = cmd.spawn().map_err(|err| client::Error::InvokeProgram {
             source: err,
-            command: cmd_name.into_owned(),
+            command: cmd_name,
         })?;
         let stdout: Box<dyn std::io::Read + Send> = match ssh_kind {
             Some(ssh_kind) => Box::new(supervise_stderr(
@@ -317,6 +326,36 @@ mod tests {
             }
 
             #[test]
+            fn upload_pack_invocation_preserves_scp_like_path_distinction() {
+                for (url, expected) in [
+                    (
+                        "git@forge.com:/path/repo",
+                        &["ssh", "git@forge.com", "git-upload-pack", "'/path/repo'"][..],
+                    ),
+                    (
+                        "git@forge.com:path/repo",
+                        &["ssh", "git@forge.com", "git-upload-pack", "'path/repo'"][..],
+                    ),
+                    (
+                        "ssh://git@forge.com/path/repo",
+                        &["ssh", "git@forge.com", "git-upload-pack", "'/path/repo'"][..],
+                    ),
+                ] {
+                    let url = gix_url::parse((*url).into()).expect("valid url");
+                    let cmd = ssh::connect(url, Protocol::V1, Default::default(), false).expect("parse success");
+                    assert_eq!(
+                        command_and_args(
+                            cmd.prepare_command(crate::Service::UploadPack)
+                                .expect("valid command")
+                                .0
+                        ),
+                        expected,
+                        "the remote shell command must match Git's parsed repository path"
+                    );
+                }
+            }
+
+            #[test]
             fn ambiguous_host_disallowed() {
                 for url in [
                     "ssh://-oProxyCommand=open$IFS-aCalculator/foo",
@@ -333,6 +372,14 @@ mod tests {
                         Err(ssh::Error::AmbiguousHostName { host }) if host == "-oProxyCommand=open$IFS-aCalculator",
                     ));
                 }
+            }
+
+            fn command_and_args(cmd: gix_command::Prepare) -> Vec<String> {
+                let cmd = std::process::Command::from(cmd);
+                std::iter::once(cmd.get_program())
+                    .chain(cmd.get_args())
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect()
             }
         }
     }
