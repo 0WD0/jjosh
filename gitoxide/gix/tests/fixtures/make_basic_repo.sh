@@ -11,6 +11,8 @@ echo hello >> this
 git commit -q -am c2
 
 mkdir -p some/very/deeply/nested/subdir
+mkdir -p some-with-file/very/deeply/nested/subdir
+touch some-with-file/very/deeply/nested/subdir/empty-file
 
 git init --bare bare.git
 

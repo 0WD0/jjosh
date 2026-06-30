@@ -442,9 +442,28 @@ fn complex_empty() -> crate::Result {
         &[
             entry("dirs-and-files", Untracked, Directory),
             entry("empty-toplevel", Untracked, Directory).with_property(EmptyDirectory),
-            entry("only-dirs", Untracked, Directory),
+            entry("only-dirs", Untracked, Directory).with_property(EmptyDirectory),
         ],
         "empty directories collapse just fine"
+    );
+
+    let (_, entries) = collect(&root, None, |keep, ctx| {
+        walk(
+            &root,
+            ctx,
+            walk::Options {
+                emit_empty_directories: false,
+                emit_untracked: CollapseDirectory,
+                ..options()
+            },
+            keep,
+        )
+    });
+    assert_eq!(
+        entries,
+        &[entry("dirs-and-files", Untracked, Directory)],
+        "a tree of only empty directories is skipped when empty directories aren't emitted, \
+         just like Git treats it as clean (https://github.com/GitoxideLabs/gitoxide/issues/2490)"
     );
     Ok(())
 }
@@ -519,6 +538,43 @@ fn ignored_with_prefix_pathspec_collapses_just_like_untracked() -> crate::Result
             entryps("ignored-inside", Ignored(Expendable), Directory, Prefix)
         ],
         "prefix matches allow ignored directories to collapse as well"
+    );
+    Ok(())
+}
+
+#[test]
+fn ignored_collapse_of_empty_directories_is_not_classified_as_empty_directory() -> crate::Result {
+    let root = fixture("ignored-with-only-empty-dirs");
+    let ((out, _root), entries) = collect_filtered(
+        &root,
+        None,
+        |keep, ctx| {
+            walk(
+                &root,
+                ctx,
+                walk::Options {
+                    emit_ignored: Some(CollapseDirectory),
+                    emit_empty_directories: false,
+                    ..options()
+                },
+                keep,
+            )
+        },
+        ["target"],
+    );
+
+    assert_eq!(
+        out,
+        walk::Outcome {
+            read_dir_calls: 5,
+            returned_entries: entries.len(),
+            seen_entries: 6,
+        }
+    );
+    assert_eq!(
+        entries,
+        [entryps("target", Ignored(Expendable), Directory, Prefix)],
+        "collapsed ignored directories must remain observable even when they contain only empty directories"
     );
     Ok(())
 }

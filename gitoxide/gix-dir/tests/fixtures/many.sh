@@ -191,6 +191,13 @@ git init ignored-with-empty
   touch target/debug/a target/release/b
 )
 
+git init ignored-with-only-empty-dirs
+(cd ignored-with-only-empty-dirs
+  echo "/target/" >> .gitignore
+  git add .gitignore && git commit -m "init"
+  mkdir -p target/empty target/nested/empty
+)
+
 cp -R only-untracked subdir-untracked
 (cd subdir-untracked
   git add .
