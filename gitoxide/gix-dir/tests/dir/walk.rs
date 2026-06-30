@@ -442,9 +442,28 @@ fn complex_empty() -> crate::Result {
         &[
             entry("dirs-and-files", Untracked, Directory),
             entry("empty-toplevel", Untracked, Directory).with_property(EmptyDirectory),
-            entry("only-dirs", Untracked, Directory),
+            entry("only-dirs", Untracked, Directory).with_property(EmptyDirectory),
         ],
         "empty directories collapse just fine"
+    );
+
+    let (_, entries) = collect(&root, None, |keep, ctx| {
+        walk(
+            &root,
+            ctx,
+            walk::Options {
+                emit_empty_directories: false,
+                emit_untracked: CollapseDirectory,
+                ..options()
+            },
+            keep,
+        )
+    });
+    assert_eq!(
+        entries,
+        &[entry("dirs-and-files", Untracked, Directory)],
+        "a tree of only empty directories is skipped when empty directories aren't emitted, \
+         just like Git treats it as clean (https://github.com/GitoxideLabs/gitoxide/issues/2490)"
     );
     Ok(())
 }
