@@ -543,6 +543,43 @@ fn ignored_with_prefix_pathspec_collapses_just_like_untracked() -> crate::Result
 }
 
 #[test]
+fn ignored_collapse_of_empty_directories_is_not_classified_as_empty_directory() -> crate::Result {
+    let root = fixture("ignored-with-only-empty-dirs");
+    let ((out, _root), entries) = collect_filtered(
+        &root,
+        None,
+        |keep, ctx| {
+            walk(
+                &root,
+                ctx,
+                walk::Options {
+                    emit_ignored: Some(CollapseDirectory),
+                    emit_empty_directories: false,
+                    ..options()
+                },
+                keep,
+            )
+        },
+        ["target"],
+    );
+
+    assert_eq!(
+        out,
+        walk::Outcome {
+            read_dir_calls: 5,
+            returned_entries: entries.len(),
+            seen_entries: 6,
+        }
+    );
+    assert_eq!(
+        entries,
+        [entryps("target", Ignored(Expendable), Directory, Prefix)],
+        "collapsed ignored directories must remain observable even when they contain only empty directories"
+    );
+    Ok(())
+}
+
+#[test]
 fn ignored_dir_with_cwd_handling() -> crate::Result {
     let root = fixture("untracked-and-ignored-for-collapse");
     let ((out, _root), entries) = collect_filtered_with_cwd(

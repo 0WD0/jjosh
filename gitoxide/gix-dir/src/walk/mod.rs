@@ -101,6 +101,8 @@ pub enum EmissionMode {
     ///
     /// Note that doing so is more expensive as it requires us to keep track of all entries in the directory structure
     /// until it's clear what to finally emit.
+    ///
+    /// Also note that empty *untracked* directories aren't empitted, also if these are nested (and empty)
     CollapseDirectory,
 }
 
