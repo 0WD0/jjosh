@@ -71,6 +71,20 @@ fn from_non_bare_without_index() -> crate::Result {
 }
 
 #[test]
+fn from_non_bare_repo_with_git_extension() -> crate::Result {
+    let dir = repo_path()?.join("repo.git");
+    let (path, trust) = gix_discover::upwards(&dir)?;
+    assert_eq!(
+        path.as_ref(),
+        dir,
+        "a non-bare repository named repo.git is returned as a worktree"
+    );
+    assert_eq!(path.kind(), Kind::WorkTree { linked_git_dir: None });
+    assert_eq!(trust, expected_trust());
+    Ok(())
+}
+
+#[test]
 fn from_bare_git_dir_without_config_file() -> crate::Result {
     for name in ["bare-no-config.git", "bare-no-config-after-init.git"] {
         let dir = repo_path()?.join(name);

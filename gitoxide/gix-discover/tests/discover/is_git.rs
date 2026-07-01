@@ -101,6 +101,18 @@ fn no_bare_repo_without_index_file_looks_like_worktree() -> crate::Result {
 }
 
 #[test]
+fn non_bare_repo_with_git_extension_is_not_a_worktree() -> crate::Result {
+    let worktree = repo_path()?.join("repo.git");
+    let err = gix_discover::is_git(&worktree).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Missing HEAD at '.git/HEAD'",
+        "repo.git isn't a .git directory after all"
+    );
+    Ok(())
+}
+
+#[test]
 fn missing_configuration_file_is_not_a_dealbreaker_in_nonbare_repo() -> crate::Result {
     for name in ["worktree-no-config-after-init/.git", "worktree-no-config/.git"] {
         let repo = repo_path()?.join(name);
