@@ -106,6 +106,7 @@ mod dirwalk {
             ("empty-core-excludes".into(), Repository),
             ("non-bare-repo-without-index".into(), Repository),
             ("non-bare-without-worktree".into(), Directory),
+            ("repo.git".into(), Repository),
             ("some-with-file".into(), Directory),
             ("unborn".into(), Repository),
         ];

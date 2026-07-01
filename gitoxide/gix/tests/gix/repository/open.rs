@@ -130,6 +130,24 @@ fn bare_repo_with_index() -> crate::Result {
 }
 
 #[test]
+fn non_bare_repo_with_git_extension() -> crate::Result {
+    let repo = named_subrepo_opts("make_basic_repo.sh", "repo.git", gix::open::Options::isolated())?;
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
+    assert!(!repo.is_bare());
+    assert!(
+        repo.workdir()
+            .expect("non-bare repository has a worktree")
+            .ends_with("repo.git"),
+        "the repo.git directory itself is the worktree"
+    );
+    assert!(
+        repo.git_dir().ends_with("repo.git/.git"),
+        "the repository metadata is in repo.git/.git"
+    );
+    Ok(())
+}
+
+#[test]
 fn non_bare_turned_bare() -> crate::Result {
     let repo = named_subrepo_opts(
         "make_worktree_repo.sh",

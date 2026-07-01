@@ -71,27 +71,26 @@ impl ThreadSafeRepository {
         let _span = gix_trace::coarse!("ThreadSafeRepository::open()");
         let (path, kind) = {
             let path = path.into();
-            let looks_like_git_dir =
-                path.ends_with(gix_discover::DOT_GIT_DIR) || path.extension() == Some(std::ffi::OsStr::new("git"));
-            let candidate = if !options.open_path_as_is && !looks_like_git_dir {
-                Cow::Owned(path.join(gix_discover::DOT_GIT_DIR))
+            let looks_like_dot_git_dir = path.ends_with(gix_discover::DOT_GIT_DIR);
+            let maybe_git_repo_path = if !options.open_path_as_is && !looks_like_dot_git_dir {
+                Some(path.join(gix_discover::DOT_GIT_DIR))
             } else {
-                Cow::Borrowed(&path)
+                None
             };
-            match gix_discover::is_git(candidate.as_ref()) {
-                Ok(kind) => (candidate.into_owned(), kind),
-                Err(err) => {
-                    if options.open_path_as_is || matches!(candidate, Cow::Borrowed(_)) {
-                        return Err(Error::NotARepository {
-                            source: err,
-                            path: candidate.into_owned(),
-                        });
-                    }
-                    match gix_discover::is_git(&path) {
+            match maybe_git_repo_path {
+                Some(candidate) => match gix_discover::is_git(&candidate) {
+                    Ok(kind) => (candidate, kind),
+                    Err(_) => match gix_discover::is_git(&path) {
                         Ok(kind) => (path, kind),
                         Err(err) => return Err(Error::NotARepository { source: err, path }),
+                    },
+                },
+                None => match gix_discover::is_git(&path) {
+                    Ok(kind) => (path, kind),
+                    Err(err) => {
+                        return Err(Error::NotARepository { source: err, path });
                     }
-                }
+                },
             }
         };
 

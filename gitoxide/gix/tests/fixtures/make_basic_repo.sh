@@ -21,6 +21,13 @@ git init --bare bare-repo-with-index.git
   touch index
 )
 
+git init -q repo.git
+(cd repo.git
+  touch this
+  git add this
+  git commit -q -m "init non-bare repo with git suffix"
+)
+
 git init non-bare-repo-without-index
 (cd non-bare-repo-without-index
   touch this
