@@ -700,21 +700,22 @@ where
                                 } else {
                                     (labels.other.unwrap_or_default(), Swapped)
                                 };
-                                let deletion_prefaces_addition_of_directory = {
-                                    let change_on_right = match side {
-                                        Original => their_changes.get(theirs_idx + 1),
-                                        Swapped => our_changes.get(ours_idx + 1),
+                                let deletion_replaced_by_directory = {
+                                    // The deleted leaf is replaced by a dir added at the same location.
+                                    // Rename-tracking sort order shouldn't be dependent on here, but maybe
+                                    // could one day once rename tracking caught up with Git.
+                                    let changes = match side {
+                                        Original => &their_changes,
+                                        Swapped => &our_changes,
                                     };
-                                    change_on_right
-                                        .map(|change| {
-                                            change.inner.entry_mode().is_tree()
-                                                && change.inner.location() == location
-                                                && matches!(change.inner, Change::Addition { .. })
-                                        })
-                                        .unwrap_or_default()
+                                    changes.iter().any(|change| {
+                                        change.inner.entry_mode().is_tree()
+                                            && matches!(change.inner, Change::Addition { .. })
+                                            && change.inner.location() == location
+                                    })
                                 };
 
-                                let should_break = if deletion_prefaces_addition_of_directory {
+                                let should_break = if deletion_replaced_by_directory {
                                     let entries = [
                                         index_entry(previous_entry_mode, previous_id),
                                         index_entry(entry_mode, id),
