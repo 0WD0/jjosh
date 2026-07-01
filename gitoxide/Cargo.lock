@@ -2182,6 +2182,7 @@ version = "0.72.0"
 dependencies = [
  "bstr",
  "clru",
+ "criterion",
  "document-features",
  "gix-chunk",
  "gix-diff",
