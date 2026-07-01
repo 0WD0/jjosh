@@ -15,7 +15,7 @@ rust-version = "1.85"
 doctest = false
 
 [[bench]]
-name = "pack_generation"
+name = "pack_create"
 harness = false
 
 [features]
@@ -81,7 +81,6 @@ gix-traverse = { path = "../gix-traverse" }
 bstr = { version = "1.12.0", default-features = false, features = ["std"] }
 maplit = "1.0.2"
 criterion = "0.8.2"
-tempfile = "3.27.0"
 
 [package.metadata.docs.rs]
 all-features = true
