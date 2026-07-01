@@ -702,16 +702,16 @@ where
                                 };
                                 let deletion_replaced_by_directory = {
                                     // The deleted leaf is replaced by a dir added at the same location.
-                                    // Rename-tracking sorts by id, so the tree addition under SHA-256
-                                    // isn't adjacent to the deletion. Scan all the side changes for it.
+                                    // Rename-tracking sort order shouldn't be dependent on here, but maybe
+                                    // could one day once rename tracking caught up with Git.
                                     let changes = match side {
                                         Original => &their_changes,
                                         Swapped => &our_changes,
                                     };
                                     changes.iter().any(|change| {
                                         change.inner.entry_mode().is_tree()
-                                            && change.inner.location() == location
                                             && matches!(change.inner, Change::Addition { .. })
+                                            && change.inner.location() == location
                                     })
                                 };
 

@@ -17,10 +17,18 @@ function tick () {
 # --index-info` blocks below) to the equivalent id under the repository's
 # current hash algorithm, so these baselines work under both SHA-1 and SHA-256.
 function oid () {
-  if [ "${GIT_DEFAULT_HASH:-sha1}" = "sha1" ]; then
+  case "${GIT_DEFAULT_HASH:-sha1}" in
+  sha1)
     printf '%s' "$1"
     return
-  fi
+    ;;
+  sha256)
+    ;;
+  *)
+    echo "oid(): unsupported object hash '${GIT_DEFAULT_HASH}', expected 'sha1' or 'sha256'" >&2
+    return 1
+    ;;
+  esac
   case "$1" in
     092bfb9bdf74dd8cfd22e812151281ee9aa6f01a) echo d246bf89e9d0f356301a75184ab79e68cfcb0aac1a7acbf3d4de81400b5ee231 ;;
     09c277aa66897c58157f57a374eacc63a407dcab) echo cf8aedf347c947abf6c6e2c4ecaa2e086ea61ce81f52491c453b81c6455f305e ;;
