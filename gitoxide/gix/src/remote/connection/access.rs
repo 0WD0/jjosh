@@ -55,12 +55,8 @@ impl<T> ConnectionDetached<'_, T>
 where
     T: Transport,
 {
-    pub(crate) fn configured_credentials(
-        &self,
-        repo: &crate::Repository,
-        url: gix_url::Url,
-    ) -> Result<AuthenticateFn<'static>, crate::config::credential_helpers::Error> {
-        configured_credentials_for_repo(repo.clone(), url)
+    pub(crate) fn configured_credentials_for_current_url(&self, repo: &crate::Repository) -> AuthenticateFn<'static> {
+        configured_credentials_for_current_url(repo.clone())
     }
 }
 
@@ -90,8 +86,8 @@ impl<'auth, 'repo, T> Connection<'_, 'auth, 'repo, T>
 where
     T: Transport,
 {
-    /// A utility to return a function that will use this repository's configuration to obtain credentials, similar to
-    /// what `git credential` is doing.
+    /// A utility to return a function that will use this repository's configuration to obtain credentials for `url`,
+    /// similar to what `git credential` is doing.
     ///
     /// It's meant to be used by users of the [`with_credentials()`](Self::with_credentials()) builder to gain access to the
     /// default way of handling credentials, which they can call as fallback.
@@ -99,8 +95,20 @@ where
         &self,
         url: gix_url::Url,
     ) -> Result<AuthenticateFn<'static>, crate::config::credential_helpers::Error> {
-        configured_credentials_for_repo(self.remote.repo.clone(), url)
+        let (mut cascade, _action_with_normalized_url, prompt_opts) =
+            self.remote.repo.config_snapshot().credential_helpers(url)?;
+        Ok(Box::new(move |action| cascade.invoke(action, prompt_opts.clone())) as AuthenticateFn<'_>)
     }
+
+    /// A utility to return a function that uses each
+    /// [`Get`](gix_credentials::helper::Action::Get) action's context to obtain credentials from this repository's
+    /// configuration.
+    ///
+    /// The transport creates these actions from its current URL, which means authentication naturally follows redirects.
+    pub fn configured_credentials_for_current_url(&self) -> AuthenticateFn<'static> {
+        configured_credentials_for_current_url(self.remote.repo.clone())
+    }
+
     /// Return the underlying remote that instantiate this connection.
     pub fn remote(&self) -> &Remote<'repo> {
         self.remote
@@ -126,14 +134,9 @@ where
     }
 }
 
-fn configured_credentials_for_repo(
-    repo: crate::Repository,
-    initial_url: gix_url::Url,
-) -> Result<AuthenticateFn<'static>, crate::config::credential_helpers::Error> {
-    repo.config_snapshot().credential_helpers(initial_url)?;
-
+fn configured_credentials_for_current_url(repo: crate::Repository) -> AuthenticateFn<'static> {
     let mut previous_cascade_and_prompt = None;
-    Ok(Box::new(move |action| {
+    Box::new(move |action| {
         if matches!(&action, gix_credentials::helper::Action::Get(_)) {
             // The handshake creates the `Get` action from the transport's current URL. That URL may
             // differ from the initial remote URL after redirects, and credential configuration can be
@@ -164,5 +167,5 @@ fn configured_credentials_for_repo(
                 }
             }
         }
-    }) as AuthenticateFn<'_>)
+    }) as AuthenticateFn<'_>
 }

@@ -140,11 +140,7 @@ where
         let authenticate = match self.authenticate.as_mut() {
             Some(f) => f,
             None => {
-                let url = self.remote.fetch_url().map_or_else(
-                    || gix_url::parse(url.as_ref()).expect("valid URL to be provided by transport"),
-                    ToOwned::to_owned,
-                );
-                credentials_storage = self.configured_credentials(repo, url)?;
+                credentials_storage = self.configured_credentials_for_current_url(repo);
                 &mut credentials_storage
             }
         };

@@ -65,11 +65,6 @@ impl RemoteDetached {
     pub(crate) fn fetch_refspecs(&self) -> &[RefSpec] {
         &self.fetch_specs
     }
-
-    /// Return the fetch URL with rewrites from `url.<base>.insteadOf`.
-    pub(crate) fn fetch_url(&self) -> Option<&gix_url::Url> {
-        self.url_alias.as_ref().or(self.url.as_ref())
-    }
 }
 
 /// Modification
