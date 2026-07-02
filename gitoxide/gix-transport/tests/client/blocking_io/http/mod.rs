@@ -17,7 +17,10 @@ use gix_transport::{
     },
 };
 
-use crate::fixture_bytes;
+use crate::{
+    fixture_bytes,
+    http_helpers::{observe_connection_within_deadline, read_request_lines, response_with_connection_close},
+};
 
 mod mock;
 
@@ -278,34 +281,6 @@ Authorization: Basic dXNlcjpwYXNzd29yZA==
 /// ```
 #[test]
 fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Result {
-    fn response_with_connection_close(response: &[u8]) -> Vec<u8> {
-        let split = response
-            .windows(2)
-            .position(|window| window == b"\n\n")
-            .expect("response fixture with header/body separator");
-        let (headers, body) = response.split_at(split);
-        let body = &body[2..];
-        let headers = std::str::from_utf8(headers).expect("fixture headers are UTF-8");
-
-        let mut out = Vec::with_capacity(response.len() + 64);
-        for line in headers.lines() {
-            out.extend_from_slice(line.as_bytes());
-            out.extend_from_slice(b"\r\n");
-        }
-        out.extend_from_slice(b"Connection: close\r\n\r\n");
-        out.extend_from_slice(body);
-        out
-    }
-
-    fn read_request_lines(reader: &mut dyn BufRead) -> Vec<String> {
-        reader
-            .lines()
-            .map(Result::unwrap)
-            .take_while(|line| !line.is_empty() && line != "\r")
-            .map(|line| line.trim().to_string())
-            .collect()
-    }
-
     fn has_authorization(lines: &[String]) -> bool {
         lines
             .iter()
@@ -322,7 +297,10 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
             .expect("nonblocking listener can be configured");
         loop {
             match listener.accept() {
-                Ok((stream, _)) => return Some(std::io::BufReader::new(stream)),
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).expect("accepted stream can be blocking");
+                    return Some(std::io::BufReader::new(stream));
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                     if std::time::Instant::now() >= deadline {
                         return None;
@@ -336,6 +314,7 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
 
     let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirected_addr = redirected_listener.local_addr()?;
+    let redirected_port = redirected_addr.port();
     let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let redirect_addr = redirect_listener.local_addr()?;
 
@@ -359,7 +338,11 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
             reader
                 .get_mut()
                 .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Type: application/x-git-upload-pack-result\r\nContent-Length: 4\r\nConnection: close\r\n\r\n0000",
+                    b"HTTP/1.1 200 OK\r\n\
+                      Content-Type: application/x-git-upload-pack-result\r\n\
+                      Content-Length: 4\r\n\
+                      Connection: close\r\n\r\n\
+                      0000",
                 )
                 .expect("write POST response");
             reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
@@ -375,7 +358,10 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
             .get_mut()
             .write_all(
                 format!(
-                    "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/repo/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 302 Found\r\n\
+                     Location: http://127.0.0.1:{}/repo/info/refs?service=git-upload-pack\r\n\
+                     Content-Length: 0\r\n\
+                     Connection: close\r\n\r\n",
                     redirected_addr.port()
                 )
                 .as_bytes(),
@@ -396,20 +382,27 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
         oauth_refresh_token: None,
     })?;
 
-    let handshake_result = client.handshake(Service::UploadPack, &[]).map(|_| ());
-    let request_result: Result<(), client::Error> = match handshake_result {
-        Ok(()) => match client.request(client::WriteMode::Binary, client::MessageKind::Flush, false) {
-            Ok(mut request) => match request.write_all(b"0000") {
-                Ok(()) => request.into_read().map(|_| ()).map_err(client::Error::from),
-                Err(err) => Err(client::Error::from(err)),
-            },
-            Err(err) => Err(err),
-        },
-        Err(err) => Err(err),
-    };
+    client
+        .handshake(Service::UploadPack, &[])
+        .map(drop)
+        .expect("redirected handshake should succeed");
+    let url_after_handshake = client.to_url().as_ref().to_owned();
+    let mut request = client
+        .request(client::WriteMode::Binary, client::MessageKind::Flush, false)
+        .expect("follow-up POST request can be created after redirected handshake");
+    request.write_all(b"0000").expect("flush packet can be written");
+    request
+        .into_read()
+        .map(drop)
+        .expect("follow-up POST response can be read");
 
     let original_get = redirect.join().expect("thread");
     let (redirected_get, redirected_post) = redirected.join().expect("thread");
+    assert_eq!(
+        url_after_handshake,
+        format!("http://127.0.0.1:{redirected_port}/repo"),
+        "the public transport URL should track the redirected base immediately after handshake"
+    );
     assert!(
         has_authorization(&original_get),
         "the original host still receives the configured credentials"
@@ -420,11 +413,323 @@ fn redirected_post_does_not_forward_basic_auth_to_the_new_host() -> crate::Resul
     );
     assert!(
         !has_authorization(&redirected_post),
-        "the redirected POST must not forward credentials to the new host, got {redirected_post:?} with transport result {request_result:?}"
+        "the redirected POST must not forward credentials to the new host, got {redirected_post:?}"
     );
     assert!(
-        !redirected_get.is_empty() || !redirected_post.is_empty() || request_result.is_err(),
-        "either a redirected request must be observed, or the backend must reject the redirect explicitly"
+        client.identity().is_none(),
+        "cross-host redirects must clear the original identity"
+    );
+    assert!(
+        !redirected_get.is_empty(),
+        "the backend must follow the initial cross-host redirect"
+    );
+    assert!(
+        !redirected_post.is_empty(),
+        "the follow-up POST must target the redirected host"
+    );
+    Ok(())
+}
+
+#[test]
+fn redirected_unauthorized_handshake_updates_url_before_returning() -> crate::Result {
+    let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let redirected_addr = redirected_listener.local_addr()?;
+    let redirected_port = redirected_addr.port();
+    let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let redirect_addr = redirect_listener.local_addr()?;
+
+    let redirected = std::thread::spawn(move || -> Vec<String> {
+        let (stream, _) = redirected_listener.accept().expect("accept redirected GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let request = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 401 Unauthorized\r\n\
+                  Content-Length: 0\r\n\
+                  Connection: close\r\n\r\n",
+            )
+            .expect("write unauthorized response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+        request
+    });
+
+    let redirect = std::thread::spawn(move || -> Vec<String> {
+        let (stream, _) = redirect_listener.accept().expect("accept redirecting GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let request = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                format!(
+                    "HTTP/1.1 302 Found\r\n\
+                     Location: http://127.0.0.1:{redirected_port}/repo/info/refs?service=git-upload-pack\r\n\
+                     Content-Length: 0\r\n\
+                     Connection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .expect("write redirect response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+        request
+    });
+
+    let mut client = gix_transport::client::blocking_io::http::connect::<Remote>(
+        format!("http://127.0.0.1:{}/repo", redirect_addr.port()).try_into()?,
+        Protocol::V1,
+        false,
+    );
+    let error = client
+        .handshake(Service::UploadPack, &[])
+        .err()
+        .expect("401 should be reported as an error");
+    let error = error
+        .source()
+        .unwrap_or_else(|| panic!("no source() in: {error:?} "))
+        .downcast_ref::<std::io::Error>()
+        .expect("io error as source");
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+    let original_get = redirect.join().expect("thread");
+    let redirected_get = redirected.join().expect("thread");
+    assert!(
+        !original_get.is_empty(),
+        "the original host should receive the initial request"
+    );
+    assert!(
+        !redirected_get.is_empty(),
+        "the redirected host should receive the unauthorized request"
+    );
+    assert_eq!(
+        client.to_url().as_ref(),
+        format!("http://127.0.0.1:{redirected_port}/repo"),
+        "authentication retries should observe the redirected base URL"
+    );
+    Ok(())
+}
+
+#[test]
+fn relative_redirected_handshake_updates_url_before_returning() -> crate::Result {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    let port = addr.port();
+
+    let server = std::thread::spawn(move || -> (Vec<String>, Vec<String>) {
+        let (stream, _) = listener.accept().expect("accept redirecting GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let original_get = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 302 Found\r\n\
+                  Location: ../../../redirected/repo/info/refs?service=git-upload-pack\r\n\
+                  Content-Length: 0\r\n\
+                  Connection: close\r\n\r\n",
+            )
+            .expect("write non-root relative redirect response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+
+        let (stream, _) = listener.accept().expect("accept redirected GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let redirected_get = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(&response_with_connection_close(&fixture_bytes(
+                "v1/http-handshake.response",
+            )))
+            .expect("write redirected handshake response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+        (original_get, redirected_get)
+    });
+
+    let mut client = gix_transport::client::blocking_io::http::connect::<Remote>(
+        format!("http://127.0.0.1:{port}/original/repo").try_into()?,
+        Protocol::V1,
+        false,
+    );
+
+    client.handshake(Service::UploadPack, &[]).map(drop)?;
+    let (original_get, redirected_get) = server.join().expect("thread");
+
+    assert!(
+        !original_get.is_empty(),
+        "the original host should receive the initial request"
+    );
+    assert!(
+        !redirected_get.is_empty(),
+        "the same host should receive the relative redirected request"
+    );
+    assert_eq!(
+        client.to_url().as_ref(),
+        format!("http://127.0.0.1:{port}/redirected/repo"),
+        "relative redirects should resolve and remove ../../../ path components before updating the public transport URL"
+    );
+    Ok(())
+}
+
+#[test]
+fn chained_relative_redirected_unauthorized_handshake_updates_url_from_previous_hop() -> crate::Result {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    let port = addr.port();
+
+    let server = std::thread::spawn(move || -> (Vec<String>, Vec<String>, Vec<String>) {
+        let (stream, _) = listener.accept().expect("accept initial GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let initial_get = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 302 Found\r\n\
+                  Location: /redirected/repo/info/refs?service=git-upload-pack\r\n\
+                  Content-Length: 0\r\n\
+                  Connection: close\r\n\r\n",
+            )
+            .expect("write root-relative redirect response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+
+        let (stream, _) = listener.accept().expect("accept second-hop GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let second_get = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 302 Found\r\n\
+                  Location: ../final/repo/info/refs?service=git-upload-pack\r\n\
+                  Content-Length: 0\r\n\
+                  Connection: close\r\n\r\n",
+            )
+            .expect("write relative redirect response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+
+        let (stream, _) = listener.accept().expect("accept final GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let final_get = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 401 Unauthorized\r\n\
+                  Content-Length: 0\r\n\
+                  Connection: close\r\n\r\n",
+            )
+            .expect("write unauthorized response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+        (initial_get, second_get, final_get)
+    });
+
+    let mut client = gix_transport::client::blocking_io::http::connect::<Remote>(
+        format!("http://127.0.0.1:{port}/original/repo").try_into()?,
+        Protocol::V1,
+        false,
+    );
+    client
+        .configure(&http::Options {
+            follow_redirects: http::options::FollowRedirects::All,
+            ..Default::default()
+        })
+        .expect("test options configure");
+
+    let error = client
+        .handshake(Service::UploadPack, &[])
+        .err()
+        .expect("final 401 should be reported as an error");
+    let error = error
+        .source()
+        .unwrap_or_else(|| panic!("no source() in: {error:?} "))
+        .downcast_ref::<std::io::Error>()
+        .expect("io error as source");
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+    let (initial_get, second_get, final_get) = server.join().expect("thread");
+    assert!(
+        initial_get
+            .iter()
+            .any(|line| line == "GET /original/repo/info/refs?service=git-upload-pack HTTP/1.1"),
+        "the first request should target the original repository, got {initial_get:?}"
+    );
+    assert!(
+        second_get
+            .iter()
+            .any(|line| line == "GET /redirected/repo/info/refs?service=git-upload-pack HTTP/1.1"),
+        "the first redirect should move to the redirected repository, got {second_get:?}"
+    );
+    assert!(
+        final_get
+            .iter()
+            .any(|line| line == "GET /redirected/repo/final/repo/info/refs?service=git-upload-pack HTTP/1.1"),
+        "the second redirect should resolve relative to the previous hop, got {final_get:?}"
+    );
+    assert_eq!(
+        client.to_url().as_ref(),
+        format!("http://127.0.0.1:{port}/redirected/repo/final/repo"),
+        "authentication retries should use the base URL curl actually reached"
+    );
+    Ok(())
+}
+
+#[test]
+fn redirects_are_not_followed_with_configured_extra_headers() -> crate::Result {
+    let redirected_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let redirected_addr = redirected_listener.local_addr()?;
+    let redirect_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let redirect_addr = redirect_listener.local_addr()?;
+
+    let redirected = observe_connection_within_deadline(redirected_listener);
+    let redirect = std::thread::spawn(move || -> Vec<String> {
+        let (stream, _) = redirect_listener.accept().expect("accept redirecting GET");
+        let mut reader = std::io::BufReader::new(stream);
+        let request = read_request_lines(&mut reader);
+        reader
+            .get_mut()
+            .write_all(
+                format!(
+                    "HTTP/1.1 302 Found\r\n\
+                     Location: http://127.0.0.1:{}/repo/info/refs?service=git-upload-pack\r\n\
+                     Content-Length: 0\r\n\
+                     Connection: close\r\n\r\n",
+                    redirected_addr.port()
+                )
+                .as_bytes(),
+            )
+            .expect("write redirect response");
+        reader.get_mut().shutdown(std::net::Shutdown::Both).ok();
+        request
+    });
+
+    let mut client = gix_transport::client::blocking_io::http::connect::<Remote>(
+        format!("http://127.0.0.1:{}/repo", redirect_addr.port()).try_into()?,
+        Protocol::V1,
+        false,
+    );
+    let options = http::Options {
+        extra_headers: vec!["PRIVATE-TOKEN: original-secret".into()],
+        ..Default::default()
+    };
+    client.configure(&options).expect("test options configure");
+
+    let result = client.handshake(Service::UploadPack, &[]);
+    let original_get = redirect.join().expect("thread");
+    let redirected_was_contacted = redirected.join().expect("thread");
+
+    match result {
+        Ok(_) => unreachable!("redirects with configured extra headers should fail"),
+        Err(err) => {
+            let err = format!("{err:?}");
+            assert!(
+                err.contains("refusing to follow redirect after request headers were configured"),
+                "error should indicate that it failed due to redirection, got {err}"
+            );
+        }
+    }
+    assert!(
+        original_get
+            .iter()
+            .any(|line| line.to_ascii_lowercase().starts_with("private-token:")),
+        "the original request should still receive the configured extra header, got {original_get:?}"
+    );
+    assert!(
+        !redirected_was_contacted,
+        "configured extra headers must not be replayed to redirected hosts"
     );
     Ok(())
 }

@@ -1,9 +1,6 @@
 #[cfg(feature = "blocking-client")]
 use std::io::{BufRead, Write};
-use std::{
-    ops::Deref,
-    sync::{Arc, Mutex},
-};
+use std::{ops::Deref, sync::Arc};
 
 use bstr::ByteSlice;
 #[cfg(feature = "async-client")]
@@ -22,6 +19,7 @@ use gix_transport::{
     Protocol, Service, client,
     client::{TransportWithoutIO, git},
 };
+use parking_lot::Mutex;
 
 use crate::fixture_bytes;
 
@@ -122,7 +120,6 @@ async fn handshake_v1_and_request() -> crate::Result {
             assert!(!is_err);
             sb.deref()
                 .lock()
-                .expect("no poison")
                 .push(std::str::from_utf8(data).expect("valid utf8").to_owned());
             std::ops::ControlFlow::Continue(())
         }
@@ -140,10 +137,7 @@ async fn handshake_v1_and_request() -> crate::Result {
     )?;
     assert_eq!(entries.count(), expected_entries);
 
-    let sidebands = Arc::try_unwrap(messages)
-        .expect("no other handle")
-        .into_inner()
-        .expect("no poison");
+    let sidebands = Arc::try_unwrap(messages).expect("no other handle").into_inner();
     assert_eq!(sidebands.len(), 6, "…along with some status messages");
 
     assert_eq!(
@@ -186,7 +180,6 @@ async fn push_v1_simulated() -> crate::Result {
                 assert!(!is_err);
                 sb.deref()
                     .lock()
-                    .expect("no panic in other threads")
                     .push(std::str::from_utf8(data).expect("valid utf8").to_owned());
                 std::ops::ControlFlow::Continue(())
             }
@@ -210,7 +203,7 @@ async fn push_v1_simulated() -> crate::Result {
             "\nGitHub found 1 vulnerability on the-lean-crate/criner's default branch (1 high). To find out more, visit:\n     https://github.com/the-lean-crate/criner/security/dependabot/1\n",
         ];
         assert_eq!(
-            messages.lock().expect("no poison").as_slice(),
+            messages.lock().as_slice(),
             expected_progress,
             "these look like they are created once the whole pack has been received"
         );
@@ -406,7 +399,6 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
             assert!(!is_err);
             sb.deref()
                 .lock()
-                .expect("no poison")
                 .push(std::str::from_utf8(data).expect("valid utf8").to_owned());
             std::ops::ControlFlow::Continue(())
         }
@@ -425,7 +417,7 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
     )?;
     assert_eq!(entries.count(), expected_entries);
 
-    let messages = Arc::try_unwrap(messages).expect("no other handle").into_inner()?;
+    let messages = Arc::try_unwrap(messages).expect("no other handle").into_inner();
     assert_eq!(messages.len(), 4);
 
     assert_eq!(

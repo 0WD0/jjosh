@@ -130,4 +130,9 @@ pub trait Http {
         &mut self,
         config: &dyn std::any::Any,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>;
+
+    /// Return the effective base URL after a backend accepted a redirect, if available.
+    fn redirected_base_url(&self) -> Option<String> {
+        None
+    }
 }

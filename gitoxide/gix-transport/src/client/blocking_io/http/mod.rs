@@ -153,10 +153,7 @@ pub struct Options {
     pub proxy_auth_method: options::ProxyAuthMethod,
     /// If authentication is needed for the proxy as its URL contains a username, this method must be set to provide a password
     /// for it before making the request, and to store it if the connection succeeds.
-    pub proxy_authenticate: Option<(
-        gix_credentials::helper::Action,
-        Arc<std::sync::Mutex<options::AuthenticateFn>>,
-    )>,
+    pub proxy_authenticate: Option<(gix_credentials::helper::Action, Arc<Mutex<options::AuthenticateFn>>)>,
     /// The `HTTP` `USER_AGENT` string presented to an `HTTP` server, notably not the user agent present to the `git` server.
     ///
     /// If not overridden, it defaults to the user agent provided by `curl`, which is a deviation from how `git` handles this.
@@ -255,6 +252,26 @@ impl<H: Http> Transport<H> {
     /// Returns the identity that the transport uses when connecting to the remote.
     pub fn identity(&self) -> Option<&gix_sec::identity::Account> {
         self.identity.as_ref()
+    }
+
+    fn sync_redirected_base_url(&mut self) {
+        Self::sync_redirected_base_url_from(&self.http, &mut self.url, &mut self.identity);
+    }
+
+    /// Update `url` with the backend's accepted redirect target, clearing credentials if the
+    /// redirected authority must not reuse the original identity.
+    fn sync_redirected_base_url_from(http: &H, url: &mut String, identity: &mut Option<gix_sec::identity::Account>) {
+        let Some(redirected_url) = http.redirected_base_url() else {
+            return;
+        };
+        if redirected_url == *url {
+            return;
+        }
+
+        if !redirect::can_reuse_identity(&redirected_url, url) {
+            *identity = None;
+        }
+        *url = redirected_url;
     }
 }
 
@@ -370,10 +387,24 @@ impl<H: Http> blocking_io::Transport for Transport<H> {
             dynamic_headers.push(format!("Git-Protocol: {parameters}").into());
         }
         self.add_basic_auth_if_present(&mut dynamic_headers)?;
-        let GetResponse { headers, body } =
-            self.http
-                .get(url.as_ref(), &self.url, static_headers.iter().chain(&dynamic_headers))?;
-        <Transport<H>>::check_content_type(service, "advertisement", headers)?;
+        let GetResponse { headers, mut body } = self
+            .http
+            .get(url.as_ref(), &self.url, static_headers.iter().chain(&dynamic_headers))
+            .map_err(|err| {
+                self.sync_redirected_base_url();
+                client::Error::from(err)
+            })?;
+        if let Err(err) = <Transport<H>>::check_content_type(service, "advertisement", headers) {
+            const MAX_ERROR_BODY_DRAIN_BYTES: u64 = 1024 * 1024;
+            std::io::copy(
+                &mut body.by_ref().take(MAX_ERROR_BODY_DRAIN_BYTES),
+                &mut std::io::sink(),
+            )
+            .ok();
+            self.sync_redirected_base_url();
+            return Err(err);
+        }
+        self.sync_redirected_base_url();
 
         let line_reader = self
             .line_provider
@@ -437,16 +468,19 @@ impl<H: Http> blocking_io::Transport for Transport<H> {
             )));
         }
 
+        let all_headers = static_headers.iter().chain(&dynamic_headers);
         let PostResponse {
             headers,
             body,
             post_body,
-        } = self.http.post(
-            &url,
-            &self.url,
-            static_headers.iter().chain(&dynamic_headers),
-            write_mode.into(),
-        )?;
+        } = self
+            .http
+            .post(&url, &self.url, all_headers, write_mode.into())
+            .map_err(|err| {
+                self.sync_redirected_base_url();
+                client::Error::from(err)
+            })?;
+        self.sync_redirected_base_url();
         let line_provider = self
             .line_provider
             .as_mut()
@@ -549,5 +583,4 @@ pub fn connect<H: Http + Default>(url: gix_url::Url, desired_version: Protocol, 
 }
 
 ///
-#[cfg(any(feature = "http-client-curl", feature = "http-client-reqwest"))]
 pub mod redirect;
