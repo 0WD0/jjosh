@@ -55,13 +55,8 @@ impl<T> ConnectionDetached<'_, T>
 where
     T: Transport,
 {
-    pub(crate) fn configured_credentials(
-        &self,
-        repo: &crate::Repository,
-        url: gix_url::Url,
-    ) -> Result<AuthenticateFn<'static>, crate::config::credential_helpers::Error> {
-        let (mut cascade, _action_with_normalized_url, prompt_opts) = repo.config_snapshot().credential_helpers(url)?;
-        Ok(Box::new(move |action| cascade.invoke(action, prompt_opts.clone())) as AuthenticateFn<'_>)
+    pub(crate) fn configured_credentials_for_current_url(&self, repo: &crate::Repository) -> AuthenticateFn<'static> {
+        configured_credentials_for_current_url(repo.clone())
     }
 }
 
@@ -91,8 +86,8 @@ impl<'auth, 'repo, T> Connection<'_, 'auth, 'repo, T>
 where
     T: Transport,
 {
-    /// A utility to return a function that will use this repository's configuration to obtain credentials, similar to
-    /// what `git credential` is doing.
+    /// A utility to return a function that will use this repository's configuration to obtain credentials for `url`,
+    /// similar to what `git credential` is doing.
     ///
     /// It's meant to be used by users of the [`with_credentials()`](Self::with_credentials()) builder to gain access to the
     /// default way of handling credentials, which they can call as fallback.
@@ -104,6 +99,16 @@ where
             self.remote.repo.config_snapshot().credential_helpers(url)?;
         Ok(Box::new(move |action| cascade.invoke(action, prompt_opts.clone())) as AuthenticateFn<'_>)
     }
+
+    /// A utility to return a function that uses each
+    /// [`Get`](gix_credentials::helper::Action::Get) action's context to obtain credentials from this repository's
+    /// configuration.
+    ///
+    /// The transport creates these actions from its current URL, which means authentication naturally follows redirects.
+    pub fn configured_credentials_for_current_url(&self) -> AuthenticateFn<'static> {
+        configured_credentials_for_current_url(self.remote.repo.clone())
+    }
+
     /// Return the underlying remote that instantiate this connection.
     pub fn remote(&self) -> &Remote<'repo> {
         self.remote
@@ -127,4 +132,40 @@ where
             trace: self.trace,
         }
     }
+}
+
+fn configured_credentials_for_current_url(repo: crate::Repository) -> AuthenticateFn<'static> {
+    let mut previous_cascade_and_prompt = None;
+    Box::new(move |action| {
+        if matches!(&action, gix_credentials::helper::Action::Get(_)) {
+            // The handshake creates the `Get` action from the transport's current URL. That URL may
+            // differ from the initial remote URL after redirects, and credential configuration can be
+            // URL-specific. Configure the cascade for this action URL, then keep it for the matching
+            // `Store` or `Erase` follow-up actions whose context is carried as an encoded payload,
+            // and is less convenient to use.
+            let url = action
+                .context()
+                .and_then(|ctx| ctx.url.clone().or_else(|| ctx.to_url()))
+                .ok_or(gix_credentials::protocol::Error::UrlMissing)?;
+            let (mut cascade, _action_with_normalized_url, prompt_opts) = repo
+                .config_snapshot()
+                .credential_helpers(gix_url::parse(url.as_ref())?)
+                .map_err(|source| gix_credentials::protocol::Error::ConfigureCredentialHelpers {
+                    source: Box::new(source),
+                })?;
+            let outcome = cascade.invoke(action, prompt_opts.clone());
+            previous_cascade_and_prompt = Some((cascade, prompt_opts));
+            outcome
+        } else {
+            match previous_cascade_and_prompt.as_mut() {
+                Some((cascade, prompt_opts)) => cascade.invoke(action, prompt_opts.clone()),
+                None => {
+                    gix_trace::warn!(
+                        "credential Store/Erase follow-up was invoked without a preceding Get; ignoring advisory action"
+                    );
+                    Ok(None)
+                }
+            }
+        }
+    }) as AuthenticateFn<'_>
 }

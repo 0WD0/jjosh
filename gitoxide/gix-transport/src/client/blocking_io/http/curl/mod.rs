@@ -1,9 +1,13 @@
 use std::{
-    sync::mpsc::{Receiver, SyncSender},
+    sync::{
+        Arc,
+        mpsc::{Receiver, SyncSender},
+    },
     thread,
 };
 
 use gix_features::io;
+use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{self, traits::PostBodyDataKind};
 
@@ -62,6 +66,7 @@ pub struct Curl {
     res: Receiver<remote::Response>,
     handle: Option<thread::JoinHandle<Result<(), Error>>>,
     config: http::Options,
+    redirected_base_url: Arc<Mutex<Option<String>>>,
 }
 
 impl Curl {
@@ -73,10 +78,11 @@ impl Curl {
             .join()
             .expect("handler thread should never panic")
             .expect_err("something should have gone wrong with curl (we join on error only)");
-        let (handle, req, res) = remote::new();
+        let (handle, req, res, redirected_base_url) = remote::new();
         self.handle = Some(handle);
         self.req = req;
         self.res = res;
+        self.redirected_base_url = redirected_base_url;
         err_that_brought_thread_down.into()
     }
 
@@ -122,12 +128,13 @@ impl Curl {
 
 impl Default for Curl {
     fn default() -> Self {
-        let (handle, req, res) = remote::new();
+        let (handle, req, res, redirected_base_url) = remote::new();
         Curl {
             handle: Some(handle),
             req,
             res,
             config: http::Options::default(),
+            redirected_base_url,
         }
     }
 }
@@ -165,5 +172,9 @@ impl http::Http for Curl {
             self.config = config.clone();
         }
         Ok(())
+    }
+
+    fn redirected_base_url(&self) -> Option<String> {
+        self.redirected_base_url.lock().clone()
     }
 }

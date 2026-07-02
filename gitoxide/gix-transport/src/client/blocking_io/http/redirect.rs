@@ -1,18 +1,55 @@
 /// The error provided when redirection went beyond what we deem acceptable.
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "Redirect url {redirect_url:?} could not be reconciled with original url {expected_url} as they don't share authority or the same suffix"
+    "Redirect url {redirect_url:?} could not be reconciled with original url {expected_url} as the scheme is insecure or they don't share the same suffix"
 )]
 pub struct Error {
     redirect_url: String,
     expected_url: String,
 }
 
-pub(crate) fn shares_authority_or_upgrades_scheme(redirect_url: &str, original_url: &str) -> bool {
-    let Ok(redirect_url) = gix_url::parse(redirect_url.into()) else {
+#[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Action {
+    Follow,
+    RejectConfiguredHeaders,
+    #[default]
+    Stop,
+}
+
+impl Action {
+    pub(crate) fn from_request(may_follow_redirects: bool, has_configured_request_headers: bool) -> Self {
+        match (may_follow_redirects, has_configured_request_headers) {
+            (true, false) => Action::Follow,
+            (true, true) => Action::RejectConfiguredHeaders,
+            (false, _) => Action::Stop,
+        }
+    }
+}
+
+fn parse_two_urls(a: &str, b: &str) -> Option<(gix_url::Url, gix_url::Url)> {
+    let a = gix_url::parse(a.into()).ok()?;
+    let b = gix_url::parse(b.into()).ok()?;
+    Some((a, b))
+}
+
+pub(crate) fn scheme_is_safe(redirect_url: &str, original_url: &str) -> bool {
+    let Some((redirect_url, original_url)) = parse_two_urls(redirect_url, original_url) else {
         return false;
     };
-    let Ok(original_url) = gix_url::parse(original_url.into()) else {
+
+    if !matches!(redirect_url.scheme, gix_url::Scheme::Http | gix_url::Scheme::Https) {
+        return false;
+    }
+
+    if redirect_url.scheme == original_url.scheme {
+        return true;
+    }
+
+    original_url.scheme == gix_url::Scheme::Http && redirect_url.scheme == gix_url::Scheme::Https
+}
+
+pub(crate) fn can_reuse_identity(redirect_url: &str, original_url: &str) -> bool {
+    let Some((redirect_url, original_url)) = parse_two_urls(redirect_url, original_url) else {
         return false;
     };
 
@@ -37,7 +74,7 @@ pub(crate) fn base_url(redirect_url: &str, base_url: &str, url: String) -> Resul
     let tail = url
         .strip_prefix(base_url)
         .expect("BUG: caller assures `base_url` is subset of `url`");
-    if !shares_authority_or_upgrades_scheme(redirect_url, base_url) {
+    if !scheme_is_safe(redirect_url, base_url) {
         return Err(Error {
             redirect_url: redirect_url.into(),
             expected_url: url,
@@ -93,6 +130,19 @@ mod tests {
     }
 
     #[test]
+    fn base_url_allows_cross_authority_redirects_if_the_tail_matches() {
+        assert_eq!(
+            base_url(
+                "https://redirected.org/b/info/refs?hi",
+                "https://original/a",
+                "https://original/a/info/refs?hi".into()
+            )
+            .unwrap(),
+            "https://redirected.org/b"
+        );
+    }
+
+    #[test]
     fn base_url_rejects_authority_changes() {
         assert!(
             base_url(
@@ -103,63 +153,36 @@ mod tests {
             .is_err(),
             "downgrading from https to http must be rejected"
         );
-        assert!(
-            base_url(
-                "https://redirected.org/b/info/refs?hi",
-                "https://original/a",
-                "https://original/a/info/refs?hi".into()
-            )
-            .is_err(),
-            "changing the host must be rejected"
-        );
-        assert!(
-            base_url(
-                "https://original:444/b/info/refs?hi",
-                "https://original/a",
-                "https://original/a/info/refs?hi".into()
-            )
-            .is_err(),
-            "changing the port on https must be rejected"
-        );
-        assert!(
-            base_url(
-                "https://original:444/b/info/refs?hi",
-                "http://original/a",
-                "http://original/a/info/refs?hi".into()
-            )
-            .is_err(),
-            "upgrading the scheme does not allow changing the port"
-        );
     }
 
     #[test]
-    fn shares_authority_or_upgrades_scheme_complete() {
+    fn can_reuse_identity_complete() {
         assert!(
-            shares_authority_or_upgrades_scheme("https://original/b/info/refs?hi", "https://original/a"),
+            can_reuse_identity("https://original/b", "https://original/a"),
             "keeping the same https authority must be allowed"
         );
         assert!(
-            shares_authority_or_upgrades_scheme("https://original/b/info/refs?hi", "http://original/a"),
+            can_reuse_identity("https://original/b", "http://original/a"),
             "upgrading from http to https on the same host must be allowed"
         );
         assert!(
-            shares_authority_or_upgrades_scheme("https://original:8080/b/info/refs?hi", "http://original:8080/a"),
+            can_reuse_identity("https://original:8080/b", "http://original:8080/a"),
             "upgrading from http to https on the same host and port must be allowed"
         );
         assert!(
-            !shares_authority_or_upgrades_scheme("http://original/b/info/refs?hi", "https://original/a"),
+            !can_reuse_identity("http://original/b", "https://original/a"),
             "downgrading from https to http must be rejected"
         );
         assert!(
-            !shares_authority_or_upgrades_scheme("https://redirected.org/b/info/refs?hi", "https://original/a"),
+            !can_reuse_identity("https://redirected.org/b", "https://original/a"),
             "changing the host must be rejected"
         );
         assert!(
-            !shares_authority_or_upgrades_scheme("https://original:444/b/info/refs?hi", "https://original/a"),
+            !can_reuse_identity("https://original:444/b", "https://original/a"),
             "changing the port on https must be rejected"
         );
         assert!(
-            !shares_authority_or_upgrades_scheme("https://original:444/b/info/refs?hi", "http://original/a"),
+            !can_reuse_identity("https://original:444/b", "http://original/a"),
             "upgrading the scheme does not allow changing the port"
         );
     }

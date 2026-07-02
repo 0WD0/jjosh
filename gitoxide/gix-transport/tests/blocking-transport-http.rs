@@ -13,3 +13,4 @@ pub fn fixture_bytes(path: &str) -> Vec<u8> {
 }
 
 mod client;
+mod http_helpers;

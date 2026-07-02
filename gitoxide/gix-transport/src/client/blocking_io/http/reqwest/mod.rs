@@ -8,6 +8,8 @@ pub struct Remote {
     response: std::sync::mpsc::Receiver<remote::Response>,
     /// A mechanism for configuring the remote.
     config: crate::client::blocking_io::http::Options,
+    /// The effective base URL after an accepted redirect.
+    redirected_base_url: std::sync::Arc<parking_lot::Mutex<Option<String>>>,
 }
 
 /// A function to configure a single request prior to sending it, support most complex configuration beyond what's possible with

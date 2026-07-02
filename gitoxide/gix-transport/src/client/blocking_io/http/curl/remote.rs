@@ -1,20 +1,25 @@
 use std::{
     io,
     io::{Read, Write},
-    sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
+    sync::{
+        Arc,
+        mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
+    },
     thread,
     time::Duration,
 };
 
+use bstr::ByteSlice;
 use curl::easy::{Auth, Easy2};
 use gix_features::io::pipe;
+use parking_lot::Mutex;
 
 use crate::client::blocking_io::http::{
     self,
     curl::Error,
     curl::curl_is_spurious,
     options::{FollowRedirects, HttpVersion, ProxyAuthMethod, SslVersion},
-    redirect,
+    redirect::{self, Action as RedirectAction},
     traits::PostBodyDataKind,
 };
 
@@ -23,22 +28,60 @@ enum StreamOrBuffer {
     Buffer(std::io::Cursor<Vec<u8>>),
 }
 
+/// Shared output for the redirected base URL of the active request.
+///
+/// Before request setup calls `track_redirects()`, this points to a private `None` value created by `Default`.
+/// During a request it points to the worker-shared output, allowing redirect headers observed by curl callbacks to
+/// update the transport-visible base URL before `perform()` returns.
+type SharedRedirectedBaseUrl = Arc<Mutex<Option<String>>>;
+
 #[derive(Default)]
 struct Handler {
+    /// Sends response headers to the consumer until the request finishes or an error is reported.
     send_header: Option<pipe::Writer>,
+    /// Sends response body chunks to the consumer until the request finishes or an error is reported.
     send_data: Option<pipe::Writer>,
+    /// Provides the optional upload body to curl, either streamed from the caller or buffered for known-size uploads.
     receive_body: Option<StreamOrBuffer>,
+    /// `true` once the status line of the current response header block was parsed.
     checked_status: bool,
+    /// Status code of the current response header block, used to associate following headers with redirects.
+    current_status: Option<usize>,
+    /// Last non-success status reported to the caller, or `200` for a successful transfer.
     last_status: usize,
+    /// Redirect policy configured for the current request sequence.
     follow: FollowRedirects,
+    /// Per-request redirect behavior.
+    redirect_action: RedirectAction,
+    /// URL curl is currently requested to fetch, including any previously published redirect target.
+    request_url: String,
+    /// Caller-provided base URL used to derive the transport-visible base URL after redirects.
+    base_url: String,
+    redirected_base_url: SharedRedirectedBaseUrl,
 }
 
 impl Handler {
     fn reset(&mut self) {
         self.checked_status = false;
+        self.current_status = None;
         self.last_status = 0;
         self.follow = FollowRedirects::default();
+        self.redirect_action = RedirectAction::Stop;
     }
+
+    fn track_redirects(
+        &mut self,
+        request_url: String,
+        base_url: String,
+        redirected_base_url: SharedRedirectedBaseUrl,
+        redirect_action: RedirectAction,
+    ) {
+        self.request_url = request_url;
+        self.base_url = base_url;
+        self.redirected_base_url = redirected_base_url;
+        self.redirect_action = redirect_action;
+    }
+
     fn parse_status_inner(data: &[u8]) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         let code = data
             .split(|b| *b == b' ')
@@ -60,6 +103,123 @@ impl Handler {
             Err(err) => Some((500, err)),
         }
     }
+
+    /// Record a redirected base URL while curl is still reporting response headers.
+    ///
+    /// Curl provides the normalized final URL through `effective_url()` only after `perform()` finishes
+    /// successfully. Redirected authentication failures need the new base before returning the 401 error so the retry
+    /// targets the redirected URL, which means we have to inspect and resolve the raw `Location` header here.
+    fn publish_redirect_location(&self, data: &[u8]) {
+        if self.redirect_action != RedirectAction::Follow || !self.current_status.is_some_and(is_redirect_status) {
+            return;
+        }
+
+        let Some((name, value)) = std::str::from_utf8(data).ok().and_then(|line| line.split_once(':')) else {
+            return;
+        };
+        if !name.eq_ignore_ascii_case("location") {
+            return;
+        }
+
+        let Some(location) = absolute_location(&self.request_url, value.trim()) else {
+            return;
+        };
+
+        let Ok(new_base_url) = redirect::base_url(&location, &self.base_url, self.request_url.clone()) else {
+            return;
+        };
+        *self.redirected_base_url.lock() = Some(new_base_url);
+    }
+}
+
+/// Convert a raw `Location` header into the absolute URL curl would eventually follow.
+///
+/// Unlike reqwest's error path, the curl header callback only gives us the server-provided value. Absolute and
+/// scheme-relative locations can be completed directly, while path-only locations must be resolved against the current
+/// request URL.
+fn absolute_location(request_url: &str, location: &str) -> Option<String> {
+    if location.starts_with("http://") || location.starts_with("https://") {
+        return Some(location.to_owned());
+    }
+
+    let request_url = gix_url::parse(request_url.into()).ok()?;
+    let mut out = format!("{}://", request_url.scheme.as_str());
+    if location.starts_with("//") {
+        out.push_str(location.trim_start_matches('/'));
+        return Some(out);
+    }
+    out.push_str(request_url.host()?);
+    if let Some(port) = request_url.port {
+        out.push(':');
+        out.push_str(&port.to_string());
+    }
+    let request_path = request_url.path.to_str().ok()?;
+    out.push_str(&resolve_location_path(request_path, location));
+    Some(out)
+}
+
+/// Resolve a path-only `Location` value in `location` against the current `request_path`.
+///
+/// This mirrors URL redirect resolution for the subset curl does not expose during header processing: root-relative
+/// paths, relative paths, and query/fragment-only updates, including normalization of `.` and `..` path segments.
+fn resolve_location_path(request_path: &str, location: &str) -> String {
+    let (path, suffix) = split_url_path_suffix(location);
+    if path.starts_with('/') {
+        let mut out = normalize_url_path(path);
+        out.push_str(suffix);
+        return out;
+    }
+
+    let (request_path, _) = split_url_path_suffix(request_path);
+    if path.is_empty() {
+        let mut out = request_path.to_owned();
+        out.push_str(suffix);
+        return out;
+    }
+
+    let base_dir = request_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let mut merged = String::new();
+    merged.push_str(base_dir);
+    merged.push('/');
+    merged.push_str(path);
+    let mut out = normalize_url_path(&merged);
+    out.push_str(suffix);
+    out
+}
+
+fn split_url_path_suffix(input: &str) -> (&str, &str) {
+    input
+        .find(['?', '#'])
+        .map_or((input, ""), |suffix| input.split_at(suffix))
+}
+
+/// Normalize URL path segments while preserving absolute and trailing-slash shape.
+fn normalize_url_path(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let trailing_slash = path.ends_with('/');
+    let mut segments = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            segment => segments.push(segment),
+        }
+    }
+
+    let mut out = String::new();
+    if absolute {
+        out.push('/');
+    }
+    out.push_str(&segments.join("/"));
+    if trailing_slash && !out.ends_with('/') {
+        out.push('/');
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    out
 }
 
 impl curl::easy::Handler for Handler {
@@ -79,14 +239,40 @@ impl curl::easy::Handler for Handler {
     }
 
     fn header(&mut self, data: &[u8]) -> bool {
-        if let Some(writer) = self.send_header.as_mut() {
-            if self.checked_status {
+        if self.send_header.is_none() {
+            return true;
+        }
+        let header_block_is_done = matches!(data, b"\r\n" | b"\n");
+        if header_block_is_done {
+            if let Some(writer) = self.send_header.as_mut() {
                 writer.write_all(data).ok();
-            } else {
-                self.checked_status = true;
-                self.last_status = 200;
-                if let Some((status, err)) = Handler::parse_status(data, self.follow) {
-                    self.last_status = status;
+            }
+            self.checked_status = false;
+            self.current_status = None;
+            return true;
+        }
+        if self.checked_status {
+            self.publish_redirect_location(data);
+            if let Some(writer) = self.send_header.as_mut() {
+                writer.write_all(data).ok();
+            }
+        } else {
+            self.checked_status = true;
+            self.last_status = 200;
+            self.current_status = Handler::parse_status_inner(data).ok();
+            let err = self.current_status.and_then(|status| {
+                if self.redirect_action == RedirectAction::RejectConfiguredHeaders && is_redirect_status(status) {
+                    Some((
+                        status,
+                        "refusing to follow redirect after request headers were configured".into(),
+                    ))
+                } else {
+                    Handler::parse_status(data, self.follow)
+                }
+            });
+            if let Some((status, err)) = err {
+                self.last_status = status;
+                if let Some(writer) = self.send_header.as_mut() {
                     writer
                         .channel
                         .send(Err(io::Error::new(
@@ -121,11 +307,16 @@ pub struct Response {
     pub upload_body: pipe::Writer,
 }
 
-pub fn new() -> (
+type Worker = (
     thread::JoinHandle<Result<(), Error>>,
     SyncSender<Request>,
     Receiver<Response>,
-) {
+    SharedRedirectedBaseUrl,
+);
+
+pub fn new() -> Worker {
+    let redirected_base_url_shared = Arc::new(Mutex::new(None));
+    let redirected_base_url_shared_out = redirected_base_url_shared.clone();
     let (req_send, req_recv) = sync_channel(0);
     let (res_send, res_recv) = sync_channel(0);
     let handle = std::thread::spawn(move || -> Result<(), Error> {
@@ -135,7 +326,6 @@ pub fn new() -> (
         handle.tcp_keepalive(true)?;
 
         let mut follow = None;
-        let mut redirected_base_url = None::<String>;
 
         for Request {
             url,
@@ -163,10 +353,12 @@ pub fn new() -> (
                 },
         } in req_recv
         {
+            let redirected_base_url = redirected_base_url_shared.lock().clone();
             let effective_url = redirect::swap_tails(redirected_base_url.as_deref(), &base_url, url.clone());
             handle.url(&effective_url)?;
 
             handle.post(upload_body_kind.is_some())?;
+            let has_extra_headers = !extra_headers.is_empty();
             for header in extra_headers {
                 headers.append(&header)?;
             }
@@ -278,8 +470,19 @@ pub fn new() -> (
             };
 
             let follow = follow.get_or_insert(follow_redirects);
-            handle.get_mut().follow = *follow;
-            handle.follow_location(matches!(*follow, FollowRedirects::Initial | FollowRedirects::All))?;
+            let may_follow_redirects = matches!(*follow, FollowRedirects::Initial | FollowRedirects::All);
+            let redirect_action = RedirectAction::from_request(may_follow_redirects, has_extra_headers);
+            {
+                let handler = handle.get_mut();
+                handler.follow = *follow;
+                handler.track_redirects(
+                    effective_url.clone(),
+                    base_url.clone(),
+                    redirected_base_url_shared.clone(),
+                    redirect_action,
+                );
+            }
+            handle.follow_location(redirect_action == RedirectAction::Follow)?;
 
             if *follow == FollowRedirects::Initial {
                 *follow = FollowRedirects::None;
@@ -340,6 +543,14 @@ pub fn new() -> (
                     (None, None) => {}
                 }
             } else {
+                let actual_url = handle
+                    .effective_url()?
+                    .expect("effective url is present and valid UTF-8");
+                if actual_url != effective_url {
+                    let new_base_url = redirect::base_url(actual_url, &base_url, url)?;
+                    *redirected_base_url_shared.lock() = Some(new_base_url);
+                }
+
                 let handler = handle.get_mut();
                 if let Some((action, authenticate)) = proxy_auth_action {
                     authenticate.lock().expect("no panics in other threads")(if handler.last_status == 200 {
@@ -352,17 +563,11 @@ pub fn new() -> (
                 handler.receive_body.take();
                 handler.send_header.take();
                 handler.send_data.take();
-                let actual_url = handle
-                    .effective_url()?
-                    .expect("effective url is present and valid UTF-8");
-                if actual_url != effective_url {
-                    redirected_base_url = redirect::base_url(actual_url, &base_url, url)?.into();
-                }
             }
         }
         Ok(())
     });
-    (handle, req_send, res_recv)
+    (handle, req_send, res_recv, redirected_base_url_shared_out)
 }
 
 fn to_curl_ssl_version(vers: SslVersion) -> curl::easy::SslVersion {
@@ -379,6 +584,10 @@ fn to_curl_ssl_version(vers: SslVersion) -> curl::easy::SslVersion {
     }
 }
 
+fn is_redirect_status(status: usize) -> bool {
+    (300..=308).contains(&status)
+}
+
 impl From<Error> for http::Error {
     fn from(err: Error) -> Self {
         http::Error::Detail {
@@ -392,5 +601,127 @@ impl From<curl::Error> for http::Error {
         http::Error::Detail {
             description: err.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod absolute_location_tests {
+    use super::absolute_location;
+
+    const REQUEST_URL: &str = "http://example.com:8080/original/repo/info/refs?service=git-upload-pack";
+
+    #[test]
+    fn keeps_absolute_locations() {
+        assert_eq!(
+            absolute_location(
+                REQUEST_URL,
+                "https://redirected.example/repo/info/refs?service=git-upload-pack"
+            ),
+            Some("https://redirected.example/repo/info/refs?service=git-upload-pack".to_owned()),
+            "absolute Location values already contain the authority curl would follow"
+        );
+    }
+
+    #[test]
+    fn uses_request_scheme_for_scheme_relative_locations() {
+        assert_eq!(
+            absolute_location(
+                REQUEST_URL,
+                "//redirected.example/repo/info/refs?service=git-upload-pack"
+            ),
+            Some("http://redirected.example/repo/info/refs?service=git-upload-pack".to_owned()),
+            "scheme-relative Location values inherit the scheme of the request URL"
+        );
+    }
+
+    #[test]
+    fn resolves_root_relative_locations() {
+        assert_eq!(
+            absolute_location(
+                REQUEST_URL,
+                "/redirected/./repo/../repo/info/refs?service=git-upload-pack"
+            ),
+            Some("http://example.com:8080/redirected/repo/info/refs?service=git-upload-pack".to_owned()),
+            "root-relative Location values keep the request authority and normalize path segments"
+        );
+    }
+
+    #[test]
+    fn resolves_relative_locations_from_the_request_directory() {
+        assert_eq!(
+            absolute_location(
+                REQUEST_URL,
+                "../../../redirected/repo/info/refs?service=git-upload-pack"
+            ),
+            Some("http://example.com:8080/redirected/repo/info/refs?service=git-upload-pack".to_owned()),
+            "relative Location values are resolved from the current request directory before normalization"
+        );
+    }
+
+    #[test]
+    fn resolves_query_only_locations_against_the_request_path() {
+        assert_eq!(
+            absolute_location(REQUEST_URL, "?service=git-receive-pack"),
+            Some("http://example.com:8080/original/repo/info/refs?service=git-receive-pack".to_owned()),
+            "query-only Location values replace the query while preserving the current request path"
+        );
+    }
+}
+
+#[cfg(test)]
+mod resolve_location_path_tests {
+    use super::resolve_location_path;
+
+    const REQUEST_PATH: &str = "/original/repo/info/refs?service=git-upload-pack";
+
+    #[test]
+    fn keeps_root_relative_locations_rooted_and_normalized() {
+        assert_eq!(
+            resolve_location_path(
+                REQUEST_PATH,
+                "/redirected/./repo/../repo/info/refs?service=git-upload-pack"
+            ),
+            "/redirected/repo/info/refs?service=git-upload-pack",
+            "root-relative Location paths should ignore the request path and normalize their own segments"
+        );
+    }
+
+    #[test]
+    fn resolves_relative_locations_from_the_request_directory() {
+        assert_eq!(
+            resolve_location_path(
+                REQUEST_PATH,
+                "../../../redirected/repo/info/refs?service=git-upload-pack"
+            ),
+            "/redirected/repo/info/refs?service=git-upload-pack",
+            "relative Location paths should resolve from the directory containing the current request path"
+        );
+    }
+
+    #[test]
+    fn replaces_query_only_locations_on_the_request_path() {
+        assert_eq!(
+            resolve_location_path(REQUEST_PATH, "?service=git-receive-pack"),
+            "/original/repo/info/refs?service=git-receive-pack",
+            "query-only Location values should preserve the current path and replace only the query"
+        );
+    }
+
+    #[test]
+    fn replaces_fragment_only_locations_on_the_request_path() {
+        assert_eq!(
+            resolve_location_path(REQUEST_PATH, "#advertisement"),
+            "/original/repo/info/refs#advertisement",
+            "fragment-only Location values should preserve the current path and replace the query with the fragment"
+        );
+    }
+
+    #[test]
+    fn strips_request_query_before_resolving_relative_locations() {
+        assert_eq!(
+            resolve_location_path(REQUEST_PATH, "../objects/info/packs"),
+            "/original/repo/objects/info/packs",
+            "relative Location paths should resolve against the request path without its existing query"
+        );
     }
 }
