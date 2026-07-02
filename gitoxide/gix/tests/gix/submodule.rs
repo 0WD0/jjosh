@@ -258,6 +258,41 @@ mod open {
     }
 
     #[test]
+    #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
+    fn keeps_callers_path_namespace_when_opened_through_symlinked_ancestor() -> crate::Result {
+        let fixture = std::path::absolute(gix_testtools::scripted_fixture_read_only("make_submodules.sh")?)?;
+        let tmp = gix_testtools::tempfile::tempdir()?;
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&fixture, &link)?;
+
+        for parent_name in ["with-submodules", "with-submodule-uninitialized-checkout"] {
+            let worktree = link.join(parent_name);
+            let repo = gix::open_opts(&worktree, gix::open::Options::isolated())?;
+            assert_eq!(
+                repo.workdir(),
+                Some(worktree.as_path()),
+                "the parent repository keeps the path it was opened with"
+            );
+            for sm in repo.submodules()?.expect("modules present") {
+                let sm_repo = sm.open()?.expect("submodule repository exists");
+                let sm_git_dir = sm_repo.path();
+                assert!(
+                    sm_git_dir.starts_with(&worktree),
+                    "the submodule git dir stays in the namespace of the path the parent was opened with: {sm_git_dir:?}"
+                );
+                assert_eq!(
+                    sm_repo.workdir(),
+                    Some(worktree.join(gix_path::from_bstr(sm.path()?).as_ref())).as_deref(),
+                    "the submodule workdir stays in the same namespace instead of being canonicalized, \
+                     so it can be related to the parent worktree and the submodule git dir with prefix logic"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn broken_gitlink_target_is_reported() -> crate::Result {
         let repo = repo("submodule-with-missing-gitlink-target")?;
         let sm = repo

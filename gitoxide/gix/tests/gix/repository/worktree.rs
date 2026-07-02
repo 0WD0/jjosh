@@ -145,6 +145,24 @@ mod with_core_worktree_config {
 
     #[test]
     #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
+    fn relative_through_symlinked_ancestor_keeps_callers_path_namespace() -> crate::Result {
+        let fixture = std::path::absolute(gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh")?)?;
+        let tmp = gix_testtools::tempfile::tempdir()?;
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&fixture, &link)?;
+
+        let repo = gix::open_opts(link.join("relative-worktree"), crate::restricted())?;
+        assert_eq!(
+            repo.workdir(),
+            Some(link.join("worktree").as_path()),
+            "a symlink in an ancestor changes nothing about how the relative worktree resolves, \
+             so the caller's path namespace is kept instead of jumping to the canonicalized one"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
     fn relative_from_symlinked_git_dir() -> crate::Result {
         let fixture = gix_testtools::scripted_fixture_read_only("make_core_worktree_repo.sh")?;
         let root = fixture.join("linked-git-dir-detached-worktree");
