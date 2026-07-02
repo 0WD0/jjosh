@@ -47,21 +47,56 @@ impl Mode {
         has_symlinks: bool,
         executable_bit: bool,
     ) -> Option<Change> {
+        self.change_to_match_fs_with_values(
+            stat.is_file(),
+            stat.is_dir(),
+            stat.is_symlink(),
+            stat.is_executable(),
+            has_symlinks,
+            executable_bit,
+        )
+    }
+
+    /// Like [`change_to_match_fs`](Self::change_to_match_fs) but accepts pre-extracted
+    /// file-type and permission bits, for callers that already have them (e.g. cached
+    /// metadata from a batched directory enumeration).
+    ///
+    /// Note that some parameters are mutually exclusive, but inconsistency won't be a problem
+    /// if the source of the data is consistent.
+    ///
+    /// * `is_file` is `true` if the file-system entry is a regular file.
+    /// * `is_dir` is `true` if the file-system entry is a directory.
+    /// * `is_symlink` is `true` if the file-system entry is a symbolic link.
+    /// * `is_executable` is `true` if the file-system entry has executable permissions.
+    ///
+    /// These parameters match [`change_to_match_fs`](Self::change_to_match_fs).
+    ///
+    /// * `has_symlinks` is `true` if the file system represents symbolic links faithfully.
+    /// * `executable_bit` is `true` if the file system represents executable permissions faithfully.
+    pub fn change_to_match_fs_with_values(
+        self,
+        is_file: bool,
+        is_dir: bool,
+        is_symlink: bool,
+        is_executable: bool,
+        has_symlinks: bool,
+        executable_bit: bool,
+    ) -> Option<Change> {
         match self {
-            Mode::FILE if !stat.is_file() => (),
-            Mode::SYMLINK if stat.is_symlink() => return None,
-            Mode::SYMLINK if has_symlinks && !stat.is_symlink() => (),
-            Mode::SYMLINK if !has_symlinks && !stat.is_file() => (),
-            Mode::COMMIT | Mode::DIR if !stat.is_dir() => (),
-            Mode::FILE if executable_bit && stat.is_executable() => return Some(Change::ExecutableBit),
-            Mode::FILE_EXECUTABLE if executable_bit && !stat.is_executable() => return Some(Change::ExecutableBit),
+            Mode::FILE if !is_file => (),
+            Mode::SYMLINK if is_symlink => return None,
+            Mode::SYMLINK if has_symlinks && !is_symlink => (),
+            Mode::SYMLINK if !has_symlinks && !is_file => (),
+            Mode::COMMIT | Mode::DIR if !is_dir => (),
+            Mode::FILE if executable_bit && is_executable => return Some(Change::ExecutableBit),
+            Mode::FILE_EXECUTABLE if executable_bit && !is_executable => return Some(Change::ExecutableBit),
             _ => return None,
         }
-        let new_mode = if stat.is_dir() {
+        let new_mode = if is_dir {
             Mode::COMMIT
-        } else if executable_bit && stat.is_executable() {
+        } else if executable_bit && is_executable {
             Mode::FILE_EXECUTABLE
-        } else if has_symlinks && stat.is_symlink() {
+        } else if has_symlinks && is_symlink {
             Mode::SYMLINK
         } else {
             Mode::FILE
