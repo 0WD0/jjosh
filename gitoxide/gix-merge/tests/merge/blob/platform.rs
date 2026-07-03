@@ -14,7 +14,10 @@ mod merge {
     use gix_object::tree::EntryKind;
 
     use crate::{
-        blob::{platform::new_platform, util::ObjectDb},
+        blob::{
+            platform::new_platform,
+            util::{insert, object_db},
+        },
         hex_to_id,
     };
 
@@ -29,12 +32,12 @@ mod merge {
             &gix_object::find::Never,
         )?;
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (content, kind) in [
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs\0", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content)?;
+            let id = insert(&db, content)?;
             platform.set_resource(
                 id,
                 EntryKind::Blob,
@@ -79,12 +82,12 @@ mod merge {
             &gix_object::find::Never,
         )?;
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (content, kind) in [
             ("any\0", ResourceKind::CurrentOrOurs),
             ("any\0", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content)?;
+            let id = insert(&db, content)?;
             platform.set_resource(
                 id,
                 EntryKind::Blob,
@@ -129,12 +132,12 @@ mod merge {
             &gix_object::find::Never,
         )?;
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (content, kind) in [
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content)?;
+            let id = insert(&db, content)?;
             platform.set_resource(id, EntryKind::Blob, "b".into(), kind, &db)?;
         }
 
@@ -282,12 +285,12 @@ theirs
             &gix_object::find::Never,
         )?;
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (content, kind) in [
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content)?;
+            let id = insert(&db, content)?;
             platform.set_resource(id, EntryKind::Blob, "b".into(), kind, &db)?;
         }
 
@@ -316,7 +319,7 @@ theirs
             "we handle word-splitting and definitely pick-up what's written into the %A buffer"
         );
 
-        let id = db.insert("binary\0")?;
+        let id = insert(&db, "binary\0")?;
         platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::OtherOrTheirs, &db)?;
         let platform_ref = platform.prepare_merge(&db, Default::default())?;
         let res = platform_ref.merge(&mut buf, default_labels(), &Default::default())?;
@@ -389,13 +392,13 @@ cat "%B" >> "%A""#
             pipeline::Mode::ToGit,
         );
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (content, kind) in [
             ("base", ResourceKind::CommonAncestorOrBase),
             ("ours", ResourceKind::CurrentOrOurs),
             ("theirs", ResourceKind::OtherOrTheirs),
         ] {
-            let id = db.insert(content)?;
+            let id = insert(&db, content)?;
             platform.set_resource(id, EntryKind::Blob, "b".into(), kind, &db)?;
         }
 

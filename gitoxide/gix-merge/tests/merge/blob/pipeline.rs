@@ -6,7 +6,7 @@ use gix_merge::blob::{
 };
 use gix_object::tree::EntryKind;
 
-use crate::blob::util::ObjectDb;
+use crate::blob::util::{insert, object_db};
 
 const ALL_MODES: [pipeline::Mode; 2] = [pipeline::Mode::ToGit, pipeline::Mode::Renormalize];
 
@@ -67,9 +67,9 @@ fn without_transformation() -> crate::Result {
         );
         drop(tmp);
 
-        let mut db = ObjectDb::default();
+        let db = object_db();
         let b_content = "b-content";
-        let id = db.insert(b_content)?;
+        let id = insert(&db, b_content)?;
 
         let out = filter.convert_to_mergeable(
             &id,
@@ -149,8 +149,8 @@ fn binary_below_large_file_threshold() -> crate::Result {
     assert_eq!(out, Some(pipeline::Data::Buffer), "binary data can still be merged");
     assert_eq!(buf.as_bstr(), binary_content);
 
-    let mut db = ObjectDb::default();
-    let id = db.insert(binary_content)?;
+    let db = object_db();
+    let id = insert(&db, binary_content)?;
     let out = filter.convert_to_mergeable(
         &id,
         EntryKind::Blob,
@@ -204,8 +204,8 @@ fn above_large_file_threshold() -> crate::Result {
     assert_eq!(buf.len(), 0, "it should avoid querying that data in the first place");
 
     drop(tmp);
-    let mut db = ObjectDb::default();
-    let id = db.insert(large_content)?;
+    let db = object_db();
+    let id = insert(&db, large_content)?;
 
     let out = filter.convert_to_mergeable(
         &id,
@@ -330,7 +330,7 @@ fn worktree_filter() -> crate::Result {
         default_options(),
     );
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let a_name = "a";
     let mut buf = Vec::new();
     let a_content = "a-content\r\n";
@@ -354,7 +354,7 @@ fn worktree_filter() -> crate::Result {
             "worktree files need to be converted back to what's stored in Git"
         );
 
-        let id = db.insert(a_content)?;
+        let id = insert(&db, a_content)?;
         let out = filter.convert_to_mergeable(
             &id,
             EntryKind::Blob,
@@ -387,7 +387,7 @@ fn worktree_filter() -> crate::Result {
     drop(tmp);
 
     let b_content = "b-content\n";
-    let id = db.insert(b_content)?;
+    let id = insert(&db, b_content)?;
 
     let out = filter.convert_to_mergeable(
         &id,
@@ -403,9 +403,9 @@ fn worktree_filter() -> crate::Result {
     assert_eq!(out, Some(pipeline::Data::Buffer));
     assert_eq!(buf.as_bstr(), b_content, "no work is done for what's already in Git");
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let b_content = "b-content\r\n";
-    let id = db.insert(b_content)?;
+    let id = insert(&db, b_content)?;
     let out = filter.convert_to_mergeable(
         &id,
         EntryKind::Blob,

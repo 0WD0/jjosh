@@ -937,16 +937,19 @@ mod util {
         tree::visit::Action,
     };
 
-    use crate::{rewrites::Change, util::ObjectDb};
+    use crate::{
+        rewrites::Change,
+        util::{ObjectDb, insert, object_db},
+    };
 
     /// Add `blobs` `(change, location, data)` to tracker that will all be retained. Note that the `id` of the respective change will be adjusted to match.
     pub fn add_retained_blobs<'a>(
         tracker: &mut rewrites::Tracker<Change>,
         blobs: impl IntoIterator<Item = (Change, &'a str, &'a str)>,
     ) -> crate::Result<ObjectDb> {
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (mut change, location, data) in blobs {
-            change.id = db.insert(data)?;
+            change.id = insert(&db, data)?;
             assert!(
                 tracker.try_push_change(change, location.into()).is_none(),
                 "input changes must be tracked"
