@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::atomic::AtomicBool};
 
 use gix_hash::ObjectId;
-use gix_object::WriteTo;
+use gix_object::{Find, FindHeader, Write, WriteTo};
 
 mod commit;
 mod encode;
@@ -51,6 +51,51 @@ fn compute_stream_hash() {
             gix_hash::ObjectId::empty_tree(*hk)
         );
     }
+}
+
+#[test]
+fn never_writes_to_nowhere_and_finds_nothing() -> Result {
+    let db = gix_object::find::Never;
+    let data = b"content";
+    let expected = gix_object::compute_hash(gix_hash::Kind::default(), gix_object::Kind::Blob, data)?;
+
+    assert_eq!(
+        db.write_buf(gix_object::Kind::Blob, data)?,
+        expected,
+        "discarded buffer writes still return the computed object id"
+    );
+    assert_eq!(
+        db.write_stream(gix_object::Kind::Blob, data.len() as u64, &mut data.as_slice())?,
+        expected,
+        "discarded stream writes still return the computed object id"
+    );
+    assert_eq!(
+        db.write_buf_with_known_id(gix_object::Kind::Blob, data, expected)?,
+        expected,
+        "known-id buffer writes preserve the caller-provided id"
+    );
+    assert_eq!(
+        db.write_stream_with_known_id(
+            gix_object::Kind::Blob,
+            data.len() as u64,
+            &mut data.as_slice(),
+            expected
+        )?,
+        expected,
+        "known-id stream writes preserve the caller-provided id"
+    );
+
+    let mut buf = Vec::new();
+    assert!(
+        db.try_find(&expected, &mut buf)?.is_none(),
+        "discarded writes must not become readable"
+    );
+    assert!(
+        db.try_header(&expected)?.is_none(),
+        "discarded writes must not make headers readable"
+    );
+
+    Ok(())
 }
 
 use gix_testtools::Result;
