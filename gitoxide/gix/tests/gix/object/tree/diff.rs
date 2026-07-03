@@ -228,7 +228,7 @@ mod track_rewrites {
         assert_eq!(expected, HashMap::new());
         let out = out.expect("tracking enabled");
         assert_eq!(
-            out.num_similarity_checks, 21,
+            out.num_similarity_checks, 23,
             "this probably increases once the algorithm improves"
         );
         assert_eq!(

@@ -2,10 +2,11 @@
 //!
 //! Note that the algorithm implemented here is in many ways different from what `git` does.
 //!
-//! - it's less sophisticated and doesn't use any ranking of candidates. Instead, it prefers
-//!   a candidate whose file name matches the destination's, like `git`, and otherwise picks
-//!   the first possible match.
+//! - it's less sophisticated than `git`, but prefers a candidate whose file name matches the
+//!   destination's in identity matches, and uses that as a tie-breaker for similarity matches.
 //! - the set used for copy-detection is probably smaller by default.
+// TODO: Rewrite this based on what Git actually this, as long as there are test-cases for any 'complication'.
+//       In practice, even this simplified version seems to have worked pretty well.
 
 use std::ops::Range;
 
@@ -747,69 +748,75 @@ fn find_match<'a, T: Change>(
         let percentage = percentage.expect("it's set to something below 1.0 and we assured this");
         let item_name = filename(item.location(path_backing));
 
-        // Like Git's basename-driven matching, try sources whose file name matches the
-        // destination's first - contents can be equally similar in either direction, but
-        // matching names are the better pairing.
-        for match_filename in [true, false] {
-            for (can_idx, src) in items.iter().enumerate().filter(|(src_idx, src)| {
-                *src_idx != item_idx
-                    && src.is_source_for_destination_of(kind, item_mode)
-                    && (filename(src.location(path_backing)) == item_name) == match_filename
-            }) {
-                if !has_new {
-                    diff_cache.set_resource(
-                        item_id.to_owned(),
-                        item_mode.kind(),
-                        item.location(path_backing),
-                        ResourceKind::NewOrDestination,
-                        objects,
-                    )?;
-                    has_new = true;
-                }
-                let (src_id, src_mode) = src.change.id_and_entry_mode();
+        // Like Git's inexact rename matrix, choose by similarity score first and use basename as
+        // a tie-breaker only.
+        let mut best: Option<(usize, &Item<T>, DiffLineStats, bool)> = None;
+        for (can_idx, src) in items
+            .iter()
+            .enumerate()
+            .filter(|(src_idx, src)| *src_idx != item_idx && src.is_source_for_destination_of(kind, item_mode))
+        {
+            if !has_new {
                 diff_cache.set_resource(
-                    src_id.to_owned(),
-                    src_mode.kind(),
-                    src.location(path_backing),
-                    ResourceKind::OldOrSource,
+                    item_id.to_owned(),
+                    item_mode.kind(),
+                    item.location(path_backing),
+                    ResourceKind::NewOrDestination,
                     objects,
                 )?;
-                let prep = diff_cache.prepare_diff()?;
-                stats.num_similarity_checks += 1;
-                *num_checks += 1;
-                match prep.operation {
-                    Operation::InternalDiff { algorithm } => {
-                        let tokens =
-                            crate::blob::InternedInput::new(prep.old.intern_source(), prep.new.intern_source());
-                        let diff = crate::blob::Diff::compute(algorithm, &tokens);
-                        let removed_bytes = diff::removed_bytes(&diff, &tokens);
-                        let old_data_len = prep.old.data.as_slice().unwrap_or_default().len();
-                        let new_data_len = prep.new.data.as_slice().unwrap_or_default().len();
-                        let similarity = (old_data_len - removed_bytes) as f32 / old_data_len.max(new_data_len) as f32;
-                        if similarity >= percentage {
-                            return Ok(Some((
-                                can_idx,
-                                src,
-                                DiffLineStats {
-                                    removals: diff.count_removals(),
-                                    insertions: diff.count_additions(),
-                                    before: tokens.before.len(),
-                                    after: tokens.after.len(),
-                                    similarity,
-                                }
-                                .into(),
-                            )));
+                has_new = true;
+            }
+            let (src_id, src_mode) = src.change.id_and_entry_mode();
+            diff_cache.set_resource(
+                src_id.to_owned(),
+                src_mode.kind(),
+                src.location(path_backing),
+                ResourceKind::OldOrSource,
+                objects,
+            )?;
+            let prep = diff_cache.prepare_diff()?;
+            stats.num_similarity_checks += 1;
+            *num_checks += 1;
+            match prep.operation {
+                Operation::InternalDiff { algorithm } => {
+                    let tokens = crate::blob::InternedInput::new(prep.old.intern_source(), prep.new.intern_source());
+                    let diff = crate::blob::Diff::compute(algorithm, &tokens);
+                    let removed_bytes = diff::removed_bytes(&diff, &tokens);
+                    let old_data_len = prep.old.data.as_slice().unwrap_or_default().len();
+                    let new_data_len = prep.new.data.as_slice().unwrap_or_default().len();
+                    let similarity = (old_data_len - removed_bytes) as f32 / old_data_len.max(new_data_len) as f32;
+                    if similarity >= percentage {
+                        let candidate_diff = DiffLineStats {
+                            removals: diff.count_removals(),
+                            insertions: diff.count_additions(),
+                            before: tokens.before.len(),
+                            after: tokens.after.len(),
+                            similarity,
+                        };
+                        let has_same_filename = filename(src.location(path_backing)) == item_name;
+                        let is_better =
+                            best.as_ref()
+                                .is_none_or(|(_, _, best_diff, best_has_same_filename)| {
+                                    match candidate_diff.similarity.total_cmp(&best_diff.similarity) {
+                                        std::cmp::Ordering::Greater => true,
+                                        std::cmp::Ordering::Equal => has_same_filename && !best_has_same_filename,
+                                        std::cmp::Ordering::Less => false,
+                                    }
+                                });
+                        if is_better {
+                            best = Some((can_idx, src, candidate_diff, has_same_filename));
                         }
                     }
-                    Operation::ExternalCommand { .. } => {
-                        unreachable!("we have disabled this possibility with an option")
-                    }
-                    Operation::SourceOrDestinationIsBinary => {
-                        // TODO: figure out if git does more here
-                    }
+                }
+                Operation::ExternalCommand { .. } => {
+                    unreachable!("we have disabled this possibility with an option")
+                }
+                Operation::SourceOrDestinationIsBinary => {
+                    // TODO: figure out if git does more here
                 }
             }
         }
+        return Ok(best.map(|(candidate_idx, src, diff, _)| (candidate_idx, src, Some(diff))));
     }
     Ok(None)
 }

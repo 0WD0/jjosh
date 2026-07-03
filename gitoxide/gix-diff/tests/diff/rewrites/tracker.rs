@@ -555,6 +555,65 @@ fn rename_by_50_percent_similarity() -> crate::Result {
 }
 
 #[test]
+fn rename_by_similarity_prefers_stronger_match_over_same_filename_match() -> crate::Result {
+    let rewrites = Rewrites {
+        copies: None,
+        percentage: Some(0.5),
+        limit: 0,
+        track_empty: false,
+    };
+    let mut track = util::new_tracker(rewrites);
+    let odb = util::add_retained_blobs(
+        &mut track,
+        [
+            (Change::deletion(), "old/foo", "1\n2\n3\n4\n5\n"),
+            (Change::deletion(), "bar", "1\n2\n3\n4\n5\n6\n7\n"),
+            (Change::addition(), "new/foo", "1\n2\n3\n4\n5\n6\n7\n8\n"),
+        ],
+    )?;
+
+    let mut calls = 0;
+    let out = util::assert_emit_with_objects(
+        &mut track,
+        |dst, src| {
+            match calls {
+                0 => {
+                    let src = src.expect("destination should find a rename source");
+                    assert_eq!(
+                        src.location, "bar",
+                        "the strongest similarity match wins before basename is used as a tie-breaker"
+                    );
+                    assert_eq!(dst.location, "new/foo");
+                    assert!(
+                        src.diff.expect("similarity match includes diff stats").similarity > 0.8,
+                        "the selected source should be the high-similarity candidate"
+                    );
+                }
+                1 => {
+                    assert_eq!(src, None, "the weaker same-filename source remains unmatched");
+                    assert_eq!(dst.location, "old/foo");
+                }
+                _ => panic!("too many elements emitted"),
+            }
+            calls += 1;
+            std::ops::ControlFlow::Continue(())
+        },
+        odb,
+    );
+    assert_eq!(
+        out,
+        rewrites::Outcome {
+            options: rewrites,
+            num_similarity_checks: 2,
+            ..Default::default()
+        },
+        "all viable sources are compared before selecting the best rename source"
+    );
+    assert_eq!(calls, 2, "both the rename and the unmatched deletion should be emitted");
+    Ok(())
+}
+
+#[test]
 fn directories_without_relation_are_ignored() -> crate::Result {
     let mut track = util::new_tracker(Default::default());
     for mode in [EntryKind::Tree, EntryKind::Commit] {
@@ -670,7 +729,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
                 out,
                 rewrites::Outcome {
                     options: rename_by_similarity,
-                    num_similarity_checks: 1,
+                    num_similarity_checks: 2,
                     ..Default::default()
                 }
             );
@@ -957,7 +1016,6 @@ fn rename_tracking_is_order_independent() -> crate::Result {
             pairs.push((dst.location.to_string(), src.map(|src| src.location.to_string())));
             std::ops::ControlFlow::Continue(())
         });
-        pairs.sort();
         match &reference {
             None => reference = Some(pairs),
             Some(reference) => assert_eq!(
@@ -1017,7 +1075,6 @@ fn copy_source_selection_is_order_independent() -> crate::Result {
                     )
                 }),
             );
-            pairs.sort();
             match &reference {
                 None => reference = Some(pairs),
                 Some(reference) => assert_eq!(
@@ -1030,7 +1087,7 @@ fn copy_source_selection_is_order_independent() -> crate::Result {
     Ok(())
 }
 
-/// Return every ordering of `items`, used to prove order-independence.
+/// Inefficient but small implemenation, for use with small inputs only.
 fn permutations<T: Clone>(items: Vec<T>) -> Vec<Vec<T>> {
     if items.len() <= 1 {
         return vec![items];
@@ -1046,7 +1103,6 @@ fn permutations<T: Clone>(items: Vec<T>) -> Vec<Vec<T>> {
     }
     out
 }
-
 mod util {
     use gix_diff::{
         Rewrites, rewrites,
