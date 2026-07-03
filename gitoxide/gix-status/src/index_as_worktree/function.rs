@@ -11,9 +11,9 @@ use gix_features::parallel::{Reduce, in_parallel_if};
 use gix_filter::pipeline::convert::ToGitOutcome;
 use gix_object::FindExt;
 
-use crate::index_as_worktree::types::ConflictIndexEntry;
 #[cfg(windows)]
-use crate::worktree_stats::{FileMetadata, WorktreeStatsCache};
+use crate::fscache::{FsCache, Metadata as FsCacheMetadata};
+use crate::index_as_worktree::types::ConflictIndexEntry;
 use crate::{
     AtomicU64, SymlinkCheck,
     index_as_worktree::{
@@ -125,7 +125,7 @@ where
                     filter,
                     options,
                     #[cfg(windows)]
-                    worktree_stats: options.fscache.then(|| WorktreeStatsCache::new(worktree)),
+                    fscache: options.fscache.then(|| FsCache::new(worktree)),
 
                     skipped_by_pathspec,
                     skipped_by_entry_flags,
@@ -243,7 +243,7 @@ struct State<'a, 'b> {
     /// Optional lazy worktree stats cache for faster status checks on Windows.
     /// Lookups happen before falling back to per-file syscalls.
     #[cfg(windows)]
-    worktree_stats: Option<WorktreeStatsCache>,
+    fscache: Option<FsCache>,
 
     skipped_by_pathspec: &'a AtomicUsize,
     skipped_by_entry_flags: &'a AtomicUsize,
@@ -395,12 +395,12 @@ impl<'index> State<'_, 'index> {
         // only fall back to a syscall on miss; on other platforms per-file
         // `lstat` is already fast, so we just do the syscall directly.
         #[cfg(windows)]
-        let metadata = if let Some(cached) = self.worktree_stats.as_mut().and_then(|c| c.get(rela_path)) {
-            FileMetadata::Cached(cached)
+        let metadata = if let Some(cached) = self.fscache.as_mut().and_then(|c| c.get(rela_path)) {
+            FsCacheMetadata::Cached(cached)
         } else {
             self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
             match live_metadata(worktree_path)? {
-                Some(md) => FileMetadata::Live(md),
+                Some(md) => FsCacheMetadata::Live(md),
                 None => return Ok(Some(Change::Removed.into())),
             }
         };

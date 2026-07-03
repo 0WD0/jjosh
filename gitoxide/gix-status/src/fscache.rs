@@ -4,7 +4,7 @@
 //! `lstat`. This trade only pays off where per-file stat is expensive
 //! and where the dirwalk returns basic stat information, so only on Windows.
 //!
-//! [`WorktreeStatsCache`] lazily enumerates parent directories with
+//! [`FsCache`] lazily enumerates parent directories with
 //! `GetFileInformationByHandleEx` and keeps the results in the status worker
 //! that asked for them. It is not a long-lived cache: it is built during one
 //! status call and discarded with the worker state. Lookups are transparent:
@@ -27,7 +27,7 @@ use bstr::{BStr, BString, ByteSlice};
 /// [`gix_index::entry::Stat::from_fs`]'s Windows branch, and git on Windows
 /// defaults to `core.filemode=false`, so all five are simply omitted here.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct WorktreeStat {
+pub struct Stat {
     /// Whether this is a directory, with the same semantics as
     /// `std::fs::symlink_metadata`: `false` for directory symlinks and junctions
     /// even though the filesystem also marks those with the directory attribute.
@@ -55,7 +55,7 @@ pub struct WorktreeStat {
     pub ctime_nsecs: u32,
 }
 
-impl WorktreeStat {
+impl Stat {
     /// Convert to gitoxide's [`Stat`](gix_index::entry::Stat) struct for index comparison.
     ///
     /// Truncates `size` from 64 to 32 bits — matching what
@@ -82,17 +82,17 @@ impl WorktreeStat {
 }
 
 /// Metadata for one enumerated directory, keyed by direct filename.
-type DirectoryStats = hashbrown::HashMap<BString, WorktreeStat>;
+type DirectoryEntries = hashbrown::HashMap<BString, Stat>;
 
-/// Either a live `lstat` result or a precomputed [`WorktreeStat`] from the lazy
+/// Either a live `lstat` result or a precomputed [`Stat`] from the lazy
 /// cache. Lets [`crate::index_as_worktree`] treat both shapes uniformly without
 /// branching at every per-entry use site.
-pub(crate) enum FileMetadata {
+pub(crate) enum Metadata {
     Live(gix_index::fs::Metadata),
-    Cached(WorktreeStat),
+    Cached(Stat),
 }
 
-impl FileMetadata {
+impl Metadata {
     pub(crate) fn is_dir(&self) -> bool {
         match self {
             Self::Live(m) => m.is_dir(),
@@ -152,7 +152,7 @@ impl FileMetadata {
 /// keeps the cache independent from pathspecs and excludes while avoiding a
 /// live `lstat` for every tracked file in directories that have already been
 /// enumerated.
-pub struct WorktreeStatsCache {
+pub struct FsCache {
     /// Absolute worktree root used to turn repository-relative directory keys
     /// into filesystem paths for Windows directory enumeration.
     ///
@@ -173,17 +173,17 @@ pub struct WorktreeStatsCache {
     /// directory; callers still fall through to live per-file metadata and
     /// preserve correctness.
     ///
-    /// `DirectoryStats` itself is keyed only by direct filename, not by full
+    /// `DirectoryEntries` itself is keyed only by direct filename, not by full
     /// worktree-relative path. This keeps each cached listing small and mirrors
     /// the Windows API result shape: first resolve the parent directory, then
     /// look up the requested basename in that listing.
-    directories: hashbrown::HashMap<BString, Option<DirectoryStats>>,
+    directories: hashbrown::HashMap<BString, Option<DirectoryEntries>>,
 }
 
-impl WorktreeStatsCache {
+impl FsCache {
     /// Create an empty cache rooted at `worktree`.
     pub fn new(worktree: &Path) -> Self {
-        WorktreeStatsCache {
+        FsCache {
             worktree: worktree.to_owned(),
             directories: Default::default(),
         }
@@ -192,7 +192,7 @@ impl WorktreeStatsCache {
     /// Return cached metadata for `rela_path`, populating its parent directory
     /// on first use. `None` means the cache couldn't help and callers should
     /// fall back to a live `lstat`.
-    pub(crate) fn get(&mut self, rela_path: &BStr) -> Option<WorktreeStat> {
+    pub(crate) fn get(&mut self, rela_path: &BStr) -> Option<Stat> {
         let (dir, filename) = match rela_path.rfind_byte(b'/') {
             Some(pos) => (&rela_path[..pos], &rela_path[pos + 1..]),
             None => (BStr::new(b""), rela_path),
@@ -224,7 +224,7 @@ mod windows {
         FileIdBothDirectoryInfo, GetFileInformationByHandleEx, OPEN_EXISTING, SYNCHRONIZE,
     };
 
-    /// Convert FILE_ID_BOTH_DIR_INFO to a [`WorktreeStat`].
+    /// Convert FILE_ID_BOTH_DIR_INFO to a [`Stat`].
     ///
     /// File-type flags must mirror what the live fallback
     /// (`gix_index::fs::Metadata`, i.e. `std::fs::symlink_metadata`) reports for
@@ -237,7 +237,7 @@ mod windows {
     /// tag in `EaSize` when `FILE_ATTRIBUTE_REPARSE_POINT` is set (MS-FSCC
     /// 2.4.17, same convention as `WIN32_FIND_DATA::dwReserved0`), so we can
     /// replicate that logic without extra syscalls.
-    fn stat_from_info(info: &FILE_ID_BOTH_DIR_INFO) -> WorktreeStat {
+    fn stat_from_info(info: &FILE_ID_BOTH_DIR_INFO) -> Stat {
         let size = info.EndOfFile as u64;
 
         // FILETIME values are LARGE_INTEGER holding 100ns intervals since 1601-01-01 UTC.
@@ -247,7 +247,7 @@ mod windows {
         let (ctime_secs, ctime_nsecs) = filetime_to_unix(info.CreationTime as u64);
 
         let (is_dir, is_symlink) = type_flags_from_attributes(info.FileAttributes, info.EaSize);
-        WorktreeStat {
+        Stat {
             is_dir,
             is_symlink,
             size,
@@ -312,7 +312,7 @@ mod windows {
     ///
     /// Returns `None` if the directory can't be read. Status callers treat that
     /// as a cache miss and use the live syscall path for the requested entry.
-    pub(super) fn directory_entries(worktree: &Path, rel_dir: &BStr) -> Option<DirectoryStats> {
+    pub(super) fn directory_entries(worktree: &Path, rel_dir: &BStr) -> Option<DirectoryEntries> {
         let dir = if rel_dir.is_empty() {
             worktree.to_owned()
         } else {
@@ -336,7 +336,7 @@ mod windows {
             return None;
         }
 
-        let mut entries = DirectoryStats::default();
+        let mut entries = DirectoryEntries::default();
         // 64 KiB, u64-aligned: `FILE_ID_BOTH_DIR_INFO` contains LARGE_INTEGER
         // fields that require 8-byte alignment, and `Vec<u64>` guarantees it.
         const DIRECTORY_BUFFER_U64_WORDS: usize = 8 * 1024;
@@ -415,8 +415,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn worktree_stat_to_stat() {
-        let stat = WorktreeStat {
+    fn cache_stat_to_index_stat() {
+        let stat = Stat {
             is_dir: false,
             is_symlink: false,
             size: 1234,
@@ -501,7 +501,7 @@ mod tests {
         std::fs::create_dir(worktree.join("subdir")).expect("subdirectory can be created");
         std::fs::write(worktree.join("subdir").join("nested.txt"), b"world").expect("nested file can be written");
 
-        let mut cache = WorktreeStatsCache::new(worktree);
+        let mut cache = FsCache::new(worktree);
         assert!(
             cache.get(b"test.txt".as_slice().into()).is_some(),
             "root files are found by lazily enumerating the worktree root"
@@ -516,7 +516,7 @@ mod tests {
         );
         assert!(
             cache.get(b"does-not-exist".as_slice().into()).is_none(),
-            "missing files are not a problem (and cause a fall-through tot he live path)"
+            "missing files are not a problem (and cause a fall-through to the live path)"
         );
     }
 
