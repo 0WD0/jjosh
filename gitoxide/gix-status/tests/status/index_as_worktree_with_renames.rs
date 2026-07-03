@@ -340,8 +340,6 @@ fn fixture_filtered_detailed(
             current_dir: &cwd,
             ignore_case_index_lookup: None,
         },
-        #[cfg(windows)]
-        worktree_stats: None,
     };
     let options = Options {
         object_hash,
@@ -350,6 +348,7 @@ fn fixture_filtered_detailed(
             stat: crate::index_as_worktree::TEST_OPTIONS,
             ..Default::default()
         },
+        fscache: false,
         dirwalk,
         sorting: Some(Sorting::ByPathCaseSensitive),
         rewrites,

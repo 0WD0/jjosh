@@ -1,21 +1,20 @@
-//! Windows-only worktree metadata preprocessing — see the gate on
-//! `pub mod worktree_stats` in [`crate`] for why this is Windows-only.
+//! **Windows-only** worktree metadata caching. During per-entry modification
+//! checks, parent directories can be enumerated lazily so that
+//! `index_as_worktree` can reuse stat results instead of issuing a per-file
+//! `lstat`. This trade only pays off where per-file stat is expensive
+//! and where the dirwalk returns basic stat information, so only on Windows.
 //!
-//! [`prepare`] runs a single parallel `GetFileInformationByHandleEx` walk
-//! of the worktree (~30 ms / 90 k files) and returns a [`WorktreeStats`]
-//! map keyed by worktree-relative path. `index_as_worktree` then looks up
-//! each index entry there instead of issuing a per-file `lstat` (~1 s for
-//! the same tree). The map is **not a long-lived cache**: it is built once
-//! per status call and discarded with the iterator. Lookups are
-//! transparent — empty, partial, or extra entries change speed only, never
-//! correctness, since misses fall through to a live syscall.
+//! [`WorktreeStatsCache`] lazily enumerates parent directories with
+//! `GetFileInformationByHandleEx` and keeps the results in the status worker
+//! that asked for them. It is not a long-lived cache: it is built during one
+//! status call and discarded with the worker state. Lookups are transparent:
+//! misses fall through to a live syscall, so cache misses affect speed only.
 
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::path::{Path, PathBuf};
 
-use bstr::BString;
+use bstr::{BStr, BString, ByteSlice};
 
-/// Pre-computed file metadata produced by [`prepare`] for one worktree entry.
+/// File metadata produced by the lazy cache for one worktree entry.
 ///
 /// Carries enough information to determine file type, detect mode changes,
 /// build a [`gix_index::entry::Stat`] for comparison, and short-circuit content
@@ -27,7 +26,7 @@ use bstr::BString;
 /// those `Stat` fields against matching zeros from
 /// [`gix_index::entry::Stat::from_fs`]'s Windows branch, and git on Windows
 /// defaults to `core.filemode=false`, so all five are simply omitted here.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct WorktreeStat {
     /// Whether this is a directory, with the same semantics as
     /// `std::fs::symlink_metadata`: `false` for directory symlinks and junctions
@@ -82,28 +81,18 @@ impl WorktreeStat {
     }
 }
 
-/// Map of worktree-relative paths (forward-slashed, in the exact case as
-/// enumerated from disk) to their pre-computed [`WorktreeStat`].
-///
-/// Lookups are case-sensitive: callers must query with the same case the walker
-/// emitted. On a case-insensitive worktree where the index path's case differs
-/// from disk, the lookup misses and `index_as_worktree` falls back to a live
-/// `lstat` — a few extra syscalls in a rare scenario. Folding cases together
-/// would silently merge distinct files on case-sensitive volumes (Windows
-/// per-directory case-sensitivity, NTFS POSIX mode), which would let the map
-/// return one file's stat for a query about another and silently misreport
-/// tracked-file status. That's strictly worse than a few cache misses.
-pub type WorktreeStats = hashbrown::HashMap<BString, WorktreeStat>;
+/// Metadata for one enumerated directory, keyed by direct filename.
+type DirectoryStats = hashbrown::HashMap<BString, WorktreeStat>;
 
-/// Either a live `lstat` result or a precomputed [`WorktreeStat`] from
-/// [`prepare`]. Lets [`crate::index_as_worktree`] treat both shapes uniformly
-/// without branching at every per-entry use site.
-pub(crate) enum FileMetadata<'a> {
+/// Either a live `lstat` result or a precomputed [`WorktreeStat`] from the lazy
+/// cache. Lets [`crate::index_as_worktree`] treat both shapes uniformly without
+/// branching at every per-entry use site.
+pub(crate) enum FileMetadata {
     Live(gix_index::fs::Metadata),
-    Cached(&'a WorktreeStat),
+    Cached(WorktreeStat),
 }
 
-impl FileMetadata<'_> {
+impl FileMetadata {
     pub(crate) fn is_dir(&self) -> bool {
         match self {
             Self::Live(m) => m.is_dir(),
@@ -156,86 +145,77 @@ impl FileMetadata<'_> {
     }
 }
 
-/// Prepare a [`WorktreeStats`] map by walking the worktree in parallel using
-/// `GetFileInformationByHandleEx` with `FileIdBothDirectoryInfo`, skipping
-/// subtrees flagged by the per-thread predicate produced by `make_excludes`.
+/// Thread-local, lazily populated worktree metadata cache.
 ///
-/// The returned map can be attached to the status pipeline via
-/// [`Context::worktree_stats`](crate::index_as_worktree::Context::worktree_stats)
-/// — hits skip per-file syscalls.
-///
-/// `start_dir` seeds the walk at a worktree-relative directory (`/`-separated,
-/// no leading slash, trailing slash tolerated; empty walks the entire
-/// worktree). Use it to avoid walking unrelated subtrees when a pathspec
-/// restricts status to a known prefix — keys in the returned map are full
-/// worktree-relative paths either way. If `start_dir` doesn't name a directory
-/// on disk the map comes back empty, which is still correct: lookups miss and
-/// fall back to live syscalls.
-///
-/// `thread_limit` caps parallelism. `None | Some(0)` uses all available cores;
-/// `Some(1)` is single-threaded.
-///
-/// `should_interrupt` stops the walk early at directory granularity. Whatever
-/// was gathered until then is returned — a partial map is still a valid
-/// look-through map.
-///
-/// The walk does not descend into nested repositories: a directory containing
-/// a `.git` entry (other than the walk root) marks a submodule worktree or an
-/// embedded repository whose contents can't be tracked by this index. The
-/// directory itself still gets an entry, which is all submodule status needs.
-///
-/// `make_excludes` is called once on each worker thread and returns a predicate
-/// that owns thread-local state (e.g. a `gix_worktree::Stack`). Each time the
-/// walker is about to descend into a subdirectory, it calls the predicate with
-/// the worktree-relative path; returning `true` skips that subtree. Callers
-/// that don't need gitignore pruning can pass `|| |_: &bstr::BStr| false`, but
-/// for typical projects with fat ignored dirs (`node_modules`, `target`) the
-/// wasted enumeration makes the preprocessing pass net-slower than plain
-/// per-file stats.
-pub fn prepare<F, E>(
-    worktree: &Path,
-    start_dir: &bstr::BStr,
-    thread_limit: Option<usize>,
-    should_interrupt: &AtomicBool,
-    make_excludes: F,
-) -> std::io::Result<WorktreeStats>
-where
-    F: Fn() -> E + Sync,
-    E: FnMut(&bstr::BStr) -> bool,
-{
-    windows::walk_worktree_parallel(worktree, start_dir, thread_limit, should_interrupt, make_excludes)
+/// Each lookup caches the entry's parent directory, keyed by the worktree
+/// relative directory path. Directory entries are keyed by filename only. This
+/// keeps the cache independent from pathspecs and excludes while avoiding a
+/// live `lstat` for every tracked file in directories that have already been
+/// enumerated.
+pub struct WorktreeStatsCache {
+    /// Absolute worktree root used to turn repository-relative directory keys
+    /// into filesystem paths for Windows directory enumeration.
+    ///
+    /// The cache never changes this root and never stores absolute paths as
+    /// keys. Keeping the root separate lets lookups operate on Git-style
+    /// forward-slashed paths while `directory_entries()` performs the
+    /// platform-specific conversion at the boundary.
+    worktree: PathBuf,
+    /// Cache of direct directory listings, keyed by worktree-relative parent
+    /// directory path.
+    ///
+    /// Keys use the same byte representation as index paths: forward slashes,
+    /// no leading slash, and an empty key for the worktree root. Values are
+    /// `Some(entries)` when that directory was enumerated successfully and
+    /// `None` when enumeration failed, for example because the directory was
+    /// removed or inaccessible. Caching failed enumerations prevents repeated
+    /// directory-open attempts for multiple tracked entries in the same missing
+    /// directory; callers still fall through to live per-file metadata and
+    /// preserve correctness.
+    ///
+    /// `DirectoryStats` itself is keyed only by direct filename, not by full
+    /// worktree-relative path. This keeps each cached listing small and mirrors
+    /// the Windows API result shape: first resolve the parent directory, then
+    /// look up the requested basename in that listing.
+    directories: hashbrown::HashMap<BString, Option<DirectoryStats>>,
 }
 
-/// Like [`prepare`], but single-threaded and without the `Sync` requirement on
-/// the excludes predicate — for callers whose gitignore machinery can't be
-/// shared across threads, like `gix` built without its `parallel` feature.
-pub fn prepare_single_threaded<E>(
-    worktree: &Path,
-    start_dir: &bstr::BStr,
-    should_interrupt: &AtomicBool,
-    is_excluded: E,
-) -> std::io::Result<WorktreeStats>
-where
-    E: FnMut(&bstr::BStr) -> bool,
-{
-    windows::walk_worktree_single_threaded(
-        windows::seed_work_item(worktree, start_dir),
-        should_interrupt,
-        is_excluded,
-    )
+impl WorktreeStatsCache {
+    /// Create an empty cache rooted at `worktree`.
+    pub fn new(worktree: &Path) -> Self {
+        WorktreeStatsCache {
+            worktree: worktree.to_owned(),
+            directories: Default::default(),
+        }
+    }
+
+    /// Return cached metadata for `rela_path`, populating its parent directory
+    /// on first use. `None` means the cache couldn't help and callers should
+    /// fall back to a live `lstat`.
+    pub(crate) fn get(&mut self, rela_path: &BStr) -> Option<WorktreeStat> {
+        let (dir, filename) = match rela_path.rfind_byte(b'/') {
+            Some(pos) => (&rela_path[..pos], &rela_path[pos + 1..]),
+            None => (BStr::new(b""), rela_path),
+        };
+        if filename.is_empty() {
+            return None;
+        }
+
+        if let Some(entries) = self.directories.get(dir) {
+            return entries.as_ref().and_then(|entries| entries.get(filename)).copied();
+        }
+
+        let entries = windows::directory_entries(&self.worktree, dir.into());
+        let stat = entries.as_ref().and_then(|entries| entries.get(filename)).copied();
+        self.directories.insert(dir.into(), entries);
+        stat
+    }
 }
 
-/// Windows-specific implementation using `GetFileInformationByHandleEx` /
-/// `FileIdBothDirectoryInfo`. Work-stealing across threads via `thread::scope`.
-#[allow(unsafe_code)]
 mod windows {
     use super::*;
-    use std::collections::VecDeque;
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
-    use std::sync::atomic::Ordering;
-    use std::sync::{Condvar, Mutex};
-    use std::thread;
 
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
@@ -243,17 +223,6 @@ mod windows {
         FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
         FileIdBothDirectoryInfo, GetFileInformationByHandleEx, OPEN_EXISTING, SYNCHRONIZE,
     };
-
-    /// 64 KiB, u64-aligned — `FILE_ID_BOTH_DIR_INFO` contains LARGE_INTEGER fields that
-    /// require 8-byte alignment, and `Vec<u64>` guarantees it. Hoisted to the worker so
-    /// 6k+ directory walks reuse one allocation instead of allocating per call.
-    const BUFFER_U64S: usize = 8 * 1024;
-
-    /// Work item for the parallel walker: (null-terminated UTF-16 absolute path, relative prefix).
-    ///
-    /// The path is stored pre-encoded so `CreateFileW` on the child can reuse the parent's
-    /// allocation without re-traversing `PathBuf`/`OsStr` each time.
-    type WorkItem = (Vec<u16>, String);
 
     /// Convert FILE_ID_BOTH_DIR_INFO to a [`WorktreeStat`].
     ///
@@ -272,15 +241,12 @@ mod windows {
         let size = info.EndOfFile as u64;
 
         // FILETIME values are LARGE_INTEGER holding 100ns intervals since 1601-01-01 UTC.
-        // `ctime` must come from `CreationTime` (not mtime): `gix_index::entry::stat::from_fs`
-        // on Windows populates ctime from `Metadata::created()`, which is CreationTime. If we
-        // faked ctime=mtime here, stat comparison would spuriously fail for any file where
-        // creation-time and modification-time differ, forcing an unnecessary content hash.
+        // `ctime` must come from `CreationTime`: `gix_index::entry::stat::from_fs`
+        // on Windows populates ctime from `Metadata::created()`, which is CreationTime.
         let (mtime_secs, mtime_nsecs) = filetime_to_unix(info.LastWriteTime as u64);
         let (ctime_secs, ctime_nsecs) = filetime_to_unix(info.CreationTime as u64);
 
         let (is_dir, is_symlink) = type_flags_from_attributes(info.FileAttributes, info.EaSize);
-
         WorktreeStat {
             is_dir,
             is_symlink,
@@ -317,6 +283,7 @@ mod windows {
     /// # Safety
     ///
     /// `p` must point at `len` `u16`s of an in-bounds, initialized directory record.
+    #[allow(unsafe_code)]
     unsafe fn name_from_maybe_unaligned<'a>(p: *const u16, len: usize) -> std::borrow::Cow<'a, [u16]> {
         if p.is_aligned() {
             std::borrow::Cow::Borrowed(unsafe { std::slice::from_raw_parts(p, len) })
@@ -334,20 +301,6 @@ mod windows {
         (secs, nsecs)
     }
 
-    /// Build a null-terminated UTF-16 absolute path for `parent\name`.
-    fn join_utf16(parent: &[u16], name: &[u16]) -> Vec<u16> {
-        // Parent is null-terminated; drop the trailing NUL before joining.
-        let parent = parent.strip_suffix(&[0u16]).unwrap_or(parent);
-        let mut out = Vec::with_capacity(parent.len() + 1 + name.len() + 1);
-        out.extend_from_slice(parent);
-        if out.last().copied() != Some(b'\\' as u16) {
-            out.push(b'\\' as u16);
-        }
-        out.extend_from_slice(name);
-        out.push(0);
-        out
-    }
-
     /// Convert a filesystem path into a null-terminated UTF-16 buffer suitable for `CreateFileW`.
     fn utf16_null_terminated(path: &Path) -> Vec<u16> {
         let mut v: Vec<u16> = path.as_os_str().encode_wide().collect();
@@ -355,59 +308,18 @@ mod windows {
         v
     }
 
-    /// Build the initial [`WorkItem`] for a walk of `worktree` seeded at the
-    /// worktree-relative directory `start_dir` (empty: the worktree root).
+    /// Read the direct entries in `rel_dir`, keyed by filename.
     ///
-    /// A non-UTF-8 `start_dir` can't be turned into the `String` rel-prefix the
-    /// walker builds keys from (and `gix-pathspec` never produces one), so it
-    /// falls back to walking the whole tree — more work, never wrong.
-    pub(super) fn seed_work_item(worktree: &Path, start_dir: &bstr::BStr) -> WorkItem {
-        let start_dir = start_dir.strip_suffix(b"/").unwrap_or(start_dir);
-        match std::str::from_utf8(start_dir) {
-            Ok(rel) if !rel.is_empty() => (utf16_null_terminated(&worktree.join(rel)), rel.to_string()),
-            _ => (utf16_null_terminated(worktree), String::new()),
-        }
-    }
-
-    /// Check if a UTF-16 name equals exactly ASCII ".git" (case-sensitive, matching the
-    /// prior behaviour). This is intentional: on Windows a mis-cased `.Git` is the same
-    /// file to the filesystem but conventionally never appears, and the preprocessing pass
-    /// is look-through — a missed skip just means one extra entry that will be ignored
-    /// by the status pipeline.
-    fn name_is_dotgit(name: &[u16]) -> bool {
-        name.len() == 4
-            && name[0] == b'.' as u16
-            && name[1] == b'g' as u16
-            && name[2] == b'i' as u16
-            && name[3] == b't' as u16
-    }
-
-    /// Result type for directory walking to simplify the return type.
-    type WalkResult = (Vec<(BString, WorktreeStat)>, Vec<WorkItem>);
-
-    /// Walk a single directory using `GetFileInformationByHandleEx` with
-    /// `FileIdBothDirectoryInfo`.
-    ///
-    /// Returns (entries to record, subdirectories to recurse into). `buffer` is a
-    /// reusable 64 KiB u64-aligned scratch buffer; reusing it across calls avoids
-    /// a heap allocation per directory (6k+ per worktree on the Linux kernel).
-    ///
-    /// A `.git` entry in a non-root directory marks a nested repository
-    /// (submodule worktree or embedded repo) — its contents are returned without
-    /// subdirectories to recurse into. The direct children stay in the map: the
-    /// nested root itself is what submodule status looks up, and in the odd case
-    /// of files tracked by the *outer* index inside such a directory, anything
-    /// deeper simply misses and falls back to a live `lstat`.
-    fn walk_directory(
-        dir_path: &[u16],
-        rel_prefix: &str,
-        is_root: bool,
-        buffer: &mut [u64],
-    ) -> std::io::Result<WalkResult> {
-        let mut files = Vec::new();
-        let mut subdirs = Vec::new();
-        let mut has_dotgit = false;
-
+    /// Returns `None` if the directory can't be read. Status callers treat that
+    /// as a cache miss and use the live syscall path for the requested entry.
+    pub(super) fn directory_entries(worktree: &Path, rel_dir: &BStr) -> Option<DirectoryStats> {
+        let dir = if rel_dir.is_empty() {
+            worktree.to_owned()
+        } else {
+            worktree.join(gix_path::from_bstr(rel_dir))
+        };
+        let dir_path = utf16_null_terminated(&dir);
+        #[allow(unsafe_code)]
         let handle = unsafe {
             CreateFileW(
                 dir_path.as_ptr(),
@@ -421,13 +333,18 @@ mod windows {
         };
 
         if handle == INVALID_HANDLE_VALUE {
-            // Directory doesn't exist or can't be read — not an error for a look-through preprocess.
-            return Ok((files, subdirs));
+            return None;
         }
 
+        let mut entries = DirectoryStats::default();
+        // 64 KiB, u64-aligned: `FILE_ID_BOTH_DIR_INFO` contains LARGE_INTEGER
+        // fields that require 8-byte alignment, and `Vec<u64>` guarantees it.
+        const DIRECTORY_BUFFER_U64_WORDS: usize = 8 * 1024;
+        let mut buffer = vec![0u64; DIRECTORY_BUFFER_U64_WORDS];
         let buffer_bytes = (buffer.len() * 8) as u32;
 
         loop {
+            #[allow(unsafe_code)]
             let success = unsafe {
                 GetFileInformationByHandleEx(
                     handle,
@@ -445,78 +362,36 @@ mod windows {
 
             let mut offset = 0usize;
             loop {
-                // The buffer is `Vec<u64>` (8-byte aligned), but only the *first* record is
-                // guaranteed aligned: subsequent records sit at `offset += NextEntryOffset`,
-                // and while the docs say those offsets are aligned, some filesystem drivers
-                // return them unaligned in practice. Forming `&*info_ptr` over an unaligned
-                // record is instant UB (and has crashed callers), so read the fixed header by
-                // value with an unaligned read and copy the name out when it isn't aligned.
-                // std hit and worked around the same `FileIdBothDirectoryInfo` issue:
-                // rust-lang/rust#104530.
-                //
-                // The cast to a more-aligned pointer type is sound here precisely because we
-                // never dereference it as aligned — only `read_unaligned` / `&raw const`.
                 #[allow(clippy::cast_ptr_alignment)]
+                #[allow(unsafe_code)]
                 let info_ptr = unsafe { buffer.as_ptr().cast::<u8>().add(offset).cast::<FILE_ID_BOTH_DIR_INFO>() };
+                #[allow(unsafe_code)]
                 let info = unsafe { info_ptr.read_unaligned() };
                 let info = &info;
 
                 let name_len = (info.FileNameLength / 2) as usize;
+                #[allow(unsafe_code)]
                 let name_ptr = unsafe { (&raw const (*info_ptr).FileName).cast::<u16>() };
+                #[allow(unsafe_code)]
                 let name = unsafe { name_from_maybe_unaligned(name_ptr, name_len) };
                 let name_slice: &[u16] = &name;
 
                 let is_dot = name_len == 1 && name_slice[0] == b'.' as u16;
                 let is_dotdot = name_len == 2 && name_slice[0] == b'.' as u16 && name_slice[1] == b'.' as u16;
-
-                if name_is_dotgit(name_slice) {
-                    has_dotgit = true;
-                } else if !is_dot && !is_dotdot {
-                    // Recurse only into what the live pipeline would consider a directory:
-                    // name-surrogate reparse points (junctions, directory symlinks) are
-                    // symlinks to it and must not be followed — that's also what protects
-                    // the walk from filesystem cycles.
-                    let (is_dir, _is_symlink) = type_flags_from_attributes(info.FileAttributes, info.EaSize);
-
-                    // Build the worktree-relative path in a single allocation by decoding the
-                    // UTF-16 name straight into a string already holding `rel_prefix/`, instead
-                    // of materializing the name as its own `String` and then `format!`-ing a
-                    // second copy. This runs once per worktree entry (~90k on the Linux kernel),
-                    // so the extra allocation + copy per entry was a measurable slice of the walk.
-                    //
-                    // Decode fallibly: skip on ill-formed sequences rather than substituting
-                    // U+FFFD. Lossy substitution can collapse two distinct invalid names onto the
-                    // same key (one overwriting the other in the map) and never matches what
-                    // `gix-index` stored anyway, so a miss + live `lstat` fallback is strictly
-                    // cleaner. `char::decode_utf16` yields an error on an unpaired surrogate; we
-                    // drop the whole entry in that case.
-                    let prefix_len = if rel_prefix.is_empty() { 0 } else { rel_prefix.len() + 1 };
-                    // `name_len` is UTF-16 code units; for the ASCII paths that dominate git
-                    // worktrees that equals the UTF-8 byte count, so this reservation is exact and
-                    // non-ASCII names cost at most a single realloc.
-                    let mut rel_path = String::with_capacity(prefix_len + name_len);
-                    if !rel_prefix.is_empty() {
-                        rel_path.push_str(rel_prefix);
-                        rel_path.push('/');
-                    }
+                if !is_dot && !is_dotdot {
+                    let mut filename = String::with_capacity(name_len);
                     let mut valid = true;
                     for ch in char::decode_utf16(name_slice.iter().copied()) {
                         match ch {
-                            Ok(ch) => rel_path.push(ch),
+                            Ok(ch) => filename.push(ch),
                             Err(_) => {
                                 valid = false;
                                 break;
                             }
                         }
                     }
-
                     if valid {
-                        let stat = stat_from_info(info);
-                        if is_dir {
-                            let child = join_utf16(dir_path, name_slice);
-                            subdirs.push((child, rel_path.clone()));
-                        }
-                        files.push((rel_path.into_bytes().into(), stat));
+                        entries.insert(filename.into_bytes().into(), stat_from_info(info));
                     }
                 }
 
@@ -527,186 +402,11 @@ mod windows {
             }
         }
 
-        unsafe { CloseHandle(handle) };
-
-        if has_dotgit && !is_root {
-            subdirs.clear();
-        }
-        Ok((files, subdirs))
-    }
-
-    /// A directory the walk hasn't descended into yet, plus a count of workers
-    /// currently processing work so the last one out can tell the others to exit.
-    struct WorkQueue {
-        dirs: VecDeque<WorkItem>,
-        active_workers: usize,
-    }
-
-    /// Walk the worktree using work-stealing parallelism.
-    pub fn walk_worktree_parallel<F, E>(
-        worktree: &Path,
-        start_dir: &bstr::BStr,
-        thread_limit: Option<usize>,
-        should_interrupt: &AtomicBool,
-        make_excludes: F,
-    ) -> std::io::Result<WorktreeStats>
-    where
-        F: Fn() -> E + Sync,
-        E: FnMut(&bstr::BStr) -> bool,
-    {
-        let num_threads = thread_limit
-            .unwrap_or_else(|| {
-                std::thread::available_parallelism()
-                    .map(std::num::NonZero::get)
-                    .unwrap_or(4)
-            })
-            .max(1);
-
-        let root = seed_work_item(worktree, start_dir);
-        if num_threads == 1 {
-            return walk_worktree_single_threaded(root, should_interrupt, make_excludes());
-        }
-
-        // Only the root's `rel_prefix` ever equals this — child prefixes are strictly longer.
-        let root_rel = root.1.clone();
-        let root_rel = root_rel.as_str();
-        let _span = gix_features::trace::detail!(
-            "gix_status::worktree_stats::populate",
-            mode = "parallel",
-            thread_count = num_threads,
-            ?start_dir
-        );
-        let queue_mutex = Mutex::new(WorkQueue {
-            dirs: VecDeque::from([root]),
-            active_workers: 0,
-        });
-        let cvar = Condvar::new();
-        let shared = Mutex::new(WorktreeStats::default());
-
-        thread::scope(|s| {
-            for _ in 0..num_threads {
-                let make_excludes = &make_excludes;
-                s.spawn(|| {
-                    worker(
-                        &queue_mutex,
-                        &cvar,
-                        &shared,
-                        root_rel,
-                        should_interrupt,
-                        make_excludes(),
-                    )
-                });
-            }
-        });
-
-        Ok(shared.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner))
-    }
-
-    /// One worker of the parallel walker. Grabs batches of directories from the
-    /// shared queue, walks them into a thread-local map, and pushes any discovered
-    /// subdirectories back onto the queue. Exits when the queue is drained and no
-    /// worker is still producing.
-    ///
-    /// `is_excluded` is a thread-local predicate that returns true for directories
-    /// whose contents should be skipped (gitignored). The excluded directory's own
-    /// metadata entry is still recorded; only recursion is avoided.
-    fn worker<E: FnMut(&bstr::BStr) -> bool>(
-        queue_mutex: &Mutex<WorkQueue>,
-        cvar: &Condvar,
-        shared: &Mutex<WorktreeStats>,
-        root_rel: &str,
-        should_interrupt: &AtomicBool,
-        mut is_excluded: E,
-    ) {
-        let mut local = WorktreeStats::default();
-        let mut local_stack: Vec<WorkItem> = Vec::new();
-        let mut buffer = vec![0u64; BUFFER_U64S];
-
-        loop {
-            // Claim work, or exit if the walk is done.
-            {
-                let mut queue = queue_mutex.lock().unwrap();
-                loop {
-                    if should_interrupt.load(Ordering::Relaxed) {
-                        // Drop pending work — with the queue empty, every worker exits
-                        // through the regular done-path once in-flight batches finish.
-                        queue.dirs.clear();
-                    }
-                    // Steal up to half of the queue (capped) to reduce re-locking while
-                    // still leaving work for other threads to pick up.
-                    let take = queue.dirs.len().div_ceil(2).min(32);
-                    if take > 0 {
-                        local_stack.extend(queue.dirs.drain(..take));
-                        queue.active_workers += 1;
-                        break;
-                    }
-                    if queue.active_workers == 0 {
-                        // Queue is empty and no one is producing more work: we're done.
-                        cvar.notify_all();
-                        shared.lock().unwrap().extend(local);
-                        return;
-                    }
-                    queue = cvar.wait(queue).unwrap();
-                }
-            }
-
-            // Process the claimed directories outside the lock.
-            let mut new_dirs: Vec<WorkItem> = Vec::new();
-            while let Some((dir, rel_prefix)) = local_stack.pop() {
-                if should_interrupt.load(Ordering::Relaxed) {
-                    local_stack.clear();
-                    break;
-                }
-                if let Ok((files, subdirs)) = walk_directory(&dir, &rel_prefix, rel_prefix == root_rel, &mut buffer) {
-                    local.extend(files);
-                    for (child_path, child_rel) in subdirs {
-                        if !is_excluded(child_rel.as_bytes().into()) {
-                            new_dirs.push((child_path, child_rel));
-                        }
-                    }
-                }
-            }
-
-            // Return discovered subdirectories; wake anyone waiting.
-            let mut queue = queue_mutex.lock().unwrap();
-            queue.dirs.extend(new_dirs);
-            queue.active_workers -= 1;
-            cvar.notify_all();
-        }
-    }
-
-    /// Simple single-threaded walk for thread_limit=1.
-    pub(super) fn walk_worktree_single_threaded<E: FnMut(&bstr::BStr) -> bool>(
-        root: WorkItem,
-        should_interrupt: &AtomicBool,
-        mut is_excluded: E,
-    ) -> std::io::Result<WorktreeStats> {
-        let mut stats = WorktreeStats::default();
-        let root_rel = root.1.clone();
-        let _span = gix_features::trace::detail!(
-            "gix_status::worktree_stats::populate",
-            mode = "single-threaded",
-            thread_count = 1,
-            %start_dir = root_rel.as_str()
-        );
-        let mut dir_stack: Vec<WorkItem> = vec![root];
-        let mut buffer = vec![0u64; BUFFER_U64S];
-
-        while let Some((dir, rel_prefix)) = dir_stack.pop() {
-            if should_interrupt.load(Ordering::Relaxed) {
-                break;
-            }
-            if let Ok((files, subdirs)) = walk_directory(&dir, &rel_prefix, rel_prefix == root_rel, &mut buffer) {
-                stats.extend(files);
-                for (child_path, child_rel) in subdirs {
-                    if !is_excluded(child_rel.as_bytes().into()) {
-                        dir_stack.push((child_path, child_rel));
-                    }
-                }
-            }
-        }
-
-        Ok(stats)
+        #[allow(unsafe_code)]
+        unsafe {
+            CloseHandle(handle)
+        };
+        Some(entries)
     }
 }
 
@@ -793,136 +493,34 @@ mod tests {
     }
 
     #[test]
-    fn lookup_is_case_sensitive() {
-        // The map is keyed by the exact path bytes the walker emits.
-        // Mixed-case lookups miss rather than silently aliasing onto the wrong
-        // file — a case-insensitive worktree falls back to a live `lstat` on miss.
-        let mut stats = WorktreeStats::default();
-        let stat = WorktreeStat {
-            size: 42,
-            ..Default::default()
-        };
-        stats.insert(BString::from(b"src/foo.rs".as_slice()), stat.clone());
-
-        assert!(stats.get(&b"src/foo.rs"[..]).is_some());
-        assert!(stats.get(&b"SRC/Foo.rs"[..]).is_none());
-
-        stats.insert(BString::from("ünïcode.txt".as_bytes()), stat);
-        assert!(stats.get("ünïcode.txt".as_bytes()).is_some());
-    }
-
-    #[test]
-    fn prepare_returns_stats() {
+    fn lazy_cache_populates_parent_directories_on_demand() {
         let temp_dir = unique_temp_dir();
         let worktree = temp_dir.path();
 
-        // prepare fixture
-        {
-            let test_file = worktree.join("test.txt");
-            std::fs::write(&test_file, b"hello").unwrap();
+        std::fs::write(worktree.join("test.txt"), b"hello").expect("root file can be written");
+        std::fs::create_dir(worktree.join("subdir")).expect("subdirectory can be created");
+        std::fs::write(worktree.join("subdir").join("nested.txt"), b"world").expect("nested file can be written");
 
-            let subdir = worktree.join("subdir");
-            std::fs::create_dir(&subdir).unwrap();
-
-            let nested_file = subdir.join("nested.txt");
-            std::fs::write(&nested_file, b"world").unwrap();
-        }
-
-        let stats = prepare_simple(worktree, "");
-        assert!(!stats.is_empty(), "the worktree walk returns file metadata");
+        let mut cache = WorktreeStatsCache::new(worktree);
         assert!(
-            stats.contains_key(&b"test.txt"[..]),
-            "the worktree walk records root-level files"
+            cache.get(b"test.txt".as_slice().into()).is_some(),
+            "root files are found by lazily enumerating the worktree root"
         );
         assert!(
-            stats.contains_key(&b"subdir/nested.txt"[..]),
-            "the worktree walk records nested files"
-        );
-
-        let stats = prepare_simple(worktree, "subdir");
-        assert!(
-            stats.contains_key(&b"subdir/nested.txt"[..]),
-            "subdirectory-seeded walks keep keys worktree-relative"
+            cache.get(b"subdir/nested.txt".as_slice().into()).is_some(),
+            "nested files are found by lazily enumerating their parent directory"
         );
         assert!(
-            !stats.contains_key(&b"test.txt"[..]),
-            "subdirectory-seeded walks skip unrelated files"
-        );
-        let stats = prepare_simple(worktree, "subdir/");
-        assert!(
-            stats.contains_key(&b"subdir/nested.txt"[..]),
-            "trailing slashes in the start directory are tolerated"
+            cache.get(b"Test.txt".as_slice().into()).is_none(),
+            "mixed-case lookups miss rather than silently aliasing onto a different path"
         );
         assert!(
-            prepare_simple(worktree, "does-not-exist").is_empty(),
-            "missing start directories degrade to empty maps"
+            cache.get(b"does-not-exist".as_slice().into()).is_none(),
+            "missing files are not a problem (and cause a fall-through tot he live path)"
         );
-    }
-
-    #[test]
-    fn nested_repositories_are_not_descended_into() {
-        let temp_dir = unique_temp_dir();
-        let worktree = temp_dir.path();
-
-        // prepare fixture
-        {
-            let nested = worktree.join("nested");
-            std::fs::create_dir_all(nested.join(".git")).unwrap();
-            std::fs::create_dir_all(nested.join("sub")).unwrap();
-            std::fs::write(nested.join("file.txt"), b"direct child").unwrap();
-            std::fs::write(nested.join("sub").join("deep.txt"), b"below nested root").unwrap();
-        }
-
-        let stats = prepare_simple(worktree, "");
-        // The nested root and its direct children are recorded — the former is what
-        // submodule status looks up — but nothing below its subdirectories.
-        assert!(
-            stats.contains_key(&b"nested"[..]),
-            "nested repository roots are recorded for submodule status"
-        );
-        assert!(
-            stats.contains_key(&b"nested/file.txt"[..]),
-            "direct children of nested repository roots are recorded"
-        );
-        assert!(
-            stats.contains_key(&b"nested/sub"[..]),
-            "direct subdirectories of nested repository roots are recorded"
-        );
-        assert!(
-            !stats.contains_key(&b"nested/sub/deep.txt"[..]),
-            "subdirectories below nested repositories are not descended into"
-        );
-        assert!(
-            !stats.contains_key(&b"nested/.git"[..]),
-            ".git entries are not recorded"
-        );
-
-        let stats = prepare_simple(worktree, "nested");
-        assert!(
-            stats.contains_key(&b"nested/sub/deep.txt"[..]),
-            "walks seeded at a nested repository treat it as the walk root"
-        );
-    }
-
-    #[test]
-    fn interrupt_stops_the_walk_early() {
-        let temp_dir = unique_temp_dir();
-        let worktree = temp_dir.path();
-        std::fs::write(worktree.join("file.txt"), b"content").unwrap();
-
-        let interrupted = AtomicBool::new(true);
-        let stats = prepare(worktree, "".into(), Some(1), &interrupted, || |_: &bstr::BStr| false).unwrap();
-        assert!(stats.is_empty(), "pre-set interrupt yields an empty (valid) map");
     }
 
     fn unique_temp_dir() -> gix_testtools::tempfile::TempDir {
         gix_testtools::tempfile::TempDir::new().expect("temporary directory can be created")
-    }
-
-    fn prepare_simple(worktree: &Path, start_dir: &str) -> WorktreeStats {
-        prepare(worktree, start_dir.into(), Some(1), &AtomicBool::new(false), || {
-            |_: &bstr::BStr| false
-        })
-        .unwrap()
     }
 }

@@ -13,7 +13,7 @@ use gix_object::FindExt;
 
 use crate::index_as_worktree::types::ConflictIndexEntry;
 #[cfg(windows)]
-use crate::worktree_stats::{FileMetadata, WorktreeStats};
+use crate::worktree_stats::{FileMetadata, WorktreeStatsCache};
 use crate::{
     AtomicU64, SymlinkCheck,
     index_as_worktree::{
@@ -65,8 +65,6 @@ pub fn index_as_worktree<'index, T, U, Find, E>(
         stack,
         filter,
         should_interrupt,
-        #[cfg(windows)]
-        worktree_stats,
     }: Context<'_>,
     options: Options,
 ) -> Result<Outcome, Error>
@@ -127,7 +125,7 @@ where
                     filter,
                     options,
                     #[cfg(windows)]
-                    worktree_stats,
+                    worktree_stats: options.fscache.then(|| WorktreeStatsCache::new(worktree)),
 
                     skipped_by_pathspec,
                     skipped_by_entry_flags,
@@ -242,10 +240,10 @@ struct State<'a, 'b> {
     filter: gix_filter::Pipeline,
     path_backing: &'b gix_index::PathStorageRef,
     options: &'a Options,
-    /// Optional precomputed worktree stats for faster status checks on Windows.
+    /// Optional lazy worktree stats cache for faster status checks on Windows.
     /// Lookups happen before falling back to per-file syscalls.
     #[cfg(windows)]
-    worktree_stats: Option<&'a WorktreeStats>,
+    worktree_stats: Option<WorktreeStatsCache>,
 
     skipped_by_pathspec: &'a AtomicUsize,
     skipped_by_entry_flags: &'a AtomicUsize,
@@ -397,27 +395,21 @@ impl<'index> State<'_, 'index> {
         // only fall back to a syscall on miss; on other platforms per-file
         // `lstat` is already fast, so we just do the syscall directly.
         #[cfg(windows)]
-        let metadata = if let Some(cached) = self.worktree_stats.and_then(|c| c.get(rela_path)) {
+        let metadata = if let Some(cached) = self.worktree_stats.as_mut().and_then(|c| c.get(rela_path)) {
             FileMetadata::Cached(cached)
         } else {
             self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
-            match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
-                Ok(md) => FileMetadata::Live(md),
-                Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
-                    return Ok(Some(Change::Removed.into()));
-                }
-                Err(err) => return Err(Error::Io(err.into())),
+            match live_metadata(worktree_path)? {
+                Some(md) => FileMetadata::Live(md),
+                None => return Ok(Some(Change::Removed.into())),
             }
         };
         #[cfg(not(windows))]
         let metadata = {
             self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
-            match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
-                Ok(md) => md,
-                Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
-                    return Ok(Some(Change::Removed.into()));
-                }
-                Err(err) => return Err(Error::Io(err.into())),
+            match live_metadata(worktree_path)? {
+                Some(md) => md,
+                None => return Ok(Some(Change::Removed.into())),
             }
         };
 
@@ -725,5 +717,13 @@ impl Conflict {
                 seen,
             )
         })
+    }
+}
+
+fn live_metadata(worktree_path: &Path) -> Result<Option<gix_index::fs::Metadata>, Error> {
+    match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
+        Ok(md) => Ok(Some(md)),
+        Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => Ok(None),
+        Err(err) => Err(Error::Io(err.into())),
     }
 }
