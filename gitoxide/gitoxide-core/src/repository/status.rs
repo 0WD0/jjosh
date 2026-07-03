@@ -41,6 +41,7 @@ pub struct Options {
     pub statistics: bool,
     pub allow_write: bool,
     pub index_worktree_renames: Option<f32>,
+    pub untracked: Option<gix::status::UntrackedFiles>,
 }
 
 pub fn show(
@@ -58,6 +59,7 @@ pub fn show(
         allow_write,
         statistics,
         index_worktree_renames,
+        untracked,
     }: Options,
 ) -> anyhow::Result<()> {
     if output_format != OutputFormat::Human {
@@ -70,9 +72,13 @@ pub fn show(
     let start = std::time::Instant::now();
     let prefix = repo.prefix()?.unwrap_or(Path::new(""));
     let index_progress = progress.add_child("traverse index");
-    let mut iter = repo
+    let mut status = repo
         .status(index_progress)?
-        .should_interrupt_shared(&gix::interrupt::IS_INTERRUPTED)
+        .should_interrupt_shared(&gix::interrupt::IS_INTERRUPTED);
+    if let Some(untracked) = untracked {
+        status = status.untracked_files(untracked);
+    }
+    let mut iter = status
         .index_worktree_options_mut(|opts| {
             if let Some((opts, ignored)) = opts.dirwalk_options.as_mut().zip(ignored) {
                 opts.set_emit_ignored(Some(match ignored {
