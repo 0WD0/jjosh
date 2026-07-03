@@ -281,30 +281,26 @@ pub(crate) fn precomputed_worktree_stats(
             &prefix[..prefix.iter().rposition(|&b| b == b'/').unwrap_or(0)]
         }
     };
+
     // Without the `parallel` feature, repository internals are `Rc`-based and the
     // per-thread excludes factory can't be `Sync` — build a single predicate on this
     // thread and walk single-threaded instead.
+    #[cfg(not(feature = "parallel"))]
+    {
+        gix_status::worktree_stats::prepare_single_threaded(
+            workdir,
+            crate::bstr::BStr::new(start_dir),
+            should_interrupt,
+            worktree_stats_is_excluded(repo, index),
+        )
+        .ok()
+    }
     #[cfg(feature = "parallel")]
     {
         let sync_repo = repo.clone().into_sync();
-
-        let make_excludes = || -> Box<dyn FnMut(&crate::bstr::BStr) -> bool> {
+        let make_excludes = || {
             let thread_repo = sync_repo.to_thread_local();
-            let Ok(stack) = thread_repo.excludes(
-                index,
-                None,
-                gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
-            ) else {
-                return Box::new(|_| false);
-            };
-            let mut stack = stack.detach();
-            let objects = thread_repo.objects.clone();
-            Box::new(move |path: &crate::bstr::BStr| -> bool {
-                stack
-                    .at_entry(path, Some(gix_index::entry::Mode::DIR), &objects)
-                    .map(|p| p.is_excluded())
-                    .unwrap_or(false)
-            })
+            worktree_stats_is_excluded(&thread_repo, index)
         };
 
         gix_status::worktree_stats::prepare(
@@ -316,34 +312,29 @@ pub(crate) fn precomputed_worktree_stats(
         )
         .ok()
     }
-    #[cfg(not(feature = "parallel"))]
-    {
-        let _ = thread_limit;
-        let is_excluded: Box<dyn FnMut(&crate::bstr::BStr) -> bool> = match repo.excludes(
-            index,
-            None,
-            gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
-        ) {
-            Ok(stack) => {
-                let mut stack = stack.detach();
-                let objects = repo.objects.clone();
-                Box::new(move |path: &crate::bstr::BStr| -> bool {
-                    stack
-                        .at_entry(path, Some(gix_index::entry::Mode::DIR), &objects)
-                        .map(|p| p.is_excluded())
-                        .unwrap_or(false)
-                })
-            }
-            Err(_) => Box::new(|_| false),
-        };
+}
 
-        gix_status::worktree_stats::prepare_single_threaded(
-            workdir,
-            crate::bstr::BStr::new(start_dir),
-            should_interrupt,
-            is_excluded,
-        )
-        .ok()
+#[cfg(windows)]
+fn worktree_stats_is_excluded(
+    repo: &Repository,
+    index: &gix_index::State,
+) -> Box<dyn FnMut(&crate::bstr::BStr) -> bool> {
+    match repo.excludes(
+        index,
+        None,
+        gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+    ) {
+        Ok(stack) => {
+            let mut stack = stack.detach();
+            let objects = repo.objects.clone();
+            Box::new(move |path: &crate::bstr::BStr| -> bool {
+                stack
+                    .at_entry(path, Some(gix_index::entry::Mode::DIR), &objects)
+                    .map(|p| p.is_excluded())
+                    .unwrap_or(false)
+            })
+        }
+        Err(_) => Box::new(|_| false),
     }
 }
 

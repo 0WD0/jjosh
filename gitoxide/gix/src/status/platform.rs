@@ -135,6 +135,9 @@ where
     /// pathspec's common prefix so a status restricted to a subtree only
     /// enumerates that subtree.
     /// Defaults to `true`; disabling falls back to per-file `lstat`.
+    // TODO: turn this into something helping to override or tune `core.fscache`,
+    //       otherwise remove it entirely as users will then control it using
+    //       that variable explicitly.
     #[cfg(windows)]
     pub fn index_worktree_stats_preprocessing(mut self, enable: bool) -> Self {
         self.precompute_worktree_stats = enable;

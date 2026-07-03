@@ -63,7 +63,7 @@ impl WorktreeStat {
     /// [`gix_index::entry::stat::Stat::from_fs`] does on Unix, so both code
     /// paths compare the same quantities. `dev`/`ino`/`uid`/`gid` are zeroed
     /// here to match what `from_fs` produces on Windows.
-    pub fn to_stat(&self) -> gix_index::entry::Stat {
+    pub(crate) fn to_stat(&self) -> gix_index::entry::Stat {
         gix_index::entry::Stat {
             mtime: gix_index::entry::stat::Time {
                 secs: self.mtime_secs,
@@ -142,6 +142,8 @@ impl FileMetadata<'_> {
             Self::Live(m) => entry_mode.change_to_match_fs(m, has_symlinks, executable_bit),
             // Windows batch enumeration doesn't expose the executable bit; pass `false`.
             // Git on Windows defaults to `core.filemode=false` so this is unused anyway.
+            // TODO(correctness): it seems we'd have to try to support this at some point,
+            //                    depending on Git for Windows' implementation.
             Self::Cached(c) => entry_mode.change_to_match_fs_with_values(
                 !c.is_dir && !c.is_symlink, // is_file: regular file (not dir, not symlink)
                 c.is_dir,
@@ -170,8 +172,8 @@ impl FileMetadata<'_> {
 /// on disk the map comes back empty, which is still correct: lookups miss and
 /// fall back to live syscalls.
 ///
-/// `thread_limit` caps parallelism. `None` uses all available cores; `Some(1)`
-/// is single-threaded.
+/// `thread_limit` caps parallelism. `None | Some(0)` uses all available cores;
+/// `Some(1)` is single-threaded.
 ///
 /// `should_interrupt` stops the walk early at directory granularity. Whatever
 /// was gathered until then is returned — a partial map is still a valid
@@ -568,6 +570,12 @@ mod windows {
         // Only the root's `rel_prefix` ever equals this — child prefixes are strictly longer.
         let root_rel = root.1.clone();
         let root_rel = root_rel.as_str();
+        let _span = gix_features::trace::detail!(
+            "gix_status::worktree_stats::populate",
+            mode = "parallel",
+            thread_count = num_threads,
+            ?start_dir
+        );
         let queue_mutex = Mutex::new(WorkQueue {
             dirs: VecDeque::from([root]),
             active_workers: 0,
@@ -675,6 +683,12 @@ mod windows {
     ) -> std::io::Result<WorktreeStats> {
         let mut stats = WorktreeStats::default();
         let root_rel = root.1.clone();
+        let _span = gix_features::trace::detail!(
+            "gix_status::worktree_stats::populate",
+            mode = "single-threaded",
+            thread_count = 1,
+            %start_dir = root_rel.as_str()
+        );
         let mut dir_stack: Vec<WorkItem> = vec![root];
         let mut buffer = vec![0u64; BUFFER_U64S];
 
@@ -725,7 +739,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(windows)]
     fn type_flags_match_std_symlink_metadata_semantics() {
         use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT};
 
@@ -736,42 +749,47 @@ mod tests {
         const IO_REPARSE_TAG_CLOUD: u32 = 0x9000_001A;
         const IO_REPARSE_TAG_WOF: u32 = 0x8000_0017;
 
-        // plain file / plain dir
-        assert_eq!(flags(FILE_ATTRIBUTE_NORMAL, 0), (false, false));
-        assert_eq!(flags(FILE_ATTRIBUTE_DIRECTORY, 0), (true, false));
-        // file and directory symlinks: symlink, never dir — like `std`
+        assert_eq!(flags(FILE_ATTRIBUTE_NORMAL, 0), (false, false), "plain file");
+        assert_eq!(flags(FILE_ATTRIBUTE_DIRECTORY, 0), (true, false), "plain directory");
         assert_eq!(
             flags(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_SYMLINK),
-            (false, true)
+            (false, true),
+            "file symlinks are symlinks, never directories, like std"
         );
         assert_eq!(
             flags(
                 FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT,
                 IO_REPARSE_TAG_SYMLINK
             ),
-            (false, true)
+            (false, true),
+            "directory symlinks are symlinks, never directories, like std"
         );
-        // junction (mount point): treated as symlink by `std`
         assert_eq!(
             flags(
                 FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT,
                 IO_REPARSE_TAG_MOUNT_POINT
             ),
-            (false, true)
+            (false, true),
+            "junctions are treated as symlinks by std"
         );
-        // non-surrogate reparse points are regular files/dirs (cloud placeholders, WOF)
         assert_eq!(
             flags(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_CLOUD),
-            (false, false)
+            (false, false),
+            "non-surrogate reparse-point files are regular files"
         );
         assert_eq!(
             flags(
                 FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT,
                 IO_REPARSE_TAG_CLOUD
             ),
-            (true, false)
+            (true, false),
+            "non-surrogate reparse-point directories are regular directories"
         );
-        assert_eq!(flags(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_WOF), (false, false));
+        assert_eq!(
+            flags(FILE_ATTRIBUTE_REPARSE_POINT, IO_REPARSE_TAG_WOF),
+            (false, false),
+            "WOF reparse points are regular files"
+        );
     }
 
     #[test]
@@ -793,12 +811,112 @@ mod tests {
         assert!(stats.get("ünïcode.txt".as_bytes()).is_some());
     }
 
-    fn unique_temp_dir() -> std::path::PathBuf {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let temp_dir = std::env::temp_dir().join(format!("gix_status_test_{timestamp}"));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        temp_dir
+    #[test]
+    fn prepare_returns_stats() {
+        let temp_dir = unique_temp_dir();
+        let worktree = temp_dir.path();
+
+        // prepare fixture
+        {
+            let test_file = worktree.join("test.txt");
+            std::fs::write(&test_file, b"hello").unwrap();
+
+            let subdir = worktree.join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+
+            let nested_file = subdir.join("nested.txt");
+            std::fs::write(&nested_file, b"world").unwrap();
+        }
+
+        let stats = prepare_simple(worktree, "");
+        assert!(!stats.is_empty(), "the worktree walk returns file metadata");
+        assert!(
+            stats.contains_key(&b"test.txt"[..]),
+            "the worktree walk records root-level files"
+        );
+        assert!(
+            stats.contains_key(&b"subdir/nested.txt"[..]),
+            "the worktree walk records nested files"
+        );
+
+        let stats = prepare_simple(worktree, "subdir");
+        assert!(
+            stats.contains_key(&b"subdir/nested.txt"[..]),
+            "subdirectory-seeded walks keep keys worktree-relative"
+        );
+        assert!(
+            !stats.contains_key(&b"test.txt"[..]),
+            "subdirectory-seeded walks skip unrelated files"
+        );
+        let stats = prepare_simple(worktree, "subdir/");
+        assert!(
+            stats.contains_key(&b"subdir/nested.txt"[..]),
+            "trailing slashes in the start directory are tolerated"
+        );
+        assert!(
+            prepare_simple(worktree, "does-not-exist").is_empty(),
+            "missing start directories degrade to empty maps"
+        );
+    }
+
+    #[test]
+    fn nested_repositories_are_not_descended_into() {
+        let temp_dir = unique_temp_dir();
+        let worktree = temp_dir.path();
+
+        // prepare fixture
+        {
+            let nested = worktree.join("nested");
+            std::fs::create_dir_all(nested.join(".git")).unwrap();
+            std::fs::create_dir_all(nested.join("sub")).unwrap();
+            std::fs::write(nested.join("file.txt"), b"direct child").unwrap();
+            std::fs::write(nested.join("sub").join("deep.txt"), b"below nested root").unwrap();
+        }
+
+        let stats = prepare_simple(worktree, "");
+        // The nested root and its direct children are recorded — the former is what
+        // submodule status looks up — but nothing below its subdirectories.
+        assert!(
+            stats.contains_key(&b"nested"[..]),
+            "nested repository roots are recorded for submodule status"
+        );
+        assert!(
+            stats.contains_key(&b"nested/file.txt"[..]),
+            "direct children of nested repository roots are recorded"
+        );
+        assert!(
+            stats.contains_key(&b"nested/sub"[..]),
+            "direct subdirectories of nested repository roots are recorded"
+        );
+        assert!(
+            !stats.contains_key(&b"nested/sub/deep.txt"[..]),
+            "subdirectories below nested repositories are not descended into"
+        );
+        assert!(
+            !stats.contains_key(&b"nested/.git"[..]),
+            ".git entries are not recorded"
+        );
+
+        let stats = prepare_simple(worktree, "nested");
+        assert!(
+            stats.contains_key(&b"nested/sub/deep.txt"[..]),
+            "walks seeded at a nested repository treat it as the walk root"
+        );
+    }
+
+    #[test]
+    fn interrupt_stops_the_walk_early() {
+        let temp_dir = unique_temp_dir();
+        let worktree = temp_dir.path();
+        std::fs::write(worktree.join("file.txt"), b"content").unwrap();
+
+        let interrupted = AtomicBool::new(true);
+        let stats = prepare(worktree, "".into(), Some(1), &interrupted, || |_: &bstr::BStr| false).unwrap();
+        assert!(stats.is_empty(), "pre-set interrupt yields an empty (valid) map");
+    }
+
+    fn unique_temp_dir() -> gix_testtools::tempfile::TempDir {
+        gix_testtools::tempfile::TempDir::new().expect("temporary directory can be created")
     }
 
     fn prepare_simple(worktree: &Path, start_dir: &str) -> WorktreeStats {
@@ -806,74 +924,5 @@ mod tests {
             |_: &bstr::BStr| false
         })
         .unwrap()
-    }
-
-    #[test]
-    fn prepare_returns_stats() {
-        // Use a unique temp directory to avoid walking other files.
-        let temp_dir = unique_temp_dir();
-
-        let test_file = temp_dir.join("test.txt");
-        std::fs::write(&test_file, b"hello").unwrap();
-
-        let subdir = temp_dir.join("subdir");
-        std::fs::create_dir(&subdir).unwrap();
-        let nested_file = subdir.join("nested.txt");
-        std::fs::write(&nested_file, b"world").unwrap();
-
-        let stats = prepare_simple(&temp_dir, "");
-        assert!(!stats.is_empty());
-        assert!(stats.contains_key(&b"test.txt"[..]));
-        assert!(stats.contains_key(&b"subdir/nested.txt"[..]));
-
-        // Seeded at a subdirectory: keys stay worktree-relative, unrelated files are not walked.
-        let stats = prepare_simple(&temp_dir, "subdir");
-        assert!(stats.contains_key(&b"subdir/nested.txt"[..]));
-        assert!(!stats.contains_key(&b"test.txt"[..]));
-        // Trailing slash and missing directories degrade to (partial) maps, never errors.
-        let stats = prepare_simple(&temp_dir, "subdir/");
-        assert!(stats.contains_key(&b"subdir/nested.txt"[..]));
-        assert!(prepare_simple(&temp_dir, "does-not-exist").is_empty());
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn nested_repositories_are_not_descended_into() {
-        let temp_dir = unique_temp_dir();
-
-        let nested = temp_dir.join("nested");
-        std::fs::create_dir_all(nested.join(".git")).unwrap();
-        std::fs::create_dir_all(nested.join("sub")).unwrap();
-        std::fs::write(nested.join("file.txt"), b"direct child").unwrap();
-        std::fs::write(nested.join("sub").join("deep.txt"), b"below nested root").unwrap();
-
-        let stats = prepare_simple(&temp_dir, "");
-        // The nested root and its direct children are recorded — the former is what
-        // submodule status looks up — but nothing below its subdirectories.
-        assert!(stats.contains_key(&b"nested"[..]));
-        assert!(stats.contains_key(&b"nested/file.txt"[..]));
-        assert!(stats.contains_key(&b"nested/sub"[..]));
-        assert!(!stats.contains_key(&b"nested/sub/deep.txt"[..]));
-        assert!(!stats.contains_key(&b"nested/.git"[..]));
-
-        // Seeded *at* the nested repo, it is the walk root and is walked normally,
-        // matching a status run inside the nested repo's own worktree.
-        let stats = prepare_simple(&temp_dir, "nested");
-        assert!(stats.contains_key(&b"nested/sub/deep.txt"[..]));
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn interrupt_stops_the_walk_early() {
-        let temp_dir = unique_temp_dir();
-        std::fs::write(temp_dir.join("file.txt"), b"content").unwrap();
-
-        let interrupted = AtomicBool::new(true);
-        let stats = prepare(&temp_dir, "".into(), Some(1), &interrupted, || |_: &bstr::BStr| false).unwrap();
-        assert!(stats.is_empty(), "pre-set interrupt yields an empty (valid) map");
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

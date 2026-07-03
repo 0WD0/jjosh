@@ -402,7 +402,7 @@ impl<'index> State<'_, 'index> {
         } else {
             self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
             match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
-                Ok(m) => FileMetadata::Live(m),
+                Ok(md) => FileMetadata::Live(md),
                 Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
                     return Ok(Some(Change::Removed.into()));
                 }
@@ -413,7 +413,7 @@ impl<'index> State<'_, 'index> {
         let metadata = {
             self.symlink_metadata_calls.fetch_add(1, Ordering::Relaxed);
             match gix_index::fs::Metadata::from_path_no_follow(worktree_path) {
-                Ok(m) => m,
+                Ok(md) => md,
                 Err(err) if gix_fs::io_err::is_not_found(err.kind(), err.raw_os_error()) => {
                     return Ok(Some(Change::Removed.into()));
                 }

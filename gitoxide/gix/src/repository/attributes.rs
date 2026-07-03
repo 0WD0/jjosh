@@ -15,7 +15,8 @@ impl Repository {
     /// Configure a file-system cache for accessing git attributes *and* excludes on a per-path basis.
     ///
     /// Use `attribute_source` to specify where to read attributes from. Also note that exclude information will
-    /// always try to read `.gitignore` files from disk before trying to read it from the `index`.
+    /// always try to read `.gitignore` files from disk before trying to read it from the `index`,
+    /// configurable via `ignore_source`.
     ///
     /// Note that no worktree is required for this to work, even though access to in-tree `.gitattributes` and `.gitignore` files
     /// would require a non-empty `index` that represents a git tree.
