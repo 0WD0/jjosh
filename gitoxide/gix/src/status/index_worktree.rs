@@ -1,12 +1,12 @@
 use std::sync::atomic::AtomicBool;
 
-use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
-
 use crate::{
     Repository,
     bstr::{BStr, BString},
     config,
+    config::cache::util::ApplyLeniencyDefault,
 };
+use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
 
 /// The error returned by [Repository::index_worktree_status()].
 #[derive(Debug, thiserror::Error)]
@@ -82,11 +82,6 @@ impl Repository {
     ///     - A flag to stop the whole operation.
     /// * `options`
     ///     - Additional configuration for all parts of the operation.
-    /// * `worktree_stats` *(Windows only)*
-    ///     - Optional precomputed worktree metadata from
-    ///       gix_status::worktree_stats::prepare When `Some`, modification
-    ///       checks consult it instead of calling `lstat` per file. Misses
-    ///       fall through to a live syscall, so empty/partial maps are safe.
     ///
     /// ### Note
     ///
@@ -106,7 +101,6 @@ impl Repository {
         progress: &mut dyn gix_features::progress::Progress,
         should_interrupt: &AtomicBool,
         options: Options,
-        #[cfg(windows)] worktree_stats: Option<&gix_status::worktree_stats::WorktreeStats>,
     ) -> Result<gix_status::index_as_worktree_with_renames::Outcome, Error>
     where
         T: Send + Clone,
@@ -127,6 +121,14 @@ impl Repository {
         let cwd = self.current_dir();
         let git_dir_realpath = crate::path::realpath_opts(self.git_dir(), cwd, crate::path::realpath::MAX_SYMLINKS)?;
         let fs_caps = self.filesystem_options()?;
+        let fscache = self
+            .config
+            .resolved
+            .boolean(config::tree::Core::FS_CACHE)
+            .map(|res| config::tree::Core::FS_CACHE.enrich_error(res))
+            .transpose()
+            .with_lenient_default(self.config.lenient_config)?
+            .unwrap_or_default();
         let accelerate_lookup = fs_caps.ignore_case.then(|| index.prepare_icase_backing());
         let resource_cache = crate::diff::resource_cache(
             self,
@@ -155,8 +157,6 @@ impl Repository {
                     current_dir: cwd,
                     ignore_case_index_lookup: accelerate_lookup.as_ref(),
                 },
-                #[cfg(windows)]
-                worktree_stats,
             },
             gix_status::index_as_worktree_with_renames::Options {
                 sorting: options.sorting,
@@ -165,7 +165,9 @@ impl Repository {
                     fs: fs_caps,
                     thread_limit: options.thread_limit,
                     stat: self.stat_options()?,
+                    fscache,
                 },
+                fscache,
                 dirwalk: options.dirwalk_options.map(Into::into),
                 rewrites: options.rewrites,
             },

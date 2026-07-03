@@ -26,6 +26,8 @@ impl Core {
     pub const EDITOR: keys::Program = keys::Program::new_program("editor", &config::Tree::CORE);
     /// The `core.fileMode` key.
     pub const FILE_MODE: keys::Boolean = keys::Boolean::new_boolean("fileMode", &config::Tree::CORE);
+    /// The `core.fsCache` key.
+    pub const FS_CACHE: keys::Boolean = keys::Boolean::new_boolean("fsCache", &config::Tree::CORE);
     /// The `core.ignoreCase` key.
     pub const IGNORE_CASE: keys::Boolean = keys::Boolean::new_boolean("ignoreCase", &config::Tree::CORE);
     /// The `core.filesRefLockTimeout` key.
@@ -110,6 +112,7 @@ impl Section for Core {
             &Self::DISAMBIGUATE,
             &Self::EDITOR,
             &Self::FILE_MODE,
+            &Self::FS_CACHE,
             &Self::IGNORE_CASE,
             &Self::FILES_REF_LOCK_TIMEOUT,
             &Self::PACKED_REFS_TIMEOUT,
