@@ -45,6 +45,12 @@ harness = false
 required-features = ["blob"]
 path = "./benches/line_count.rs"
 
+[[bench]]
+name = "rewrite-tracker"
+harness = false
+required-features = ["blob"]
+path = "./benches/rewrite_tracker.rs"
+
 [dependencies]
 gix-index = { version = "^0.53.0", path = "../gix-index", optional = true }
 gix-pathspec = { version = "^0.18.1", path = "../gix-pathspec", optional = true }
