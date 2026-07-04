@@ -128,7 +128,8 @@ impl Repository {
             .map(|res| config::tree::Core::FS_CACHE.enrich_error(res))
             .transpose()
             .with_lenient_default(self.config.lenient_config)?
-            .unwrap_or_default();
+            // if unset, default to enabled on Windows. Good for missing Git installations that would turn it on by installation config
+            .unwrap_or(cfg!(windows));
         let accelerate_lookup = fs_caps.ignore_case.then(|| index.prepare_icase_backing());
         let resource_cache = crate::diff::resource_cache(
             self,
