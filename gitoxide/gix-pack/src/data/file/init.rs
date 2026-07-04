@@ -61,7 +61,7 @@ where
     /// Use `None` to disable the limit, which is also the default.
     ///
     /// This is currently enforced when decoding pack entries and resolving delta chains.
-    /// Callers that allocate from pack metadata directly should consult [`File::alloc_limit_bytes()`][crate::data::File::alloc_limit_bytes()]
+    /// Callers that allocate from pack metadata directly should consult [`File::alloc_limit_bytes()`][crate::data::File::alloc_limit_bytes]
     /// and apply the same limit themselves.
     pub fn with_alloc_limit_bytes(mut self, alloc_limit_bytes: Option<usize>) -> Self {
         self.alloc_limit_bytes = alloc_limit_bytes;

@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    collections::TryReserveError,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use gix_features::{
     parallel::in_parallel_with_slice,
@@ -32,6 +35,8 @@ pub enum Error {
     Inspect(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("Interrupted")]
     Interrupted,
+    #[error("Entry too large to fit in memory")]
+    OutOfMemory,
     #[error(
         "The base at {base_pack_offset} was referred to by a ref-delta, but it was never added to the tree as if the pack was still thin."
     )]
@@ -43,6 +48,13 @@ pub enum Error {
     SpawnThread(#[from] std::io::Error),
     #[error(transparent)]
     Delta(#[from] crate::data::delta::apply::Error),
+}
+
+impl From<TryReserveError> for Error {
+    #[cold]
+    fn from(_: TryReserveError) -> Self {
+        Self::OutOfMemory
+    }
 }
 
 /// Additional context passed to the `inspect_object(…)` function of the [`Tree::traverse()`] method.
@@ -72,6 +84,9 @@ pub struct Options<'a, 's> {
     /// specifies what kind of hashes we expect to be stored in oid-delta entries, which is viable to decoding them
     /// with the correct size.
     pub object_hash: gix_hash::Kind,
+    /// If `Some`, rejects individual allocations above the given number of bytes while resolving decoded object and
+    /// delta result buffers. `Some(0)` rejects all non-empty allocations.
+    pub alloc_limit_bytes: Option<usize>,
 }
 
 /// The outcome of [`Tree::traverse()`]
@@ -115,6 +130,7 @@ where
             size_progress,
             should_interrupt,
             object_hash,
+            alloc_limit_bytes,
         }: Options<'_, '_>,
     ) -> Result<Outcome<T>, Error>
     where
@@ -171,6 +187,7 @@ where
                             state,
                             resolve_data,
                             object_hash,
+                            alloc_limit_bytes,
                             threads_left,
                             should_interrupt,
                         )

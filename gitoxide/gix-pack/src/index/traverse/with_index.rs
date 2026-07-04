@@ -16,6 +16,9 @@ pub struct Options {
     pub thread_limit: Option<usize>,
     /// The kinds of safety checks to perform.
     pub check: crate::index::traverse::SafetyCheck,
+    /// If `Some`, rejects individual allocations above the given number of bytes while resolving decoded object and
+    /// delta result buffers. `Some(0)` rejects all non-empty allocations.
+    pub alloc_limit_bytes: Option<usize>,
 }
 
 /// The progress ids used in [`index::File::traverse_with_index()`].
@@ -65,7 +68,11 @@ where
         mut processor: Processor,
         progress: &mut dyn DynNestedProgress,
         should_interrupt: &AtomicBool,
-        Options { check, thread_limit }: Options,
+        Options {
+            check,
+            thread_limit,
+            alloc_limit_bytes,
+        }: Options,
     ) -> Result<Outcome, Error<E>>
     where
         Processor: FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn gix_features::progress::Progress) -> Result<(), E>
@@ -162,6 +169,7 @@ where
                         thread_limit,
                         should_interrupt,
                         object_hash: self.object_hash,
+                        alloc_limit_bytes,
                     },
                 )?);
                 outcome.pack_size = pack.data_len() as u64;

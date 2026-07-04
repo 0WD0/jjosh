@@ -123,7 +123,7 @@ mod version {
         use gix_odb::pack;
         use gix_pack::{data::input, index};
 
-        use crate::{INDEX_V2, V2_PACKS_AND_INDICES, fixture_path};
+        use crate::{INDEX_V2, SMALL_PACK, V2_PACKS_AND_INDICES, fixture_path};
 
         fn slice_map(entry: gix_pack::data::EntryRange, map: &memmap2::Mmap) -> Option<&[u8]> {
             map.get(entry.start as usize..entry.end as usize)
@@ -161,6 +161,7 @@ mod version {
                     &mut actual,
                     &AtomicBool::new(false),
                     gix_hash::Kind::Sha1,
+                    None,
                     pack_version,
                 )?;
 
@@ -229,6 +230,43 @@ mod version {
         }
 
         #[test]
+        fn write_to_stream_respects_alloc_limit_bytes() -> Result<(), Box<dyn std::error::Error>> {
+            let data_path = SMALL_PACK;
+            let mut pack_iter = pack::data::input::BytesToEntriesIter::new_from_header(
+                io::BufReader::new(fs::File::open(fixture_path(data_path))?),
+                input::Mode::Verify,
+                input::EntryDataMode::Crc32,
+                gix_hash::Kind::Sha1,
+            )?;
+            let pack_version = pack_iter.version();
+
+            let prevent_allocation = Some(0);
+            let err = pack::index::write_data_iter_to_stream(
+                pack::index::Version::default(),
+                || {
+                    let file = std::fs::File::open(fixture_path(data_path))?;
+                    let map = unsafe { memmap2::MmapOptions::new().map_copy_read_only(&file)? };
+                    Ok((slice_map, map))
+                },
+                &mut pack_iter,
+                Some(1),
+                &mut progress::Discard,
+                &mut Vec::new(),
+                &AtomicBool::new(false),
+                gix_hash::Kind::Sha1,
+                prevent_allocation,
+                pack_version,
+            )
+            .expect_err("a zero allocation limit rejects the first non-empty decoded object");
+
+            assert!(
+                crate::error_chain_contains_message(&err, "Entry too large to fit in memory"),
+                "index writing must forward the allocation limit into delta-tree traversal"
+            );
+            Ok(())
+        }
+
+        #[test]
         fn lookup_missing() {
             let file = index::File::at(fixture_path(INDEX_V2), gix_hash::Kind::Sha1).unwrap();
             let prefix = gix_hash::Prefix::new(&gix_hash::Kind::Sha1.null(), 7).unwrap();
@@ -263,6 +301,34 @@ fn traverse_with_index_and_forward_ref_deltas() {
         )
         .unwrap();
     assert_eq!(count.load(Ordering::SeqCst), 9, "we traverse all objects");
+}
+
+#[test]
+fn traverse_with_index_respects_alloc_limit_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    let index = index::File::at(fixture_path(SMALL_PACK_INDEX), gix_hash::Kind::Sha1)?;
+    let data = pack::data::File::at(fixture_path(SMALL_PACK), gix_hash::Kind::Sha1)?;
+
+    let prevent_allocation = Some(0);
+    let err = match index.traverse_with_index(
+        &data,
+        |_, _, _, _| Ok::<_, std::io::Error>(()),
+        &mut progress::Discard,
+        &AtomicBool::new(false),
+        index::traverse::with_index::Options {
+            alloc_limit_bytes: prevent_allocation,
+            thread_limit: Some(1),
+            ..Default::default()
+        },
+    ) {
+        Ok(_) => panic!("a zero allocation limit rejects the first non-empty decoded object"),
+        Err(err) => err,
+    };
+
+    assert!(
+        crate::error_chain_contains_message(&err, "Entry too large to fit in memory"),
+        "traverse_with_index must pass its allocation limit to delta-tree traversal"
+    );
+    Ok(())
 }
 
 #[test]
@@ -416,7 +482,7 @@ fn pack_lookup() -> Result<(), Box<dyn std::error::Error>> {
                                 verify_mode: *mode,
                                 traversal: *algo,
                                 make_pack_lookup_cache: || cache::Never,
-                                thread_limit: None
+                                thread_limit: None,
                             }
                         }),
                         &mut progress::Discard,
@@ -480,6 +546,43 @@ fn pack_lookup() -> Result<(), Box<dyn std::error::Error>> {
                 "we get the compressed bytes region after the head to the next entry"
             );
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn verify_integrity_respects_pack_alloc_limit_bytes() -> Result<(), Box<dyn std::error::Error>> {
+    let prevent_allocation = Some(0);
+    let idx = index::File::at(fixture_path(SMALL_PACK_INDEX), gix_hash::Kind::Sha1)?;
+    let pack = pack::data::File::at(fixture_path(SMALL_PACK), gix_hash::Kind::Sha1)?
+        .with_alloc_limit_bytes(prevent_allocation);
+
+    for traversal in [
+        gix_pack::index::traverse::Algorithm::Lookup,
+        gix_pack::index::traverse::Algorithm::DeltaTreeLookup,
+    ] {
+        let err = match idx.verify_integrity(
+            Some(gix_pack::index::verify::PackContext {
+                data: &pack,
+                options: gix_pack::index::verify::integrity::Options {
+                    traversal,
+                    thread_limit: Some(1),
+                    ..Default::default()
+                },
+            }),
+            &mut progress::Discard,
+            &AtomicBool::new(false),
+        ) {
+            Ok(_) => panic!("{traversal:?}: a zero allocation limit rejects the first non-empty decoded object"),
+            Err(err) => err,
+        };
+
+        assert!(
+            crate::error_chain_contains_message(&err, "Entry too large to fit in memory"),
+            "{traversal:?}: verify_integrity() must obtain the allocation limit from the pack data file, even for \
+             DeltaTreeLookup where decoded objects are resolved by delta-tree traversal instead of regular pack \
+             lookups"
+        );
     }
     Ok(())
 }

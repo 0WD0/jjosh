@@ -112,6 +112,7 @@ pub(super) unsafe fn deltas<T, F, MBFN, E, R>(
     }: &mut State<'_, F, MBFN, T>,
     resolve_data: &R,
     object_hash: gix_hash::Kind,
+    alloc_limit_bytes: Option<usize>,
     threads_left: &AtomicIsize,
     should_interrupt: &AtomicBool,
 ) -> Result<(), Error>
@@ -130,8 +131,8 @@ where
         })?;
         let entry = data::Entry::from_bytes(bytes, slice.start, object_hash)?;
         let compressed = &bytes[entry.header_size()..];
-        let decompressed_len = entry.decompressed_size as usize;
-        decompress_all_at_once_with(&mut inflate, compressed, decompressed_len, out)?;
+        let decompressed_len = decoded_size_limited(entry.decompressed_size, alloc_limit_bytes)?;
+        decompress_all_at_once_with(&mut inflate, compressed, decompressed_len, out, alloc_limit_bytes)?;
         Ok((entry, slice.end))
     };
 
@@ -178,16 +179,19 @@ where
         for mut child in base.into_child_iter() {
             let (mut child_entry, entry_end) = decompress_from_resolver(child.entry_slice(), delta_bytes)?;
             let (base_size, consumed) = data::delta::decode_header_size(delta_bytes)?;
+            let base_size = decoded_size_limited(base_size, alloc_limit_bytes)?;
             let mut header_ofs = consumed;
-            assert_eq!(
-                base_bytes.len(),
-                base_size as usize,
-                "recorded base size in delta does match the actual one"
-            );
+            if base_bytes.len() != base_size {
+                return Err(data::delta::apply::Error::Corrupt {
+                    message: "delta base size does not match base object size",
+                }
+                .into());
+            }
             let (result_size, consumed) = data::delta::decode_header_size(&delta_bytes[consumed..])?;
+            let result_size = decoded_size_limited(result_size, alloc_limit_bytes)?;
             header_ofs += consumed;
 
-            fully_resolved_delta_bytes.resize(result_size as usize, 0);
+            resize_with_limit(fully_resolved_delta_bytes, result_size, alloc_limit_bytes)?;
             data::delta::apply(&base_bytes, fully_resolved_delta_bytes, &delta_bytes[header_ofs..])?;
 
             // FIXME: this actually invalidates the "pack_offset()" computation, which is not obvious to consumers
@@ -240,6 +244,7 @@ where
                     resolve_data,
                     modify_base.clone(),
                     object_hash,
+                    alloc_limit_bytes,
                     threads_left,
                     should_interrupt,
                 );
@@ -265,6 +270,7 @@ fn deltas_mt<T, F, MBFN, E, R>(
     resolve_data: &R,
     modify_base: MBFN,
     object_hash: gix_hash::Kind,
+    alloc_limit_bytes: Option<usize>,
     threads_left: &AtomicIsize,
     should_interrupt: &AtomicBool,
 ) -> Result<(), Error>
@@ -306,8 +312,15 @@ where
                                     })?;
                                     let entry = data::Entry::from_bytes(bytes, slice.start, object_hash)?;
                                     let compressed = &bytes[entry.header_size()..];
-                                    let decompressed_len = entry.decompressed_size as usize;
-                                    decompress_all_at_once_with(&mut inflate, compressed, decompressed_len, out)?;
+                                    let decompressed_len =
+                                        decoded_size_limited(entry.decompressed_size, alloc_limit_bytes)?;
+                                    decompress_all_at_once_with(
+                                        &mut inflate,
+                                        compressed,
+                                        decompressed_len,
+                                        out,
+                                        alloc_limit_bytes,
+                                    )?;
                                     Ok((entry, slice.end))
                                 };
 
@@ -352,17 +365,20 @@ where
                                     let (mut child_entry, entry_end) =
                                         decompress_from_resolver(child.entry_slice(), &mut delta_bytes)?;
                                     let (base_size, consumed) = data::delta::decode_header_size(&delta_bytes)?;
+                                    let base_size = decoded_size_limited(base_size, alloc_limit_bytes)?;
                                     let mut header_ofs = consumed;
-                                    assert_eq!(
-                                        base_bytes.len(),
-                                        base_size as usize,
-                                        "recorded base size in delta does match the actual one"
-                                    );
+                                    if base_bytes.len() != base_size {
+                                        return Err(data::delta::apply::Error::Corrupt {
+                                            message: "delta base size does not match base object size",
+                                        }
+                                        .into());
+                                    }
                                     let (result_size, consumed) =
                                         data::delta::decode_header_size(&delta_bytes[consumed..])?;
+                                    let result_size = decoded_size_limited(result_size, alloc_limit_bytes)?;
                                     header_ofs += consumed;
 
-                                    fully_resolved_delta_bytes.resize(result_size as usize, 0);
+                                    resize_with_limit(&mut fully_resolved_delta_bytes, result_size, alloc_limit_bytes)?;
                                     data::delta::apply(
                                         &base_bytes,
                                         &mut fully_resolved_delta_bytes,
@@ -457,12 +473,156 @@ fn decompress_all_at_once_with(
     b: &[u8],
     decompressed_len: usize,
     out: &mut Vec<u8>,
+    alloc_limit_bytes: Option<usize>,
 ) -> Result<(), Error> {
-    out.resize(decompressed_len, 0);
+    resize_with_limit(out, decompressed_len, alloc_limit_bytes)?;
     inflate.reset();
     inflate.once(b, out).map_err(|err| Error::ZlibInflate {
         source: err,
         message: "Failed to decompress entry",
     })?;
     Ok(())
+}
+
+fn decoded_size_limited(size: u64, alloc_limit_bytes: Option<usize>) -> Result<usize, Error> {
+    let size: usize = size.try_into().map_err(|_| Error::OutOfMemory)?;
+    if alloc_limit_bytes.is_some_and(|limit| size > limit) {
+        return Err(Error::OutOfMemory);
+    }
+    Ok(size)
+}
+
+fn resize_with_limit(out: &mut Vec<u8>, len: usize, alloc_limit_bytes: Option<usize>) -> Result<(), Error> {
+    if alloc_limit_bytes.is_some_and(|limit| len > limit) {
+        return Err(Error::OutOfMemory);
+    }
+    out.try_reserve(len.saturating_sub(out.len()))?;
+    out.resize(len, 0);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Write, sync::atomic::AtomicBool};
+
+    use gix_features::progress;
+
+    use crate::{
+        cache::delta::{Tree, traverse},
+        data,
+    };
+
+    #[test]
+    fn traversal_rejects_declared_decompressed_size_over_alloc_limit() {
+        let mut pack = Vec::new();
+        let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 1, b"");
+        let mut tree = Tree::with_capacity(1).expect("capacity is small");
+        tree.add_root(root_offset, ()).expect("offsets are increasing");
+
+        let err = traverse_with_limit(tree, &pack).expect_err("entry size exceeds the allocation cap");
+
+        assert!(
+            matches!(err, traverse::Error::OutOfMemory),
+            "declared decompressed sizes above the cap must be rejected before allocation"
+        );
+    }
+
+    #[test]
+    fn traversal_rejects_delta_base_size_over_alloc_limit() {
+        let mut pack = Vec::new();
+        let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+
+        let delta = [1, 0];
+        let child_offset = pack.len() as u64;
+        append_entry(
+            &mut pack,
+            data::entry::Header::OfsDelta {
+                base_distance: child_offset - root_offset,
+            },
+            delta.len() as u64,
+            &delta,
+        );
+
+        let mut tree = Tree::with_capacity(2).expect("capacity is small");
+        tree.add_root(root_offset, ()).expect("offsets are increasing");
+        tree.add_child(root_offset, child_offset, ())
+            .expect("offsets are increasing");
+
+        let err = traverse_with_limit(tree, &pack).expect_err("delta base size exceeds the allocation cap");
+
+        assert!(
+            matches!(err, traverse::Error::OutOfMemory),
+            "delta base sizes above the cap must be rejected before comparing them with the decoded base"
+        );
+    }
+
+    #[test]
+    fn traversal_rejects_delta_result_size_over_alloc_limit() {
+        let mut pack = Vec::new();
+        let root_offset = append_entry(&mut pack, data::entry::Header::Blob, 0, b"");
+
+        let delta = [0, 1, 1, b'A'];
+        let child_offset = pack.len() as u64;
+        append_entry(
+            &mut pack,
+            data::entry::Header::OfsDelta {
+                base_distance: child_offset - root_offset,
+            },
+            delta.len() as u64,
+            &delta,
+        );
+
+        let mut tree = Tree::with_capacity(2).expect("capacity is small");
+        tree.add_root(root_offset, ()).expect("offsets are increasing");
+        tree.add_child(root_offset, child_offset, ())
+            .expect("offsets are increasing");
+
+        let err = traverse_with_limit(tree, &pack).expect_err("delta result size exceeds the allocation cap");
+
+        assert!(
+            matches!(err, traverse::Error::OutOfMemory),
+            "delta result sizes above the cap must be rejected before resizing the output buffer"
+        );
+    }
+
+    fn traverse_with_limit(tree: Tree<()>, pack: &Vec<u8>) -> Result<(), traverse::Error> {
+        let should_interrupt = AtomicBool::new(false);
+        let mut size_progress = progress::Discard;
+        tree.traverse(
+            |slice, pack| pack.get(slice.start as usize..slice.end as usize),
+            pack,
+            pack.len() as u64,
+            |(), _progress, _context| Ok::<_, std::io::Error>(()),
+            traverse::Options {
+                object_progress: Box::new(progress::Discard),
+                size_progress: &mut size_progress,
+                thread_limit: Some(1),
+                should_interrupt: &should_interrupt,
+                object_hash: gix_hash::Kind::Sha1,
+                alloc_limit_bytes: Some(0),
+            },
+        )
+        .map(|_| ())
+    }
+
+    fn append_entry(
+        pack: &mut Vec<u8>,
+        header: data::entry::Header,
+        decompressed_size: u64,
+        payload: &[u8],
+    ) -> data::Offset {
+        let offset = pack.len() as data::Offset;
+        header
+            .write_to(decompressed_size, pack)
+            .expect("writing an entry header to memory succeeds");
+        pack.extend(deflate(payload));
+        offset
+    }
+
+    fn deflate(bytes: &[u8]) -> Vec<u8> {
+        let mut out = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+        out.write_all(bytes).expect("writing to deflater succeeds");
+        out.flush().expect("flushing deflater succeeds");
+        out.into_inner()
+    }
 }

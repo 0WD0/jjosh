@@ -222,10 +222,11 @@ where
             let index;
             let index_path = parent.join(index_file_name);
             let index = if deep_check {
-                bundle = crate::Bundle::at(index_path, self.object_hash)
+                let mut opened_bundle = crate::Bundle::at(index_path, self.object_hash)
                     .map_err(integrity::Error::from)
-                    .map_err(index::traverse::Error::Processor)?
-                    .into();
+                    .map_err(index::traverse::Error::Processor)?;
+                opened_bundle.pack.alloc_limit_bytes = self.alloc_limit_bytes;
+                bundle = Some(opened_bundle);
                 bundle.as_ref().map(|b| &b.index).expect("just set")
             } else {
                 index = Some(

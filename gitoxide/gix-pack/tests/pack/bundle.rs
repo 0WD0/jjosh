@@ -95,7 +95,7 @@ mod write_to_directory {
     use gix_odb::pack;
     use gix_testtools::tempfile::TempDir;
 
-    use crate::{SMALL_PACK, SMALL_PACK_INDEX, fixture_path};
+    use crate::{SMALL_PACK, SMALL_PACK_INDEX, error_chain_contains_message, fixture_path};
 
     fn expected_outcome() -> Result<pack::bundle::write::Outcome, Box<dyn std::error::Error>> {
         Ok(pack::bundle::write::Outcome {
@@ -152,6 +152,36 @@ mod write_to_directory {
         Ok(())
     }
 
+    #[test]
+    fn respects_alloc_limit_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let pack_file = fs::File::open(fixture_path(SMALL_PACK))?;
+        static SHOULD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+        let prevent_allocation = Some(0);
+        let err = pack::Bundle::write_to_directory_eagerly(
+            Box::new(pack_file),
+            None,
+            None::<&Path>,
+            &mut progress::Discard,
+            &SHOULD_INTERRUPT,
+            None::<gix_object::find::Never>,
+            pack::bundle::write::Options {
+                thread_limit: None,
+                iteration_mode: pack::data::input::Mode::Verify,
+                index_version: pack::index::Version::V2,
+                object_hash: gix_hash::Kind::Sha1,
+                alloc_limit_bytes: prevent_allocation,
+            },
+        )
+        .expect_err("a zero allocation limit rejects the first non-empty decoded object");
+
+        assert!(
+            error_chain_contains_message(&err, "Entry too large to fit in memory"),
+            "bundle writing must forward its allocation limit to index writing"
+        );
+        Ok(())
+    }
+
     fn file_name(entry: &fs::DirEntry) -> String {
         entry.path().file_name().unwrap().to_str().unwrap().to_owned()
     }
@@ -174,6 +204,7 @@ mod write_to_directory {
                 iteration_mode: pack::data::input::Mode::Verify,
                 index_version: pack::index::Version::V2,
                 object_hash: gix_hash::Kind::Sha1,
+                alloc_limit_bytes: None,
             },
         )
         .map_err(Into::into)
