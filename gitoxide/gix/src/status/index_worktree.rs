@@ -1,12 +1,12 @@
 use std::sync::atomic::AtomicBool;
 
-use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
-
 use crate::{
     Repository,
     bstr::{BStr, BString},
     config,
+    config::cache::util::ApplyLeniencyDefault,
 };
+use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
 
 /// The error returned by [Repository::index_worktree_status()].
 #[derive(Debug, thiserror::Error)]
@@ -121,6 +121,15 @@ impl Repository {
         let cwd = self.current_dir();
         let git_dir_realpath = crate::path::realpath_opts(self.git_dir(), cwd, crate::path::realpath::MAX_SYMLINKS)?;
         let fs_caps = self.filesystem_options()?;
+        let fscache = self
+            .config
+            .resolved
+            .boolean(config::tree::Core::FS_CACHE)
+            .map(|res| config::tree::Core::FS_CACHE.enrich_error(res))
+            .transpose()
+            .with_lenient_default(self.config.lenient_config)?
+            // if unset, default to enabled on Windows. Good for missing Git installations that would turn it on by installation config
+            .unwrap_or(cfg!(windows));
         let accelerate_lookup = fs_caps.ignore_case.then(|| index.prepare_icase_backing());
         let resource_cache = crate::diff::resource_cache(
             self,
@@ -157,7 +166,9 @@ impl Repository {
                     fs: fs_caps,
                     thread_limit: options.thread_limit,
                     stat: self.stat_options()?,
+                    fscache,
                 },
+                fscache,
                 dirwalk: options.dirwalk_options.map(Into::into),
                 rewrites: options.rewrites,
             },

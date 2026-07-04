@@ -62,6 +62,8 @@ pub(super) mod function {
         E: std::error::Error + Send + Sync + 'static,
         Find: gix_object::Find + gix_object::FindHeader + Send + Clone,
     {
+        let mut tracked_file_modifications = options.tracked_file_modifications;
+        tracked_file_modifications.fscache = options.fscache;
         gix_features::parallel::threads(|scope| -> Result<Outcome, Error> {
             let (tx, rx) = std::sync::mpsc::channel();
             let walk_outcome = options
@@ -154,7 +156,7 @@ pub(super) mod function {
                                 filter,
                                 should_interrupt: ctx.should_interrupt,
                             },
-                            options.tracked_file_modifications,
+                            tracked_file_modifications,
                         )
                         .map_err(Error::TrackedFileModifications)
                     }

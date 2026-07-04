@@ -33,6 +33,11 @@ pub struct Options {
     pub thread_limit: Option<usize>,
     /// Options that control how stat comparisons are made when checking if a file is fresh.
     pub stat: gix_index::entry::stat::Options,
+    /// Use the internal lazy worktree metadata cache.
+    ///
+    /// Misses fall through to a live `lstat`, so this only affects performance.
+    /// Effective only on Windows.
+    pub fscache: bool,
 }
 
 /// The context for [index_as_worktree()`](crate::index_as_worktree()).

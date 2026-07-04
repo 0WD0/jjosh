@@ -390,6 +390,7 @@ pub fn main() -> Result<()> {
         ),
         Subcommands::Status(crate::plumbing::options::status::Platform {
             ignored,
+            untracked,
             format: status_format,
             statistics,
             submodules,
@@ -427,6 +428,13 @@ pub fn main() -> Result<()> {
                             crate::plumbing::options::status::Ignored::Collapsed => {
                                 core::repository::status::Ignored::Collapsed
                             }
+                        }),
+                        untracked: untracked.map(|mode| match mode.unwrap_or_default() {
+                            crate::plumbing::options::status::Untracked::No => gix::status::UntrackedFiles::None,
+                            crate::plumbing::options::status::Untracked::Normal => {
+                                gix::status::UntrackedFiles::Collapsed
+                            }
+                            crate::plumbing::options::status::Untracked::All => gix::status::UntrackedFiles::Files,
                         }),
                         output_format: format,
                         statistics,

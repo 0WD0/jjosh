@@ -41,6 +41,7 @@ fn fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
     fixture_filtered(name, &[], expected_status)
 }
 
+#[cfg(unix)]
 fn nonfile_fixture(name: &str, expected_status: &[Expectation<'_>]) -> Outcome {
     fixture_filtered_detailed(
         "status_nonfile",

@@ -1,6 +1,5 @@
 use bstr::ByteSlice;
 use gix_diff::{blob::pipeline::WorktreeRoots, rewrites::CopySource};
-use gix_index::entry;
 use gix_status::{
     index_as_worktree::{Change, EntryStatus, traits::FastEq},
     index_as_worktree_with_renames,
@@ -8,7 +7,7 @@ use gix_status::{
 };
 use pretty_assertions::assert_eq;
 
-use crate::{fixture_path, fixture_path_rw_slow};
+use crate::fixture_path;
 
 #[test]
 fn changed_and_untracked_and_renamed() {
@@ -126,7 +125,7 @@ fn tracked_changed_to_non_file() {
         &[Expectation::Modification {
             rela_path: "file",
             status: Change::Type {
-                worktree_mode: entry::Mode::FILE,
+                worktree_mode: gix_index::entry::Mode::FILE,
             }
             .into(),
         }],
@@ -251,6 +250,7 @@ fn unreadable_untracked() {
 
 enum Fixture {
     ReadOnly,
+    #[cfg(unix)]
     WritableExecuted,
 }
 
@@ -274,10 +274,11 @@ fn fixture_filtered_detailed(
     let (worktree, _tmp) = match fixture {
         Fixture::ReadOnly => {
             let dir = fixture_path(script).join(subdir);
-            (dir, None)
+            (dir, None::<gix_testtools::tempfile::TempDir>)
         }
+        #[cfg(unix)]
         Fixture::WritableExecuted => {
-            let tmp = fixture_path_rw_slow(script);
+            let tmp = crate::fixture_path_rw_slow(script);
             let dir = tmp.path().join(subdir);
             (dir, Some(tmp))
         }
@@ -339,6 +340,7 @@ fn fixture_filtered_detailed(
             stat: crate::index_as_worktree::TEST_OPTIONS,
             ..Default::default()
         },
+        fscache: false,
         dirwalk,
         sorting: Some(Sorting::ByPathCaseSensitive),
         rewrites,

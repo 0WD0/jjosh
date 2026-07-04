@@ -295,6 +295,11 @@ pub struct Options<'a> {
     pub object_hash: gix_hash::Kind,
     /// Options to configure how modifications to tracked files should be obtained.
     pub tracked_file_modifications: crate::index_as_worktree::Options,
+    /// Use the internal lazy worktree metadata cache.
+    ///
+    /// See [`crate::index_as_worktree::Options::fscache`] for details.
+    /// Ineffective on non-Windows.
+    pub fscache: bool,
     /// Options to control the directory walk that informs about untracked files.
     ///
     /// Note that we forcefully disable emission of tracked files to avoid any overlap

@@ -291,6 +291,17 @@ pub mod status {
     }
 
     #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+    pub enum Untracked {
+        /// Do not show untracked files.
+        No,
+        /// Collapse untracked directories when possible.
+        Normal,
+        /// Show individual untracked files.
+        #[default]
+        All,
+    }
+
+    #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
     pub enum Format {
         /// A basic format that is easy to read, and useful for a first glimpse as flat list.
         #[default]
@@ -308,6 +319,9 @@ pub mod status {
         /// If enabled, show ignored files and directories.
         #[clap(long)]
         pub ignored: Option<Option<Ignored>>,
+        /// Define how to show untracked files. If set without a value, show all individual untracked files.
+        #[clap(long, short = 'u', require_equals = true)]
+        pub untracked: Option<Option<Untracked>>,
         /// Define how to display the submodule status. Defaults to git configuration if unset.
         #[clap(long)]
         pub submodules: Option<Submodules>,

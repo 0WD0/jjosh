@@ -37,6 +37,9 @@ use portable_atomic::AtomicU64;
 pub mod index_as_worktree;
 pub use index_as_worktree::function::index_as_worktree;
 
+#[cfg(windows)]
+pub(crate) mod fscache;
+
 #[cfg(feature = "worktree-rewrites")]
 pub mod index_as_worktree_with_renames;
 #[cfg(feature = "worktree-rewrites")]
