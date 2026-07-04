@@ -1,12 +1,11 @@
-use std::{cell::RefCell, hint::black_box, rc::Rc};
+use std::{hint::black_box, rc::Rc};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use gix_hash::ObjectId;
-use gix_hashtable::hash_map::Entry;
-use gix_object::{Tree, WriteTo, tree, tree::EntryKind};
+use gix_object::{Tree, Write, tree, tree::EntryKind};
 
 fn create_new_tree_add_and_remove(c: &mut Criterion) {
-    let (storage, mut write) = new_inmemory_writes();
+    let (odb, mut write) = new_inmemory_writes();
     let mut editor = tree::Editor::new(Tree::default(), &gix_object::find::Never, gix_hash::Kind::Sha1);
     let mut group = c.benchmark_group("editor");
     let small_throughput = Throughput::Elements((1 + 2 + 4) + 3);
@@ -36,7 +35,6 @@ fn create_new_tree_add_and_remove(c: &mut Criterion) {
         });
     });
 
-    let odb = StorageOdb(storage);
     let mut editor = tree::Editor::new(Tree::default(), &odb, gix_hash::Kind::Sha1);
     let prefixed_throughput = Throughput::Elements((1 + 2 + 4) + 6 * 3 + (3 + 6 * 3));
     group.throughput(prefixed_throughput.clone());
@@ -133,52 +131,21 @@ fn create_new_tree_add_and_remove(c: &mut Criterion) {
 criterion_group!(benches, create_new_tree_add_and_remove);
 criterion_main!(benches);
 
-type TreeStore = Rc<RefCell<gix_hashtable::HashMap<ObjectId, Tree>>>;
+type ObjectDb = Rc<gix_odb::memory::Proxy<gix_object::find::Never>>;
 
-fn new_inmemory_writes() -> (TreeStore, impl FnMut(&Tree) -> Result<ObjectId, gix_hash::io::Error>) {
-    let store = TreeStore::default();
+fn new_inmemory_writes() -> (
+    ObjectDb,
+    impl FnMut(&Tree) -> Result<ObjectId, gix_object::write::Error>,
+) {
+    let odb = Rc::new(gix_odb::memory::Proxy::new(
+        gix_object::find::Never,
+        gix_hash::Kind::Sha1,
+    ));
     let write_tree = {
-        let store = store.clone();
-        let mut buf = Vec::with_capacity(512);
-        move |tree: &Tree| {
-            buf.clear();
-            tree.write_to(&mut buf)?;
-            let id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf)?;
-            let mut borrowed = store.borrow_mut();
-            match borrowed.entry(id) {
-                Entry::Occupied(_) => {}
-                Entry::Vacant(e) => {
-                    e.insert(tree.clone());
-                }
-            }
-            Ok(id)
-        }
+        let odb = odb.clone();
+        move |tree: &Tree| odb.write(tree)
     };
-    (store, write_tree)
-}
-
-struct StorageOdb(TreeStore);
-
-impl gix_object::Find for StorageOdb {
-    fn try_find<'a>(
-        &self,
-        id: &gix_hash::oid,
-        buffer: &'a mut Vec<u8>,
-    ) -> Result<Option<gix_object::Data<'a>>, gix_object::find::Error> {
-        let borrow = self.0.borrow();
-        match borrow.get(id) {
-            None => Ok(None),
-            Some(tree) => {
-                buffer.clear();
-                tree.write_to(buffer).expect("valid trees can always be serialized");
-                Ok(Some(gix_object::Data {
-                    kind: gix_object::Kind::Tree,
-                    object_hash: id.kind(),
-                    data: &*buffer,
-                }))
-            }
-        }
-    }
+    (odb, write_tree)
 }
 
 fn any_blob() -> ObjectId {

@@ -539,11 +539,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
         }),
     )?;
 
-    // As the full-tree traversal order is different, it sees candidates in different order.
-    // Let's keep this as expectations, as in future there might be a candidate-based search that considers filenames
-    // or similarity in names.
-    match crate::fixture_hash_kind() {
-        gix_hash::Kind::Sha1 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
         [
             Rewrite {
                 source_location: "base",
@@ -604,73 +600,9 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
                 id: Oid(6),
             },
         ]
-        "#),
-        gix_hash::Kind::Sha256 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
-        [
-            Rewrite {
-                source_location: "base",
-                source_index: 3,
-                source_entry_mode: Mode(
-                    FILE,
-                ),
-                source_id: Oid(1),
-                location: "c6",
-                index: 8,
-                entry_mode: Mode(
-                    FILE,
-                ),
-                id: Oid(1),
-                copy: true,
-            },
-            Rewrite {
-                source_location: "r/c3di",
-                source_index: 12,
-                source_entry_mode: Mode(
-                    FILE,
-                ),
-                source_id: Oid(2),
-                location: "c7",
-                index: 9,
-                entry_mode: Mode(
-                    FILE,
-                ),
-                id: Oid(2),
-                copy: true,
-            },
-            Rewrite {
-                source_location: "base",
-                source_index: 3,
-                source_entry_mode: Mode(
-                    FILE,
-                ),
-                source_id: Oid(1),
-                location: "newly-added",
-                index: 19,
-                entry_mode: Mode(
-                    FILE,
-                ),
-                id: Oid(3),
-                copy: true,
-            },
-            Modification {
-                location: "b",
-                previous_index: 0,
-                previous_entry_mode: Mode(
-                    FILE,
-                ),
-                previous_id: Oid(4),
-                index: 0,
-                entry_mode: Mode(
-                    FILE,
-                ),
-                id: Oid(5),
-            },
-        ]
-        "#),
-        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
-    }
+        "#);
     let out = out.expect("tracking enabled");
-    assert_eq!(out.num_similarity_checks, 4);
+    assert_eq!(out.num_similarity_checks, 22);
     assert_eq!(
         out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0,
         "no limit configured"

@@ -91,19 +91,11 @@ fn changed_and_untracked_and_renamed() {
         Some(Default::default()),
         Fixture::ReadOnly,
     );
-    // The amount of checks currently depends on hashes as they are sorted,
-    // and with changes in order come changes in checks. This shold go away
-    // with proper, non-hash dependent heuristics.
-    let num_similarity_checks = match gix_testtools::object_hash() {
-        gix_hash::Kind::Sha1 => 11,
-        gix_hash::Kind::Sha256 => 10,
-        _ => unimplemented!(),
-    };
     assert_eq!(
         out.rewrites,
         Some(gix_diff::rewrites::Outcome {
             options: rewrites,
-            num_similarity_checks,
+            num_similarity_checks: 11,
             num_similarity_checks_skipped_for_rename_tracking_due_to_limit: 0,
             num_similarity_checks_skipped_for_copy_tracking_due_to_limit: 0,
         })

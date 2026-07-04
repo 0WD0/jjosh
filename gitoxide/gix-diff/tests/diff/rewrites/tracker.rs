@@ -555,6 +555,65 @@ fn rename_by_50_percent_similarity() -> crate::Result {
 }
 
 #[test]
+fn rename_by_similarity_prefers_stronger_match_over_same_filename_match() -> crate::Result {
+    let rewrites = Rewrites {
+        copies: None,
+        percentage: Some(0.5),
+        limit: 0,
+        track_empty: false,
+    };
+    let mut track = util::new_tracker(rewrites);
+    let odb = util::add_retained_blobs(
+        &mut track,
+        [
+            (Change::deletion(), "old/foo", "1\n2\n3\n4\n5\n"),
+            (Change::deletion(), "bar", "1\n2\n3\n4\n5\n6\n7\n"),
+            (Change::addition(), "new/foo", "1\n2\n3\n4\n5\n6\n7\n8\n"),
+        ],
+    )?;
+
+    let mut calls = 0;
+    let out = util::assert_emit_with_objects(
+        &mut track,
+        |dst, src| {
+            match calls {
+                0 => {
+                    let src = src.expect("destination should find a rename source");
+                    assert_eq!(
+                        src.location, "bar",
+                        "the strongest similarity match wins before basename is used as a tie-breaker"
+                    );
+                    assert_eq!(dst.location, "new/foo");
+                    assert!(
+                        src.diff.expect("similarity match includes diff stats").similarity > 0.8,
+                        "the selected source should be the high-similarity candidate"
+                    );
+                }
+                1 => {
+                    assert_eq!(src, None, "the weaker same-filename source remains unmatched");
+                    assert_eq!(dst.location, "old/foo");
+                }
+                _ => panic!("too many elements emitted"),
+            }
+            calls += 1;
+            std::ops::ControlFlow::Continue(())
+        },
+        odb,
+    );
+    assert_eq!(
+        out,
+        rewrites::Outcome {
+            options: rewrites,
+            num_similarity_checks: 2,
+            ..Default::default()
+        },
+        "all viable sources are compared before selecting the best rename source"
+    );
+    assert_eq!(calls, 2, "both the rename and the unmatched deletion should be emitted");
+    Ok(())
+}
+
+#[test]
 fn directories_without_relation_are_ignored() -> crate::Result {
     let mut track = util::new_tracker(Default::default());
     for mode in [EntryKind::Tree, EntryKind::Commit] {
@@ -670,7 +729,7 @@ fn directory_renames_by_id_can_fail_gracefully() -> crate::Result {
                 out,
                 rewrites::Outcome {
                     options: rename_by_similarity,
-                    num_similarity_checks: 1,
+                    num_similarity_checks: 2,
                     ..Default::default()
                 }
             );
@@ -930,6 +989,120 @@ fn add_only() -> crate::Result {
     Ok(())
 }
 
+#[test]
+fn rename_tracking_is_order_independent() -> crate::Result {
+    // #1832: exactly one of several identical-content additions can be matched as the rename of a
+    // deletion. Which one is chosen must not depend on the order in which items are pushed - but
+    // the parallel dirwalk and index-traversal threads deliver them in a nondeterministic order,
+    // which is what makes the corresponding `gix-status` test intermittently fail on CI.
+    let renames_by_identity = Rewrites {
+        copies: None,
+        percentage: None,
+        limit: 0,
+        track_empty: false,
+    };
+    let changes = vec![
+        (Change::deletion(), "src", "identical\n"),
+        (Change::addition(), "a-dest", "identical\n"),
+        (Change::addition(), "b-dest", "identical\n"),
+    ];
+
+    let mut reference: Option<Vec<(String, Option<String>)>> = None;
+    for order in permutations(changes.clone()) {
+        let mut track = util::new_tracker(renames_by_identity);
+        util::add_retained_blobs(&mut track, order.iter().copied())?;
+        let mut pairs = Vec::new();
+        util::assert_emit(&mut track, |dst, src| {
+            pairs.push((dst.location.to_string(), src.map(|src| src.location.to_string())));
+            std::ops::ControlFlow::Continue(())
+        });
+        match &reference {
+            None => reference = Some(pairs),
+            Some(reference) => assert_eq!(
+                &pairs, reference,
+                "rename tracking must produce the same result regardless of the input order"
+            ),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn copy_source_selection_is_order_independent() -> crate::Result {
+    // #1832, exhaustive-copy variant: with copies searched against all sources - including the whole
+    // source tree that is pushed in during `emit` - the source chosen for an identical-content
+    // destination must not depend on the order items were pushed. This also exercises the second
+    // sort (after `push_source_tree`) that the rename test above never reaches.
+    let rewrites = Rewrites {
+        copies: Some(Copies {
+            source: CopySource::FromSetOfModifiedFilesAndAllSources,
+            percentage: None,
+        }),
+        percentage: None,
+        limit: 0,
+        track_empty: false,
+    };
+    // The blob id of "a"; all destinations and sources share it, so the copy source is ambiguous and
+    // would otherwise be picked based on push order.
+    let content_id = hex_to_id(
+        "2e65efe2a145dda7ee51d1741299f848e5bf752e",
+        "eb337bcee2061c5313c9a1392116b6c76039e9e30d71467ae359b36277e17dc7",
+    );
+
+    let mut reference: Option<Vec<(String, Option<String>)>> = None;
+    for dests in permutations(vec!["a-cpy-1", "a-cpy-2"]) {
+        for sources in permutations(vec!["a-src-1", "a-src-2"]) {
+            let mut track = util::new_tracker(rewrites);
+            let odb = util::add_retained_blobs(
+                &mut track,
+                dests.iter().map(|location| (Change::addition(), *location, "a")),
+            )?;
+            let mut pairs = Vec::new();
+            util::assert_emit_with_objects_and_sources(
+                &mut track,
+                |dst, src| {
+                    pairs.push((dst.location.to_string(), src.map(|src| src.location.to_string())));
+                    std::ops::ControlFlow::Continue(())
+                },
+                odb,
+                sources.iter().map(|location| {
+                    (
+                        Change {
+                            id: content_id,
+                            ..Change::modification()
+                        },
+                        *location,
+                    )
+                }),
+            );
+            match &reference {
+                None => reference = Some(pairs),
+                Some(reference) => assert_eq!(
+                    &pairs, reference,
+                    "copy source selection must be independent of the input order"
+                ),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Inefficient but small implemenation, for use with small inputs only.
+fn permutations<T: Clone>(items: Vec<T>) -> Vec<Vec<T>> {
+    if items.len() <= 1 {
+        return vec![items];
+    }
+    let mut out = Vec::new();
+    for idx in 0..items.len() {
+        let mut rest = items.clone();
+        let head = rest.remove(idx);
+        for mut perm in permutations(rest) {
+            perm.insert(0, head.clone());
+            out.push(perm);
+        }
+    }
+    out
+}
 mod util {
     use gix_diff::{
         Rewrites, rewrites,
@@ -937,16 +1110,19 @@ mod util {
         tree::visit::Action,
     };
 
-    use crate::{rewrites::Change, util::ObjectDb};
+    use crate::{
+        rewrites::Change,
+        util::{ObjectDb, insert, object_db},
+    };
 
     /// Add `blobs` `(change, location, data)` to tracker that will all be retained. Note that the `id` of the respective change will be adjusted to match.
     pub fn add_retained_blobs<'a>(
         tracker: &mut rewrites::Tracker<Change>,
         blobs: impl IntoIterator<Item = (Change, &'a str, &'a str)>,
     ) -> crate::Result<ObjectDb> {
-        let mut db = ObjectDb::default();
+        let db = object_db();
         for (mut change, location, data) in blobs {
-            change.id = db.insert(data)?;
+            change.id = insert(&db, data)?;
             assert!(
                 tracker.try_push_change(change, location.into()).is_none(),
                 "input changes must be tracked"

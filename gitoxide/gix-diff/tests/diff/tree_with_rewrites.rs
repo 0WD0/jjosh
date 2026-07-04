@@ -638,9 +638,7 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
             }),
         },
     )?;
-    // The chosen source for `newly-added` differs by fixture hash kind because candidate order is id-dependent.
-    match crate::fixture_hash_kind() {
-        gix_hash::Kind::Sha1 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
+    insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
         [
             Rewrite {
                 source_location: "base",
@@ -694,66 +692,9 @@ fn copies_in_entire_tree_by_similarity() -> crate::Result {
                 id: Oid(6),
             },
         ]
-        "#),
-        gix_hash::Kind::Sha256 => insta::assert_snapshot!(crate::normalize_debug_snapshot(&changes).0, @r#"
-        [
-            Rewrite {
-                source_location: "base",
-                source_entry_mode: EntryMode(0o100644),
-                source_relation: None,
-                source_id: Oid(1),
-                diff: None,
-                entry_mode: EntryMode(0o100644),
-                id: Oid(1),
-                location: "c6",
-                relation: None,
-                copy: true,
-            },
-            Rewrite {
-                source_location: "dir/c6",
-                source_entry_mode: EntryMode(0o100644),
-                source_relation: None,
-                source_id: Oid(2),
-                diff: None,
-                entry_mode: EntryMode(0o100644),
-                id: Oid(2),
-                location: "c7",
-                relation: None,
-                copy: true,
-            },
-            Rewrite {
-                source_location: "base",
-                source_entry_mode: EntryMode(0o100644),
-                source_relation: None,
-                source_id: Oid(1),
-                diff: Some(
-                    DiffLineStats {
-                        removals: 0,
-                        insertions: 4,
-                        before: 11,
-                        after: 15,
-                        similarity: 0.6666667,
-                    },
-                ),
-                entry_mode: EntryMode(0o100644),
-                id: Oid(3),
-                location: "newly-added",
-                relation: None,
-                copy: true,
-            },
-            Modification {
-                location: "b",
-                previous_entry_mode: EntryMode(0o100644),
-                previous_id: Oid(4),
-                entry_mode: EntryMode(0o100644),
-                id: Oid(5),
-            },
-        ]
-        "#),
-        _ => unreachable!("tests only support sha1 and sha256 fixtures"),
-    }
+        "#);
     let out = out.expect("tracking enabled");
-    assert_eq!(out.num_similarity_checks, 4);
+    assert_eq!(out.num_similarity_checks, 22);
     assert_eq!(
         out.num_similarity_checks_skipped_for_rename_tracking_due_to_limit, 0,
         "no limit configured"
@@ -1630,26 +1571,6 @@ fn realistic_renames_2() -> crate::Result {
             copy: false,
         },
         Rewrite {
-            source_location: "git-sec/tests/sec.rs",
-            source_entry_mode: EntryMode(0o100644),
-            source_relation: Some(
-                ChildOfParent(
-                    1,
-                ),
-            ),
-            source_id: Oid(2),
-            diff: None,
-            entry_mode: EntryMode(0o100644),
-            id: Oid(2),
-            location: "gix-sec/tests/sec.rs",
-            relation: Some(
-                ChildOfParent(
-                    2,
-                ),
-            ),
-            copy: false,
-        },
-        Rewrite {
             source_location: "git-sec/tests/identity/mod.rs",
             source_entry_mode: EntryMode(0o100644),
             source_relation: Some(
@@ -1662,6 +1583,26 @@ fn realistic_renames_2() -> crate::Result {
             entry_mode: EntryMode(0o100644),
             id: Oid(2),
             location: "gix-sec/tests/identity/mod.rs",
+            relation: Some(
+                ChildOfParent(
+                    2,
+                ),
+            ),
+            copy: false,
+        },
+        Rewrite {
+            source_location: "git-sec/tests/sec.rs",
+            source_entry_mode: EntryMode(0o100644),
+            source_relation: Some(
+                ChildOfParent(
+                    1,
+                ),
+            ),
+            source_id: Oid(2),
+            diff: None,
+            entry_mode: EntryMode(0o100644),
+            id: Oid(2),
+            location: "gix-sec/tests/sec.rs",
             relation: Some(
                 ChildOfParent(
                     2,

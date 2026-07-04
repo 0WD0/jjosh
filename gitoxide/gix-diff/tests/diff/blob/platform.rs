@@ -8,7 +8,11 @@ use gix_object::{
 };
 use gix_worktree::stack::state::attributes;
 
-use crate::{blob::pipeline::convert_to_diffable::default_options, hex_to_id, util::ObjectDb};
+use crate::{
+    blob::pipeline::convert_to_diffable::default_options,
+    hex_to_id,
+    util::{insert, object_db},
+};
 
 #[test]
 fn resources_of_worktree_and_odb_and_check_link() -> crate::Result {
@@ -27,9 +31,9 @@ fn resources_of_worktree_and_odb_and_check_link() -> crate::Result {
         &gix_object::find::Never,
     )?;
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let a_content = "a-content";
-    let id = db.insert(a_content)?;
+    let id = insert(&db, a_content)?;
     platform.set_resource(
         id,
         EntryKind::BlobExecutable,
@@ -209,9 +213,9 @@ fn diff_binary() -> crate::Result {
         &gix_object::find::Never,
     )?;
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let a_content = "b";
-    let id = db.insert(a_content)?;
+    let id = insert(&db, a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;
@@ -250,9 +254,9 @@ fn diff_performed_despite_external_command() -> crate::Result {
         &gix_object::find::Never,
     )?;
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let a_content = "b";
-    let id = db.insert(a_content)?;
+    let id = insert(&db, a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;
@@ -292,9 +296,9 @@ fn diff_skipped_due_to_external_command_and_enabled_option() -> crate::Result {
         &gix_object::find::Never,
     )?;
 
-    let mut db = ObjectDb::default();
+    let db = object_db();
     let a_content = "b";
-    let id = db.insert(a_content)?;
+    let id = insert(&db, a_content)?;
     platform.set_resource(id, EntryKind::Blob, "b".into(), ResourceKind::NewOrDestination, &db)?;
 
     let out = platform.prepare_diff()?;
