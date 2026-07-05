@@ -411,7 +411,7 @@ where
                         // This allocation is driven by on-disk pack metadata, so keep it aligned with
                         // `gix_pack::data::File::with_alloc_limit_bytes()`.
                         let size: usize = entry.decompressed_size.try_into().ok()?;
-                        if pack.alloc_limit_bytes().is_some_and(|limit| size > limit) {
+                        if pack.alloc_limit_bytes.is_some_and(|limit| size > limit) {
                             return None;
                         }
                         buf.resize(size, 0);

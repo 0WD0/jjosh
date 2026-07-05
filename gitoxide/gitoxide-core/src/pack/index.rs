@@ -82,6 +82,7 @@ pub fn from_pack(
         iteration_mode: ctx.iteration_mode.into(),
         index_version: pack::index::Version::default(),
         object_hash: ctx.object_hash,
+        alloc_limit_bytes: None,
     };
     let out = ctx.out;
     let format = ctx.format;

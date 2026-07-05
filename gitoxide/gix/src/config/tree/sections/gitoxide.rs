@@ -433,6 +433,7 @@ mod subsections {
         ///
         /// Implemented for:
         /// - packed object decoding in `gix-pack::data::File`
+        /// - delta-tree packed object traversal in `gix-pack::index`
         /// - multi-pack-index name decoding in `gix-pack::multi_index::File`
         /// - direct packed-object inflation in `gix-odb`
         pub const ALLOC_LIMIT: keys::UnsignedInteger =

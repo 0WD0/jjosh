@@ -289,6 +289,7 @@ fn receive_pack_blocking(
         index_version: pack::index::Version::V2,
         iteration_mode: pack::data::input::Mode::Verify,
         object_hash,
+        alloc_limit_bytes: None,
     };
     let outcome = pack::Bundle::write_to_directory(
         &mut input,
