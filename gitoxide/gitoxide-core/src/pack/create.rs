@@ -109,6 +109,17 @@ where
     type ObjectIdIter = dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync>>> + Send;
 
     let repo = gix::discover(repository_path)?.into_sync();
+    let pack_compression = {
+        use gix::config::tree::{Core, Pack};
+        let repo = repo.to_thread_local();
+        let config = repo.config_snapshot();
+        config
+            .integer(Pack::COMPRESSION)
+            .or_else(|| config.integer(Core::COMPRESSION))
+            .map(|level| Pack::COMPRESSION.try_into_compression(Ok(level)))
+            .transpose()?
+            .unwrap_or(gix::zlib::Compression::DEFAULT)
+    };
     progress.init(Some(2), progress::steps());
     let tips = tips.into_iter();
     let make_cancellation_err = || anyhow!("Cancelled by user");
@@ -233,6 +244,7 @@ where
                 allow_thin_pack: thin,
                 chunk_size,
                 version: Default::default(),
+                compression: pack_compression,
             },
         ))
     };
