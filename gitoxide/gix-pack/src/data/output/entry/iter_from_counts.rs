@@ -52,6 +52,7 @@ pub(crate) mod function {
             allow_thin_pack,
             thread_limit,
             chunk_size,
+            compression,
         }: Options,
     ) -> impl Iterator<Item = Result<(SequenceId, Vec<output::Entry>), Error>>
     + parallel::reduce::Finalize<Reduce = reduce::Statistics<Error>>
@@ -214,7 +215,7 @@ pub(crate) mod function {
                                     None => match db.try_find(&count.id, buf).map_err(Error::Find)? {
                                         Some((obj, _location)) => {
                                             stats.decoded_and_recompressed_objects += 1;
-                                            output::Entry::from_data(count, &obj)
+                                            output::Entry::from_data(count, &obj, compression)
                                         }
                                         None => {
                                             stats.missing_objects += 1;
@@ -226,7 +227,7 @@ pub(crate) mod function {
                             None => match db.try_find(&count.id, buf).map_err(Error::Find)? {
                                 Some((obj, _location)) => {
                                     stats.decoded_and_recompressed_objects += 1;
-                                    output::Entry::from_data(count, &obj)
+                                    output::Entry::from_data(count, &obj, compression)
                                 }
                                 None => {
                                     stats.missing_objects += 1;
@@ -385,6 +386,13 @@ mod types {
         pub chunk_size: usize,
         /// The pack data version to produce for each entry
         pub version: crate::data::Version,
+        /// The compression level to use for objects that are not copied from an existing pack,
+        /// but deflated from their object data.
+        ///
+        /// Defaults to [`Compression::DEFAULT`](gix_zlib::Compression::DEFAULT), which is
+        /// also the default that `git` uses when writing packs, unless configured otherwise
+        /// with `pack.compression`.
+        pub compression: gix_zlib::Compression,
     }
 
     impl Default for Options {
@@ -395,6 +403,7 @@ mod types {
                 allow_thin_pack: false,
                 chunk_size: 10,
                 version: Default::default(),
+                compression: gix_zlib::Compression::DEFAULT,
             }
         }
     }

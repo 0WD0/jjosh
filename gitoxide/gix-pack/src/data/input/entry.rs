@@ -3,12 +3,17 @@ use std::io::Write;
 use crate::data::{entry::Header, input};
 
 impl input::Entry {
-    /// Create a new input entry from a given data `obj` set to be placed at the given `pack_offset`.
+    /// Create a new input entry from a given data `obj` set to be placed at the given `pack_offset`,
+    /// deflating its data with `compression`.
     ///
     /// This method is useful when arbitrary base entries are created
-    pub fn from_data_obj(obj: &gix_object::Data<'_>, pack_offset: u64) -> Result<Self, input::Error> {
+    pub fn from_data_obj(
+        obj: &gix_object::Data<'_>,
+        pack_offset: u64,
+        compression: gix_zlib::Compression,
+    ) -> Result<Self, input::Error> {
         let header = to_header(obj.kind);
-        let compressed = compress_data(obj)?;
+        let compressed = compress_data(obj, compression)?;
         let compressed_size = compressed.len() as u64;
         let mut entry = input::Entry {
             header,
@@ -50,8 +55,8 @@ fn to_header(kind: gix_object::Kind) -> Header {
     }
 }
 
-fn compress_data(obj: &gix_object::Data<'_>) -> Result<Vec<u8>, input::Error> {
-    let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
+fn compress_data(obj: &gix_object::Data<'_>, compression: gix_zlib::Compression) -> Result<Vec<u8>, input::Error> {
+    let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), compression);
     if let Err(err) = std::io::copy(&mut &*obj.data, &mut out) {
         match err.kind() {
             std::io::ErrorKind::Other => return Err(input::Error::Io(err.into())),

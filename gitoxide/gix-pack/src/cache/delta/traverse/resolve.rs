@@ -620,7 +620,7 @@ mod tests {
     }
 
     fn deflate(bytes: &[u8]) -> Vec<u8> {
-        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
+        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), gix_zlib::Compression::BEST_SPEED);
         out.write_all(bytes).expect("writing to deflater succeeds");
         out.flush().expect("flushing deflater succeeds");
         out.into_inner()

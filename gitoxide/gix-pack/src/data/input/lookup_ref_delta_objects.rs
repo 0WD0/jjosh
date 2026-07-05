@@ -7,6 +7,8 @@ pub struct LookupRefDeltaObjectsIter<I, Find> {
     /// The inner iterator whose entries we will resolve.
     pub inner: I,
     lookup: Find,
+    /// The compression level to use when deflating resolved base objects into entries.
+    compression: gix_zlib::Compression,
     /// The cached delta to provide next time we are called, it's the delta to go with the base we just resolved in its place.
     next_delta: Option<input::Entry>,
     /// Fuse to stop iteration after first missing object.
@@ -25,11 +27,12 @@ where
     Find: gix_object::Find,
 {
     /// Create a new instance wrapping `iter` and using `lookup` as function to retrieve objects that will serve as bases
-    /// for ref deltas seen while traversing `iter`.
-    pub fn new(iter: I, lookup: Find) -> Self {
+    /// for ref deltas seen while traversing `iter`, deflating them with `compression`.
+    pub fn new(iter: I, lookup: Find, compression: gix_zlib::Compression) -> Self {
         LookupRefDeltaObjectsIter {
             inner: iter,
             lookup,
+            compression,
             error: false,
             inserted_entry_length_at_offset: Vec::new(),
             inserted_entries_length_in_bytes: 0,
@@ -95,7 +98,7 @@ where
                             let base_entry = match self.lookup.try_find(&base_id, &mut self.buf).ok()? {
                                 Some(obj) => {
                                     let current_pack_offset = entry.pack_offset;
-                                    let mut entry = match input::Entry::from_data_obj(&obj, 0) {
+                                    let mut entry = match input::Entry::from_data_obj(&obj, 0, self.compression) {
                                         Ok(e) => e,
                                         Err(err) => return Some(Err(err)),
                                     };

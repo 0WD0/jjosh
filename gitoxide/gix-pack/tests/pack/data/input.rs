@@ -35,7 +35,7 @@ mod lookup_ref_delta_objects {
             object_hash: gix_testtools::object_hash(),
             data,
         };
-        let mut entry = input::Entry::from_data_obj(&obj, 0).expect("valid object");
+        let mut entry = input::Entry::from_data_obj(&obj, 0, gix_zlib::Compression::BEST_SPEED).expect("valid object");
         entry.header = header;
         entry.header_size = header.size(data.len() as u64) as u16;
         entry
@@ -99,8 +99,12 @@ mod lookup_ref_delta_objects {
     fn only_ref_deltas_are_handled() -> crate::Result {
         let input = compute_offsets(vec![entry(base(), D_A), entry(delta_ofs(100), D_B)]);
         let expected = input.clone();
-        let actual = LookupRefDeltaObjectsIter::new(into_results_iter(input), gix_object::find::Never)
-            .collect::<Result<Vec<_>, _>>()?;
+        let actual = LookupRefDeltaObjectsIter::new(
+            into_results_iter(input),
+            gix_object::find::Never,
+            gix_zlib::Compression::BEST_SPEED,
+        )
+        .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(actual, expected, "it won't change the input at all");
         validate_pack_offsets(&actual);
         Ok(())
@@ -124,7 +128,7 @@ mod lookup_ref_delta_objects {
         let input_entries = into_results_iter(input);
         let actual_size = input_entries.size_hint();
         let db = FindData::new(inserted_data, &calls);
-        let iter = LookupRefDeltaObjectsIter::new(input_entries, &db);
+        let iter = LookupRefDeltaObjectsIter::new(input_entries, &db, gix_zlib::Compression::BEST_SPEED);
         assert_eq!(
             iter.size_hint(),
             (actual_size.0, actual_size.1.map(|s| s * 2)),
@@ -182,7 +186,9 @@ mod lookup_ref_delta_objects {
         let input = vec![entry(delta_ref(gix_hash::Kind::Sha1.null()), D_A), entry(base(), D_B)];
         let calls = AtomicUsize::default();
         let db = FindData::new(None, &calls);
-        let mut result = LookupRefDeltaObjectsIter::new(into_results_iter(input), &db).collect::<Vec<_>>();
+        let mut result =
+            LookupRefDeltaObjectsIter::new(into_results_iter(input), &db, gix_zlib::Compression::BEST_SPEED)
+                .collect::<Vec<_>>();
         assert_eq!(calls.load(Ordering::Relaxed), 1, "it tries to lookup the object");
         assert_eq!(result.len(), 1, "the error stops iteration");
         assert!(matches!(
@@ -209,7 +215,12 @@ mod lookup_ref_delta_objects {
             }),
             Ok(entry(base(), D_B)),
         ];
-        let actual = LookupRefDeltaObjectsIter::new(input.into_iter(), gix_object::find::Never).collect::<Vec<_>>();
+        let actual = LookupRefDeltaObjectsIter::new(
+            input.into_iter(),
+            gix_object::find::Never,
+            gix_zlib::Compression::BEST_SPEED,
+        )
+        .collect::<Vec<_>>();
         for (actual, expected) in actual.into_iter().zip(expected) {
             assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         }
