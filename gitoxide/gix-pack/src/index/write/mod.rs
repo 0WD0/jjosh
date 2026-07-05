@@ -73,6 +73,8 @@ pub(super) mod function {
     /// * `root_progress` is the top-level progress to stay informed about the progress of this potentially long-running
     ///   computation.
     /// * `object_hash` defines what kind of object hash we write into the index file.
+    /// * `alloc_limit_bytes` limits the maximum size of individual allocations while resolving pack entries to compute
+    ///   object ids. `None` means no limit is applied.
     /// * `pack_version` is the version of the underlying pack for which `entries` are read. It's used in case none of these objects are provided
     ///   to compute a pack-hash.
     ///
@@ -93,6 +95,7 @@ pub(super) mod function {
         out: &mut dyn io::Write,
         should_interrupt: &AtomicBool,
         object_hash: gix_hash::Kind,
+        alloc_limit_bytes: Option<usize>,
         pack_version: crate::data::Version,
     ) -> Result<Outcome, Error>
     where
@@ -204,6 +207,7 @@ pub(super) mod function {
                     thread_limit,
                     should_interrupt,
                     object_hash,
+                    alloc_limit_bytes,
                 },
             )?;
             root_progress.inc();

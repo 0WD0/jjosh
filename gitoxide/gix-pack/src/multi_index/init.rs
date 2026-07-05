@@ -159,6 +159,7 @@ where
             object_hash,
             fan,
             index_names,
+            alloc_limit_bytes,
             lookup_ofs: lookup.start,
             offsets_ofs: offsets.start,
             large_offsets_ofs: large_offsets.map(|r| r.start),

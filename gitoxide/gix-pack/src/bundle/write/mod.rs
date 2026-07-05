@@ -269,6 +269,7 @@ impl crate::Bundle {
             iteration_mode: _,
             index_version: index_kind,
             object_hash,
+            alloc_limit_bytes,
         }: Options,
         data_file: SharedTempFile,
         mut pack_entries_iter: Box<dyn Iterator<Item = Result<data::input::Entry, data::input::Error>> + 'a>,
@@ -296,6 +297,7 @@ impl crate::Bundle {
                     &mut index_file,
                     should_interrupt,
                     object_hash,
+                    alloc_limit_bytes,
                     pack_version,
                 )?;
                 drop(pack_entries_iter);
@@ -351,6 +353,7 @@ impl crate::Bundle {
                     &mut io::sink(),
                     should_interrupt,
                     object_hash,
+                    alloc_limit_bytes,
                     pack_version,
                 )?,
                 data_path: None,

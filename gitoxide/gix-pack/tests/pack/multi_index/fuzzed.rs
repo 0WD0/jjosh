@@ -55,13 +55,13 @@ fn long_pack_names_over_alloc_limit_bytes_are_rejected_as_out_of_memory() {
             gix_pack::multi_index::File::from_data(
                 valid_multi_index_with_index_name(long_name.as_bytes()),
                 PathBuf::from("fuzzed-long-name.midx"),
-                Some(64)
+                Some(0)
             ),
             Err(gix_pack::multi_index::init::Error::PackNames(
                 gix_pack::multi_index::chunk::index_names::decode::Error::OutOfMemory
             ))
         ),
-        "multi-index pack names larger than the configured limit must be rejected"
+        "multi-index pack names larger than the configured limit must be rejected, including with a zero limit"
     );
 }
 
@@ -74,13 +74,13 @@ fn absurd_pack_count_is_rejected_with_fuzz_alloc_limit() {
             gix_pack::multi_index::File::from_data(
                 multi_index_with_absurd_pack_count(),
                 PathBuf::from("fuzzed-absurd-pack-count.midx"),
-                Some(64 * 1024 * 1024)
+                Some(0)
             ),
             Err(gix_pack::multi_index::init::Error::PackNames(
                 gix_pack::multi_index::chunk::index_names::decode::Error::OutOfMemory
             ))
         ),
-        "multi-index files advertising absurd pack counts must be rejected under the fuzz allocation cap"
+        "multi-index files advertising absurd pack counts must be rejected under the allocation cap, including with a zero limit"
     );
 }
 

@@ -60,7 +60,7 @@ mod method {
         );
 
         buf.clear();
-        let pack = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(64));
+        let pack = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(0));
         let entry = pack.entry(entry_offset).expect("valid object type");
         assert!(
             matches!(
@@ -250,7 +250,7 @@ mod decompress_entry {
 
     #[test]
     fn caller_provided_buffer_ignores_alloc_limit() {
-        let p = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(64));
+        let p = pack_at(SMALL_PACK).with_alloc_limit_bytes(Some(0));
         let entry = p.entry(1968).expect("valid object type");
         let mut buf = vec![0; entry.decompressed_size as usize];
 

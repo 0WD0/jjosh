@@ -256,6 +256,7 @@ pub fn pack_or_pack_index(
                 traversal: algorithm,
                 thread_limit,
                 check: check.into(),
+                alloc_limit_bytes: bundle.pack.alloc_limit_bytes,
                 make_pack_lookup_cache: pack::cache::lru::StaticLinkedList::<64>::default,
             },
         )

@@ -106,7 +106,10 @@ where
             inner: read_and_pass_to(
                 &mut self.read,
                 if self.compressed.keep() {
-                    Vec::with_capacity(entry.decompressed_size as usize)
+                    // This buffer stores compressed bytes. The decompressed size is unrelated to the compressed byte
+                    // count and is declared by pack data, so using it as capacity could cause excessive allocation.
+                    // It's notable that `decompressed_size` is also untrusted.
+                    Vec::new()
                 } else {
                     compressed_buf
                 },

@@ -28,6 +28,9 @@ pub struct Options<F> {
     pub thread_limit: Option<usize>,
     /// The kinds of safety checks to perform.
     pub check: SafetyCheck,
+    /// If `Some`, rejects individual allocations above the given number of bytes while resolving decoded object and
+    /// delta result buffers during delta-tree traversal. `Some(0)` rejects all non-empty allocations.
+    pub alloc_limit_bytes: Option<usize>,
     /// A function to create a pack cache
     pub make_pack_lookup_cache: F,
 }
@@ -38,6 +41,7 @@ impl Default for Options<fn() -> crate::cache::Never> {
             check: Default::default(),
             traversal: Default::default(),
             thread_limit: None,
+            alloc_limit_bytes: None,
             make_pack_lookup_cache: || crate::cache::Never,
         }
     }
@@ -86,6 +90,7 @@ where
             traversal,
             thread_limit,
             check,
+            alloc_limit_bytes,
             make_pack_lookup_cache,
         }: Options<F>,
     ) -> Result<Outcome, Error<E>>
@@ -113,7 +118,11 @@ where
                 processor,
                 progress,
                 should_interrupt,
-                with_index::Options { check, thread_limit },
+                with_index::Options {
+                    check,
+                    thread_limit,
+                    alloc_limit_bytes,
+                },
             ),
         }
     }

@@ -102,7 +102,7 @@ pub struct File<T = MMap> {
     /// The maximum size of a single allocation caused by user-controlled on-disk pack data.
     ///
     /// If `None`, no additional limit is enforced.
-    alloc_limit_bytes: Option<usize>,
+    pub alloc_limit_bytes: Option<usize>,
 }
 
 /// Information about the pack data file itself
@@ -125,12 +125,6 @@ where
     /// The kind of hash we use internally.
     pub fn object_hash(&self) -> gix_hash::Kind {
         self.object_hash
-    }
-    /// The maximum size of a single allocation caused by user-controlled on-disk pack data.
-    ///
-    /// A value of `None` means no additional limit is enforced.
-    pub fn alloc_limit_bytes(&self) -> Option<usize> {
-        self.alloc_limit_bytes
     }
     /// The position of the byte one past the last pack entry, or in other terms, the first byte of the trailing hash.
     pub fn pack_end(&self) -> usize {
