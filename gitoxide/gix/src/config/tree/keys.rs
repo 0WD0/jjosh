@@ -177,6 +177,9 @@ pub type Time = Any<validate::Time>;
 /// The `core.(filesRefLockTimeout|packedRefsTimeout)` keys, or any other lock timeout for that matter.
 pub type LockTimeout = Any<validate::LockTimeout>;
 
+/// The `core.compression`, `core.looseCompression` and `pack.compression` keys.
+pub type Compression = Any<validate::Compression>;
+
 /// Keys specifying durations in milliseconds.
 pub type DurationInMilliseconds = Any<validate::DurationInMilliseconds>;
 
@@ -277,6 +280,36 @@ mod lock_timeout {
                     val.try_into().expect("i64 to u64 always works if positive"),
                 )),
             })
+        }
+    }
+}
+
+mod compression {
+    use crate::{
+        config,
+        config::tree::{Section, keys::Compression},
+    };
+
+    impl Compression {
+        /// Create a new instance.
+        pub const fn new_compression(name: &'static str, section: &'static dyn Section) -> Self {
+            Self::new_with_validate(name, section, super::validate::Compression)
+        }
+
+        /// Convert `value` into a zlib compression level, where `-1` is mapped to the
+        /// zlib default, just like `git` does.
+        pub fn try_into_compression(
+            &'static self,
+            value: Result<i64, gix_config::value::Error>,
+        ) -> Result<gix_zlib::Compression, config::key::GenericError> {
+            let value = value.map_err(|err| config::key::GenericError::from(self).with_source(err))?;
+            match value {
+                -1 => Ok(gix_zlib::Compression::DEFAULT),
+                level => i32::try_from(level)
+                    .ok()
+                    .and_then(gix_zlib::Compression::new)
+                    .ok_or_else(|| config::key::GenericError::from(self)),
+            }
         }
     }
 }
@@ -629,6 +662,19 @@ pub mod validate {
                 .to_decimal()
                 .ok_or_else(|| format!("integer {value} cannot be represented as integer"));
             super::super::Core::FILES_REF_LOCK_TIMEOUT.try_into_lock_timeout(Ok(value?))?;
+            Ok(())
+        }
+    }
+
+    /// A zlib compression level.
+    #[derive(Clone, Copy)]
+    pub struct Compression;
+    impl Validate for Compression {
+        fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+            let value = gix_config::Integer::try_from(value)?
+                .to_decimal()
+                .ok_or_else(|| format!("integer {value} cannot be represented as integer"));
+            super::super::Core::COMPRESSION.try_into_compression(Ok(value?))?;
             Ok(())
         }
     }

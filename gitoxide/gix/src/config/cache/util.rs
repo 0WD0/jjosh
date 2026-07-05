@@ -100,6 +100,27 @@ pub(crate) fn reflog_or_default(
 pub(crate) type ObjectCaches = (Option<usize>, Option<usize>, usize, Option<usize>);
 
 /// Return `(static_pack_cache_limit, pack_cache_bytes, object_cache_bytes, alloc_limit_bytes)` as parsed from gix-config.
+pub(crate) fn parse_loose_compression(
+    config: &gix_config::File<'static>,
+    lenient: bool,
+    mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
+) -> Result<gix_zlib::Compression, Error> {
+    let level = match config
+        .integer_filter("core.looseCompression", &mut filter_config_section)
+        .map(|res| Core::LOOSE_COMPRESSION.try_into_compression(res))
+        .transpose()
+        .with_leniency(lenient)?
+    {
+        Some(level) => Some(level),
+        None => config
+            .integer_filter("core.compression", &mut filter_config_section)
+            .map(|res| Core::COMPRESSION.try_into_compression(res))
+            .transpose()
+            .with_leniency(lenient)?,
+    };
+    Ok(level.unwrap_or(gix_zlib::Compression::BEST_SPEED))
+}
+
 pub(crate) fn parse_object_caches(
     config: &gix_config::File<'static>,
     lenient: bool,

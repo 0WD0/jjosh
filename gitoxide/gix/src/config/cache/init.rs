@@ -158,6 +158,7 @@ impl Cache {
         let object_kind_hint = util::disambiguate_hint(&config, lenient_config)?;
         let (static_pack_cache_limit_bytes, pack_cache_bytes, object_cache_bytes, alloc_limit_bytes) =
             util::parse_object_caches(&config, lenient_config, filter_config_section)?;
+        let loose_compression = util::parse_loose_compression(&config, lenient_config, filter_config_section)?;
         // NOTE: When adding a new initial cache, consider adjusting `reread_values_and_clear_caches()` as well.
         Ok(Cache {
             resolved: config.into(),
@@ -169,6 +170,7 @@ impl Cache {
             pack_cache_bytes,
             object_cache_bytes,
             alloc_limit_bytes,
+            loose_compression,
             reflog,
             refs_namespace,
             is_bare,
@@ -248,6 +250,8 @@ impl Cache {
             self.object_cache_bytes,
             self.alloc_limit_bytes,
         ) = util::parse_object_caches(config, self.lenient_config, self.filter_config_section)?;
+        self.loose_compression =
+            util::parse_loose_compression(config, self.lenient_config, self.filter_config_section)?;
         #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
         {
             self.url_scheme = Default::default();

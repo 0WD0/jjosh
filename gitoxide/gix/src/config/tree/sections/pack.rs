@@ -12,6 +12,9 @@ impl Pack {
     /// The `pack.indexVersion` key.
     pub const INDEX_VERSION: IndexVersion =
         IndexVersion::new_with_validate("indexVersion", &config::Tree::PACK, validate::IndexVersion);
+
+    /// The `pack.compression` key.
+    pub const COMPRESSION: keys::Compression = keys::Compression::new_compression("compression", &config::Tree::PACK);
 }
 
 /// The `pack.indexVersion` key.
@@ -42,7 +45,7 @@ impl Section for Pack {
     }
 
     fn keys(&self) -> &[&dyn Key] {
-        &[&Self::THREADS, &Self::INDEX_VERSION]
+        &[&Self::THREADS, &Self::INDEX_VERSION, &Self::COMPRESSION]
     }
 }
 

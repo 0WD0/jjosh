@@ -159,6 +159,7 @@ pub use gix_url as url;
 pub use gix_url::Url;
 pub use gix_utils as utils;
 pub use gix_validate as validate;
+pub use gix_zlib as zlib;
 pub use hash::{ObjectId, oid};
 
 pub use gix_error::{Error, Exn};

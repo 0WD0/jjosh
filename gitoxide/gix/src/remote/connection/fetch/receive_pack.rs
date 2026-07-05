@@ -173,6 +173,7 @@ where
             iteration_mode: gix_pack::data::input::Mode::Verify,
             object_hash: repo.object_hash(),
             alloc_limit_bytes: repo.config.alloc_limit_bytes,
+            compression: repo.config.loose_compression,
         };
         let mut write_pack_bundle = None;
 

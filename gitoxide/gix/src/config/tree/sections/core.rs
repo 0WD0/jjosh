@@ -12,6 +12,13 @@ impl Core {
     pub const BIG_FILE_THRESHOLD: keys::UnsignedInteger =
         keys::UnsignedInteger::new_unsigned_integer("bigFileThreshold", &config::Tree::CORE);
     /// The `core.checkStat` key.
+    /// The `core.compression` key.
+    pub const COMPRESSION: keys::Compression = keys::Compression::new_compression("compression", &config::Tree::CORE)
+        .with_deviation("git defaults to -1 (zlib default) for packed and 1 for loose objects, gitoxide uses the same values but rejects levels outside of -1..=9 early");
+    /// The `core.looseCompression` key.
+    pub const LOOSE_COMPRESSION: keys::Compression =
+        keys::Compression::new_compression("looseCompression", &config::Tree::CORE);
+    /// The `core.checkStat` key.
     pub const CHECK_STAT: CheckStat =
         CheckStat::new_with_validate("checkStat", &config::Tree::CORE, validate::CheckStat);
     /// The `core.deltaBaseCacheLimit` key.
@@ -107,6 +114,8 @@ impl Section for Core {
             &Self::ABBREV,
             &Self::BARE,
             &Self::BIG_FILE_THRESHOLD,
+            &Self::COMPRESSION,
+            &Self::LOOSE_COMPRESSION,
             &Self::CHECK_STAT,
             &Self::DELTA_BASE_CACHE_LIMIT,
             &Self::DISAMBIGUATE,
