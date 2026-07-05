@@ -14,6 +14,8 @@ pub struct Store {
     pub(crate) object_hash: gix_hash::Kind,
     /// The maximum size of a single allocation caused by user-controlled loose object data.
     pub(crate) alloc_limit_bytes: Option<usize>,
+    /// The compression level to use when writing loose objects.
+    pub(crate) compression: gix_zlib::Compression,
 }
 
 /// Initialization
@@ -27,15 +29,21 @@ impl Store {
     ///
     /// `alloc_limit_bytes` limits allocations caused by loose object bodies declared on disk, useful for untrusted input.
     /// Use `None` to disable the limit.
+    ///
+    /// `compression` is the level to deflate loose objects with when writing them. `git` uses
+    /// [`Compression::BEST_SPEED`](gix_zlib::Compression::BEST_SPEED) unless configured
+    /// otherwise with `core.looseCompression` or `core.compression`.
     pub fn at(
         objects_directory: impl Into<PathBuf>,
         object_hash: gix_hash::Kind,
         alloc_limit_bytes: Option<usize>,
+        compression: gix_zlib::Compression,
     ) -> Store {
         Store {
             path: objects_directory.into(),
             object_hash,
             alloc_limit_bytes,
+            compression,
         }
     }
 

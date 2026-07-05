@@ -171,6 +171,8 @@ pub struct Store {
     object_hash: gix_hash::Kind,
     /// The maximum size of a single allocation caused by user-controlled on-disk pack data.
     alloc_limit_bytes: Option<usize>,
+    /// The compression level to use when writing loose objects.
+    loose_compression: gix_zlib::Compression,
 }
 
 /// Create a new cached handle to the object store with support for additional options.

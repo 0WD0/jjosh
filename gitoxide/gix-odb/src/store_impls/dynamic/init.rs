@@ -23,6 +23,11 @@ pub struct Options {
     /// The current directory of the process at the time of instantiation.
     /// If unset, it will be retrieved using `gix_fs::current_dir(false)`.
     pub current_dir: Option<std::path::PathBuf>,
+    /// The compression level to use when writing loose objects.
+    ///
+    /// Defaults to [`Compression::BEST_SPEED`](gix_zlib::Compression::BEST_SPEED), which is
+    /// also what `git` uses unless configured otherwise with `core.looseCompression` or `core.compression`.
+    pub loose_compression: gix_zlib::Compression,
 }
 
 impl Default for Options {
@@ -33,6 +38,7 @@ impl Default for Options {
             use_multi_pack_index: true,
             alloc_limit_bytes: None,
             current_dir: None,
+            loose_compression: gix_zlib::Compression::BEST_SPEED,
         }
     }
 }
@@ -83,6 +89,7 @@ impl Store {
             use_multi_pack_index,
             alloc_limit_bytes,
             current_dir,
+            loose_compression,
         }: Options,
     ) -> std::io::Result<Self> {
         let _span = gix_features::trace::detail!("gix_odb::Store::at()");
@@ -138,6 +145,7 @@ impl Store {
             use_multi_pack_index,
             object_hash,
             alloc_limit_bytes,
+            loose_compression,
             num_handles_stable: Default::default(),
             num_handles_unstable: Default::default(),
             num_disk_state_consolidation: Default::default(),

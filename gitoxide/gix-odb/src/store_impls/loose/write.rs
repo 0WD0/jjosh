@@ -170,13 +170,14 @@ impl Store {
             let perms = std::fs::Permissions::from_mode(0o444);
             builder.permissions(perms);
         }
-        Ok(deflate::Write::new(builder.tempfile_in(&self.path).map_err(|err| {
-            Error::Io {
+        Ok(deflate::Write::new(
+            builder.tempfile_in(&self.path).map_err(|err| Error::Io {
                 source: err.into(),
                 message: "create named temp file in",
                 path: self.path.to_owned(),
-            }
-        })?))
+            })?,
+            self.compression,
+        ))
     }
 
     fn finalize_object(
