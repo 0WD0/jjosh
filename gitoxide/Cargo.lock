@@ -1572,6 +1572,7 @@ dependencies = [
  "gix-worktree",
  "gix-worktree-state",
  "gix-worktree-stream",
+ "gix-zlib",
  "insta",
  "is_ci",
  "nonempty",
@@ -2675,6 +2676,7 @@ name = "gix-zlib"
 version = "0.1.0"
 dependencies = [
  "bstr",
+ "serde",
  "thiserror 2.0.18",
  "zlib-rs",
 ]
