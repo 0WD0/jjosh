@@ -12,7 +12,7 @@ pub(super) mod types {
     /// - The path separator always is `/`, independent of the platform.
     /// - Only normal components are allowed.
     /// - It is always represented as a bunch of bytes.
-    #[derive()]
+    #[repr(transparent)]
     pub struct RelativePath {
         inner: BStr,
     }
@@ -31,7 +31,7 @@ impl RelativePath {
         // SAFETY: `RelativePath` is transparent and equivalent to a `&BStr` if provided as reference.
         #[allow(unsafe_code)]
         unsafe {
-            std::mem::transmute(value)
+            Ok(std::mem::transmute::<&BStr, &RelativePath>(value))
         }
     }
 }
