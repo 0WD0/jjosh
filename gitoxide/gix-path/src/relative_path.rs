@@ -31,7 +31,7 @@ impl RelativePath {
         // SAFETY: `RelativePath` is transparent and equivalent to a `&BStr` if provided as reference.
         #[allow(unsafe_code)]
         unsafe {
-            Ok(std::mem::transmute(value))
+            Ok(std::mem::transmute::<&BStr, &RelativePath>(value))
         }
     }
 }
