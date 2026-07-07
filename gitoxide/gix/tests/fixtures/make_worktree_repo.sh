@@ -64,3 +64,8 @@ git init non-bare-turned-bare
 
   git worktree add ../worktree-of-bare-repo
 )
+
+git clone --bare --shared repo natively-bare-repo
+(cd natively-bare-repo
+  git worktree add ../worktree-of-natively-bare-repo
+)

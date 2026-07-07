@@ -127,9 +127,10 @@ impl crate::Repository {
     pub fn kind(&self) -> crate::repository::Kind {
         use gix_discover::path::RepositoryKind::*;
         match gix_discover::path::repository_kind(self.git_dir()) {
-            None | Some(Common) => crate::repository::Kind::Common,
             Some(Submodule) => crate::repository::Kind::Submodule,
             Some(LinkedWorktree) => crate::repository::Kind::LinkedWorkTree,
+            None | Some(Common) if self.git_dir() != self.common_dir() => crate::repository::Kind::LinkedWorkTree,
+            None | Some(Common) => crate::repository::Kind::Common,
         }
     }
 
