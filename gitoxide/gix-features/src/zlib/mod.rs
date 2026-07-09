@@ -33,6 +33,14 @@ impl Decompress {
         self.0.reset(true);
     }
 
+    /// The message describing the last error that occurred in [`Self::decompress()`], if available.
+    ///
+    /// It distinguishes failures that map to the same [`DecompressError`] variant, like
+    /// `incorrect data check` for checksum mismatches as opposed to genuine stream corruption.
+    pub fn error_message(&self) -> Option<&'static str> {
+        self.0.error_message()
+    }
+
     /// Decompress `input` and write all decompressed bytes into `output`, with `flush` defining some details about this.
     pub fn decompress(
         &mut self,

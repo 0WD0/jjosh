@@ -84,6 +84,11 @@ name = "pipe"
 path = "tests/pipe.rs"
 required-features = ["io-pipe"]
 
+[[test]]
+name = "zlib"
+path = "tests/zlib.rs"
+required-features = ["zlib"]
+
 [dependencies]
 gix-trace = { version = "^0.1.20", path = "../gix-trace" }
 
