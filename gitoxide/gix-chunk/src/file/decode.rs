@@ -19,7 +19,7 @@ impl file::Index {
         let mut toc_entry = &data[toc_offset..];
         let expected_min_size = (num_chunks as usize + 1) * file::Index::ENTRY_SIZE;
         if toc_entry.len() < expected_min_size {
-            return Err(format!(
+            Err(format!(
                 "The table of contents would be {expected_min_size} bytes, but got only {toc_entry_len}",
                 toc_entry_len = toc_entry.len()
             ))?;
@@ -29,12 +29,12 @@ impl file::Index {
             let (kind, offset) = toc_entry.split_at(4);
             let kind = to_kind(kind);
             if kind == crate::SENTINEL {
-                return Err(format!(
+                Err(format!(
                     "Sentinel value encountered while processing chunks {chunk_idx} of {num_chunks}"
                 ))?;
             }
             if chunks.iter().any(|c: &index::Entry| c.kind == kind) {
-                return Err(format!(
+                Err(format!(
                     "The chunk of kind '{}' was encountered more than once",
                     kind.as_bstr()
                 ))?;
@@ -42,19 +42,19 @@ impl file::Index {
 
             let offset = be_u64(offset);
             if offset > data_len {
-                return Err(format!(
+                Err(format!(
                     "The chunk offset {offset} went past the file of length {data_len} - was it truncated?",
                 ))?;
             }
             toc_entry = &toc_entry[file::Index::ENTRY_SIZE..];
             let next_offset = be_u64(&toc_entry[4..]);
             if next_offset > data_len {
-                return Err(format!(
+                Err(format!(
                     "The chunk offset {next_offset} went past the file of length {data_len} - was it truncated?"
                 ))?;
             }
             if next_offset <= offset {
-                return Err("All chunk offsets must be incrementing.")?;
+                Err("All chunk offsets must be incrementing.")?;
             }
             chunks.push(index::Entry {
                 kind,
@@ -67,7 +67,7 @@ impl file::Index {
 
         let sentinel = to_kind(&toc_entry[..4]);
         if sentinel != crate::SENTINEL {
-            return Err(format!("Sentinel value wasn't found, saw '{}'", sentinel.as_bstr()))?;
+            Err(format!("Sentinel value wasn't found, saw '{}'", sentinel.as_bstr()))?;
         }
 
         Ok(file::Index {

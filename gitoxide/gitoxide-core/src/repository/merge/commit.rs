@@ -72,7 +72,7 @@ pub fn commit(
     }
 
     if debug {
-        writeln!(err, "{:#?}", &res.conflicts)?;
+        writeln!(err, "{:#?}", res.conflicts)?;
     }
     if !has_conflicts {
         writeln!(err, "{} possibly resolved conflicts", res.conflicts.len())?;

@@ -434,12 +434,10 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker).ok()? {
-                Some(new_snapshot) => {
-                    *snapshot = new_snapshot;
-                    self.clear_cache();
-                }
-                None => return None,
+            {
+                let new_snapshot = self.store.load_one_index(self.refresh, snapshot.marker).ok()??;
+                *snapshot = new_snapshot;
+                self.clear_cache();
             }
         }
     }
@@ -460,12 +458,10 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker).ok()? {
-                Some(new_snapshot) => {
-                    drop(snapshot);
-                    *self.snapshot.borrow_mut() = new_snapshot;
-                }
-                None => return None,
+            {
+                let new_snapshot = self.store.load_one_index(self.refresh, snapshot.marker).ok()??;
+                drop(snapshot);
+                *self.snapshot.borrow_mut() = new_snapshot;
             }
         }
     }

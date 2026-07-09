@@ -663,12 +663,12 @@ mod disambiguate_prefix {
         let (handle, _tmp) = db_with_all_object_sources().unwrap();
         let id = hex_to_id("a7065b5e971a6d8b55875d8cf634a3a37202ab23");
         let potential_prefix = Candidate::new(id, 40).unwrap();
-        assert!(
+        assert_eq!(
             handle
                 .disambiguate_prefix(potential_prefix)
                 .unwrap()
-                .expect("object exists")
-                == potential_prefix.to_prefix(),
+                .expect("object exists"),
+            potential_prefix.to_prefix(),
         );
 
         assert_eq!(
