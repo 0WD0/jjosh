@@ -201,7 +201,7 @@ impl<E: Error + Send + Sync + 'static> Exn<E> {
     /// Iterate over all frames and find one that downcasts into error of type `T`.
     /// Note that the search includes this instance as well.
     pub fn downcast_any_ref<T: Error + 'static>(&self) -> Option<&T> {
-        self.iter().find_map(|e| e.error.downcast_ref())
+        self.iter().find_map(|e| e.error().downcast_ref())
     }
 }
 
@@ -307,8 +307,14 @@ pub struct Frame {
 
 impl Frame {
     /// Return the error as a reference to [`Error`].
+    ///
+    /// If the error was [erased](crate::Exn::erased), this is the original error,
+    /// so it can still be downcast to its actual type.
     pub fn error(&self) -> &(dyn Error + Send + Sync + 'static) {
-        &*self.error
+        match self.error.downcast_ref::<Untyped>() {
+            Some(erased) => &*erased.0,
+            None => &*self.error,
+        }
     }
 
     /// Return the source code location where this exception frame was created.
@@ -458,7 +464,11 @@ impl fmt::Debug for Untyped {
     }
 }
 
-impl Error for Untyped {}
+impl Error for Untyped {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.0.source()
+    }
+}
 
 /// An error that merely says that something is wrong.
 pub struct Something;
