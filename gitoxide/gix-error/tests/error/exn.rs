@@ -725,9 +725,21 @@ fn erased_frames_still_expose_the_original_error() {
 #[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
 #[test]
 fn erased_errors_are_found_by_source_iteration() {
-    let e: gix_error::Error = message("E1").raise().erased().into();
+    let e: gix_error::Error = message("E1").raise_erased().into();
     assert!(
         e.sources().any(|err| err.downcast_ref::<Message>().is_some()),
         "sources() yields the original error type even after type-erasure"
+    );
+}
+
+#[test]
+fn erased_into_inner_preserves_source_chain() {
+    let e = ErrorWithSource("E1", message("E1-source")).raise_erased().into_inner();
+    assert_eq!(
+        std::error::Error::source(&e)
+            .expect("the erased error forwards to the wrapped error's source")
+            .to_string(),
+        "E1-source",
+        "type erasure remains transparent to std-style source traversal"
     );
 }
