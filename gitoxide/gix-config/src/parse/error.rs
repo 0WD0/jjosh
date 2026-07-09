@@ -51,7 +51,7 @@ impl Display for Error {
                 write!(
                     f,
                     "'{}' ... ({} characters omitted)",
-                    &data.chars().take(10).collect::<String>(),
+                    data.chars().take(10).collect::<String>(),
                     data_size - 10
                 )
             }

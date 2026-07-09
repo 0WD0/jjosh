@@ -73,6 +73,20 @@ title "gix (with repository)"
     )
   )
 
+  title "gix diff"
+  (with "the 'diff' sub-command"
+    snapshot="$snapshot/diff"
+    (small-repo-in-sandbox
+      (with "'file', an index revspec, and an on-disk path"
+        it "diffs the blob in the index against the file on disk" && {
+          echo "an addition" >> b &&
+          WITH_SNAPSHOT="$snapshot/file-index-vs-worktree" \
+          expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose diff file :b b
+        }
+      )
+    )
+  )
+
   title "gix remote"
   (when "running 'remote'"
     snapshot="$snapshot/remote"

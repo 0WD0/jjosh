@@ -128,15 +128,13 @@ impl<'repo> Head<'repo> {
                 if id.header()?.kind() == gix_object::Kind::Commit {
                     id
                 } else {
-                    match id.object()?.peel_tags_to_end() {
-                        Ok(obj) => {
-                            self.kind = Kind::Detached {
-                                peeled: Some(obj.id),
-                                target: *target,
-                            };
-                            obj.id()
-                        }
-                        Err(err) => return Err(err.into()),
+                    {
+                        let obj = id.object()?.peel_tags_to_end()?;
+                        self.kind = Kind::Detached {
+                            peeled: Some(obj.id),
+                            target: *target,
+                        };
+                        obj.id()
                     }
                 }
             }

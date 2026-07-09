@@ -86,7 +86,7 @@ pub(super) mod function {
         if message.is_some() && has_unresolved_conflicts {
             write_unresolved_conflict_paths(err, &res.conflicts)?;
             if debug {
-                writeln!(err, "{:#?}", &res.conflicts)?;
+                writeln!(err, "{:#?}", res.conflicts)?;
             }
             bail!("Tree conflicted, refusing to write commit");
         }

@@ -225,14 +225,14 @@ impl<'a> CommitRefIter<'a> {
                     Self::next_inner_(input, state, hash_kind)?
                 } else {
                     let before = *input;
-                    match parse::any_header_field_multi_line(input)
-                        .map(|(k, o)| (k.as_bstr(), Cow::Owned(o)))
-                        .or_else(|_| {
-                            *input = before;
-                            parse::any_header_field(input).map(|(k, o)| (k.as_bstr(), Cow::Borrowed(o.as_bstr())))
-                        }) {
-                        Ok(extra_header) => Token::ExtraHeader(extra_header),
-                        Err(err) => return Err(err),
+                    {
+                        let extra_header = parse::any_header_field_multi_line(input)
+                            .map(|(k, o)| (k.as_bstr(), Cow::Owned(o)))
+                            .or_else(|_| {
+                                *input = before;
+                                parse::any_header_field(input).map(|(k, o)| (k.as_bstr(), Cow::Borrowed(o.as_bstr())))
+                            })?;
+                        Token::ExtraHeader(extra_header)
                     }
                 }
             }

@@ -301,10 +301,10 @@ fn compare_raw_bytes(generated: &[u8], expected: &[u8], fixture: &str) {
             let generated = &generated[range_left..range_right];
             let expected = &expected[range_left..range_right];
 
-            panic! {"\n\nRoundtrip failed for index in fixture {:?} at position {:?}\n\
-            \t  Actual: ... {:?} ...\n\
-            \tExpected: ... {:?} ...\n\n\
-            ", &fixture, index, generated, expected}
+            panic! {"\n\nRoundtrip failed for index in fixture {fixture:?} at position {index:?}\n\
+            \t  Actual: ... {generated:?} ...\n\
+            \tExpected: ... {expected:?} ...\n\n\
+            "}
         }
     }
 }

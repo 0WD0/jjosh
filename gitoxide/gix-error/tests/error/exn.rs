@@ -697,3 +697,49 @@ fn causes_display(err: &(dyn std::error::Error + 'static), style: Style) -> Vec<
     }
     out
 }
+
+#[test]
+fn erased_frames_still_expose_the_original_error() {
+    let e = ErrorWithSource("E1", message("E1-source")).raise().erased();
+    assert!(
+        e.downcast_any_ref::<ErrorWithSource>().is_some(),
+        "erased frames can still be downcast to the original error type"
+    );
+    let frame_error = e.iter().next().expect("there is one frame").error();
+    assert!(
+        frame_error.downcast_ref::<ErrorWithSource>().is_some(),
+        "the frame yields the original error, not the erasure marker"
+    );
+    assert_eq!(
+        frame_error
+            .source()
+            .expect("the source is reachable through the erasure")
+            .to_string(),
+        "E1-source",
+        "std-style source chains continue through erased errors"
+    );
+}
+
+/// Mirrors the pattern that broke in https://github.com/GitoxideLabs/gitoxide/issues/2694, where
+/// a caller of `Error::sources()` downcasts each error to react to a specific one.
+#[cfg(any(feature = "tree-error", not(feature = "auto-chain-error")))]
+#[test]
+fn erased_errors_are_found_by_source_iteration() {
+    let e: gix_error::Error = message("E1").raise_erased().into();
+    assert!(
+        e.sources().any(|err| err.downcast_ref::<Message>().is_some()),
+        "sources() yields the original error type even after type-erasure"
+    );
+}
+
+#[test]
+fn erased_into_inner_preserves_source_chain() {
+    let e = ErrorWithSource("E1", message("E1-source")).raise_erased().into_inner();
+    assert_eq!(
+        std::error::Error::source(&e)
+            .expect("the erased error forwards to the wrapped error's source")
+            .to_string(),
+        "E1-source",
+        "type erasure remains transparent to std-style source traversal"
+    );
+}

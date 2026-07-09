@@ -261,10 +261,9 @@ fn parse_flexible_offset(offset: &str) -> Option<i32> {
 
     let (sign, rest) = if let Some(stripped) = offset.strip_prefix('+') {
         (1, stripped)
-    } else if let Some(stripped) = offset.strip_prefix('-') {
-        (-1, stripped)
     } else {
-        return None;
+        let stripped = offset.strip_prefix('-')?;
+        (-1, stripped)
     };
 
     // Remove colon if present

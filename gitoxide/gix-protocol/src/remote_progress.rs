@@ -19,13 +19,9 @@ pub struct RemoteProgress<'a> {
 impl RemoteProgress<'_> {
     /// Parse the progress from a typical git progress `line` as sent by the remote.
     pub fn from_bytes(mut line: &[u8]) -> Option<RemoteProgress<'_>> {
-        parse_progress(&mut line).ok().and_then(|r| {
-            if r.percent.is_none() && r.step.is_none() && r.max.is_none() {
-                None
-            } else {
-                Some(r)
-            }
-        })
+        parse_progress(&mut line)
+            .ok()
+            .filter(|&r| !(r.percent.is_none() && r.step.is_none() && r.max.is_none()))
     }
 
     /// Parse `text`, which is interpreted as error if `is_error` is true, as [`RemoteProgress`] and call the respective

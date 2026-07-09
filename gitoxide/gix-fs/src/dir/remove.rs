@@ -72,9 +72,9 @@ impl<'a> Iterator for Iter<'a> {
 /// Note that `boundary_dir` must contain `delete_dir` or an error is returned, otherwise `delete_dir` is returned on success.
 pub fn empty_upward_until_boundary<'a>(delete_dir: &'a Path, boundary_dir: &'a Path) -> std::io::Result<&'a Path> {
     for item in Iter::new(delete_dir, boundary_dir)? {
-        match item {
-            Ok(_dir) => continue,
-            Err(err) => return Err(err),
+        {
+            let _dir = item?;
+            continue;
         }
     }
     Ok(delete_dir)

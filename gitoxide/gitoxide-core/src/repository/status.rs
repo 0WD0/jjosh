@@ -177,10 +177,7 @@ pub fn show(
                 }
             }
             status::Item::IndexWorktree(index_worktree::Item::Rewrite {
-                source,
-                dirwalk_entry,
-                copy: _, // TODO: how to visualize copies?
-                ..
+                source, dirwalk_entry, ..
             }) => {
                 // TODO: handle multi-status characters, there can also be modifications at the same time as determined by their ID and potentially diffstats.
                 writeln!(
