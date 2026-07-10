@@ -204,6 +204,7 @@ where
     let num_threads = num_threads(thread_limit);
     let mut results = Vec::with_capacity(num_threads);
     let stop_everything = &AtomicBool::default();
+    let a_consumer_failed = &AtomicBool::default();
     let index = &AtomicUsize::default();
     let threads_left = &AtomicIsize::new(num_threads as isize);
 
@@ -269,8 +270,14 @@ where
                                             }
                                         };
                                         if let Err(err) = consume(item, &mut state, threads_left, stop_everything) {
+                                            // The first consumer to fail is the one that caused the stop - every
+                                            // error thereafter is a mere reaction to the stop signal, like a
+                                            // bail-out on interrupt, and must not mask the causal error.
+                                            // Causality is tracked on its own flag as failing consumers may set
+                                            // the (exposed) stop flag themselves before returning.
+                                            let is_cause = !a_consumer_failed.swap(true, Ordering::SeqCst);
                                             stop_everything.store(true, Ordering::Relaxed);
-                                            return Err(err);
+                                            return Err((err, is_cause));
                                         }
                                     }
                                     Ok(state_to_rval(state))
@@ -282,10 +289,16 @@ where
                         .expect("valid name")
                 })
                 .collect();
+            let mut cause = None;
+            let mut reaction = None;
             for thread in threads {
                 match thread.join() {
-                    Ok(res) => {
-                        results.push(res?);
+                    Ok(Ok(rval)) => {
+                        results.push(rval);
+                    }
+                    Ok(Err((err, is_cause))) => {
+                        let slot = if is_cause { &mut cause } else { &mut reaction };
+                        slot.get_or_insert(err);
                     }
                     Err(err) => {
                         // a panic happened, stop the world gracefully (even though we panic later)
@@ -293,6 +306,9 @@ where
                         std::panic::resume_unwind(err);
                     }
                 }
+            }
+            if let Some(err) = cause.or(reaction) {
+                return Err(err);
             }
 
             stop_everything.store(true, Ordering::Relaxed);
