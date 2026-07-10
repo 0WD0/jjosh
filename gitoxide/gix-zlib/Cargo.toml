@@ -1,0 +1,23 @@
+lints.workspace = true
+
+[package]
+name = "gix-zlib"
+description = "Zlib-rs streaming compression and decompression utilities used by gitoxide"
+repository = "https://github.com/GitoxideLabs/gitoxide"
+version = "0.1.0"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2024"
+rust-version = "1.85"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+test = false
+
+[dependencies]
+zlib-rs = "0.6.2"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+bstr = { version = "1.12.0", default-features = false }
