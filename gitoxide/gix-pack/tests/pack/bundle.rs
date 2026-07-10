@@ -1,6 +1,5 @@
 mod locate {
     use bstr::ByteSlice;
-    use gix_features::zlib;
     use gix_object::Kind;
     use gix_odb::pack;
 
@@ -12,7 +11,7 @@ mod locate {
             .find(
                 &hex_to_id(hex_id),
                 out,
-                &mut zlib::Inflate::default(),
+                &mut gix_zlib::Inflate::default(),
                 &mut pack::cache::Never,
             )
             .expect("read success")
@@ -21,7 +20,6 @@ mod locate {
     }
 
     mod locate_and_verify {
-        use gix_features::zlib;
         use gix_odb::pack;
 
         use crate::{PACKS_AND_INDICES, fixture_path};
@@ -39,7 +37,7 @@ mod locate {
                         .find(
                             &entry.oid,
                             &mut buf,
-                            &mut zlib::Inflate::default(),
+                            &mut gix_zlib::Inflate::default(),
                             &mut pack::cache::Never,
                         )?
                         .expect("id present");

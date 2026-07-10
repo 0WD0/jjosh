@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use gix_features::zlib::stream::deflate;
+use gix_zlib::stream::deflate;
 
 use crate::Sink;
 

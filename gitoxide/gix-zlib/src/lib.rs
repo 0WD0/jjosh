@@ -53,7 +53,6 @@ pub struct Inflate {
 /// Streaming compression and decompression utilities built on [`std::io`] traits.
 pub mod stream;
 
-
 /// Types supporting single-step, allocation-free decompression.
 pub mod inflate;
 

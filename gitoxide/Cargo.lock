@@ -1867,7 +1867,6 @@ dependencies = [
 name = "gix-features"
 version = "0.48.1"
 dependencies = [
- "bstr",
  "bytes",
  "bytesize",
  "crc32fast",
@@ -1880,9 +1879,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "prodash",
- "thiserror 2.0.18",
  "walkdir",
- "zlib-rs",
 ]
 
 [[package]]
@@ -2169,6 +2166,7 @@ dependencies = [
  "gix-path",
  "gix-quote",
  "gix-testtools",
+ "gix-zlib",
  "maplit",
  "memmap2",
  "parking_lot",
@@ -2199,6 +2197,7 @@ dependencies = [
  "gix-tempfile",
  "gix-testtools",
  "gix-traverse",
+ "gix-zlib",
  "maplit",
  "memmap2",
  "parking_lot",
@@ -2668,6 +2667,15 @@ dependencies = [
  "gix-worktree",
  "gix-worktree-stream",
  "parking_lot",
+]
+
+[[package]]
+name = "gix-zlib"
+version = "0.1.0"
+dependencies = [
+ "bstr",
+ "thiserror 2.0.18",
+ "zlib-rs",
 ]
 
 [[package]]

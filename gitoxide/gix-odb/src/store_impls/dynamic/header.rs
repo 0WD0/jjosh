@@ -1,6 +1,5 @@
 use std::ops::Deref;
 
-use gix_features::zlib;
 use gix_hash::oid;
 
 use super::find::Error;
@@ -16,7 +15,7 @@ where
     pub(crate) fn try_header_inner<'b>(
         &'b self,
         mut id: &'b gix_hash::oid,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         snapshot: &mut load_index::Snapshot,
         recursion: Option<DeltaBaseRecursion<'_>>,
     ) -> Result<Option<Header>, Error> {

@@ -1,7 +1,5 @@
 use std::{cmp::Ordering, collections::HashSet, io, path::PathBuf};
 
-use gix_features::zlib;
-
 use crate::store_impls::loose::{HEADER_MAX_SIZE, Store, hash_path};
 
 /// Returned by [`Store::try_find()`]
@@ -10,7 +8,7 @@ use crate::store_impls::loose::{HEADER_MAX_SIZE, Store, hash_path};
 pub enum Error {
     #[error("decompression of loose object at '{path}' failed")]
     DecompressFile {
-        source: zlib::inflate::Error,
+        source: gix_zlib::inflate::Error,
         path: PathBuf,
     },
     #[error("file at '{path}' showed invalid size of inflated data, expected {expected}, got {actual}")]
@@ -123,16 +121,16 @@ impl Store {
             None => return Ok(None),
         };
         let mut header = [0_u8; HEADER_MAX_SIZE];
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
         let (status, _consumed_in, consumed_out) =
             inflate.once(&map, &mut header).map_err(|e| Error::DecompressFile {
                 source: e,
                 path: path.to_owned(),
             })?;
 
-        if status == zlib::Status::BufError {
+        if status == gix_zlib::Status::BufError {
             return Err(Error::DecompressFile {
-                source: zlib::inflate::Error::Status(status),
+                source: gix_zlib::inflate::Error::Status(status),
                 path,
             });
         }
@@ -148,15 +146,15 @@ impl Store {
         };
         let mut header = [0_u8; HEADER_MAX_SIZE];
 
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
         let (status, consumed_in, consumed_out) =
             inflate.once(&map, &mut header).map_err(|e| Error::DecompressFile {
                 source: e,
                 path: path.to_owned(),
             })?;
-        if status == zlib::Status::BufError {
+        if status == gix_zlib::Status::BufError {
             return Err(Error::DecompressFile {
-                source: zlib::inflate::Error::Status(status),
+                source: gix_zlib::inflate::Error::Status(status),
                 path,
             });
         }
@@ -182,7 +180,7 @@ impl Store {
         // contains the complete decompressed object. In that case we can avoid allocating the full
         // output buffer and a second streaming inflate pass.
         out.clear();
-        if status == zlib::Status::StreamEnd {
+        if status == gix_zlib::Status::StreamEnd {
             if consumed_out as u64 != size + header_size as u64 {
                 return Err(Error::SizeMismatch {
                     expected: size + header_size as u64,
@@ -196,13 +194,16 @@ impl Store {
             out[..decompressed_body_prefix_len].copy_from_slice(&header[header_size..consumed_out]);
 
             let mut input = &map[consumed_in..];
-            let num_decompressed_bytes =
-                zlib::stream::inflate::read(&mut input, &mut inflate.state, &mut out[decompressed_body_prefix_len..])
-                    .map_err(|e| Error::Io {
-                    source: e,
-                    action: "inflate",
-                    path: path.to_owned(),
-                })?;
+            let num_decompressed_bytes = gix_zlib::stream::inflate::read(
+                &mut input,
+                &mut inflate.state,
+                &mut out[decompressed_body_prefix_len..],
+            )
+            .map_err(|e| Error::Io {
+                source: e,
+                action: "inflate",
+                path: path.to_owned(),
+            })?;
 
             if num_decompressed_bytes as u64 + decompressed_body_prefix_len as u64 != size {
                 return Err(Error::SizeMismatch {

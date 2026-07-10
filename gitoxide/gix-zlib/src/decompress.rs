@@ -3,7 +3,7 @@
 use zlib_rs::InflateError;
 
 use crate::{Decompress, FlushDecompress, Status};
-/// 
+///
 /// The error produced by [`Decompress::decompress()`].
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]

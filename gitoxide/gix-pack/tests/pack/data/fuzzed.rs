@@ -58,7 +58,7 @@ fn oversized_pack_entry_header_is_reported_without_panicking() {
 #[test]
 fn non_canonical_pack_entry_header_is_accepted() {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
-        let mut out = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
         out.write_all(bytes).expect("writing to deflater succeeds");
         out.flush().expect("flushing deflater succeeds");
         out.into_inner()
@@ -136,7 +136,7 @@ fn oversized_declared_object_size_is_reported_without_panicking() {
 #[test]
 fn declared_object_size_over_alloc_limit_bytes_is_reported_as_out_of_memory() {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
-        let mut out = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
         out.write_all(bytes).expect("writing to deflater succeeds");
         out.flush().expect("flushing deflater succeeds");
         out.into_inner()
@@ -508,7 +508,7 @@ fn overlong_delta_header_size_is_reported_without_panicking() {
 #[test]
 fn short_delta_application_is_reported_without_panicking() {
     fn deflate(bytes: &[u8]) -> Vec<u8> {
-        let mut out = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
         out.write_all(bytes).expect("writing to deflater succeeds");
         out.flush().expect("flushing deflater succeeds");
         out.into_inner()

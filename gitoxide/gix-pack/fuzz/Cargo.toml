@@ -13,7 +13,10 @@ libfuzzer-sys = "0.4"
 
 [dependencies.gix-features]
 path = "../../gix-features"
-features = ["progress", "zlib"]
+features = ["progress"]
+
+[dependencies.gix-zlib]
+path = "../../gix-zlib"
 
 [dependencies.gix-hash]
 path = "../../gix-hash"

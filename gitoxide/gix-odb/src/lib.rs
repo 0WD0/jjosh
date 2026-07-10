@@ -56,8 +56,9 @@ use std::{
 };
 
 use arc_swap::ArcSwap;
-use gix_features::{threading::OwnShared, zlib::stream::deflate};
+use gix_features::threading::OwnShared;
 pub use gix_pack as pack;
+use gix_zlib::stream::deflate;
 
 mod store_impls;
 pub use store_impls::{dynamic as store, loose};
