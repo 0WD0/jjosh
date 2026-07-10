@@ -595,7 +595,7 @@ jobs:
       - name: features of gix-features
         run: |
           set -x
-          for feature in progress parallel io-pipe crc32 zlib cache-efficiency-debug; do
+          for feature in progress parallel io-pipe crc32 cache-efficiency-debug; do
             cargo build -p gix-features --features "$feature" --target "$TARGET"
           done
       - name: crates with 'sha1' and 'wasm' feature

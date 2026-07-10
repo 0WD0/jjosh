@@ -1,5 +1,3 @@
-use gix_features::zlib;
-
 impl crate::Bundle {
     /// Find an object with the given [`ObjectId`](gix_hash::ObjectId) and place its data into `out`.
     /// `inflate` is used to decompress objects, and will be reset before first use, but not after the last use.
@@ -12,7 +10,7 @@ impl crate::Bundle {
         &self,
         id: &gix_hash::oid,
         out: &'a mut Vec<u8>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         cache: &mut dyn crate::cache::DecodeEntry,
     ) -> Result<Option<(gix_object::Data<'a>, crate::data::entry::Location)>, crate::data::decode::Error> {
         let idx = match self.index.lookup(id) {
@@ -33,7 +31,7 @@ impl crate::Bundle {
         &self,
         idx: u32,
         out: &'a mut Vec<u8>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         cache: &mut dyn crate::cache::DecodeEntry,
     ) -> Result<(gix_object::Data<'a>, crate::data::entry::Location), crate::data::decode::Error> {
         let ofs = self.index.pack_offset_at_index(idx);

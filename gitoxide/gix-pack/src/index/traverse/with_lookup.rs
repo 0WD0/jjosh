@@ -4,7 +4,6 @@ use gix_features::{
     parallel::{self, in_parallel_if},
     progress::{self, Count, DynNestedProgress, Progress},
     threading::{Mutable, OwnShared, lock},
-    zlib,
 };
 
 use super::{Error, Reducer};
@@ -131,7 +130,7 @@ where
                         (
                             make_pack_lookup_cache(),
                             Vec::with_capacity(2048), // decode buffer
-                            zlib::Inflate::default(),
+                            gix_zlib::Inflate::default(),
                             lock(&reduce_progress)
                                 .add_child_with_id(format!("thread {index}"), gix_features::progress::UNKNOWN), // per thread progress
                         )

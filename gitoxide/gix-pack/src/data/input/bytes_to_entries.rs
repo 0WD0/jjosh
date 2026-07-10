@@ -1,7 +1,7 @@
 use std::{fs, io};
 
-use gix_features::zlib::Decompress;
 use gix_hash::{Hasher, ObjectId};
+use gix_zlib::Decompress;
 
 use crate::data::input;
 
@@ -302,7 +302,7 @@ where
     R: io::BufRead,
 {
     fn read(&mut self, into: &mut [u8]) -> io::Result<usize> {
-        gix_features::zlib::stream::inflate::read(&mut self.inner, self.decompressor, into)
+        gix_zlib::stream::inflate::read(&mut self.inner, self.decompressor, into)
     }
 }
 

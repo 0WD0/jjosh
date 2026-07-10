@@ -1,4 +1,6 @@
-use crate::zlib::Status;
+//! Compression state and a [`std::io::Write`] adapter for producing zlib streams.
+
+use crate::Status;
 use zlib_rs::DeflateError;
 
 const BUF_SIZE: usize = 4096 * 8;
@@ -142,11 +144,12 @@ pub enum FlushCompress {
     Finish = 4,
 }
 
+/// Implementations that need access to the private fields of the public writer adapter.
 mod impls {
     use std::io;
 
-    use crate::zlib::Status;
-    use crate::zlib::stream::deflate::{self, Compress, FlushCompress};
+    use crate::Status;
+    use crate::stream::deflate::{self, Compress, FlushCompress};
 
     pub(crate) fn new_compress() -> Compress {
         Compress::new()
@@ -225,6 +228,3 @@ mod impls {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

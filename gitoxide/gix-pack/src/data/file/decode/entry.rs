@@ -1,7 +1,5 @@
-use std::ops::Range;
-
-use gix_features::zlib;
 use smallvec::SmallVec;
+use std::ops::Range;
 
 use crate::{
     cache, data,
@@ -89,7 +87,7 @@ where
     pub fn decompress_entry(
         &self,
         entry: &data::Entry,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let size: usize = entry.decompressed_size.try_into().map_err(|_| Error::OutOfMemory)?;
@@ -122,7 +120,7 @@ where
     pub(crate) fn decompress_entry_from_data_offset(
         &self,
         data_offset: data::Offset,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let (consumed_in, _consumed_out) =
@@ -140,12 +138,12 @@ where
     pub(crate) fn decompress_complete_entry_from_data_offset(
         &self,
         data_offset: data::Offset,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
     ) -> Result<(usize, usize), Error> {
         let (status, consumed_in, consumed_out) =
             self.decompress_entry_from_data_offset_unchecked(data_offset, inflate, out)?;
-        if status != zlib::Status::StreamEnd || consumed_out != out.len() {
+        if status != gix_zlib::Status::StreamEnd || consumed_out != out.len() {
             return Err(data::entry::decode::Error::Corrupt {
                 message: "pack entry decompressed size does not match entry header",
             }
@@ -161,9 +159,9 @@ where
     pub(crate) fn decompress_entry_from_data_offset_unchecked(
         &self,
         data_offset: data::Offset,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         out: &mut [u8],
-    ) -> Result<(zlib::Status, usize, usize), Error> {
+    ) -> Result<(gix_zlib::Status, usize, usize), Error> {
         let offset: usize = data_offset.try_into().expect("offset representable by machine");
         if offset >= self.data.len() {
             return Err(data::entry::decode::Error::Corrupt {
@@ -191,7 +189,7 @@ where
         &self,
         entry: data::Entry,
         out: &mut Vec<u8>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
         delta_cache: &mut dyn cache::DecodeEntry,
     ) -> Result<Outcome, Error> {
@@ -223,7 +221,7 @@ where
         &self,
         last: data::Entry,
         resolve: &dyn Fn(&gix_hash::oid, &mut Vec<u8>) -> Option<ResolvedBase>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         out: &mut Vec<u8>,
         cache: &mut dyn cache::DecodeEntry,
     ) -> Result<Outcome, Error> {

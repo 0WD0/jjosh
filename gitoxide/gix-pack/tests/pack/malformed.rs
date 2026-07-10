@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
 };
 
-use gix_features::zlib;
 use gix_pack::{cache, data};
 
 /// Reproducer for GHSA-x494-mj8g-cj27: malformed delta copy instructions currently reach
@@ -16,7 +15,7 @@ fn delta_copy_is_reported_without_panicking() -> crate::Result {
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(12)?;
     let mut out = Vec::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never)
@@ -44,7 +43,7 @@ fn oversized_delta_result_is_rejected_without_panicking() -> crate::Result {
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(12)?;
     let mut out = Vec::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never)
@@ -67,7 +66,7 @@ fn truncated_delta_header_ignores_zero_filled_remainder() -> crate::Result {
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(12)?;
     let mut out = Vec::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
 
@@ -88,7 +87,7 @@ fn complete_delta_with_mismatched_declared_size_is_rejected() -> crate::Result {
         let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
         let entry = pack.entry(12)?;
         let mut out = Vec::new();
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
 
         let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
 
@@ -107,7 +106,7 @@ fn plain_object_with_mismatched_declared_size_is_rejected() -> crate::Result {
         let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
         let entry = pack.entry(12)?;
         let mut out = Vec::new();
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
 
         let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
 
@@ -125,7 +124,7 @@ fn empty_plain_object_is_accepted() -> crate::Result {
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(12)?;
     let mut out = Vec::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never)?;
 
@@ -145,7 +144,7 @@ fn in_pack_delta_base_with_mismatched_declared_size_is_rejected() -> crate::Resu
     )?;
     let entry = pack.entry(delta_offset)?;
     let mut out = Vec::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let res = pack.decode_entry(entry, &mut out, &mut inflate, &resolve_external_blob, &mut cache::Never);
 
@@ -161,7 +160,7 @@ fn decode_header_ignores_zero_filled_delta_remainder() -> crate::Result {
     let pack_data = ref_delta_pack_with_declared_size(&[1, 0x80], 3)?;
     let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
     let entry = pack.entry(12)?;
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
 
     let res = pack.decode_header(entry, &mut inflate, &resolve_external_header_blob);
 
@@ -189,7 +188,7 @@ fn decode_header_with_mismatched_declared_delta_size_is_rejected() -> crate::Res
         let pack_data = ref_delta_pack_with_declared_size(delta, decompressed_size)?;
         let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
         let entry = pack.entry(12)?;
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
 
         let res = pack.decode_header(entry, &mut inflate, &resolve_external_header_blob);
 
@@ -205,7 +204,7 @@ fn large_mismatched_declared_delta_size_is_rejected_during_full_decode() -> crat
         let pack_data = ref_delta_pack_with_declared_size(&delta, decompressed_size)?;
         let pack = data::File::from_data(pack_data, PathBuf::from("malformed.pack"), gix_hash::Kind::Sha1)?;
         let entry = pack.entry(12)?;
-        let mut inflate = zlib::Inflate::default();
+        let mut inflate = gix_zlib::Inflate::default();
 
         let outcome = pack.decode_header(entry.clone(), &mut inflate, &resolve_external_header_blob)?;
 
@@ -255,7 +254,7 @@ fn encode_delta_size(mut size: u64) -> Vec<u8> {
 }
 
 fn deflate(bytes: &[u8]) -> crate::Result<Vec<u8>> {
-    let mut write = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+    let mut write = gix_zlib::stream::deflate::Write::new(Vec::new());
     write.write_all(bytes)?;
     write.flush()?;
     Ok(write.into_inner())

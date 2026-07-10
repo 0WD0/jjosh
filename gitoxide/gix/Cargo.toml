@@ -279,18 +279,6 @@ pack-cache-lru-dynamic = ["gix-pack/pack-cache-lru-dynamic"]
 ## Enable all features required for performance.
 max-performance = ["max-performance-safe"]
 
-## Deprecated: gix always uses zlib-rs.
-zlib-ng = ["gix-features/zlib"]
-
-## Deprecated: gix always uses zlib-rs.
-zlib-rs = ["gix-features/zlib"]
-
-## Deprecated: gix always uses zlib-rs.
-zlib-ng-compat = ["gix-features/zlib"]
-
-## Deprecated: gix always uses zlib-rs.
-zlib-stock = ["gix-features/zlib"]
-
 #! #### Other
 #!
 #! The catch-all of feature toggles.

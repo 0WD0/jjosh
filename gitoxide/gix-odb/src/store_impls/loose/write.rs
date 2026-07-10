@@ -1,7 +1,7 @@
 use std::{fs, io, io::Write, path::PathBuf};
 
-use gix_features::zlib::stream::deflate;
 use gix_object::WriteTo;
+use gix_zlib::stream::deflate;
 use tempfile::NamedTempFile;
 
 use super::Store;

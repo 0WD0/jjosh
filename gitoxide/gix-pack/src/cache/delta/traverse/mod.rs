@@ -24,7 +24,7 @@ pub(crate) mod util;
 pub enum Error {
     #[error("{message}")]
     ZlibInflate {
-        source: gix_features::zlib::inflate::Error,
+        source: gix_zlib::inflate::Error,
         message: &'static str,
     },
     #[error("The resolver failed to obtain the pack entry bytes for the entry at {pack_offset}")]

@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicIsize, Ordering},
 };
 
-use gix_features::{progress::Progress, threading, zlib};
+use gix_features::{progress::Progress, threading};
 
 use crate::{
     cache::delta::{
@@ -124,7 +124,7 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let mut decompressed_bytes_by_pack_offset = BTreeMap::new();
-    let mut inflate = zlib::Inflate::default();
+    let mut inflate = gix_zlib::Inflate::default();
     let mut decompress_from_resolver = |slice: EntryRange, out: &mut Vec<u8>| -> Result<(data::Entry, u64), Error> {
         let bytes = resolve(slice.clone(), resolve_data).ok_or(Error::ResolveFailed {
             pack_offset: slice.start,
@@ -304,7 +304,7 @@ where
                         move || -> Result<(), Error> {
                             let mut fully_resolved_delta_bytes = Vec::new();
                             let mut delta_bytes = Vec::new();
-                            let mut inflate = zlib::Inflate::default();
+                            let mut inflate = gix_zlib::Inflate::default();
                             let mut decompress_from_resolver =
                                 |slice: EntryRange, out: &mut Vec<u8>| -> Result<(data::Entry, u64), Error> {
                                     let bytes = resolve(slice.clone(), resolve_data).ok_or(Error::ResolveFailed {
@@ -469,7 +469,7 @@ where
 }
 
 fn decompress_all_at_once_with(
-    inflate: &mut zlib::Inflate,
+    inflate: &mut gix_zlib::Inflate,
     b: &[u8],
     decompressed_len: usize,
     out: &mut Vec<u8>,
@@ -620,7 +620,7 @@ mod tests {
     }
 
     fn deflate(bytes: &[u8]) -> Vec<u8> {
-        let mut out = gix_features::zlib::stream::deflate::Write::new(Vec::new());
+        let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
         out.write_all(bytes).expect("writing to deflater succeeds");
         out.flush().expect("flushing deflater succeeds");
         out.into_inner()

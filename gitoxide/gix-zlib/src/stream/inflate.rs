@@ -1,6 +1,8 @@
+//! Decompression support for reading zlib streams into caller-provided buffers.
+
 use std::{io, io::BufRead};
 
-use crate::zlib::{Decompress, FlushDecompress, Status};
+use crate::{Decompress, FlushDecompress, Status};
 
 /// Read bytes from `rd` and decompress them using `state` into a pre-allocated fitting buffer `dst`, returning the amount of bytes written.
 pub fn read(rd: &mut impl BufRead, state: &mut Decompress, mut dst: &mut [u8]) -> io::Result<usize> {
@@ -34,7 +36,15 @@ pub fn read(rd: &mut impl BufRead, state: &mut Decompress, mut dst: &mut [u8]) -
             Ok(Status::Ok | Status::BufError) if consumed != 0 || written != 0 => continue,
             // A strange state, where zlib makes no progress but isn't done either. Call it out.
             Ok(Status::Ok | Status::BufError) => unreachable!("Definitely a bug somewhere"),
-            Err(..) => return Err(io::Error::new(io::ErrorKind::InvalidInput, "corrupt deflate stream")),
+            // Keep the underlying zlib error so callers can tell a checksum mismatch
+            // (`incorrect data check`) apart from genuine stream corruption.
+            Err(err) => {
+                let cause = state.error_message().map_or_else(|| err.to_string(), String::from);
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("corrupt deflate stream: {cause}"),
+                ));
+            }
         }
     }
 }

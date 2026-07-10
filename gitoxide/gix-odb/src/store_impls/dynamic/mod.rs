@@ -1,8 +1,6 @@
 //! The standard object store which should fit all needs.
 use std::{cell::RefCell, ops::Deref};
 
-use gix_features::zlib;
-
 use crate::Store;
 
 /// This effectively acts like a handle but exists to be usable from the actual `crate::Handle` implementation which adds caches on top.
@@ -26,7 +24,7 @@ where
 
     pub(crate) token: Option<handle::Mode>,
     snapshot: RefCell<load_index::Snapshot>,
-    inflate: RefCell<zlib::Inflate>,
+    inflate: RefCell<gix_zlib::Inflate>,
     packed_object_count: RefCell<Option<u64>>,
 }
 

@@ -77,7 +77,6 @@ pub(crate) mod error {
     }
 }
 pub use error::Error;
-use gix_features::zlib;
 
 use crate::store::types::PackId;
 
@@ -89,7 +88,7 @@ where
         &'b self,
         mut id: &'b gix_hash::oid,
         buffer: &'a mut Vec<u8>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         pack_cache: &mut dyn DecodeEntry,
         snapshot: &mut load_index::Snapshot,
         recursion: Option<error::DeltaBaseRecursion<'_>>,

@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicBool;
 
-use gix_features::{parallel, progress::Progress, zlib};
+use gix_features::{parallel, progress::Progress};
 
 use crate::index;
 
@@ -161,7 +161,7 @@ where
         pack: &crate::data::File<D>,
         cache: &mut C,
         buf: &mut Vec<u8>,
-        inflate: &mut zlib::Inflate,
+        inflate: &mut gix_zlib::Inflate,
         progress: &mut dyn Progress,
         index_entry: &index::Entry,
         processor: &mut impl FnMut(gix_object::Kind, &[u8], &index::Entry, &dyn Progress) -> Result<(), E>,
