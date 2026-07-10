@@ -34,9 +34,6 @@ impl Decompress {
     }
 
     /// The message describing the last error that occurred in [`Self::decompress()`], if available.
-    ///
-    /// It distinguishes failures that map to the same [`DecompressError`] variant, like
-    /// `incorrect data check` for checksum mismatches as opposed to genuine stream corruption.
     pub fn error_message(&self) -> Option<&'static str> {
         self.0.error_message()
     }
