@@ -2,6 +2,7 @@
 use gix_features::parallel;
 
 mod in_order_iter;
+mod in_parallel_with_slice;
 
 #[derive(Default)]
 struct Adder {
@@ -35,28 +36,6 @@ fn in_parallel() {
     )
     .expect("successful computation");
     assert_eq!(res, 100);
-}
-
-#[test]
-fn in_parallel_with_mut_slice_in_chunks() {
-    let num_items = 33;
-    let mut input: Vec<_> = std::iter::repeat_n(1, num_items).collect();
-    let counts = parallel::in_parallel_with_slice(
-        &mut input,
-        None,
-        |_| 0usize,
-        |item, acc, _threads_eft, _should_interrupt| {
-            *acc += *item;
-            *item += 1;
-            Ok::<_, ()>(())
-        },
-        || Some(std::time::Duration::from_millis(10)),
-        std::convert::identity,
-    )
-    .unwrap();
-    let expected = std::iter::repeat_n(1, num_items).sum::<usize>();
-    assert_eq!(counts.iter().sum::<usize>(), expected);
-    assert_eq!(input.iter().sum::<usize>(), expected * 2, "we increment each entry");
 }
 
 #[test]
