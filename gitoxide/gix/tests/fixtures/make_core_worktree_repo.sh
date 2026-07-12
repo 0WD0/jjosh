@@ -26,6 +26,10 @@ git clone --shared base relative-worktree
   git status --porcelain > .git/status.baseline
 )
 
+# Opening relative-worktree through this symlink exercises preservation of the
+# caller's path namespace when only an ancestor of the Git directory is linked.
+ln -s . symlinked-ancestor
+
 git clone --shared base absolute-worktree
 (cd absolute-worktree
   git config --local core.worktree "$WORKTREE_ABS"

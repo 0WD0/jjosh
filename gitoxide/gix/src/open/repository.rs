@@ -300,9 +300,7 @@ impl ThreadSafeRepository {
                     | gix_config::Source::Cli
                     | gix_config::Source::Api
                     | gix_config::Source::EnvOverride => wt_path,
-                    _ => git_dir_resolving_symlinks_for_worktree_base(&git_dir, current_dir)
-                        .join(wt_path)
-                        .into(),
+                    _ => worktree_dir_from_repository_config(&git_dir, wt_path, current_dir),
                 };
                 worktree_dir = gix_path::normalize(wt_path, current_dir).map(Cow::into_owned);
                 #[allow(unused_variables)]
@@ -513,12 +511,26 @@ impl ThreadSafeRepository {
     }
 }
 
-/// Return the path that should be used as base for `core.worktree` values from repository-owned config.
+/// Return the worktree directory implied by the `core.worktree` value `wt_path` from repository-owned
+/// configuration, resolved against `git_dir`.
 ///
-/// Git resolves symlinks in the `.git` directory before interpreting these relative worktree paths. Preserve the
-/// original `git_dir` unless realpathing actually changes it, both to avoid needless allocation and to keep existing
-/// paths stable when no symlink needs to be accounted for.
-fn git_dir_resolving_symlinks_for_worktree_base<'a>(git_dir: &'a Path, current_dir: &Path) -> Cow<'a, Path> {
+/// Git resolves symlinks in the `.git` directory before interpreting relative worktree paths, which matters
+/// when the `.git` directory itself is reached through a symlink: traversing `..` from the symlink and from
+/// its target yields different directories. When both ways of resolving `wt_path` denote the same directory
+/// on disk, however - for instance if only an ancestor of the repository is a symlink, like the temporary
+/// directory on macOS - prefer the symlink-preserving path so all paths of the opened repository remain
+/// consistent with the path the repository was opened with.
+fn worktree_dir_from_repository_config<'a>(
+    git_dir: &Path,
+    wt_path: Cow<'a, Path>,
+    current_dir: &Path,
+) -> Cow<'a, Path> {
+    fn realpath(path: &Path, current_dir: &Path) -> Option<PathBuf> {
+        gix_path::realpath_opts(path, current_dir, crate::path::realpath::MAX_SYMLINKS).ok()
+    }
+    if wt_path.is_absolute() {
+        return wt_path;
+    }
     let logical_git_dir = gix_path::normalize(
         Cow::Owned(if git_dir.is_relative() {
             current_dir.join(git_dir)
@@ -528,13 +540,23 @@ fn git_dir_resolving_symlinks_for_worktree_base<'a>(git_dir: &'a Path, current_d
         current_dir,
     )
     .map(Cow::into_owned);
-    match (
-        crate::path::realpath_opts(git_dir, current_dir, crate::path::realpath::MAX_SYMLINKS),
-        logical_git_dir,
-    ) {
-        (Ok(real_git_dir), Some(logical_git_dir)) if real_git_dir != logical_git_dir => Cow::Owned(real_git_dir),
-        _ => Cow::Borrowed(git_dir),
-    }
+    let symlink_preserving = git_dir.join(wt_path.as_ref());
+    let real_git_dir = match (realpath(git_dir, current_dir), logical_git_dir) {
+        (Some(real_git_dir), Some(logical_git_dir)) if real_git_dir != logical_git_dir => real_git_dir,
+        // There is no symlink to account for - keep existing paths stable.
+        _ => return Cow::Owned(symlink_preserving),
+    };
+    let resolved = real_git_dir.join(wt_path.as_ref());
+    let denotes_same_directory = gix_path::normalize(Cow::Borrowed(symlink_preserving.as_path()), current_dir)
+        .and_then(|normalized| realpath(&normalized, current_dir))
+        .zip(realpath(&resolved, current_dir))
+        .is_some_and(|(symlink_preserving, resolved)| symlink_preserving == resolved);
+    let wt_path = if denotes_same_directory {
+        symlink_preserving
+    } else {
+        resolved
+    };
+    Cow::Owned(wt_path)
 }
 
 // TODO: tests

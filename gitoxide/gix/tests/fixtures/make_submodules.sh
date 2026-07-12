@@ -199,6 +199,17 @@ git clone --bare with-submodules with-submodules-after-clone.git
   git clone --bare ../module1 modules/m1
 )
 
+git init with-submodule-uninitialized-checkout
+(cd with-submodule-uninitialized-checkout
+  git submodule add ../module1 m1
+  git submodule add ../module1 m2
+  git commit -m "add modules"
+  # The module clones in `.git/modules` remain, but the checkouts don't exist yet,
+  # like just before a fresh worktree checkout.
+  rm m1/.git
+  rm -rf m2
+)
+
 git clone with-submodules not-a-submodule
 (cd not-a-submodule
   git submodule update --init
@@ -210,3 +221,7 @@ git clone with-submodules not-a-submodule
 )
 
 git init unborn
+
+# Opening repositories through this symlink exercises preservation of the
+# caller's path namespace when only an ancestor of the Git directory is linked.
+ln -s . symlinked-ancestor
