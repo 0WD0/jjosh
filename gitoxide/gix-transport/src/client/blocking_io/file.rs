@@ -134,25 +134,22 @@ impl SpawnProcessOnDemand {
     /// being directly available (#2313).
     ///
     /// Prefer the same program from git's own `--exec-path`, which is where `git` itself finds it, and
-    /// otherwise let the `git` we can always find run it as subcommand.
+    /// otherwise let the `git` itself run it as subcommand.
     /// This is only used for local repositories - remote shells keep the standard invocation.
     fn prepare_fallback_command(&self, service: Service) -> (gix_command::Prepare, OsString) {
         let (mut cmd, cmd_name) = match gix_path::env::core_dir_program(service.as_str()) {
             Some(program) => {
-                let cmd_name: OsString = program.clone().into();
+                let cmd_name = program.clone().into_os_string();
                 (gix_command::prepare(program).stderr(Stdio::null()), cmd_name)
             }
             None => {
-                let subcommand = service
-                    .as_str()
-                    .strip_prefix("git-")
-                    .expect("all services are 'git-*' subcommands");
+                let subcommand = service.as_git_subcommand();
                 let git = gix_path::env::exe_invocation();
+                let cmd = gix_command::prepare(git).stderr(Stdio::null()).arg(subcommand);
+
                 let mut cmd_name: OsString = git.into();
                 cmd_name.push(" ");
                 cmd_name.push(subcommand);
-                let mut cmd = gix_command::prepare(git).stderr(Stdio::null());
-                cmd.args.push(subcommand.into());
                 (cmd, cmd_name)
             }
         };
