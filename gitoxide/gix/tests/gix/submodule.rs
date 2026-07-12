@@ -260,10 +260,7 @@ mod open {
     #[test]
     #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
     fn keeps_callers_path_namespace_when_opened_through_symlinked_ancestor() -> crate::Result {
-        let fixture = std::path::absolute(gix_testtools::scripted_fixture_read_only("make_submodules.sh")?)?;
-        let tmp = gix_testtools::tempfile::tempdir()?;
-        let link = tmp.path().join("link");
-        std::os::unix::fs::symlink(&fixture, &link)?;
+        let link = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("symlinked-ancestor");
 
         for parent_name in ["with-submodules", "with-submodule-uninitialized-checkout"] {
             let worktree = link.join(parent_name);

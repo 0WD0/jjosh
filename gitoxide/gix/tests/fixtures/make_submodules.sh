@@ -221,3 +221,7 @@ git clone with-submodules not-a-submodule
 )
 
 git init unborn
+
+# Opening repositories through this symlink exercises preservation of the
+# caller's path namespace when only an ancestor of the Git directory is linked.
+ln -s . symlinked-ancestor

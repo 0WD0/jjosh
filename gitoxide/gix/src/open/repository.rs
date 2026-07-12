@@ -526,12 +526,11 @@ fn worktree_dir_from_repository_config<'a>(
     current_dir: &Path,
 ) -> Cow<'a, Path> {
     fn realpath(path: &Path, current_dir: &Path) -> Option<PathBuf> {
-        crate::path::realpath_opts(path, current_dir, crate::path::realpath::MAX_SYMLINKS).ok()
+        gix_path::realpath_opts(path, current_dir, crate::path::realpath::MAX_SYMLINKS).ok()
     }
     if wt_path.is_absolute() {
         return wt_path;
     }
-    let symlink_preserving = git_dir.join(wt_path.as_ref());
     let logical_git_dir = gix_path::normalize(
         Cow::Owned(if git_dir.is_relative() {
             current_dir.join(git_dir)
@@ -541,6 +540,7 @@ fn worktree_dir_from_repository_config<'a>(
         current_dir,
     )
     .map(Cow::into_owned);
+    let symlink_preserving = git_dir.join(wt_path.as_ref());
     let real_git_dir = match (realpath(git_dir, current_dir), logical_git_dir) {
         (Some(real_git_dir), Some(logical_git_dir)) if real_git_dir != logical_git_dir => real_git_dir,
         // There is no symlink to account for - keep existing paths stable.
@@ -551,11 +551,12 @@ fn worktree_dir_from_repository_config<'a>(
         .and_then(|normalized| realpath(&normalized, current_dir))
         .zip(realpath(&resolved, current_dir))
         .is_some_and(|(symlink_preserving, resolved)| symlink_preserving == resolved);
-    if denotes_same_directory {
-        Cow::Owned(symlink_preserving)
+    let wt_path = if denotes_same_directory {
+        symlink_preserving
     } else {
-        Cow::Owned(resolved)
-    }
+        resolved
+    };
+    Cow::Owned(wt_path)
 }
 
 // TODO: tests
