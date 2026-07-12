@@ -129,7 +129,11 @@ impl crate::Repository {
         match gix_discover::path::repository_kind(self.git_dir()) {
             Some(Submodule) => crate::repository::Kind::Submodule,
             Some(LinkedWorktree) => crate::repository::Kind::LinkedWorkTree,
-            None | Some(Common) if self.git_dir() != self.common_dir() => crate::repository::Kind::LinkedWorkTree,
+            // Opening a linked worktree resolves its `commondir` file, making its private Git directory
+            // differ from the shared one. This also detects worktrees of natively bare repositories, whose
+            // private Git directory isn't below a directory named `.git` and thus isn't recognized by the path
+            // heuristic in `repository_kind()`.
+            None if self.git_dir() != self.common_dir() => crate::repository::Kind::LinkedWorkTree,
             None | Some(Common) => crate::repository::Kind::Common,
         }
     }
