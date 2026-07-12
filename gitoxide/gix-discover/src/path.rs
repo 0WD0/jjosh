@@ -72,6 +72,9 @@ fn read_plain_file_content(path: &std::path::Path) -> Option<std::io::Result<Vec
 /// Return `None` if `git_dir` isn't called `.git` or isn't within `.git/worktrees` or `.git/modules`, or if it's
 /// a `.git` suffix like in `foo.git`.
 /// The check for markers is case-sensitive under the assumption that nobody meddles with standard directories.
+///
+/// As this considers only the path, it cannot recognize linked worktrees of repositories whose Git directory isn't
+/// named `.git`, such as natively bare repositories. Inspect the worktree's `commondir` file to identify those.
 pub fn repository_kind(git_dir: &Path) -> Option<RepositoryKind> {
     if git_dir.file_name() == Some(OsStr::new(DOT_GIT_DIR)) {
         return Some(RepositoryKind::Common);
