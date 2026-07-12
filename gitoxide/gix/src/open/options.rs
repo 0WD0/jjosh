@@ -70,10 +70,11 @@ impl Options {
         self
     }
 
-    /// If `true`, default `false`, we will not modify the incoming path to open to assure it is a `.git` directory.
+    /// If `true`, default `false`, we will not modify the incoming path for this open call to assure it is a `.git` directory.
     ///
     /// If `true`, we will try to open the input directory as is, even though it doesn't appear to be a `git` repository
     /// due to the lack of `.git` suffix or because its basename is not `.git` as in `worktree/.git`.
+    /// This option is consumed while resolving the path and isn't retained in the opened repository's options.
     pub fn open_path_as_is(mut self, enable: bool) -> Self {
         self.open_path_as_is = enable;
         self

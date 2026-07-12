@@ -163,6 +163,7 @@ impl ThreadSafeRepository {
         mut options: Options,
     ) -> Result<Self, Error> {
         let _span = gix_trace::detail!("open_from_paths()");
+        options.open_path_as_is = false;
         let Options {
             ref mut git_dir_trust,
             object_store_slots,
