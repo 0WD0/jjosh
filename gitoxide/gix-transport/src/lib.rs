@@ -44,12 +44,19 @@ pub enum Service {
 }
 
 impl Service {
-    /// Render this instance as string recognized by the git transport layer.
+    /// Render this instance as a string recognized by the git transport layer, like `git-upload-pack`.
     pub fn as_str(&self) -> &'static str {
         match self {
             Service::ReceivePack => "git-receive-pack",
             Service::UploadPack => "git-upload-pack",
         }
+    }
+
+    /// Render this instance as a subcommand understood by the `git` program, like `upload-pack`.
+    pub fn as_git_subcommand(&self) -> &'static str {
+        self.as_str()
+            .strip_prefix("git-")
+            .expect("all services are 'git-*' subcommands")
     }
 }
 

@@ -139,6 +139,25 @@ pub fn core_dir() -> Option<&'static Path> {
     GIT_CORE_DIR.as_deref()
 }
 
+/// Return the path at which the Git-provided program with bare `name` resides within the [`core_dir()`],
+/// or `None` if it doesn't exist there or if Git could not be found.
+///
+/// This is the location `git` itself uses to find the programs implementing its subcommands, and is
+/// useful to invoke programs like `git-upload-pack` that are shipped with Git but aren't necessarily
+/// present in `PATH`.
+///
+/// Note that installations differ in which programs they provide as separate executables - builds
+/// with `SKIP_DASHED_BUILT_INS`, like Git for Windows, omit programs for builtin subcommands, which
+/// can then still be run through `git` itself.
+pub fn core_dir_program(name: &str) -> Option<PathBuf> {
+    let mut components = Path::new(name).components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_))) || components.next().is_some() {
+        return None;
+    }
+    let path = core_dir()?.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    path.is_file().then_some(path)
+}
+
 fn system_prefix_from_core_dir<F>(core_dir_func: F) -> Option<PathBuf>
 where
     F: Fn() -> Option<&'static Path>,
