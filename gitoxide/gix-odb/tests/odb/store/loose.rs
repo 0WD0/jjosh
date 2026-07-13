@@ -1,27 +1,23 @@
 use std::sync::atomic::AtomicBool;
 
 use gix_features::progress;
-use gix_odb::loose::Store;
+use gix_odb::loose::{Options, Store};
 use gix_testtools::fixture_path;
 use pretty_assertions::assert_eq;
 
 use crate::hex_to_id;
 
 fn ldb() -> Store {
-    Store::at(
-        fixture_path("objects"),
-        gix_hash::Kind::Sha1,
-        None,
-        gix_zlib::Compression::BEST_SPEED,
-    )
+    Store::at(fixture_path("objects"), Options::default())
 }
 
 fn limited_ldb(limit: usize) -> Store {
     Store::at(
         fixture_path("objects"),
-        gix_hash::Kind::Sha1,
-        Some(limit),
-        gix_zlib::Compression::BEST_SPEED,
+        Options {
+            alloc_limit_bytes: Some(limit),
+            ..Default::default()
+        },
     )
 }
 
@@ -69,7 +65,13 @@ mod write {
         let mut sizes = Vec::new();
         for level in [Compression::NONE, Compression::BEST] {
             let dir = gix_testtools::tempfile::tempdir()?;
-            let db = loose::Store::at(dir.path(), gix_hash::Kind::Sha1, None, level);
+            let db = loose::Store::at(
+                dir.path(),
+                loose::Options {
+                    compression: level,
+                    ..Default::default()
+                },
+            );
             let id = db.write_buf(gix_object::Kind::Blob, &data)?;
             sizes.push(db.object_path(&id).metadata()?.len());
 
@@ -90,12 +92,7 @@ mod write {
     #[test]
     fn read_and_write() -> crate::Result {
         let dir = gix_testtools::tempfile::tempdir()?;
-        let db = loose::Store::at(
-            dir.path(),
-            gix_hash::Kind::Sha1,
-            None,
-            gix_zlib::Compression::BEST_SPEED,
-        );
+        let db = loose::Store::at(dir.path(), loose::Options::default());
         let mut buf = Vec::new();
         let mut buf2 = Vec::new();
 
@@ -136,9 +133,10 @@ mod write {
         let hk = gix_testtools::object_hash();
         let git_store = loose::Store::at(
             crate::scripted_fixture_read_only("repo_with_loose_objects.sh")?.join(".git/objects"),
-            hk,
-            None,
-            gix_zlib::Compression::BEST_SPEED,
+            loose::Options {
+                object_hash: hk,
+                ..Default::default()
+            },
         );
         let expected_perm = git_store
             .object_path(&gix_hash::ObjectId::empty_blob(hk))
@@ -146,7 +144,13 @@ mod write {
             .permissions();
 
         let tmp = gix_testtools::tempfile::TempDir::new()?;
-        let store = loose::Store::at(tmp.path(), hk, None, gix_zlib::Compression::BEST_SPEED);
+        let store = loose::Store::at(
+            tmp.path(),
+            loose::Options {
+                object_hash: hk,
+                ..Default::default()
+            },
+        );
         store.write_buf(gix_object::Kind::Blob, &[])?;
         let actual_perm = store
             .object_path(&gix_hash::ObjectId::empty_blob(hk))
@@ -164,7 +168,7 @@ mod write {
         let dir = gix_testtools::tempfile::tempdir()?;
 
         fn write_empty_trees(dir: &std::path::Path) {
-            let db = loose::Store::at(dir, gix_hash::Kind::Sha1, None, gix_zlib::Compression::BEST_SPEED);
+            let db = loose::Store::at(dir, loose::Options::default());
             let empty_tree = gix_object::Tree::empty();
             for _ in 0..2 {
                 let id = db.write(&empty_tree).expect("works");
@@ -235,12 +239,7 @@ mod lookup_prefix {
             b"fake",
         )
         .unwrap();
-        let store = gix_odb::loose::Store::at(
-            objects_dir.path(),
-            gix_hash::Kind::Sha1,
-            None,
-            gix_zlib::Compression::BEST_SPEED,
-        );
+        let store = gix_odb::loose::Store::at(objects_dir.path(), gix_odb::loose::Options::default());
         let input_id = hex_to_id("37d4e6c5c48ba0d245164c4e10d5f41140cab980");
         let prefix = gix_hash::Prefix::new(&input_id, 4).unwrap();
         assert_eq!(
@@ -305,12 +304,7 @@ mod find {
         let base = tmp.path().join("aa");
         std::fs::create_dir(&base)?;
         std::fs::write(base.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), [])?;
-        let db = loose::Store::at(
-            tmp.path(),
-            gix_hash::Kind::Sha1,
-            None,
-            gix_zlib::Compression::BEST_SPEED,
-        );
+        let db = loose::Store::at(tmp.path(), loose::Options::default());
 
         let mut buf = Vec::new();
         let id = hex_to_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

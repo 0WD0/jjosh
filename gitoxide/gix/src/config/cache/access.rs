@@ -525,6 +525,57 @@ impl Cache {
     }
 }
 
+fn compression(
+    config: &gix_config::File<'static>,
+    lenient: bool,
+    mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
+    key: &'static config::tree::keys::Compression,
+    default: gix_zlib::Compression,
+) -> Result<gix_zlib::Compression, config::Error> {
+    let level = match config
+        .integer_filter(key, &mut filter_config_section)
+        .map(|value| key.try_into_compression(value))
+        .transpose()
+        .with_leniency(lenient)?
+    {
+        Some(level) => Some(level),
+        None => config
+            .integer_filter(Core::COMPRESSION, &mut filter_config_section)
+            .map(|value| Core::COMPRESSION.try_into_compression(value))
+            .transpose()
+            .with_leniency(lenient)?,
+    };
+    Ok(level.unwrap_or(default))
+}
+
+pub(crate) fn loose_compression(
+    config: &gix_config::File<'static>,
+    lenient: bool,
+    filter_config_section: fn(&gix_config::file::Metadata) -> bool,
+) -> Result<gix_zlib::Compression, config::Error> {
+    compression(
+        config,
+        lenient,
+        filter_config_section,
+        &config::tree::Core::LOOSE_COMPRESSION,
+        gix_zlib::Compression::BEST_SPEED,
+    )
+}
+
+pub(crate) fn pack_compression(
+    config: &gix_config::File<'static>,
+    lenient: bool,
+    filter_config_section: fn(&gix_config::file::Metadata) -> bool,
+) -> Result<gix_zlib::Compression, config::Error> {
+    compression(
+        config,
+        lenient,
+        filter_config_section,
+        &config::tree::Pack::COMPRESSION,
+        gix_zlib::Compression::DEFAULT,
+    )
+}
+
 pub(crate) fn trusted_file_path<'config>(
     config: &'config gix_config::File<'_>,
     key: impl gix_config::AsKey,

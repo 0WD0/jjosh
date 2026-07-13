@@ -5,6 +5,32 @@ use std::path::{Path, PathBuf};
 
 use gix_features::fs;
 
+/// Options for use in [`Store::at()`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Options {
+    /// The kind of hash to use when writing, finding, or iterating objects.
+    pub object_hash: gix_hash::Kind,
+    /// The maximum size of a single allocation caused by user-controlled loose object data.
+    ///
+    /// If `None`, no additional limit is enforced.
+    pub alloc_limit_bytes: Option<usize>,
+    /// The compression level to use when writing loose objects.
+    ///
+    /// Git uses [`Compression::BEST_SPEED`](gix_zlib::Compression::BEST_SPEED) unless configured otherwise with
+    /// `core.looseCompression` or `core.compression`.
+    pub compression: gix_zlib::Compression,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            object_hash: Default::default(),
+            alloc_limit_bytes: None,
+            compression: gix_zlib::Compression::BEST_SPEED,
+        }
+    }
+}
+
 /// A database for reading and writing objects to disk, one file per object.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Store {
@@ -25,20 +51,12 @@ impl Store {
     ///
     /// In a git repository, this would be `.git/objects`.
     ///
-    /// The `object_hash` determines which hash to use when writing, finding or iterating objects.
-    ///
-    /// `alloc_limit_bytes` limits allocations caused by loose object bodies declared on disk, useful for untrusted input.
-    /// Use `None` to disable the limit.
-    ///
-    /// `compression` is the level to deflate loose objects with when writing them. `git` uses
-    /// [`Compression::BEST_SPEED`](gix_zlib::Compression::BEST_SPEED) unless configured
-    /// otherwise with `core.looseCompression` or `core.compression`.
-    pub fn at(
-        objects_directory: impl Into<PathBuf>,
-        object_hash: gix_hash::Kind,
-        alloc_limit_bytes: Option<usize>,
-        compression: gix_zlib::Compression,
-    ) -> Store {
+    pub fn at(objects_directory: impl Into<PathBuf>, options: Options) -> Store {
+        let Options {
+            object_hash,
+            alloc_limit_bytes,
+            compression,
+        } = options;
         Store {
             path: objects_directory.into(),
             object_hash,

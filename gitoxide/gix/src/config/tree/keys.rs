@@ -177,7 +177,7 @@ pub type Time = Any<validate::Time>;
 /// The `core.(filesRefLockTimeout|packedRefsTimeout)` keys, or any other lock timeout for that matter.
 pub type LockTimeout = Any<validate::LockTimeout>;
 
-/// The `core.compression`, `core.looseCompression` and `pack.compression` keys.
+/// The `core.compression`, `core.looseCompression` and `pack.compression` keys to validate compression values.
 pub type Compression = Any<validate::Compression>;
 
 /// Keys specifying durations in milliseconds.

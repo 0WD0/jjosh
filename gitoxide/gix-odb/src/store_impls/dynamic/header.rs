@@ -55,7 +55,7 @@ where
                                 }
                                 None => {
                                     // The pack wasn't available anymore so we are supposed to try another round with a fresh index
-                                    match self.store.load_one_index(self.refresh, snapshot.marker)? {
+                                    match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                                         Some(new_snapshot) => {
                                             *snapshot = new_snapshot;
                                             self.clear_cache();
@@ -168,7 +168,7 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker)? {
+            match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                 Some(new_snapshot) => {
                     *snapshot = new_snapshot;
                     self.clear_cache();

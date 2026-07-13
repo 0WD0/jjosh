@@ -4,6 +4,20 @@ use crate::{bstr::ByteSlice, config};
 
 /// General Configuration
 impl crate::Repository {
+    /// Return the compression level used when writing loose objects.
+    pub fn loose_compression(&self) -> gix_zlib::Compression {
+        self.config.loose_compression
+    }
+
+    /// Return the effective compression level used when writing pack entries.
+    pub fn pack_compression(&self) -> Result<gix_zlib::Compression, config::Error> {
+        config::cache::access::pack_compression(
+            &self.config.resolved,
+            self.config.lenient_config,
+            self.filter_config_section(),
+        )
+    }
+
     /// Return a snapshot of the configuration as seen upon opening the repository.
     ///
     /// Use [`reload()`](Self::reload()) to refresh it from disk.

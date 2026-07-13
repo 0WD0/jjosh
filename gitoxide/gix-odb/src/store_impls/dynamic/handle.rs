@@ -255,6 +255,7 @@ impl super::Store {
             store: self.clone(),
             refresh: RefreshMode::default(),
             ignore_replacements: false,
+            loose_compression: self.loose_compression,
             token: Some(token),
             inflate: RefCell::new(Default::default()),
             snapshot: RefCell::new(self.collect_snapshot()),
@@ -272,6 +273,7 @@ impl super::Store {
             store: self.clone(),
             refresh: Default::default(),
             ignore_replacements: false,
+            loose_compression: self.loose_compression,
             token: Some(token),
             inflate: RefCell::new(Default::default()),
             snapshot: RefCell::new(self.collect_snapshot()),
@@ -297,6 +299,14 @@ impl<S> super::Handle<S>
 where
     S: Deref<Target = super::Store> + Clone,
 {
+    pub(crate) fn index_ctx(&self, marker: types::SlotIndexMarker) -> super::IndexCtx {
+        super::IndexCtx {
+            refresh_mode: self.refresh,
+            marker,
+            loose_compression: self.loose_compression,
+        }
+    }
+
     /// Call once if pack ids are stored and later used for lookup, meaning they should always remain mapped and not be unloaded
     /// even if they disappear from disk.
     /// This must be called if there is a chance that git maintenance is happening while a pack is created.
@@ -362,10 +372,12 @@ impl TryFrom<&super::Store> for super::Store {
 impl super::Handle<Rc<super::Store>> {
     /// Convert a ref counted store into one that is ref-counted and thread-safe, by creating a new Store.
     pub fn into_arc(self) -> std::io::Result<super::Handle<Arc<super::Store>>> {
+        let loose_compression = self.loose_compression;
         let store = Arc::new(super::Store::try_from(self.store_ref())?);
         let mut cache = store.to_handle_arc();
         cache.refresh = self.refresh;
         cache.max_recursion_depth = self.max_recursion_depth;
+        cache.loose_compression = loose_compression;
         Ok(cache)
     }
 }
@@ -386,6 +398,7 @@ where
             store: self.store.clone(),
             refresh: self.refresh,
             ignore_replacements: self.ignore_replacements,
+            loose_compression: self.loose_compression,
             token: {
                 let token = self.store.register_handle();
                 match self.token.as_ref().expect("token is always set here ") {

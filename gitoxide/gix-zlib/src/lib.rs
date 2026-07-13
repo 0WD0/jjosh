@@ -35,6 +35,12 @@ impl Compression {
     }
 }
 
+impl Default for Compression {
+    fn default() -> Self {
+        Compression::DEFAULT
+    }
+}
+
 /// A type to hold all state needed for decompressing a ZLIB encoded stream.
 pub struct Decompress(zlib_rs::Inflate);
 
