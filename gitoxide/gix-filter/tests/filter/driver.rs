@@ -1,17 +1,11 @@
-static DRIVER: &str = concat!(env!("CARGO"), " run --example arrow");
+use bstr::{BStr, BString};
 
 mod baseline {
-    use serial_test::serial;
+    use crate::driver::driver_path;
 
-    use crate::driver::DRIVER;
-
-    #[serial]
     #[test]
     fn our_implementation_used_by_git() -> crate::Result {
-        let mut exe = DRIVER.to_owned();
-        if cfg!(windows) {
-            exe = exe.replace('\\', "/");
-        }
+        let exe = driver_path().to_string();
         gix_testtools::scripted_fixture_read_only_with_args_single_archive("baseline.sh", [exe])?;
         Ok(())
     }
@@ -61,14 +55,12 @@ mod shutdown {
 pub(crate) mod apply {
     use std::{io::Read, sync::LazyLock};
 
-    use bstr::{BStr, BString, ByteSlice};
+    use crate::driver::{driver_path, shutdown::extract_client};
+    use bstr::{BStr, BString, ByteSlice, ByteVec};
     use gix_filter::{
         Driver, driver,
         driver::{Operation, apply, apply::Delay},
     };
-    use serial_test::serial;
-
-    use crate::driver::{DRIVER, shutdown::extract_client};
 
     fn driver_no_process() -> Driver {
         let mut driver = driver_with_process();
@@ -77,20 +69,20 @@ pub(crate) mod apply {
     }
 
     pub(crate) fn driver_with_process() -> Driver {
-        let mut exe = DRIVER.to_owned();
-        if cfg!(windows) {
-            exe = exe.replace('\\', "/");
-        }
+        let command = |suffix| {
+            let mut command = driver_path();
+            command.push_str(suffix);
+            command
+        };
         Driver {
             name: "arrow".into(),
-            clean: Some((exe.clone() + " clean %f").into()),
-            smudge: Some((exe.clone() + " smudge %f").into()),
-            process: Some((exe + " process").into()),
+            clean: Some(command(" clean %f")),
+            smudge: Some(command(" smudge %f")),
+            process: Some(command(" process")),
             required: true,
         }
     }
 
-    #[serial]
     #[test]
     fn missing_driver_means_no_filter_is_applied() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -121,7 +113,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn a_crashing_process_can_restart_it() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -155,7 +146,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn process_status_abort_disables_capability() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -184,7 +174,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn process_status_strange_shuts_down_process() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -212,7 +201,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn smudge_and_clean_failure_is_translated_to_observable_error_for_required_drivers() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -234,31 +222,61 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
-    fn smudge_and_clean_failure_means_nothing_if_required_is_false() -> crate::Result {
+    fn smudge_and_clean_failure_falls_back_to_input_if_required_is_false() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_no_process();
         driver.required = false;
+        let input = b"hello\nthere\n";
 
         let mut filtered = state
             .apply(
                 &driver,
-                &mut &b"hello\nthere\n"[..],
+                &mut &input[..],
                 driver::Operation::Clean,
                 context_from_path("do/fail"),
             )?
             .expect("filter present");
-        let num_read = std::io::copy(&mut filtered, &mut std::io::sink())?;
+        let mut output = Vec::new();
+        filtered.read_to_end(&mut output)?;
         assert_eq!(
-            num_read, 0,
-            "the example fails right away so no output is produced to stdout"
+            output, input,
+            "a non-required driver failure leaves the input unchanged"
         );
 
         Ok(())
     }
 
-    #[serial]
+    #[test]
+    fn successful_non_required_driver_can_close_stdin_early() -> crate::Result {
+        let mut state = gix_filter::driver::State::default();
+        let mut driver = driver_no_process();
+        driver.required = false;
+        driver.clean = Some({
+            let mut command = driver_path();
+            command.push_str(" take-one");
+            command
+        });
+        let input = vec![b'a'; 1024 * 1024];
+
+        let mut filtered = state
+            .apply(
+                &driver,
+                &mut input.as_slice(),
+                driver::Operation::Clean,
+                context_from_path("ignored"),
+            )?
+            .expect("filter present");
+        let mut output = Vec::new();
+        filtered.read_to_end(&mut output)?;
+        assert_eq!(
+            output, b"a",
+            "a successful filter may intentionally consume only part of its input"
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn smudge_and_clean_series() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
@@ -378,7 +396,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn large_file_with_cat_filter_does_not_hang() -> crate::Result {
         // This test reproduces issue #2080 where using `cat` as a filter with a large file
@@ -431,7 +448,6 @@ pub(crate) mod apply {
         Ok(())
     }
 
-    #[serial]
     #[test]
     fn large_file_with_cat_filter_early_drop() -> crate::Result {
         // Test that dropping the reader early doesn't cause issues (thread cleanup)
@@ -505,4 +521,15 @@ pub(crate) mod apply {
             b"cat".into()
         }
     }
+}
+
+fn driver_path() -> BString {
+    fn quote_driver_path(path: &str) -> BString {
+        let path = gix_path::to_unix_separators_on_windows(BStr::new(path));
+        gix_quote::single(path.as_ref())
+    }
+
+    // Cargo builds binary targets before integration tests and provides their absolute paths.
+    // Invoking Cargo recursively here would race with other nextest processes over the same artifact.
+    quote_driver_path(env!("CARGO_BIN_EXE_gix-filter-test-arrow"))
 }

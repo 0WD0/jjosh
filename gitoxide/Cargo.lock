@@ -1895,6 +1895,7 @@ dependencies = [
  "encoding_rs",
  "gix-attributes",
  "gix-command",
+ "gix-filter",
  "gix-hash",
  "gix-object",
  "gix-packetline",
@@ -1904,7 +1905,6 @@ dependencies = [
  "gix-trace",
  "gix-utils",
  "gix-worktree",
- "serial_test",
  "smallvec",
  "thiserror 2.0.18",
 ]
