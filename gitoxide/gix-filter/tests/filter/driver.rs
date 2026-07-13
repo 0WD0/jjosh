@@ -210,10 +210,7 @@ pub(crate) mod apply {
         let mut filtered = state
             .apply(
                 &driver,
-                // The helper intentionally exits before reading stdin. Keep the input empty so
-                // the observable error is the driver failure, not a scheduling-dependent broken
-                // pipe from the background stdin writer.
-                &mut std::io::empty(),
+                &mut &b"hello\nthere\n"[..],
                 driver::Operation::Smudge,
                 context_from_path("do/fail"),
             )?

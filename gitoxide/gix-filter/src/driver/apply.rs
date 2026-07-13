@@ -307,15 +307,21 @@ impl std::io::Read for ReadFilterOutput {
 
                     // Join the writer thread first to ensure all data has been written
                     // and that resources are freed now.
-                    if let Some(mut write_thread) = self.write_thread.take() {
-                        write_thread.join()?;
-                    }
+                    let write_result = self.write_thread.take().map_or(Ok(()), |mut thread| thread.join());
+                    let required = self.child.is_some();
 
                     if let Some((mut child, cmd)) = self.child.take() {
                         let status = child.wait()?;
                         if !status.success() {
                             return Err(std::io::Error::other(format!("Driver process {cmd:?} failed")));
                         }
+                    }
+
+                    if let Err(err) = write_result {
+                        if required || err.kind() != std::io::ErrorKind::BrokenPipe {
+                            return Err(err);
+                        }
+                        gix_trace::debug!(err = %err, "Ignored broken pipe from a non-required filter driver");
                     }
                 }
                 Ok(num_read)
