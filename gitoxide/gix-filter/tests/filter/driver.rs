@@ -223,23 +223,55 @@ pub(crate) mod apply {
     }
 
     #[test]
-    fn smudge_and_clean_failure_means_nothing_if_required_is_false() -> crate::Result {
+    fn smudge_and_clean_failure_falls_back_to_input_if_required_is_false() -> crate::Result {
         let mut state = gix_filter::driver::State::default();
         let mut driver = driver_no_process();
         driver.required = false;
+        let input = b"hello\nthere\n";
 
         let mut filtered = state
             .apply(
                 &driver,
-                &mut &b"hello\nthere\n"[..],
+                &mut &input[..],
                 driver::Operation::Clean,
                 context_from_path("do/fail"),
             )?
             .expect("filter present");
-        let num_read = std::io::copy(&mut filtered, &mut std::io::sink())?;
+        let mut output = Vec::new();
+        filtered.read_to_end(&mut output)?;
         assert_eq!(
-            num_read, 0,
-            "the example fails right away so no output is produced to stdout"
+            output, input,
+            "a non-required driver failure leaves the input unchanged"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn successful_non_required_driver_can_close_stdin_early() -> crate::Result {
+        let mut state = gix_filter::driver::State::default();
+        let mut driver = driver_no_process();
+        driver.required = false;
+        driver.clean = Some({
+            let mut command = driver_path();
+            command.push_str(" take-one");
+            command
+        });
+        let input = vec![b'a'; 1024 * 1024];
+
+        let mut filtered = state
+            .apply(
+                &driver,
+                &mut input.as_slice(),
+                driver::Operation::Clean,
+                context_from_path("ignored"),
+            )?
+            .expect("filter present");
+        let mut output = Vec::new();
+        filtered.read_to_end(&mut output)?;
+        assert_eq!(
+            output, b"a",
+            "a successful filter may intentionally consume only part of its input"
         );
 
         Ok(())

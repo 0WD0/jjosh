@@ -202,6 +202,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stdout.write_all(line).map(|_| true)?;
             }
         }
+        "take-one" => {
+            let mut byte = [0];
+            stdin().read_exact(&mut byte)?;
+            stdout().write_all(&byte)?;
+        }
         unknown => panic!("Unknown sub-command: {unknown}"),
     }
     Ok(())
