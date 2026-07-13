@@ -83,6 +83,8 @@ pub enum Error {
     #[error(transparent)]
     ConfigTypedString(#[from] key::GenericErrorWithValue),
     #[error(transparent)]
+    ConfigCompression(#[from] key::GenericError),
+    #[error(transparent)]
     RefsNamespace(#[from] refs_namespace::Error),
     #[error("Cannot handle objects formatted as {:?}", .name)]
     UnsupportedObjectFormat { name: BString },
@@ -629,6 +631,8 @@ pub(crate) struct Cache {
     pub(crate) object_cache_bytes: usize,
     /// The maximum size of a single allocation caused by user-controlled on-disk packed object data.
     pub(crate) alloc_limit_bytes: Option<usize>,
+    /// The compression level to use when writing loose objects, from `core.looseCompression` or `core.compression`.
+    pub(crate) loose_compression: gix_zlib::Compression,
     /// The amount of bytes we can hold in our static LRU cache. Otherwise, go with the defaults.
     pub(crate) static_pack_cache_limit_bytes: Option<usize>,
     /// The config section filter from the options used to initialize this instance. Keep these in sync!

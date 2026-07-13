@@ -10,7 +10,7 @@ use std::{
     time::SystemTime,
 };
 
-use crate::store::{RefreshMode, handle, types};
+use crate::store::{IndexCtx, RefreshMode, handle, types};
 
 pub(crate) struct Snapshot {
     /// Indices ready for object lookup or contains checks, ordered usually by modification data, recent ones first.
@@ -65,7 +65,11 @@ impl super::Store {
     /// Load all indices, refreshing from disk only if needed.
     pub(crate) fn load_all_indices(&self) -> Result<Snapshot, Error> {
         let mut snapshot = self.collect_snapshot();
-        while let Some(new_snapshot) = self.load_one_index(RefreshMode::Never, snapshot.marker)? {
+        while let Some(new_snapshot) = self.load_one_index(IndexCtx {
+            refresh_mode: RefreshMode::Never,
+            marker: snapshot.marker,
+            loose_compression: self.loose_compression,
+        })? {
             snapshot = new_snapshot;
         }
         Ok(snapshot)
@@ -75,12 +79,19 @@ impl super::Store {
     /// as here might be no change to pick up.
     pub(crate) fn load_one_index(
         &self,
-        refresh_mode: RefreshMode,
-        marker: types::SlotIndexMarker,
+        IndexCtx {
+            refresh_mode,
+            marker,
+            loose_compression,
+        }: IndexCtx,
     ) -> Result<Option<Snapshot>, Error> {
         let index = self.index.load();
         if !index.is_initialized() {
-            return self.consolidate_with_disk_state(true /* needs_init */, false /*load one new index*/);
+            return self.consolidate_with_disk_state(
+                true,  /* needs_init */
+                false, /* load one new index */
+                loose_compression,
+            );
         }
 
         if marker.generation != index.generation || marker.state_id != index.state_id() {
@@ -95,9 +106,11 @@ impl super::Store {
                 // …and if that didn't yield anything new consider refreshing our disk state.
                 match refresh_mode {
                     RefreshMode::Never => Ok(None),
-                    RefreshMode::AfterAllIndicesLoaded => {
-                        self.consolidate_with_disk_state(false /* needs init */, true /*load one new index*/)
-                    }
+                    RefreshMode::AfterAllIndicesLoaded => self.consolidate_with_disk_state(
+                        false, /* needs init */
+                        true,  /* load one new index */
+                        loose_compression,
+                    ),
                 }
             }
         }
@@ -189,6 +202,7 @@ impl super::Store {
         &self,
         needs_init: bool,
         load_new_index: bool,
+        loose_compression: gix_zlib::Compression,
     ) -> Result<Option<Snapshot>, Error> {
         let index = self.index.load();
         let previous_index_state = Arc::as_ptr(&index) as usize;
@@ -231,7 +245,16 @@ impl super::Store {
             Arc::new(
                 db_paths
                     .iter()
-                    .map(|path| crate::loose::Store::at(path, self.object_hash, self.alloc_limit_bytes))
+                    .map(|path| {
+                        crate::loose::Store::at(
+                            path,
+                            crate::loose::Options {
+                                object_hash: self.object_hash,
+                                alloc_limit_bytes: self.alloc_limit_bytes,
+                                compression: loose_compression,
+                            },
+                        )
+                    })
                     .collect::<Vec<_>>(),
             )
         } else {

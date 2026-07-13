@@ -18,6 +18,12 @@ pub struct Options {
     /// entries into decoded object and delta result buffers to write the index.
     /// `Some(0)` rejects all non-empty allocations.
     pub alloc_limit_bytes: Option<usize>,
+    /// The compression level to use when deflating base objects that are added to the pack to complete a thin pack.
+    ///
+    /// Defaults to [`Compression::BEST_SPEED`](gix_zlib::Compression::BEST_SPEED) - `git` compresses
+    /// these with the same level it uses for loose objects, which is `core.looseCompression` or
+    /// `core.compression`, or level 1 if neither is set.
+    pub compression: gix_zlib::Compression,
 }
 
 impl Default for Options {
@@ -29,6 +35,7 @@ impl Default for Options {
             index_version: Default::default(),
             object_hash: Default::default(),
             alloc_limit_bytes: None,
+            compression: gix_zlib::Compression::BEST_SPEED,
         }
     }
 }

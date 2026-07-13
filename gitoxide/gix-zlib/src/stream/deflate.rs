@@ -1,6 +1,6 @@
 //! Compression state and a [`std::io::Write`] adapter for producing zlib streams.
 
-use crate::Status;
+use crate::{Compression, Status};
 use zlib_rs::DeflateError;
 
 const BUF_SIZE: usize = 4096 * 8;
@@ -10,6 +10,7 @@ const BUF_SIZE: usize = 4096 * 8;
 /// Be sure to call `flush()` when done to finalize the deflate stream.
 pub struct Write<W> {
     compressor: Compress,
+    compression: Compression,
     inner: W,
     buf: [u8; BUF_SIZE],
 }
@@ -20,7 +21,8 @@ where
 {
     fn clone(&self) -> Self {
         Write {
-            compressor: impls::new_compress(),
+            compressor: impls::new_compress(self.compression),
+            compression: self.compression,
             inner: self.inner.clone(),
             buf: self.buf,
         }
@@ -29,12 +31,6 @@ where
 
 /// Hold all state needed for compressing data.
 pub struct Compress(zlib_rs::Deflate);
-
-impl Default for Compress {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl Compress {
     /// The number of bytes that were read from the input.
@@ -47,9 +43,9 @@ impl Compress {
         self.0.total_out()
     }
 
-    /// Create a new instance - this allocates so should be done with care.
-    pub fn new() -> Self {
-        let config = zlib_rs::DeflateConfig::best_speed();
+    /// Create a new instance compressing with `level` - this allocates so should be done with care.
+    pub fn new(level: Compression) -> Self {
+        let config = zlib_rs::DeflateConfig::new(level.level());
         let header = true;
         let inner = zlib_rs::Deflate::new(config.level, header, config.window_bits as u8);
         Self(inner)
@@ -148,21 +144,22 @@ pub enum FlushCompress {
 mod impls {
     use std::io;
 
-    use crate::Status;
     use crate::stream::deflate::{self, Compress, FlushCompress};
+    use crate::{Compression, Status};
 
-    pub(crate) fn new_compress() -> Compress {
-        Compress::new()
+    pub(crate) fn new_compress(level: Compression) -> Compress {
+        Compress::new(level)
     }
 
     impl<W> deflate::Write<W>
     where
         W: io::Write,
     {
-        /// Create a new instance writing compressed bytes to `inner`.
-        pub fn new(inner: W) -> deflate::Write<W> {
+        /// Create a new instance writing bytes compressed with `level` to `inner`.
+        pub fn new(inner: W, level: Compression) -> deflate::Write<W> {
             deflate::Write {
-                compressor: new_compress(),
+                compressor: new_compress(level),
+                compression: level,
                 inner,
                 buf: [0; deflate::BUF_SIZE],
             }

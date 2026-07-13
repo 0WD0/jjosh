@@ -130,14 +130,22 @@ impl output::Entry {
         })
     }
 
-    /// Create a new instance from the given `oid` and its corresponding git object data `obj`.
-    pub fn from_data(count: &output::Count, obj: &gix_object::Data<'_>) -> Result<Self, Error> {
+    /// Create a new instance from the given `oid` and its corresponding git object data `obj`,
+    /// deflating it with `compression`.
+    ///
+    /// Note that `git` compresses pack entries with the level configured with `pack.compression`,
+    /// whose default is [`Compression::DEFAULT`](gix_zlib::Compression::DEFAULT).
+    pub fn from_data(
+        count: &output::Count,
+        obj: &gix_object::Data<'_>,
+        compression: gix_zlib::Compression,
+    ) -> Result<Self, Error> {
         Ok(output::Entry {
             id: count.id.to_owned(),
             kind: Kind::Base(obj.kind),
             decompressed_size: obj.data.len(),
             compressed_data: {
-                let mut out = gix_zlib::stream::deflate::Write::new(Vec::new());
+                let mut out = gix_zlib::stream::deflate::Write::new(Vec::new(), compression);
                 if let Err(err) = std::io::copy(&mut &*obj.data, &mut out) {
                     match err.kind() {
                         std::io::ErrorKind::Other => return Err(Error::ZlibDeflate(err)),

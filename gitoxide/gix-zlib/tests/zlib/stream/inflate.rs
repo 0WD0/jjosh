@@ -21,7 +21,7 @@ fn errors_keep_the_underlying_cause() {
 }
 
 fn deflated(data: &[u8]) -> Vec<u8> {
-    let mut out = deflate::Write::new(Vec::new());
+    let mut out = deflate::Write::new(Vec::new(), gix_zlib::Compression::BEST_SPEED);
     out.write_all(data).expect("in-memory writes never fail");
     out.flush().expect("in-memory flushes never fail");
     out.into_inner()

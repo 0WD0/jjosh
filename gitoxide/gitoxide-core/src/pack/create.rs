@@ -108,7 +108,9 @@ where
 {
     type ObjectIdIter = dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync>>> + Send;
 
-    let repo = gix::discover(repository_path)?.into_sync();
+    let repo = gix::discover(repository_path)?;
+    let pack_compression = repo.pack_compression()?;
+    let repo = repo.into_sync();
     progress.init(Some(2), progress::steps());
     let tips = tips.into_iter();
     let make_cancellation_err = || anyhow!("Cancelled by user");
@@ -233,6 +235,7 @@ where
                 allow_thin_pack: thin,
                 chunk_size,
                 version: Default::default(),
+                compression: pack_compression,
             },
         ))
     };

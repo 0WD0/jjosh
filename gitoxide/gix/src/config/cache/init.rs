@@ -158,6 +158,7 @@ impl Cache {
         let object_kind_hint = util::disambiguate_hint(&config, lenient_config)?;
         let (static_pack_cache_limit_bytes, pack_cache_bytes, object_cache_bytes, alloc_limit_bytes) =
             util::parse_object_caches(&config, lenient_config, filter_config_section)?;
+        let loose_compression = super::access::loose_compression(&config, lenient_config, filter_config_section)?;
         // NOTE: When adding a new initial cache, consider adjusting `reread_values_and_clear_caches()` as well.
         Ok(Cache {
             resolved: config.into(),
@@ -169,6 +170,7 @@ impl Cache {
             pack_cache_bytes,
             object_cache_bytes,
             alloc_limit_bytes,
+            loose_compression,
             reflog,
             refs_namespace,
             is_bare,
@@ -248,6 +250,9 @@ impl Cache {
             self.object_cache_bytes,
             self.alloc_limit_bytes,
         ) = util::parse_object_caches(config, self.lenient_config, self.filter_config_section)?;
+        let loose_compression =
+            super::access::loose_compression(config, self.lenient_config, self.filter_config_section)?;
+        self.loose_compression = loose_compression;
         #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
         {
             self.url_scheme = Default::default();
@@ -288,18 +293,29 @@ impl crate::Repository {
         &mut self,
         config: crate::Config,
     ) -> Result<(), Error> {
-        let (a, b, c) = (
+        let (
+            previous_static_pack_cache_limit_bytes,
+            previous_pack_cache_bytes,
+            previous_object_cache_bytes,
+            previous_loose_compression,
+        ) = (
             self.config.static_pack_cache_limit_bytes,
             self.config.pack_cache_bytes,
             self.config.object_cache_bytes,
+            self.config.loose_compression,
         );
         self.config.reread_values_and_clear_caches_replacing_config(config)?;
         self.apply_changed_values();
-        if a != self.config.static_pack_cache_limit_bytes
-            || b != self.config.pack_cache_bytes
-            || c != self.config.object_cache_bytes
+        if previous_static_pack_cache_limit_bytes != self.config.static_pack_cache_limit_bytes
+            || previous_pack_cache_bytes != self.config.pack_cache_bytes
+            || previous_object_cache_bytes != self.config.object_cache_bytes
         {
             setup_objects(&mut self.objects, &self.config);
+        }
+        if previous_loose_compression != self.config.loose_compression {
+            // This will only affect newly opened object databases.
+            // This is fine for now, it's not expected to be changed at runtime.
+            self.objects.loose_compression = self.config.loose_compression;
         }
         Ok(())
     }

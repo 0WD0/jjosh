@@ -101,6 +101,7 @@ impl crate::Bundle {
                         object_hash,
                     )?,
                     thin_pack_lookup,
+                    options.compression,
                 );
                 let pack_version = pack_entries_iter.inner.version();
                 let pack_entries_iter = data::input::EntriesToBytesIter::new(
@@ -209,6 +210,7 @@ impl crate::Bundle {
                         object_hash,
                     )?,
                     thin_pack_lookup,
+                    options.compression,
                 );
                 let pack_kind = pack_entries_iter.inner.version();
                 (Box::new(pack_entries_iter), pack_kind)
@@ -270,6 +272,7 @@ impl crate::Bundle {
             index_version: index_kind,
             object_hash,
             alloc_limit_bytes,
+            compression: _,
         }: Options,
         data_file: SharedTempFile,
         mut pack_entries_iter: Box<dyn Iterator<Item = Result<data::input::Entry, data::input::Error>> + 'a>,

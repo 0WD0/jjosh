@@ -169,6 +169,7 @@ mod write_to_directory {
                 index_version: pack::index::Version::V2,
                 object_hash: gix_hash::Kind::Sha1,
                 alloc_limit_bytes: prevent_allocation,
+                compression: gix_zlib::Compression::BEST_SPEED,
             },
         )
         .expect_err("a zero allocation limit rejects the first non-empty decoded object");
@@ -203,6 +204,7 @@ mod write_to_directory {
                 index_version: pack::index::Version::V2,
                 object_hash: gix_hash::Kind::Sha1,
                 alloc_limit_bytes: None,
+                compression: gix_zlib::Compression::BEST_SPEED,
             },
         )
         .map_err(Into::into)

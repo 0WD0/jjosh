@@ -163,7 +163,7 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker)? {
+            match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                 Some(new_snapshot) => {
                     drop(snapshot);
                     *self.snapshot.borrow_mut() = new_snapshot;

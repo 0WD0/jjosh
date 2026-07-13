@@ -83,6 +83,7 @@ pub fn from_pack(
         index_version: pack::index::Version::default(),
         object_hash: ctx.object_hash,
         alloc_limit_bytes: None,
+        compression: gix::zlib::Compression::BEST_SPEED,
     };
     let out = ctx.out;
     let format = ctx.format;

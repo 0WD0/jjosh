@@ -104,6 +104,50 @@ mod keys {
     }
 }
 
+mod compression {
+    use gix::config::tree::Key;
+
+    #[test]
+    fn validate_and_convert() {
+        for key in [
+            &gix::config::tree::Core::COMPRESSION,
+            &gix::config::tree::Core::LOOSE_COMPRESSION,
+            &gix::config::tree::Pack::COMPRESSION,
+        ] {
+            for valid in -1..=9 {
+                assert!(key.validate(valid.to_string().as_str().into()).is_ok());
+            }
+            for invalid in [-2, 10, 100] {
+                assert!(key.validate(invalid.to_string().as_str().into()).is_err());
+            }
+        }
+
+        assert_eq!(
+            gix::config::tree::Core::COMPRESSION
+                .try_into_compression(Ok(-1))
+                .expect("git maps -1 to the zlib default"),
+            gix::zlib::Compression::DEFAULT
+        );
+        assert_eq!(
+            gix::config::tree::Core::COMPRESSION
+                .try_into_compression(Ok(1))
+                .unwrap(),
+            gix::zlib::Compression::BEST_SPEED
+        );
+        assert_eq!(
+            gix::config::tree::Pack::COMPRESSION
+                .try_into_compression(Ok(9))
+                .unwrap(),
+            gix::zlib::Compression::BEST
+        );
+        assert!(
+            gix::config::tree::Pack::COMPRESSION
+                .try_into_compression(Ok(10))
+                .is_err()
+        );
+    }
+}
+
 mod branch {
     use gix::config::tree::{Branch, Key, branch};
 

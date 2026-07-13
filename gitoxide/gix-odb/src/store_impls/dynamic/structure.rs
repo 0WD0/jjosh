@@ -55,7 +55,7 @@ impl Store {
         let _span = gix_features::trace::detail!("gix_odb::Store::structure()");
         let index = self.index.load();
         if !index.is_initialized() {
-            self.consolidate_with_disk_state(true, false /*load one new index*/)?;
+            self.consolidate_with_disk_state(true, false /*load one new index*/, self.loose_compression)?;
         }
         let index = self.index.load();
         let mut res: Vec<_> = index
@@ -103,7 +103,7 @@ impl Store {
     pub fn alternate_db_paths(&self) -> Result<Vec<PathBuf>, load_index::Error> {
         let index = self.index.load();
         if !index.is_initialized() {
-            self.consolidate_with_disk_state(true, false /*load one new index*/)?;
+            self.consolidate_with_disk_state(true, false /*load one new index*/, self.loose_compression)?;
         }
         let index = self.index.load();
         Ok(index

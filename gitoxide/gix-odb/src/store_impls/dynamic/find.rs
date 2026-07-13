@@ -129,7 +129,7 @@ where
                                 }
                                 None => {
                                     // The pack wasn't available anymore so we are supposed to try another round with a fresh index
-                                    match self.store.load_one_index(self.refresh, snapshot.marker)? {
+                                    match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                                         Some(new_snapshot) => {
                                             *snapshot = new_snapshot;
                                             self.clear_cache();
@@ -297,7 +297,7 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker)? {
+            match self.store.load_one_index(self.index_ctx(snapshot.marker))? {
                 Some(new_snapshot) => {
                     *snapshot = new_snapshot;
                     self.clear_cache();
@@ -335,7 +335,7 @@ where
                 }
             }
 
-            match self.store.load_one_index(self.refresh, snapshot.marker) {
+            match self.store.load_one_index(self.index_ctx(snapshot.marker)) {
                 Ok(Some(new_snapshot)) => {
                     *snapshot = new_snapshot;
                     self.clear_cache();
@@ -390,7 +390,7 @@ where
                                 }
                                 None => {
                                     // The pack wasn't available anymore so we are supposed to try another round with a fresh index
-                                    match self.store.load_one_index(self.refresh, snapshot.marker).ok()? {
+                                    match self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()? {
                                         Some(new_snapshot) => {
                                             *snapshot = new_snapshot;
                                             self.clear_cache();
@@ -434,7 +434,7 @@ where
             }
 
             {
-                let new_snapshot = self.store.load_one_index(self.refresh, snapshot.marker).ok()??;
+                let new_snapshot = self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()??;
                 *snapshot = new_snapshot;
                 self.clear_cache();
             }
@@ -458,7 +458,7 @@ where
             }
 
             {
-                let new_snapshot = self.store.load_one_index(self.refresh, snapshot.marker).ok()??;
+                let new_snapshot = self.store.load_one_index(self.index_ctx(snapshot.marker)).ok()??;
                 drop(snapshot);
                 *self.snapshot.borrow_mut() = new_snapshot;
             }

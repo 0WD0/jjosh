@@ -122,7 +122,7 @@ impl super::Store {
         let _span = gix_features::trace::coarse!("gix_odb:Store::verify_integrity()");
         let mut index = self.index.load();
         if !index.is_initialized() {
-            self.consolidate_with_disk_state(true, false)?;
+            self.consolidate_with_disk_state(true, false, self.loose_compression)?;
             index = self.index.load();
             assert!(
                 index.is_initialized(),

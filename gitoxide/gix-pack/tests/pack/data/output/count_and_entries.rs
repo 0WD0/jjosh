@@ -367,6 +367,78 @@ fn traversals() -> crate::Result {
     Ok(())
 }
 
+/// Reproduces https://github.com/GitoxideLabs/gitoxide/issues/2024: with the default backend's
+/// level 1 being much weaker than it used to be, entries have to be compressed with the
+/// configured level, defaulting to what `git` uses.
+#[test]
+fn entry_sizes_depend_on_compression_level() -> crate::Result {
+    use gix_object::WriteTo;
+    let (tree_id, buf) = {
+        // Deterministic pseudo-random bytes (xorshift64*), so tree content is stable across runs.
+        struct Rng(u64);
+        impl Rng {
+            fn next_byte(&mut self) -> u8 {
+                self.0 ^= self.0 >> 12;
+                self.0 ^= self.0 << 25;
+                self.0 ^= self.0 >> 27;
+                (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 56) as u8
+            }
+        }
+        let mut rng = Rng(0x2024);
+        let mut files = (0..1500)
+            .map(|_| {
+                use std::fmt::Write;
+                (0..10).fold(String::new(), |mut buf, _| {
+                    write!(buf, "{:02x}", rng.next_byte()).expect("writing to a string never fails");
+                    buf
+                })
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+        files.dedup();
+
+        let blob_id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, b"xoxo")?;
+        let tree = gix_object::Tree {
+            entries: files
+                .iter()
+                .map(|name| gix_object::tree::Entry {
+                    mode: gix_object::tree::EntryKind::Blob.into(),
+                    oid: blob_id,
+                    filename: name.as_str().into(),
+                })
+                .collect(),
+        };
+        let mut buf = Vec::new();
+        tree.write_to(&mut buf)?;
+        let tree_id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf)?;
+        (tree_id, buf)
+    };
+
+    let entry_size = |compression| -> Result<usize, output::entry::Error> {
+        Ok(output::Entry::from_data(
+            &output::Count::from_data(tree_id, None),
+            &gix_object::Data::new(&buf, gix_object::Kind::Tree, gix_hash::Kind::Sha1),
+            compression,
+        )?
+        .compressed_data
+        .len())
+    };
+
+    use gix_zlib::Compression;
+    let default = entry_size(Compression::DEFAULT)?;
+    let fastest = entry_size(Compression::BEST_SPEED)?;
+    let none = entry_size(Compression::NONE)?;
+    assert!(
+        default < 25_000,
+        "the default compression level keeps this ~72KB tree below the issue's regression threshold: {default}"
+    );
+    assert!(
+        none > fastest && fastest >= default,
+        "higher levels compress at least as well as lower ones: none={none} fastest={fastest} default={default}"
+    );
+    Ok(())
+}
+
 #[test]
 #[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
 fn empty_pack_is_allowed() {

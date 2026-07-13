@@ -1,6 +1,46 @@
 #![deny(missing_docs)]
 //! Streaming compression and decompression utilities used by gitoxide.
 
+/// The compression level to use for zlib-based streams, in the range from 0 (no compression)
+/// to 9 (best compression, slowest).
+///
+/// Note that `git` maps its configured level of `-1` to the zlib default, which is level 6
+/// and available as [`Compression::DEFAULT`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Compression(i32);
+
+impl Compression {
+    /// Do not compress at all, while still producing a valid zlib stream.
+    pub const NONE: Compression = Compression(0);
+    /// The fastest compression, with the lowest compression ratio, also known as level 1.
+    ///
+    /// This is what `git` uses for loose objects unless configured otherwise with `core.looseCompression`.
+    pub const BEST_SPEED: Compression = Compression(1);
+    /// The default compromise between speed and compression ratio, also known as level 6.
+    ///
+    /// This is what `git` uses when writing packs unless configured otherwise with `pack.compression`.
+    pub const DEFAULT: Compression = Compression(6);
+    /// The best compression ratio at the expense of speed, also known as level 9.
+    pub const BEST: Compression = Compression(9);
+
+    /// Create a new instance from `level` if it is within the valid range from 0 to 9, inclusive.
+    pub fn new(level: i32) -> Option<Self> {
+        (0..=9).contains(&level).then_some(Compression(level))
+    }
+
+    /// Return the compression level as integer in the range from 0 to 9, inclusive.
+    pub fn level(&self) -> i32 {
+        self.0
+    }
+}
+
+impl Default for Compression {
+    fn default() -> Self {
+        Compression::DEFAULT
+    }
+}
+
 /// A type to hold all state needed for decompressing a ZLIB encoded stream.
 pub struct Decompress(zlib_rs::Inflate);
 
