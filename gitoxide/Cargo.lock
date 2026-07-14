@@ -2594,6 +2594,7 @@ dependencies = [
  "bstr",
  "fastrand",
  "getrandom 0.4.3",
+ "gix-utils",
  "unicode-normalization",
 ]
 

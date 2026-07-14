@@ -29,3 +29,6 @@ unicode-normalization = { version = "0.1.19", default-features = false }
 # best-effort seed (see `src/rng.rs`).
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 getrandom = "0.4"
+
+[dev-dependencies]
+gix-utils = { path = ".", features = ["bstr" ]}
