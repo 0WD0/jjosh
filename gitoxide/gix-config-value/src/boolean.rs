@@ -49,6 +49,14 @@ impl TryFrom<&BStr> for Boolean {
     }
 }
 
+impl TryFrom<&str> for Boolean {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(value))
+    }
+}
+
 impl Boolean {
     /// Return true if the boolean is a true value.
     ///
@@ -62,6 +70,13 @@ impl TryFrom<Cow<'_, BStr>> for Boolean {
     type Error = Error;
     fn try_from(c: Cow<'_, BStr>) -> Result<Self, Self::Error> {
         Self::try_from(c.as_ref())
+    }
+}
+
+impl TryFrom<BString> for Boolean {
+    type Error = Error;
+    fn try_from(value: BString) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(&value))
     }
 }
 

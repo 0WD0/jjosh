@@ -1,3 +1,15 @@
+use gix_config_value::Color;
+
+#[test]
+fn from_utf8_str() -> crate::Result {
+    assert_eq!(
+        Color::try_from("red bold")?.to_string(),
+        "red bold",
+        "UTF-8 strings use the same color parser as byte strings"
+    );
+    Ok(())
+}
+
 mod name {
     use std::str::FromStr;
 

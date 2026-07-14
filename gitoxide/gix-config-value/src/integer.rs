@@ -84,6 +84,14 @@ impl TryFrom<&BStr> for Integer {
     }
 }
 
+impl TryFrom<&str> for Integer {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(value))
+    }
+}
+
 impl TryFrom<Cow<'_, BStr>> for Integer {
     type Error = Error;
 
@@ -92,14 +100,24 @@ impl TryFrom<Cow<'_, BStr>> for Integer {
     }
 }
 
+impl TryFrom<BString> for Integer {
+    type Error = Error;
+
+    fn try_from(value: BString) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(&value))
+    }
+}
+
 /// Integer suffixes that are supported by `git-config`.
 ///
 /// These values are base-2 unit of measurements, not the base-10 variants.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-#[allow(missing_docs)]
 pub enum Suffix {
+    /// Multiply the value by 2^10.
     Kibi,
+    /// Multiply the value by 2^20.
     Mebi,
+    /// Multiply the value by 2^30.
     Gibi,
 }
 

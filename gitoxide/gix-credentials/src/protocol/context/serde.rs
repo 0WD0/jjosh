@@ -139,7 +139,9 @@ pub mod decode {
                     "url" => *url = Some(value),
                     "path" => *path = Some(value),
                     "quit" => {
-                        *quit = gix_config_value::Boolean::try_from(value.as_ref()).ok().map(Into::into);
+                        *quit = gix_config_value::Boolean::try_from(value.as_bstr())
+                            .ok()
+                            .map(Into::into);
                     }
                     _ => {}
                 }
