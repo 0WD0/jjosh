@@ -25,7 +25,7 @@ impl IsActivePlatform {
     /// * it's active if it has any `url` set in `config`
     pub fn is_active(
         &mut self,
-        config: &gix_config::File<'static>,
+        config: &gix_config::File,
         name: &BStr,
         attributes: &mut dyn FnMut(
             &BStr,
@@ -34,7 +34,7 @@ impl IsActivePlatform {
             &mut gix_pathspec::attributes::search::Outcome,
         ) -> bool,
     ) -> Result<bool, gix_config::value::Error> {
-        if let Some(val) = config.boolean(&format!("submodule.{name}.active")).transpose()? {
+        if let Some(val) = config.boolean(&format!("submodule.{name}.active"))? {
             return Ok(val);
         }
         if let Some(val) = self.search.as_mut().map(|search| {

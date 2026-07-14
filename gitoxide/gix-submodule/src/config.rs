@@ -55,20 +55,19 @@ impl FetchRecurse {
     /// Check if `boolean` is set and translate it the respective variant, or check the underlying string
     /// value for non-boolean options.
     /// On error, it returns the obtained string value which would be the invalid value.
-    pub fn new(boolean: Result<bool, gix_config::value::Error>) -> Result<Self, BString> {
+    pub fn new(boolean: Result<Option<bool>, gix_config::value::Error>) -> Result<Option<Self>, BString> {
         Ok(match boolean {
-            Ok(value) => {
-                if value {
-                    FetchRecurse::Always
-                } else {
-                    FetchRecurse::Never
-                }
-            }
+            Ok(Some(value)) => Some(if value {
+                FetchRecurse::Always
+            } else {
+                FetchRecurse::Never
+            }),
+            Ok(None) => None,
             Err(err) => {
                 if err.input != "on-demand" {
                     return Err(err.input);
                 }
-                FetchRecurse::OnDemand
+                Some(FetchRecurse::OnDemand)
             }
         })
     }
