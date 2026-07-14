@@ -19,13 +19,13 @@ use unix::imp;
 mod imp {
     use crate::{Error, Options};
 
-    pub(crate) fn ask(_prompt: &str, _opts: &Options<'_>) -> Result<String, Error> {
+    pub(crate) fn ask(_prompt: &str, _opts: &Options) -> Result<String, Error> {
         Err(Error::UnsupportedPlatform)
     }
 }
 
 /// Ask the user given a `prompt`, returning the result.
-pub fn ask(prompt: &str, opts: &Options<'_>) -> Result<String, Error> {
+pub fn ask(prompt: &str, opts: &Options) -> Result<String, Error> {
     if let Some(askpass) = opts.askpass.as_deref() {
         match gix_command::prepare(askpass).arg(prompt).spawn() {
             Ok(cmd) => {

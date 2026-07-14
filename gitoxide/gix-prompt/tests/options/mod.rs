@@ -1,5 +1,5 @@
 mod apply_environment {
-    use std::{borrow::Cow, path::Path};
+    use std::path::{Path, PathBuf};
 
     use gix_prompt::{Mode, Options};
     use gix_testtools::Env;
@@ -14,13 +14,12 @@ mod apply_environment {
 
         assert_eq!(
             Options {
-                askpass: Some(Cow::Borrowed(Path::new("current"))),
+                askpass: Some(PathBuf::from("current")),
                 ..Default::default()
             }
             .apply_environment(true, true, false)
             .askpass
-            .expect("set")
-            .as_ref(),
+            .expect("set"),
             Path::new("override")
         );
     }
@@ -36,8 +35,7 @@ mod apply_environment {
             Options::default()
                 .apply_environment(true, true, false)
                 .askpass
-                .expect("set")
-                .as_ref(),
+                .expect("set"),
             Path::new("from-env")
         );
     }
@@ -54,8 +52,7 @@ mod apply_environment {
             }
             .apply_environment(true, true, false)
             .askpass
-            .expect("set")
-            .as_ref(),
+            .expect("set"),
             Path::new("fallback")
         );
     }
@@ -67,13 +64,12 @@ mod apply_environment {
 
         assert_eq!(
             Options {
-                askpass: Some(Cow::Borrowed(Path::new("current"))),
+                askpass: Some(PathBuf::from("current")),
                 ..Default::default()
             }
             .apply_environment(true, true, false)
             .askpass
-            .expect("set")
-            .as_ref(),
+            .expect("set"),
             Path::new("current")
         );
     }

@@ -1,7 +1,8 @@
-use std::{borrow::Cow, io};
+use std::io;
 
 use bstr::{BString, ByteSlice};
 use gix_protocol::{
+    command::Feature,
     fetch::{Arguments, Response},
     handshake,
 };
@@ -61,7 +62,7 @@ impl DelegateBlocking for CloneDelegate {
         &mut self,
         _version: gix_transport::Protocol,
         _server: &Capabilities,
-        _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+        _features: &mut Vec<Feature>,
         _refs: &[handshake::Ref],
     ) -> io::Result<Action> {
         if _refs.is_empty() {
@@ -112,7 +113,7 @@ impl DelegateBlocking for CloneRefInWantDelegate {
         &mut self,
         _version: gix_transport::Protocol,
         _server: &Capabilities,
-        _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+        _features: &mut Vec<Feature>,
         refs: &[handshake::Ref],
     ) -> io::Result<Action> {
         refs.clone_into(&mut self.refs);
@@ -153,7 +154,7 @@ impl DelegateBlocking for LsRemoteDelegate {
         &mut self,
         _version: gix_transport::Protocol,
         _server: &Capabilities,
-        _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+        _features: &mut Vec<Feature>,
         refs: &[handshake::Ref],
     ) -> io::Result<Action> {
         refs.clone_into(&mut self.refs);

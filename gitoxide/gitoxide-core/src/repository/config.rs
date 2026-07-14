@@ -24,7 +24,7 @@ pub fn list(
     let mut last_meta = None;
     let mut it = config.sections_and_postmatter().peekable();
     while let Some((section, matter)) = it.next() {
-        if !filters.is_empty() && !filters.iter().any(|filter| filter.matches_section(section)) {
+        if !filters.is_empty() && !filters.iter().any(|filter| filter.matches_section(&section)) {
             continue;
         }
 
@@ -67,7 +67,7 @@ impl Filter {
         }
     }
 
-    fn matches_section(&self, section: &gix::config::file::Section<'_>) -> bool {
+    fn matches_section(&self, section: &gix::config::file::SectionRef<'_>) -> bool {
         let ignore_case = gix::glob::wildmatch::Mode::IGNORE_CASE;
 
         if !gix::glob::wildmatch(self.name.as_bytes().into(), section.header().name(), ignore_case) {
