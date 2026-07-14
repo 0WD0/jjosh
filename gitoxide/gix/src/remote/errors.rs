@@ -14,8 +14,6 @@ pub mod find {
             remote_name: BString,
             source: config::refspec::Error,
         },
-        #[error("Neither 'url` nor 'pushUrl' fields were set in the remote's configuration.")]
-        UrlMissing,
         #[error("The {kind} url under `remote.{remote_name}` was invalid")]
         Url {
             kind: &'static str,

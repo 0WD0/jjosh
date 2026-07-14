@@ -7,6 +7,9 @@ impl crate::Repository {
     /// It's configured to fetch included tags by default, similar to git.
     /// See [`with_fetch_tags(…)`][Remote::with_fetch_tags()] for a way to change it.
     ///
+    /// URL rewrite rules are applied immediately. A malformed `pushInsteadOf` result is ignored when this fetch URL is merely
+    /// used as the push fallback, keeping the original URL usable; malformed `insteadOf` results are reported as errors.
+    ///
     /// # Examples
     ///
     /// ```
@@ -101,6 +104,13 @@ impl crate::Repository {
     ///
     /// There are various error kinds related to partial information or incorrectly formatted URLs or ref-specs.
     /// Also note that the created `Remote` may have neither fetch nor push ref-specs set at all.
+    /// A configured remote without an effective fetch URL uses its requested name as the fetch URL, matching Git. This
+    /// includes remotes whose URL list was cleared by an empty value and remotes configured only with a push URL.
+    ///
+    /// URL rewrite rules are applied while constructing the remote. A malformed `pushInsteadOf` result is ignored when a fetch
+    /// URL is used as the push fallback, keeping the original URL usable. Malformed `insteadOf` results for fetch URLs or explicit
+    /// push URLs are reported as errors. Use [`try_find_remote_without_url_rewrite()`](Self::try_find_remote_without_url_rewrite)
+    /// with [`Remote::rewrite_urls()`] to defer rewriting and handle such errors after constructing the remote.
     ///
     /// Note that ref-specs are de-duplicated right away which may change their order. This doesn't affect matching in any way
     /// as negations/excludes are applied after includes.
@@ -194,20 +204,45 @@ impl crate::Repository {
 
         let mut filter = self.filter_config_section();
         let name_or_url = name_or_url.into();
-        let mut config_url = |key: &'static config::tree::keys::Url, kind: &'static str| {
+        // Git considers any matching remote section configured, even if it only contains unrelated keys like `prune`.
+        let remote_is_configured = self
+            .config
+            .resolved
+            .sections_by_name("remote")
+            .is_some_and(|mut sections| {
+                sections
+                    .any(|section| section.header().subsection_name() == Some(name_or_url) && filter(section.meta()))
+            });
+        let mut config_urls = |key: &'static config::tree::keys::Url, kind: &'static str| {
             self.config
                 .resolved
-                .string_filter(&format!("remote.{}.{}", name_or_url, key.name), &mut filter)
-                .map(|url| {
-                    key.try_into_url(url).map_err(|err| find::Error::Url {
-                        kind,
-                        remote_name: name_or_url.into(),
-                        source: err,
-                    })
+                .strings_filter(&format!("remote.{}.{}", name_or_url, key.name), &mut filter)
+                .map(|urls| {
+                    let mut effective_urls = Vec::new();
+                    for url in urls {
+                        if url.is_empty() {
+                            // empty urls are a sentinel, indicating all prior urls should be cleared.
+                            // This makes overriding global remote configuration possible.
+                            effective_urls.clear();
+                        } else {
+                            effective_urls.push(url);
+                        }
+                    }
+
+                    effective_urls
+                        .into_iter()
+                        .map(|url| {
+                            key.try_into_url(url).map_err(|err| find::Error::Url {
+                                kind,
+                                remote_name: name_or_url.into(),
+                                source: err,
+                            })
+                        })
+                        .collect()
                 })
         };
-        let url = config_url(&config::tree::Remote::URL, "fetch");
-        let push_url = config_url(&config::tree::Remote::PUSH_URL, "push");
+        let urls = config_urls(&config::tree::Remote::URL, "fetch");
+        let push_urls = config_urls(&config::tree::Remote::PUSH_URL, "push");
         let config = &self.config.resolved;
 
         let fetch_specs = config
@@ -243,19 +278,18 @@ impl crate::Repository {
             None => Default::default(),
         };
 
-        match (url, fetch_specs, push_url, push_specs) {
-            (None, None, None, None) => None,
-            (None, _, None, _) => Some(Err(find::Error::UrlMissing)),
-            (url, fetch_specs, push_url, push_specs) => {
-                let url = match url {
-                    Some(Ok(v)) => Some(v),
+        match (urls, fetch_specs, push_urls, push_specs) {
+            (None, None, None, None) if !remote_is_configured => None,
+            (urls, fetch_specs, push_urls, push_specs) => {
+                let mut urls = match urls {
+                    Some(Ok(v)) => v,
                     Some(Err(err)) => return Some(Err(err)),
-                    None => None,
+                    None => Vec::new(),
                 };
-                let push_url = match push_url {
-                    Some(Ok(v)) => Some(v),
+                let push_urls = match push_urls {
+                    Some(Ok(v)) => v,
                     Some(Err(err)) => return Some(Err(err)),
-                    None => None,
+                    None => Vec::new(),
                 };
                 let fetch_specs = match fetch_specs {
                     Some(Ok(v)) => v,
@@ -267,12 +301,27 @@ impl crate::Repository {
                     Some(Err(err)) => return Some(Err(err)),
                     None => Vec::new(),
                 };
+                if urls.is_empty() {
+                    // Git makes an explicitly requested remote usable by treating its name as the missing fetch URL.
+                    let fallback = match config::tree::Remote::URL.try_into_url(std::borrow::Cow::Borrowed(name_or_url))
+                    {
+                        Ok(url) => url,
+                        Err(source) => {
+                            return Some(Err(find::Error::Url {
+                                kind: "fetch",
+                                remote_name: name_or_url.into(),
+                                source,
+                            }));
+                        }
+                    };
+                    urls.push(fallback);
+                }
 
                 Some(
                     Remote::from_preparsed_config(
                         Some(name_or_url.to_owned()),
-                        url,
-                        push_url,
+                        urls,
+                        push_urls,
                         fetch_specs,
                         push_specs,
                         rewrite_urls,

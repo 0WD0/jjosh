@@ -38,12 +38,15 @@ impl Remote<'_> {
         }
         let name = self.name().ok_or_else(|| Error::NameMissing {
             url: self
-                .url
-                .as_ref()
-                .or(self.push_url.as_ref())
+                .urls
+                .first()
+                .or_else(|| self.push_urls.first())
                 .expect("one url is always set")
                 .to_owned(),
         })?;
+        let target_meta = config.meta().clone();
+        let mut needs_url_reset = false;
+        let mut needs_push_url_reset = false;
         if let Some(section_ids) = config.sections_and_ids_by_name("remote").map(|it| {
             it.filter_map(|(s, id)| (s.header().subsection_name() == Some(name.as_bstr())).then_some(id))
                 .collect::<Vec<_>>()
@@ -59,6 +62,15 @@ impl Remote<'_> {
             for id in section_ids {
                 let mut section = config.section_mut_by_id(id).expect("just queried");
                 let was_empty = section.num_values() == 0;
+                let url_values = section.values(config::tree::Remote::URL.name);
+                let push_url_values = section.values(config::tree::Remote::PUSH_URL.name);
+                if *section.meta() != target_meta {
+                    needs_url_reset |= !url_values.is_empty();
+                    needs_push_url_reset |= !push_url_values.is_empty();
+                } else {
+                    needs_url_reset |= url_values.iter().any(|url| url.is_empty());
+                    needs_push_url_reset |= push_url_values.iter().any(|url| url.is_empty());
+                }
 
                 for key in KEYS_TO_REMOVE {
                     while section.remove(key).is_some() {}
@@ -78,14 +90,28 @@ impl Remote<'_> {
         // be mutated in place, mixing foreign metadata with our values and getting lost when the
         // caller writes back only the local sections. In that case, create a fresh local section.
         // We assume that `config.meta()` is truly the 'identity' of the configuration file.
-        let target_meta = config.meta().clone();
-        let mut section = config
-            .section_mut_or_create_new_filter("remote", Some(name.as_ref()), |meta| *meta == target_meta)
-            .expect("section name is validated and 'remote' is acceptable");
-        if let Some(url) = self.url.as_ref() {
+        let mut section = if needs_url_reset || needs_push_url_reset {
+            // A foreign section may occur after the last local one, notably when an include follows
+            // it. The reset must follow all such values or reopening the written file would append
+            // the foreign values once more.
+            config
+                .new_section("remote", Some(name.as_ref().to_owned().into()))
+                .expect("section name is validated and 'remote' is acceptable")
+        } else {
+            config
+                .section_mut_or_create_new_filter("remote", Some(name.as_ref()), |meta| *meta == target_meta)
+                .expect("section name is validated and 'remote' is acceptable")
+        };
+        if needs_url_reset {
+            section.push(as_key(config::tree::Remote::URL.name), Some(BStr::new("")));
+        }
+        for url in &self.urls {
             section.push(as_key("url"), Some(url.to_bstring().as_ref()));
         }
-        if let Some(url) = self.push_url.as_ref() {
+        if needs_push_url_reset {
+            section.push(as_key(config::tree::Remote::PUSH_URL.name), Some(BStr::new("")));
+        }
+        for url in &self.push_urls {
             section.push(as_key("pushurl"), Some(url.to_bstring().as_ref()));
         }
         if self.fetch_tags != Default::default() {

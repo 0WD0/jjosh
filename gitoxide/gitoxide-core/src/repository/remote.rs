@@ -1,3 +1,24 @@
+/// Print the effective URL or URLs of the selected remote.
+pub fn url(
+    repo: gix::Repository,
+    name: Option<&str>,
+    direction: gix::remote::Direction,
+    all: bool,
+    mut out: impl std::io::Write,
+) -> anyhow::Result<()> {
+    let remote = repo.find_fetch_remote(name.map(Into::into))?;
+    if all {
+        for url in remote.urls(direction) {
+            out.write_all(&url.to_bstring())?;
+            out.write_all(b"\n")?;
+        }
+    } else if let Some(url) = remote.url(direction) {
+        out.write_all(&url.to_bstring())?;
+        out.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod refs_impl {
     use anyhow::bail;

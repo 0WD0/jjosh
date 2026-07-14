@@ -73,14 +73,22 @@ mod remote_at {
             "push is the same as fetch was rewritten"
         );
 
+        let explicit_push_url = "file://dev/null";
         let remote = repo
             .remote_at("https://github.com/foobar/gitoxide".to_owned())?
-            .with_push_url("file://dev/null".to_owned())?;
+            .with_push_url(explicit_push_url.to_owned())?;
         assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), rewritten_fetch_url);
         assert_eq!(
             remote.url(Direction::Push).unwrap().to_bstring(),
-            "ssh://dev/null",
-            "push-url rewrite rules are applied"
+            explicit_push_url,
+            "pushInsteadOf does not rewrite explicit push URLs, just like Git"
+        );
+
+        let remote = remote.with_push_url("https://github.com/foobar/gitoxide".to_owned())?;
+        assert_eq!(
+            remote.url(Direction::Push).unwrap().to_bstring(),
+            rewritten_fetch_url,
+            "insteadOf rewrites explicit push URLs, just like Git"
         );
         Ok(())
     }
@@ -136,6 +144,24 @@ mod remote_at {
             remote.url(Direction::Push).unwrap().to_bstring(),
             "file://dev/null",
             "push-url rewrite rules are not applied"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn with_url_ignores_bad_push_fallback_rewrites() -> crate::Result {
+        let repo = remote::repo("bad-push-fallback-url-rewriting");
+        let remote = repo.remote_at("alias:one")?.with_url("alias:two")?;
+
+        assert_eq!(
+            remote.url(Direction::Fetch).expect("present").to_bstring(),
+            "alias:two",
+            "changing the fetch URL should not fail due to a malformed push-only rewrite"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).expect("present").to_bstring(),
+            "alias:two",
+            "the invalid push fallback rewrite is left unapplied"
         );
         Ok(())
     }
@@ -206,6 +232,31 @@ mod find_remote {
     }
 
     #[test]
+    fn missing_fetch_urls_fall_back_to_the_remote_name_like_git() -> crate::Result {
+        let repo = remote::repo("missing-urls");
+        let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
+        let mut baseline = baseline.lines().map_while(Result::ok);
+
+        for name in ["no-url", "reset-url", "push-only", "https://fallback.example/repo"] {
+            let remote = repo.find_remote(name)?;
+            let expected_fetch_url = baseline.next().expect("Git fetch URL");
+            let expected_push_url = baseline.next().expect("Git push URL");
+            assert_eq!(
+                remote.url(Direction::Fetch).expect("fallback URL").to_bstring(),
+                expected_fetch_url,
+                "a missing effective fetch URL falls back to the requested remote name"
+            );
+            assert_eq!(
+                remote.url(Direction::Push).expect("push URL").to_bstring(),
+                expected_push_url,
+                "pushing uses an explicit pushUrl when present and otherwise falls back to the fetch URL"
+            );
+        }
+        assert!(baseline.next().is_none(), "all Git baseline URLs were consumed");
+        Ok(())
+    }
+
+    #[test]
     fn push_url_and_push_specs() {
         let repo = remote::repo("push-url");
         let remote = repo.find_remote("origin").expect("present");
@@ -238,24 +289,38 @@ mod find_remote {
         let expected_push_url: BString = baseline.next().expect("push").into();
 
         let remote = repo.find_remote("origin")?;
-        assert_eq!(remote.url(Direction::Fetch).unwrap().to_bstring(), expected_fetch_url);
-        {
-            let actual_push_url = remote.url(Direction::Push).unwrap().to_bstring();
-            assert_ne!(
-                actual_push_url, expected_push_url,
-                "here we actually resolve something that git doesn't probably because it's missing the host. Our parser is OK with it for some reason."
-            );
-            assert_eq!(actual_push_url, "ssh://dev/null", "file:// gets replaced actually");
-        }
-
-        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
         assert_eq!(
             remote.url(Direction::Fetch).unwrap().to_bstring(),
-            "https://github.com/foobar/gitoxide"
+            expected_fetch_url,
+            "the configured fetch URL is rewritten by the normal insteadOf rule, matching Git"
         );
-        assert_eq!(remote.url(Direction::Push).unwrap().to_bstring(), "file://dev/null");
+        assert_eq!(
+            remote.url(Direction::Push).unwrap().to_bstring(),
+            expected_push_url,
+            "explicit pushUrl values use normal insteadOf rewrites; 
+            pushInsteadOf only rewrites remote URLs used as a fallback when no pushUrl is configured"
+        );
+
+        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
+        let expected_fetch_url_no_rewrite = "https://github.com/foobar/gitoxide";
+        assert_ne!(expected_fetch_url_no_rewrite, expected_fetch_url);
+        assert_eq!(
+            remote.url(Direction::Fetch).unwrap().to_bstring(),
+            expected_fetch_url_no_rewrite,
+            "without URL rewriting the fetch URL is returned exactly as configured"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).unwrap().to_bstring(),
+            expected_push_url,
+            "without URL rewriting the explicit pushUrl is returned exactly as configured"
+        );
         remote.rewrite_urls()?;
-        assert_eq!(remote.url(Direction::Push).unwrap().to_bstring(), "ssh://dev/null");
+        assert_eq!(
+            remote.url(Direction::Push).unwrap().to_bstring(),
+            expected_push_url,
+            "refreshing rewrites keeps the explicit pushUrl unchanged because
+            pushInsteadOf is ignored and no insteadOf rule matches"
+        );
         Ok(())
     }
 
@@ -276,11 +341,16 @@ mod find_remote {
             "…but is able to replace the fetch url successfully"
         );
 
-        let expected_err_msg = "The rewritten push url \"invalid:://dev/null\" failed to parse";
+        let remote = repo.find_remote("origin")?;
         assert_eq!(
-            repo.find_remote("origin").unwrap_err().to_string(),
-            expected_err_msg,
-            "this fails by default as rewrites fail"
+            remote.url(Direction::Fetch).unwrap().to_bstring(),
+            expected_fetch_url,
+            "the valid fetch insteadOf rewrite succeeds despite the invalid pushInsteadOf rule"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).unwrap().to_bstring(),
+            expected_push_url,
+            "a bad pushInsteadOf rule is ignored for explicit pushUrl values"
         );
 
         let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
@@ -294,17 +364,192 @@ mod find_remote {
             } else {
                 assert_eq!(
                     remote.url(Direction::Fetch).unwrap().to_bstring(),
-                    "https://github.com/byron/gitoxide",
+                    expected_fetch_url,
                     "it can rewrite a single url like git can"
                 );
             }
+            remote.rewrite_urls()?;
             assert_eq!(
-                remote.rewrite_urls().unwrap_err().to_string(),
-                expected_err_msg,
-                "rewriting fails, but it will rewrite what it can while reporting a single error."
+                remote.url(Direction::Push).unwrap().to_bstring(),
+                expected_push_url,
+                "explicit pushUrl values still ignore pushInsteadOf when rewrites are refreshed"
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn multiple_urls_are_preserved_in_order_and_single_url_matches_git_first_url() -> crate::Result {
+        let repo = remote::repo("multiple-urls");
+
+        let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
+        let mut baseline = baseline.lines().map_while(Result::ok);
+        let expected_fetch_url: BString = baseline.next().expect("single fetch").into();
+        let expected_fetch_urls: Vec<BString> = baseline
+            .by_ref()
+            .take(2 /* multiple expected fetch urls */)
+            .map(Into::into)
+            .collect();
+        let expected_push_url: BString = baseline.next().expect("single push").into();
+        let expected_push_urls: Vec<BString> = baseline.map(Into::into).collect();
+
+        let remote = repo.find_remote("origin")?;
+        assert_eq!(
+            remote.url(Direction::Fetch).expect("present").to_bstring(),
+            expected_fetch_url,
+            "the single fetch URL matches Git, which returns the first configured URL"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Fetch),
+            expected_fetch_urls,
+            "all fetch URLs are returned in configuration order"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).expect("present").to_bstring(),
+            expected_push_url,
+            "the single push URL matches Git, which returns the first configured URL"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Push),
+            expected_push_urls,
+            "all push URLs are returned in configuration order"
+        );
+
+        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
+        assert_eq!(
+            urls(&remote, Direction::Fetch),
+            ["alias:one", "alias:two"],
+            "without URL rewriting the raw fetch URLs are visible"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Push),
+            ["alias:one", "alias:two"],
+            "without URL rewriting the raw fetch URLs are visible for pushing as there is no pushUrl"
+        );
+        remote.rewrite_urls()?;
+        assert_eq!(
+            urls(&remote, Direction::Push),
+            expected_push_urls,
+            "rewriting can apply pushInsteadOf to every URL"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_url_rewriting_preserves_successful_rewrites_when_another_url_fails() -> crate::Result {
+        let repo = remote::repo("multiple-bad-url-rewriting");
+
+        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
+        assert_eq!(
+            remote.rewrite_urls().unwrap_err().to_string(),
+            "The rewritten fetch url \"invalid:://gitoxide\" failed to parse",
+            "one malformed rewrite is reported"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Fetch),
+            ["https://github.com/byron/gitoxide", "bad:gitoxide"],
+            "valid rewrites are preserved even when another URL fails"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn empty_url_values_reset_earlier_url_lists() -> crate::Result {
+        let repo = remote::repo("multiple-urls-with-empty-reset");
+
+        let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
+        let mut baseline = baseline.lines().map_while(Result::ok);
+        let expected_fetch_url: BString = baseline.next().expect("single fetch").into();
+        let expected_fetch_urls: Vec<BString> = baseline
+            .by_ref()
+            .take(1 /* just one fetch ref in the --all variant */)
+            .map(Into::into)
+            .collect();
+        let expected_push_url: BString = baseline.next().expect("single push").into();
+        let expected_push_urls: Vec<BString> = baseline.map(Into::into).collect();
+
+        let remote = repo.find_remote("origin")?;
+        assert_eq!(
+            remote.url(Direction::Fetch).expect("present").to_bstring(),
+            expected_fetch_url,
+            "the singular fetch URL comes from the post-reset list"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Fetch),
+            expected_fetch_urls,
+            "empty fetch URL values clear earlier values like Git"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).expect("present").to_bstring(),
+            expected_push_url,
+            "the singular push URL comes from the post-reset list"
+        );
+        assert_eq!(
+            urls(&remote, Direction::Push),
+            expected_push_urls,
+            "empty push URL values clear earlier values like Git"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bad_push_fallback_rewriting_does_not_break_fetch_remote() -> crate::Result {
+        let repo = remote::repo("bad-push-fallback-url-rewriting");
+
+        let remote = repo.find_remote("origin")?;
+        assert_eq!(
+            remote.url(Direction::Fetch).expect("present").to_bstring(),
+            "alias:repo",
+            "a malformed push-only rewrite must not prevent loading the fetch remote"
+        );
+        assert_eq!(
+            remote.url(Direction::Push).expect("present").to_bstring(),
+            "alias:repo",
+            "the invalid push fallback rewrite is left unapplied during construction"
+        );
+
+        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
+        assert_eq!(
+            remote.rewrite_urls().unwrap_err().to_string(),
+            "The rewritten push url \"invalid:://repo\" failed to parse",
+            "explicit rewriting still reports the malformed push fallback rewrite"
+        );
+        assert_eq!(
+            remote.url(Direction::Fetch).expect("present").to_bstring(),
+            "alias:repo",
+            "the fetch URL remains usable after a failed push-only rewrite"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bad_explicit_push_url_rewriting_is_reported_as_push_url() -> crate::Result {
+        let repo = remote::repo("bad-explicit-push-url-rewriting");
+
+        let expected_err_msg = "The rewritten push url \"invalid:://repo\" failed to parse";
+        assert_eq!(
+            repo.find_remote("origin").unwrap_err().to_string(),
+            expected_err_msg,
+            "explicit pushUrl values use normal insteadOf rewriting, 
+            so a malformed result must fail and be labeled as a push URL error"
+        );
+
+        let mut remote = repo.try_find_remote_without_url_rewrite("origin").expect("exists")?;
+        assert_eq!(
+            remote.rewrite_urls().unwrap_err().to_string(),
+            expected_err_msg,
+            "refreshing rewrites also rejects the malformed result of applying insteadOf to an explicit pushUrl"
+        );
+
+        Ok(())
+    }
+
+    fn urls(remote: &gix::Remote<'_>, direction: Direction) -> Vec<BString> {
+        remote.urls(direction).map(gix::Url::to_bstring).collect()
     }
 
     fn fetchspec(spec: &str) -> gix_refspec::RefSpec {

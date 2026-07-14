@@ -808,6 +808,15 @@ pub mod remote {
     #[derive(Debug, clap::Subcommand)]
     #[clap(visible_alias = "remotes")]
     pub enum Subcommands {
+        /// Print the effective URL of the remote.
+        Url {
+            /// Print all effective URLs instead of only the first one.
+            #[clap(long)]
+            all: bool,
+            /// Print push URLs instead of fetch URLs.
+            #[clap(long)]
+            push: bool,
+        },
         /// Print all references available on the remote.
         Refs,
         /// Print all references available on the remote as filtered through ref-specs.
