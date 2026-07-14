@@ -76,10 +76,8 @@ pub type Renames = keys::Any<validate::Renames>;
 pub type Binary = keys::Any<validate::Binary>;
 
 mod algorithm {
-    use std::borrow::Cow;
-
     use crate::{
-        bstr::BStr,
+        bstr::ByteSlice,
         config,
         config::{
             diff::algorithm,
@@ -92,16 +90,21 @@ mod algorithm {
         /// See if `value` is an actual ignore
         pub fn try_into_ignore(
             &'static self,
-            value: Cow<'_, BStr>,
+            value: impl gix_utils::AsBStr,
         ) -> Result<gix_submodule::config::Ignore, key::GenericErrorWithValue> {
-            gix_submodule::config::Ignore::try_from(value.as_ref())
-                .map_err(|()| key::GenericErrorWithValue::from_value(self, value.into_owned()))
+            let value = value.as_bstr();
+            gix_submodule::config::Ignore::try_from(value.as_bstr())
+                .map_err(|()| key::GenericErrorWithValue::from_value(self, value.into()))
         }
     }
 
     impl Algorithm {
         /// Derive the diff algorithm identified by `name`, case-insensitively.
-        pub fn try_into_algorithm(&self, name: Cow<'_, BStr>) -> Result<gix_diff::blob::Algorithm, algorithm::Error> {
+        pub fn try_into_algorithm(
+            &self,
+            name: impl gix_utils::AsBStr,
+        ) -> Result<gix_diff::blob::Algorithm, algorithm::Error> {
+            let name = name.as_bstr();
             let algo = if name.eq_ignore_ascii_case(b"myers") || name.eq_ignore_ascii_case(b"default") {
                 gix_diff::blob::Algorithm::Myers
             } else if name.eq_ignore_ascii_case(b"minimal") {
@@ -109,13 +112,9 @@ mod algorithm {
             } else if name.eq_ignore_ascii_case(b"histogram") {
                 gix_diff::blob::Algorithm::Histogram
             } else if name.eq_ignore_ascii_case(b"patience") {
-                return Err(config::diff::algorithm::Error::Unimplemented {
-                    name: name.into_owned(),
-                });
+                return Err(config::diff::algorithm::Error::Unimplemented { name: name.into() });
             } else {
-                return Err(algorithm::Error::Unknown {
-                    name: name.into_owned(),
-                });
+                return Err(algorithm::Error::Unknown { name: name.into() });
             };
             Ok(algo)
         }
@@ -123,27 +122,28 @@ mod algorithm {
 }
 
 mod binary {
-    use crate::config::tree::diff::Binary;
+    use crate::{bstr::ByteSlice, config::tree::diff::Binary};
 
     impl Binary {
         /// Convert `value` into a tri-state boolean that can take the special value `auto`, resulting in `None`, or is a boolean.
         /// If `None` is given, it's treated as implicit boolean `true`, as this method is made to be used
-        /// with [`gix_config::file::section::Body::value_implicit()`].
+        /// with [`gix_config::file::section::BodyRef::value_implicit()`].
         pub fn try_into_binary(
             &'static self,
-            value: Option<std::borrow::Cow<'_, crate::bstr::BStr>>,
+            value: Option<impl gix_utils::AsBStr>,
         ) -> Result<Option<bool>, crate::config::key::GenericErrorWithValue> {
             Ok(match value {
                 None => Some(true),
                 Some(value) => {
-                    if value.as_ref() == "auto" {
+                    let value = value.as_bstr();
+                    if value.as_bstr() == "auto" {
                         None
                     } else {
                         Some(
-                            gix_config::Boolean::try_from(value.as_ref())
+                            gix_config::Boolean::try_from(value.as_bstr())
                                 .map(|b| b.0)
                                 .map_err(|err| {
-                                    crate::config::key::GenericErrorWithValue::from_value(self, value.into_owned())
+                                    crate::config::key::GenericErrorWithValue::from_value(self, value.into())
                                         .with_source(err)
                                 })?,
                         )
@@ -173,15 +173,16 @@ mod renames {
         /// the boolean as string
         pub fn try_into_renames(
             &'static self,
-            value: Result<bool, gix_config::value::Error>,
-        ) -> Result<Tracking, GenericError> {
+            value: Result<Option<bool>, gix_config::value::Error>,
+        ) -> Result<Option<Tracking>, GenericError> {
             Ok(match value {
-                Ok(true) => Tracking::Renames,
-                Ok(false) => Tracking::Disabled,
+                Ok(Some(true)) => Some(Tracking::Renames),
+                Ok(Some(false)) => Some(Tracking::Disabled),
+                Ok(None) => None,
                 Err(err) => {
                     let value = &err.input;
                     match value.as_bytes() {
-                        b"copy" | b"copies" => Tracking::RenamesAndCopies,
+                        b"copy" | b"copies" => Some(Tracking::RenamesAndCopies),
                         _ => return Err(GenericError::from_value(self, value.clone()).with_source(err)),
                     }
                 }
@@ -210,7 +211,7 @@ pub(super) mod validate {
     pub struct Algorithm;
     impl keys::Validate for Algorithm {
         fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            Diff::ALGORITHM.try_into_algorithm(value.into())?;
+            Diff::ALGORITHM.try_into_algorithm(value)?;
             Ok(())
         }
     }
@@ -219,7 +220,7 @@ pub(super) mod validate {
     pub struct Renames;
     impl keys::Validate for Renames {
         fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            let boolean = gix_config::Boolean::try_from(value).map(|b| b.0);
+            let boolean = gix_config::Boolean::try_from(value).map(|b| Some(b.0));
             Diff::RENAMES.try_into_renames(boolean)?;
             Ok(())
         }
@@ -229,7 +230,7 @@ pub(super) mod validate {
     pub struct Binary;
     impl keys::Validate for Binary {
         fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            Diff::DRIVER_BINARY.try_into_binary(Some(value.into()))?;
+            Diff::DRIVER_BINARY.try_into_binary(Some(value))?;
             Ok(())
         }
     }

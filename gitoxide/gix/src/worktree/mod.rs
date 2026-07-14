@@ -256,20 +256,17 @@ pub mod pathspec {
             patterns: impl IntoIterator<Item = impl AsRef<BStr>>,
         ) -> Result<crate::Pathspec<'repo>, Error> {
             let index = self.index()?;
-            let inherit_ignore_case = self
-                .parent
-                .config
-                .resolved
-                .boolean("gitoxide.pathspec.inheritIgnoreCase")
-                .map(|res| {
-                    gitoxide::Pathspec::INHERIT_IGNORE_CASE
-                        .enrich_error(res)
-                        .with_lenient_default_value(
-                            self.parent.config.lenient_config,
-                            gitoxide::Pathspec::INHERIT_IGNORE_CASE_DEFAULT,
-                        )
-                })
-                .transpose()
+            let inherit_ignore_case = gitoxide::Pathspec::INHERIT_IGNORE_CASE
+                .enrich_error(
+                    self.parent
+                        .config
+                        .resolved
+                        .boolean("gitoxide.pathspec.inheritIgnoreCase"),
+                )
+                .with_lenient_default_value(
+                    self.parent.config.lenient_config,
+                    Some(gitoxide::Pathspec::INHERIT_IGNORE_CASE_DEFAULT),
+                )
                 .map_err(|err| Error::Init(crate::pathspec::init::Error::Defaults(err.into())))?
                 .unwrap_or(gitoxide::Pathspec::INHERIT_IGNORE_CASE_DEFAULT);
             Ok(self.parent.pathspec(

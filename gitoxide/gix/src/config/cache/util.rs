@@ -26,7 +26,7 @@ pub(crate) fn base_options(lossy: bool, lenient: bool) -> gix_config::file::init
 
 /// Also sets the default if it's not set!
 pub(crate) fn config_bool(
-    config: &gix_config::File<'_>,
+    config: &gix_config::File,
     key: &'static config::tree::keys::Boolean,
     key_str: &str,
     default: bool,
@@ -38,15 +38,15 @@ pub(crate) fn config_bool(
         key.logical_name(),
         "BUG: key name and hardcoded name must match"
     );
-    config
-        .boolean(key_str)
-        .map_or(Ok(default), |res| key.enrich_error(res))
+    Ok(key
+        .enrich_error(config.boolean(key_str))
         .map_err(Error::from)
-        .with_lenient_default(lenient)
+        .with_lenient_default(lenient)?
+        .unwrap_or(default))
 }
 
 pub(crate) fn config_bool_opt(
-    config: &gix_config::File<'_>,
+    config: &gix_config::File,
     key: &'static config::tree::keys::Boolean,
     key_str: &str,
     lenient: bool,
@@ -57,14 +57,13 @@ pub(crate) fn config_bool_opt(
         key.logical_name(),
         "BUG: key name and hardcoded name must match"
     );
-    config
-        .boolean(key_str)
-        .map(|res| key.enrich_error(res).map_err(Error::from).with_lenient_default(lenient))
-        .transpose()
+    key.enrich_error(config.boolean(key_str))
+        .map_err(Error::from)
+        .with_leniency(lenient)
 }
 
 pub(crate) fn query_refupdates(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient_config: bool,
 ) -> Result<Option<gix_ref::store::WriteReflog>, Error> {
     let key = "core.logAllRefUpdates";
@@ -75,7 +74,7 @@ pub(crate) fn query_refupdates(
 }
 
 pub(crate) fn query_refs_namespace(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient_config: bool,
 ) -> Result<Option<gix_ref::Namespace>, config::refs_namespace::Error> {
     let key = "gitoxide.core.refsNamespace";
@@ -101,30 +100,22 @@ pub(crate) type ObjectCaches = (Option<usize>, Option<usize>, usize, Option<usiz
 
 /// Return `(static_pack_cache_limit, pack_cache_bytes, object_cache_bytes, alloc_limit_bytes)` as parsed from gix-config.
 pub(crate) fn parse_object_caches(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient: bool,
     mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
 ) -> Result<ObjectCaches, Error> {
-    let static_pack_cache_limit = config
-        .integer_filter("gitoxide.core.deltaBaseCacheLimit", &mut filter_config_section)
-        .map(|res| gitoxide::Core::DEFAULT_PACK_CACHE_MEMORY_LIMIT.try_into_usize(res))
-        .transpose()
+    let static_pack_cache_limit = gitoxide::Core::DEFAULT_PACK_CACHE_MEMORY_LIMIT
+        .try_into_usize(config.integer_filter("gitoxide.core.deltaBaseCacheLimit", &mut filter_config_section))
         .with_leniency(lenient)?;
-    let pack_cache_bytes = config
-        .integer_filter("core.deltaBaseCacheLimit", &mut filter_config_section)
-        .map(|res| Core::DELTA_BASE_CACHE_LIMIT.try_into_usize(res))
-        .transpose()
+    let pack_cache_bytes = Core::DELTA_BASE_CACHE_LIMIT
+        .try_into_usize(config.integer_filter("core.deltaBaseCacheLimit", &mut filter_config_section))
         .with_leniency(lenient)?;
-    let object_cache_bytes = config
-        .integer_filter("gitoxide.objects.cacheLimit", &mut filter_config_section)
-        .map(|res| gitoxide::Objects::CACHE_LIMIT.try_into_usize(res))
-        .transpose()
+    let object_cache_bytes = gitoxide::Objects::CACHE_LIMIT
+        .try_into_usize(config.integer_filter("gitoxide.objects.cacheLimit", &mut filter_config_section))
         .with_leniency(lenient)?
         .unwrap_or_default();
-    let alloc_limit_bytes = config
-        .integer_filter("gitoxide.objects.allocLimit", &mut filter_config_section)
-        .map(|res| gitoxide::Objects::ALLOC_LIMIT.try_into_usize(res))
-        .transpose()
+    let alloc_limit_bytes = gitoxide::Objects::ALLOC_LIMIT
+        .try_into_usize(config.integer_filter("gitoxide.objects.allocLimit", &mut filter_config_section))
         .with_leniency(lenient)?;
     Ok((
         static_pack_cache_limit,
@@ -135,7 +126,7 @@ pub(crate) fn parse_object_caches(
 }
 
 pub(crate) fn parse_core_abbrev(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     object_hash: gix_hash::Kind,
 ) -> Result<Option<usize>, Error> {
     Ok(config
@@ -147,7 +138,7 @@ pub(crate) fn parse_core_abbrev(
 
 #[cfg(feature = "revision")]
 pub(crate) fn disambiguate_hint(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient_config: bool,
 ) -> Result<Option<crate::revision::spec::parse::ObjectKindHint>, config::key::GenericErrorWithValue> {
     match config.string("core.disambiguate") {

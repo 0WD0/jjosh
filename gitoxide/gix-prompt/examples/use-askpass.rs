@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use gix_prompt::{Mode, Options};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

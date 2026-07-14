@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::OsString, path::Path};
+use std::{ffi::OsString, path::PathBuf};
 
 use crate::Source;
 

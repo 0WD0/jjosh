@@ -15,22 +15,25 @@ pub enum Error {
     },
     #[error(transparent)]
     SectionHeader(#[from] gix_config::parse::section::header::Error),
+    #[error(transparent)]
+    Span(#[from] gix_config::parse::span::Error),
 }
 
 pub(crate) fn append(
-    config: &mut gix_config::File<'static>,
-    values: impl IntoIterator<Item = impl AsRef<BStr>>,
+    config: &mut gix_config::File,
+    values: impl IntoIterator<Item = impl gix_utils::AsBStr>,
     source: gix_config::Source,
     mut make_comment: impl FnMut(&BStr) -> Option<BString>,
 ) -> Result<(), Error> {
     let mut file = gix_config::File::new(gix_config::file::Metadata::from(source));
     for key_value in values {
-        let key_value = key_value.as_ref();
+        let key_value = key_value.as_bstr();
         let mut tokens = key_value.splitn(2, |b| *b == b'=').map(ByteSlice::trim);
         let key = tokens.next().expect("always one value").as_bstr();
         let value = tokens.next();
         let key = gix_config::KeyRef::parse_unvalidated(key).ok_or_else(|| Error::InvalidKey { input: key.into() })?;
-        let mut section = file.section_mut_or_create_new(key.section_name, key.subsection_name)?;
+        let mut section =
+            file.section_mut_or_create_new(key.section_name, key.subsection_name.map(ToOwned::to_owned))?;
         let value_name = gix_config::parse::section::ValueName::try_from(key.value_name.to_owned()).map_err(|err| {
             Error::SectionKey {
                 source: err,
@@ -42,8 +45,8 @@ pub(crate) fn append(
         match comment {
             Some(comment) => section.push_with_comment(value_name, value, &**comment),
             None => section.push(value_name, value),
-        };
+        }?;
     }
-    config.append(file);
+    config.append(file)?;
     Ok(())
 }

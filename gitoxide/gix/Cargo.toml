@@ -324,7 +324,7 @@ cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
 
 [dependencies]
 gix-error = { version = "^0.2.5", path = "../gix-error" }
-gix-utils = { version = "^0.3.4", path = "../gix-utils" }
+gix-utils = { version = "^0.3.4", path = "../gix-utils", features = ["bstr"] }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
 gix-ref = { version = "^0.65.0", path = "../gix-ref" }
 gix-discover = { version = "^0.53.0", path = "../gix-discover" }

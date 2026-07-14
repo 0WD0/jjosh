@@ -89,7 +89,7 @@ mod save_as_to {
         );
         assert_eq!(remote.name(), None);
         let mut config = gix::config::File::default();
-        remote.save_as_to(remote_name, &mut config)?;
+        remote.save_as_to(remote_name.as_bytes(), &mut config)?;
         let expected = "[remote \"origin\"]\n\turl = https://example.com/path\n\tpushurl = https://ein.hub/path\n\ttagOpt = --tags\n\tfetch = +refs/heads/*:refs/remotes/any/*\n\tfetch = refs/heads/special:refs/heads/special-upstream\n\tpush = refs/heads/main:refs/heads/main\n\tpush = :\n";
         assert_eq!(uniformize(config.to_string()), expected);
 
@@ -102,16 +102,14 @@ mod save_as_to {
 
         {
             let mut new_section = config.section_mut_or_create_new("unrelated", None).expect("works");
-            new_section.push("a".try_into().unwrap(), Some("value".into()));
+            new_section.push("a".try_into()?, Some("value".into()))?;
 
             config
-                .section_mut_or_create_new("initially-empty-not-removed", Some("name".into()))
+                .section_mut_or_create_new("initially-empty-not-removed", "name")
                 .expect("works");
 
-            let mut existing_section = config
-                .section_mut_or_create_new("remote", Some("origin".into()))
-                .expect("works");
-            existing_section.push("free".try_into().unwrap(), Some("should not be removed".into()));
+            let mut existing_section = config.section_mut_or_create_new("remote", "origin").expect("works");
+            existing_section.push("free".try_into()?, Some("should not be removed".into()))?;
         }
         remote.save_as_to(remote_name, &mut config)?;
         assert_eq!(
@@ -185,7 +183,7 @@ mod save_as_to {
                 .into_iter()
                 .flatten()
                 .filter(|s| s.header().subsection_name() == Some(BStr::new("origin")) && *s.meta() == local_meta)
-                .flat_map(|s| s.values(key).into_iter().map(std::borrow::Cow::into_owned))
+                .flat_map(|s| s.values(key))
                 .collect()
         };
         assert_eq!(
@@ -232,7 +230,7 @@ mod save_as_to {
             .collect();
         let mut config = repo.config_snapshot().plumbing().clone();
         let local_meta = config.meta().clone();
-        let render_config = |config: &gix::config::File<'_>| {
+        let render_config = |config: &gix::config::File| {
             remote_config(config, "origin")
                 .to_str_lossy()
                 .replace(expected_urls[0].to_str_lossy().as_ref(), "<local-clone-url>")
@@ -245,16 +243,16 @@ mod save_as_to {
         config
             .section_mut_filter("remote", Some(BStr::new("origin")), |meta| *meta == local_meta)?
             .expect("the fixture has a local origin section")
-            .push("prune".try_into()?, Some(BStr::new("1")));
+            .push("prune".try_into()?, Some(BStr::new("1")))?;
         let included_meta = gix_config::file::Metadata::from(gix_config::Source::Local);
         assert_ne!(
             included_meta, local_meta,
             "metadata without the target file's path gives the simulated include a distinct file identity"
         );
         config.set_meta(included_meta);
-        let mut included = config.new_section("remote", Some(BString::from("origin").into()))?;
-        included.push("url".try_into()?, Some(BStr::new(inherited_url)));
-        included.push("prune".try_into()?, Some(BStr::new("true")));
+        let mut included = config.new_section("remote", "origin")?;
+        included.push("url".try_into()?, Some(BStr::new(inherited_url)))?;
+        included.push("prune".try_into()?, Some(BStr::new("true")))?;
         config.set_meta(local_meta.clone());
 
         insta::assert_snapshot!(
@@ -298,7 +296,7 @@ mod save_as_to {
             .into_iter()
             .flatten()
             .filter(|section| section.header().subsection_name() == Some(BStr::new("origin")))
-            .flat_map(|section| section.values("url").into_iter().map(std::borrow::Cow::into_owned))
+            .flat_map(|section| section.values("url"))
             .collect();
         let mut expected = vec![BString::from("")];
         expected.extend(expected_urls);
@@ -328,7 +326,7 @@ mod save_as_to {
     }
 }
 
-fn remote_config(config: &gix::config::File<'_>, name: &str) -> gix::bstr::BString {
+fn remote_config(config: &gix::config::File, name: &str) -> gix::bstr::BString {
     let mut out = Vec::new();
     config
         .write_to_filter(&mut out, |section| {

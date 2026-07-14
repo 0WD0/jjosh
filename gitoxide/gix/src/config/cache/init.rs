@@ -1,5 +1,5 @@
 #![allow(clippy::result_large_err)]
-use std::{borrow::Cow, ffi::OsString};
+use std::ffi::OsString;
 
 use gix_sec::Permission;
 
@@ -91,7 +91,7 @@ impl Cache {
                 }
                 source
                     .storage_location(&mut Self::make_source_env(environment))
-                    .map(|p| (source, p.into_owned()))
+                    .map(|p| (source, p))
             })
             .map(|(source, path)| gix_config::file::Metadata {
                 path: Some(path),
@@ -117,10 +117,10 @@ impl Cache {
             .unwrap_or_default();
 
             let local_meta = git_dir_config.meta_owned();
-            globals.append(git_dir_config);
+            globals.append(git_dir_config)?;
             globals.resolve_includes(options)?;
             if use_env {
-                globals.append(gix_config::File::from_env(options)?.unwrap_or_default());
+                globals.append(gix_config::File::from_env(options)?.unwrap_or_default())?;
             }
             if !cli_config_overrides.is_empty() {
                 config::overrides::append(&mut globals, cli_config_overrides, gix_config::Source::Cli, |_| None)
@@ -327,7 +327,7 @@ impl crate::Repository {
 }
 
 fn apply_environment_overrides(
-    config: &mut gix_config::File<'static>,
+    config: &mut gix_config::File,
     git_prefix: Permission,
     http_transport: Permission,
     identity: Permission,
@@ -388,7 +388,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("https".into())),
+            Some("https"),
             http_transport,
             &[
                 ("HTTPS_PROXY", gitoxide::Https::PROXY.name),
@@ -397,7 +397,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("http".into())),
+            Some("http"),
             http_transport,
             &[
                 ("ALL_PROXY", "allProxy"),
@@ -426,7 +426,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("http".into())),
+            Some("http"),
             git_prefix,
             &[{
                 let key = &gitoxide::Http::SSL_NO_VERIFY;
@@ -435,7 +435,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("credentials".into())),
+            Some("credentials"),
             git_prefix,
             &[
                 {
@@ -450,7 +450,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("committer".into())),
+            Some("committer"),
             identity,
             &[
                 {
@@ -465,7 +465,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("core".into())),
+            Some("core"),
             git_prefix,
             &[
                 {
@@ -484,7 +484,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("author".into())),
+            Some("author"),
             identity,
             &[
                 {
@@ -499,7 +499,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("commit".into())),
+            Some("commit"),
             git_prefix,
             &[
                 {
@@ -514,13 +514,13 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("allow".into())),
+            Some("allow"),
             http_transport,
             &[("GIT_PROTOCOL_FROM_USER", "protocolFromUser")],
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("user".into())),
+            Some("user"),
             identity,
             &[{
                 let key = &gitoxide::User::EMAIL_FALLBACK;
@@ -529,7 +529,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("objects".into())),
+            Some("objects"),
             objects,
             &[
                 {
@@ -548,7 +548,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("ssh".into())),
+            Some("ssh"),
             git_prefix,
             &[{
                 let key = &gitoxide::Ssh::COMMAND_WITHOUT_SHELL_FALLBACK;
@@ -557,7 +557,7 @@ fn apply_environment_overrides(
         ),
         (
             "gitoxide",
-            Some(Cow::Borrowed("pathspec".into())),
+            Some("pathspec"),
             git_prefix,
             &[
                 {
@@ -599,7 +599,7 @@ fn apply_environment_overrides(
         ),
     ] {
         let mut section = env_override
-            .new_section(section_name, subsection_name)
+            .new_section(section_name, subsection_name.map(BString::from))
             .expect("statically known valid section name");
         for (var, key) in data {
             if let Some(value) = var_as_bstring(var, permission) {
@@ -607,7 +607,7 @@ fn apply_environment_overrides(
                     (*key).try_into().expect("statically known to be valid"),
                     Some(value.as_ref()),
                     format!("from {var}").as_str(),
-                );
+                )?;
             }
         }
         if section.num_values() == 0 {
@@ -640,7 +640,7 @@ fn apply_environment_overrides(
                     key.try_into().expect("statically known to be valid"),
                     Some(value.as_ref()),
                     format!("from {var}").as_str(),
-                );
+                )?;
             }
         }
 
@@ -651,7 +651,7 @@ fn apply_environment_overrides(
     }
 
     if !env_override.is_void() {
-        config.append(env_override);
+        config.append(env_override)?;
     }
     Ok(())
 }

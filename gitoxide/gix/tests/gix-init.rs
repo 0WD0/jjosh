@@ -15,10 +15,7 @@ pub fn named_subrepo_opts(
 }
 
 mod with_overrides {
-    use std::borrow::Cow;
-
     use crate::named_subrepo_opts;
-    use gix_object::bstr::BStr;
     use gix_sec::Permission;
     use gix_testtools::Env;
     use serial_test::serial;
@@ -110,115 +107,84 @@ mod with_overrides {
         let config = repo.config_snapshot();
         assert_eq!(
             config.strings("gitoxide.core.shallowFile").expect("at least one value"),
-            [
-                cow_bstr("shallow-file-cli"),
-                cow_bstr("shallow-file-api"),
-                cow_bstr("shallow-file-env")
-            ]
+            ["shallow-file-cli", "shallow-file-api", "shallow-file-env"]
         );
         assert_eq!(
             config
                 .strings("gitoxide.core.refsNamespace")
                 .expect("at least one value"),
-            [
-                cow_bstr("namespace-cli"),
-                cow_bstr("namespace-api"),
-                cow_bstr("namespace-env")
-            ]
+            ["namespace-cli", "namespace-api", "namespace-env"]
         );
         assert_eq!(
             config.strings("http.userAgent").expect("at least one value"),
-            [
-                cow_bstr("agentJustForHttp"),
-                cow_bstr("agent-from-cli"),
-                cow_bstr("agent-from-api"),
-                cow_bstr("agent-from-env")
-            ]
+            ["agentJustForHttp", "agent-from-cli", "agent-from-api", "agent-from-env"]
         );
         assert_eq!(
-            config.integers("http.lowSpeedLimit").transpose()?.expect("many values"),
+            config.integers("http.lowSpeedLimit")?.expect("many values"),
             [5120, 3, 2, 1]
         );
         assert_eq!(
-            config.integers("http.lowSpeedTime").transpose()?.expect("many values"),
+            config.integers("http.lowSpeedTime")?.expect("many values"),
             [10, 3, 2, 1]
         );
         assert_eq!(
             config.strings("http.proxyAuthMethod").expect("at least one value"),
-            [cow_bstr("basic")],
+            ["basic"],
             "this value isn't overridden directly"
         );
         assert_eq!(
             config.strings("gitoxide.https.proxy").expect("at least one value"),
             [
-                cow_bstr("https-upper"),
-                cow_bstr(if cfg!(windows) {
+                "https-upper",
+                if cfg!(windows) {
                     "https-upper" // on windows, environment variables are case-insensitive
                 } else {
                     "https-lower-override"
-                })
+                }
             ]
         );
         assert_eq!(
             config.strings("gitoxide.http.proxy").expect("at least one value"),
-            [cow_bstr("http-lower")]
+            ["http-lower"]
         );
         assert_eq!(
             config.strings("gitoxide.http.allProxy").expect("at least one value"),
             [
-                cow_bstr("all-proxy"), // on windows, environment variables are case-insensitive
-                cow_bstr(if cfg!(windows) { "all-proxy" } else { "all-proxy-lower" })
+                "all-proxy", // on windows, environment variables are case-insensitive
+                if cfg!(windows) { "all-proxy" } else { "all-proxy-lower" }
             ]
         );
         assert_eq!(
             config.strings("gitoxide.http.noProxy").expect("at least one value"),
             [
-                cow_bstr("no-proxy"), // on windows, environment variables are case-insensitive
-                cow_bstr(if cfg!(windows) { "no-proxy" } else { "no-proxy-lower" })
+                "no-proxy", // on windows, environment variables are case-insensitive
+                if cfg!(windows) { "no-proxy" } else { "no-proxy-lower" }
             ]
         );
         assert_eq!(
             config.strings("http.sslCAInfo").expect("at least one value"),
-            [
-                cow_bstr("./CA.pem"),
-                cow_bstr("./cli.pem"),
-                cow_bstr("./api.pem"),
-                cow_bstr("./env.pem")
-            ]
+            ["./CA.pem", "./cli.pem", "./api.pem", "./env.pem"]
         );
         assert_eq!(
             config.strings("http.sslVersion").expect("at least one value"),
-            [
-                cow_bstr("sslv2"),
-                cow_bstr("sslv3"),
-                cow_bstr("tlsv1"),
-                cow_bstr("tlsv1.3")
-            ]
+            ["sslv2", "sslv3", "tlsv1", "tlsv1.3"]
         );
         assert_eq!(
             config.strings("ssh.variant").expect("at least one value"),
-            [
-                cow_bstr("ssh-variant-cli"),
-                cow_bstr("ssh-variant-api"),
-                cow_bstr("ssh-variant-env"),
-            ]
+            ["ssh-variant-cli", "ssh-variant-api", "ssh-variant-env"]
         );
         assert_eq!(
             config.strings("core.sshCommand").expect("at least one value"),
-            [
-                cow_bstr("ssh-command-cli"),
-                cow_bstr("ssh-command-api"),
-                cow_bstr("ssh-command-env"),
-            ]
+            ["ssh-command-cli", "ssh-command-api", "ssh-command-env"]
         );
         assert_eq!(
             config
                 .strings("gitoxide.ssh.commandWithoutShellFallback")
                 .expect("at least one value"),
             [
-                cow_bstr("ssh-command-fallback-cli"),
-                cow_bstr("ssh-command-fallback-api"),
-                cow_bstr("ssh-command-fallback-env"),
+                "ssh-command-fallback-cli",
+                "ssh-command-fallback-api",
+                "ssh-command-fallback-env",
             ]
         );
         assert_eq!(
@@ -226,9 +192,9 @@ mod with_overrides {
                 .strings("gitoxide.http.proxyAuthMethod")
                 .expect("at least one value"),
             [
-                cow_bstr("proxy-auth-method-cli"),
-                cow_bstr("proxy-auth-method-api"),
-                cow_bstr("proxy-auth-method-env"),
+                "proxy-auth-method-cli",
+                "proxy-auth-method-api",
+                "proxy-auth-method-env"
             ]
         );
         for (key, expected) in [
@@ -259,19 +225,12 @@ mod with_overrides {
             ("gitoxide.core.externalCommandStderr", "filter-stderr"),
         ] {
             assert_eq!(
-                config
-                    .string(key)
-                    .unwrap_or_else(|| panic!("no value for {key}"))
-                    .as_ref(),
+                config.string(key).unwrap_or_else(|| panic!("no value for {key}")),
                 expected,
                 "{key} == {expected}"
             );
         }
         Ok(())
-    }
-
-    fn cow_bstr(s: &str) -> Cow<'_, BStr> {
-        Cow::Borrowed(s.into())
     }
 }
 

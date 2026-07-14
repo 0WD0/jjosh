@@ -32,7 +32,7 @@ impl Snapshot<'_> {
         (
             gix_credentials::helper::Cascade,
             gix_credentials::helper::Action,
-            gix_prompt::Options<'static>,
+            gix_prompt::Options,
         ),
         Error,
     > {
@@ -49,8 +49,6 @@ impl Snapshot<'_> {
 }
 
 pub(super) mod function {
-    use std::borrow::Cow;
-
     use crate::{
         bstr::{ByteSlice, ByteVec},
         config::{
@@ -92,7 +90,7 @@ pub(super) mod function {
     // TODO: when dealing with `http.*.*` configuration, generalize this algorithm as needed and support precedence.
     pub fn credential_helpers(
         mut url: gix_url::Url,
-        config: &gix_config::File<'_>,
+        config: &gix_config::File,
         is_lenient_config: bool,
         mut filter: impl FnMut(&gix_config::file::Metadata) -> bool,
         environment: crate::open::permissions::Environment,
@@ -101,7 +99,7 @@ pub(super) mod function {
         (
             gix_credentials::helper::Cascade,
             gix_credentials::helper::Action,
-            gix_prompt::Options<'static>,
+            gix_prompt::Options,
         ),
         Error,
     > {
@@ -152,7 +150,7 @@ pub(super) mod function {
                         if value.trim().is_empty() {
                             programs.clear();
                         } else {
-                            programs.push(gix_credentials::Program::from_custom_definition(value.into_owned()));
+                            programs.push(gix_credentials::Program::from_custom_definition(value));
                         }
                     }
                     if let Some(Some(user)) = (!url_had_user_initially).then(|| {
@@ -160,7 +158,7 @@ pub(super) mod function {
                             .value(username_key.name)
                             .filter(|n| !n.trim().is_empty())
                             .and_then(|n| {
-                                let n: Vec<_> = Cow::into_owned(n).into();
+                                let n: Vec<_> = n.into();
                                 n.into_string().ok()
                             })
                     }) {
@@ -183,9 +181,11 @@ pub(super) mod function {
                     if let Some(toggle) = section
                         .value(protect_protocol_key.name)
                         .map(|value| {
-                            protect_protocol_key.enrich_error(gix_config::Boolean::try_from(value).map(|value| value.0))
+                            protect_protocol_key
+                                .enrich_error(gix_config::Boolean::try_from(value).map(|value| Some(value.0)))
                         })
                         .transpose()?
+                        .flatten()
                     {
                         context_options.protect_protocol = toggle;
                     }
@@ -203,13 +203,9 @@ pub(super) mod function {
                 is_lenient_config,
                 environment,
             )
-            .transpose()
-            .ignore_empty()?
-            .map(|c| Cow::Owned(c.into_owned())),
-            mode: config
-                .boolean(Credentials::TERMINAL_PROMPT)
-                .map(|val| Credentials::TERMINAL_PROMPT.enrich_error(val))
-                .transpose()
+            .ignore_empty()?,
+            mode: Credentials::TERMINAL_PROMPT
+                .enrich_error(config.boolean(Credentials::TERMINAL_PROMPT))
                 .with_leniency(is_lenient_config)?
                 .and_then(|val| (!val).then_some(gix_prompt::Mode::Disable))
                 .unwrap_or_default(),
@@ -226,10 +222,8 @@ pub(super) mod function {
                 context_options,
                 // The default ssh implementation uses binaries that do their own auth, so our passwords aren't used.
                 query_user_only: url.scheme == gix_url::Scheme::Ssh,
-                stderr: config
-                    .boolean(Credentials::HELPER_STDERR)
-                    .map(|val| Credentials::HELPER_STDERR.enrich_error(val))
-                    .transpose()
+                stderr: Credentials::HELPER_STDERR
+                    .enrich_error(config.boolean(Credentials::HELPER_STDERR))
                     .with_leniency(is_lenient_config)?
                     .unwrap_or(true),
             },
@@ -265,7 +259,7 @@ pub(super) mod function {
         fn ignore_empty(self) -> Self;
     }
 
-    impl IgnoreEmptyPath for Result<Option<std::borrow::Cow<'_, std::path::Path>>, gix_config::path::interpolate::Error> {
+    impl IgnoreEmptyPath for Result<Option<std::path::PathBuf>, gix_config::path::interpolate::Error> {
         fn ignore_empty(self) -> Self {
             match self {
                 Ok(maybe_path) => Ok(maybe_path),

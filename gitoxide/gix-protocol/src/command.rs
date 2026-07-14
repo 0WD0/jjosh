@@ -1,10 +1,8 @@
 //! V2 command abstraction to validate invocations and arguments, like a database of what we know about them.
-use std::borrow::Cow;
-
 use super::Command;
 
-/// A key value pair of values known at compile time.
-pub type Feature = (&'static str, Option<Cow<'static, str>>);
+/// A feature name known at compile time and its optional owned value.
+pub type Feature = (&'static str, Option<String>);
 
 impl Command {
     /// Produce the name of the command as known by the server side.
@@ -166,7 +164,7 @@ mod with_io {
                     .and_then(|c| c.value())
                     .and_then(|value| value.to_str().ok())
                 {
-                    features.push(("object-format", Some(object_format.to_owned().into())));
+                    features.push(("object-format", Some(object_format.to_owned())));
                 }
             }
             features

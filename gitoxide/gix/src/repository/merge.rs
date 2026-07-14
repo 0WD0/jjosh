@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use gix_merge::blob::builtin_driver::text;
 use gix_object::Write;
 
@@ -27,16 +25,9 @@ impl Repository {
     ) -> Result<gix_merge::blob::Platform, merge_resource_cache::Error> {
         let index = self.index_or_load_from_head_or_empty()?;
         let mode = {
-            let renormalize = self
-                .config
-                .resolved
-                .boolean(tree::Merge::RENORMALIZE)
-                .map(|res| {
-                    tree::Merge::RENORMALIZE
-                        .enrich_error(res)
-                        .with_lenient_default(self.config.lenient_config)
-                })
-                .transpose()?
+            let renormalize = tree::Merge::RENORMALIZE
+                .enrich_error(self.config.resolved.boolean(tree::Merge::RENORMALIZE))
+                .with_lenient_default(self.config.lenient_config)?
                 .unwrap_or_default();
             if renormalize {
                 gix_merge::blob::pipeline::Mode::Renormalize
@@ -57,7 +48,7 @@ impl Repository {
         let filter = gix_filter::Pipeline::new(self.command_context()?, crate::filter::Pipeline::options(self)?);
         let filter = gix_merge::blob::Pipeline::new(worktree_roots, filter, self.config.merge_pipeline_options()?);
         let options = gix_merge::blob::platform::Options {
-            default_driver: self.config.resolved.string(tree::Merge::DEFAULT).map(Cow::into_owned),
+            default_driver: self.config.resolved.string(tree::Merge::DEFAULT),
         };
         let drivers = self.config.merge_drivers()?;
         Ok(gix_merge::blob::Platform::new(filter, mode, attrs, drivers, options))

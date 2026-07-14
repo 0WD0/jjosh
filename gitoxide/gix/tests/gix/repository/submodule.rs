@@ -71,7 +71,7 @@ mod submodules {
                 .expect("submodules")
                 .map(|sm| (
                     sm.name().to_owned(),
-                    sm.path().expect("valid path").into_owned(),
+                    sm.path().expect("valid path"),
                     sm.head_id().expect("valid"),
                     sm.index_id().expect("valid"),
                     sm.is_active().expect("no config error")

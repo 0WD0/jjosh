@@ -34,7 +34,7 @@ pub use self::function::RefPrefixes;
 
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub(crate) mod function {
-    use std::{borrow::Cow, collections::HashSet};
+    use std::collections::HashSet;
 
     use bstr::{BString, ByteVec};
     use gix_features::progress::Progress;
@@ -129,7 +129,7 @@ pub(crate) mod function {
     /// and the one that performs IO either blocking or `async`.
     pub struct LsRefsCommand<'a> {
         pub(crate) capabilities: &'a Capabilities,
-        features: Vec<(&'static str, Option<Cow<'static, str>>)>,
+        features: Vec<crate::command::Feature>,
         arguments: Vec<BString>,
     }
 
@@ -142,7 +142,7 @@ pub(crate) mod function {
         pub fn new(
             ref_prefixes: Option<RefPrefixes>,
             capabilities: &'a Capabilities,
-            agent: (&'static str, Option<Cow<'static, str>>),
+            agent: crate::command::Feature,
         ) -> Self {
             let ls_refs = Command::LsRefs;
             let mut features = ls_refs.default_features(gix_transport::Protocol::V2, capabilities);

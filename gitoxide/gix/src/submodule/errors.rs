@@ -5,7 +5,7 @@ pub mod open_modules_file {
     #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
-        Configuration(#[from] gix_config::parse::Error),
+        Configuration(#[from] gix_submodule::init::Error),
         #[error("Could not read '.gitmodules' file")]
         Io(#[from] std::io::Error),
     }

@@ -53,7 +53,7 @@ pub enum Error {
     #[error(transparent)]
     Init(#[from] crate::init::Error),
     #[error(transparent)]
-    CommitterOrFallback(#[from] crate::config::time::Error),
+    CommitterOrFallback(#[from] crate::config::commit_signature::Error),
     #[error(transparent)]
     UrlParse(#[from] gix_url::parse::Error),
     #[error("Failed to turn a the relative file url \"{}\" into an absolute one", url.to_bstring())]

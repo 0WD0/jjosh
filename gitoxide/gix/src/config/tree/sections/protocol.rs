@@ -21,18 +21,17 @@ pub type Version = keys::Any<validate::Version>;
 
 #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
 mod allow {
-    use std::borrow::Cow;
-
-    use crate::{bstr::BStr, config, config::tree::protocol::Allow, remote::url::scheme_permission};
+    use crate::{bstr::ByteSlice, config, config::tree::protocol::Allow, remote::url::scheme_permission};
 
     impl Allow {
         /// Convert `value` into its respective `Allow` variant, possibly informing about the `scheme` we are looking at in the error.
         pub fn try_into_allow(
             &'static self,
-            value: Cow<'_, BStr>,
+            value: impl gix_utils::AsBStr,
             scheme: Option<&str>,
         ) -> Result<scheme_permission::Allow, config::protocol::allow::Error> {
-            scheme_permission::Allow::try_from(value).map_err(|value| config::protocol::allow::Error {
+            let value = value.as_bstr();
+            scheme_permission::Allow::try_from(value.as_bstr()).map_err(|value| config::protocol::allow::Error {
                 value,
                 scheme: scheme.map(ToOwned::to_owned),
             })
@@ -82,26 +81,26 @@ mod key_impls {
         #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
         pub fn try_into_protocol_version(
             &'static self,
-            value: Option<Result<i64, gix_config::value::Error>>,
+            value: Result<Option<i64>, gix_config::value::Error>,
         ) -> Result<gix_protocol::transport::Protocol, crate::config::key::GenericErrorWithValue> {
             let value = match value {
-                None => return Ok(gix_protocol::transport::Protocol::V2),
-                Some(v) => v,
-            };
-            Ok(match value {
-                Ok(0) => gix_protocol::transport::Protocol::V0,
-                Ok(1) => gix_protocol::transport::Protocol::V1,
-                Ok(2) => gix_protocol::transport::Protocol::V2,
-                Ok(other) => {
-                    return Err(crate::config::key::GenericErrorWithValue::from_value(
-                        self,
-                        other.to_string().into(),
-                    ));
-                }
+                Ok(None) => return Ok(gix_protocol::transport::Protocol::V2),
+                Ok(Some(value)) => value,
                 Err(err) => {
                     return Err(
                         crate::config::key::GenericErrorWithValue::from_value(self, "unknown".into()).with_source(err),
                     );
+                }
+            };
+            Ok(match value {
+                0 => gix_protocol::transport::Protocol::V0,
+                1 => gix_protocol::transport::Protocol::V1,
+                2 => gix_protocol::transport::Protocol::V2,
+                other => {
+                    return Err(crate::config::key::GenericErrorWithValue::from_value(
+                        self,
+                        other.to_string().into(),
+                    ));
                 }
             })
         }
@@ -116,7 +115,7 @@ mod validate {
     impl keys::Validate for Allow {
         fn validate(&self, _value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             #[cfg(any(feature = "blocking-network-client", feature = "async-network-client"))]
-            super::Protocol::ALLOW.try_into_allow(std::borrow::Cow::Borrowed(_value), None)?;
+            super::Protocol::ALLOW.try_into_allow(_value, None)?;
             Ok(())
         }
     }

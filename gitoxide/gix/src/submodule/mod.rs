@@ -2,14 +2,18 @@
 //! Submodule plumbing and abstractions
 //!
 use std::{
-    borrow::Cow,
     cell::{Ref, RefCell, RefMut},
     path::PathBuf,
 };
 
 pub use gix_submodule::*;
 
-use crate::{Repository, Submodule, bstr::BStr, is_dir_to_mode, worktree::IndexPersistedOrInMemory};
+use crate::{
+    Repository, Submodule,
+    bstr::{BStr, BString},
+    is_dir_to_mode,
+    worktree::IndexPersistedOrInMemory,
+};
 
 pub(crate) type ModulesFileStorage = gix_features::threading::OwnShared<gix_fs::SharedFileSnapshotMut<File>>;
 /// A lazily loaded and auto-updated worktree index.
@@ -101,7 +105,7 @@ impl Submodule<'_> {
     /// Return the path at which the submodule can be found, relative to the repository.
     ///
     /// For details, see [gix_submodule::File::path()].
-    pub fn path(&self) -> Result<Cow<'_, BStr>, config::path::Error> {
+    pub fn path(&self) -> Result<BString, config::path::Error> {
         self.state.modules.path(self.name())
     }
 
@@ -130,14 +134,8 @@ impl Submodule<'_> {
     pub fn fetch_recurse(&self) -> Result<Option<config::FetchRecurse>, fetch_recurse::Error> {
         Ok(match self.state.modules.fetch_recurse(self.name())? {
             Some(val) => Some(val),
-            None => self
-                .state
-                .repo
-                .config
-                .resolved
-                .boolean("fetch.recurseSubmodules")
-                .map(|res| crate::config::tree::Fetch::RECURSE_SUBMODULES.try_into_recurse_submodules(res))
-                .transpose()?,
+            None => crate::config::tree::Fetch::RECURSE_SUBMODULES
+                .try_into_recurse_submodules(self.state.repo.config.resolved.boolean("fetch.recurseSubmodules"))?,
         })
     }
 
@@ -184,7 +182,7 @@ impl Submodule<'_> {
         Ok(self
             .state
             .index()?
-            .entry_by_path(&path)
+            .entry_by_path(BStr::new(&path))
             .and_then(|entry| (entry.mode == gix_index::entry::Mode::COMMIT).then_some(entry.id)))
     }
 
@@ -200,7 +198,7 @@ impl Submodule<'_> {
             .repo
             .head_commit()?
             .tree()?
-            .peel_to_entry_by_path(gix_path::from_bstr(path.as_ref()))?
+            .peel_to_entry_by_path(gix_path::from_bstring(path))?
             .and_then(|entry| (entry.mode().is_commit()).then_some(entry.inner.oid)))
     }
 

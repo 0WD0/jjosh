@@ -120,12 +120,12 @@ where
             shallow_file: repo.shallow_file(),
             shallow: &self.shallow,
             tags: con.remote.fetch_tags,
-            reject_shallow_remote: repo
-                .config
-                .resolved
-                .boolean_filter("clone.rejectShallow", &mut repo.filter_config_section())
-                .map(|val| Clone::REJECT_SHALLOW.enrich_error(val))
-                .transpose()?
+            reject_shallow_remote: Clone::REJECT_SHALLOW
+                .enrich_error(
+                    repo.config
+                        .resolved
+                        .boolean_filter("clone.rejectShallow", &mut repo.filter_config_section()),
+                )?
                 .unwrap_or(false),
         };
         let context = gix_protocol::fetch::Context {

@@ -1,5 +1,5 @@
 #![allow(clippy::result_large_err)]
-use std::{borrow::Cow, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use gix_config::file::Metadata;
 use gix_lock::acquire::Fail;
@@ -27,10 +27,7 @@ impl Cache {
         use crate::config::{cache::util::ApplyLeniencyDefault, diff::algorithm::Error, tree::Diff};
         self.diff_algorithm
             .get_or_try_init(|| {
-                let name = self
-                    .resolved
-                    .string(Diff::ALGORITHM)
-                    .unwrap_or_else(|| Cow::Borrowed("myers".into()));
+                let name = self.resolved.string(Diff::ALGORITHM).unwrap_or_else(|| "myers".into());
                 config::tree::Diff::ALGORITHM
                     .try_into_algorithm(name)
                     .or_else(|err| match err {
@@ -79,10 +76,10 @@ impl Cache {
                     })?;
             }
             if let Some(command) = section.value(config::tree::Diff::DRIVER_COMMAND.name) {
-                driver.command = command.into_owned().into();
+                driver.command = command.into();
             }
             if let Some(textconv) = section.value(config::tree::Diff::DRIVER_TEXTCONV.name) {
-                driver.binary_to_text_command = textconv.into_owned().into();
+                driver.binary_to_text_command = textconv.into();
             }
             if let Some(algorithm) = section.value("algorithm") {
                 driver.algorithm = config::tree::Diff::DRIVER_ALGORITHM
@@ -132,10 +129,10 @@ impl Cache {
             };
 
             if let Some(command) = section.value(config::tree::Merge::DRIVER_COMMAND.name) {
-                driver.command = command.into_owned();
+                driver.command = command;
             }
             if let Some(recursive_name) = section.value(config::tree::Merge::DRIVER_RECURSIVE.name) {
-                driver.recursive = Some(recursive_name.into_owned());
+                driver.recursive = Some(recursive_name);
             }
         }
         Ok(out)
@@ -168,18 +165,15 @@ impl Cache {
     }
 
     pub(crate) fn big_file_threshold(&self) -> Result<u64, config::unsigned_integer::Error> {
-        Ok(self
-            .resolved
-            .integer("core.bigFileThreshold")
-            .map(|number| Core::BIG_FILE_THRESHOLD.try_into_u64(number))
-            .transpose()
+        Ok(Core::BIG_FILE_THRESHOLD
+            .try_into_u64(self.resolved.integer("core.bigFileThreshold"))
             .with_leniency(self.lenient_config)?
             .unwrap_or(512 * 1024 * 1024))
     }
 
     /// Returns a user agent for use with servers.
     #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
-    pub(crate) fn user_agent_tuple(&self) -> (&'static str, Option<Cow<'static, str>>) {
+    pub(crate) fn user_agent_tuple(&self) -> (&'static str, Option<String>) {
         use config::tree::Gitoxide;
         let agent = self
             .user_agent
@@ -189,7 +183,7 @@ impl Cache {
                     .map_or_else(|| crate::env::agent().into(), |s| s.to_string())
             })
             .to_owned();
-        ("agent", Some(gix_protocol::agent(agent).into()))
+        ("agent", Some(gix_protocol::agent(agent)))
     }
 
     /// Return `true` if packet-tracing is enabled. Lenient and defaults to `false`.
@@ -198,7 +192,8 @@ impl Cache {
         use config::tree::Gitoxide;
         self.resolved
             .boolean(Gitoxide::TRACE_PACKET)
-            .and_then(Result::ok)
+            .ok()
+            .flatten()
             .unwrap_or_default()
     }
 
@@ -220,11 +215,10 @@ impl Cache {
 
     pub(crate) fn may_use_commit_graph(&self) -> Result<bool, config::boolean::Error> {
         const DEFAULT: bool = true;
-        self.resolved.boolean("core.commitGraph").map_or(Ok(DEFAULT), |res| {
-            Core::COMMIT_GRAPH
-                .enrich_error(res)
-                .with_lenient_default_value(self.lenient_config, DEFAULT)
-        })
+        Ok(Core::COMMIT_GRAPH
+            .enrich_error(self.resolved.boolean("core.commitGraph"))
+            .with_lenient_default_value(self.lenient_config, Some(DEFAULT))?
+            .unwrap_or(DEFAULT))
     }
 
     /// Returns (file-timeout, pack-refs timeout)
@@ -236,11 +230,11 @@ impl Cache {
             .into_iter()
             .enumerate()
         {
-            out[idx] = self
-                .resolved
-                .integer_filter(key, &mut self.filter_config_section.clone())
-                .map(|res| key.try_into_lock_timeout(res))
-                .transpose()
+            out[idx] = key
+                .try_into_lock_timeout(
+                    self.resolved
+                        .integer_filter(key, &mut self.filter_config_section.clone()),
+                )
                 .with_leniency(self.lenient_config)?
                 .unwrap_or_else(|| Fail::AfterDurationWithBackoff(Duration::from_millis(default_ms)));
         }
@@ -249,10 +243,8 @@ impl Cache {
 
     /// The path to the user-level excludes file to ignore certain files in the worktree.
     #[cfg(feature = "excludes")]
-    pub(crate) fn excludes_file(&self) -> Option<Result<PathBuf, gix_config::path::interpolate::Error>> {
-        self.trusted_file_path(Core::EXCLUDES_FILE)?
-            .map(std::borrow::Cow::into_owned)
-            .into()
+    pub(crate) fn excludes_file(&self) -> Result<Option<PathBuf>, gix_config::path::interpolate::Error> {
+        self.trusted_file_path(Core::EXCLUDES_FILE)
     }
 
     /// A helper to obtain a file from trusted configuration at `section_name`, `subsection_name`, and `key`, which is interpolated
@@ -260,7 +252,7 @@ impl Cache {
     pub(crate) fn trusted_file_path(
         &self,
         key: impl gix_config::AsKey,
-    ) -> Option<Result<Cow<'_, std::path::Path>, gix_config::path::interpolate::Error>> {
+    ) -> Result<Option<PathBuf>, gix_config::path::interpolate::Error> {
         trusted_file_path(
             &self.resolved,
             key,
@@ -270,8 +262,8 @@ impl Cache {
         )
     }
 
-    pub(crate) fn apply_leniency<T, E>(&self, res: Option<Result<T, E>>) -> Result<Option<T>, E> {
-        res.transpose().with_leniency(self.lenient_config)
+    pub(crate) fn apply_leniency<T, E>(&self, res: Result<Option<T>, E>) -> Result<Option<T>, E> {
+        res.with_leniency(self.lenient_config)
     }
 
     pub(crate) fn fs_capabilities(&self) -> Result<gix_fs::Capabilities, boolean::Error> {
@@ -294,7 +286,8 @@ impl Cache {
                 .apply_leniency(
                     self.resolved
                         .string(Core::CHECK_STAT)
-                        .map(|v| Core::CHECK_STAT.try_into_checkstat(v)),
+                        .map(|v| Core::CHECK_STAT.try_into_checkstat(v))
+                        .transpose(),
                 )?
                 .unwrap_or(true),
         })
@@ -307,26 +300,17 @@ impl Cache {
         const ALWAYS_ON_FOR_SAFETY: bool = true;
         Ok(gix_validate::path::component::Options {
             protect_windows: config::tree::gitoxide::Core::PROTECT_WINDOWS
-                .enrich_error(
-                    self.resolved
-                        .boolean(config::tree::gitoxide::Core::PROTECT_WINDOWS)
-                        .unwrap_or(Ok(IS_WINDOWS)),
-                )
-                .with_lenient_default_value(self.lenient_config, IS_WINDOWS)?,
+                .enrich_error(self.resolved.boolean(config::tree::gitoxide::Core::PROTECT_WINDOWS))
+                .with_lenient_default_value(self.lenient_config, Some(IS_WINDOWS))?
+                .unwrap_or(IS_WINDOWS),
             protect_hfs: config::tree::Core::PROTECT_HFS
-                .enrich_error(
-                    self.resolved
-                        .boolean(config::tree::Core::PROTECT_HFS)
-                        .unwrap_or(Ok(IS_MACOS)),
-                )
-                .with_lenient_default_value(self.lenient_config, IS_MACOS)?,
+                .enrich_error(self.resolved.boolean(config::tree::Core::PROTECT_HFS))
+                .with_lenient_default_value(self.lenient_config, Some(IS_MACOS))?
+                .unwrap_or(IS_MACOS),
             protect_ntfs: config::tree::Core::PROTECT_NTFS
-                .enrich_error(
-                    self.resolved
-                        .boolean(config::tree::Core::PROTECT_NTFS)
-                        .unwrap_or(Ok(ALWAYS_ON_FOR_SAFETY)),
-                )
-                .with_lenient_default_value(self.lenient_config, ALWAYS_ON_FOR_SAFETY)?,
+                .enrich_error(self.resolved.boolean(config::tree::Core::PROTECT_NTFS))
+                .with_lenient_default_value(self.lenient_config, Some(ALWAYS_ON_FOR_SAFETY))?
+                .unwrap_or(ALWAYS_ON_FOR_SAFETY),
         })
     }
 
@@ -342,9 +326,10 @@ impl Cache {
         use crate::config::tree::gitoxide;
         let git_dir = repo.git_dir();
         let thread_limit = self.apply_leniency(
-            self.resolved
-                .integer_filter("checkout.workers", &mut self.filter_config_section.clone())
-                .map(|value| crate::config::tree::Checkout::WORKERS.try_from_workers(value)),
+            crate::config::tree::Checkout::WORKERS.try_from_workers(
+                self.resolved
+                    .integer_filter("checkout.workers", &mut self.filter_config_section.clone()),
+            ),
         )?;
         let capabilities = self.fs_capabilities()?;
         let filters = {
@@ -408,7 +393,7 @@ impl Cache {
         source: gix_worktree::stack::state::ignore::Source,
         buf: &mut Vec<u8>,
     ) -> Result<gix_worktree::stack::state::Ignore, config::exclude_stack::Error> {
-        let excludes_file = match self.excludes_file().transpose()? {
+        let excludes_file = match self.excludes_file()? {
             Some(user_path) => Some(user_path),
             None => self.xdg_config_path("ignore")?,
         };
@@ -430,11 +415,11 @@ impl Cache {
         attributes: crate::open::permissions::Attributes,
     ) -> Result<(gix_worktree::stack::state::Attributes, Vec<u8>), config::attribute_stack::Error> {
         use gix_attributes::Source;
-        let configured_or_user_attributes = match self.trusted_file_path(Core::ATTRIBUTES_FILE).transpose()? {
+        let configured_or_user_attributes = match self.trusted_file_path(Core::ATTRIBUTES_FILE)? {
             Some(attributes) => Some(attributes),
             None => {
                 if attributes.git {
-                    self.xdg_config_path("attributes").ok().flatten().map(Cow::Owned)
+                    self.xdg_config_path("attributes").ok().flatten()
                 } else {
                     None
                 }
@@ -526,30 +511,26 @@ impl Cache {
 }
 
 fn compression(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient: bool,
     mut filter_config_section: fn(&gix_config::file::Metadata) -> bool,
     key: &'static config::tree::keys::Compression,
     default: gix_zlib::Compression,
 ) -> Result<gix_zlib::Compression, config::Error> {
-    let level = match config
-        .integer_filter(key, &mut filter_config_section)
-        .map(|value| key.try_into_compression(value))
-        .transpose()
+    let level = match key
+        .try_into_compression(config.integer_filter(key, &mut filter_config_section))
         .with_leniency(lenient)?
     {
         Some(level) => Some(level),
-        None => config
-            .integer_filter(Core::COMPRESSION, &mut filter_config_section)
-            .map(|value| Core::COMPRESSION.try_into_compression(value))
-            .transpose()
+        None => Core::COMPRESSION
+            .try_into_compression(config.integer_filter(Core::COMPRESSION, &mut filter_config_section))
             .with_leniency(lenient)?,
     };
     Ok(level.unwrap_or(default))
 }
 
 pub(crate) fn loose_compression(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient: bool,
     filter_config_section: fn(&gix_config::file::Metadata) -> bool,
 ) -> Result<gix_zlib::Compression, config::Error> {
@@ -563,7 +544,7 @@ pub(crate) fn loose_compression(
 }
 
 pub(crate) fn pack_compression(
-    config: &gix_config::File<'static>,
+    config: &gix_config::File,
     lenient: bool,
     filter_config_section: fn(&gix_config::file::Metadata) -> bool,
 ) -> Result<gix_zlib::Compression, config::Error> {
@@ -576,14 +557,16 @@ pub(crate) fn pack_compression(
     )
 }
 
-pub(crate) fn trusted_file_path<'config>(
-    config: &'config gix_config::File<'_>,
+pub(crate) fn trusted_file_path(
+    config: &gix_config::File,
     key: impl gix_config::AsKey,
     filter: impl FnMut(&Metadata) -> bool,
     lenient_config: bool,
     environment: crate::open::permissions::Environment,
-) -> Option<Result<Cow<'config, std::path::Path>, gix_config::path::interpolate::Error>> {
-    let path = config.path_filter(key, filter)?;
+) -> Result<Option<PathBuf>, gix_config::path::interpolate::Error> {
+    let Some(path) = config.path_filter(key, filter) else {
+        return Ok(None);
+    };
 
     if lenient_config && path.is_empty() {
         let _key = key.as_key();
@@ -593,7 +576,7 @@ pub(crate) fn trusted_file_path<'config>(
             subsection_name = _key.subsection_name,
             name = _key.value_name
         );
-        return None;
+        return Ok(None);
     }
 
     let install_dir = crate::path::install_dir().ok();
@@ -601,17 +584,15 @@ pub(crate) fn trusted_file_path<'config>(
     let ctx = config::cache::interpolate_context(install_dir.as_deref(), home.as_deref());
 
     let is_optional = path.is_optional;
-    let res = path.interpolate(ctx);
+    let path = path.interpolate(ctx)?;
     if is_optional {
-        if let Ok(path) = &res {
-            // As opposed to Git, for a lack of the right error variant, we ignore everything that can't
-            // be stat'ed, instead of just checking if it doesn't exist via error code.
-            if path.metadata().is_err() {
-                return None;
-            }
+        // As opposed to Git, for a lack of the right error variant, we ignore everything that can't
+        // be stat'ed, instead of just checking if it doesn't exist via error code.
+        if path.metadata().is_err() {
+            return Ok(None);
         }
     }
-    Some(res)
+    Ok(Some(path))
 }
 
 pub(crate) fn home_dir(environment: crate::open::permissions::Environment) -> Option<PathBuf> {
@@ -630,6 +611,6 @@ fn boolean(
         "BUG: key name and hardcoded name must match"
     );
     Ok(me
-        .apply_leniency(me.resolved.boolean(full_key).map(|v| key.enrich_error(v)))?
+        .apply_leniency(key.enrich_error(me.resolved.boolean(full_key)))?
         .unwrap_or(default))
 }
