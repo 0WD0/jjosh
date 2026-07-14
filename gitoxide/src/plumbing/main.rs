@@ -719,6 +719,17 @@ pub fn main() -> Result<()> {
         }) => {
             use crate::plumbing::options::remote;
             match cmd {
+                remote::Subcommands::Url { all, push } => core::repository::remote::url(
+                    repository(Mode::LenientWithGitInstallConfig)?,
+                    name.as_deref(),
+                    if push {
+                        gix::remote::Direction::Push
+                    } else {
+                        gix::remote::Direction::Fetch
+                    },
+                    all,
+                    std::io::stdout(),
+                ),
                 remote::Subcommands::Refs | remote::Subcommands::RefMap { .. } => {
                     let kind = match cmd {
                         remote::Subcommands::Refs => core::repository::remote::refs::Kind::Remote,
@@ -729,6 +740,7 @@ pub fn main() -> Result<()> {
                             ref_specs: ref_spec,
                             show_unmapped_remote_refs,
                         },
+                        remote::Subcommands::Url { .. } => unreachable!("handled above"),
                     };
                     let context = core::repository::remote::refs::Options {
                         name_or_url: name,

@@ -1,3 +1,35 @@
+/// Print the effective URL or URLs of the selected remote.
+///
+/// Without an explicit remote, selection follows the fetch or push configuration for the current branch according to `direction`.
+pub fn url(
+    repo: gix::Repository,
+    name: Option<&str>,
+    direction: gix::remote::Direction,
+    all: bool,
+    mut out: impl std::io::Write,
+) -> anyhow::Result<()> {
+    let remote = match (name, direction) {
+        (Some(name), _) => repo.find_fetch_remote(Some(name.into()))?,
+        (None, gix::remote::Direction::Fetch) => repo.find_fetch_remote(None)?,
+        (None, gix::remote::Direction::Push) => repo
+            .head()?
+            .into_remote(gix::remote::Direction::Push)
+            .or_else(|| repo.find_default_remote(gix::remote::Direction::Push))
+            .transpose()?
+            .ok_or_else(|| anyhow::anyhow!("Could not determine a remote for pushing"))?,
+    };
+    if all {
+        for url in remote.urls(direction) {
+            out.write_all(&url.to_bstring())?;
+            out.write_all(b"\n")?;
+        }
+    } else if let Some(url) = remote.url(direction) {
+        out.write_all(&url.to_bstring())?;
+        out.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 mod refs_impl {
     use anyhow::bail;

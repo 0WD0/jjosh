@@ -29,20 +29,42 @@ impl<'repo> Remote<'repo> {
         self.fetch_tags
     }
 
-    /// Return the url used for the given `direction` with rewrites from `url.<base>.insteadOf|pushInsteadOf`, unless the instance
+    /// Return the first url used for the given `direction` with rewrites from `url.<base>.insteadOf|pushInsteadOf`, unless the instance
     /// was created with one of the `_without_url_rewrite()` methods.
-    /// For pushing, this is the `remote.<name>.pushUrl` or the `remote.<name>.url` used for fetching, and for fetching it's
-    /// the `remote.<name>.url`.
+    /// See [`urls()`](Self::urls()) for how rewrite rules differ between fetch URLs, explicit push URLs, and push fallbacks.
+    /// For pushing, this is the first `remote.<name>.pushUrl` or the first `remote.<name>.url` used for fetching, and for
+    /// fetching it's the first `remote.<name>.url`, matching the default behaviour of `git remote get-url`.
     /// Note that it's possible to only have the push url set, in which case there will be no way to fetch from the remote as
     /// the push-url isn't used for that.
     pub fn url(&self, direction: remote::Direction) -> Option<&gix_url::Url> {
+        self.urls(direction).next()
+    }
+
+    /// Return all urls used for the given `direction` with rewrites from `url.<base>.insteadOf|pushInsteadOf`, unless the
+    /// instance was created with one of the `_without_url_rewrite()` methods.
+    ///
+    /// Fetch URLs are rewritten with `url.<base>.insteadOf`. Explicit `remote.<name>.pushUrl` values are also rewritten with
+    /// `insteadOf`, and `pushInsteadOf` is ignored for them. If no explicit push URL is configured, the fetch URLs are used
+    /// as push fallbacks: matching `pushInsteadOf` rules take precedence, with `insteadOf` used when none match.
+    ///
+    /// Values are returned in configuration order.
+    pub fn urls(&self, direction: remote::Direction) -> impl Iterator<Item = &gix_url::Url> + '_ {
+        let (urls, aliases) = self.urls_and_aliases(direction);
+        debug_assert_eq!(
+            urls.len(),
+            aliases.len(),
+            "each URL should have a corresponding rewrite slot"
+        );
+        urls.iter()
+            .zip(aliases)
+            .map(|(url, alias)| alias.as_ref().unwrap_or(url))
+    }
+
+    fn urls_and_aliases(&self, direction: remote::Direction) -> (&[gix_url::Url], &[Option<gix_url::Url>]) {
         match direction {
-            remote::Direction::Fetch => self.url_alias.as_ref().or(self.url.as_ref()),
-            remote::Direction::Push => self
-                .push_url_alias
-                .as_ref()
-                .or(self.push_url.as_ref())
-                .or_else(|| self.url(remote::Direction::Fetch)),
+            remote::Direction::Fetch => (&self.urls, &self.url_aliases),
+            remote::Direction::Push if self.push_urls.is_empty() => (&self.urls, &self.url_push_aliases),
+            remote::Direction::Push => (&self.push_urls, &self.push_url_aliases),
         }
     }
 
@@ -69,27 +91,41 @@ impl RemoteDetached {
 
 /// Modification
 impl Remote<'_> {
-    /// Read `url.<base>.insteadOf|pushInsteadOf` configuration variables and apply them to our urls, changing them in place.
+    /// Re-read `url.<base>.insteadOf|pushInsteadOf` and recompute the effective URLs returned by [`url()`](Self::url()) and
+    /// [`urls()`](Self::urls()). This may be called repeatedly to refresh rewrite rules after configuration changes.
     ///
-    /// This happens only once, and one if them may be changed even when reporting an error.
-    /// If both urls fail, only the first error (for fetch urls) is reported.
+    /// Every URL is attempted non-destructively: successful rewrites remain effective if another rewritten URL is malformed,
+    /// while a failed entry keeps using its original URL. The first error is returned in fetch, push-fallback, explicit-push
+    /// order. See [`urls()`](Self::urls()) for which rules apply to each category.
     pub fn rewrite_urls(&mut self) -> Result<&mut Self, remote::init::Error> {
-        let url_err = match remote::init::rewrite_url(&self.repo.config, self.url.as_ref(), remote::Direction::Fetch) {
-            Ok(url) => {
-                self.url_alias = url;
-                None
-            }
-            Err(err) => err.into(),
+        let (url_aliases, url_err) =
+            remote::init::rewrite_url_aliases_non_destructive(&self.repo.config, &self.urls, remote::Direction::Fetch);
+        self.url_aliases = url_aliases;
+        let url_push_err = if self.push_urls.is_empty() {
+            let (url_push_aliases, err) = remote::init::rewrite_url_aliases_with_fallback_non_destructive(
+                &self.repo.config,
+                &self.urls,
+                remote::Direction::Push,
+                remote::Direction::Fetch,
+            );
+            self.url_push_aliases = url_push_aliases;
+            err
+        } else {
+            self.url_push_aliases = vec![None; self.urls.len()];
+            None
         };
-        let push_url_err =
-            match remote::init::rewrite_url(&self.repo.config, self.push_url.as_ref(), remote::Direction::Push) {
-                Ok(url) => {
-                    self.push_url_alias = url;
-                    None
-                }
-                Err(err) => err.into(),
-            };
-        url_err.or(push_url_err).map(Err::<&mut Self, _>).transpose()?;
+        let (push_url_aliases, push_url_err) = remote::init::rewrite_url_aliases_non_destructive_with_error_kind(
+            &self.repo.config,
+            &self.push_urls,
+            remote::Direction::Fetch,
+            remote::Direction::Push,
+        );
+        self.push_url_aliases = push_url_aliases;
+        url_err
+            .or(url_push_err)
+            .or(push_url_err)
+            .map(Err::<&mut Self, _>)
+            .transpose()?;
         Ok(self)
     }
 
@@ -131,20 +167,21 @@ impl From<Remote<'_>> for RemoteDetached {
     fn from(
         Remote {
             name,
-            url,
-            url_alias,
+            urls,
+            url_aliases,
+            url_push_aliases: _,
             fetch_specs,
             fetch_tags,
-            push_url: _,
-            push_url_alias: _,
+            push_urls: _,
+            push_url_aliases: _,
             push_specs: _,
             repo: _,
         }: Remote<'_>,
     ) -> Self {
         RemoteDetached {
             name,
-            url,
-            url_alias,
+            urls,
+            url_aliases,
             fetch_specs,
             fetch_tags,
         }

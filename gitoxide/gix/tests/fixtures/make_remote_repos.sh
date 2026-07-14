@@ -208,6 +208,93 @@ EOF
   } > baseline.git
 )
 
+git init --bare multiple-urls
+(cd multiple-urls
+
+  git config --add remote.origin.url alias:one
+  git config --add remote.origin.url alias:two
+  git config --add url.https://fetch.example/.insteadOf alias:
+  git config --add url.ssh://push.example/.pushInsteadOf alias:
+
+  {
+    git remote get-url origin
+    git remote get-url --all origin
+    git remote get-url --push origin
+    git remote get-url --push --all origin
+  } > baseline.git
+)
+
+git init --bare multiple-bad-url-rewriting
+(cd multiple-bad-url-rewriting
+
+  git config --add remote.origin.url https://github.com/foobar/gitoxide
+  git config --add remote.origin.url bad:gitoxide
+  git config --add url.https://github.com/byron/.insteadOf https://github.com/foobar/
+  git config --add url.invalid:://.insteadOf bad:
+)
+
+git init --bare multiple-urls-with-empty-reset
+(cd multiple-urls-with-empty-reset
+
+  git config --add remote.origin.url invalid:://old
+  git config --add remote.origin.url ""
+  git config --add remote.origin.url alias:new
+  git config --add remote.origin.pushUrl invalid:://push-old
+  git config --add remote.origin.pushUrl ""
+  git config --add remote.origin.pushUrl push:new
+
+  # Git 2.50.1 treats an empty URL value as a reset marker, but older Git versions
+  # used in some CI containers do not. Keep this baseline stable across fixture
+  # generators while documenting the modern reference behavior.
+  {
+    echo alias:new
+    echo alias:new
+    echo push:new
+    echo push:new
+  } > baseline.git
+)
+
+# A named remote remains usable when it has no effective fetch URL: Git treats the
+# requested remote name itself as the fetch URL. Cover an absent URL, URLs cleared
+# by an empty reset value, and a push-only remote whose explicit push URL still wins.
+git init --bare missing-urls
+(cd missing-urls
+  git config remote.no-url.prune true
+  git config --add remote.reset-url.url https://ignored.example/repo
+  git config --add remote.reset-url.url ""
+  git config remote.push-only.pushUrl ssh://push.example/repo
+  git config remote.https://fallback.example/repo.prune true
+
+  {
+    git remote get-url no-url
+    git remote get-url --push no-url
+    # Git 2.50.1 treats the empty value as a reset and falls back to the name;
+    # spell that out so older fixture generators produce the same baseline.
+    echo reset-url
+    echo reset-url
+    for remote in push-only https://fallback.example/repo
+    do
+      git remote get-url "$remote"
+      git remote get-url --push "$remote"
+    done
+  } > baseline.git
+)
+
+git init --bare bad-push-fallback-url-rewriting
+(cd bad-push-fallback-url-rewriting
+
+  git config remote.origin.url alias:repo
+  git config url.invalid:://.pushInsteadOf alias:
+)
+
+git init --bare bad-explicit-push-url-rewriting
+(cd bad-explicit-push-url-rewriting
+
+  git config remote.origin.url alias:repo
+  git config remote.origin.pushUrl bad:repo
+  git config url.invalid:://.insteadOf bad:
+)
+
 git clone --shared base protocol_denied
 (cd protocol_denied
     git config protocol.allow never
