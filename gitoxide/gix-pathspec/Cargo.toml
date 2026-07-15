@@ -16,7 +16,7 @@ doctest = true
 
 [dependencies]
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
-gix-path = { version = "^0.12.1", path = "../gix-path" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-attributes = { version = "^0.33.1", path = "../gix-attributes" }
 gix-config-value = { version = "^0.18.1", path = "../gix-config-value" }
 

@@ -323,8 +323,8 @@ progress-tree = ["prodash/progress-tree"]
 cache-efficiency-debug = ["gix-features/cache-efficiency-debug"]
 
 [dependencies]
-gix-error = { version = "^0.2.4", path = "../gix-error" }
-gix-utils = { version = "^0.3.3", path = "../gix-utils" }
+gix-error = { version = "^0.2.5", path = "../gix-error" }
+gix-utils = { version = "^0.3.4", path = "../gix-utils" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
 gix-ref = { version = "^0.65.0", path = "../gix-ref" }
 gix-discover = { version = "^0.53.0", path = "../gix-discover" }
@@ -332,7 +332,7 @@ gix-tempfile = { version = "^23.0.0", path = "../gix-tempfile", default-features
 gix-lock = { version = "^23.0.0", path = "../gix-lock" }
 gix-validate = { version = "^0.11.2", path = "../gix-validate" }
 gix-sec = { version = "^0.14.1", path = "../gix-sec" }
-gix-date = { version = "^0.15.5", path = "../gix-date" }
+gix-date = { version = "^0.15.6", path = "../gix-date" }
 gix-refspec = { version = "^0.43.0", path = "../gix-refspec" }
 gix-filter = { version = "^0.32.0", path = "../gix-filter", optional = true }
 gix-dir = { version = "^0.27.0", path = "../gix-dir", optional = true }
@@ -351,8 +351,8 @@ gix-revision = { version = "^0.47.0", path = "../gix-revision", default-features
 gix-revwalk = { version = "^0.33.0", path = "../gix-revwalk" }
 gix-negotiate = { version = "^0.33.0", path = "../gix-negotiate", optional = true }
 
-gix-path = { version = "^0.12.1", path = "../gix-path" }
-gix-url = { version = "^0.36.1", path = "../gix-url" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
+gix-url = { version = "^0.36.2", path = "../gix-url" }
 gix-traverse = { version = "^0.59.0", path = "../gix-traverse" }
 gix-diff = { version = "^0.65.0", path = "../gix-diff", default-features = false }
 gix-merge = { version = "^0.18.0", path = "../gix-merge", default-features = false, optional = true }
@@ -364,7 +364,7 @@ gix-features = { version = "^0.48.1", path = "../gix-features", features = [
 gix-trace = { version = "^0.1.20", path = "../gix-trace" }
 
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
-gix-credentials = { version = "^0.38.1", path = "../gix-credentials", optional = true }
+gix-credentials = { version = "^0.38.2", path = "../gix-credentials", optional = true }
 gix-prompt = { version = "^0.15.1", path = "../gix-prompt", optional = true }
 gix-index = { version = "^0.53.0", path = "../gix-index", optional = true }
 gix-attributes = { version = "^0.33.2", path = "../gix-attributes", optional = true }

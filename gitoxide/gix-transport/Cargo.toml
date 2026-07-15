@@ -92,12 +92,12 @@ required-features = ["async-client"]
 
 [dependencies]
 gix-command = { version = "^0.9.1", path = "../gix-command" }
-gix-path = { version = "^0.12.1", path = "../gix-path" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-features = { version = "^0.48.1", path = "../gix-features" }
-gix-url = { version = "^0.36.1", path = "../gix-url" }
+gix-url = { version = "^0.36.2", path = "../gix-url" }
 gix-sec = { version = "^0.14.1", path = "../gix-sec" }
 gix-packetline = { version = "^0.21.5", path = "../gix-packetline" }
-gix-credentials = { version = "^0.38.1", path = "../gix-credentials", optional = true }
+gix-credentials = { version = "^0.38.2", path = "../gix-credentials", optional = true }
 gix-quote = { version = "^0.7.2", path = "../gix-quote" }
 
 serde = { version = "1.0.114", optional = true, default-features = false, features = [
