@@ -65,6 +65,21 @@ pub struct Context {
     pub quit: Option<bool>,
 }
 
+/// Options for encoding and decoding a [`Context`].
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct ContextOptions {
+    /// If true, carriage returns in credential values are rejected to protect credential-protocol parsing.
+    ///
+    /// NUL bytes and newlines are always rejected.
+    pub protect_protocol: bool,
+}
+
+impl Default for ContextOptions {
+    fn default() -> Self {
+        ContextOptions { protect_protocol: true }
+    }
+}
+
 /// Convert the outcome of a helper invocation to a helper result, assuring that the identity is complete in the process.
 #[allow(clippy::result_large_err)]
 pub fn helper_outcome_to_result(outcome: Option<helper::Outcome>, action: helper::Action) -> Result {

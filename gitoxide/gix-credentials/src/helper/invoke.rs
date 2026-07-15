@@ -1,12 +1,20 @@
 use std::io::Read;
 
-use crate::helper::{Action, Context, Error, NextAction, Outcome, Result};
+use crate::{
+    helper::{Action, Context, Error, NextAction, Outcome, Result},
+    protocol::ContextOptions,
+};
 
 impl Action {
     /// Send ourselves to the given `write` which is expected to be credentials-helper compatible
     pub fn send(&self, write: &mut dyn std::io::Write) -> std::io::Result<()> {
+        self.send_opts(write, ContextOptions::default())
+    }
+
+    /// Send ourselves like [`send()`][Self::send()], with configurable context encoding `options`.
+    pub fn send_opts(&self, write: &mut dyn std::io::Write, options: ContextOptions) -> std::io::Result<()> {
         match self {
-            Action::Get(ctx) => ctx.write_to(write),
+            Action::Get(ctx) => ctx.write_to_opts(write, options),
             Action::Store(last) | Action::Erase(last) => {
                 write.write_all(last).ok();
                 write.write_all(b"\n").ok();
@@ -23,7 +31,7 @@ impl Action {
 /// On successful usage, use [`NextAction::store()`], otherwise [`NextAction::erase()`], which is when this function
 /// returns `Ok(None)` as no outcome is expected.
 pub fn invoke(helper: &mut crate::Program, action: &Action) -> Result {
-    match raw(helper, action)? {
+    match raw(helper, action, true)? {
         None => Ok(None),
         Some(stdout) => {
             let ctx = Context::from_bytes(stdout.as_slice())?;
@@ -40,12 +48,16 @@ pub fn invoke(helper: &mut crate::Program, action: &Action) -> Result {
     }
 }
 
-pub(crate) fn raw(helper: &mut crate::Program, action: &Action) -> std::result::Result<Option<Vec<u8>>, Error> {
+pub(crate) fn raw(
+    helper: &mut crate::Program,
+    action: &Action,
+    protect_protocol: bool,
+) -> std::result::Result<Option<Vec<u8>>, Error> {
     let (mut stdin, stdout) = helper.start(action)?;
     if let (Action::Get(_), None) = (&action, &stdout) {
         panic!("BUG: `Helper` impls must return an output handle to read output from if Action::Get is provided")
     }
-    action.send(&mut stdin)?;
+    action.send_opts(&mut stdin, ContextOptions { protect_protocol })?;
     drop(stdin);
     let stdout = stdout
         .map(|mut stdout| {

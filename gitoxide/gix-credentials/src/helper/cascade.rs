@@ -1,4 +1,9 @@
-use crate::{Program, helper, helper::Cascade, protocol, protocol::Context};
+use crate::{
+    Program, helper,
+    helper::Cascade,
+    protocol,
+    protocol::{Context, ContextOptions},
+};
 
 impl Default for Cascade {
     fn default() -> Self {
@@ -6,6 +11,7 @@ impl Default for Cascade {
             programs: Vec::new(),
             stderr: true,
             use_http_path: false,
+            protect_protocol: true,
             query_user_only: false,
         }
     }
@@ -86,7 +92,7 @@ impl Cascade {
 
         for program in &mut self.programs {
             program.stderr = self.stderr;
-            match helper::invoke::raw(program, &action) {
+            match helper::invoke::raw(program, &action, self.protect_protocol) {
                 Ok(None) => {}
                 Ok(Some(stdout)) => {
                     let Context {
@@ -99,7 +105,12 @@ impl Cascade {
                         password_expiry_utc,
                         url: ctx_url,
                         quit,
-                    } = Context::from_bytes(&stdout)?;
+                    } = Context::from_bytes_opts(
+                        &stdout,
+                        ContextOptions {
+                            protect_protocol: self.protect_protocol,
+                        },
+                    )?;
                     if let Some(dst_ctx) = action.context_mut() {
                         if let Some(src) = path {
                             dst_ctx.path = Some(src);
