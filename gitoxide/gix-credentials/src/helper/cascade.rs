@@ -11,7 +11,7 @@ impl Default for Cascade {
             programs: Vec::new(),
             stderr: true,
             use_http_path: false,
-            protect_protocol: true,
+            context_options: ContextOptions::default(),
             query_user_only: false,
         }
     }
@@ -76,6 +76,9 @@ impl Cascade {
     /// When _storing_ or _erasing_ all programs are instructed in order.
     #[allow(clippy::result_large_err)]
     pub fn invoke(&mut self, mut action: helper::Action, mut prompt: gix_prompt::Options<'_>) -> protocol::Result {
+        if let Some(ctx) = action.context_mut() {
+            ctx.options = self.context_options;
+        }
         let mut url = action
             .context_mut()
             .map(|ctx| {
@@ -92,10 +95,11 @@ impl Cascade {
 
         for program in &mut self.programs {
             program.stderr = self.stderr;
-            match helper::invoke::raw(program, &action, self.protect_protocol) {
+            match helper::invoke::raw(program, &action) {
                 Ok(None) => {}
                 Ok(Some(stdout)) => {
                     let Context {
+                        options: _,
                         protocol,
                         host,
                         path,
@@ -105,12 +109,7 @@ impl Cascade {
                         password_expiry_utc,
                         url: ctx_url,
                         quit,
-                    } = Context::from_bytes_opts(
-                        &stdout,
-                        ContextOptions {
-                            protect_protocol: self.protect_protocol,
-                        },
-                    )?;
+                    } = Context::from_bytes(&stdout, self.context_options)?;
                     if let Some(dst_ctx) = action.context_mut() {
                         if let Some(src) = path {
                             dst_ctx.path = Some(src);

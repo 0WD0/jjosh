@@ -1,11 +1,24 @@
 use bstr::BString;
 
+use crate::protocol::{Context, ContextOptions};
+
 /// Indicates key or values contain errors that can't be encoded.
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
     #[error("{key:?}={value:?} must not contain null bytes or newlines neither in key nor in value.")]
     Encoding { key: String, value: BString },
+}
+
+impl Context {
+    /// Create a context containing `url`, encoded and decoded according to `options`.
+    pub fn from_url(url: impl Into<BString>, options: ContextOptions) -> Self {
+        Context {
+            options,
+            url: Some(url.into()),
+            ..Default::default()
+        }
+    }
 }
 
 mod access {
@@ -17,6 +30,7 @@ mod access {
         /// Clear all fields that are considered secret.
         pub fn clear_secrets(&mut self) {
             let Context {
+                options: _,
                 protocol: _,
                 host: _,
                 path: _,
@@ -34,6 +48,7 @@ mod access {
         /// Replace existing secrets with the word `<redacted>`.
         pub fn redacted(mut self) -> Self {
             let Context {
+                options: _,
                 protocol: _,
                 host: _,
                 path: _,

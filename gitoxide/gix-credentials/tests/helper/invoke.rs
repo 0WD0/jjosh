@@ -1,5 +1,8 @@
 use bstr::BString;
-use gix_credentials::{helper, protocol::Context};
+use gix_credentials::{
+    helper,
+    protocol::{Context, ContextOptions},
+};
 
 use crate::helper::script_helper;
 
@@ -23,6 +26,24 @@ fn get() {
         outcome.next.store().payload().unwrap(),
         "username=user\npassword=pass\nquit=1\n"
     );
+}
+
+#[test]
+fn get_uses_context_options_for_the_entire_exchange() {
+    let action = helper::Action::Get(Context::from_url(
+        "https://github.com/byron/gitoxide",
+        ContextOptions {
+            protect_protocol: false,
+        },
+    ));
+    let outcome = gix_credentials::helper::invoke(&mut script_helper("carriage-return"), &action)
+        .expect("CR is allowed")
+        .expect("mock provides credentials");
+
+    assert_eq!(outcome.username.as_deref(), Some("user\rname"));
+    let context: Context = (&outcome.next).try_into().expect("the next action retains its options");
+    assert_eq!(context.options, action.context().expect("get action").options);
+    assert_eq!(context.username.as_deref(), Some("user\rname"));
 }
 
 #[test]
@@ -114,7 +135,7 @@ mod program {
         assert_eq!(
             gix_credentials::helper::invoke(
                 &mut script_helper("custom-helper"),
-                &helper::Action::get_for_url("/does/not/matter")
+                &helper::Action::get_for_url("/does/not/matter"),
             )?
             .expect("present")
             .consume_identity()

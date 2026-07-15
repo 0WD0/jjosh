@@ -10,15 +10,6 @@ mod write {
     impl Context {
         /// Write ourselves to `out` such that [`from_bytes()`][Self::from_bytes()] can decode it losslessly.
         pub fn write_to(&self, mut out: impl std::io::Write) -> std::io::Result<()> {
-            self.write_to_opts(&mut out, ContextOptions::default())
-        }
-
-        /// Write ourselves like [`write_to()`][Self::write_to()], with options.
-        pub fn write_to_opts(
-            &self,
-            mut out: impl std::io::Write,
-            ContextOptions { protect_protocol }: ContextOptions,
-        ) -> std::io::Result<()> {
             use bstr::ByteSlice;
             fn write_key(out: &mut impl std::io::Write, key: &str, value: &BStr) -> std::io::Result<()> {
                 out.write_all(key.as_bytes())?;
@@ -27,6 +18,7 @@ mod write {
                 out.write_all(b"\n")
             }
             let Context {
+                options: ContextOptions { protect_protocol },
                 protocol,
                 host,
                 path,
@@ -41,7 +33,7 @@ mod write {
             } = self;
             for (key, value) in [("url", url), ("path", path)] {
                 if let Some(value) = value {
-                    validate(key, value.as_slice().into(), protect_protocol).map_err(std::io::Error::other)?;
+                    validate(key, value.as_slice().into(), *protect_protocol).map_err(std::io::Error::other)?;
                     write_key(&mut out, key, value.as_ref()).ok();
                 }
             }
@@ -53,14 +45,14 @@ mod write {
                 ("oauth_refresh_token", oauth_refresh_token),
             ] {
                 if let Some(value) = value {
-                    validate(key, value.as_str().into(), protect_protocol).map_err(std::io::Error::other)?;
+                    validate(key, value.as_str().into(), *protect_protocol).map_err(std::io::Error::other)?;
                     write_key(&mut out, key, value.as_bytes().as_bstr()).ok();
                 }
             }
             if let Some(value) = password_expiry_utc {
                 let key = "password_expiry_utc";
                 let value = value.to_string();
-                validate(key, value.as_str().into(), protect_protocol).map_err(std::io::Error::other)?;
+                validate(key, value.as_str().into(), *protect_protocol).map_err(std::io::Error::other)?;
                 write_key(&mut out, key, value.as_bytes().as_bstr()).ok();
             }
             Ok(())
@@ -95,17 +87,14 @@ pub mod decode {
 
     impl Context {
         /// Decode ourselves from `input` which is the format written by [`write_to()`][Self::write_to()].
-        pub fn from_bytes(input: &[u8]) -> Result<Self, Error> {
-            Self::from_bytes_opts(input, ContextOptions::default())
-        }
-
-        /// Decode ourselves like [`from_bytes()`][Self::from_bytes()], with additional options.
-        pub fn from_bytes_opts(
-            input: &[u8],
-            ContextOptions { protect_protocol }: ContextOptions,
-        ) -> Result<Self, Error> {
-            let mut ctx = Context::default();
+        /// `options` control what to support during deserialization.
+        pub fn from_bytes(input: &[u8], options: ContextOptions) -> Result<Self, Error> {
+            let mut ctx = Context {
+                options,
+                ..Context::default()
+            };
             let Context {
+                options: _,
                 protocol,
                 host,
                 path,
@@ -122,7 +111,7 @@ pub mod decode {
                     it.next().and_then(|k| k.to_str().ok()),
                     it.next().map(ByteSlice::as_bstr),
                 ) {
-                    (Some(key), Some(value)) => validate(key, value, protect_protocol)
+                    (Some(key), Some(value)) => validate(key, value, options.protect_protocol)
                         .map(|_| (key, value.to_owned()))
                         .map_err(Into::into),
                     _ => Err(Error::Syntax { line: line.into() }),

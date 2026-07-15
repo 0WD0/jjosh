@@ -16,6 +16,7 @@ pub fn function(repo: Option<gix::Repository>, action: gix::credentials::program
         Some(action.as_str().into()),
         std::io::stdin(),
         std::io::stdout(),
+        gix::credentials::protocol::ContextOptions::default(),
         |action, context| -> Result<_, Error> {
             let url = context
                 .url

@@ -1,4 +1,4 @@
-use gix_credentials::protocol::Context;
+use gix_credentials::protocol::{Context, ContextOptions};
 
 #[test]
 fn encode_decode_roundtrip_works_only_for_serializing_fields() {
@@ -16,7 +16,7 @@ fn encode_decode_roundtrip_works_only_for_serializing_fields() {
     ] {
         let mut buf = Vec::<u8>::new();
         ctx.write_to(&mut buf).unwrap();
-        let actual = Context::from_bytes(&buf).unwrap();
+        let actual = Context::from_bytes(&buf, ContextOptions::default()).unwrap();
         assert_eq!(actual, ctx, "ctx should encode itself losslessly");
     }
 }
@@ -33,9 +33,12 @@ mod write_to {
         }
         .write_to(&mut buf)
         .unwrap();
-        assert_eq!(Context::from_bytes(&buf).unwrap(), Context::default());
         assert_eq!(
-            Context::from_bytes(b"quit=true\nurl=https://example.com").unwrap(),
+            Context::from_bytes(&buf, ContextOptions::default()).unwrap(),
+            Context::default()
+        );
+        assert_eq!(
+            Context::from_bytes(b"quit=true\nurl=https://example.com", ContextOptions::default()).unwrap(),
             Context {
                 quit: Some(true),
                 url: Some("https://example.com".into()),
@@ -60,17 +63,14 @@ mod write_to {
     #[test]
     fn carriage_returns_can_be_allowed() {
         let ctx = Context {
+            options: ContextOptions {
+                protect_protocol: false,
+            },
             url: Some(b"https://example.com/with\rreturn".as_slice().into()),
             ..Default::default()
         };
         let mut buf = Vec::new();
-        ctx.write_to_opts(
-            &mut buf,
-            ContextOptions {
-                protect_protocol: false,
-            },
-        )
-        .expect("CR protection is disabled");
+        ctx.write_to(&mut buf).expect("CR protection is disabled");
         assert_eq!(buf, b"url=https://example.com/with\rreturn\n");
     }
 }
@@ -85,7 +85,7 @@ host=example.com\n
 password=secr3t
 username=bob";
         assert_eq!(
-            Context::from_bytes(input).unwrap(),
+            Context::from_bytes(input, ContextOptions::default()).unwrap(),
             Context {
                 protocol: Some("https".into()),
                 host: Some("example.com".into()),
@@ -100,7 +100,7 @@ username=bob";
 unknown=value
 username=bob";
         assert_eq!(
-            Context::from_bytes(input).unwrap(),
+            Context::from_bytes(input, ContextOptions::default()).unwrap(),
             Context {
                 protocol: Some("https".into()),
                 username: Some("bob".into()),
@@ -114,7 +114,9 @@ username=bob";
         for true_value in ["1", "42", "-42", "true", "on", "yes"] {
             let input = format!("quit={true_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes()).unwrap().quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())
+                    .unwrap()
+                    .quit,
                 Some(true),
                 "{input}"
             );
@@ -122,7 +124,9 @@ username=bob";
         for false_value in ["0", "false", "off", "no"] {
             let input = format!("quit={false_value}");
             assert_eq!(
-                Context::from_bytes(input.as_bytes()).unwrap().quit,
+                Context::from_bytes(input.as_bytes(), ContextOptions::default())
+                    .unwrap()
+                    .quit,
                 Some(false),
                 "{input}"
             );
@@ -131,7 +135,7 @@ username=bob";
 
     #[test]
     fn null_bytes_when_decoding() {
-        let err = Context::from_bytes(b"url=https://foo\0").unwrap_err();
+        let err = Context::from_bytes(b"url=https://foo\0", ContextOptions::default()).unwrap_err();
         assert!(matches!(
             err,
             gix_credentials::protocol::context::decode::Error::Encoding(_)
@@ -140,16 +144,25 @@ username=bob";
 
     #[test]
     fn carriage_returns_can_be_allowed() {
+        let ctx = Context::from_bytes(
+            b"url=https://example.com/with\rreturn\n",
+            ContextOptions {
+                protect_protocol: false,
+            },
+        )
+        .expect("CR protection is disabled");
+        assert_eq!(ctx.url, Some(b"https://example.com/with\rreturn".as_slice().into()));
         assert_eq!(
-            Context::from_bytes_opts(
-                b"url=https://example.com/with\rreturn\n",
-                ContextOptions {
-                    protect_protocol: false,
-                },
-            )
-            .expect("CR protection is disabled")
-            .url,
-            Some(b"https://example.com/with\rreturn".as_slice().into())
+            ctx.options,
+            ContextOptions {
+                protect_protocol: false
+            },
+            "decoding retains the options needed to encode the context again"
         );
+
+        let mut out = Vec::new();
+        ctx.write_to(&mut out)
+            .expect("retained options allow the same value to be encoded again");
+        assert_eq!(out, b"url=https://example.com/with\rreturn\n");
     }
 }

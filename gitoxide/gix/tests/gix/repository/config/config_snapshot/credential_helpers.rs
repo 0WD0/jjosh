@@ -130,18 +130,30 @@ fn any_url_calls_global() {
 fn protect_protocol_defaults_to_true_and_can_be_overridden_per_url() -> crate::Result {
     let mut repo = remote::repo("credential-helpers");
     let url = "https://example.com";
-    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
-    assert!(cascade.protect_protocol, "protocol protection is enabled by default");
+    let (cascade, action, _) = repo.config_snapshot().credential_helpers(url.try_into()?)?;
+    assert!(
+        cascade.context_options.protect_protocol,
+        "protocol protection is enabled by default"
+    );
+    assert_eq!(action.context().expect("get action").options, cascade.context_options);
 
     repo.config_snapshot_mut()
         .set_raw_value("credential.protectProtocol", "false")?;
-    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
-    assert!(!cascade.protect_protocol, "global configuration is honored");
+    let (cascade, action, _) = repo.config_snapshot().credential_helpers(url.try_into()?)?;
+    assert!(
+        !cascade.context_options.protect_protocol,
+        "global configuration is honored"
+    );
+    assert_eq!(action.context().expect("get action").options, cascade.context_options);
 
     repo.config_snapshot_mut()
         .set_raw_value("credential.https://example.com.protectProtocol", "true")?;
-    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
-    assert!(cascade.protect_protocol, "URL-specific configuration wins");
+    let (cascade, action, _) = repo.config_snapshot().credential_helpers(url.try_into()?)?;
+    assert!(
+        cascade.context_options.protect_protocol,
+        "URL-specific configuration wins"
+    );
+    assert_eq!(action.context().expect("get action").options, cascade.context_options);
     Ok(())
 }
 
