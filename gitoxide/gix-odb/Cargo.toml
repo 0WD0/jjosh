@@ -30,7 +30,7 @@ gix-features = { version = "^0.48.1", path = "../gix-features", features = ["wal
 gix-zlib = { version = "^0.1.0", path = "../gix-zlib" }
 gix-hashtable = { version = "^0.15.2", path = "../gix-hashtable" }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
-gix-path = { version = "^0.12.1", path = "../gix-path" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-quote = { version = "^0.7.2", path = "../gix-quote" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
 gix-pack = { version = "^0.72.0", path = "../gix-pack", default-features = false }

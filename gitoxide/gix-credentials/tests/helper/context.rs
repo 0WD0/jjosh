@@ -22,7 +22,7 @@ fn encode_decode_roundtrip_works_only_for_serializing_fields() {
 }
 
 mod write_to {
-    use gix_credentials::protocol::Context;
+    use gix_credentials::protocol::{Context, ContextOptions};
 
     #[test]
     fn quit_is_not_serialized_but_can_be_parsed() {
@@ -45,10 +45,10 @@ mod write_to {
     }
 
     #[test]
-    fn null_bytes_and_newlines_are_invalid() {
-        for input in [&b"foo\0"[..], b"foo\n"] {
+    fn record_delimiters_are_invalid() {
+        for input in [&b"foo\0"[..], b"foo\n", b"foo\r"] {
             let ctx = Context {
-                path: Some(input.into()),
+                url: Some(input.into()),
                 ..Default::default()
             };
             let mut buf = Vec::<u8>::new();
@@ -56,10 +56,27 @@ mod write_to {
             assert_eq!(err.kind(), std::io::ErrorKind::Other);
         }
     }
+
+    #[test]
+    fn carriage_returns_can_be_allowed() {
+        let ctx = Context {
+            url: Some(b"https://example.com/with\rreturn".as_slice().into()),
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        ctx.write_to_opts(
+            &mut buf,
+            ContextOptions {
+                protect_protocol: false,
+            },
+        )
+        .expect("CR protection is disabled");
+        assert_eq!(buf, b"url=https://example.com/with\rreturn\n");
+    }
 }
 
 mod from_bytes {
-    use gix_credentials::protocol::Context;
+    use gix_credentials::protocol::{Context, ContextOptions};
 
     #[test]
     fn empty_newlines_cause_skipping_remaining_input() {
@@ -119,5 +136,20 @@ username=bob";
             err,
             gix_credentials::protocol::context::decode::Error::Encoding(_)
         ));
+    }
+
+    #[test]
+    fn carriage_returns_can_be_allowed() {
+        assert_eq!(
+            Context::from_bytes_opts(
+                b"url=https://example.com/with\rreturn\n",
+                ContextOptions {
+                    protect_protocol: false,
+                },
+            )
+            .expect("CR protection is disabled")
+            .url,
+            Some(b"https://example.com/with\rreturn".as_slice().into())
+        );
     }
 }

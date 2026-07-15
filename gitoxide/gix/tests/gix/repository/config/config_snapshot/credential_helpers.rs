@@ -127,6 +127,25 @@ fn any_url_calls_global() {
 }
 
 #[test]
+fn protect_protocol_defaults_to_true_and_can_be_overridden_per_url() -> crate::Result {
+    let mut repo = remote::repo("credential-helpers");
+    let url = "https://example.com";
+    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
+    assert!(cascade.protect_protocol, "protocol protection is enabled by default");
+
+    repo.config_snapshot_mut()
+        .set_raw_value("credential.protectProtocol", "false")?;
+    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
+    assert!(!cascade.protect_protocol, "global configuration is honored");
+
+    repo.config_snapshot_mut()
+        .set_raw_value("credential.https://example.com.protectProtocol", "true")?;
+    let cascade = repo.config_snapshot().credential_helpers(url.try_into()?)?.0;
+    assert!(cascade.protect_protocol, "URL-specific configuration wins");
+    Ok(())
+}
+
+#[test]
 fn http_port_defaulting() {
     baseline::agrees_with("https://example.com");
     baseline::agrees_with("https://example.com/");

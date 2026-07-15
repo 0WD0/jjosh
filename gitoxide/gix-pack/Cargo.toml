@@ -45,10 +45,10 @@ wasm = ["gix-diff?/wasm"]
 [dependencies]
 gix-features = { version = "^0.48.1", path = "../gix-features", features = ["crc32", "progress"] }
 gix-zlib = { version = "^0.1.0", path = "../gix-zlib" }
-gix-path = { version = "^0.12.1", path = "../gix-path" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
 gix-chunk = { version = "^0.7.2", path = "../gix-chunk" }
-gix-error = { version = "^0.2.4", path = "../gix-error" }
+gix-error = { version = "^0.2.5", path = "../gix-error" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
 gix-hashtable = { version = "^0.15.2", path = "../gix-hashtable", optional = true }
 

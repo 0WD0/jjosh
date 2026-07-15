@@ -1751,7 +1751,7 @@ dependencies = [
 
 [[package]]
 name = "gix-credentials"
-version = "0.38.1"
+version = "0.38.2"
 dependencies = [
  "bstr",
  "document-features",
@@ -1771,7 +1771,7 @@ dependencies = [
 
 [[package]]
 name = "gix-date"
-version = "0.15.5"
+version = "0.15.6"
 dependencies = [
  "bstr",
  "document-features",
@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "gix-error"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "bstr",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "gix-path"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "bstr",
  "gix-testtools",
@@ -2575,7 +2575,7 @@ version = "0.0.0"
 
 [[package]]
 name = "gix-url"
-version = "0.36.1"
+version = "0.36.2"
 dependencies = [
  "assert_matches",
  "bstr",
@@ -2589,7 +2589,7 @@ dependencies = [
 
 [[package]]
 name = "gix-utils"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bstr",
  "fastrand",

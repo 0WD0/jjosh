@@ -13,6 +13,8 @@ pub struct Cascade {
     /// If true, http(s) urls will take their path portion into account when obtaining credentials. Default is false.
     /// Other protocols like ssh will always use the path portion.
     pub use_http_path: bool,
+    /// If true, the default, carriage returns in credential values are rejected.
+    pub protect_protocol: bool,
     /// If true, default false, when getting credentials, we will set a bogus password to only obtain the user name.
     /// Storage and cancellation work the same, but without a password set.
     pub query_user_only: bool,

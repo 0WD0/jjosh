@@ -19,7 +19,7 @@ doctest = true
 serde = ["dep:serde", "bstr/serde", "gix-glob/serde", "kstring/serde"]
 
 [dependencies]
-gix-path = { version = "^0.12.1", path = "../gix-path" }
+gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-quote = { version = "^0.7.2", path = "../gix-quote" }
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
 gix-trace = { version = "^0.1.20", path = "../gix-trace" }
