@@ -106,7 +106,7 @@ pub(super) mod function {
         Error,
     > {
         let mut programs = Vec::new();
-        let mut protect_protocol = true;
+        let mut context_options = gix_credentials::protocol::ContextOptions::default();
         let url_had_user_initially = url.user().is_some();
         normalize(&mut url);
 
@@ -187,7 +187,7 @@ pub(super) mod function {
                         })
                         .transpose()?
                     {
-                        protect_protocol = toggle;
+                        context_options.protect_protocol = toggle;
                     }
                 }
             }
@@ -215,11 +215,15 @@ pub(super) mod function {
                 .unwrap_or_default(),
         }
         .apply_environment(allow_git_env, allow_ssh_env, false /* terminal prompt */);
+        let action = gix_credentials::helper::Action::Get(gix_credentials::protocol::Context::from_url(
+            url.to_bstring(),
+            context_options,
+        ));
         Ok((
             gix_credentials::helper::Cascade {
                 programs,
                 use_http_path,
-                protect_protocol,
+                context_options,
                 // The default ssh implementation uses binaries that do their own auth, so our passwords aren't used.
                 query_user_only: url.scheme == gix_url::Scheme::Ssh,
                 stderr: config
@@ -229,7 +233,7 @@ pub(super) mod function {
                     .with_leniency(is_lenient_config)?
                     .unwrap_or(true),
             },
-            gix_credentials::helper::Action::get_for_url(url.to_bstring()),
+            action,
             prompt_options,
         ))
     }
