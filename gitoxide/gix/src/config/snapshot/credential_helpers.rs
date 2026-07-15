@@ -106,6 +106,7 @@ pub(super) mod function {
         Error,
     > {
         let mut programs = Vec::new();
+        let mut protect_protocol = true;
         let url_had_user_initially = url.user().is_some();
         normalize(&mut url);
 
@@ -135,6 +136,7 @@ pub(super) mod function {
                             &credential::UrlParameter::HELPER,
                             &credential::UrlParameter::USERNAME,
                             &credential::UrlParameter::USE_HTTP_PATH,
+                            &credential::UrlParameter::PROTECT_PROTOCOL,
                         ))
                     }),
                     None => Some((
@@ -142,9 +144,10 @@ pub(super) mod function {
                         &Credential::HELPER,
                         &Credential::USERNAME,
                         &Credential::USE_HTTP_PATH,
+                        &Credential::PROTECT_PROTOCOL,
                     )),
                 };
-                if let Some((section, helper_key, username_key, use_http_path_key)) = section {
+                if let Some((section, helper_key, username_key, use_http_path_key, protect_protocol_key)) = section {
                     for value in section.values(helper_key.name) {
                         if value.trim().is_empty() {
                             programs.clear();
@@ -177,6 +180,15 @@ pub(super) mod function {
                     {
                         use_http_path = toggle;
                     }
+                    if let Some(toggle) = section
+                        .value(protect_protocol_key.name)
+                        .map(|value| {
+                            protect_protocol_key.enrich_error(gix_config::Boolean::try_from(value).map(|value| value.0))
+                        })
+                        .transpose()?
+                    {
+                        protect_protocol = toggle;
+                    }
                 }
             }
         }
@@ -207,6 +219,7 @@ pub(super) mod function {
             gix_credentials::helper::Cascade {
                 programs,
                 use_http_path,
+                protect_protocol,
                 // The default ssh implementation uses binaries that do their own auth, so our passwords aren't used.
                 query_user_only: url.scheme == gix_url::Scheme::Ssh,
                 stderr: config
