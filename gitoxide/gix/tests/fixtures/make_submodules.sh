@@ -120,6 +120,25 @@ git init with-submodules
   git submodule add ../module1 dir/m1
 )
 
+# Git permits absolute-looking submodule names because it appends them textually below
+# `.git/modules/` instead of joining them as paths. Keep committed gitlinks for both Unix and
+# Windows spellings so consumers can verify that these are ordinary submodules made by Git.
+git init absolute-looking-submodule-names
+(cd absolute-looking-submodule-names
+  # Use portable names while cloning, then change only the committed configuration. Passing a
+  # leading slash through Git Bash on Windows would be translated to its installation directory.
+  git submodule add ../module1 unix
+  git submodule add ../module1 windows
+  git config -f .gitmodules --rename-section submodule.unix submodule./absolute/unix
+  git config -f .gitmodules --rename-section submodule.windows 'submodule.\absolute\windows'
+  git commit -m "add submodules with absolute-looking names"
+
+  # A backslash is a filename character on Unix but a separator on Windows. The test only needs
+  # Git's committed configuration and gitlinks, so omit the cloned repositories from the fixture
+  # to keep its generated representation portable.
+  rm -rf .git/modules
+)
+
 git init submodule-with-divergent-gitlink
 (cd submodule-with-divergent-gitlink
   git submodule add ../module1 outer/inner
