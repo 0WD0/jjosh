@@ -45,10 +45,10 @@ mod write_to {
     }
 
     #[test]
-    fn null_bytes_and_newlines_are_invalid() {
-        for input in [&b"foo\0"[..], b"foo\n"] {
+    fn record_delimiters_are_invalid() {
+        for input in [&b"foo\0"[..], b"foo\n", b"foo\r"] {
             let ctx = Context {
-                path: Some(input.into()),
+                url: Some(input.into()),
                 ..Default::default()
             };
             let mut buf = Vec::<u8>::new();
