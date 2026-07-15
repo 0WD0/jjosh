@@ -17,6 +17,41 @@ mod invoke {
     }
 
     #[test]
+    fn disabled_protocol_protection_is_preserved_for_the_next_action() {
+        let actual = Cascade {
+            context_options: protocol::ContextOptions {
+                protect_protocol: false,
+            },
+            ..Default::default()
+        }
+        .extend(fixtures(["carriage-return"]))
+        .invoke(
+            action_get(),
+            gix_prompt::Options {
+                mode: gix_prompt::Mode::Disable,
+                askpass: None,
+            },
+        )
+        .expect("CR is allowed")
+        .expect("credentials are complete");
+
+        assert_eq!(actual.identity, identity("user\rname", "pass"));
+        let context: Context = (&actual.next).try_into().expect("the next action retains its options");
+        assert_eq!(context.username.as_deref(), Some("user\rname"));
+        let mut serialized = Vec::new();
+        actual
+            .next
+            .store()
+            .send(&mut serialized)
+            .expect("in-memory write succeeds");
+        assert!(
+            serialized
+                .windows(b"username=user\rname".len())
+                .any(|value| value == b"username=user\rname")
+        );
+    }
+
+    #[test]
     fn usernames_in_urls_are_kept_if_the_helper_does_not_overwrite_it() {
         let actual = invoke_cascade(
             ["password", "custom-helper"],

@@ -42,6 +42,8 @@ pub enum Error {
 /// Additional context to be passed to the credentials helper.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct Context {
+    /// Options controlling how this context is encoded and decoded.
+    pub options: ContextOptions,
     /// The protocol over which the credential will be used (e.g., https).
     pub protocol: Option<String>,
     /// The remote hostname for a network credential. This includes the port number if one was specified (e.g., "example.com:8088").

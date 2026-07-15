@@ -6,6 +6,7 @@ pub fn main() -> Result<(), gix_credentials::program::main::Error> {
         std::env::args_os().skip(1),
         std::io::stdin(),
         std::io::stdout(),
+        protocol::ContextOptions::default(),
         |action, context| -> std::io::Result<_> {
             match action {
                 program::main::Action::Get => Ok(Some(protocol::Context {

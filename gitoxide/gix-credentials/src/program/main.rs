@@ -64,7 +64,7 @@ pub(crate) mod function {
 
     use crate::{
         program::main::{Action, Error},
-        protocol::Context,
+        protocol::{Context, ContextOptions},
     };
 
     /// Invoke a custom credentials helper which receives program `args`, with the first argument being the
@@ -74,11 +74,12 @@ pub(crate) mod function {
     /// no credentials could be found for `url`, which is always set when called.
     ///
     /// Call this function from a programs `main`, passing `std::env::args_os()`, `stdin()` and `stdout` accordingly, along with
-    /// your own helper implementation.
+    /// the context encoding `options` and your own helper implementation.
     pub fn main<CredentialsFn, E>(
         args: impl IntoIterator<Item = OsString>,
         mut stdin: impl std::io::Read,
         stdout: impl std::io::Write,
+        options: ContextOptions,
         credentials: CredentialsFn,
     ) -> Result<(), Error>
     where
@@ -88,7 +89,7 @@ pub(crate) mod function {
         let action: Action = args.into_iter().next().ok_or(Error::ActionMissing)?.try_into()?;
         let mut buf = Vec::<u8>::with_capacity(512);
         stdin.read_to_end(&mut buf)?;
-        let ctx = Context::from_bytes(&buf)?;
+        let ctx = Context::from_bytes(&buf, options)?;
         if ctx.url.is_none() && (ctx.protocol.is_none() || ctx.host.is_none()) {
             return Err(Error::UrlMissing);
         }
@@ -103,7 +104,10 @@ pub(crate) mod function {
                     .expect("URL is available either directly or via protocol+host which we checked for");
                 return Err(Error::CredentialsMissing { url });
             }
-            (Action::Get, Some(ctx)) => ctx.write_to(stdout)?,
+            (Action::Get, Some(mut ctx)) => {
+                ctx.options = options;
+                ctx.write_to(stdout)?;
+            }
             (Action::Erase | Action::Store, None) => {}
             (Action::Erase | Action::Store, Some(_)) => {
                 panic!("BUG: credentials helper must not return context for erase or store actions")

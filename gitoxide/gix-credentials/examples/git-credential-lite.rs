@@ -4,6 +4,7 @@ pub fn main() -> Result<(), gix_credentials::program::main::Error> {
         std::env::args_os().skip(1),
         std::io::stdin(),
         std::io::stdout(),
+        gix_credentials::protocol::ContextOptions::default(),
         |action, context| {
             use gix_credentials::program::main::Action::*;
             gix_credentials::helper::Cascade::default()
