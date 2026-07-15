@@ -144,7 +144,13 @@ pub mod decode {
 }
 
 fn validate(key: &str, value: &BStr) -> Result<(), Error> {
-    if key.contains('\0') || key.contains('\n') || value.contains(&0) || value.contains(&b'\n') {
+    if key.contains('\0')
+        || key.contains('\n')
+        || key.contains('\r')
+        || value.contains(&0)
+        || value.contains(&b'\n')
+        || value.contains(&b'\r')
+    {
         return Err(Error::Encoding {
             key: key.to_owned(),
             value: value.to_owned(),
