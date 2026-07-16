@@ -1632,13 +1632,13 @@ dependencies = [
  "bstr",
  "criterion",
  "document-features",
+ "gix-features",
  "gix-fs",
  "gix-glob",
  "gix-path",
  "gix-quote",
  "gix-testtools",
  "gix-trace",
- "kstring",
  "serde",
  "smallvec",
  "thiserror 2.0.18",
@@ -3416,16 +3416,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "kstring"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558bf9508a558512042d3095138b1f7b8fe90c5467d94f9f1da28b3731c5dbd1"
-dependencies = [
- "serde",
- "static_assertions",
 ]
 
 [[package]]

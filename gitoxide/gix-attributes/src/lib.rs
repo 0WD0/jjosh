@@ -37,7 +37,6 @@
 #![forbid(unsafe_code)]
 
 pub use gix_glob as glob;
-use kstring::{KString, KStringRef};
 
 mod assignment;
 ///
@@ -93,14 +92,16 @@ pub enum State {
     Unspecified,
 }
 
-/// Represents a validated attribute name
+/// Represents a validated attribute name.
+///
+/// Enable the `parallel` feature to make this type thread-safe. Without it, the name is backed by an `Rc<str>` and is
+/// neither `Send` nor `Sync`; with `parallel`, it is backed by an `Arc<str>` instead.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Name(pub(crate) KString);
+pub struct Name(pub(crate) gix_features::threading::OwnShared<str>);
 
 /// Holds a validated attribute name as a reference
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]
-pub struct NameRef<'a>(KStringRef<'a>);
+pub struct NameRef<'a>(&'a str);
 
 /// Name an attribute and describe it's assigned state.
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]

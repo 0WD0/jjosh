@@ -303,7 +303,7 @@ fn macro_attributes_expand_only_when_macro_is_set() -> crate::Result {
 #[test]
 fn size_of_outcome() {
     let actual = std::mem::size_of::<Outcome>();
-    let expected = 840;
+    let expected = 752;
     assert!(
         size_ok(actual, expected),
         "it's quite big, shouldn't change without us noticing: {actual} <~ {expected}"

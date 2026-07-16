@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use bstr::{BStr, ByteSlice};
-use kstring::KStringRef;
 
 use crate::{AssignmentRef, Name, NameRef, StateRef, name};
 
@@ -76,7 +75,7 @@ fn check_attr(attr: &BStr) -> Result<NameRef<'_>, name::Error> {
     }
 
     attr_valid(attr)
-        .then(|| NameRef(KStringRef::from_ref(attr.to_str().expect("no illformed utf8"))))
+        .then(|| NameRef(attr.to_str().expect("no illformed utf8")))
         .ok_or_else(|| name::Error { attribute: attr.into() })
 }
 
