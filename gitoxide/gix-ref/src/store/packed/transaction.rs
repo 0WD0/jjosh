@@ -280,7 +280,7 @@ pub(crate) fn buffer_into_transaction(
 pub mod prepare {
     /// The error used in [`Transaction::prepare(…)`][crate::file::Transaction::prepare()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not close a lock which won't ever be committed")]
         CloseLock(#[from] std::io::Error),
@@ -295,7 +295,7 @@ pub mod commit {
 
     /// The error used in [`Transaction::commit(…)`][crate::file::Transaction::commit()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Changes to the resource could not be committed")]
         Commit(#[from] gix_lock::commit::Error<gix_lock::File>),

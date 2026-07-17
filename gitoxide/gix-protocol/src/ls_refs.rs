@@ -4,7 +4,7 @@ mod error {
 
     /// The error returned by invoking a [`super::function::LsRefsCommand`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Io(#[from] std::io::Error),

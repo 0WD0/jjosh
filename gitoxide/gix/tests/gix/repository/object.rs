@@ -40,7 +40,7 @@ mod edit_tree {
 
     #[test]
     // Some part of the test validation the implementation for this exists, but it's needless nonetheless.
-    #[allow(clippy::needless_borrows_for_generic_args)]
+    #[expect(clippy::needless_borrows_for_generic_args)]
     fn from_head_tree() -> crate::Result {
         let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
         let head_tree_id = repo.head_tree_id()?;

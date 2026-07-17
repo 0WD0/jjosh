@@ -2,7 +2,7 @@ use std::{env, ffi::OsStr, path::PathBuf};
 
 /// The error returned by [`gix_discover::upwards()`][crate::upwards()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not obtain the current working directory")]
     CurrentDir(#[from] std::io::Error),

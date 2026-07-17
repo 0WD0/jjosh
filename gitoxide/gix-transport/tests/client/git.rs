@@ -77,11 +77,11 @@ async fn handshake_v1_and_request() -> crate::Result {
     );
     let mut lines = res.refs.as_mut().expect("v1 protocol provides refs").lines();
     let mut refs = Vec::new();
-    #[allow(clippy::while_let_on_iterator)] // needed in async version of test
+    // needed in async version of test
     while let Some(line) = lines.next().await {
         refs.push(line?);
     }
-    #[allow(clippy::drop_non_drop)] // needed for non-async version
+    // needed for non-async version
     drop(lines);
 
     assert_eq!(
@@ -186,7 +186,7 @@ async fn push_v1_simulated() -> crate::Result {
         })));
         let mut lines = read.lines();
         let mut info = Vec::new();
-        #[allow(clippy::while_let_on_iterator)] // needed in async version of test
+        // needed in async version of test
         while let Some(line) = lines.next().await {
             info.push(line?);
         }
@@ -269,7 +269,7 @@ async fn handshake_v2_downgrade_to_v1() -> crate::Result {
     Ok(())
 }
 
-#[allow(clippy::unit_arg)] // side-effect of maybe-async
+#[expect(clippy::unit_arg)] // side-effect of maybe-async
 #[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
 async fn handshake_v2_and_request() -> crate::Result {
     #[cfg(feature = "blocking-client")]
@@ -351,7 +351,7 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
 
     let mut lines = reader.lines();
     let mut refs = Vec::new();
-    #[allow(clippy::while_let_on_iterator)] // needed in async version of test
+    // needed in async version of test
     while let Some(line) = lines.next().await {
         refs.push(line?);
     }

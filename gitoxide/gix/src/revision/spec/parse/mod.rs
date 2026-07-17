@@ -13,7 +13,7 @@ pub mod single {
 
     /// The error returned by [`crate::Repository::rev_parse_single()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Parse(#[from] gix_error::Error),

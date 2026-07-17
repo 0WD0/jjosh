@@ -64,7 +64,6 @@ mod worktree;
 mod new_commit {
     /// The error returned by [`new_commit(…)`](crate::Repository::new_commit()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ParseTime(#[from] crate::config::time::Error),
@@ -81,7 +80,6 @@ mod new_commit {
 mod new_commit_as {
     /// The error returned by [`new_commit_as(…)`](crate::Repository::new_commit_as()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         WriteObject(#[from] crate::object::write::Error),
@@ -108,7 +106,7 @@ pub mod blame_file {
 
     /// The error returned by [Repository::blame_file()](crate::Repository::blame_file()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         CommitGraphIfEnabled(#[from] super::commit_graph_if_enabled::Error),
@@ -126,7 +124,7 @@ pub mod blame_file {
 pub mod diff_tree_to_tree {
     /// The error returned by [Repository::diff_tree_to_tree()](crate::Repository::diff_tree_to_tree()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         DiffOptions(#[from] crate::diff::options::init::Error),
@@ -142,7 +140,7 @@ pub mod diff_tree_to_tree {
 pub mod blob_merge_options {
     /// The error returned by [Repository::blob_merge_options()](crate::Repository::blob_merge_options()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         DiffAlgorithm(#[from] crate::config::diff::algorithm::Error),
@@ -156,7 +154,7 @@ pub mod blob_merge_options {
 pub mod merge_resource_cache {
     /// The error returned by [Repository::merge_resource_cache()](crate::Repository::merge_resource_cache()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         RenormalizeConfig(#[from] crate::config::boolean::Error),
@@ -180,7 +178,7 @@ pub mod merge_resource_cache {
 pub mod merge_trees {
     /// The error returned by [Repository::merge_trees()](crate::Repository::merge_trees()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         MergeResourceCache(#[from] super::merge_resource_cache::Error),
@@ -198,7 +196,7 @@ pub mod merge_trees {
 pub mod merge_commits {
     /// The error returned by [Repository::merge_commits()](crate::Repository::merge_commits()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCommitGraph(#[from] super::commit_graph_if_enabled::Error),
@@ -218,7 +216,7 @@ pub mod merge_commits {
 pub mod virtual_merge_base {
     /// The error returned by [Repository::virtual_merge_base()](crate::Repository::virtual_merge_base()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCommitGraph(#[from] super::commit_graph_if_enabled::Error),
@@ -232,7 +230,7 @@ pub mod virtual_merge_base {
 pub mod virtual_merge_base_with_graph {
     /// The error returned by [Repository::virtual_merge_base_with_graph()](crate::Repository::virtual_merge_base_with_graph()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("No commit was provided as merge-base")]
         MissingCommit,
@@ -254,7 +252,7 @@ pub mod virtual_merge_base_with_graph {
 pub mod merge_base_octopus_with_graph {
     /// The error returned by [Repository::merge_base_octopus_with_graph()](crate::Repository::merge_base_octopus_with_graph()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("No commit was provided")]
         MissingCommit,
@@ -270,7 +268,7 @@ pub mod merge_base_octopus_with_graph {
 pub mod merge_base_octopus {
     /// The error returned by [Repository::merge_base_octopus()](crate::Repository::merge_base_octopus()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
@@ -284,7 +282,7 @@ pub mod merge_base_octopus {
 pub mod merge_bases_many {
     /// The error returned by [Repository::merge_bases_many()](crate::Repository::merge_bases_many()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
@@ -298,7 +296,7 @@ pub mod merge_bases_many {
 pub mod tree_merge_options {
     /// The error returned by [Repository::tree_merge_options()](crate::Repository::tree_merge_options()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         BlobMergeOptions(#[from] super::blob_merge_options::Error),
@@ -314,7 +312,7 @@ pub mod tree_merge_options {
 pub mod diff_resource_cache {
     /// The error returned by [Repository::diff_resource_cache()](crate::Repository::diff_resource_cache()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not obtain resource cache for diffing")]
         ResourceCache(#[from] crate::diff::resource_cache::Error),
@@ -330,7 +328,7 @@ pub mod diff_resource_cache {
 pub mod edit_tree {
     /// The error returned by [Repository::edit_tree()](crate::Repository::edit_tree).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FindTree(#[from] crate::object::find::existing::with_conversion::Error),
@@ -344,7 +342,7 @@ pub mod edit_tree {
 pub mod merge_base {
     /// The error returned by [Repository::merge_base()](crate::Repository::merge_base()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),
@@ -363,7 +361,7 @@ pub mod merge_base {
 pub mod merge_base_with_graph {
     /// The error returned by [Repository::merge_base_with_cache()](crate::Repository::merge_base_with_graph()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FindMergeBase(#[from] gix_revision::merge_base::Error),
@@ -379,7 +377,7 @@ pub mod merge_base_with_graph {
 pub mod commit_graph_if_enabled {
     /// The error returned by [Repository::commit_graph_if_enabled()](crate::Repository::commit_graph_if_enabled()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ConfigBoolean(#[from] crate::config::boolean::Error),
@@ -393,7 +391,7 @@ pub mod commit_graph_if_enabled {
 pub mod index_from_tree {
     /// The error returned by [Repository::index_from_tree()](crate::Repository::index_from_tree).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not create index from tree at {id}")]
         IndexFromTree {
@@ -409,7 +407,7 @@ pub mod index_from_tree {
 pub mod branch_remote_ref_name {
     /// The error returned by [Repository::branch_remote_ref_name()](crate::Repository::branch_remote_ref_name()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The configured name of the remote ref to merge wasn't valid")]
         ValidateFetchRemoteRefName(#[from] gix_validate::reference::name::Error),
@@ -424,7 +422,7 @@ pub mod branch_remote_ref_name {
 pub mod branch_remote_tracking_ref_name {
     /// The error returned by [Repository::branch_remote_tracking_ref_name()](crate::Repository::branch_remote_tracking_ref_name()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The name of the tracking reference was invalid")]
         ValidateTrackingRef(#[from] gix_validate::reference::name::Error),
@@ -439,7 +437,7 @@ pub mod branch_remote_tracking_ref_name {
 pub mod upstream_branch_and_remote_name_for_tracking_branch {
     /// The error returned by [Repository::upstream_branch_and_remote_name_for_tracking_branch()](crate::Repository::upstream_branch_and_remote_for_tracking_branch()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The input branch '{}' needs to be a remote tracking branch", full_name.as_bstr())]
         BranchCategory { full_name: gix_ref::FullName },
@@ -459,7 +457,7 @@ pub mod upstream_branch_and_remote_name_for_tracking_branch {
 pub mod pathspec_defaults_ignore_case {
     /// The error returned by [Repository::pathspec_defaults_ignore_case()](crate::Repository::pathspec_defaults_inherit_ignore_case()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Filesystem configuration could not be obtained to learn about case sensitivity")]
         FilesystemConfig(#[from] crate::config::boolean::Error),
@@ -473,7 +471,7 @@ pub mod pathspec_defaults_ignore_case {
 pub mod index_or_load_from_head {
     /// The error returned by [`Repository::index_or_load_from_head()`](crate::Repository::index_or_load_from_head()).
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         HeadCommit(#[from] crate::reference::head_commit::Error),
@@ -491,7 +489,7 @@ pub mod index_or_load_from_head {
 pub mod index_or_load_from_head_or_empty {
     /// The error returned by [`Repository::index_or_load_from_head_or_empty()`](crate::Repository::index_or_load_from_head_or_empty()).
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ReadHead(#[from] crate::reference::find::existing::Error),
@@ -513,7 +511,7 @@ pub mod index_or_load_from_head_or_empty {
 pub mod worktree_stream {
     /// The error returned by [`Repository::worktree_stream()`](crate::Repository::worktree_stream()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FindTree(#[from] crate::object::find::existing::Error),

@@ -271,7 +271,7 @@ fn write_raw_refs(refs: &[Ref], directory: PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn receive_pack_blocking(
     mut directory: Option<PathBuf>,
     mut refs_directory: Option<PathBuf>,

@@ -40,7 +40,7 @@ pub(crate) mod function {
     {
         let g = Graph::at(path.as_ref())?;
 
-        #[allow(clippy::unnecessary_wraps, unknown_lints)]
+        #[expect(clippy::unnecessary_wraps)]
         fn noop_processor(_commit: &gix::commitgraph::file::Commit<'_>) -> std::result::Result<(), std::fmt::Error> {
             Ok(())
         }

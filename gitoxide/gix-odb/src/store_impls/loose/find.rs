@@ -4,7 +4,7 @@ use crate::store_impls::loose::{HEADER_MAX_SIZE, Store, hash_path};
 
 /// Returned by [`Store::try_find()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("decompression of loose object at '{path}' failed")]
     DecompressFile {
@@ -257,7 +257,7 @@ mod mmap {
     pub fn read_only(path: &Path) -> std::io::Result<memmap2::Mmap> {
         let file = std::fs::File::open(path)?;
         // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             memmap2::MmapOptions::new().map_copy_read_only(&file)
         }

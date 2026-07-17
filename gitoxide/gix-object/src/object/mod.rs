@@ -95,7 +95,10 @@ impl Object {
         }
     }
     /// Turns this instance into a [`Blob`] if it is one.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn try_into_blob(self) -> Result<Blob, Self> {
         match self {
             Object::Blob(v) => Ok(v),
@@ -110,7 +113,10 @@ impl Object {
         }
     }
     /// Turns this instance into a [`Commit`] if it is one.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn try_into_commit(self) -> Result<Commit, Self> {
         match self {
             Object::Commit(v) => Ok(v),
@@ -118,7 +124,10 @@ impl Object {
         }
     }
     /// Turns this instance into a [`Tree`] if it is one.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn try_into_tree(self) -> Result<Tree, Self> {
         match self {
             Object::Tree(v) => Ok(v),
@@ -126,7 +135,10 @@ impl Object {
         }
     }
     /// Turns this instance into a [`Tag`] if it is one.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn try_into_tag(self) -> Result<Tag, Self> {
         match self {
             Object::Tag(v) => Ok(v),
@@ -179,7 +191,6 @@ use crate::{
 };
 
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
 pub enum LooseDecodeError {
     #[error(transparent)]
     InvalidHeader(#[from] LooseHeaderDecodeError),

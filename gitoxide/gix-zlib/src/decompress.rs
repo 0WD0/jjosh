@@ -6,7 +6,7 @@ use crate::{Decompress, FlushDecompress, Status};
 ///
 /// The error produced by [`Decompress::decompress()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum DecompressError {
     #[error("stream error")]
     StreamError,

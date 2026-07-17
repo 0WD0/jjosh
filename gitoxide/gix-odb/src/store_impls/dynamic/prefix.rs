@@ -10,7 +10,7 @@ pub mod lookup {
 
     /// Returned by [`Handle::lookup_prefix()`][crate::store::Handle::lookup_prefix()]
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An error occurred looking up a prefix which requires iteration")]
         LooseWalkDir(#[from] loose::iter::Error),
@@ -64,7 +64,7 @@ pub mod disambiguate {
 
     /// Returned by [`Handle::disambiguate_prefix()`][crate::store::Handle::disambiguate_prefix()]
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An error occurred while trying to determine if a full hash contained in the object database")]
         Contains(#[from] crate::store::find::Error),
@@ -148,7 +148,7 @@ where
         loop {
             let snapshot = self.snapshot.borrow();
             for index in &snapshot.indices {
-                #[allow(clippy::needless_option_as_deref)] // needed as it's the equivalent of a reborrow.
+                // needed as it's the equivalent of a reborrow.
                 let lookup_result = index.lookup_prefix(prefix, candidates.as_deref_mut());
                 if candidates.is_none() && !check_candidate(lookup_result, &mut candidate) {
                     return Ok(Some(Err(())));
@@ -156,7 +156,7 @@ where
             }
 
             for lodb in snapshot.loose_dbs.iter() {
-                #[allow(clippy::needless_option_as_deref)] // needed as it's the equivalent of a reborrow.
+                // needed as it's the equivalent of a reborrow.
                 let lookup_result = lodb.lookup_prefix(prefix, candidates.as_deref_mut())?;
                 if candidates.is_none() && !check_candidate(lookup_result, &mut candidate) {
                     return Ok(Some(Err(())));

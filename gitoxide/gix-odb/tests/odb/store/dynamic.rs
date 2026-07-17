@@ -445,7 +445,6 @@ fn contains() {
 
     // pack, the smallest one
     // The new handle should make no difference.
-    #[allow(clippy::redundant_clone)]
     let mut new_handle = handle.clone();
     assert!(new_handle.exists(&hex_to_id("501b297447a8255d3533c6858bb692575cdefaa0")));
     assert_eq!(

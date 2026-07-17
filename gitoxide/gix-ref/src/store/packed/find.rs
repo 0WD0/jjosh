@@ -102,7 +102,7 @@ mod error {
 
     /// The error returned by [`find()`][super::packed::Buffer::find()]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The ref name or path is not a valid ref name")]
         RefnameValidation(#[from] crate::name::Error),
@@ -123,7 +123,7 @@ pub mod existing {
 
     /// The error returned by [`find_existing()`][super::packed::Buffer::find()]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The find operation failed")]
         Find(#[from] super::Error),

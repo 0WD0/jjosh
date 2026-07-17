@@ -9,7 +9,7 @@ use crate::{
 
 /// The error returned by [State::maybe_launch_process()][super::State::maybe_launch_process()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to spawn driver: {command:?}")]
     SpawnCommand {

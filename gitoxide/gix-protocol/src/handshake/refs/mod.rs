@@ -8,7 +8,7 @@ pub mod parse {
 
     /// The error returned when parsing References/refs from the server response.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Io(#[from] std::io::Error),

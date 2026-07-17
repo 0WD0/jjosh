@@ -18,7 +18,7 @@ use crate::{
 
 /// Initialization
 impl Cache {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn from_stage_one(
         StageOne {
             git_dir_config,

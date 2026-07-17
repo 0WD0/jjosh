@@ -2,7 +2,7 @@
 pub mod apply {
     /// Returned when failing to apply deltas.
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Corrupt delta data: {message}")]
         Corrupt { message: &'static str },

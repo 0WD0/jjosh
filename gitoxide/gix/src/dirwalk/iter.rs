@@ -43,7 +43,7 @@ pub struct Outcome {
 
 /// The error returned by [Repository::dirwalk_iter()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to spawn producer thread")]
     #[cfg(feature = "parallel")]

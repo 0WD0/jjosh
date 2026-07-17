@@ -3,7 +3,7 @@ use crate::{AttributeStack, Repository, config};
 
 /// The error returned by [`Repository::attributes()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     ConfigureAttributes(#[from] config::attribute_stack::Error),

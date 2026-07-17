@@ -4,7 +4,7 @@ pub use gix_mailmap::*;
 pub mod load {
     /// The error returned by [`crate::Repository::open_mailmap_into()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The mailmap file declared in `mailmap.file` could not be read")]
         Io(#[from] std::io::Error),

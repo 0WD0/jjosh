@@ -103,7 +103,7 @@ pub use gix_protocol::fetch::ProgressId;
 pub mod prepare {
     /// The error returned by [`prepare_fetch()`][super::Connection::prepare_fetch()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Cannot perform a meaningful fetch operation without any configured ref-specs")]
         MissingRefSpecs,
@@ -137,7 +137,6 @@ where
     /// should the fetch not be performed. Furthermore, there the code doing the fetch is inherently blocking and it's not offloaded to a thread,
     /// making this call block the executor.
     /// It's best to unblock it by placing it into its own thread or offload it should usage in an async context be truly required.
-    #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub async fn prepare_fetch(
         self,
@@ -154,7 +153,6 @@ impl<'remote, T> ConnectionDetached<'remote, T>
 where
     T: Transport,
 {
-    #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub(crate) async fn prepare_fetch(
         mut self,
@@ -187,7 +185,6 @@ where
     }
 }
 
-#[allow(dead_code)]
 impl<T> PrepareDetached<'_, T>
 where
     T: Transport,
@@ -265,7 +262,6 @@ where
 }
 
 /// Builder
-#[allow(dead_code)]
 impl<T> PrepareDetached<'_, T>
 where
     T: Transport,

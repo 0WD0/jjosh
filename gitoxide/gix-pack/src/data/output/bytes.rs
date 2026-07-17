@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::{data::output, exact_vec};
 
 /// The error returned by `next()` in the [`FromEntriesIter`] iterator.
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E>
 where

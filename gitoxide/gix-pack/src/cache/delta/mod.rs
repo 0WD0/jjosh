@@ -1,6 +1,5 @@
 /// Returned when using various methods on a [`Tree`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
 pub enum Error {
     #[error(
         "Pack offsets must only increment. The previous pack offset was {last_pack_offset}, the current one is {pack_offset}"

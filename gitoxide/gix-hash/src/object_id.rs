@@ -31,14 +31,13 @@ pub enum ObjectId {
 // extremely unlikely to begin with so it doesn't matter.
 // This implementation matches the `Hash` implementation for `oid`
 // and allows the usage of custom Hashers that only copy a truncated ShaHash
-#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for ObjectId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.as_slice());
     }
 }
 
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub mod decode {
     use std::str::FromStr;
 
@@ -52,7 +51,7 @@ pub mod decode {
 
     /// An error returned by [`ObjectId::from_hex()`][crate::ObjectId::from_hex()]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("A hash sized {0} hexadecimal characters is invalid")]
         InvalidHexEncodingLength(usize),

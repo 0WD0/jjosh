@@ -150,7 +150,7 @@ impl Iterator for Parents<'_, '_> {
 pub mod iter_parents {
     /// The error returned by the [`Parents`][super::Parents] iterator.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An error occurred when parsing commit parents")]
         DecodeCommit(#[from] gix_object::decode::Error),
@@ -163,7 +163,7 @@ pub mod iter_parents {
 pub mod to_owned {
     /// The error returned by [`to_owned()`][crate::graph::LazyCommit::to_owned()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("A commit could not be decoded during traversal")]
         Decode(#[from] gix_object::decode::Error),

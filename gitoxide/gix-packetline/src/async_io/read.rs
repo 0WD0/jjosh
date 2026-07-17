@@ -82,7 +82,6 @@ where
                 Ok(Ok(line)) => {
                     if trace {
                         match line {
-                            #[allow(unused_variables)]
                             PacketLineRef::Data(d) => {
                                 gix_trace::trace!("<< {}", d.as_bstr().trim().as_bstr());
                             }
@@ -196,7 +195,7 @@ where
     /// Same as [`as_read_with_sidebands(…)`](StreamingPeekableIter::as_read_with_sidebands()), but for channels without side band support.
     ///
     /// Due to the preconfigured function type this method can be called without 'turbofish'.
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub fn as_read(&mut self) -> WithSidebands<'_, T, fn(bool, &[u8]) -> ProgressAction> {
         WithSidebands::new(self)
     }

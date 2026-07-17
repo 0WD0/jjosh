@@ -6,7 +6,7 @@ use crate::{File, KeyRef, file, file::init, parse::section, path::interpolate};
 
 /// Represents the errors that may occur when calling [`File::from_env()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Configuration {kind} at index {index} contained illformed UTF-8")]
     IllformedUtf8 { index: usize, kind: &'static str },

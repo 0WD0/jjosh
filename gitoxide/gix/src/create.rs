@@ -9,7 +9,7 @@ use gix_discover::DOT_GIT_DIR;
 
 /// The error used in [`into()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not obtain the current directory")]
     CurrentDir(#[from] std::io::Error),

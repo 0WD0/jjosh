@@ -10,7 +10,7 @@ enum MaybeUnsafeState {
 
 /// The error returned by [`Reference::try_from_path()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("{content:?} could not be parsed")]
     Parse { content: BString },

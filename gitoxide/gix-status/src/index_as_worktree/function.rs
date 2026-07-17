@@ -51,7 +51,7 @@ use crate::{
 ///
 /// Thus, some care has to be taken to do the right thing when letting the index match the worktree by evaluating the changes observed
 /// by the `collector`.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn index_as_worktree<'index, T, U, Find, E>(
     index: &'index gix_index::State,
     worktree: &Path,
@@ -259,7 +259,7 @@ struct State<'a, 'b> {
 type StatusResult<'index, T, U> = Result<(&'index gix_index::Entry, usize, &'index BStr, EntryStatus<T, U>), Error>;
 
 impl<'index> State<'_, 'index> {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process<T, U, Find, E>(
         &mut self,
         entries: &'index [gix_index::Entry],

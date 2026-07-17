@@ -10,7 +10,7 @@ mod error {
 
     /// The error returned by the [dynamic Store's][crate::Store] [`Write`](gix_object::Write) implementation.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         LoadIndex(#[from] store::load_index::Error),

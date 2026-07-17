@@ -490,7 +490,7 @@ where
 }
 
 struct Recorder {
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     hunks: Vec<((u32, u32), (u32, u32), String)>,
     newline: &'static str,
 }

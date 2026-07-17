@@ -40,7 +40,7 @@ mod impl_ {
 
         fn owner_of_current_process() -> std::io::Result<u32> {
             // SAFETY: there is no documented possibility for failure
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             let uid = unsafe { libc::geteuid() };
             Ok(uid)
         }
@@ -92,7 +92,7 @@ mod impl_ {
             Security::GetTokenInformation,
         };
 
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             let mut buffer_size = 36;
             let mut heap_buf = vec![0; 36];
@@ -133,7 +133,7 @@ mod impl_ {
     ) -> io::Result<T> {
         use windows_sys::Win32::Security::GetTokenInformation;
 
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             let mut info = MaybeUninit::<T>::uninit();
             let mut returned_size = 0;
@@ -180,7 +180,7 @@ mod impl_ {
             return Ok(true);
         }
 
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             let (folder_owner, descriptor) = {
                 let mut folder_owner = MaybeUninit::uninit();
@@ -216,7 +216,7 @@ mod impl_ {
 
             impl Drop for Descriptor {
                 fn drop(&mut self) {
-                    #[allow(unsafe_code)]
+                    #[expect(unsafe_code)]
                     // SAFETY: syscall only invoked if we have a valid descriptor
                     unsafe {
                         LocalFree(self.0 as _);

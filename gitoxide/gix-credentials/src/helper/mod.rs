@@ -3,7 +3,6 @@ use bstr::{BStr, BString};
 use crate::{Program, protocol, protocol::Context};
 
 /// A list of helper programs to run in order to obtain credentials.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Cascade {
     /// The programs to run in order to obtain credentials
@@ -59,7 +58,7 @@ pub type Result = std::result::Result<Option<Outcome>, Error>;
 
 /// The error used in the [credentials helper invocation][crate::helper::invoke()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     ContextDecode(#[from] protocol::context::decode::Error),

@@ -4,7 +4,7 @@ pub mod to_id {
 
     /// The error returned by [`crate::file::ReferenceExt::peel_to_id()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FollowToObject(#[from] super::to_object::Error),
@@ -23,7 +23,7 @@ pub mod to_object {
 
     /// The error returned by [`file::ReferenceExt::follow_to_object_packed()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not follow a single level of a symbolic reference")]
         Follow(#[from] file::find::existing::Error),

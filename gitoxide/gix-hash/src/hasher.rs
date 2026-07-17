@@ -1,6 +1,6 @@
 /// The error returned by [`Hasher::try_finalize()`](crate::Hasher::try_finalize()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Detected SHA-1 collision attack with digest {digest}")]
     CollisionAttack { digest: crate::ObjectId },
@@ -75,7 +75,7 @@ pub(super) mod _impl {
                         //
                         // As of Rust 1.84.1, the compiler can’t figure out
                         // this function cannot panic without this.
-                        #[allow(unsafe_code)]
+                        #[expect(unsafe_code)]
                         unsafe {
                             std::hint::unreachable_unchecked()
                         }

@@ -9,7 +9,7 @@ pub(crate) mod error {
 
     /// Returned by [`Handle::try_find()`][gix_pack::Find::try_find()]
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An error occurred while obtaining an object from the loose object store")]
         Loose(#[from] loose::find::Error),

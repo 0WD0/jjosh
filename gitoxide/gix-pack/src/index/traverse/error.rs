@@ -2,7 +2,7 @@ use crate::index;
 
 /// Returned by [`index::File::traverse_with_index()`] and [`index::File::traverse_with_lookup`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error<E: std::error::Error + Send + Sync + 'static> {
     #[error("One of the traversal processors failed")]
     Processor(#[source] E),

@@ -24,7 +24,6 @@ pub(super) mod function {
     use super::Options;
     use crate::OutputFormat;
 
-    #[allow(clippy::too_many_arguments)]
     pub fn tree(
         mut repo: gix::Repository,
         out: &mut dyn std::io::Write,

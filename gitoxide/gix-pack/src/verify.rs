@@ -6,7 +6,7 @@ use gix_features::progress::Progress;
 pub mod checksum {
     /// Returned by various methods to verify the checksum of a memory mapped file that might also exist on disk.
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Interrupted by user")]
         Interrupted,

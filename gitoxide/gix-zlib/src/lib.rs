@@ -60,7 +60,6 @@ pub enum Status {
 /// decompressing in-memory data.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
-#[allow(clippy::unnecessary_cast)]
 pub enum FlushDecompress {
     /// A typical parameter for passing to compression/decompression functions,
     /// this indicates that the underlying stream to decide how much data to

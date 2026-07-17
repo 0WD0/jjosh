@@ -85,7 +85,7 @@ pub mod open {
             } else {
                 packed::Backing::Mapped(
                     // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
-                    #[allow(unsafe_code)]
+                    #[expect(unsafe_code)]
                     unsafe {
                         memmap2::MmapOptions::new().map_copy_read_only(&std::fs::File::open(&path)?)?
                     },
@@ -110,7 +110,7 @@ pub mod open {
 
         /// The error returned by [`open()`][super::packed::Buffer::open()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("The packed-refs file did not have a header or wasn't sorted and could not be iterated")]
             Iter(#[from] packed::iter::Error),

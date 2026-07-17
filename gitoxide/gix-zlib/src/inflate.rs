@@ -2,7 +2,7 @@ use crate::{FlushDecompress, Inflate, Status};
 
 /// The error returned by various [Inflate methods][super::Inflate]
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not write all bytes when decompressing content")]
     WriteInflated(#[from] std::io::Error),

@@ -12,7 +12,7 @@ mod error {
 
     /// The error returned by [`State::from_bytes()`][crate::State::from_bytes()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Header(#[from] decode::header::Error),

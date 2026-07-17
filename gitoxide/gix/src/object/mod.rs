@@ -23,7 +23,7 @@ pub mod tree;
 ///
 pub mod try_into {
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[error("Object named {id} was supposed to be of kind {expected}, but was kind {actual}.")]
     pub struct Error {
         pub actual: gix_object::Kind,

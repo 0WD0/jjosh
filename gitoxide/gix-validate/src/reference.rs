@@ -7,7 +7,7 @@ pub mod name {
 
     /// The error used in [name()][super::name()] and [`name_partial()`][super::name_partial()]
     #[derive(Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[non_exhaustive]
     pub enum Error {
         InvalidByte { byte: BString },

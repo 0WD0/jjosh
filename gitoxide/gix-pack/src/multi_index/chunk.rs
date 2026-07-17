@@ -15,7 +15,7 @@ pub mod index_names {
 
         /// The error returned by [`from_bytes()`][super::from_bytes()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("The pack names were not ordered alphabetically.")]
             NotOrderedAlphabetically,

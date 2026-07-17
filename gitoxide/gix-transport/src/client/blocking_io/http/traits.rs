@@ -2,7 +2,7 @@ use crate::client::WriteMode;
 
 /// The error used by the [Http] trait.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not initialize the http client")]
     InitHttpClient {
@@ -86,7 +86,7 @@ impl<A, B, C> From<PostResponse<A, B, C>> for GetResponse<A, B> {
 /// A trait to abstract the HTTP operations needed to power all git interactions: read via GET and write via POST.
 /// Note that 401 must be turned into `std::io::Error(PermissionDenied)`, and other non-success http statuses must be transformed
 /// into `std::io::Error(Other)`
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity)]
 pub trait Http {
     /// A type providing headers line by line.
     type Headers: std::io::BufRead + Unpin;

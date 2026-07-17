@@ -283,7 +283,7 @@ mod windows {
     /// # Safety
     ///
     /// `p` must point at `len` `u16`s of an in-bounds, initialized directory record.
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     unsafe fn name_from_maybe_unaligned<'a>(p: *const u16, len: usize) -> std::borrow::Cow<'a, [u16]> {
         if p.is_aligned() {
             std::borrow::Cow::Borrowed(unsafe { std::slice::from_raw_parts(p, len) })
@@ -319,7 +319,7 @@ mod windows {
             worktree.join(gix_path::from_bstr(rel_dir))
         };
         let dir_path = utf16_null_terminated(&dir);
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         let handle = unsafe {
             CreateFileW(
                 dir_path.as_ptr(),
@@ -344,7 +344,7 @@ mod windows {
         let buffer_bytes = (buffer.len() * 8) as u32;
 
         loop {
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             let success = unsafe {
                 GetFileInformationByHandleEx(
                     handle,
@@ -362,17 +362,20 @@ mod windows {
 
             let mut offset = 0usize;
             loop {
-                #[allow(clippy::cast_ptr_alignment)]
-                #[allow(unsafe_code)]
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "the caller guarantees the pointer alignment required by this cast"
+                )]
+                #[expect(unsafe_code)]
                 let info_ptr = unsafe { buffer.as_ptr().cast::<u8>().add(offset).cast::<FILE_ID_BOTH_DIR_INFO>() };
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let info = unsafe { info_ptr.read_unaligned() };
                 let info = &info;
 
                 let name_len = (info.FileNameLength / 2) as usize;
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let name_ptr = unsafe { (&raw const (*info_ptr).FileName).cast::<u16>() };
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let name = unsafe { name_from_maybe_unaligned(name_ptr, name_len) };
                 let name_slice: &[u16] = &name;
 
@@ -402,7 +405,7 @@ mod windows {
             }
         }
 
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             CloseHandle(handle)
         };

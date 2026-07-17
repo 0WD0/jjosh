@@ -5,7 +5,7 @@ use crate::multi_index;
 mod error {
     /// The error returned by [`crate::multi_index::write_from_index_paths()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Io(#[from] gix_hash::io::Error),

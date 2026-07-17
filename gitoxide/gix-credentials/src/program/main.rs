@@ -39,7 +39,7 @@ impl Action {
 
 /// The error of [`main()`][crate::program::main()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Action named {name:?} is invalid, need 'get', 'store', 'erase' or 'fill', 'approve', 'reject'")]
     ActionInvalid { name: OsString },

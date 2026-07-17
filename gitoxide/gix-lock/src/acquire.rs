@@ -42,7 +42,7 @@ impl From<Duration> for Fail {
 
 /// The error returned when acquiring a [`File`] or [`Marker`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Another IO error occurred while obtaining the lock")]
     Io(#[from] std::io::Error),

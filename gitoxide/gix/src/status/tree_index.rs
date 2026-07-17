@@ -2,7 +2,7 @@ use crate::{Repository, config::tree};
 
 /// The error returned by [Repository::tree_index_status()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     IndexFromMTree(#[from] crate::repository::index_from_tree::Error),

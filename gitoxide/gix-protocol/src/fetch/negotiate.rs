@@ -17,7 +17,7 @@ type Queue = gix_revwalk::PriorityQueue<SecondsSinceUnixEpoch, gix_hash::ObjectI
 
 /// The error returned during [`one_round()`] or [`mark_complete_and_common_ref()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("We were unable to figure out what objects the server should send after {rounds} round(s)")]
     NegotiationFailed { rounds: usize },
@@ -117,7 +117,7 @@ pub struct Round {
 /// * `mapping_is_ignored`
 ///     - `f(mapping) -> bool` returns `true` if the given mapping should not participate in change tracking.
 ///     - [`make_refmapping_ignore_predicate()`] is a typical implementation for this.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn mark_complete_and_common_ref<Out, F, E>(
     objects: &(impl gix_object::Find + gix_object::FindHeader + gix_object::Exists),
     refs: &gix_ref::file::Store,

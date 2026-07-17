@@ -275,7 +275,7 @@ pub struct Outcome {
 
 /// The error returned by [`walk()`](function::walk()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Interrupted")]
     Interrupted,

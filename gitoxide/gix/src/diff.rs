@@ -7,7 +7,7 @@ pub mod options {
     pub mod init {
         /// The error returned when instantiating [diff options](crate::diff::Options).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[cfg(feature = "blob-diff")]
             #[error(transparent)]
@@ -142,7 +142,7 @@ pub(crate) mod utils {
     pub mod new_rewrites {
         /// The error returned by [`new_rewrites()`](super::new_rewrites()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             ConfigDiffRenames(#[from] crate::config::key::GenericError),
@@ -155,7 +155,7 @@ pub(crate) mod utils {
     pub mod resource_cache {
         /// The error returned by [`resource_cache()`](super::resource_cache()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             DiffAlgorithm(#[from] crate::config::diff::algorithm::Error),
@@ -174,7 +174,6 @@ pub(crate) mod utils {
     /// Returns `Ok((None, false))` if nothing is configured, or `Ok((None, true))` if it's configured and disabled.
     ///
     /// Note that missing values will be defaulted similar to what git does.
-    #[allow(clippy::result_large_err)]
     pub fn new_rewrites(
         config: &gix_config::File,
         lenient: bool,

@@ -389,7 +389,7 @@ pub mod status {
 
     /// The error returned by [Submodule::status()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         State(#[from] state::Error),

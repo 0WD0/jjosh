@@ -20,7 +20,6 @@ pub(crate) mod util;
 
 /// Returned by [`Tree::traverse()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
 pub enum Error {
     #[error("{message}")]
     ZlibInflate {
@@ -178,7 +177,7 @@ where
                     // SAFETY: This invariant is upheld since `child_items` and `node` come from the same Tree.
                     // This means we can rely on Tree's invariant that node.children will be the only `children` array in
                     // for nodes in this tree that will contain any of those children.
-                    #[allow(unsafe_code)]
+                    #[expect(unsafe_code)]
                     unsafe {
                         resolve::deltas(
                             object_counter.clone(),

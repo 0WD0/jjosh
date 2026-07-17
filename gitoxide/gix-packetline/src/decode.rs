@@ -4,7 +4,7 @@ use crate::{DELIMITER_LINE, FLUSH_LINE, MAX_DATA_LEN, MAX_LINE_LEN, PacketLineRe
 
 /// The error used in the [`decode`][mod@crate::decode] module
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to decode the first four hex bytes indicating the line length: {err}")]
     HexDecode { err: String },
@@ -26,7 +26,7 @@ pub enum Error {
 pub mod band {
     /// The error used in [`PacketLineRef::decode_band()`][super::PacketLineRef::decode_band()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("attempt to decode a non-side channel line or input was malformed: {band_id}")]
         InvalidSideBand { band_id: u8 },

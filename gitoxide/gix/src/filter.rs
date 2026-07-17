@@ -20,7 +20,7 @@ pub mod pipeline {
 
         /// The error returned by [Pipeline::options()](crate::filter::Pipeline::options()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             CheckRoundTripEncodings(#[from] config::encoding::Error),
@@ -40,7 +40,7 @@ pub mod pipeline {
     pub mod convert_to_git {
         /// The error returned by [Pipeline::convert_to_git()](crate::filter::Pipeline::convert_to_git()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Failed to prime attributes to the path at which the data resides")]
             WorktreeCacheAtPath(#[from] std::io::Error),
@@ -53,7 +53,7 @@ pub mod pipeline {
     pub mod convert_to_worktree {
         /// The error returned by [Pipeline::convert_to_worktree()](crate::filter::Pipeline::convert_to_worktree()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Failed to prime attributes to the path at which the data resides")]
             WorktreeCacheAtPath(#[from] std::io::Error),
@@ -68,7 +68,7 @@ pub mod pipeline {
 
         /// The error returned by [Pipeline::worktree_file_to_object()](crate::filter::Pipeline::worktree_file_to_object()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Cannot add worktree files in bare repositories")]
             MissingWorktree,

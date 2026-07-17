@@ -89,7 +89,7 @@ pub fn unique_path_in_tree(
 }
 
 /// Perform a merge between two blobs and return the result of its object id.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn perform_blob_merge<E>(
     mut labels: crate::blob::builtin_driver::text::Labels<'_>,
     objects: &impl gix_object::FindObjectOrHeader,

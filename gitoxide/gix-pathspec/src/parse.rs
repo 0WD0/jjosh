@@ -6,7 +6,7 @@ use crate::{Defaults, MagicSignature, Pattern, SearchMode};
 
 /// The error returned by [parse()][crate::parse()].
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("An empty string is not a valid pathspec")]
     EmptyString,

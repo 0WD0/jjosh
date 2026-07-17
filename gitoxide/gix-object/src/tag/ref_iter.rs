@@ -127,7 +127,7 @@ impl<'a> Iterator for TagRefIter<'a> {
 }
 
 /// A token returned by the [tag iterator][TagRefIter].
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 pub enum Token<'a> {
     Target {

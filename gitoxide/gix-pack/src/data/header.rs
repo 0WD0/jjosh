@@ -40,7 +40,7 @@ pub fn encode(version: data::Version, num_objects: u32) -> [u8; 12] {
 pub mod decode {
     /// Returned by [`decode()`][super::decode()].
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not open pack file at '{path}'")]
         Io {

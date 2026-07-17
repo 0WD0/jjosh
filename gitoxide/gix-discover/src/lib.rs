@@ -43,7 +43,7 @@ pub mod is_git {
 
     /// The error returned by [`crate::is_git()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not find a valid HEAD reference")]
         FindHeadRef(#[from] gix_ref::file::find::existing::Error),
@@ -71,7 +71,10 @@ pub mod is_git {
 }
 
 mod is;
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "this re-export preserves compatibility with the deprecated API"
+)]
 pub use is::submodule_git_dir as is_submodule_git_dir;
 pub use is::{bare as is_bare, git as is_git};
 

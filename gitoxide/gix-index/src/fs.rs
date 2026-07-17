@@ -38,7 +38,10 @@ impl Metadata {
 }
 
 /// Access
-#[allow(clippy::len_without_is_empty)]
+#[expect(
+    clippy::len_without_is_empty,
+    reason = "emptiness is either impossible or not meaningful for this type"
+)]
 impl Metadata {
     /// Return true if the metadata belongs to a directory
     pub fn is_dir(&self) -> bool {

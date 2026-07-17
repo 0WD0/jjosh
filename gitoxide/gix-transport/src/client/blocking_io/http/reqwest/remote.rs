@@ -18,7 +18,7 @@ use crate::client::blocking_io::http::{
 
 /// The error returned by the 'remote' helper, a purely internal construct to perform http requests.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),

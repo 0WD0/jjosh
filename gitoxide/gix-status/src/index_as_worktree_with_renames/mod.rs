@@ -44,7 +44,7 @@ pub(super) mod function {
     ///    -  Additional information that will be accessed during index modification checks and traversal.
     /// * `options`
     ///    - a way to configure both paths of the operation.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn index_as_worktree_with_renames<'index, T, U, Find, E>(
         index: &'index gix_index::State,
         worktree: &Path,
@@ -501,7 +501,7 @@ pub(super) mod function {
 
         /// Note that for non-files, we always return a null-sha and assume that the rename-tracking
         /// does nothing for these anyway.
-        #[allow(clippy::too_many_arguments)]
+        #[expect(clippy::too_many_arguments)]
         pub(super) fn calculate_worktree_id(
             object_hash: gix_hash::Kind,
             worktree_root: &Path,

@@ -7,7 +7,7 @@ use crate::index::{self, FAN_LEN, V2_SIGNATURE, Version};
 
 /// Returned by [`index::File::at()`].
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not open pack index file at '{path}'")]
     Io {

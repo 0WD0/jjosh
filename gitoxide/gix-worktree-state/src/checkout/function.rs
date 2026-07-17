@@ -15,7 +15,6 @@ use crate::checkout::chunk;
 ///
 /// Note that interruption still produce an `Ok(…)` value, so the caller should look at `should_interrupt` to communicate the outcome.
 ///
-#[allow(clippy::too_many_arguments)]
 pub fn checkout<Find>(
     index: &mut gix_index::State,
     dir: impl Into<std::path::PathBuf>,
@@ -34,7 +33,7 @@ where
     res
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn checkout_inner<Find>(
     index: &mut gix_index::State,
     paths: &gix_index::PathStorage,

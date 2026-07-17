@@ -6,7 +6,7 @@ use crate::{Defaults, MagicSignature, SearchMode};
 pub mod from_environment {
     /// The error returned by [Defaults::from_environment()](super::Defaults::from_environment()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ParseValue(#[from] gix_config_value::Error),

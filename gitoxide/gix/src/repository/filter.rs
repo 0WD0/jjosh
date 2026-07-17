@@ -4,7 +4,7 @@ use crate::{Id, Repository, filter, worktree::IndexPersistedOrInMemory};
 pub mod pipeline {
     /// The error returned by [Repository::filter_pipeline()](super::Repository::filter_pipeline()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not obtain head commit of bare repository")]
         HeadCommit(#[from] crate::reference::head_commit::Error),

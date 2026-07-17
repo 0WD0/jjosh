@@ -69,7 +69,7 @@ enum State<'a, T> {
 /// However, it's only used when pinned and thus isn't actually sent anywhere, it's a secondary state of the future used after it was Send
 /// to a thread possibly.
 // TODO: Is it possible to declare it as it should be?
-#[allow(unsafe_code, clippy::non_send_fields_in_send_ty)]
+#[expect(unsafe_code)]
 unsafe impl<T> Send for State<'_, T> where T: Send {}
 
 impl<'a, T, F> WithSidebands<'a, T, F>
@@ -175,7 +175,10 @@ where
     }
 }
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "the manual future is implemented but no public operation currently constructs it, or… maybe it needs specific feature toggles?"
+)]
 pub struct ReadDataLineFuture<'a, 'b, T: AsyncRead, F> {
     parent: &'b mut WithSidebands<'a, T, F>,
     buf: &'b mut Vec<u8>,
@@ -267,7 +270,7 @@ where
                                 // Also: We keep a pointer around which is protected by borrowcheck since it's created
                                 // from a legal mutable reference which is moved into the read_line future - if it was manually
                                 // implemented we would be able to re-obtain it from there.
-                                #[allow(unsafe_code)]
+                                #[expect(unsafe_code)]
                                 let parent = unsafe { &mut *parent };
                                 State::Idle { parent: Some(parent) }
                             };

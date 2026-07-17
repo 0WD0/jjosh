@@ -154,7 +154,7 @@ where
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn decode_and_process_entry<C, E, D>(
         &self,
         check: SafetyCheck,
@@ -208,7 +208,6 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn process_entry<E>(
     check: SafetyCheck,
     object_kind: gix_object::Kind,

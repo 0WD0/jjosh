@@ -7,7 +7,7 @@ use crate::extension::Tree;
 
 /// The error returned by [`Tree::verify()`][crate::extension::Tree::verify()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(
         "The entry {entry_id} at path '{name}' in parent tree {parent_id} wasn't found in the nodes children, making it incomplete"
@@ -100,7 +100,6 @@ impl Tree {
             }
             for child in children {
                 // This is actually needed here as it's a mut ref, which isn't copy. We do a re-borrow here.
-                #[allow(clippy::needless_option_as_deref)]
                 let actual_num_entries =
                     verify_recursive(child.id, &child.children, object_buf.as_deref_mut(), objects)?;
                 if let Some((actual, num_entries)) = actual_num_entries.zip(child.num_entries) {

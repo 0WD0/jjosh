@@ -14,7 +14,7 @@ pub enum ResolvedBase {
     InPack(data::Entry),
     /// Indicates the object of `kind` was found outside of the pack, and its data was written into an output
     /// vector which now has a length of `end`.
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     OutOfPack { kind: gix_object::Kind, end: usize },
 }
 

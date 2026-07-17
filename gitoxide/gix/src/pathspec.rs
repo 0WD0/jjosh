@@ -7,7 +7,7 @@ use crate::{AttributeStack, Pathspec, PathspecDetached, Repository, bstr::BStr};
 pub mod init {
     /// The error returned by [`Pathspec::new()`](super::Pathspec::new()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         MakeAttributes(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),

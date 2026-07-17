@@ -2,7 +2,7 @@ use crate::hasher;
 
 /// The error type for I/O operations that compute hashes.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),

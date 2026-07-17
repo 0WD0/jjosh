@@ -7,7 +7,7 @@ use crate::{
 
 /// The error returned by [`File::from_paths_metadata()`] and [`File::from_path_no_includes()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("The configuration file at \"{}\" could not be read", path.display())]
     Io {

@@ -3,7 +3,7 @@ pub mod conversion {
 
     /// The error returned by [`crate::object::try_to_()`][crate::Object::try_to_commit_ref()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Decode(#[from] gix_object::decode::Error),
@@ -30,7 +30,7 @@ pub mod find {
         pub mod with_conversion {
             /// The error returned by [Repository::find_commit()](crate::Repository::find_commit).
             #[derive(Debug, thiserror::Error)]
-            #[allow(missing_docs)]
+            #[expect(missing_docs)]
             pub enum Error {
                 #[error(transparent)]
                 Find(#[from] crate::object::find::existing::Error),

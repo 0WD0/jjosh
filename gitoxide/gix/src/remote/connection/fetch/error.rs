@@ -3,7 +3,7 @@ use crate::config;
 /// The error returned by [`receive()`](super::Prepare::receive()).
 // TODO: remove unused variants
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Fetch(#[from] gix_protocol::fetch::Error),

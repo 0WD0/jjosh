@@ -86,7 +86,6 @@ impl<'a> RequestWriter<'a> {
                 encode::write_packet_line(&gix_packetline::PacketLineRef::ResponseEnd, self.writer.inner_mut()).await
             }
             MessageKind::Text(t) => {
-                #[allow(unused_variables, unused_imports)]
                 if self.trace {
                     use bstr::ByteSlice;
                     gix_features::trace::trace!(">> {}", t.as_bstr());

@@ -9,7 +9,7 @@ use crate::{Protocol, client::blocking_io::file::SpawnProcessOnDemand};
 
 /// The error used in [`connect()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("The scheme in \"{}\" is not usable for an ssh connection", .0.to_bstring())]
     UnsupportedScheme(gix_url::Url),
@@ -44,7 +44,7 @@ pub mod invocation {
 
     /// The error returned when producing ssh invocation arguments based on a selected invocation kind.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Username '{user}' could be mistaken for a command-line argument")]
         AmbiguousUserName { user: String },
@@ -101,7 +101,10 @@ pub mod connect {
 /// The `desired_version` is the preferred protocol version when establishing the connection, but note that it can be
 /// downgraded by servers not supporting it.
 /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 pub fn connect(
     url: Url,
     desired_version: Protocol,
@@ -125,7 +128,10 @@ pub fn connect(
     ))
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 fn determine_client_kind(
     known_kind: Option<ProgramKind>,
     ssh_cmd: &OsStr,
@@ -145,7 +151,10 @@ fn determine_client_kind(
     Ok(kind)
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 fn build_client_feature_check_command(ssh_cmd: &OsStr, url: &Url, disallow_shell: bool) -> Result<Command, Error> {
     let mut prepare = gix_command::prepare(ssh_cmd)
         .stderr(Stdio::null())

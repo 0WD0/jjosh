@@ -137,7 +137,7 @@ pub mod visit {
 pub mod emit {
     /// The error returned by [Tracker::emit()](super::Tracker::emit()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not find blob for similarity checking")]
         FindExistingBlob(#[from] gix_object::find::existing_object::Error),
@@ -366,7 +366,7 @@ impl<T: Change> Tracker<T> {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn match_pairs_of_kind(
         &mut self,
         kind: visit::SourceKind,
@@ -417,7 +417,7 @@ impl<T: Change> Tracker<T> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn match_pairs(
         &mut self,
         cb: &mut impl FnMut(visit::Destination<'_, T>, Option<visit::Source<'_, T>>) -> Action,
@@ -695,7 +695,7 @@ type SourceTuple<'a, T> = (usize, &'a Item<T>, Option<DiffLineStats>);
 /// any non-deletion otherwise.
 /// Note that we always try to find by identity first even if a percentage is given as it's much faster and may reduce the set
 /// of items to be searched.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn find_match<'a, T: Change>(
     items: &'a [Item<T>],
     item: &Item<T>,

@@ -198,7 +198,6 @@ impl ListPool {
 
 impl ListHandle {
     /// Get the number of elements in the list.
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self, pool: &ListPool) -> u32 {
         if self.generation == pool.generation {
             self.len

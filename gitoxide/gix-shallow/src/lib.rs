@@ -111,7 +111,7 @@ pub mod write {
 
     /// The error returned by [`write()`](crate::write()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Commit(#[from] gix_lock::commit::Error<gix_lock::File>),
@@ -127,7 +127,7 @@ pub use write::function::write;
 pub mod read {
     /// The error returned by [`read`](crate::read()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not open shallow file for reading")]
         Io(#[from] std::io::Error),

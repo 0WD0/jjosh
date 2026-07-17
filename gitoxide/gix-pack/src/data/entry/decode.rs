@@ -7,7 +7,7 @@ use crate::data;
 
 /// The error returned by [data::Entry::from_bytes()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Object type {type_id} is unsupported")]
     UnsupportedType { type_id: u8 },
@@ -81,7 +81,6 @@ impl data::Entry {
                 let mut buf = gix_hash::Kind::buf();
                 let hash = &mut buf[..hash_len];
                 r.read_exact(hash)?;
-                #[allow(clippy::redundant_slicing)]
                 let delta = RefDelta {
                     base_id: gix_hash::ObjectId::from_bytes_or_panic(&hash[..]),
                 };

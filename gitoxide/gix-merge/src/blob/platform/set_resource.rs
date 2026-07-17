@@ -4,7 +4,7 @@ use crate::blob::{Platform, ResourceKind, pipeline, platform::Resource};
 
 /// The error returned by [Platform::set_resource](Platform::set_resource).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Can only diff blobs, not {mode:?}")]
     InvalidMode { mode: gix_object::tree::EntryKind },

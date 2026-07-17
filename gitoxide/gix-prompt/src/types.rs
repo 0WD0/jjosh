@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 /// The error returned by [ask()][crate::ask()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Terminal prompts are disabled")]
     Disabled,

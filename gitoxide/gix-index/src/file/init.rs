@@ -8,7 +8,7 @@ mod error {
 
     /// The error returned by [File::at()][super::File::at()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An IO error occurred while opening the index")]
         Io(#[from] std::io::Error),
@@ -61,7 +61,7 @@ impl File {
         let (data, mtime) = {
             let mut file = std::fs::File::open(&path)?;
             // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             let data = unsafe { memmap2::MmapOptions::new().map_copy_read_only(&file)? };
 
             if !skip_hash {

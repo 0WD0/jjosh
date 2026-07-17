@@ -243,7 +243,6 @@ impl<'input, 'data> Merge<'input, 'data> {
 ///
 /// *The caller* is responsible for clearing `input`, otherwise tokens will accumulate.
 /// This idea is to save time if the input is known to be very similar.
-#[allow(clippy::too_many_arguments)]
 pub fn merge<'a>(
     out: &mut Vec<u8>,
     input: &mut imara_diff::InternedInput<&'a [u8]>,

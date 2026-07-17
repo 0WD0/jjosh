@@ -17,7 +17,7 @@ pub mod decode {
 
     /// The error returned when decoding link extensions.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("{0}")]
         Corrupt(&'static str),

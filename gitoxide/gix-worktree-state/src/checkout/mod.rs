@@ -76,7 +76,7 @@ pub struct Options {
 
 /// The error returned by the [checkout()][crate::checkout()] function.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not convert path to UTF8: {}", .path)]
     IllformedUtf8 { path: BString },

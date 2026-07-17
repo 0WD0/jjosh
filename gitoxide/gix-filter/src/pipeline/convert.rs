@@ -10,7 +10,7 @@ pub mod configuration {
 
     /// Errors related to the configuration of filter attributes.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The encoding named '{name}' isn't available")]
         UnknownEncoding { name: BString },
@@ -26,7 +26,7 @@ pub mod to_git {
 
     /// The error returned by [Pipeline::convert_to_git()][super::Pipeline::convert_to_git()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Eol(#[from] crate::eol::convert_to_git::Error),
@@ -47,7 +47,7 @@ pub mod to_git {
 pub mod to_worktree {
     /// The error returned by [Pipeline::convert_to_worktree()][super::Pipeline::convert_to_worktree()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Ident(#[from] crate::ident::apply::Error),

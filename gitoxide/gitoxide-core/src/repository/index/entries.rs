@@ -89,7 +89,7 @@ pub(crate) mod function {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn print_entries(
         repo: &Repository,
         attributes: Option<Attributes>,
@@ -245,7 +245,7 @@ pub(crate) mod function {
         Ok(stats)
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn init_cache(
         repo: &Repository,
         attributes: Option<Attributes>,
@@ -305,7 +305,7 @@ pub(crate) mod function {
     #[cfg_attr(feature = "serde", derive(serde::Serialize))]
     #[derive(Default, Debug)]
     struct Statistics {
-        #[allow(dead_code)] // Not really dead, but Debug doesn't count for it even though it's crucial.
+        // Not really dead, but Debug doesn't count for it even though it's crucial.
         pub entries: usize,
         pub entries_after_prune: usize,
         pub excluded: usize,

@@ -49,7 +49,7 @@ impl Category<'_> {
 impl FullNameRef {
     pub(crate) fn new_unchecked(v: &BStr) -> &Self {
         // SAFETY: FullNameRef is transparent and equivalent to a &BStr if provided as reference
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             std::mem::transmute(v)
         }
@@ -59,7 +59,7 @@ impl FullNameRef {
 impl PartialNameRef {
     pub(crate) fn new_unchecked(v: &BStr) -> &Self {
         // SAFETY: PartialNameRef is transparent and equivalent to a &BStr if provided as reference
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             std::mem::transmute(v)
         }
@@ -224,7 +224,10 @@ impl<'a> convert::TryFrom<&'a str> for PartialName {
     }
 }
 
-#[allow(clippy::infallible_try_from)]
+#[expect(
+    clippy::infallible_try_from,
+    reason = "it's here so that it can be done, even if infallible. Needed for parameters that use `TryFrom` generically."
+)]
 impl<'a> convert::TryFrom<&'a FullName> for &'a PartialNameRef {
     type Error = Infallible;
 

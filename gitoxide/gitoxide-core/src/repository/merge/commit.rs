@@ -8,7 +8,6 @@ use gix::{
 use super::tree::Options;
 use crate::OutputFormat;
 
-#[allow(clippy::too_many_arguments)]
 pub fn commit(
     mut repo: gix::Repository,
     out: &mut dyn std::io::Write,

@@ -11,7 +11,7 @@ use crate::{
 
 /// The error returned by [`crate::Handshake::prepare_lsrefs_or_extract_refmap()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("The object format {format:?} as used by the remote is unsupported")]
     UnknownObjectFormat { format: BString },

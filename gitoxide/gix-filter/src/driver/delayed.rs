@@ -11,7 +11,7 @@ pub mod list {
 
     /// The error returned by [State::list_delayed_paths()][super::State::list_delayed_paths()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not get process named '{}' which should be running and tracked", wanted.0)]
         ProcessMissing { wanted: driver::Key },
@@ -28,7 +28,7 @@ pub mod fetch {
 
     /// The error returned by [State::fetch_delayed()][super::State::fetch_delayed()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not get process named '{}' which should be running and tracked", wanted.0)]
         ProcessMissing { wanted: driver::Key },

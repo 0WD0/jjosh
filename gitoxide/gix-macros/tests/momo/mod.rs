@@ -4,13 +4,12 @@ use gix_macros::momo;
 
 struct Options;
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn test_open_opts_inner(_dir: impl Into<std::path::PathBuf>, _options: Options) -> Result<(), ()> {
     Ok(())
 }
 
 /// See if doc are kept
-#[allow(dead_code)]
 #[momo]
 fn test_open_opts(directory: impl Into<std::path::PathBuf>, options: Options) -> Result<(), ()> {
     test_open_opts_inner(directory, options)
@@ -81,7 +80,7 @@ impl TestStruct {
         Ok(s)
     }
 
-    #[allow(clippy::needless_arbitrary_self_type)]
+    #[expect(clippy::needless_arbitrary_self_type)]
     #[momo]
     fn test_method2<E>(
         self: Self,
@@ -150,7 +149,6 @@ impl TestStruct {
         Ok(s)
     }
 
-    #[allow(unused)]
     #[momo]
     fn test_fn_ret<E>(
         _this: Pin<&mut Self>,
@@ -181,7 +179,6 @@ impl TryInto<String> for S {
     }
 }
 
-#[allow(unused)]
 #[momo]
 fn test_fn_pat<E>(
     a: impl Into<String>,

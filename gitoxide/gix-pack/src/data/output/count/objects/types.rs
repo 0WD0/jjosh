@@ -79,7 +79,7 @@ impl Default for Options {
 
 /// The error returned by the pack generation iterator [`bytes::FromEntriesIter`][crate::data::output::bytes::FromEntriesIter].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     CommitDecode(gix_object::decode::Error),

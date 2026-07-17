@@ -76,7 +76,7 @@ impl Compress {
 
 /// The error produced by [`Compress::compress()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum CompressError {
     #[error("stream error")]
     StreamError,
@@ -100,7 +100,6 @@ impl From<zlib_rs::DeflateError> for CompressError {
 /// in-memory data.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
-#[allow(clippy::unnecessary_cast)]
 pub enum FlushCompress {
     /// A typical parameter for passing to compression/decompression functions,
     /// this indicates that the underlying stream to decide how much data to

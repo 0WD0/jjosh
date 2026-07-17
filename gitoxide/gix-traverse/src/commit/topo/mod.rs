@@ -4,7 +4,7 @@ use bitflags::bitflags;
 
 /// The errors that can occur during creation and iteration.
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Indegree information is missing")]
     MissingIndegreeUnexpected,

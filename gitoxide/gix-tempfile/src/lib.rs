@@ -136,7 +136,7 @@ static REGISTRY: LazyLock<HashMap<usize, Option<ForksafeTempfile>>> = LazyLock::
     if signal::handler::MODE.load(std::sync::atomic::Ordering::SeqCst) != signal::handler::Mode::None as usize {
         for sig in signal_hook::consts::TERM_SIGNALS {
             // SAFETY: handlers are considered unsafe because a lot can go wrong. See `cleanup_tempfiles()` for details on safety.
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             unsafe {
                 #[cfg(not(windows))]
                 {

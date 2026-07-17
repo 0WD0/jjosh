@@ -7,7 +7,7 @@ use crate::{
 
 /// The error produced by [`convert_to_worktree()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not allocate buffer")]
     OutOfMemory(#[from] std::collections::TryReserveError),

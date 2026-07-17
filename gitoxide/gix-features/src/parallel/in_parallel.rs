@@ -236,7 +236,7 @@ where
 
             // SAFETY: I is Send, and we only use the pointer for creating new
             // pointers (within the input slice) from the threads.
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             unsafe impl<I> Send for Input<I> where I: Send {}
 
             let threads: Vec<_> = (0..num_threads)
@@ -264,7 +264,7 @@ where
                                         // SAFETY: our atomic counter for `input_index` is only ever incremented, yielding
                                         //         each item exactly once.
                                         let item = {
-                                            #[allow(unsafe_code)]
+                                            #[expect(unsafe_code)]
                                             unsafe {
                                                 &mut *input.0.add(input_index)
                                             }

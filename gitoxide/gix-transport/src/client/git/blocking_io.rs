@@ -180,7 +180,7 @@ pub mod connect {
 
     /// The error used in [`connect()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An IO error occurred when connecting to the server")]
         Io(#[from] std::io::Error),

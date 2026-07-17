@@ -97,7 +97,6 @@ pub mod create_or_update {
     use crate::store_impl::{file, file::WriteReflog};
 
     impl file::Store {
-        #[allow(clippy::too_many_arguments)]
         pub(crate) fn reflog_create_or_append(
             &self,
             name: &FullNameRef,
@@ -207,7 +206,7 @@ pub mod create_or_update {
 
         /// The error returned when creating or appending to a reflog
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Could create one or more directories in {reflog_directory:?} to contain reflog file")]
             CreateLeadingDirectories {
@@ -233,7 +232,7 @@ pub mod create_or_update {
 mod error {
     /// The error returned by [`crate::file::Store::reflog_iter()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The reflog name or path is not a valid ref name")]
         RefnameValidation(#[from] crate::name::Error),

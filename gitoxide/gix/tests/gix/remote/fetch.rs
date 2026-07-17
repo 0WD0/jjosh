@@ -45,7 +45,7 @@ mod blocking_and_async_io {
         dir.join(name)
     }
 
-    #[allow(clippy::result_large_err)]
+    #[expect(clippy::result_large_err)]
     pub(crate) fn try_repo_rw(
         name: &str,
     ) -> Result<(gix::Repository, gix_testtools::tempfile::TempDir), gix::open::Error> {
@@ -57,7 +57,7 @@ mod blocking_and_async_io {
         CloneWithShallowSupport,
     }
 
-    #[allow(clippy::result_large_err)]
+    #[expect(clippy::result_large_err)]
     pub(crate) fn try_repo_rw_args<S: Into<String>>(
         name: &str,
         args: impl IntoIterator<Item = S>,
@@ -224,7 +224,7 @@ mod blocking_and_async_io {
 
     #[test]
     #[cfg(feature = "blocking-network-client")]
-    #[allow(clippy::result_large_err)]
+    #[expect(clippy::result_large_err)]
     fn collate_fetch_error() -> Result<(), gix::env::collate::fetch::Error<std::io::Error>> {
         let (repo, _tmp) = try_repo_rw("two-origins")?;
         let remote = repo

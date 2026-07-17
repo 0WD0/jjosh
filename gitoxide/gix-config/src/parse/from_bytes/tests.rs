@@ -934,7 +934,6 @@ mod value_no_continuation {
     }
 
     #[test]
-    #[allow(clippy::needless_raw_string_hashes)]
     fn trans_escaped_comment_marker_not_consumed() {
         let mut events = Vec::new();
         assert_eq!(value(br##"hello"#"world; a"##, &mut events).unwrap().0, b"; a");

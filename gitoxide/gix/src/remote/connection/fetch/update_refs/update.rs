@@ -5,7 +5,7 @@ use crate::remote::fetch;
 mod error {
     /// The error returned when updating references.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FindReference(#[from] crate::reference::find::Error),

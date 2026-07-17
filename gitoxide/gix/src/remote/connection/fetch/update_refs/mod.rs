@@ -60,7 +60,7 @@ impl From<Mode> for Update {
 /// * …existing refs would not become 'unborn', i.e. point to a reference that doesn't exist and won't be created due to ref-specs
 ///
 /// With these safeguards in place, one can handle each naturally and implement mirrors or bare repos easily.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn update(
     repo: &Repository,
     message: RefLogMessage,

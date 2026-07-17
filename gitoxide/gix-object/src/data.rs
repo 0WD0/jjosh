@@ -57,7 +57,7 @@ impl<'a> Data<'a> {
 pub mod verify {
     /// Returned by [`crate::Data::verify_checksum()`]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to hash object")]
         Hasher(#[from] gix_hash::hasher::Error),

@@ -270,7 +270,7 @@ pub fn collect_filtered_with_cwd(
     (outcome, dlg.into_entries_by_path())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn try_collect_filtered_opts(
     worktree_root: &Path,
     root: Option<&Path>,

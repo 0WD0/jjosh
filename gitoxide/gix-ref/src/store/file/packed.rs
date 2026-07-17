@@ -67,7 +67,7 @@ pub mod transaction {
 
     /// The error returned by [`file::Transaction::prepare()`][crate::file::Transaction::prepare()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An existing pack couldn't be opened or read when preparing a transaction")]
         BufferOpen(#[from] packed::buffer::open::Error),

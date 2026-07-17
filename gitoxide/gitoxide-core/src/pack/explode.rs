@@ -90,7 +90,10 @@ enum Error {
     WrittenFileCorrupt { source: loose::find::Error, id: ObjectId },
 }
 
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 #[derive(Clone)]
 enum OutputWriter {
     Loose(loose::Store),

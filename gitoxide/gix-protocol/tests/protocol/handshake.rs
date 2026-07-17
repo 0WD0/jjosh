@@ -232,7 +232,7 @@ impl gix_transport::client::blocking_io::ReadlineBufRead for Fixture<'_> {
 #[cfg(feature = "async-client")]
 impl<'a> Fixture<'a> {
     fn project_inner(self: std::pin::Pin<&mut Self>) -> std::pin::Pin<&mut &'a [u8]> {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             std::pin::Pin::new(&mut self.get_unchecked_mut().0)
         }

@@ -13,7 +13,7 @@ pub mod to_normal_path_components {
 
     /// The error used in [`ToNormalPathComponents::to_normal_path_components()`](super::ToNormalPathComponents::to_normal_path_components()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Input path \"{path}\" contains relative or absolute components", path = .0.display())]
         NotANormalComponent(PathBuf),

@@ -6,7 +6,7 @@ use crate::client;
 
 /// The error used in [`Capabilities::from_bytes()`] and [`Capabilities::from_lines()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Capabilities were missing entirely as there was no 0 byte")]
     MissingDelimitingNullByte,
@@ -255,7 +255,6 @@ pub mod blocking_recv {
 
 ///
 #[cfg(feature = "async-client")]
-#[allow(missing_docs)]
 pub mod async_recv {
     use bstr::ByteVec;
     use futures_io::AsyncRead;

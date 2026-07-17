@@ -11,7 +11,7 @@ use crate::{
 pub mod init {
     /// The error returned by [`Editor::new()](crate::object::tree::Editor::new()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         DecodeTree(#[from] gix_object::decode::Error),
@@ -26,7 +26,7 @@ pub mod write {
 
     /// The error returned by [`Editor::write()](crate::object::tree::Editor::write()) and [`Cursor::write()](super::Cursor::write).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         WriteTree(#[from] crate::object::write::Error),

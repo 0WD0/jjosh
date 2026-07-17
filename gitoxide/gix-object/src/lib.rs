@@ -79,7 +79,7 @@ pub mod kind;
 /// The four types of objects that git differentiates.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone, Copy)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Kind {
     Tree,
     Blob,
@@ -225,7 +225,7 @@ pub struct Tag {
 /// An `ObjectRef` is representing [`Trees`](TreeRef), [`Blobs`](BlobRef), [`Commits`](CommitRef), or [`Tags`](TagRef).
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum ObjectRef<'a> {
     #[cfg_attr(feature = "serde", serde(borrow))]
     Tree(TreeRef<'a>),
@@ -244,7 +244,7 @@ pub enum ObjectRef<'a> {
 /// An `Object` is representing [`Trees`](Tree), [`Blobs`](Blob), [`Commits`](Commit), or [`Tags`](Tag).
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[allow(clippy::large_enum_variant, missing_docs)]
+#[expect(missing_docs)]
 pub enum Object {
     Tree(Tree),
     Blob(Blob),
@@ -332,7 +332,7 @@ pub mod decode {
 
     /// Returned by [`loose_header()`]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum LooseHeaderDecodeError {
         #[error("{message}: {number:?}")]
         ParseIntegerError {

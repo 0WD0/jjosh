@@ -66,7 +66,7 @@ impl Engine {
 }
 
 impl Engine {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn perform_run(
         &mut self,
         corpus_path: &Path,

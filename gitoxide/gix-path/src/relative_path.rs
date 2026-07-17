@@ -29,7 +29,7 @@ use types::RelativePath;
 impl RelativePath {
     fn new_unchecked(value: &BStr) -> Result<&RelativePath, Error> {
         // SAFETY: `RelativePath` is transparent and equivalent to a `&BStr` if provided as reference.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             Ok(std::mem::transmute::<&BStr, &RelativePath>(value))
         }
@@ -38,7 +38,7 @@ impl RelativePath {
 
 /// The error used in [`RelativePath`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("A RelativePath is not allowed to be absolute")]
     IsAbsolute,
