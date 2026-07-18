@@ -216,6 +216,34 @@ fn get_value_looks_up_all_sections_before_failing() -> crate::Result {
 }
 
 #[test]
+fn interpreted_values_can_be_returned_with_their_sections() -> crate::Result {
+    let file = File::try_from(
+        "[core]\n\
+         a=1\n\
+         a=2\n\
+         [core]\n\
+         a=3\n",
+    )?;
+    let section_ids: Vec<_> = file.sections().map(|section| section.id()).collect();
+
+    let (value, section) = file.value_with_section::<Integer>("core.a")?;
+    assert_eq!(value.value, 3);
+    assert_eq!(section.id(), section_ids[1]);
+
+    let values = file.values_with_sections::<Integer>("core.a")?;
+    let actual: Vec<_> = values
+        .into_iter()
+        .map(|(value, section)| (value.value, section.id()))
+        .collect();
+    assert_eq!(actual, [(1, section_ids[0]), (2, section_ids[0]), (3, section_ids[1])]);
+
+    let (value, section) = file.value_with_section_by::<Integer>("core", None, "a")?;
+    assert_eq!((value.value, section.id()), (3, section_ids[1]));
+    assert_eq!(file.values_with_sections_by::<Integer>("core", None, "a")?.len(), 3);
+    Ok(())
+}
+
+#[test]
 fn section_names_are_case_insensitive() -> crate::Result {
     let config = "[core] a=true";
     let file = File::try_from(config)?;

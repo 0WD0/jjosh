@@ -88,6 +88,34 @@ impl File {
             .map_err(lookup::Error::FailedConversion)
     }
 
+    /// Returns an interpreted value and the section containing it given a `key`.
+    ///
+    /// Resolution is identical to [`value()`][Self::value()]: the last explicit value wins, even across multiple
+    /// matching sections.
+    pub fn value_with_section<T: TryFrom<BString>>(
+        &self,
+        key: impl AsKey,
+    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+        let key = key.as_key();
+        self.value_with_section_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns an interpreted value and the section containing it given its individual key components.
+    ///
+    /// Resolution is identical to [`value_by()`][Self::value_by()]: the last explicit value wins, even across multiple
+    /// matching sections.
+    pub fn value_with_section_by<T: TryFrom<BString>>(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+        let (value, section) = self.raw_value_with_section_by(section_name, subsection_name, value_name)?;
+        T::try_from(value)
+            .map(|value| (value, section))
+            .map_err(lookup::Error::FailedConversion)
+    }
+
     /// Like [`value()`](File::value()), but returning an `None` if the value wasn't found at `section[.subsection].value_name`
     pub fn try_value<T: TryFrom<BString>>(&self, key: impl AsKey) -> Result<Option<T>, T::Error> {
         let key = key.as_key();
@@ -220,6 +248,30 @@ impl File {
             .map_err(lookup::Error::FailedConversion)
     }
 
+    /// Returns all interpreted values and their containing sections given a `key`, in order of occurrence.
+    pub fn values_with_sections<T: TryFrom<BString>>(
+        &self,
+        key: impl AsKey,
+    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+        let key = key.as_key();
+        self.values_with_sections_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns all interpreted values and their containing sections given individual key components, in order of
+    /// occurrence.
+    pub fn values_with_sections_by<T: TryFrom<BString>>(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+        self.raw_values_with_sections_by(section_name, subsection_name, value_name)?
+            .into_iter()
+            .map(|(value, section)| T::try_from(value).map(|value| (value, section)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(lookup::Error::FailedConversion)
+    }
+
     /// Returns the last found immutable section with a given `name` and optional `subsection_name`.
     pub fn section(
         &self,
@@ -232,8 +284,11 @@ impl File {
 
     /// Returns the last found immutable section with a given `section_key`, identifying the name and subsection name like `core`
     /// or `remote.origin`.
-    pub fn section_by_key(&self, section_key: &BStr) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
-        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key)
+    pub fn section_by_key(
+        &self,
+        section_key: impl crate::AsBStr,
+    ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
+        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
             .ok_or(lookup::existing::Error::KeyMissing)?;
         self.section(key.section_name, key.subsection_name)
     }
@@ -261,12 +316,12 @@ impl File {
     }
 
     /// Like [`section_filter()`](File::section_filter()), but identifies the section with `section_key` like `core` or `remote.origin`.
-    pub fn section_filter_by_key<'a>(
-        &'a self,
-        section_key: &BStr,
+    pub fn section_filter_by_key(
+        &self,
+        section_key: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'a>>, lookup::existing::Error> {
-        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key)
+    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
+        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
             .ok_or(lookup::existing::Error::KeyMissing)?;
         self.section_filter(key.section_name, key.subsection_name, filter)
     }

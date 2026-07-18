@@ -43,7 +43,7 @@ fn single_key_value_pair() -> crate::Result {
     let config = File::from_env(Default::default())?.unwrap();
     assert_eq!(config.raw_value("core.key")?, "value");
     assert_eq!(
-        config.section_by_key("core".into())?.meta(),
+        config.section_by_key("core")?.meta(),
         &gix_config::file::Metadata::from(gix_config::Source::Env),
         "source if configured correctly"
     );

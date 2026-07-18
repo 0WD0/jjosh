@@ -171,7 +171,7 @@ mod set {
 
         for (key, (new_value, expected_prev_value)) in (b'a'..=b'e').zip(values.into_iter().zip(prev_values)) {
             let key = std::str::from_utf8(std::slice::from_ref(&key))?.to_owned();
-            let prev_value = section.set(&key, new_value.as_ref())?;
+            let prev_value = section.set(&key, new_value)?;
             assert_eq!(prev_value.expect("prev value set"), expected_prev_value);
         }
 
@@ -180,7 +180,7 @@ mod set {
             "\n        [a]\n            a = \n            b = \" a\"\n            c=\"b\\t\"\n            d\"; comment\"\n            e =a\\n\\tc  d\\\\ \\\"x\\\"\n"
         );
         assert_eq!(
-            config.section_mut("a", None)?.set("new-one", "value".into())?,
+            config.section_mut("a", None)?.set("new-one", "value")?,
             None,
             "new values don't replace an existing one"
         );
@@ -205,7 +205,7 @@ mod value_name_validation {
             Err(value::Error::ValueName(_))
         ));
         assert!(matches!(
-            section.set("also invalid", "value".into()),
+            section.set("also invalid", "value"),
             Err(value::Error::ValueName(_))
         ));
         assert_eq!(section.num_values(), 0, "validation happens before mutation");

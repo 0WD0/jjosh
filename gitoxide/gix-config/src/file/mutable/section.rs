@@ -172,10 +172,10 @@ impl SectionMut<'_> {
     pub fn set(
         &mut self,
         value_name: impl AsRef<str>,
-        value: &BStr,
+        value: impl crate::AsBStr,
     ) -> Result<Option<BString>, file::section::value::Error> {
         let value_name = ValueName::try_from(value_name.as_ref())?;
-        self.set_inner(value_name, value).map_err(Into::into)
+        self.set_inner(value_name, value.as_bstr()).map_err(Into::into)
     }
 
     pub(crate) fn set_inner(

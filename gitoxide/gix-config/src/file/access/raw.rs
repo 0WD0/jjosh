@@ -5,7 +5,7 @@ use smallvec::ToSmallVec;
 
 use crate::{
     AsBStrOpt, AsKey, File,
-    file::{Index, Metadata, MultiValueMut, Size, ValueMut, mutable::multi_value::EntryData},
+    file::{self, Index, Metadata, MultiValueMut, Size, ValueMut, mutable::multi_value::EntryData},
     lookup,
     parse::{Event, section},
 };
@@ -35,6 +35,66 @@ impl File {
         value_name: impl AsRef<str>,
     ) -> Result<BString, lookup::existing::Error> {
         self.raw_value_filter_by(section_name, subsection_name, value_name, |_| true)
+    }
+
+    /// Returns an uninterpreted value and the section containing it given a `key`.
+    ///
+    /// Resolution is identical to [`raw_value()`][Self::raw_value()]: the last explicit value wins, even across
+    /// multiple matching sections.
+    pub fn raw_value_with_section(
+        &self,
+        key: impl AsKey,
+    ) -> Result<(BString, file::SectionRef<'_>), lookup::existing::Error> {
+        let key = key.as_key();
+        self.raw_value_with_section_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns an uninterpreted value and the section containing it given its individual key components.
+    ///
+    /// Resolution is identical to [`raw_value_by()`][Self::raw_value_by()]: the last explicit value wins, even
+    /// across multiple matching sections.
+    pub fn raw_value_with_section_by(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<(BString, file::SectionRef<'_>), lookup::existing::Error> {
+        self.raw_value_with_section_filter_inner(
+            section_name.as_ref(),
+            subsection_name.as_bstr_opt(),
+            value_name.as_ref(),
+            |_| true,
+        )
+    }
+
+    /// Returns an uninterpreted value and the section containing it given a `key`, if the section passes `filter`.
+    ///
+    /// Resolution is identical to [`raw_value_filter()`][Self::raw_value_filter()]: the last explicit value in a
+    /// matching section wins.
+    pub fn raw_value_with_section_filter(
+        &self,
+        key: impl AsKey,
+        filter: impl FnMut(&Metadata) -> bool,
+    ) -> Result<(BString, file::SectionRef<'_>), lookup::existing::Error> {
+        let key = key.as_key();
+        self.raw_value_with_section_filter_by(key.section_name, key.subsection_name, key.value_name, filter)
+    }
+
+    /// Returns an uninterpreted value and the section containing it given its individual key components, if the
+    /// section passes `filter`.
+    pub fn raw_value_with_section_filter_by(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+        filter: impl FnMut(&Metadata) -> bool,
+    ) -> Result<(BString, file::SectionRef<'_>), lookup::existing::Error> {
+        self.raw_value_with_section_filter_inner(
+            section_name.as_ref(),
+            subsection_name.as_bstr_opt(),
+            value_name.as_ref(),
+            filter,
+        )
     }
 
     /// Returns an uninterpreted value given a `key`, if it passes the `filter`.
@@ -75,8 +135,19 @@ impl File {
         section_name: &str,
         subsection_name: Option<&BStr>,
         value_name: &str,
-        mut filter: impl FnMut(&Metadata) -> bool,
+        filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<BString, lookup::existing::Error> {
+        self.raw_value_with_section_filter_inner(section_name, subsection_name, value_name, filter)
+            .map(|(value, _section)| value)
+    }
+
+    fn raw_value_with_section_filter_inner(
+        &self,
+        section_name: &str,
+        subsection_name: Option<&BStr>,
+        value_name: &str,
+        mut filter: impl FnMut(&Metadata) -> bool,
+    ) -> Result<(BString, file::SectionRef<'_>), lookup::existing::Error> {
         let section_ids = self.section_ids_by_name_and_subname(section_name, subsection_name)?;
         for section_id in section_ids.rev() {
             let section = self.sections.get(&section_id).expect("known section id");
@@ -84,7 +155,7 @@ impl File {
                 continue;
             }
             if let Some(v) = section.body.value_implicit_in(&self.backing, value_name).flatten() {
-                return Ok(v);
+                return Ok((v, file::SectionRef::from_data(section, &self.backing)));
             }
         }
 
@@ -279,6 +350,31 @@ impl File {
         self.raw_values_filter_by(section_name, subsection_name, value_name, |_| true)
     }
 
+    /// Returns all uninterpreted values and their containing sections given a `key`, in order of occurrence.
+    pub fn raw_values_with_sections(
+        &self,
+        key: impl AsKey,
+    ) -> Result<Vec<(BString, file::SectionRef<'_>)>, lookup::existing::Error> {
+        let key = key.as_key();
+        self.raw_values_with_sections_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns all uninterpreted values and their containing sections given individual key components, in order of
+    /// occurrence.
+    pub fn raw_values_with_sections_by(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<Vec<(BString, file::SectionRef<'_>)>, lookup::existing::Error> {
+        self.raw_values_with_sections_filter_inner(
+            section_name.as_ref(),
+            subsection_name.as_bstr_opt(),
+            value_name.as_ref(),
+            |_| true,
+        )
+    }
+
     /// Returns all uninterpreted values given a `key`, if the value passes `filter`, in order of occurrence.
     ///
     /// The ordering means that the last of the returned values is the one that would be the
@@ -317,8 +413,19 @@ impl File {
         section_name: &str,
         subsection_name: Option<&BStr>,
         value_name: &str,
-        mut filter: impl FnMut(&Metadata) -> bool,
+        filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Vec<BString>, lookup::existing::Error> {
+        self.raw_values_with_sections_filter_inner(section_name, subsection_name, value_name, filter)
+            .map(|values| values.into_iter().map(|(value, _section)| value).collect())
+    }
+
+    fn raw_values_with_sections_filter_inner(
+        &self,
+        section_name: &str,
+        subsection_name: Option<&BStr>,
+        value_name: &str,
+        mut filter: impl FnMut(&Metadata) -> bool,
+    ) -> Result<Vec<(BString, file::SectionRef<'_>)>, lookup::existing::Error> {
         let mut values = Vec::new();
         let section_ids = self.section_ids_by_name_and_subname(section_name, subsection_name)?;
         for section_id in section_ids {
@@ -326,7 +433,14 @@ impl File {
             if !filter(section.meta()) {
                 continue;
             }
-            values.extend(section.body.values_in(&self.backing, value_name));
+            let section_ref = file::SectionRef::from_data(section, &self.backing);
+            values.extend(
+                section
+                    .body
+                    .values_in(&self.backing, value_name)
+                    .into_iter()
+                    .map(|value| (value, section_ref)),
+            );
         }
 
         if values.is_empty() {
