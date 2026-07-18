@@ -37,6 +37,75 @@ fn section_mut_by_id() {
     assert_eq!(section.header().subsection_name(), None);
 }
 
+mod rename {
+    use bstr::ByteSlice;
+
+    #[test]
+    fn detached_sections_can_be_renamed() -> crate::Result {
+        let mut section = gix_config::file::Section::new("remote", "origin", gix_config::file::Metadata::default())?;
+        section.to_mut().rename("branch", "main")?;
+
+        let section = section.to_ref();
+        assert_eq!(section.header().name(), "branch");
+        assert_eq!(section.header().subsection_name(), Some("main".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn attached_sections_are_renamed_unambiguously_and_update_lookups() -> crate::Result {
+        let mut file = gix_config::File::try_from(
+            "[target \"same\"] key = first\n\
+             [source \"old\"] key = selected\n\
+             [target \"same\"] key = middle\n\
+             [source \"old\"] key = last\n",
+        )?;
+        let selected_id = file
+            .sections_and_ids_by_name("source")
+            .expect("source sections exist")
+            .next()
+            .expect("at least one source section")
+            .1;
+
+        file.section_mut_by_id(selected_id)
+            .expect("selected section exists")
+            .rename("target", "same")?;
+
+        insta::assert_snapshot!(file.to_string(), "only the selected section is renamed", @r#"
+        [target "same"]
+         key = first
+        [target "same"]
+         key = selected
+        [target "same"]
+         key = middle
+        [source "old"]
+         key = last
+        "#);
+
+        assert_eq!(
+            file.section("source", Some("old".as_bytes().as_bstr()))?.value("key"),
+            Some("last".into()),
+            "the other source section remains available"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_names_leave_attached_sections_unchanged() -> crate::Result {
+        let mut file = gix_config::File::try_from("[core] key = value\n")?;
+        assert!(file.section_mut("core", None)?.rename("not_valid", None).is_err());
+        assert_eq!(
+            file.section("core", None)?.value("key"),
+            Some("value".into()),
+            "no change was performed"
+        );
+        assert!(
+            file.section("not-valid", None).is_err(),
+            "the valid version of the name is also not present"
+        );
+        Ok(())
+    }
+}
+
 mod remove {
     use super::multi_value_section;
 

@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_sec::Trust;
@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 use crate::{
     file::{
-        self, Index, IntoBStringOpt, SectionData, SectionRef, Size,
+        self, Index, IntoBStringOpt, SectionData, SectionId, SectionLookup, SectionRef, Size,
         mutable::{Whitespace, escape_value},
     },
     lookup,
@@ -19,13 +19,34 @@ use crate::{
 pub struct SectionMut<'a> {
     section: &'a mut SectionData,
     backing: &'a mut Vec<u8>,
+    /// Present only if backed by [`crate::File`]
+    lookup: Option<LookupMut<'a>>,
     implicit_newline: bool,
     whitespace: Whitespace,
     newline: SmallVec<[u8; 2]>,
 }
 
+#[derive(Debug)]
+pub(crate) struct LookupMut<'a> {
+    pub(crate) tree: &'a mut HashMap<parse::section::Name, SectionLookup>,
+    pub(crate) order: &'a [SectionId],
+}
+
 /// Mutating methods.
 impl SectionMut<'_> {
+    /// Rename this section to `name` and the optional `subsection_name`.
+    ///
+    /// Section names are not unique, and renaming into an existing section name is permitted.
+    pub fn rename(
+        &mut self,
+        name: impl AsRef<str>,
+        subsection_name: impl IntoBStringOpt,
+    ) -> Result<&mut Self, parse::section::header::Error> {
+        let header = parse::section::HeaderData::new_in(name, subsection_name.into_bstring_opt(), self.backing)?;
+        self.set_header(header);
+        Ok(self)
+    }
+
     /// Adds an entry to the end of this section name `value_name` and `value`. If `value` is `None`, no equal sign will be written leaving
     /// just the key. This is useful for boolean values which are true if merely the key exists.
     pub fn push(&mut self, value_name: ValueName, value: Option<&BStr>) -> Result<&mut Self, parse::span::Error> {
@@ -315,14 +336,28 @@ impl SectionMut<'_> {
 
 // Internal methods that may require exact indices for faster operations.
 impl<'a> SectionMut<'a> {
-    pub(crate) fn new(section: &'a mut SectionData, backing: &'a mut Vec<u8>, newline: SmallVec<[u8; 2]>) -> Self {
+    pub(crate) fn new(
+        section: &'a mut SectionData,
+        backing: &'a mut Vec<u8>,
+        lookup: Option<LookupMut<'a>>,
+        newline: SmallVec<[u8; 2]>,
+    ) -> Self {
         let whitespace = Whitespace::from_body(&section.body, backing);
         Self {
             section,
             backing,
+            lookup,
             implicit_newline: true,
             whitespace,
             newline,
+        }
+    }
+
+    pub(crate) fn set_header(&mut self, header: parse::section::HeaderData) {
+        if let Some(lookup) = &mut self.lookup {
+            crate::file::util::set_section_header(self.section, self.backing, lookup.tree, lookup.order, header);
+        } else {
+            self.section.header = header;
         }
     }
 

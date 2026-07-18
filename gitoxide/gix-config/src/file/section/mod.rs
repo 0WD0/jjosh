@@ -96,7 +96,7 @@ impl Section {
             .unwrap_or_else(|| platform_newline())
             .as_bytes()
             .into();
-        SectionMut::new(&mut self.data, &mut self.backing, newline)
+        SectionMut::new(&mut self.data, &mut self.backing, None, newline)
     }
 
     pub(crate) fn from_data(data: &SectionData, source: &[u8]) -> Self {
@@ -129,8 +129,13 @@ impl SectionData {
     }
 
     /// Returns a mutable version of this section for adjustment of values.
-    pub(crate) fn to_mut<'a>(&'a mut self, backing: &'a mut Vec<u8>, newline: SmallVec<[u8; 2]>) -> SectionMut<'a> {
-        SectionMut::new(self, backing, newline)
+    pub(crate) fn to_mut<'a>(
+        &'a mut self,
+        backing: &'a mut Vec<u8>,
+        lookup: file::mutable::section::LookupMut<'a>,
+        newline: SmallVec<[u8; 2]>,
+    ) -> SectionMut<'a> {
+        SectionMut::new(self, backing, Some(lookup), newline)
     }
 
     pub(crate) fn meta(&self) -> &Metadata {

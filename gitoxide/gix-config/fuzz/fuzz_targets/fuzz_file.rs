@@ -55,6 +55,10 @@ fn fuzz_mutable_section(
 
     _ = black_box(file.section_mut_by_id(section_id));
 
+    if let Some(mut section) = file.section_mut_by_id(section_id) {
+        _ = black_box(section.rename("section-renamed-by-id", None));
+    }
+
     let new_section_name = section_name.to_string() + "_new";
     let subsection_name = subsection_name.map(ToOwned::to_owned);
     _ = black_box(file.section_mut_or_create_new(&new_section_name, subsection_name.clone()));

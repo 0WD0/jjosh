@@ -489,6 +489,10 @@ impl File {
         newline: smallvec::SmallVec<[u8; 2]>,
     ) -> Option<SectionMut<'_>> {
         let section = self.sections.get_mut(&id)?;
-        Some(section.to_mut(&mut self.backing, newline))
+        let lookup = file::mutable::section::LookupMut {
+            tree: &mut self.section_lookup_tree,
+            order: &self.section_order,
+        };
+        Some(section.to_mut(&mut self.backing, lookup, newline))
     }
 }
