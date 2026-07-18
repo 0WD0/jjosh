@@ -30,7 +30,7 @@ xz = ["dep:xz2"]
 gix-hash = { version = "^0.25.1", path = "../../gix-hash", features = ["sha1", "sha256"] }
 gix-lock = { version = "^23.0.0", path = "../../gix-lock" }
 gix-discover = { version = "^0.53.0", path = "../../gix-discover", optional = true }
-gix-worktree = { version = "^0.54.0", path = "../../gix-worktree", optional = true }
+gix-worktree = { version = "^0.54.0", path = "../../gix-worktree", optional = true, features = ["parallel"] }
 gix-fs = { version = "^0.21.2", path = "../../gix-fs", optional = true }
 gix-tempfile = { version = "^23.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
 

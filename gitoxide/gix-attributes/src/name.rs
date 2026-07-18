@@ -1,23 +1,25 @@
+use std::borrow::Borrow;
+
 use bstr::{BStr, BString, ByteSlice};
-use kstring::KStringRef;
+use gix_features::threading::OwnShared;
 
 use crate::{Name, NameRef};
 
 impl NameRef<'_> {
     /// Turn this ref into its owned counterpart.
     pub fn to_owned(self) -> Name {
-        Name(self.0.into())
+        Name(OwnShared::from(self.0))
     }
 
     /// Return the inner `str`.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        self.0
     }
 }
 
 impl AsRef<str> for NameRef<'_> {
     fn as_ref(&self) -> &str {
-        self.0.as_ref()
+        self.0
     }
 }
 
@@ -35,7 +37,7 @@ impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
         }
 
         attr_valid(attr)
-            .then(|| NameRef(KStringRef::from_ref(attr.to_str().expect("no illformed utf8"))))
+            .then(|| NameRef(attr.to_str().expect("no illformed utf8")))
             .ok_or_else(|| Error { attribute: attr.into() })
     }
 }
@@ -43,18 +45,49 @@ impl<'a> TryFrom<&'a BStr> for NameRef<'a> {
 impl<'a> Name {
     /// Provide our ref-type.
     pub fn as_ref(&'a self) -> NameRef<'a> {
-        NameRef(self.0.as_ref())
+        NameRef(self.as_str())
     }
 
     /// Return the inner `str`.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
 impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
-        self.0.as_str()
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for Name {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Name {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_newtype_struct("Name", self.as_str())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Name {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(rename = "Name")]
+        struct NameDef(String);
+
+        let NameDef(value) = <NameDef as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Name(OwnShared::from(value)))
     }
 }
 

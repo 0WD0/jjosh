@@ -34,6 +34,8 @@ doc = false
 sha1 = ["gix-hash/sha1"]
 ## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
 sha256 = ["gix-hash/sha256"]
+## Enable thread-safety, make data structures `Send`.
+parallel = ["gix-attributes/parallel"]
 ## Internal feature for building binaries referenced by integration tests through CARGO_BIN_EXE_*.
 test-helper = []
 

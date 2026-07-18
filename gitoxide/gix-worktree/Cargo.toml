@@ -25,7 +25,7 @@ attributes = ["dep:gix-attributes", "dep:gix-validate"]
 ## Data structures implement `serde::Serialize` and `serde::Deserialize`.
 serde = ["dep:serde", "bstr/serde", "gix-index/serde", "gix-hash/serde", "gix-object/serde", "gix-attributes?/serde", "gix-ignore/serde"]
 ## Enable thread-safety.
-parallel = ["gix-features/parallel"]
+parallel = ["gix-features/parallel", "gix-attributes?/parallel"]
 
 [dependencies]
 gix-index = { version = "^0.53.0", path = "../gix-index" }
