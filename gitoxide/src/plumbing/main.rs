@@ -147,7 +147,7 @@ pub fn main() -> Result<()> {
     let auto_verbose = !progress && !args.no_verbose;
 
     let should_interrupt = Arc::new(AtomicBool::new(false));
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     unsafe {
         // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
         gix::interrupt::init_handler(1, {

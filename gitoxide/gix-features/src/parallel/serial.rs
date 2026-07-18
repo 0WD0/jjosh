@@ -22,7 +22,7 @@ mod not_parallel {
         ThreadBuilder
     }
 
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     unsafe impl Sync for Scope<'_, '_> {}
 
     impl ThreadBuilder {

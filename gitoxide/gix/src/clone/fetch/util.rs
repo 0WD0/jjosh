@@ -16,7 +16,10 @@ enum WriteMode {
     Append,
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 pub fn append_remote_to_local_config_file(
     remote: &mut crate::Remote<'_>,
     remote_name: BString,

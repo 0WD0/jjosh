@@ -246,7 +246,7 @@ pub mod set_resource {
 
     /// The error returned by [Platform::set_resource](super::Platform::set_resource).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Can only diff blobs and links, not {mode:?}")]
         InvalidMode { mode: gix_object::tree::EntryKind },
@@ -336,7 +336,7 @@ pub mod prepare_diff {
 
     /// The error returned by [Platform::prepare_diff()](super::Platform::prepare_diff()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Either the source or the destination of the diff operation were not set")]
         SourceOrDestinationUnset,
@@ -353,7 +353,7 @@ pub mod prepare_diff_command {
 
     /// The error returned by [Platform::prepare_diff_command()](super::Platform::prepare_diff_command()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Either the source or the destination of the diff operation were not set")]
         SourceOrDestinationUnset,

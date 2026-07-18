@@ -1,6 +1,6 @@
 /// Returned by [`crate::index::write_data_iter_to_stream()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("An error occurred when writing the pack index file")]
     Io(#[from] gix_hash::io::Error),

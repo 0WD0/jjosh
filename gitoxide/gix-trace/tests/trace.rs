@@ -17,12 +17,10 @@ fn coarse() {
         event!(gix_trace::event::Level::WARN, "an info: {}", 42);
         event!(gix_trace::event::Level::INFO, answer = 42, field = "some");
         #[derive(Debug)]
-        #[allow(dead_code)]
         struct User {
             name: &'static str,
             email: &'static str,
         }
-        #[allow(unused_variables)]
         let user = User {
             name: "ferris",
             email: "ferris@example.com",

@@ -5,7 +5,7 @@ use gix_hash::ObjectId;
 /// The error is part of the item returned by the [`breadthfirst()`](crate::tree::breadthfirst())  and
 ///[`depthfirst()`](crate::tree::depthfirst()) functions.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Find(#[from] gix_object::find::existing_iter::Error),

@@ -40,7 +40,7 @@ where
     }
 
     // SAFETY: The index must point into the slice and must not be reused concurrently.
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     pub(super) unsafe fn get_mut(&self, index: usize) -> &'a mut T {
         #[cfg(debug_assertions)]
         if index >= self.len {
@@ -57,8 +57,8 @@ where
 
 // SAFETY: This is logically an &mut T, which is Send if T is Send
 // (note: this is different from &T, which also needs T: Sync)
-#[allow(unsafe_code)]
+#[expect(unsafe_code)]
 unsafe impl<T> Send for ItemSliceSync<'_, T> where T: Send {}
 // SAFETY: This is logically an &mut T, which is Sync if T is Sync
-#[allow(unsafe_code)]
+#[expect(unsafe_code)]
 unsafe impl<T> Sync for ItemSliceSync<'_, T> where T: Send {}

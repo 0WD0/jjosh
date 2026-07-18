@@ -32,7 +32,7 @@ pub enum Kind {
 }
 
 /// The error returned by [`output::Entry::from_data()`].
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]

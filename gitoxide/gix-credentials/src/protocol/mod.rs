@@ -16,7 +16,7 @@ pub type Result = std::result::Result<Option<Outcome>, Error>;
 
 /// The error returned top-level credential functions.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     UrlParse(#[from] gix_url::parse::Error),
@@ -83,7 +83,10 @@ impl Default for ContextOptions {
 }
 
 /// Convert the outcome of a helper invocation to a helper result, assuring that the identity is complete in the process.
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 pub fn helper_outcome_to_result(outcome: Option<helper::Outcome>, action: helper::Action) -> Result {
     match (action, outcome) {
         (helper::Action::Get(ctx), None) => Err(Error::IdentityMissing {

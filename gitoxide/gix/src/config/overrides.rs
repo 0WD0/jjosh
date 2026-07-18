@@ -4,7 +4,7 @@ use crate::bstr::{BStr, BString, ByteSlice};
 
 /// The error returned by [`SnapshotMut::apply_cli_overrides()`][crate::config::SnapshotMut::append_config()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("{input:?} is not a valid configuration key. Examples are 'core.abbrev' or 'remote.origin.url'")]
     InvalidKey { input: BString },

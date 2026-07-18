@@ -147,7 +147,7 @@ pub mod reverse {
 
     /// The error returned by the [`Reverse`][super::Reverse] iterator
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The buffer could not be filled to make more lines available")]
         Io(#[from] std::io::Error),

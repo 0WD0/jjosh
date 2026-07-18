@@ -42,7 +42,7 @@ pub struct Options {
 
 /// The error returned by [`crate::open()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to load the git configuration")]
     Config(#[from] config::Error),

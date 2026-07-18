@@ -36,7 +36,7 @@ mod root {
         ///
         /// Note that this invariant is a bit more relaxed than that on `deltas()`, because this function can be called
         /// for traversal within a child item, which happens in into_child_iter()
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         pub(super) unsafe fn new(item: &'a mut Item<T>, child_items: &'a ItemSliceSync<'a, Item<T>>) -> Self {
             Node { item, child_items }
         }
@@ -68,7 +68,7 @@ mod root {
         /// Children are `Node`s referring to pack entries whose base object is this pack entry.
         pub fn into_child_iter(self) -> impl Iterator<Item = Node<'a, T>> + 'a {
             let children = self.child_items;
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             self.item.children().iter().map(move |&index| {
                 // SAFETY: Due to the invariant on new(), we can rely on these indices
                 // being unique.
@@ -96,7 +96,7 @@ pub(super) struct State<'items, F, MBFN, T: Send> {
 /// This safety invariant can be reliably upheld by making sure `item` comes from a Tree and `child_items`
 /// was constructed using that Tree's child_items. This works since Tree has this invariant as well: all
 /// child_items are referenced at most once (really, exactly once) by a node in the tree.
-#[allow(clippy::too_many_arguments, unsafe_code)]
+#[expect(clippy::too_many_arguments, unsafe_code)]
 #[deny(unsafe_op_in_unsafe_fn)] // this is a big function, require unsafe for the one small unsafe op we have
 pub(super) unsafe fn deltas<T, F, MBFN, E, R>(
     objects: gix_features::progress::StepShared,
@@ -140,7 +140,7 @@ where
     // These will be pushed onto our stack until all are processed
     let root_level = 0;
     // SAFETY: This invariant is required from the caller
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     let root_node = unsafe { root::Node::new(item, child_items) };
     let mut nodes: Vec<_> = vec![(root_level, root_node)];
     while let Some((level, mut base)) = nodes.pop() {
@@ -258,7 +258,7 @@ where
 /// * `initial_threads` is the threads we may spawn, not accounting for our own thread which is still considered used by the parent
 ///   system. Since this thread will take a controlling function, we may spawn one more than that. In threaded mode, we will finish
 ///   all remaining work.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn deltas_mt<T, F, MBFN, E, R>(
     mut threads_to_create: isize,
     decompressed_bytes_by_pack_offset: BTreeMap<u64, (data::Entry, u64, Vec<u8>)>,
@@ -435,8 +435,11 @@ where
             // Get out of threads are already starving or they would be starving soon as no work is left.
             //
             // Lint: ScopedJoinHandle is not the same depending on active features and is not exposed in some cases.
-            #[allow(clippy::redundant_closure_for_method_calls)]
-            if threads.iter().any(|t| t.is_finished()) {
+            #[allow(
+                clippy::redundant_closure_for_method_calls,
+                reason = "the closure supports both real and serial scoped thread handles"
+            )]
+            if threads.iter().any(|thread| thread.is_finished()) {
                 let mut running_threads = Vec::new();
                 for thread in threads.drain(..) {
                     if thread.is_finished() {

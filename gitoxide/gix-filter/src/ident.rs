@@ -44,7 +44,7 @@ pub fn undo(src: &[u8], buf: &mut Vec<u8>) -> Result<bool, std::collections::Try
 pub mod apply {
     /// The error produced by [`super::apply()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not allocate buffer")]
         OutOfMemory(#[from] std::collections::TryReserveError),

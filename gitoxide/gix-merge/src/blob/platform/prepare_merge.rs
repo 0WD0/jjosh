@@ -11,7 +11,7 @@ use crate::blob::{
 
 /// The error returned by [Platform::prepare_merge_state()](Platform::prepare_merge()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("The 'current', 'ancestor' or 'other' resource for the merge operation were not set")]
     UnsetResource,

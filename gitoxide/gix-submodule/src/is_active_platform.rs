@@ -4,7 +4,7 @@ use crate::IsActivePlatform;
 
 /// The error returned by [File::names_and_active_state](crate::File::names_and_active_state()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     NormalizePattern(#[from] gix_pathspec::normalize::Error),

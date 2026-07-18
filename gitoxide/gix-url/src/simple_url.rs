@@ -14,7 +14,6 @@ pub(crate) struct ParsedUrl {
 
 /// Minimal parse error type to replace url::ParseError
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[allow(missing_docs)]
 pub enum UrlParseError {
     #[error("relative URL without a base")]
     RelativeUrlWithoutBase,

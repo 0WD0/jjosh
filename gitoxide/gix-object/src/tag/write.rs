@@ -7,7 +7,7 @@ use crate::{Kind, Tag, TagRef, encode, encode::NL};
 
 /// An Error used in [`Tag::write_to()`][crate::WriteTo::write_to()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Tags must not start with a dash: '-'")]
     StartsWithDash,

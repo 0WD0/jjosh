@@ -10,7 +10,7 @@ use gix_status::index_as_worktree::traits::{CompareBlobs, SubmoduleStatus};
 
 /// The error returned by [Repository::index_worktree_status()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("A working tree is required to perform a directory walk")]
     MissingWorkDir,
@@ -86,7 +86,7 @@ impl Repository {
     /// ### Note
     ///
     /// This is a lower-level method, prefer the [`status`](Repository::status()) method for greater ease of use.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn index_worktree_status<'index, T, U, E>(
         &self,
         index: &'index gix_index::State,
@@ -249,7 +249,6 @@ mod submodule_status {
 
     /// The error returned submodule status checks.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         SubmoduleStatus(#[from] crate::submodule::status::Error),

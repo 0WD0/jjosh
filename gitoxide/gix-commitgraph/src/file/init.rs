@@ -181,7 +181,7 @@ impl TryFrom<&Path> for File {
         let data = std::fs::File::open(path)
             .and_then(|file| {
                 // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 unsafe {
                     memmap2::MmapOptions::new().map_copy_read_only(&file)
                 }

@@ -1,6 +1,6 @@
 /// The error returned by the [`parse()`][crate::parse()] function.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Empty refspecs are invalid")]
     Empty,

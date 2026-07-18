@@ -125,7 +125,6 @@ pub mod key {
         /// The error returned by [`Key::validate()`][crate::config::tree::Key::validate()].
         #[derive(Debug, thiserror::Error)]
         #[error(transparent)]
-        #[allow(missing_docs)]
         pub struct Error {
             #[from]
             source: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -135,7 +134,7 @@ pub mod key {
     pub mod validate_assignment {
         /// The error returned by [`Key::validated_assignment`*()][crate::config::tree::Key::validated_assignment_fmt()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Failed to validate the value to be assigned to this key")]
             Validate(#[from] super::validate::Error),

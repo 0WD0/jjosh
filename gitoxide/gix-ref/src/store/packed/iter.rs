@@ -116,7 +116,7 @@ mod error {
 
     /// The error returned by [`Iter`][super::packed::Iter],
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The header existed but could not be parsed: {invalid_first_line:?}")]
         Header { invalid_first_line: BString },

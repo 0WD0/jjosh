@@ -63,7 +63,7 @@ mod mmap {
     pub fn read_only(path: &Path) -> std::io::Result<memmap2::Mmap> {
         let file = std::fs::File::open(path)?;
         // SAFETY: we have to take the risk of somebody changing the file underneath. Git never writes into the same file.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             memmap2::MmapOptions::new().map_copy_read_only(&file)
         }

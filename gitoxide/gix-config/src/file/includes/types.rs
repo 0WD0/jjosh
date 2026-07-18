@@ -4,7 +4,7 @@ use crate::{parse, path::interpolate};
 
 /// The error returned when following includes.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to copy configuration file into buffer")]
     CopyBuffer(#[source] std::io::Error),

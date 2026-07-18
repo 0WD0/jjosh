@@ -15,7 +15,7 @@ mod error {
 
     /// The error returned by [connect()][crate::Remote::connect()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not obtain options for connecting via ssh")]
         SshOptions(#[from] config::ssh_connect_options::Error),

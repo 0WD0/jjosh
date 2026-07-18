@@ -8,7 +8,7 @@ pub mod gitdir {
 
     /// The error returned by [`parse::gitdir()`][super::gitdir()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Format should be 'gitdir: <path>', but got: {:?}", .input)]
         InvalidFormat { input: BString },

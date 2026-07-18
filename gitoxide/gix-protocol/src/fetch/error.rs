@@ -1,6 +1,6 @@
 /// The error returned by [`fetch()`](crate::fetch()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not decode server reply")]
     FetchResponse(#[from] crate::fetch::response::Error),

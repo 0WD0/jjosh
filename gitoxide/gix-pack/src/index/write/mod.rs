@@ -85,7 +85,7 @@ pub(super) mod function {
     ///   provides all bytes belonging to a pack entry writing them to the given mutable output `Vec`.
     ///   It should return `None` if the entry cannot be resolved from the pack that produced the `entries` iterator, causing
     ///   the write operation to fail.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn write_data_iter_to_stream<F, F2, R>(
         version: crate::index::Version,
         make_resolver: F,

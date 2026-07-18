@@ -28,7 +28,7 @@ mod error {
 
     /// Returned by [`crate::at_opts()`]
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The objects directory at '{0}' is not an accessible directory")]
         Inaccessible(PathBuf),
@@ -552,7 +552,6 @@ impl super::Store {
     }
 
     /// returns `Ok(dest_slot_was_empty)` if the copy could happen because dest-slot was actually free or disposable.
-    #[allow(clippy::too_many_arguments)]
     fn try_set_index_slot(
         lock: &parking_lot::MutexGuard<'_, ()>,
         dest_slot: &MutableIndexAndPack,
@@ -763,10 +762,9 @@ impl PartialEq<Self> for Either {
     }
 }
 
-#[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd<Self> for Either {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.path().cmp(other.path()))
+        Some(self.cmp(other))
     }
 }
 

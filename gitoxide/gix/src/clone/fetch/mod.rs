@@ -6,7 +6,7 @@ use gix_ref::Category;
 
 /// The error returned by [`PrepareFetch::fetch_only()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Connect(#[from] crate::remote::connect::Error),

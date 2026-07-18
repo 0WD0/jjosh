@@ -1,6 +1,6 @@
 /// The error returned by [`encode_to_worktree()][super::encode_to_worktree()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Cannot convert input of {input_len} UTF-8 bytes to target encoding without overflowing")]
     Overflow { input_len: usize },

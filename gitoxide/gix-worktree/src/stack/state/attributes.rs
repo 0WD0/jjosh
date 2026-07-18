@@ -83,7 +83,7 @@ impl Attributes {
         self.stack.pop_pattern_list().expect("something to pop");
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn push_directory(
         &mut self,
         root: &Path,

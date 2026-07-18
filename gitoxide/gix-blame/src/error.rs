@@ -2,7 +2,7 @@ use gix_object::bstr::BString;
 
 /// The error returned by [file()](crate::file()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("No commit was given")]
     EmptyTraversal,

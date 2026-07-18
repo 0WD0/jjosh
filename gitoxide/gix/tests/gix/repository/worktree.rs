@@ -214,7 +214,6 @@ mod baseline {
     pub type Reason = BString;
 
     #[derive(Debug)]
-    #[allow(dead_code)]
     pub struct Worktree {
         pub root: PathBuf,
         pub bare: bool,

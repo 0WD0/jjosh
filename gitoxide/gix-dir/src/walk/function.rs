@@ -175,7 +175,6 @@ pub(super) fn can_recurse(
 }
 
 /// Possibly emit an entry to `for_each` in case the provided information makes that possible.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_entry(
     rela_path: Cow<'_, BStr>,
     info: classify::Outcome,

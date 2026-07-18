@@ -33,7 +33,7 @@ impl std::fmt::Debug for Editor<'_> {
 
 /// The error returned by [Editor] or [Cursor] edit operation.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Empty path components are not allowed")]
     EmptyPathComponent,

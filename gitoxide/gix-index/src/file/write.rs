@@ -2,7 +2,7 @@ use crate::{File, Version, write};
 
 /// The error produced by [`File::write()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] gix_hash::io::Error),

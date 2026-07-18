@@ -7,7 +7,7 @@ mod error {
 
     /// The error returned by [`Snapshot::credential_helpers()`][super::Snapshot::credential_helpers()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not parse 'useHttpPath' key in section {section}")]
         InvalidUseHttpPath {

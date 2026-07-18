@@ -312,7 +312,7 @@ struct RawToken<'a> {
 }
 
 /// A token returned by the [commit iterator][CommitRefIter].
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[derive(PartialEq, Eq, Debug, Hash, Ord, PartialOrd, Clone)]
 pub enum Token<'a> {
     Tree {

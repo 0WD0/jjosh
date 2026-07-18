@@ -549,7 +549,7 @@ impl From<gix_diff::tree_with_rewrites::Change> for TreeDiffChange {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn tree_diff_at_file_path(
     odb: impl gix_object::Find + gix_object::FindHeader,
     file_path: &BStr,
@@ -603,7 +603,6 @@ fn tree_diff_at_file_path(
     Ok(result)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn tree_diff_without_rewrites_at_file_path(
     odb: impl gix_object::Find + gix_object::FindHeader,
     file_path: &BStr,
@@ -704,7 +703,7 @@ fn tree_diff_without_rewrites_at_file_path(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn tree_diff_with_rewrites_at_file_path(
     odb: impl gix_object::Find + gix_object::FindHeader,
     file_path: &BStr,
@@ -747,7 +746,7 @@ fn tree_diff_with_rewrites_at_file_path(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn blob_changes(
     odb: impl gix_object::Find + gix_object::FindHeader,
     resource_cache: &mut gix_diff::blob::Platform,

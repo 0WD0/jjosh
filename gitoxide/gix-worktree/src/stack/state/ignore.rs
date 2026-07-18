@@ -160,7 +160,7 @@ impl Ignore {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn push_directory(
         &mut self,
         root: &Path,

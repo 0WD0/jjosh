@@ -27,7 +27,7 @@
 
 /// The error returned when any config value couldn't be instantiated due to malformed input.
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[error("Could not decode '{input}': {message}")]
 pub struct Error {
     pub message: &'static str,

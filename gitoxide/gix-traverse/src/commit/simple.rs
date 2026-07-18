@@ -70,7 +70,7 @@ pub enum Sorting {
 
 /// The error is part of the item returned by the [Ancestors](super::Simple) iterator.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Find(#[from] gix_object::find::existing_iter::Error),
@@ -671,7 +671,7 @@ mod init {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn insert_into_seen_and_queue(
         seen: &mut gix_hashtable::HashSet<ObjectId>,
         hidden: &gix_revwalk::graph::IdMap<()>,

@@ -262,7 +262,10 @@ impl Events {
     ///
     /// Prefer the [`from_bytes()`](Self::from_bytes()) method if UTF8 encoding
     /// isn't guaranteed.
-    #[allow(clippy::should_implement_trait)]
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "the method has domain-specific semantics despite sharing a standard trait method name"
+    )]
     pub fn from_str(input: &str) -> Result<Events, parse::Error> {
         Self::from_bytes(input.as_bytes(), None)
     }

@@ -72,7 +72,7 @@ fn calculate_auto_hex_len(num_packed_objects: u64) -> usize {
 pub mod shorten {
     /// Returned by [`Id::prefix()`][super::Id::shorten()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         PackedObjectsCount(#[from] gix_odb::store::load_index::Error),

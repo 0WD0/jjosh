@@ -6,7 +6,7 @@ use crate::bstr::{BStr, BString, ByteSlice, ByteVec};
 /// The error returned by [validated()].
 #[derive(Debug, thiserror::Error)]
 #[error("remote names must be valid within refspecs for fetching: {name:?}")]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub struct Error {
     pub source: gix_refspec::parse::Error,
     pub name: BString,

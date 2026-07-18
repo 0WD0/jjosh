@@ -130,7 +130,6 @@ where
         )
         .or_raise(|| message("Could not write entry header"))?;
         // pipe writer always writes all in one go.
-        #[allow(clippy::unused_io_amount)]
         match entry.source {
             entry::Source::Memory(buf) => out.write(&buf).map(|_| ()),
             entry::Source::Null => out.write(&[]).map(|_| ()),

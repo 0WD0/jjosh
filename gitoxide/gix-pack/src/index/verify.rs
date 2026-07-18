@@ -13,7 +13,7 @@ pub mod integrity {
 
     /// Returned by [`index::File::verify_integrity()`][crate::index::File::verify_integrity()].
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Reserialization of an object failed")]
         Io(#[from] std::io::Error),
@@ -233,7 +233,6 @@ where
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn verify_entry(
         verify_mode: Mode,
         encode_buf: &mut Vec<u8>,

@@ -433,7 +433,6 @@ impl File {
         mut insert_after: Option<SectionId>,
     ) -> Result<&mut Self, crate::parse::span::Error> {
         let nl = self.detect_newline_style_smallvec();
-        #[allow(clippy::unnecessary_lazy_evaluations)]
         let our_last_section_before_append =
             insert_after.or_else(|| (self.section_id_counter != 0).then(|| SectionId(self.section_id_counter - 1)));
         let needs_separator = if other.frontmatter_events.is_empty() {

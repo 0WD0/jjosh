@@ -30,7 +30,6 @@ pub struct Attributes {
 /// State related to the exclusion of files, supporting static overrides and globals, along with a stack of dynamically read
 /// ignore files from disk or from the index each time the directory changes.
 #[derive(Default, Clone)]
-#[allow(unused)]
 pub struct Ignore {
     /// Ignore patterns passed as overrides to everything else, typically passed on the command-line and the first patterns to
     /// be consulted.

@@ -1,14 +1,11 @@
 #[cfg(any(feature = "prodash-render-line", feature = "prodash-render-tui"))]
 pub const DEFAULT_FRAME_RATE: f32 = 6.0;
 
-#[allow(unused)]
 pub type ProgressRange = std::ops::RangeInclusive<prodash::progress::key::Level>;
-#[allow(unused)]
 pub const STANDARD_RANGE: ProgressRange = 2..=2;
 
 /// If verbose is true, the env logger will be forcibly set to 'info' logging level. Otherwise env logging facilities
 /// will just be initialized.
-#[allow(unused)] // Squelch warning because it's used in porcelain as well and we can't know that at compile time
 pub fn init_env_logger() {
     if cfg!(feature = "small") {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -248,7 +245,6 @@ pub mod pretty {
     }
 }
 
-#[allow(unused)]
 #[cfg(feature = "prodash-render-line")]
 pub fn setup_line_renderer_range(
     progress: &std::sync::Arc<prodash::tree::Root>,

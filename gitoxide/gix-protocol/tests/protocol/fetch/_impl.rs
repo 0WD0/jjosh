@@ -65,7 +65,6 @@ mod fetch_fn {
     /// # WARNING - Do not use!
     ///
     /// As it will hang when having multiple negotiation rounds.
-    #[allow(clippy::result_large_err)]
     #[maybe_async]
     // TODO: remove this without losing test coverage - we have the same but better in `gix` and it's
     //       not really worth it to maintain the delegates here.

@@ -31,7 +31,7 @@ mod error {
     use crate::dir::create::Retries;
 
     /// The error returned by [all()][super::all()].
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[derive(Debug)]
     pub enum Error<'a> {
         /// A failure we will probably recover from by trying again.

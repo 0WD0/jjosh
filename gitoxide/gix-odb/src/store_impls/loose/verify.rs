@@ -11,7 +11,7 @@ use crate::loose::Store;
 pub mod integrity {
     /// The error returned by [`verify_integrity()`][super::Store::verify_integrity()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("{kind} object {id} could not be decoded")]
         ObjectDecode {

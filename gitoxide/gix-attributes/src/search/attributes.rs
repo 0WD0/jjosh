@@ -199,7 +199,6 @@ fn macro_mode() -> gix_glob::pattern::Mode {
 /// `case` specifies whether cases should be folded during matching or not.
 /// `is_dir` is true if `relative_path` is a directory.
 /// Return `true` if at least one pattern matched.
-#[allow(unused_variables)]
 fn pattern_matching_relative_path(
     list: &gix_glob::search::pattern::List<Attributes>,
     relative_path: &BStr,

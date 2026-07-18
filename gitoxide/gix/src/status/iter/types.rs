@@ -32,7 +32,7 @@ use crate::{
 /// configured.
 pub struct Iter {
     #[cfg(feature = "parallel")]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub(super) rx_and_join: Option<(
         std::sync::mpsc::Receiver<Item>,
         std::thread::JoinHandle<Result<Outcome, index_worktree::Error>>,

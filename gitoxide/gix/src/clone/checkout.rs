@@ -8,7 +8,7 @@ pub mod main_worktree {
 
     /// The error returned by [`PrepareCheckout::main_worktree()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Repository at \"{}\" is a bare repository and cannot have a main worktree checkout", git_dir.display())]
         BareRepository { git_dir: PathBuf },

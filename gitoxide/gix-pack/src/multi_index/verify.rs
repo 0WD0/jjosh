@@ -10,7 +10,7 @@ pub mod integrity {
 
     /// Returned by [`multi_index::File::verify_integrity()`][crate::multi_index::File::verify_integrity()].
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Object {id} should be at pack-offset {expected_pack_offset} but was found at {actual_pack_offset}")]
         PackOffsetMismatch {

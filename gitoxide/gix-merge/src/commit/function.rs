@@ -41,7 +41,7 @@ use crate::{
 /// * It's known that certain conflicts around symbolic links can be auto-resolved. We don't have an option for this
 ///   at all, yet, primarily as Git seems to not implement the *ours*/*theirs* choice in other places even though it
 ///   reasonably could. So we leave it to the caller to continue processing the returned tree at will.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn commit<'objects>(
     our_commit: gix_hash::ObjectId,
     their_commit: gix_hash::ObjectId,

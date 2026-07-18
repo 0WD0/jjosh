@@ -28,7 +28,7 @@ pub mod section;
 pub mod rename_section {
     /// The error returned by [`File::rename_section(…)`][crate::File::rename_section()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Lookup(#[from] crate::lookup::existing::Error),
@@ -41,7 +41,7 @@ pub mod rename_section {
 pub mod set_raw_value {
     /// The error returned by [`File::set_raw_value(…)`][crate::File::set_raw_value()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Lookup(#[from] crate::lookup::existing::Error),

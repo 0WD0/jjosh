@@ -4,7 +4,7 @@ use crate::protocol::{Context, ContextOptions};
 
 /// Indicates key or values contain errors that can't be encoded.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("{key:?}={value:?} must not contain null bytes or newlines neither in key nor in value.")]
     Encoding { key: String, value: BString },
@@ -105,7 +105,10 @@ mod mutate {
         /// Destructure the url at our `url` field into parts like protocol, host, username and path and store
         /// them in our respective fields. If `use_http_path` is set, http paths are significant even though
         /// normally this isn't the case.
-        #[allow(clippy::result_large_err)]
+        #[expect(
+            clippy::result_large_err,
+            reason = "will be removed once `gix-error` is used consistently"
+        )]
         pub fn destructure_url_in_place(&mut self, use_http_path: bool) -> Result<&mut Self, protocol::Error> {
             if self.url.is_none() {
                 self.url = Some(self.to_url().ok_or(protocol::Error::UrlMissing)?);

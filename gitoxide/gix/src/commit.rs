@@ -8,7 +8,7 @@ pub const NO_PARENT_IDS: [gix_hash::ObjectId; 0] = [];
 
 /// The error returned by [`commit(…)`](crate::Repository::commit()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     ParseTime(#[from] crate::config::time::Error),
@@ -79,7 +79,7 @@ pub mod describe {
 
     /// The error returned by [`try_format()`][Platform::try_format()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenCache(#[from] crate::repository::commit_graph_if_enabled::Error),

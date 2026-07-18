@@ -3,7 +3,6 @@ use std::path::PathBuf;
 mod error {
     /// The error returned by [`crate::Store::at()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     pub enum Error {
         #[error("There was an error accessing the store's directory")]
         Io(#[from] std::io::Error),
@@ -14,7 +13,10 @@ pub use error::Error;
 
 use crate::file;
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "callers still initialize file::Store directly while the general store awaits ref-table support"
+)]
 impl crate::Store {
     /// Create a new store at the given location, typically the `.git/` directory.
     /// Use [`opts`](crate::store::init::Options) to adjust settings.

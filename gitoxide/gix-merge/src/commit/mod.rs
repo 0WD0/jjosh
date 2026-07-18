@@ -1,6 +1,6 @@
 /// The error returned by [`commit()`](crate::commit()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to obtain the merge base between the two commits to be merged")]
     MergeBase(#[from] gix_revision::merge_base::Error),

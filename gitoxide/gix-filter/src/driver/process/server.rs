@@ -20,7 +20,7 @@ pub mod next_request {
 
     /// The error returned by [Server::next_request()][super::Server::next_request()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to read from the client")]
         Io(#[from] std::io::Error),
@@ -35,7 +35,7 @@ pub mod next_request {
 pub mod handshake {
     /// The error returned by [Server::handshake()][super::Server::handshake()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to read or write to the client")]
         Io(#[from] std::io::Error),

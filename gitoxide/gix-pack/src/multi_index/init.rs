@@ -7,7 +7,7 @@ mod error {
 
     /// The error returned by [File::at()][super::File::at()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not open multi-index file at '{path}'")]
         Io {

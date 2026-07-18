@@ -69,10 +69,9 @@ mod impls {
         }
     }
 
-    #[allow(clippy::non_canonical_partial_ord_impl)]
     impl PartialOrd for RefSpec {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.to_ref().cmp(&other.to_ref()))
+            Some(self.cmp(other))
         }
     }
 

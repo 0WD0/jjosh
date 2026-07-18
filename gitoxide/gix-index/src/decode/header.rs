@@ -8,7 +8,7 @@ mod error {
 
     /// The error produced when failing to decode an index header.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("{0}")]
         Corrupt(&'static str),

@@ -5,7 +5,7 @@ pub use change::{Change, ChangeRef};
 
 /// The error returned by [`tree_with_rewrites()`](super::tree_with_rewrites()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Diff(#[from] crate::tree::Error),

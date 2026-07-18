@@ -18,7 +18,7 @@ pub enum RepositoryKind {
 pub mod from_gitdir_file {
     /// The error returned by [`from_gitdir_file()`][crate::path::from_gitdir_file()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Io(#[from] std::io::Error),

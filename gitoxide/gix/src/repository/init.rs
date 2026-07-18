@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 impl crate::Repository {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn from_refs_and_objects(
         refs: crate::RefStore,
         mut objects: crate::OdbHandle,

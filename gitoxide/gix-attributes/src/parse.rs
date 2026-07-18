@@ -19,7 +19,7 @@ mod error {
     use bstr::BString;
     /// The error returned by [`parse::Lines`][crate::parse::Lines].
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(r"Line {line_number} has a negative pattern, for literal characters use \!: {line}")]
         PatternNegation { line_number: usize, line: BString },

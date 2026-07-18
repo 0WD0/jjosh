@@ -7,7 +7,7 @@ use crate::{ThreadSafeRepository, bstr::BString};
 
 /// The error returned by [`crate::discover()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Discover(#[from] upwards::Error),

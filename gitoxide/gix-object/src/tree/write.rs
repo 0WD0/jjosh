@@ -10,7 +10,7 @@ use crate::{
 
 /// The Error used in [`Tree::write_to()`][crate::WriteTo::write_to()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Nullbytes are invalid in file paths as they are separators: {name:?}")]
     NullbyteInFilename { name: BString },

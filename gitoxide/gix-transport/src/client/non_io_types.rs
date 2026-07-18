@@ -49,7 +49,7 @@ pub(crate) mod connect {
     ///
     /// (Both blocking and async I/O use the same error type.)
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Url(#[from] gix_url::parse::Error),
@@ -111,7 +111,7 @@ mod error {
 
     /// The error used in most methods of the [`client`][crate::client] module
     #[derive(thiserror::Error, Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("A request was performed without performing the handshake first")]
         MissingHandshake,

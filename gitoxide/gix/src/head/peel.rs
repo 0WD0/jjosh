@@ -10,7 +10,7 @@ mod error {
     /// The error returned by [`Head::peel_to_id()`](super::Head::try_peel_to_id()) and
     /// [`Head::into_fully_peeled_id()`](super::Head::try_into_peeled_id()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         FindExistingObject(#[from] object::find::existing::Error),
@@ -27,7 +27,7 @@ pub mod into_id {
 
     /// The error returned by [`Head::into_peeled_id()`](super::Head::into_peeled_id()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Peel(#[from] super::Error),
@@ -44,7 +44,7 @@ pub mod to_commit {
 
     /// The error returned by [`Head::peel_to_commit()`](super::Head::peel_to_commit()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         PeelToObject(#[from] super::to_object::Error),
@@ -57,7 +57,7 @@ pub mod to_commit {
 pub mod to_object {
     /// The error returned by [`Head::peel_to_object()`](super::Head::peel_to_object()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Peel(#[from] super::Error),

@@ -7,7 +7,7 @@ pub mod for_label {
 
     /// The error returned by [for_label()][super::for_label()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An encoding named '{name}' is not known")]
         Unknown { name: BString },

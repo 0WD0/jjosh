@@ -3,7 +3,7 @@ use gix_utils::AsBStr;
 
 /// The error returned by [`Remote::save_to()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("The remote pointing to {} is anonymous and can't be saved.", url.to_bstring())]
     NameMissing { url: gix_url::Url },
@@ -15,7 +15,7 @@ pub enum Error {
 ///
 /// Note that this type should rather be in the `as` module, but cannot be as it's part of the Rust syntax.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum AsError {
     #[error(transparent)]
     Save(#[from] Error),
@@ -30,7 +30,10 @@ impl Remote<'_> {
     /// Note that all sections named `remote "<name>"` will be cleared of all values we are about to write,
     /// and the last `remote "<name>"` section will be containing all relevant values so that reloading the remote
     /// from `config` would yield the same in-memory state.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn save_to(&self, config: &mut gix_config::File) -> Result<(), Error> {
         fn as_key(name: &str) -> gix_config::parse::section::ValueName {
             name.try_into().expect("valid")
@@ -140,7 +143,10 @@ impl Remote<'_> {
     /// Note that this sets a name for anonymous remotes, but overwrites the name for those who were named before.
     /// If this name is different from the current one, the git configuration will still contain the previous name,
     /// and the caller should account for that.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn save_as_to(&mut self, name: impl AsBStr, config: &mut gix_config::File) -> Result<(), AsError> {
         let name = crate::remote::name::validated(name.as_bstr().to_owned())?;
         let prev_name = self.name.take();

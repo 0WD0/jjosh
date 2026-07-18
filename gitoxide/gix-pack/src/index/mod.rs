@@ -81,7 +81,7 @@ use crate::MMap;
 /// The version of an index file
 #[derive(Default, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Version {
     V1 = 1,
     #[default]

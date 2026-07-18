@@ -10,7 +10,7 @@ use crate::{
 };
 
 // TODO: integrate this somehow, somewhere, depending on later usage.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "to be used for when we handle checkouts/resets better")]
 mod sparse;
 
 /// General information and entries

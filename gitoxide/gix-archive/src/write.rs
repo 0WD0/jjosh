@@ -131,7 +131,10 @@ where
         let _ = (next_entry, out);
         return Err(message!("Support for the format '{:?}' was not compiled in", opts.format).raise());
     }
-    #[allow(unreachable_code)]
+    #[allow(
+        unreachable_code,
+        reason = "Reachability depends on the enabled archive format features."
+    )]
     Ok(())
 }
 
@@ -176,7 +179,10 @@ where
     #[cfg(not(feature = "zip"))]
     {
         let _ = compression_level;
-        #[allow(clippy::needless_return)]
+        #[expect(
+            clippy::needless_return,
+            reason = "the explicit return keeps feature-dependent branches structurally consistent"
+        )]
         return Err(message!(
             "Support for the format '{:?}' was not compiled in",
             Format::Zip {

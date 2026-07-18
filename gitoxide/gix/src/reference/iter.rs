@@ -128,7 +128,7 @@ impl<'r> Iterator for Iter<'_, 'r> {
 pub mod init {
     /// The error returned by [`Platform::all()`](super::Platform::all()) or [`Platform::prefixed()`](super::Platform::prefixed()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Io(#[from] std::io::Error),

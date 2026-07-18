@@ -86,7 +86,6 @@ where
             .or_raise(|| message("Could not convert to worktree representation"))?;
 
         // Our pipe writer always writes the whole amount.
-        #[allow(clippy::unused_io_amount)]
         match converted {
             ToWorktreeOutcome::Unchanged(buf) | ToWorktreeOutcome::Buffer(buf) => {
                 protocol::write_entry_header_and_path(

@@ -6,7 +6,7 @@ use crate::{Repository, ext::ObjectIdExt, revision};
 
 /// The error returned by [`Platform::all()`] and [`Platform::selected()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     SimpleTraversal(#[from] gix_traverse::commit::simple::Error),
@@ -344,7 +344,7 @@ impl<'repo> Platform<'repo> {
 pub mod iter {
     /// The error returned by the [Walk](crate::revision::Walk) iterator.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         SimpleTraversal(#[from] gix_traverse::commit::simple::Error),

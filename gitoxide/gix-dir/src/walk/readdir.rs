@@ -21,7 +21,7 @@ use crate::{
 /// ### Deviation
 ///
 /// Git mostly silently ignores IO errors and stops iterating seemingly quietly, while we error loudly.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub(super) fn recursive(
     may_collapse: bool,
     current: &mut PathBuf,
@@ -215,7 +215,7 @@ struct Mark {
 }
 
 impl Mark {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn reduce_held_entries(
         mut self,
         num_entries: usize,
@@ -287,7 +287,7 @@ impl Mark {
         std::ops::ControlFlow::Continue(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn try_collapse(
         &self,
         dir_rela_path: &BStr,

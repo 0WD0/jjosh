@@ -44,7 +44,6 @@ pub struct Link {
 }
 
 /// The extension for untracked files.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct UntrackedCache {
     /// Something identifying the location and machine that this cache is for.
@@ -63,7 +62,10 @@ pub struct UntrackedCache {
 }
 
 /// The extension for keeping state on recent information provided by the filesystem monitor.
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "for the time when we know what to do with it, for now we just ser-de it"
+)]
 #[derive(Clone)]
 pub struct FsMonitor {
     token: fs_monitor::Token,

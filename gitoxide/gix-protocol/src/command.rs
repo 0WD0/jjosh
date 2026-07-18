@@ -240,7 +240,7 @@ mod with_io {
 
         /// The error returned by [Command::validate_argument_prefixes()](super::Command::validate_argument_prefixes()).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("{command}: argument {argument} is not known or allowed")]
             UnsupportedArgument { command: &'static str, argument: BString },

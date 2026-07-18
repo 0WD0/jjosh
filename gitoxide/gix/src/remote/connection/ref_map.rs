@@ -11,7 +11,7 @@ use crate::{
 
 /// The error returned by [`Connection::ref_map()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     InitRefMap(#[from] gix_protocol::fetch::refmap::init::Error),
@@ -86,7 +86,6 @@ where
     /// ### Configuration
     ///
     /// - `gitoxide.userAgent` is read to obtain the application user agent for git servers and for HTTP servers as well.
-    #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub async fn ref_map(
         self,
@@ -102,7 +101,6 @@ impl<T> ConnectionDetached<'_, T>
 where
     T: Transport,
 {
-    #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub(crate) async fn ref_map(
         mut self,
@@ -117,7 +115,6 @@ where
         Ok((refmap, handshake))
     }
 
-    #[allow(clippy::result_large_err)]
     #[gix_protocol::maybe_async::maybe_async]
     pub(crate) async fn ref_map_by_ref(
         &mut self,

@@ -22,7 +22,7 @@ pub const DEFAULT_BRANCH_NAME: &str = "main";
 
 /// The error returned by [`crate::init()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not obtain the current directory")]
     CurrentDir(#[from] std::io::Error),

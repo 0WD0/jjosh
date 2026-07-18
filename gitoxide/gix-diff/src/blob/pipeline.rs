@@ -131,7 +131,7 @@ pub mod convert_to_diffable {
 
     /// The error returned by [Pipeline::convert_to_diffable()](super::Pipeline::convert_to_diffable()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Entry at '{rela_path}' must be regular file or symlink, but was {actual:?}")]
         InvalidEntryKind { rela_path: BString, actual: EntryKind },
@@ -229,7 +229,7 @@ impl Pipeline {
     ///
     /// As these files are ultimately named tempfiles, they will be leaked unless the [gix_tempfile] is configured with
     /// a signal handler. If they leak, they would remain in the system's `$TMP` directory.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn convert_to_diffable(
         &mut self,
         id: &gix_hash::oid,

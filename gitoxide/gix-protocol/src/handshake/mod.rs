@@ -89,7 +89,6 @@ pub(crate) mod hero {
         impl ObtainRefMap<'_> {
             /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "async-client")]
-            #[allow(clippy::result_large_err)]
             pub async fn fetch_async(
                 self,
                 mut progress: impl Progress,
@@ -109,7 +108,6 @@ pub(crate) mod hero {
 
             /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "blocking-client")]
-            #[allow(clippy::result_large_err)]
             pub fn fetch_blocking(
                 self,
                 mut progress: impl Progress,
@@ -130,7 +128,6 @@ pub(crate) mod hero {
 
         impl Handshake {
             /// Prepare fetching a [refmap](RefMap) if not present in the handshake.
-            #[allow(clippy::result_large_err)]
             pub fn prepare_lsrefs_or_extract_refmap(
                 &mut self,
                 user_agent: Feature,
@@ -167,7 +164,7 @@ mod error {
 
     /// The error returned by [`handshake()`][crate::handshake()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to obtain credentials")]
         Credentials(#[from] credentials::protocol::Error),

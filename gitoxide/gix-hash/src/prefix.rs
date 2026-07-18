@@ -4,7 +4,7 @@ use crate::{ObjectId, Prefix, oid};
 
 /// The error returned by [`Prefix::new()`].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(
         "The minimum hex length of a short object id is {}, got {hex_len}",
@@ -19,7 +19,7 @@ pub enum Error {
 pub mod from_hex {
     /// The error returned by [`Prefix::from_hex`][super::Prefix::from_hex()].
     #[derive(Debug, Eq, PartialEq, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(
             "The minimum hex length of a short object id is {}, got {hex_len}",

@@ -9,7 +9,7 @@ use crate::store_impls::loose;
 
 /// Returned by the [`gix_object::Write`] trait implementation of [`Store`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not {message} '{path}'")]
     Io {

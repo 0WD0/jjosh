@@ -13,7 +13,7 @@ pub mod to_kind {
 
         /// The error returned by [`Object::peel_to_kind()`][crate::Object::peel_to_kind()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             FindExistingObject(#[from] object::find::existing::Error),

@@ -24,7 +24,7 @@ pub mod iter;
 /// to interrupt unless the interrupt flag is set from another thread.
 pub struct Iter {
     #[cfg(feature = "parallel")]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     rx_and_join: Option<(
         std::sync::mpsc::Receiver<iter::Item>,
         std::thread::JoinHandle<Result<iter::Outcome, Error>>,
@@ -40,7 +40,7 @@ pub struct Iter {
 
 /// The error returned by [dirwalk()](crate::Repository::dirwalk()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Walk(#[from] gix_dir::walk::Error),

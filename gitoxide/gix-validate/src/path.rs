@@ -4,7 +4,7 @@ use bstr::{BStr, ByteSlice};
 pub mod component {
     /// The error returned by [`component()`](super::component()).
     #[derive(Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[non_exhaustive]
     pub enum Error {
         Empty,

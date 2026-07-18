@@ -48,7 +48,7 @@ mod init {
             for (sig, _) in hooks {
                 // # SAFETY
                 // * we only register a handler that is specifically designed to run in this environment.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 unsafe {
                     default_hooks.push(signal_hook::low_level::register(sig, move || {
                         signal_hook::low_level::emulate_default_handler(sig).ok();
@@ -91,7 +91,7 @@ mod init {
     /// deadlocking even when trying to write to stderr directly.
     ///
     /// SAFETY: `interrupt()` will be called from a signal handler. See [`signal_hook::low_level::register()`] for details about.
-    #[allow(unsafe_code, clippy::missing_safety_doc)]
+    #[expect(unsafe_code, clippy::missing_safety_doc)]
     pub unsafe fn init_handler(
         grace_count: usize,
         interrupt: impl Fn() + Send + Sync + Clone + 'static,
@@ -126,7 +126,7 @@ mod init {
                 interrupt();
                 super::trigger();
             };
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             unsafe {
                 let hook_id = signal_hook::low_level::register(*sig, action)?;
                 hooks.push((*sig, hook_id));

@@ -23,7 +23,7 @@ pub mod integrity {
 
     /// Returned by [`Store::verify_integrity()`][crate::Store::verify_integrity()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         MultiIndexIntegrity(#[from] pack::index::traverse::Error<pack::multi_index::verify::integrity::Error>),
@@ -56,7 +56,7 @@ pub mod integrity {
     #[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     /// Traversal statistics of packs governed by single indices or multi-pack indices.
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum SingleOrMultiStatistics {
         Single(pack::index::traverse::Statistics),
         Multi(Vec<(PathBuf, pack::index::traverse::Statistics)>),

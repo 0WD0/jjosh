@@ -26,7 +26,7 @@ pub struct Options {
 ///
 /// It can be used for downcasting errors, which are boxed to hide the actual implementation.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Curl(#[from] curl::Error),
@@ -139,7 +139,6 @@ impl Default for Curl {
     }
 }
 
-#[allow(clippy::type_complexity)]
 impl http::Http for Curl {
     type Headers = io::pipe::Reader;
     type ResponseBody = io::pipe::Reader;

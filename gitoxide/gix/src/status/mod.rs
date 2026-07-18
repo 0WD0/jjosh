@@ -65,7 +65,7 @@ impl Default for Submodule {
 
 /// The error returned by [status()](Repository::status).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     DirwalkOptions(#[from] config::boolean::Error),
@@ -139,7 +139,7 @@ pub mod is_dirty {
 
     /// The error returned by [Repository::is_dirty()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         StatusPlatform(#[from] crate::status::Error),
@@ -205,7 +205,7 @@ pub mod is_dirty {
 pub mod into_iter {
     /// The error returned by [status::Platform::into_iter()](crate::status::Platform::into_iter()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Index(#[from] crate::worktree::open_index::Error),

@@ -20,7 +20,7 @@ pub enum Location {
 /// A Change as observed by a call to [`visit(…)`](Visit::visit()), enhanced with the path affected by the change.
 /// Its similar to [`visit::Change`] but includes the path that changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Change {
     Addition {
         entry_mode: tree::EntryMode,

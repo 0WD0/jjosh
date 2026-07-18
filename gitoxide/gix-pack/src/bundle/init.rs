@@ -4,7 +4,7 @@ use crate::Bundle;
 
 /// Returned by [`Bundle::at()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("An 'idx' extension is expected of an index file: '{0}'")]
     InvalidPath(PathBuf),

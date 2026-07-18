@@ -8,7 +8,7 @@ use crate::tree::visit::Relation;
 
 /// The error returned by [`tree()`](super::tree()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Find(#[from] gix_object::find::existing_iter::Error),

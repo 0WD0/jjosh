@@ -25,7 +25,7 @@ pub mod parse;
 
 /// Returned by [`resolve()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] io::Error),

@@ -303,7 +303,7 @@ impl ThreadSafeRepository {
                     _ => worktree_dir_from_repository_config(&git_dir, wt_path, current_dir),
                 };
                 worktree_dir = gix_path::normalize(wt_path.into(), current_dir).map(Cow::into_owned);
-                #[allow(unused_variables)]
+                #[allow(unused_variables, reason = "Used when tracing is enabled at compile time.")]
                 if let Some(worktree_path) = worktree_dir.as_deref().filter(|wtd| !wtd.is_dir()) {
                     gix_trace::warn!(
                         "The configured worktree path '{}' is not a directory or doesn't exist - `core.worktree` may be misleading",

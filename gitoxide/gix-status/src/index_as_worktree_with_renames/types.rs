@@ -6,7 +6,7 @@ use crate::index_as_worktree::{Change, EntryStatus};
 
 /// The error returned by [index_as_worktree_with_renames()`](crate::index_as_worktree_with_renames()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     TrackedFileModifications(#[from] crate::index_as_worktree::Error),

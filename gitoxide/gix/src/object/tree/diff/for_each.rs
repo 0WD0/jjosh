@@ -5,7 +5,7 @@ use crate::{Tree, diff::rewrites::tracker};
 
 /// The error return by methods on the [diff platform][Platform].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Diff(#[from] gix_diff::tree_with_rewrites::Error),

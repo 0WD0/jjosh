@@ -18,7 +18,6 @@ mod write {
 
     /// The Error produced by [`Line::write_to()`] (but wrapped in an io error).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     enum Error {
         #[error(r"Messages must not contain newlines (\n)")]
         IllegalCharacter,

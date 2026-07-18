@@ -7,13 +7,13 @@ use crate::{
     worktree::Proxy,
 };
 
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub mod into_repo {
     use std::path::PathBuf;
 
     /// The error returned by [`Proxy::into_repo()`][super::Proxy::into_repo()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Open(#[from] crate::open::Error),

@@ -56,7 +56,7 @@ pub mod collate {
         /// It can be used to detect if the repository is likely be corrupted in some way, or if the fetch failed spuriously
         /// and thus can be retried.
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error<E: std::error::Error + Send + Sync + 'static = std::convert::Infallible> {
             #[error(transparent)]
             Open(#[from] crate::open::Error),

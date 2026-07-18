@@ -4,7 +4,7 @@ use crate::parse::{Span, section::HeaderData};
 
 /// The error returned when creating a section header.
 #[derive(Debug, PartialOrd, PartialEq, Eq, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("section names can only be ascii, '-'")]
     InvalidName,

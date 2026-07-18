@@ -8,7 +8,7 @@ pub mod entries {
 
     /// The error returned by [`State::verify_entries()`][crate::State::verify_entries()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(
             "Entry '{current_path}' (stage = {current_stage}) at index {current_index} should order after prior entry '{previous_path}' (stage = {previous_stage})"
@@ -29,7 +29,7 @@ pub mod extensions {
 
     /// The error returned by [`State::verify_extensions()`][crate::State::verify_extensions()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Tree(#[from] extension::tree::verify::Error),

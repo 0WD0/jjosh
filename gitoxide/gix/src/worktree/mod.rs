@@ -22,7 +22,10 @@ pub type Index = gix_fs::SharedFileSnapshot<gix_index::File>;
 
 /// A type to represent an index which either was loaded from disk as it was persisted there, or created on the fly in memory.
 #[cfg(feature = "index")]
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
 #[derive(Clone)]
 pub enum IndexPersistedOrInMemory {
     /// The index as loaded from disk, and shared across clones of the owning `Repository`.
@@ -117,7 +120,7 @@ pub mod proxy;
 pub mod open_index {
     /// The error returned by [`Worktree::open_index()`][crate::Worktree::open_index()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ConfigIndexThreads(#[from] crate::config::key::GenericErrorWithValue),
@@ -149,7 +152,7 @@ pub mod excludes {
 
     /// The error returned by [`Worktree::excludes()`][crate::Worktree::excludes()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenIndex(#[from] crate::worktree::open_index::Error),
@@ -185,7 +188,7 @@ pub mod attributes {
 
     /// The error returned by [`Worktree::attributes()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         OpenIndex(#[from] crate::worktree::open_index::Error),
@@ -234,7 +237,7 @@ pub mod pathspec {
 
     /// The error returned by [`Worktree::pathspec()`].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Init(#[from] crate::pathspec::init::Error),

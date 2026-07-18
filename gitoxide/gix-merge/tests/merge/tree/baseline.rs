@@ -48,7 +48,7 @@ pub enum ConflictKind {
 
 /// More loosely structured information about the `Conflict`.
 #[derive(Debug)]
-#[allow(dead_code)] // used only for debugging
+#[expect(dead_code, reason = "used only for debugging")]
 pub struct ConflictInfo {
     /// All the paths involved in the informational message
     pub paths: Vec<String>,

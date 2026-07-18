@@ -5,7 +5,7 @@ use gix_index::entry;
 
 /// The error returned by [index_as_worktree()`](crate::index_as_worktree()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not convert path to UTF8")]
     IllformedUtf8,

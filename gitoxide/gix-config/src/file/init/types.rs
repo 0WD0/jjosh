@@ -2,7 +2,7 @@ use crate::{file::init, parse, parse::EventRef, path::interpolate};
 
 /// The error returned by [`File::from_bytes_no_includes()`][crate::File::from_bytes_no_includes()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Parse(#[from] parse::Error),

@@ -24,7 +24,7 @@ impl From<ForUser> for Option<BString> {
 
 /// The error used by [`parse()`], [`with()`] and [`expand_path()`](crate::expand_path()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("UTF8 conversion on non-unix system failed for path: {path:?}")]
     IllformedUtf8 { path: BString },

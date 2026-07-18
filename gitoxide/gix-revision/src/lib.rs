@@ -13,8 +13,7 @@
 pub mod describe;
 #[cfg(feature = "describe")]
 pub use describe::function::describe;
-///
-#[allow(clippy::empty_docs)]
+/// Find common ancestors of commits.
 #[cfg(feature = "merge_base")]
 pub mod merge_base;
 #[cfg(feature = "merge_base")]

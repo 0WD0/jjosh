@@ -3,7 +3,7 @@ use gix_diff::{Rewrites, tree_with_rewrites::Change};
 
 /// The error returned by [`tree()`](crate::tree()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Could not find ancestor, our or their tree to get started")]
     FindTree(#[from] gix_object::find::existing_object::Error),

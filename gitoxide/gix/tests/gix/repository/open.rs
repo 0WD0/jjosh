@@ -274,7 +274,7 @@ fn none_bare_repo_without_index() -> crate::Result {
         repo.workdir_path(BString::from("this")).map(|p| p.is_file()),
         Some(true)
     );
-    #[allow(clippy::needless_borrows_for_generic_args)]
+    #[expect(clippy::needless_borrows_for_generic_args)]
     let actual = repo.workdir_path(&BString::from("this")).map(|p| p.is_file());
     assert_eq!(actual, Some(true));
     assert!(

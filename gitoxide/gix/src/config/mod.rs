@@ -57,7 +57,7 @@ pub mod section {
 pub mod set_value {
     /// The error produced when calling [`SnapshotMut::set(_subsection)?_value()`][crate::config::SnapshotMut::set_value()]
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         SetRaw(#[from] gix_config::file::set_raw_value::Error),
@@ -74,7 +74,7 @@ pub mod set_value {
 ///
 /// This configuration is on the critical path when opening a repository.
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     ConfigBoolean(#[from] boolean::Error),
@@ -129,7 +129,7 @@ pub mod merge {
     pub mod pipeline_options {
         /// The error produced when obtaining options needed to fill in [gix_merge::blob::pipeline::Options].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             BigFileThreshold(#[from] crate::config::unsigned_integer::Error),
@@ -140,7 +140,7 @@ pub mod merge {
     pub mod drivers {
         /// The error produced when obtaining a list of [Drivers](gix_merge::blob::Driver).
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             ConfigBoolean(#[from] crate::config::boolean::Error),
@@ -156,7 +156,7 @@ pub mod diff {
 
         /// The error produced when obtaining `diff.algorithm`.
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Unknown diff algorithm named '{name}'")]
             Unknown { name: BString },
@@ -169,7 +169,7 @@ pub mod diff {
     pub mod pipeline_options {
         /// The error produced when obtaining options needed to fill in [gix_diff::blob::pipeline::Options].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             FilesystemCapabilities(#[from] crate::config::boolean::Error),
@@ -200,7 +200,7 @@ pub mod diff {
 pub mod stat_options {
     /// The error produced when collecting stat information, and returned by [Repository::stat_options()](crate::Repository::stat_options()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ConfigCheckStat(#[from] super::key::GenericErrorWithValue),
@@ -214,7 +214,7 @@ pub mod stat_options {
 pub mod checkout_options {
     /// The error produced when collecting all information needed for checking out files into a worktree.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         ConfigCheckStat(#[from] super::key::GenericErrorWithValue),
@@ -239,7 +239,7 @@ pub mod command_context {
     /// The error produced when collecting all information relevant to spawned commands,
     /// obtained via [Repository::command_context()](crate::Repository::command_context()).
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Boolean(#[from] config::boolean::Error),
@@ -255,7 +255,7 @@ pub mod exclude_stack {
 
     /// The error produced when setting up a stack to query `gitignore` information.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Could not read repository exclude")]
         Io(#[from] std::io::Error),
@@ -272,7 +272,7 @@ pub mod exclude_stack {
 pub mod attribute_stack {
     /// The error produced when setting up the attribute stack to query `gitattributes`.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("An attribute file could not be read")]
         Io(#[from] std::io::Error),
@@ -289,7 +289,7 @@ pub mod protocol {
 
         /// The error returned when obtaining the permission for a particular scheme.
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         #[error("The value {value:?} must be allow|deny|user in configuration key protocol{0}.allow", scheme.as_ref().map(|s| format!(".{s}")).unwrap_or_default())]
         pub struct Error {
             pub scheme: Option<String>,
@@ -302,7 +302,6 @@ pub mod protocol {
 pub mod ssh_connect_options {
     /// The error produced when obtaining ssh connection configuration.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
     #[error(transparent)]
     pub struct Error(#[from] super::key::GenericErrorWithValue);
 }
@@ -538,7 +537,7 @@ pub mod transport {
 
     /// The error produced when configuring a transport for a particular protocol.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(
             "Could not interpret configuration key {key:?} as {kind} integer of desired range with value: {actual}"
@@ -575,7 +574,7 @@ pub mod transport {
 
         /// The error produced when configuring a HTTP transport.
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error(transparent)]
             Boolean(#[from] crate::config::boolean::Error),

@@ -54,7 +54,7 @@ use crate::tree::{
 /// ### Performance
 ///
 /// Note that `objects` *should* have an object cache to greatly accelerate tree-retrieval.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn tree<'objects, E>(
     base_tree: &gix_hash::oid,
     our_tree: &gix_hash::oid,

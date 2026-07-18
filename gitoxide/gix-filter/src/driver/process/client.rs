@@ -12,7 +12,7 @@ use crate::driver::{
 pub mod handshake {
     /// The error returned by [Client::handshake()][super::Client::handshake()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to read or write to the process")]
         Io(#[from] std::io::Error),
@@ -27,7 +27,7 @@ pub mod handshake {
 pub mod invoke {
     /// The error returned by [Client::invoke()][super::Client::invoke()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("Failed to read or write to the process")]
         Io(#[from] std::io::Error),
@@ -37,7 +37,7 @@ pub mod invoke {
     pub mod without_content {
         /// The error returned by [Client::invoke_without_content()][super::super::Client::invoke_without_content()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("Failed to read or write to the process")]
             Io(#[from] std::io::Error),

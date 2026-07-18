@@ -31,7 +31,7 @@ pub mod interpolate {
 
     /// The error returned by [`Path::interpolate()`][crate::Path::interpolate()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("{} is missing", .what)]
         Missing { what: &'static str },
@@ -62,7 +62,7 @@ pub mod interpolate {
             let cname = std::ffi::CString::new(name).ok()?;
             // SAFETY: calling this in a threaded program that modifies the pw database is not actually safe.
             //         TODO: use the `*_r` version, but it's much harder to use.
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code)]
             let pwd = unsafe { libc::getpwnam(cname.as_ptr()) };
             if pwd.is_null() {
                 None
@@ -70,7 +70,7 @@ pub mod interpolate {
                 use std::os::unix::ffi::OsStrExt;
                 // SAFETY: pw_dir is a cstr and it lives as long as… well, we hope nobody changes the pw database while we are at it
                 //         from another thread. Otherwise it lives long enough.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let cstr = unsafe { std::ffi::CStr::from_ptr((*pwd).pw_dir) };
                 Some(std::ffi::OsStr::from_bytes(cstr.to_bytes()).into())
             }

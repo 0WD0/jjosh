@@ -73,7 +73,7 @@ pub mod options {
 
     /// Available SSL version numbers.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum SslVersion {
         /// The implementation default, which is unknown to this layer of abstraction.
         Default,
@@ -88,7 +88,6 @@ pub mod options {
 
     /// Available HTTP version numbers.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
-    #[allow(missing_docs)]
     pub enum HttpVersion {
         /// Equivalent to HTTP/1.1
         V1_1,
@@ -304,7 +303,6 @@ impl<H: Http> Transport<H> {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps, unknown_lints)]
     fn add_basic_auth_if_present(&self, headers: &mut Vec<Cow<'_, str>>) -> Result<(), client::Error> {
         if let Some(gix_sec::identity::Account {
             username,

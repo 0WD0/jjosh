@@ -15,7 +15,7 @@ pub(crate) mod function {
         let (time, rest) = i.split_at(time_len);
         *i = rest;
         // SAFETY: The parser validated that there are only ASCII characters with `is_time_byte()`.
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         let time = unsafe { std::str::from_utf8_unchecked(time) };
 
         Ok(SignatureRef {

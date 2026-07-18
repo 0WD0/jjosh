@@ -132,14 +132,14 @@ mod expand {
         data::{output, output::count::PackLocation},
     };
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn this(
         db: &dyn crate::Find,
         input_object_expansion: ObjectExpansion,
         seen_objs: &impl util::InsertImmutable,
         oids: &mut dyn Iterator<Item = Result<ObjectId, Box<dyn std::error::Error + Send + Sync + 'static>>>,
         buf1: &mut Vec<u8>,
-        #[allow(clippy::ptr_arg)] buf2: &mut Vec<u8>,
+        buf2: &mut Vec<u8>,
         objects: &gix_features::progress::AtomicStep,
         should_interrupt: &AtomicBool,
         allow_pack_lookups: bool,

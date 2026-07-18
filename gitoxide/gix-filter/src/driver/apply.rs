@@ -25,7 +25,7 @@ pub enum Delay {
 
 /// The error returned by [State::apply()][super::State::apply()].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Init(#[from] driver::init::Error),

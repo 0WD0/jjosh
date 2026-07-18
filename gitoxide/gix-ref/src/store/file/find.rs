@@ -425,7 +425,7 @@ pub mod existing {
 
         /// The error returned by [file::Store::find_existing()][crate::file::Store::find()].
         #[derive(Debug, thiserror::Error)]
-        #[allow(missing_docs)]
+        #[expect(missing_docs)]
         pub enum Error {
             #[error("An error occurred while trying to find a reference")]
             Find(#[from] find::Error),
@@ -442,7 +442,7 @@ mod error {
 
     /// The error returned by [file::Store::find()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The ref name or path is not a valid ref name")]
         RefnameValidation(#[from] crate::name::Error),

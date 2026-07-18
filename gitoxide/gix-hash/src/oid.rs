@@ -22,7 +22,7 @@ use crate::{EMPTY_BLOB_SHA256, EMPTY_TREE_SHA256, SIZE_OF_SHA256_DIGEST};
 /// than 64 bytes.
 #[derive(PartialEq, Eq, Ord, PartialOrd)]
 #[repr(transparent)]
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types, reason = "the name mirrors 'str'")]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct oid {
     bytes: [u8],
@@ -33,7 +33,6 @@ pub struct oid {
 // it attempting to hash the length of the slice first. On 32 bit systems
 // this can lead to issues with the custom `gix_hashtable` `Hasher` implementation,
 // and it currently ends up being discarded there anyway.
-#[allow(clippy::derived_hash_with_manual_eq)]
 impl hash::Hash for oid {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         state.write(self.as_bytes());
@@ -73,7 +72,7 @@ impl std::fmt::Debug for oid {
 }
 
 /// The error returned when trying to convert a byte slice to an [`oid`] or [`ObjectId`]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Cannot instantiate git hash from a digest of length {0}")]
@@ -88,14 +87,14 @@ impl oid {
         match digest.len() {
             #[cfg(feature = "sha1")]
             SIZE_OF_SHA1_DIGEST => Ok(
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 unsafe {
                     &*(std::ptr::from_ref::<[u8]>(digest) as *const oid)
                 },
             ),
             #[cfg(feature = "sha256")]
             SIZE_OF_SHA256_DIGEST => Ok(
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 unsafe {
                     &*(std::ptr::from_ref::<[u8]>(digest) as *const oid)
                 },
@@ -112,7 +111,7 @@ impl oid {
 
     /// Only from code that statically assures correct sizes using array conversions.
     pub(crate) fn from_bytes(value: &[u8]) -> &Self {
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             &*(std::ptr::from_ref::<[u8]>(value) as *const oid)
         }

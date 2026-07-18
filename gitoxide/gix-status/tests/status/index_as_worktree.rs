@@ -130,7 +130,7 @@ fn fixture_filtered(name: &str, pathspecs: &[&str], expected_status: &[Expectati
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn fixture_filtered_detailed(
     name: &str,
     subdir: &str,

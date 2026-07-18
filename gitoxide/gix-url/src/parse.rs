@@ -6,7 +6,7 @@ use crate::Scheme;
 
 /// The error returned by [parse()](crate::parse()).
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("{} \"{url}\" is not valid UTF-8", kind.as_str())]
     Utf8 {

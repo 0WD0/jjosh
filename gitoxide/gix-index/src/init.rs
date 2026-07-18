@@ -13,7 +13,7 @@ pub mod from_tree {
 
     /// The error returned by [State::from_tree()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The path \"{path}\" is invalid")]
         InvalidComponent {

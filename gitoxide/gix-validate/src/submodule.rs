@@ -4,7 +4,7 @@ use bstr::{BStr, ByteSlice};
 pub mod name {
     /// The error used in [name()](super::name()).
     #[derive(Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[non_exhaustive]
     pub enum Error {
         Empty,

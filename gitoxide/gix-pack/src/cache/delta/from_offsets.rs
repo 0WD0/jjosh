@@ -11,7 +11,6 @@ use crate::{cache::delta::Tree, data};
 
 /// Returned by [`Tree::from_offsets_in_pack()`]
 #[derive(thiserror::Error, Debug)]
-#[allow(missing_docs)]
 pub enum Error {
     #[error("{message}")]
     Io { source: io::Error, message: &'static str },

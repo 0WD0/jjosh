@@ -74,7 +74,10 @@ impl Cascade {
     ///
     /// When _getting_ credentials, all programs are asked until the credentials are complete, stopping the cascade.
     /// When _storing_ or _erasing_ all programs are instructed in order.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "will be removed once `gix-error` is used consistently"
+    )]
     pub fn invoke(&mut self, mut action: helper::Action, mut prompt: gix_prompt::Options) -> protocol::Result {
         if let Some(ctx) = action.context_mut() {
             ctx.options = self.context_options;
@@ -82,7 +85,10 @@ impl Cascade {
         let mut url = action
             .context_mut()
             .map(|ctx| {
-                #[allow(clippy::manual_inspect)] /* false positive */
+                #[expect(
+                    clippy::manual_inspect,
+                    reason = "the suggested rewrite is a false positive for this mutation"
+                )] /* false positive */
                 ctx.destructure_url_in_place(self.use_http_path).map(|ctx| {
                     if self.query_user_only && ctx.password.is_none() {
                         ctx.password = Some("".into());

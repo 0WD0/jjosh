@@ -262,7 +262,7 @@ fn long_describe_prefix(name: &BStr) -> Option<(&BStr, delegate::PrefixHint<'_>)
                 let last_token_len = token.len();
                 let first_token_ptr = iter.next_back().map_or(token.as_ptr(), <[_]>::as_ptr);
                 // SAFETY: both pointers are definitely part of the same object
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let prior_tokens_len: usize = unsafe { token.as_ptr().offset_from(first_token_ptr) }
                     .try_into()
                     .expect("positive value");
@@ -475,7 +475,10 @@ where
             })
             .or_else(|| {
                 name.is_empty().then_some(()).or_else(|| {
-                    #[allow(clippy::let_unit_value)]
+                    #[expect(
+                        clippy::let_unit_value,
+                        reason = "the binding keeps generated async and blocking code structurally consistent"
+                    )]
                     {
                         let res = delegate.find_ref(name).or_else_none(|err| {
                             errors.push(err);

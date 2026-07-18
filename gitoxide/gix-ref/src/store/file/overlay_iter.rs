@@ -25,7 +25,6 @@ pub struct LooseThenPacked<'p, 's> {
     namespace: Option<&'s Namespace>,
     iter_packed: Option<Peekable<packed::Iter<'p>>>,
     iter_git_dir: Peekable<SortedLoosePaths>,
-    #[allow(dead_code)]
     iter_common_dir: Option<Peekable<SortedLoosePaths>>,
     buf: Vec<u8>,
 }
@@ -462,7 +461,7 @@ mod error {
 
     /// The error returned by the [`LooseThenPacked`][super::LooseThenPacked] iterator.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The file system could not be traversed")]
         Traversal(#[source] io::Error),

@@ -5,7 +5,7 @@ use crate::{command::Feature, fetch::Response};
 
 /// The error returned in the [response module][crate::fetch::response].
 #[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
+#[expect(missing_docs)]
 pub enum Error {
     #[error("Failed to read from line reader")]
     Io(#[source] std::io::Error),

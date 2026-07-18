@@ -6,7 +6,7 @@ pub mod name {
 
     /// The error returned by [`name()`][super::name()].
     #[derive(Debug)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     #[non_exhaustive]
     pub enum Error {
         InvalidByte { byte: BString },

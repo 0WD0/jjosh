@@ -11,7 +11,7 @@ mod error {
 
     /// The error returned when decoding extensions.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(
             "Encountered mandatory extension '{}' which isn't implemented yet",

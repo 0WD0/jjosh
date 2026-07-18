@@ -23,7 +23,7 @@ mod error {
 
     /// The error used in [`fetch()`][crate::fetch()].
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error(transparent)]
         Handshake(#[from] handshake::Error),
@@ -46,7 +46,7 @@ type Cursor = std::io::Cursor<Vec<u8>>;
 #[cfg(feature = "async-client")]
 type Cursor = futures_lite::io::Cursor<Vec<u8>>;
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 fn helper_unused(_action: gix_credentials::helper::Action) -> gix_credentials::protocol::Result {
     panic!("Call to credentials helper is unexpected")
 }

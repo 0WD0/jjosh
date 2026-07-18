@@ -183,7 +183,7 @@ mod error {
 
     /// The error returned by various [`Transaction`][super::Transaction] methods.
     #[derive(Debug, thiserror::Error)]
-    #[allow(missing_docs)]
+    #[expect(missing_docs)]
     pub enum Error {
         #[error("The packed-ref transaction could not be committed")]
         PackedTransactionCommit(#[source] packed::transaction::commit::Error),

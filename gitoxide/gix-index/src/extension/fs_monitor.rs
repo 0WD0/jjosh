@@ -6,7 +6,10 @@ use crate::{
 };
 
 #[derive(Clone)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "for the time when we actually support the git status daemon, this just models its data."
+)]
 pub enum Token {
     V1 { nanos_since_1970: u64 },
     V2 { token: BString },

@@ -38,7 +38,7 @@ pub(crate) struct Transaction {
     buffer: Option<file::packed::SharedBufferSnapshot>,
     edits: Option<Vec<Edit>>,
     lock: Option<gix_lock::File>,
-    #[allow(dead_code)] // It just has to be kept alive, hence no reads
+    // It just has to be kept alive, hence no reads
     closed_lock: Option<gix_lock::Marker>,
     precompose_unicode: bool,
     /// The namespace to use when preparing or writing refs
