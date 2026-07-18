@@ -7,7 +7,6 @@ use bstr::{BStr, BString};
 use gix_config::file::{Metadata, init::Options};
 use libfuzzer_sys::fuzz_target;
 use std::collections::BTreeSet;
-use std::convert::TryInto;
 use std::hint::black_box;
 use std::str;
 
@@ -39,16 +38,16 @@ fn fuzz_mutable_section(
         let key = section.value_names().next();
 
         if let Some(key) = key {
-            section.push_newline();
-            section.set(key, BStr::new("Set value"));
-            section.push_newline();
+            let _ = section.push_newline();
+            let _ = section.set(key, BStr::new("Set value"));
+            let _ = section.push_newline();
         }
         let kv_pair = section.pop().map(|(key, value)| (key.to_owned(), value));
         if let Some((key, value)) = kv_pair {
-            section.push_with_comment(key, Some(value.as_bstr()), "Popped");
+            let _ = section.push_with_comment(key, Some(value.as_bstr()), "Popped");
         } else {
-            section.push("new-implicit".try_into()?, None);
-            section.push("new".try_into()?, Some("value".into()));
+            let _ = section.push("new-implicit", None);
+            let _ = section.push("new", Some("value".into()));
         }
         section.id()
     };
@@ -64,7 +63,7 @@ fn fuzz_mutable_section(
     _ = black_box(file.section_mut_or_create_new(&new_section_name, subsection_name.clone()));
 
     if let Some(mut section) = file.remove_section(&new_section_name, subsection_name.clone()) {
-        section.to_mut().push("detached".try_into()?, Some("section".into()));
+        let _ = section.to_mut().push("detached", Some("section".into()));
         _ = black_box(file.push_section(section));
     }
 

@@ -43,7 +43,7 @@ impl File {
     pub fn append_submodule_overrides(
         &mut self,
         config: &gix_config::File,
-    ) -> Result<&mut Self, gix_config::parse::span::Error> {
+    ) -> Result<&mut Self, gix_config::file::section::value::Error> {
         let mut values = BTreeMap::<_, Vec<_>>::new();
         for (module_name, section) in config
             .sections_by_name("submodule")
@@ -77,7 +77,7 @@ impl File {
                 .section_mut("submodule", Some(module_name))
                 .expect("always set at this point")
                 .push(
-                    field.try_into().expect("statically known key"),
+                    field,
                     Some(
                         values
                             .last()
@@ -120,6 +120,9 @@ pub mod init {
         /// Applying configuration overrides exceeded the supported span size.
         #[error(transparent)]
         Span(#[from] gix_config::parse::span::Error),
+        /// Applying configuration overrides failed.
+        #[error(transparent)]
+        SectionValue(#[from] gix_config::file::section::value::Error),
     }
 
     impl File {

@@ -157,16 +157,16 @@ mod to_filter {
 
         config
             .new_section("a", "local")?
-            .push("b".try_into()?, Some("c".into()))?
-            .push("c".try_into()?, Some("d".into()))?;
+            .push("b", Some("c".into()))?
+            .push("c", Some("d".into()))?;
 
         let meta: Metadata = gix_config::Source::User.into();
         config.set_meta(meta);
 
         config
             .new_section("a", "user")?
-            .push("b".try_into()?, Some("c".into()))?
-            .push("c".try_into()?, Some("d".into()))?;
+            .push("b", Some("c".into()))?
+            .push("c", Some("d".into()))?;
 
         let mut buf = Vec::<u8>::new();
         config.write_to_filter(&mut buf, |s| s.meta().source == gix_config::Source::Local)?;

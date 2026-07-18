@@ -242,12 +242,12 @@ impl File {
     ///
     /// If there are sections matching `section_name` and `subsection_name` but the `filter` rejects all of them, `Ok(None)`
     /// is returned.
-    pub fn section_filter<'a>(
-        &'a self,
+    pub fn section_filter(
+        &self,
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'a>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
         Ok(self
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
             .rev()
@@ -305,10 +305,7 @@ impl File {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn sections_by_name<'a>(
-        &'a self,
-        name: impl AsRef<str>,
-    ) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
+    pub fn sections_by_name(&self, name: impl AsRef<str>) -> Option<impl Iterator<Item = file::SectionRef<'_>> + '_> {
         self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 file::SectionRef::from_data(
@@ -324,10 +321,10 @@ impl File {
     /// Similar to [`sections_by_name()`](Self::sections_by_name()), but returns an identifier for this section as well to allow
     /// referring to it unambiguously even in the light of deletions.
     #[must_use]
-    pub fn sections_and_ids_by_name<'a>(
-        &'a self,
+    pub fn sections_and_ids_by_name(
+        &self,
         name: impl AsRef<str>,
-    ) -> Option<impl Iterator<Item = (file::SectionRef<'a>, SectionId)> + 'a> {
+    ) -> Option<impl Iterator<Item = (file::SectionRef<'_>, SectionId)> + '_> {
         self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 (

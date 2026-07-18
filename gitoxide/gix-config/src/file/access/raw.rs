@@ -641,7 +641,6 @@ impl File {
     ///
     /// ```
     /// # use gix_config::File;
-    /// # use std::convert::TryFrom;
     /// # let mut git_config = gix_config::File::try_from("[core]a=b").unwrap();
     /// let prev = git_config.set_raw_value(&"core.a", "e")?;
     /// git_config.set_raw_value(&"core.b", "f")?;
@@ -681,7 +680,6 @@ impl File {
     ///
     /// ```
     /// # use gix_config::File;
-    /// # use std::convert::TryFrom;
     /// # let mut git_config = gix_config::File::try_from("[core]a=b").unwrap();
     /// let prev = git_config.set_raw_value_by("core", None, "a", "e")?;
     /// git_config.set_raw_value_by("core", None, "b", "f")?;
@@ -690,17 +688,13 @@ impl File {
     /// assert_eq!(git_config.raw_value("core.b")?, "f");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn set_raw_value_by<Key, E>(
+    pub fn set_raw_value_by(
         &mut self,
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-        value_name: Key,
+        value_name: impl crate::AsBStr,
         new_value: impl crate::AsBStr,
-    ) -> Result<Option<BString>, crate::file::set_raw_value::Error>
-    where
-        Key: TryInto<section::ValueName, Error = E>,
-        section::value_name::Error: From<E>,
-    {
+    ) -> Result<Option<BString>, crate::file::set_raw_value::Error> {
         self.set_raw_value_filter_by_inner(
             section_name.as_ref(),
             subsection_name.as_bstr_opt(),
@@ -730,18 +724,14 @@ impl File {
 
     /// Similar to [`set_raw_value_by()`](Self::set_raw_value_by()), but only sets existing values in sections matching
     /// `filter`, creating a new section otherwise.
-    pub fn set_raw_value_filter_by<Key, E>(
+    pub fn set_raw_value_filter_by(
         &mut self,
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-        key: Key,
+        key: impl crate::AsBStr,
         new_value: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<BString>, crate::file::set_raw_value::Error>
-    where
-        Key: TryInto<section::ValueName, Error = E>,
-        section::value_name::Error: From<E>,
-    {
+    ) -> Result<Option<BString>, crate::file::set_raw_value::Error> {
         self.set_raw_value_filter_by_inner(
             section_name.as_ref(),
             subsection_name.as_bstr_opt(),
@@ -751,25 +741,17 @@ impl File {
         )
     }
 
-    fn set_raw_value_filter_by_inner<Key, E>(
+    fn set_raw_value_filter_by_inner(
         &mut self,
         section_name: &str,
         subsection_name: Option<&BStr>,
-        key: Key,
+        key: impl crate::AsBStr,
         new_value: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<BString>, crate::file::set_raw_value::Error>
-    where
-        Key: TryInto<section::ValueName, Error = E>,
-        section::value_name::Error: From<E>,
-    {
+    ) -> Result<Option<BString>, crate::file::set_raw_value::Error> {
+        let key = section::ValueName::try_from(key.as_bstr())?;
         let mut section = self.section_mut_or_create_new_filter_inner(section_name, subsection_name, filter)?;
-        section
-            .set(
-                key.try_into().map_err(section::value_name::Error::from)?,
-                new_value.as_bstr(),
-            )
-            .map_err(Into::into)
+        section.set_inner(key, new_value.as_bstr()).map_err(Into::into)
     }
 
     /// Sets a multivar in a given `key`.

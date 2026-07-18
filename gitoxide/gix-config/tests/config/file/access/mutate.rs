@@ -105,7 +105,7 @@ mod remove_section {
         let mut section = file.remove_section("core", None).expect("section is present");
         let removed_id = section.to_ref().id();
 
-        section.to_mut().set("detached".try_into()?, "changed".into())?;
+        section.to_mut().set("detached", "changed".into())?;
         assert_eq!(section.to_ref().value("detached"), Some("changed".into()));
 
         let inserted_id = file.push_section(section)?.id();

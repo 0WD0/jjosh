@@ -47,11 +47,11 @@ impl<T: crate::AsBStr + ?Sized> IntoBStringOpt for &T {
 /// Mutating low-level access methods.
 impl File {
     /// Returns the last mutable section with a given `name` and optional `subsection_name`, _if it exists_.
-    pub fn section_mut<'a>(
-        &'a mut self,
+    pub fn section_mut(
+        &mut self,
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-    ) -> Result<SectionMut<'a>, lookup::existing::Error> {
+    ) -> Result<SectionMut<'_>, lookup::existing::Error> {
         self.section_mut_inner(name.as_ref(), subsection_name.as_bstr_opt())
     }
 
@@ -139,12 +139,12 @@ impl File {
     ///
     /// If there are sections matching `section_name` and `subsection_name` but the `filter` rejects all of them, `Ok(None)`
     /// is returned.
-    pub fn section_mut_filter<'a>(
-        &'a mut self,
+    pub fn section_mut_filter(
+        &mut self,
         name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionMut<'a>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionMut<'_>>, lookup::existing::Error> {
         self.section_mut_filter_inner(name.as_ref(), subsection_name.as_bstr_opt(), filter)
     }
 
@@ -203,7 +203,7 @@ impl File {
     /// # use gix_config::parse::section;
     /// let mut git_config = gix_config::File::default();
     /// let mut section = git_config.new_section("hello", "world")?;
-    /// section.push(section::ValueName::try_from("a")?, Some("b".into()));
+    /// section.push("a", Some("b".into()))?;
     /// let nl = section.newline().to_owned();
     /// assert_eq!(git_config.to_string(), format!("[hello \"world\"]{nl}\ta = b{nl}"));
     /// let _section = git_config.new_section("core", None);
