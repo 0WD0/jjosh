@@ -18,7 +18,11 @@ pub(crate) mod function {
     };
 
     use anyhow::{anyhow, bail};
-    use gix::{Count, Progress, attrs::Assignment, bstr::BString};
+    use gix::{
+        Count, Progress,
+        attrs::{Assignment, NameRef},
+        bstr::{BString, ByteSlice},
+    };
 
     use crate::{
         OutputFormat,
@@ -200,11 +204,11 @@ pub(crate) mod function {
                     let fast_path_mismatch = matches
                         .iter()
                         .map(|m| m.assignment)
-                        .zip(expected.iter().map(Assignment::as_ref))
+                        .zip(expected.iter().map(ThreadSafeAssignment::as_ref))
                         .any(|(a, b)| a != b);
                     if fast_path_mismatch {
                         let actual_set = BTreeSet::from_iter(matches.iter().map(|m| m.assignment));
-                        let expected_set = BTreeSet::from_iter(expected.iter().map(Assignment::as_ref));
+                        let expected_set = BTreeSet::from_iter(expected.iter().map(ThreadSafeAssignment::as_ref));
                         let too_few_or_too_many =
                             !(expected_set.sub(&actual_set).is_empty() && actual_set.sub(&expected_set).is_empty());
                         if too_few_or_too_many {
@@ -212,7 +216,7 @@ pub(crate) mod function {
                                 rela_path,
                                 Mismatch::Attributes {
                                     actual: matches.iter().map(|m| m.assignment.to_owned()).collect(),
-                                    expected,
+                                    expected: expected.into_iter().map(Into::into).collect(),
                                 },
                             ));
                         }
@@ -256,8 +260,34 @@ pub(crate) mod function {
     }
 
     enum Baseline {
-        Attribute { assignments: Vec<gix::attrs::Assignment> },
+        Attribute { assignments: Vec<ThreadSafeAssignment> },
         Exclude { location: Option<ExcludeLocation> },
+    }
+
+    struct ThreadSafeAssignment {
+        name: String,
+        state: gix::attrs::State,
+    }
+
+    impl ThreadSafeAssignment {
+        fn as_ref(&self) -> gix::attrs::AssignmentRef<'_> {
+            gix::attrs::AssignmentRef {
+                name: NameRef::try_from(self.name.as_bytes().as_bstr())
+                    .expect("names from git check-attr were validated while parsing"),
+                state: self.state.as_ref(),
+            }
+        }
+    }
+
+    impl From<ThreadSafeAssignment> for Assignment {
+        fn from(value: ThreadSafeAssignment) -> Self {
+            Assignment {
+                name: NameRef::try_from(value.name.as_bytes().as_bstr())
+                    .expect("names from git check-attr were validated while parsing")
+                    .to_owned(),
+                state: value.state,
+            }
+        }
     }
 
     #[derive(Debug)]
@@ -329,7 +359,7 @@ pub(crate) mod function {
         let (path, assignment) = parse_attribute_line(&first)?;
 
         let current = path.to_owned();
-        out.push(assignment.to_owned());
+        out.push(assignment);
         loop {
             let next_line = match lines.peek() {
                 None => break,
@@ -339,15 +369,15 @@ pub(crate) mod function {
             if next_path != current {
                 return Some((current, Baseline::Attribute { assignments: out }));
             } else {
-                out.push(next_assignment.to_owned());
+                out.push(next_assignment);
                 lines.next();
             }
         }
         Some((current, Baseline::Attribute { assignments: out }))
     }
 
-    fn parse_attribute_line(line: &str) -> Option<(&str, gix::attrs::AssignmentRef<'_>)> {
-        use gix::{attrs::StateRef, bstr::ByteSlice};
+    fn parse_attribute_line(line: &str) -> Option<(&str, ThreadSafeAssignment)> {
+        use gix::attrs::StateRef;
 
         let mut prev = None;
         let mut tokens = line.splitn(3, |b| {
@@ -364,9 +394,9 @@ pub(crate) mod function {
             };
             path = path.trim_end_matches(':');
             let attr = attr.trim_end_matches(':');
-            let assignment = gix::attrs::AssignmentRef {
-                name: gix::attrs::NameRef::try_from(attr.as_bytes().as_bstr()).ok()?,
-                state,
+            let assignment = ThreadSafeAssignment {
+                name: NameRef::try_from(attr.as_bytes().as_bstr()).ok()?.as_str().to_owned(),
+                state: state.to_owned(),
             };
             Some((path, assignment))
         } else {

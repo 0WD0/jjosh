@@ -136,8 +136,9 @@ pub mod tools {
             #[command(visible_alias = "trace-file")]
             TracePath {
                 /// The path to trace through history.
+                // This can't be here anymore as we also need to compile without `Send` support.
                 #[clap(value_parser = AsPathSpec)]
-                path: gix::pathspec::Pattern,
+                path: gix::bstr::BString,
             },
         }
     }

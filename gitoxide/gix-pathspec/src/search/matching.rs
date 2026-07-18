@@ -1,8 +1,8 @@
-use bstr::{BStr, BString, ByteSlice};
+use bstr::{BStr, ByteSlice};
 use gix_glob::pattern::Case;
 
 use crate::{
-    MagicSignature, Pattern, Search, SearchMode,
+    MagicSignature, Search, SearchMode,
     search::{Match, MatchKind, MatchKind::*, Spec},
 };
 
@@ -13,7 +13,8 @@ impl Search {
     /// the underlying pathspec defined an attribute filter, to be stored in `outcome`, returning true if there was a match.
     /// All attributes of the pathspec have to be present in the defined value for the pathspec to match.
     ///
-    /// Note that `relative_path` is expected to be starting at the same root as is assumed for this pattern, see [`Pattern::normalize()`].
+    /// Note that `relative_path` is expected to be starting at the same root as is assumed for this pattern, see
+    /// [`crate::Pattern::normalize()`].
     /// Further, empty searches match everything, as if `:` was provided.
     ///
     /// ### Deviation
@@ -29,17 +30,9 @@ impl Search {
         is_dir: Option<bool>,
         attributes: &mut dyn FnMut(&BStr, Case, bool, &mut gix_attributes::search::Outcome) -> bool,
     ) -> Option<Match<'_>> {
-        static MATCH_ALL_STAND_IN: Pattern = Pattern {
-            path: BString::new(Vec::new()),
-            signature: MagicSignature::empty(),
-            search_mode: SearchMode::ShellGlob,
-            attributes: Vec::new(),
-            prefix_len: 0,
-            nil: true,
-        };
         if relative_path.is_empty() {
             return Some(Match {
-                pattern: &MATCH_ALL_STAND_IN,
+                pattern: &self.match_all,
                 sequence_number: 0,
                 kind: Always,
             });
@@ -120,7 +113,7 @@ impl Search {
 
         if res.is_none() && self.all_patterns_are_excluded {
             Some(Match {
-                pattern: &MATCH_ALL_STAND_IN,
+                pattern: &self.match_all,
                 sequence_number: patterns_len,
                 kind: Always,
             })

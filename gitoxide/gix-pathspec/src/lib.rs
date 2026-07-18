@@ -100,6 +100,10 @@ pub struct Search {
     /// During matching, this order is reversed.
     patterns: Vec<gix_glob::search::pattern::Mapping<search::Spec>>,
 
+    /// The synthetic pattern returned when an empty search matches everything.
+    /// Can't be static as it's not (always) `Send` due to `gix-attributes/?parallel`.
+    match_all: Pattern,
+
     /// The path from which the patterns were read, or `None` if the patterns
     /// don't originate in a file on disk.
     pub source: Option<PathBuf>,

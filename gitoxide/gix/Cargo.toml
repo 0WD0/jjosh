@@ -267,7 +267,13 @@ hp-tempfile-registry = ["gix-tempfile/hp-hashmap"]
 ## Make certain data structure threadsafe (or `Sync`) to facilitate multithreading. Further, many algorithms will now use multiple threads by default.
 ##
 ## If unset, most of `gix` can only be used in a single thread as data structures won't be `Send` anymore.
-parallel = ["gix-features/parallel"]
+parallel = [
+    "gix-features/parallel",
+    "gix-attributes?/parallel",
+    "gix-filter?/parallel",
+    "gix-pathspec?/parallel",
+    "gix-worktree?/parallel",
+]
 
 ## Provide a fixed-size allocation-free LRU cache for packs. It's useful if caching is desired while keeping the memory footprint
 ## for the LRU-cache itself low.

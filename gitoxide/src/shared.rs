@@ -332,16 +332,22 @@ mod clap {
     });
 
     impl TypedValueParser for AsPathSpec {
-        type Value = gix::pathspec::Pattern;
+        type Value = BString;
 
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             OsStringValueParser::new()
-                .try_map(|arg| {
-                    let arg: &std::path::Path = arg.as_os_str().as_ref();
-                    gix::pathspec::parse(gix::path::into_bstr(arg).as_ref(), *PATHSPEC_DEFAULTS)
+                .try_map(|arg| -> Result<_, gix::pathspec::parse::Error> {
+                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg));
+                    gix::pathspec::parse(arg.as_ref(), *PATHSPEC_DEFAULTS)?;
+                    Ok(arg.into_owned())
                 })
                 .parse_ref(cmd, arg, value)
         }
+    }
+
+    pub fn parse_pathspec_argument(value: BString) -> gix::pathspec::Pattern {
+        gix::pathspec::parse(value.as_ref(), *PATHSPEC_DEFAULTS)
+            .expect("AsPathSpec validated the pathspec before storing its argument")
     }
 
     #[derive(Clone)]
@@ -436,7 +442,7 @@ mod clap {
 }
 pub use self::clap::{
     AsBString, AsHashKind, AsOutputFormat, AsPartialRefName, AsPathSpec, AsRange, AsTime, CheckPathSpec,
-    ParseRenameFraction,
+    ParseRenameFraction, parse_pathspec_argument,
 };
 
 #[cfg(test)]

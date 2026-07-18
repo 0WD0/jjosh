@@ -21,10 +21,10 @@ sha1 = ["gix-hash/sha1"]
 sha256 = ["gix-hash/sha256"]
 
 [dependencies]
-gix-features = { version = "^0.48.1", path = "../gix-features", features = ["progress", "io-pipe"] }
+gix-features = { version = "^0.48.1", path = "../gix-features", features = ["progress", "io-pipe", "parallel"] }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
-gix-attributes = { version = "^0.33.2", path = "../gix-attributes" }
+gix-attributes = { version = "^0.33.2", path = "../gix-attributes", features = ["parallel"] }
 gix-filter = { version = "^0.32.0", path = "../gix-filter" }
 gix-traverse = { version = "^0.59.0", path = "../gix-traverse" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }

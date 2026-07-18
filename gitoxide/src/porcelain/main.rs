@@ -73,7 +73,13 @@ pub fn main() -> Result<()> {
                         match cmd {
                             None => writeln!(err, "Choose a command for the query engine")?,
                             Some(crate::porcelain::options::tools::query::Command::TracePath { path }) => {
-                                engine.run(query::Command::TracePath { spec: path }, out, progress)?;
+                                engine.run(
+                                    query::Command::TracePath {
+                                        spec: crate::shared::parse_pathspec_argument(path),
+                                    },
+                                    out,
+                                    progress,
+                                )?;
                             }
                         }
                         Ok(())

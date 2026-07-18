@@ -132,6 +132,10 @@ impl Search {
             Ok(Search {
                 all_patterns_are_excluded: patterns.iter().all(|s| s.value.pattern.is_excluded()),
                 patterns,
+                match_all: Pattern {
+                    nil: true,
+                    ..Default::default()
+                },
                 source: None,
                 common_prefix_len,
             })

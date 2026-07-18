@@ -14,6 +14,10 @@ include = ["/src/**/*", "/LICENSE-*", "/README.md"]
 [lib]
 doctest = true
 
+[features]
+## Enable thread-safety.
+parallel = ["gix-attributes/parallel"]
+
 [dependencies]
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
 gix-path = { version = "^0.12.2", path = "../gix-path" }
