@@ -71,6 +71,35 @@ mod remove_section {
     }
 
     #[test]
+    fn removing_lookup_buckets_preserves_siblings_and_drops_the_final_name() -> crate::Result {
+        let mut file = gix_config::File::try_from(
+            "[core] key=plain\n\
+             [core \"a\"] key=a\n\
+             [core \"b\"] key=b\n",
+        )?;
+
+        file.remove_section("core", None).expect("plain section exists");
+        assert!(
+            matches!(
+                file.section("core", None),
+                Err(gix_config::lookup::existing::Error::SubSectionMissing)
+            ),
+            "the `core` section name still exists through its siblings, but its no-subsection bucket was removed"
+        );
+        assert_eq!(file.section("core", "a")?.value("key"), Some("a".into()));
+
+        file.remove_section("core", "a").expect("first subsection exists");
+        assert_eq!(file.section("core", "b")?.value("key"), Some("b".into()));
+
+        file.remove_section("core", "b").expect("final subsection exists");
+        assert!(matches!(
+            file.section("core", "b"),
+            Err(gix_config::lookup::existing::Error::SectionMissing)
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn removed_sections_can_be_mutated_and_reinserted() -> crate::Result {
         let mut file = gix_config::File::try_from("[core]\na = b\n")?;
         let mut section = file.remove_section("core", None).expect("section is present");

@@ -3,7 +3,7 @@ use gix_features::threading::OwnShared;
 use smallvec::SmallVec;
 
 use crate::{
-    AsKey, File,
+    AsBStrOpt, AsKey, File,
     file::{
         self, Metadata, SectionId,
         write::{extract_newline, platform_newline},
@@ -80,8 +80,8 @@ impl File {
     /// ```
     pub fn value_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
         value_name: &str,
     ) -> Result<T, lookup::Error<T::Error>> {
         T::try_from(self.raw_value_by(section_name, subsection_name, value_name)?)
@@ -97,8 +97,8 @@ impl File {
     /// Like [`value_by()`](File::value_by()), but returning an `None` if the value wasn't found at `section[.subsection].value_name`
     pub fn try_value_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
         value_name: &str,
     ) -> Result<Option<T>, T::Error> {
         self.raw_value_by(section_name, subsection_name, value_name)
@@ -209,8 +209,8 @@ impl File {
     /// [`TryFrom`]: std::convert::TryFrom
     pub fn values_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
         value_name: &str,
     ) -> Result<Vec<T>, lookup::Error<T::Error>> {
         self.raw_values_by(section_name, subsection_name, value_name)?
@@ -223,8 +223,8 @@ impl File {
     /// Returns the last found immutable section with a given `name` and optional `subsection_name`.
     pub fn section(
         &self,
-        name: &str,
-        subsection_name: Option<&BStr>,
+        name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
     ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
         self.section_filter(name, subsection_name, |_| true)?
             .ok_or(lookup::existing::Error::SectionMissing)
@@ -244,12 +244,12 @@ impl File {
     /// is returned.
     pub fn section_filter<'a>(
         &'a self,
-        name: &str,
-        subsection_name: Option<&BStr>,
+        name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<file::SectionRef<'a>>, lookup::existing::Error> {
         Ok(self
-            .section_ids_by_name_and_subname(name.as_ref(), subsection_name)?
+            .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
             .rev()
             .find_map({
                 let sections = &self.sections;
@@ -305,8 +305,11 @@ impl File {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn sections_by_name<'a>(&'a self, name: &'a str) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+    pub fn sections_by_name<'a>(
+        &'a self,
+        name: impl AsRef<str>,
+    ) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 file::SectionRef::from_data(
                     self.sections
@@ -323,9 +326,9 @@ impl File {
     #[must_use]
     pub fn sections_and_ids_by_name<'a>(
         &'a self,
-        name: &'a str,
+        name: impl AsRef<str>,
     ) -> Option<impl Iterator<Item = (file::SectionRef<'a>, SectionId)> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 (
                     file::SectionRef::from_data(
@@ -344,10 +347,10 @@ impl File {
     #[must_use]
     pub fn sections_by_name_and_filter<'a>(
         &'a self,
-        name: &'a str,
+        name: impl AsRef<str>,
         mut filter: impl FnMut(&Metadata) -> bool + 'a,
     ) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.filter_map(move |id| {
                 let s = self
                     .sections

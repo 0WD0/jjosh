@@ -143,17 +143,11 @@ impl Default for SectionId {
     }
 }
 
-/// All section body ids referred to by a section name.
-///
-/// Note that order in Vec matters as it represents the order
-/// of section ids with the matched section and name, and is used for precedence
-/// management.
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub(crate) enum SectionBodyIdsLut {
-    /// The list of section ids to use for obtaining the section body.
-    Terminal(Vec<SectionId>),
-    /// A hashmap from sub-section names to section ids.
-    NonTerminal(HashMap<BString, Vec<SectionId>>),
+/// All section ids referred to by a section name, in file order within each list.
+#[derive(Default, PartialEq, Eq, Clone, Debug)]
+pub(crate) struct SectionLookup {
+    without_subsection: Vec<SectionId>,
+    by_subsection: HashMap<BString, Vec<SectionId>>,
 }
 #[cfg(test)]
 mod tests;

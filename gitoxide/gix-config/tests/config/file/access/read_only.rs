@@ -290,6 +290,34 @@ fn sections_by_name() -> crate::Result {
 }
 
 #[test]
+fn sections_by_name_ignores_subsections_and_preserves_file_order() -> crate::Result {
+    let config = File::try_from(
+        "[remote] marker=plain\n\
+         [other] marker=unrelated\n\
+         [REMOTE \"origin\"] marker=origin\n\
+         [remote \"upstream\"] marker=upstream\n\
+         [remote] marker=last\n",
+    )?;
+
+    let markers: Vec<_> = config
+        .sections_by_name("Remote")
+        .expect("remote sections exist case-insensitively")
+        .map(|section| section.value("marker").expect("each matching section has a marker"))
+        .collect();
+    assert_eq!(
+        markers,
+        [
+            bstring("plain"),
+            bstring("origin"),
+            bstring("upstream"),
+            bstring("last")
+        ],
+        "plain and subsection sections are returned in file order"
+    );
+    Ok(())
+}
+
+#[test]
 fn unknown_section() -> crate::Result {
     let config = File::default();
     assert!(matches!(

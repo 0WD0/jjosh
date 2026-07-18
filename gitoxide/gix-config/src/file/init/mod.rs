@@ -24,7 +24,7 @@ impl File {
             frontmatter_post_section: Default::default(),
             section_lookup_tree: Default::default(),
             sections: Default::default(),
-            section_id_counter: 0,
+            next_section_id: 0,
             section_order: Default::default(),
             meta: meta.into(),
         }

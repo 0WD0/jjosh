@@ -135,7 +135,7 @@ fn lookup(c: &mut Criterion) {
             b.iter(|| {
                 for subsection_name in &subsection_names {
                     black_box(
-                        file.section("remote", Some(black_box(subsection_name.as_bstr())))
+                        file.section("remote", black_box(subsection_name.as_bstr()))
                             .expect("target subsection exists"),
                     );
                 }
@@ -201,7 +201,7 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_value_by(black_box("remote"), Some(black_box(subsection)), black_box("key-0"))
+                        file.raw_value_by(black_box("remote"), black_box(subsection), black_box("key-0"))
                             .expect("target value exists"),
                     )
                 });
@@ -213,12 +213,8 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_value_by(
-                            black_box("remote"),
-                            Some(black_box(subsection)),
-                            black_box(last_key.as_str()),
-                        )
-                        .expect("target value exists"),
+                        file.raw_value_by(black_box("remote"), black_box(subsection), black_box(last_key.as_str()))
+                            .expect("target value exists"),
                     )
                 });
             },
@@ -238,7 +234,7 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_values_by(black_box("remote"), Some(black_box(subsection)), black_box("fetch"))
+                        file.raw_values_by(black_box("remote"), black_box(subsection), black_box("fetch"))
                             .expect("target values exist"),
                     )
                 });

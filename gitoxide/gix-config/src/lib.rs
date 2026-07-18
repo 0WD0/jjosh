@@ -60,7 +60,7 @@ pub mod parse;
 pub mod value;
 pub use gix_config_value::{Boolean, Color, Integer, Path, color, integer, path};
 
-pub use gix_utils::AsBStr;
+pub use gix_utils::{AsBStr, AsBStrOpt};
 mod key;
 pub use key::{AsKey, KeyRef};
 mod types;

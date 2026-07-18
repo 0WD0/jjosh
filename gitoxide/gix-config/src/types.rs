@@ -1,10 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use gix_features::threading::OwnShared;
 
 use crate::{
     file,
-    file::{Metadata, SectionBodyIdsLut, SectionId},
+    file::{Metadata, SectionId, SectionLookup},
     parse::section,
 };
 
@@ -111,16 +111,15 @@ pub struct File {
     pub(crate) frontmatter_events: crate::parse::FrontMatterEvents,
     /// Frontmatter events to be placed after the given section.
     pub(crate) frontmatter_post_section: HashMap<SectionId, crate::parse::FrontMatterEvents>,
-    /// Section name to section id lookup tree, with section bodies for subsections being in a non-terminal
-    /// variant of `SectionBodyIds`.
-    pub(crate) section_lookup_tree: HashMap<section::Name, Vec<SectionBodyIdsLut>>,
+    /// Section name to section ids, separated by the presence of a subsection.
+    pub(crate) section_lookup_tree: HashMap<section::Name, SectionLookup>,
     /// This indirection with the SectionId as the key is critical to flexibly
     /// supporting `git-config` sections, as duplicated keys are permitted.
     pub(crate) sections: HashMap<SectionId, file::SectionData>,
     /// Internal monotonically increasing counter for section ids.
-    pub(crate) section_id_counter: usize,
+    pub(crate) next_section_id: usize,
     /// Section order for output ordering.
-    pub(crate) section_order: VecDeque<SectionId>,
+    pub(crate) section_order: Vec<SectionId>,
     /// The source of the File itself, which is attached to new sections automatically.
     pub(crate) meta: OwnShared<Metadata>,
 }
