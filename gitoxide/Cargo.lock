@@ -1630,6 +1630,7 @@ name = "gix-attributes"
 version = "0.33.2"
 dependencies = [
  "bstr",
+ "criterion",
  "document-features",
  "gix-fs",
  "gix-glob",
