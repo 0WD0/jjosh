@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bstr::BStr;
+use bstr::{BStr, BString, ByteSlice};
 
 use crate::{
     File,
@@ -130,6 +130,63 @@ pub(crate) fn remove_section_id_from_lookup(
     if lookup.without_subsection.is_empty() && lookup.by_subsection.is_empty() {
         lookup_tree.remove(section_name);
     }
+}
+
+pub(crate) fn set_section_header(
+    section_data: &mut file::SectionData,
+    backing: &[u8],
+    lookup_tree: &mut HashMap<section::Name, SectionLookup>,
+    section_order: &[SectionId],
+    header: section::HeaderData,
+) {
+    let old_name = section::Name(section_data.header.name.to_bstring_in(backing));
+    let old_subsection_name = section_data
+        .header
+        .subsection_name
+        .as_ref()
+        .map(|name| name.value_in(backing).to_owned());
+    let new_name = section::Name(header.name.to_bstring_in(backing));
+    let new_subsection_name = header
+        .subsection_name
+        .as_ref()
+        .map(|name| name.value_in(backing).to_owned());
+
+    if old_name != new_name || old_subsection_name != new_subsection_name {
+        remove_section_id_from_lookup(
+            lookup_tree,
+            &old_name,
+            old_subsection_name.as_ref().map(|name| name.as_bstr()),
+            section_data.id,
+        );
+        insert_section_id_into_lookup(
+            lookup_tree,
+            section_order,
+            new_name,
+            new_subsection_name,
+            section_data.id,
+        );
+    }
+    section_data.header = header;
+}
+
+pub(crate) fn insert_section_id_into_lookup(
+    lookup_tree: &mut HashMap<section::Name, SectionLookup>,
+    section_order: &[SectionId],
+    section_name: section::Name,
+    subsection_name: Option<BString>,
+    section_id: SectionId,
+) {
+    let order = section_order
+        .iter()
+        .position(|id| *id == section_id)
+        .expect("section-id is present in section order");
+    let lookup = lookup_tree.entry(section_name).or_default();
+    let earlier_sections = &section_order[..order];
+    let ids = match subsection_name {
+        Some(name) => lookup.by_subsection.entry(name).or_default(),
+        None => &mut lookup.without_subsection,
+    };
+    insert_id_in_order(ids, earlier_sections, section_id);
 }
 
 fn insert_id_in_order(ids: &mut Vec<SectionId>, earlier_sections: &[SectionId], section_id: SectionId) {

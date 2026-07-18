@@ -339,8 +339,10 @@ impl File {
         Ok(self.section_mut_from_id(id, nl).expect("each id yields a section"))
     }
 
-    /// Renames the section with `name` and `subsection_name`, modifying the last matching section
-    /// to use `new_name` and `new_subsection_name`.
+    /// Renames all sections with `name` and `subsection_name` to use `new_name` and `new_subsection_name`.
+    ///
+    /// Multiple sections may have the same name, and all matching sections are renamed. Existing sections with the target name
+    /// are preserved.
     pub fn rename_section(
         &mut self,
         name: impl AsRef<str>,
@@ -348,17 +350,13 @@ impl File {
         new_name: impl AsRef<str>,
         new_subsection_name: impl IntoBStringOpt,
     ) -> Result<(), rename_section::Error> {
-        let id = self
-            .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
-            .next_back()
-            .expect("list of sections were empty, which violates invariant");
-        let header = section::HeaderData::new_in(new_name, new_subsection_name.into_bstring_opt(), &mut self.backing)?;
-        self.sections.get_mut(&id).expect("known section-id").header = header;
-        Ok(())
+        self.rename_section_filter(name, subsection_name, new_name, new_subsection_name, |_| true)
     }
 
-    /// Renames the section with `name` and `subsection_name`, modifying the last matching section
-    /// that also passes `filter` to use `new_name` and `new_subsection_name`.
+    /// Renames all sections with `name` and `subsection_name` that pass `filter` to use `new_name` and
+    /// `new_subsection_name`.
+    ///
+    /// Existing sections with the target name are preserved.
     ///
     /// Note that the otherwise unused [`lookup::existing::Error::KeyMissing`] variant is used to indicate
     /// that the `filter` rejected all candidates, leading to no section being renamed after all.
@@ -370,13 +368,25 @@ impl File {
         new_subsection_name: impl IntoBStringOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<(), rename_section::Error> {
-        let id = self
+        let ids: Vec<_> = self
             .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
-            .rev()
-            .find(|id| filter(&self.sections.get(id).expect("each id has a section").meta))
-            .ok_or(rename_section::Error::Lookup(lookup::existing::Error::KeyMissing))?;
+            .filter(|id| filter(&self.sections.get(id).expect("each id has a section").meta))
+            .collect();
+        if ids.is_empty() {
+            return Err(rename_section::Error::Lookup(lookup::existing::Error::KeyMissing));
+        }
         let header = section::HeaderData::new_in(new_name, new_subsection_name.into_bstring_opt(), &mut self.backing)?;
-        self.sections.get_mut(&id).expect("known section-id").header = header;
+        for id in ids {
+            file::util::set_section_header(
+                self.sections
+                    .get_mut(&id)
+                    .expect("each id from the lookup has a section"),
+                &self.backing,
+                &mut self.section_lookup_tree,
+                &self.section_order,
+                header.clone(),
+            );
+        }
         Ok(())
     }
 

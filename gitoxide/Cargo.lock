@@ -1730,6 +1730,7 @@ dependencies = [
  "gix-sec",
  "gix-testtools",
  "gix-utils",
+ "insta",
  "serde",
  "serial_test",
  "smallvec",

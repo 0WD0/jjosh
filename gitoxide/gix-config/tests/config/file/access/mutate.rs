@@ -180,6 +180,109 @@ mod rename_section {
         );
         Ok(())
     }
+
+    #[test]
+    fn all_matching_sections_are_renamed_and_target_collisions_are_preserved() -> crate::Result {
+        let mut file = gix_config::File::try_from(
+            "[branch \"source\"] key = one\n\
+             [some \"gar\"] key = unrelated\n\
+             [branch \"dest\"] key = existing\n\
+             [branch \"source\"] key = two\n",
+        )?;
+
+        file.rename_section("branch", "source", "branch", "dest")?;
+
+        insta::assert_snapshot!(file.to_string(), "all sections are renamed, just like what Git does", @r#"
+        [branch "dest"]
+         key = one
+        [some "gar"]
+         key = unrelated
+        [branch "dest"]
+         key = existing
+        [branch "dest"]
+         key = two
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_renames_every_accepted_section() -> crate::Result {
+        let mut file = gix_config::File::try_from(
+            "[branch \"source\"] key = one\n\
+             [branch \"source\"] key = two\n\
+             [branch \"source\"] key = three\n",
+        )?;
+        let ids: Vec<_> = file
+            .sections_and_ids_by_name("branch")
+            .expect("branch sections exist")
+            .map(|(_, id)| id)
+            .collect();
+        file.section_mut_by_id(ids[0])
+            .expect("first section exists")
+            .set_trust(gix_sec::Trust::Reduced);
+        file.section_mut_by_id(ids[2])
+            .expect("third section exists")
+            .set_trust(gix_sec::Trust::Reduced);
+
+        file.rename_section_filter("branch", "source", "branch", "dest", |meta| {
+            meta.trust == gix_sec::Trust::Reduced
+        })?;
+
+        insta::assert_snapshot!(file.to_string(), "only the first and the last section were selected", @r#"
+        [branch "dest"]
+         key = one
+        [branch "source"]
+         key = two
+        [branch "dest"]
+         key = three
+        "#);
+
+        let prev = file.to_string();
+        assert!(
+            matches!(
+                file.rename_section_filter("branch", "source", "branch", "other", |_| false),
+                Err(rename_section::Error::Lookup(
+                    gix_config::lookup::existing::Error::KeyMissing
+                )),
+            ),
+            "matching nothing causes an error"
+        );
+        assert_eq!(
+            file.to_string(),
+            prev,
+            "rejecting every candidate leaves the source unchanged"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn renaming_to_the_same_identity_updates_all_headers() -> crate::Result {
+        let mut file = gix_config::File::try_from(
+            "[branch.source] one = 1\n\
+             [branch.source] two = 2\n",
+        )?;
+        file.rename_section("branch", "source", "branch", "source")?;
+        insta::assert_snapshot!(file.to_string(), "we only ever write non-legacy headers", @r#"
+        [branch "source"]
+         one = 1
+        [branch "source"]
+         two = 2
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn an_empty_lookup_bucket_is_reported_as_missing() -> crate::Result {
+        let mut file = gix_config::File::try_from("[core] key = value\n")?;
+        file.remove_section("core", None).expect("section exists");
+        assert!(matches!(
+            file.rename_section("core", None, "other", None),
+            Err(rename_section::Error::Lookup(
+                gix_config::lookup::existing::Error::SectionMissing
+            ))
+        ));
+        Ok(())
+    }
 }
 mod set_meta {
     use gix_config::file;
