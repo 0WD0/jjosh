@@ -789,6 +789,23 @@ pub fn main() -> Result<()> {
             }
         }
         Subcommands::Config(config::Platform { filter, cmd }) => match cmd {
+            Some(config::Subcommands::List) => prepare_and_run(
+                "config-list-files",
+                trace,
+                verbose,
+                progress,
+                progress_keep_open,
+                None,
+                move |_progress, out, _err| {
+                    core::repository::config::list_files(
+                        repository(Mode::LenientWithGitInstallConfig)?,
+                        config,
+                        format,
+                        out,
+                    )
+                },
+            )
+            .map(|_| ()),
             Some(config::Subcommands::Fmt {
                 in_place,
                 in_file,

@@ -643,6 +643,10 @@ pub mod config {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
+        /// List all configuration files contributing to the resolved configuration.
+        ///
+        /// Included files are shown as well, along with the Source they inherit and their inclusion level.
+        List,
         /// Format a git configuration file, normalizing insignificant whitespace.
         ///
         /// Includes are never resolved; only whitespace, newlines and the `=` separator are rewritten.

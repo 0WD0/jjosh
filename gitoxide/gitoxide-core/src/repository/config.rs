@@ -4,6 +4,40 @@ use std::io::Write as _;
 
 use crate::OutputFormat;
 
+/// List all files which contributed sections to the resolved configuration, in precedence order.
+pub fn list_files(
+    repo: gix::Repository,
+    overrides: Vec<BString>,
+    format: OutputFormat,
+    mut out: impl std::io::Write,
+) -> Result<()> {
+    if format != OutputFormat::Human {
+        bail!("Only human output format is supported at the moment");
+    }
+    let repo = gix::open_opts(repo.git_dir(), repo.open_options().clone().cli_overrides(overrides))?;
+    let config = repo.config_snapshot();
+    let mut seen = std::collections::BTreeSet::new();
+    for meta in config.sections().map(|section| section.meta()).chain([config.meta()]) {
+        let Some(path) = meta.path.as_ref() else {
+            continue;
+        };
+        if seen.insert(path) {
+            if meta.level == 0 {
+                writeln!(out, "{}\t{{ source={:?} }}", path.display(), meta.source)?;
+            } else {
+                writeln!(
+                    out,
+                    "{}\t{{ source={:?}, include-level={} }}",
+                    path.display(),
+                    meta.source,
+                    meta.level
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn list(
     repo: gix::Repository,
     filters: Vec<BString>,
