@@ -22,8 +22,6 @@ pub use events_type::{Events, SectionRef};
 mod comment;
 mod error;
 ///
-pub mod format;
-///
 pub mod section;
 
 #[cfg(test)]
@@ -166,10 +164,10 @@ pub(crate) enum Event {
     /// also unprocessed, so it may contain double quotes that should be
     /// [normalized][crate::value::normalize()] before interpretation.
     Value(Span),
-    /// Represents any token used to signify a newline character. On Unix
-    /// platforms, this is typically just `\n`, but can be any valid newline
-    /// *sequence*. Multiple newlines (such as `\n\n`) will be merged as a single
-    /// newline event containing a string of multiple newline characters.
+    /// One or more consecutive line endings.
+    ///
+    /// Both `\n` and `\r\n` are accepted, including mixed runs. Multiple line endings, such as
+    /// `\n\n`, are merged into a single event whose span contains the entire run.
     Newline(Span),
     /// Any value that isn't completed. This occurs when the value is continued
     /// onto the next line by ending it with a backslash.
@@ -220,7 +218,10 @@ pub enum EventRef<'a> {
     SectionValueName(&'a BStr),
     /// A completed value.
     Value(&'a BStr),
-    /// A newline token.
+    /// One or more consecutive line endings.
+    ///
+    /// Both `\n` and `\r\n` are accepted, including mixed runs. Multiple line endings, such as
+    /// `\n\n`, are merged into a single event whose byte string contains the entire run.
     Newline(&'a BStr),
     /// An incomplete continued value.
     ValueNotDone(&'a BStr),

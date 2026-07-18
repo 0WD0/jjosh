@@ -1,7 +1,6 @@
 use gix_config::parse::{EventRef, Events, SectionRef};
 
 mod error;
-mod format;
 mod from_bytes;
 mod section;
 

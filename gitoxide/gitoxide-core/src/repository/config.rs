@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use gix::{bstr::BString, config::AsKey};
+use std::io::Write as _;
 
 use crate::OutputFormat;
 
@@ -67,14 +68,26 @@ pub fn fmt(
             .common_dir()
             .join("config"),
     };
+    let lock = in_place
+        .then(|| {
+            gix::lock::File::acquire_to_update_resource(&source, gix::lock::acquire::Fail::Immediately, None)
+                .with_context(|| format!("Could not lock configuration file at '{}'", source.display()))
+        })
+        .transpose()?;
     let input = std::fs::read(&source)
         .with_context(|| format!("Could not read configuration file at '{}'", source.display()))?;
-    let formatted = gix::config::parse::format::normalize(&input, &Default::default())?;
-    let destination = if in_place { Some(source) } else { out_file };
-    match destination {
-        Some(path) => std::fs::write(&path, &formatted)
+    let formatted = gix::config::format::normalize(&input, Default::default())?;
+    match (lock, out_file) {
+        (Some(mut lock), _) => {
+            lock.write_all(&formatted)
+                .with_context(|| format!("Could not write formatted configuration to '{}.lock'", source.display()))?;
+            lock.commit()
+                .map_err(|err| err.error)
+                .with_context(|| format!("Could not commit formatted configuration to '{}'", source.display()))?;
+        }
+        (None, Some(path)) => std::fs::write(&path, &formatted)
             .with_context(|| format!("Could not write formatted configuration to '{}'", path.display()))?,
-        None => out.write_all(&formatted)?,
+        (None, None) => out.write_all(&formatted)?,
     }
     Ok(())
 }

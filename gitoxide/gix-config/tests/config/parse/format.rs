@@ -11,23 +11,23 @@ fn norm(input: &str) -> String {
 /// Collect (section, name, value) triples from a config's event stream so two configs can be
 /// compared for *meaning* rather than bytes.
 fn semantic_triples(input: &str) -> Vec<(String, String, String)> {
-    use gix_config::parse::Event;
-    let events = Events::from_str(input).expect("valid").into_vec();
+    use gix_config::parse::EventRef;
+    let events = Events::from_str(input).expect("valid");
     let mut out = Vec::new();
     let mut section = String::new();
     let mut pending_name: Option<String> = None;
     let mut value = String::new();
-    for ev in &events {
+    for ev in events.iter() {
         match ev {
-            Event::SectionHeader(h) => section = h.to_bstring().to_string(),
-            Event::SectionValueName(_) => {
+            EventRef::SectionHeader { name, .. } => section = name.to_string(),
+            EventRef::SectionValueName(name) => {
                 if let Some(name) = pending_name.take() {
                     out.push((section.clone(), name, std::mem::take(&mut value)));
                 }
-                pending_name = Some(ev.to_bstr_lossy().to_string());
+                pending_name = Some(name.to_string());
                 value.clear();
             }
-            Event::Value(_) | Event::ValueDone(_) | Event::ValueNotDone(_) => {
+            EventRef::Value(_) | EventRef::ValueDone(_) | EventRef::ValueNotDone(_) => {
                 value.push_str(&ev.to_bstr_lossy().to_string());
             }
             _ => {}
@@ -110,6 +110,17 @@ fn crlf_is_detected_and_normalized() {
 }
 
 #[test]
+fn crlf_comments_do_not_accumulate_carriage_returns() {
+    let input = "; top comment\r\n[core]\r\n# inner\r\neditor=x ; inline\r\n";
+    let once = norm(input);
+    assert_eq!(
+        once,
+        "; top comment\r\n[core]\r\n  # inner\r\n  editor = x ; inline\r\n"
+    );
+    assert_eq!(norm(&once), once, "formatting CRLF comments must be idempotent");
+}
+
+#[test]
 fn blank_lines_left_alone_by_default() {
     let input = "[a]\nx = 1\n\n\n[b]\ny = 2\n";
     assert_eq!(norm(input), "[a]\n  x = 1\n\n\n[b]\n  y = 2\n");
@@ -123,6 +134,33 @@ fn blank_lines_collapsed_when_requested() {
     };
     let out = format::normalize("[a]\nx = 1\n\n\n\n[b]\ny = 2\n".as_bytes(), &opts).unwrap();
     assert_eq!(String::from_utf8(out.into()).unwrap(), "[a]\n  x = 1\n\n[b]\n  y = 2\n");
+}
+
+#[test]
+fn whitespace_only_blank_lines_are_counted_in_the_same_run() {
+    let input = "[a]\nx = 1\n \n\t\n[b]\ny = 2\n";
+    for (max_blank, expected) in [
+        (0, "[a]\n  x = 1\n[b]\n  y = 2\n"),
+        (1, "[a]\n  x = 1\n\n[b]\n  y = 2\n"),
+    ] {
+        let opts = Options {
+            max_consecutive_blank_lines: Some(max_blank),
+            ..Options::default()
+        };
+        let out = format::normalize(input.as_bytes(), &opts).expect("valid config");
+        assert_eq!(String::from_utf8(out.into()).expect("ASCII output"), expected);
+    }
+
+    let opts = Options {
+        max_consecutive_blank_lines: Some(0),
+        ..Options::default()
+    };
+    let out = format::normalize(b" \n\t\n[a]\nx=1\n", &opts).expect("valid config");
+    assert_eq!(
+        out.as_slice(),
+        b"[a]\n  x = 1\n",
+        "leading whitespace-only blank lines are part of the capped run"
+    );
 }
 
 #[test]
@@ -174,6 +212,23 @@ fn force_crlf_newline() {
     };
     let out = format::normalize("[core]\n  editor = vim\n".as_bytes(), &opts).unwrap();
     assert_eq!(String::from_utf8(out.into()).unwrap(), "[core]\r\n  editor = vim\r\n");
+}
+
+#[test]
+fn forced_newlines_apply_inside_continued_values() {
+    let lf = Options {
+        newline: Newline::Lf,
+        ..Options::default()
+    };
+    let out = format::normalize(b"[alias]\r\nsave=one\\\r\n  two\r\n", &lf).expect("valid config");
+    assert_eq!(out.as_slice(), b"[alias]\n  save = one\\\n  two\n");
+
+    let crlf = Options {
+        newline: Newline::CrLf,
+        ..Options::default()
+    };
+    let out = format::normalize(b"[alias]\nsave=one\\\n  two\n", &crlf).expect("valid config");
+    assert_eq!(out.as_slice(), b"[alias]\r\n  save = one\\\r\n  two\r\n");
 }
 
 #[test]

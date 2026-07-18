@@ -53,6 +53,8 @@
 
 pub mod file;
 
+/// Reformat a git-config file with normalized, sanitized whitespace.
+pub mod format;
 ///
 pub mod lookup;
 pub mod parse;
