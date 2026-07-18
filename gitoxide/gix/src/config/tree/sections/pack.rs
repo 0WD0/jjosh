@@ -27,14 +27,16 @@ mod index_version {
         /// Try to interpret an integer value as index version.
         pub fn try_into_index_version(
             &'static self,
-            value: Result<i64, gix_config::value::Error>,
-        ) -> Result<gix_pack::index::Version, config::key::GenericError> {
-            let value = value.map_err(|err| config::key::GenericError::from(self).with_source(err))?;
-            Ok(match value {
+            value: Result<Option<i64>, gix_config::value::Error>,
+        ) -> Result<Option<gix_pack::index::Version>, config::key::GenericError> {
+            let Some(value) = value.map_err(|err| config::key::GenericError::from(self).with_source(err))? else {
+                return Ok(None);
+            };
+            Ok(Some(match value {
                 1 => gix_pack::index::Version::V1,
                 2 => gix_pack::index::Version::V2,
                 _ => return Err(config::key::GenericError::from(self)),
-            })
+            }))
         }
     }
 }
@@ -56,12 +58,14 @@ mod validate {
     pub struct IndexVersion;
     impl keys::Validate for IndexVersion {
         fn validate(&self, value: &BStr) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-            super::Pack::INDEX_VERSION.try_into_index_version(gix_config::Integer::try_from(value).and_then(
-                |int| {
-                    int.to_decimal()
-                        .ok_or_else(|| gix_config::value::Error::new("integer out of range", value))
-                },
-            ))?;
+            super::Pack::INDEX_VERSION.try_into_index_version(
+                gix_config::Integer::try_from(value)
+                    .and_then(|int| {
+                        int.to_decimal()
+                            .ok_or_else(|| gix_config::value::Error::new("integer out of range", value))
+                    })
+                    .map(Some),
+            )?;
             Ok(())
         }
     }

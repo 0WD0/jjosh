@@ -43,10 +43,7 @@ impl crate::Repository {
                     feature = "blocking-http-transport-curl"
                 ))]
                 {
-                    use std::{
-                        borrow::Cow,
-                        sync::{Arc, Mutex},
-                    };
+                    use std::sync::{Arc, Mutex};
 
                     use gix_transport::client::blocking_io::http::{
                         self,
@@ -54,16 +51,17 @@ impl crate::Repository {
                     };
 
                     use crate::{
+                        bstr::BString,
                         config,
                         config::{
                             cache::util::ApplyLeniency,
                             tree::{Key, Remote, gitoxide},
                         },
                     };
-                    fn try_cow_to_string(
-                        v: Cow<'_, BStr>,
+                    fn try_to_string(
+                        v: BString,
                         lenient: bool,
-                        key_str: impl Into<Cow<'static, BStr>>,
+                        key_str: impl Into<BString>,
                         key: &'static config::tree::keys::String,
                     ) -> Result<Option<String>, config::transport::Error> {
                         key.try_into_string(v)
@@ -75,16 +73,8 @@ impl crate::Repository {
                             .with_leniency(lenient)
                     }
 
-                    fn cow_bstr(v: &str) -> Cow<'_, BStr> {
-                        Cow::Borrowed(v.into())
-                    }
-
                     fn proxy_auth_method(
-                        value_and_key: Option<(
-                            Cow<'_, BStr>,
-                            Cow<'static, BStr>,
-                            &'static config::tree::http::ProxyAuthMethod,
-                        )>,
+                        value_and_key: Option<(BString, BString, &'static config::tree::http::ProxyAuthMethod)>,
                     ) -> Result<ProxyAuthMethod, config::transport::Error> {
                         let value = value_and_key
                             .map(|(method, key, key_type)| {
@@ -98,7 +88,7 @@ impl crate::Repository {
                     }
 
                     fn ssl_version(
-                        config: &gix_config::File<'static>,
+                        config: &gix_config::File,
                         key_str: &'static str,
                         key: &'static config::tree::http::SslVersion,
                         mut filter: fn(&gix_config::file::Metadata) -> bool,
@@ -122,11 +112,11 @@ impl crate::Repository {
                     }
 
                     fn proxy(
-                        value: Option<(Cow<'_, BStr>, Cow<'static, BStr>, &'static config::tree::keys::String)>,
+                        value: Option<(BString, BString, &'static config::tree::keys::String)>,
                         lenient: bool,
                     ) -> Result<Option<String>, config::transport::Error> {
                         Ok(value
-                            .and_then(|(v, k, key)| try_cow_to_string(v, lenient, k.clone(), key).transpose())
+                            .and_then(|(v, k, key)| try_to_string(v, lenient, k.clone(), key).transpose())
                             .transpose()?
                             .map(|mut proxy| {
                                 if !proxy.trim().is_empty() && !proxy.contains("://") {
@@ -151,7 +141,7 @@ impl crate::Repository {
                             .transpose()
                             .map_err(|err| config::transport::Error::IllformedUtf8 {
                                 source: err,
-                                key: Cow::Borrowed(key.into()),
+                                key: key.into(),
                             })?
                             .unwrap_or_default()
                     };
@@ -162,27 +152,18 @@ impl crate::Repository {
                         config::tree::Http::FOLLOW_REDIRECTS
                             .try_into_follow_redirects(
                                 config.string_filter(key, &mut trusted_only).unwrap_or_default(),
-                                || {
-                                    config
-                                        .boolean_filter(key, &mut trusted_only)
-                                        .transpose()
-                                        .with_leniency(lenient)
-                                },
+                                || config.boolean_filter(key, &mut trusted_only).with_leniency(lenient),
                             )
                             .map_err(config::transport::http::Error::InvalidFollowRedirects)?
                     };
 
-                    opts.low_speed_time_seconds = config
-                        .integer_filter("http.lowSpeedTime", &mut trusted_only)
-                        .map(|value| config::tree::Http::LOW_SPEED_TIME.try_into_u64(value))
-                        .transpose()
+                    opts.low_speed_time_seconds = config::tree::Http::LOW_SPEED_TIME
+                        .try_into_u64(config.integer_filter("http.lowSpeedTime", &mut trusted_only))
                         .with_leniency(lenient)
                         .map_err(config::transport::http::Error::from)?
                         .unwrap_or_default();
-                    opts.low_speed_limit_bytes_per_second = config
-                        .integer_filter("http.lowSpeedLimit", &mut trusted_only)
-                        .map(|value| config::tree::Http::LOW_SPEED_LIMIT.try_into_u32(value))
-                        .transpose()
+                    opts.low_speed_limit_bytes_per_second = config::tree::Http::LOW_SPEED_LIMIT
+                        .try_into_u32(config.integer_filter("http.lowSpeedLimit", &mut trusted_only))
                         .with_leniency(lenient)
                         .map_err(config::transport::http::Error::from)?
                         .unwrap_or_default();
@@ -194,20 +175,20 @@ impl crate::Repository {
                                         &format!("remote.{}.{}", name, Remote::PROXY.name),
                                         &mut trusted_only,
                                     )
-                                    .map(|v| (v, Cow::Owned(format!("remote.{name}.proxy").into()), &Remote::PROXY))
+                                    .map(|v| (v, format!("remote.{name}.proxy").into(), &Remote::PROXY))
                             })
                             .or_else(|| {
                                 let key = "http.proxy";
                                 debug_assert_eq!(key, config::tree::Http::PROXY.logical_name());
                                 let http_proxy = config
                                     .string_filter(key, &mut trusted_only)
-                                    .map(|v| (v, cow_bstr(key), &config::tree::Http::PROXY))
+                                    .map(|v| (v, key.into(), &config::tree::Http::PROXY))
                                     .or_else(|| {
                                         let key = "gitoxide.http.proxy";
                                         debug_assert_eq!(key, gitoxide::Http::PROXY.logical_name());
                                         config
                                             .string_filter(key, &mut trusted_only)
-                                            .map(|v| (v, cow_bstr(key), &gitoxide::Http::PROXY))
+                                            .map(|v| (v, key.into(), &gitoxide::Http::PROXY))
                                     });
                                 if url.scheme == Https {
                                     http_proxy.or_else(|| {
@@ -215,7 +196,7 @@ impl crate::Repository {
                                         debug_assert_eq!(key, gitoxide::Https::PROXY.logical_name());
                                         config
                                             .string_filter(key, &mut trusted_only)
-                                            .map(|v| (v, cow_bstr(key), &gitoxide::Https::PROXY))
+                                            .map(|v| (v, key.into(), &gitoxide::Https::PROXY))
                                     })
                                 } else {
                                     http_proxy
@@ -226,7 +207,7 @@ impl crate::Repository {
                                 debug_assert_eq!(key, gitoxide::Http::ALL_PROXY.logical_name());
                                 config
                                     .string_filter(key, &mut trusted_only)
-                                    .map(|v| (v, cow_bstr(key), &gitoxide::Http::ALL_PROXY))
+                                    .map(|v| (v, key.into(), &gitoxide::Http::ALL_PROXY))
                             }),
                         lenient,
                     )?;
@@ -235,10 +216,7 @@ impl crate::Repository {
                         debug_assert_eq!(key, gitoxide::Http::NO_PROXY.logical_name());
                         opts.no_proxy = config
                             .string_filter(key, &mut trusted_only)
-                            .and_then(|v| {
-                                try_cow_to_string(v, lenient, Cow::Borrowed(key.into()), &gitoxide::Http::NO_PROXY)
-                                    .transpose()
-                            })
+                            .and_then(|v| try_to_string(v, lenient, key, &gitoxide::Http::NO_PROXY).transpose())
                             .transpose()?;
                     }
                     opts.proxy_auth_method = proxy_auth_method({
@@ -246,7 +224,7 @@ impl crate::Repository {
                         debug_assert_eq!(key, gitoxide::Http::PROXY_AUTH_METHOD.logical_name());
                         config
                             .string_filter(key, &mut trusted_only)
-                            .map(|v| (v, Cow::Borrowed(key.into()), &gitoxide::Http::PROXY_AUTH_METHOD))
+                            .map(|v| (v, key.into(), &gitoxide::Http::PROXY_AUTH_METHOD))
                             .or_else(|| {
                                 remote_name
                                     .and_then(|name| {
@@ -255,7 +233,7 @@ impl crate::Repository {
                                             .map(|v| {
                                                 (
                                                     v,
-                                                    Cow::Owned(format!("remote.{name}.proxyAuthMethod").into()),
+                                                    format!("remote.{name}.proxyAuthMethod").into(),
                                                     &Remote::PROXY_AUTH_METHOD,
                                                 )
                                             })
@@ -263,9 +241,9 @@ impl crate::Repository {
                                     .or_else(|| {
                                         let key = "http.proxyAuthMethod";
                                         debug_assert_eq!(key, config::tree::Http::PROXY_AUTH_METHOD.logical_name());
-                                        config.string_filter(key, &mut trusted_only).map(|v| {
-                                            (v, Cow::Borrowed(key.into()), &config::tree::Http::PROXY_AUTH_METHOD)
-                                        })
+                                        config
+                                            .string_filter(key, &mut trusted_only)
+                                            .map(|v| (v, key.into(), &config::tree::Http::PROXY_AUTH_METHOD))
                                     })
                             })
                     })?;
@@ -288,30 +266,17 @@ impl crate::Repository {
                         .transpose()?;
                     opts.connect_timeout = {
                         let key = "gitoxide.http.connectTimeout";
-                        config
-                            .integer_filter(key, &mut trusted_only)
-                            .map(|v| {
-                                debug_assert_eq!(key, gitoxide::Http::CONNECT_TIMEOUT.logical_name());
-                                gitoxide::Http::CONNECT_TIMEOUT
-                                    .try_into_duration(v)
-                                    .map_err(crate::config::transport::http::Error::from)
-                            })
-                            .transpose()
+                        debug_assert_eq!(key, gitoxide::Http::CONNECT_TIMEOUT.logical_name());
+                        gitoxide::Http::CONNECT_TIMEOUT
+                            .try_into_duration(config.integer_filter(key, &mut trusted_only))
+                            .map_err(crate::config::transport::http::Error::from)
                             .with_leniency(lenient)?
                     };
                     {
                         let key = "http.userAgent";
                         opts.user_agent = config
                             .string_filter(key, &mut trusted_only)
-                            .and_then(|v| {
-                                try_cow_to_string(
-                                    v,
-                                    lenient,
-                                    Cow::Borrowed(key.into()),
-                                    &config::tree::Http::USER_AGENT,
-                                )
-                                .transpose()
-                            })
+                            .and_then(|v| try_to_string(v, lenient, key, &config::tree::Http::USER_AGENT).transpose())
                             .transpose()?
                             .or_else(|| Some(crate::env::agent().into()));
                     }
@@ -331,16 +296,15 @@ impl crate::Repository {
                     {
                         opts.verbose = config
                             .boolean_filter(gitoxide::Http::VERBOSE, &mut trusted_only)
-                            .and_then(Result::ok)
+                            .ok()
+                            .flatten()
                             .unwrap_or_default();
                     }
 
                     let may_use_cainfo = {
                         let key = "http.schannelUseSSLCAInfo";
-                        config
-                            .boolean_filter(key, &mut trusted_only)
-                            .map(|value| config::tree::Http::SCHANNEL_USE_SSL_CA_INFO.enrich_error(value))
-                            .transpose()
+                        config::tree::Http::SCHANNEL_USE_SSL_CA_INFO
+                            .enrich_error(config.boolean_filter(key, &mut trusted_only))
                             .with_leniency(lenient)
                             .map_err(config::transport::http::Error::from)?
                             .unwrap_or(true)
@@ -357,7 +321,6 @@ impl crate::Repository {
                                     self.install_dir().ok().as_deref(),
                                     self.config.home_dir().as_deref(),
                                 ))
-                                .map(std::borrow::Cow::into_owned)
                             })
                             .transpose()
                             .with_leniency(lenient)
@@ -402,10 +365,8 @@ impl crate::Repository {
 
                     {
                         let key = "gitoxide.http.sslNoVerify";
-                        let ssl_no_verify = config
-                            .boolean_filter(key, &mut trusted_only)
-                            .map(|value| config::tree::gitoxide::Http::SSL_NO_VERIFY.enrich_error(value))
-                            .transpose()
+                        let ssl_no_verify = config::tree::gitoxide::Http::SSL_NO_VERIFY
+                            .enrich_error(config.boolean_filter(key, &mut trusted_only))
                             .with_leniency(lenient)
                             .map_err(config::transport::http::Error::from)?
                             .unwrap_or_default();
@@ -414,10 +375,8 @@ impl crate::Repository {
                             opts.ssl_verify = false;
                         } else {
                             let key = "http.sslVerify";
-                            opts.ssl_verify = config
-                                .boolean_filter(key, &mut trusted_only)
-                                .map(|value| config::tree::Http::SSL_VERIFY.enrich_error(value))
-                                .transpose()
+                            opts.ssl_verify = config::tree::Http::SSL_VERIFY
+                                .enrich_error(config.boolean_filter(key, &mut trusted_only))
                                 .with_leniency(lenient)
                                 .map_err(config::transport::http::Error::from)?
                                 .unwrap_or(true);
@@ -427,10 +386,8 @@ impl crate::Repository {
                     #[cfg(feature = "blocking-http-transport-curl")]
                     {
                         let key = "http.schannelCheckRevoke";
-                        let schannel_check_revoke = config
-                            .boolean_filter(key, &mut trusted_only)
-                            .map(|value| config::tree::Http::SCHANNEL_CHECK_REVOKE.enrich_error(value))
-                            .transpose()
+                        let schannel_check_revoke = config::tree::Http::SCHANNEL_CHECK_REVOKE
+                            .enrich_error(config.boolean_filter(key, &mut trusted_only))
                             .with_leniency(lenient)
                             .map_err(config::transport::http::Error::from)?;
                         let backend =

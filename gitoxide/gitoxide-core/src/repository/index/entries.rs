@@ -110,7 +110,7 @@ pub(crate) mod function {
                     .map(|opt| {
                         opt.map(|submodules| {
                             submodules
-                                .map(|sm| sm.path().map(Cow::into_owned).map(move |path| (path, sm)))
+                                .map(|sm| sm.path().map(move |path| (path, sm)))
                                 .collect::<Result<Vec<_>, _>>()
                         })
                     })

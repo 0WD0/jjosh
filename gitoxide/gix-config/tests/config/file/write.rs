@@ -30,13 +30,49 @@ fn empty_sections_with_comments_roundtrip() {
     let mut single_string = config.to_bstring();
     assert_eq!(single_string, input);
     assert_eq!(
-        config.append(config.clone()).to_string(),
+        config
+            .append(config.clone())
+            .expect("the small fixture fits into the backing buffer")
+            .to_string(),
         {
             let clone = single_string.clone();
             single_string.push_str(&clone);
             single_string
         },
         "string-duplication is the same as data structure duplication"
+    );
+}
+
+#[test]
+fn decoded_subsection_names_keep_their_raw_spelling() {
+    let input = r#"[remote "single \t \0"]
+"#;
+    let config = gix_config::File::try_from(input).expect("valid config");
+    let section = config
+        .section("remote", Some("single t 0".into()))
+        .expect("the decoded subsection name is used for lookup");
+
+    assert_eq!(
+        section.header().subsection_name(),
+        Some("single t 0".into()),
+        "semantic access returns the decoded subsection name"
+    );
+    assert_eq!(
+        config.to_bstring(),
+        input,
+        "serialization uses the original raw subsection spelling"
+    );
+}
+
+#[test]
+fn inserted_newlines_use_each_sections_newline_style() {
+    let input = "[a]\nx=1\n[b]y=2\r\n";
+    let config = gix_config::File::try_from(input).expect("valid config");
+
+    assert_eq!(
+        config.to_bstring(),
+        "[a]\nx=1\n[b]\r\ny=2\r\n",
+        "the newline inserted after a header matches the newline style of its section body"
     );
 }
 
@@ -111,8 +147,6 @@ mod to_filter {
     use bstr::ByteSlice;
     use gix_config::file::Metadata;
 
-    use crate::file::cow_str;
-
     #[test]
     fn allows_only_selected_sections() -> crate::Result {
         let mut config = gix_config::File::new(Metadata::api());
@@ -122,17 +156,17 @@ mod to_filter {
         config.set_meta(meta);
 
         config
-            .new_section("a", cow_str("local"))?
-            .push("b".try_into()?, Some("c".into()))
-            .push("c".try_into()?, Some("d".into()));
+            .new_section("a", "local")?
+            .push("b".try_into()?, Some("c".into()))?
+            .push("c".try_into()?, Some("d".into()))?;
 
         let meta: Metadata = gix_config::Source::User.into();
         config.set_meta(meta);
 
         config
-            .new_section("a", cow_str("user"))?
-            .push("b".try_into()?, Some("c".into()))
-            .push("c".try_into()?, Some("d".into()));
+            .new_section("a", "user")?
+            .push("b".try_into()?, Some("c".into()))?
+            .push("c".try_into()?, Some("d".into()))?;
 
         let mut buf = Vec::<u8>::new();
         config.write_to_filter(&mut buf, |s| s.meta().source == gix_config::Source::Local)?;

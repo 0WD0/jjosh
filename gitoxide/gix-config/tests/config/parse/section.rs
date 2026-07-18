@@ -1,76 +1,67 @@
-use std::borrow::Cow;
+use gix_config::parse::EventRef;
 
-use gix_config::parse::{Event, section};
-
-pub fn header_event(name: &'static str, subsection: impl Into<Option<&'static str>>) -> Event<'static> {
-    Event::SectionHeader(section::Header::new(name, subsection.into().map(|s| Cow::Borrowed(s.into()))).unwrap())
+pub fn header_event(name: &'static str, subsection: impl Into<Option<&'static str>>) -> EventRef<'static> {
+    let subsection_name = subsection.into();
+    EventRef::SectionHeader {
+        name: name.into(),
+        separator: subsection_name.map(|_| " ".into()),
+        subsection_name: subsection_name.map(Into::into),
+    }
 }
 
 mod header {
-    use std::borrow::Cow;
+    use gix_config::file::IntoBStringOpt;
 
-    use bstr::BStr;
-
-    fn cow_section(name: &str) -> Option<Cow<'_, BStr>> {
-        Some(Cow::Borrowed(name.into()))
+    fn serialized(
+        name: &str,
+        subsection: impl IntoBStringOpt,
+    ) -> Result<bstr::BString, gix_config::parse::section::header::Error> {
+        let mut config = gix_config::File::default();
+        let section = config.new_section(name, subsection.into_bstring_opt())?;
+        Ok(section.header().to_bstring())
     }
-    mod write_to {
-        use gix_config::parse::section;
 
-        use crate::parse::section::header::cow_section;
+    mod write_to {
+        use crate::parse::section::header::serialized;
 
         #[test]
         fn subsection_backslashes_and_quotes_are_escaped() -> crate::Result {
-            assert_eq!(
-                section::Header::new("core", cow_section(r"a\b"))?.to_bstring(),
-                r#"[core "a\\b"]"#
-            );
-            assert_eq!(
-                section::Header::new("core", cow_section(r#"a:"b""#))?.to_bstring(),
-                r#"[core "a:\"b\""]"#
-            );
+            assert_eq!(serialized("core", r"a\b")?, r#"[core "a\\b"]"#);
+            assert_eq!(serialized("core", r#"a:"b""#)?, r#"[core "a:\"b\""]"#);
             Ok(())
         }
 
         #[test]
         fn everything_is_allowed() -> crate::Result {
-            assert_eq!(
-                section::Header::new("core", cow_section("a/b \t\t a\\b"))?.to_bstring(),
-                "[core \"a/b \t\t a\\\\b\"]"
-            );
+            assert_eq!(serialized("core", "a/b \t\t a\\b")?, "[core \"a/b \t\t a\\\\b\"]");
             Ok(())
         }
     }
     mod new {
         use gix_config::parse::section;
 
-        use crate::parse::section::header::cow_section;
+        use crate::parse::section::header::serialized;
 
         #[test]
         fn names_must_be_mostly_ascii() {
             for name in ["🤗", "x.y", "x y", "x\ny"] {
-                assert_eq!(
-                    section::Header::new(name, None),
-                    Err(section::header::Error::InvalidName)
-                );
+                assert_eq!(serialized(name, None), Err(section::header::Error::InvalidName));
             }
         }
 
         #[test]
         fn subsections_with_newlines_and_null_bytes_are_rejected() {
-            assert_eq!(
-                section::Header::new("a", cow_section("a\nb")),
-                Err(section::header::Error::InvalidSubSection)
-            );
-            assert_eq!(
-                section::Header::new("a", cow_section("a\0b")),
-                Err(section::header::Error::InvalidSubSection)
-            );
+            assert_eq!(serialized("a", "a\nb"), Err(section::header::Error::InvalidSubSection));
+            assert_eq!(serialized("a", "a\0b"), Err(section::header::Error::InvalidSubSection));
         }
     }
 }
 mod name {
     use gix_config::parse::section::Name;
+
+    fn name(name: &str) -> Name {
+        Name::try_from(name).expect("valid section name")
+    }
 
     #[test]
     fn alphanum_and_dash_are_valid() {
@@ -85,6 +76,11 @@ mod name {
         assert!(Name::try_from("\"").is_err());
         assert!(Name::try_from("##").is_err());
     }
+
+    #[test]
+    fn case_insensitive_eq() {
+        assert_eq!(name("Co-Re"), name("cO-rE"));
+    }
 }
 
 mod key {
@@ -92,8 +88,8 @@ mod key {
 
     use gix_config::parse::section::ValueName;
 
-    fn key(k: &str) -> ValueName<'_> {
-        ValueName::try_from(k).unwrap()
+    fn key(k: &str) -> ValueName {
+        ValueName::try_from(k).expect("valid test key")
     }
 
     #[test]

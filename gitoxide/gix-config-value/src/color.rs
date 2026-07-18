@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use std::{borrow::Cow, fmt::Display, str::FromStr};
 
 use bstr::{BStr, BString};
@@ -89,6 +88,14 @@ impl TryFrom<&BStr> for Color {
     }
 }
 
+impl TryFrom<&str> for Color {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(value))
+    }
+}
+
 impl TryFrom<Cow<'_, BStr>> for Color {
     type Error = Error;
 
@@ -97,33 +104,70 @@ impl TryFrom<Cow<'_, BStr>> for Color {
     }
 }
 
+impl TryFrom<BString> for Color {
+    type Error = Error;
+
+    fn try_from(value: BString) -> Result<Self, Self::Error> {
+        Self::try_from(BStr::new(&value))
+    }
+}
+
 /// Discriminating enum for names of [`Color`] values.
 ///
 /// `git-config` supports the eight standard colors, their bright variants, an
 /// ANSI color code, or a 24-bit hex value prefixed with an octothorpe/hash.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-#[allow(missing_docs)]
 pub enum Name {
+    /// The `normal` color name.
     Normal,
+    /// The terminal's default color.
     Default,
+    /// Black.
     Black,
+    /// Bright black.
     BrightBlack,
+    /// Red.
     Red,
+    /// Bright red.
     BrightRed,
+    /// Green.
     Green,
+    /// Bright green.
     BrightGreen,
+    /// Yellow.
     Yellow,
+    /// Bright yellow.
     BrightYellow,
+    /// Blue.
     Blue,
+    /// Bright blue.
     BrightBlue,
+    /// Magenta.
     Magenta,
+    /// Bright magenta.
     BrightMagenta,
+    /// Cyan.
     Cyan,
+    /// Bright cyan.
     BrightCyan,
+    /// White.
     White,
+    /// Bright white.
     BrightWhite,
-    Ansi(u8),
-    Rgb(u8, u8, u8),
+    /// A color from the ANSI 256-color palette.
+    Ansi(
+        /// The palette index.
+        u8,
+    ),
+    /// A 24-bit RGB color.
+    Rgb(
+        /// The red component.
+        u8,
+        /// The green component.
+        u8,
+        /// The blue component.
+        u8,
+    ),
 }
 
 impl Display for Name {
@@ -237,22 +281,36 @@ bitflags::bitflags! {
     /// variant.
     #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
     pub struct Attribute: u32 {
+        /// Use bold or increased-intensity text.
         const BOLD = 1 << 1;
+        /// Use dim or decreased-intensity text.
         const DIM = 1 << 2;
+        /// Use italic text.
         const ITALIC = 1 << 3;
+        /// Underline text.
         const UL = 1 << 4;
+        /// Blink text.
         const BLINK = 1 << 5;
+        /// Reverse the foreground and background colors.
         const REVERSE = 1 << 6;
+        /// Strike through text.
         const STRIKE = 1 << 7;
-        /// Reset is special as we have to be able to parse it, without git actually doing anything with it
+        /// Parse the `reset` attribute, which Git otherwise leaves without an effect here.
         const RESET = 1 << 8;
 
+        /// Disable dim text.
         const NO_DIM = 1 << 21;
+        /// Disable bold text.
         const NO_BOLD = 1 << 22;
+        /// Disable italic text.
         const NO_ITALIC = 1 << 23;
+        /// Disable underlining.
         const NO_UL = 1 << 24;
+        /// Disable blinking.
         const NO_BLINK = 1 << 25;
+        /// Disable reversed colors.
         const NO_REVERSE = 1 << 26;
+        /// Disable strikethrough.
         const NO_STRIKE = 1 << 27;
     }
 }

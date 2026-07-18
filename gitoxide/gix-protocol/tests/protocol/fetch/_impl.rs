@@ -22,7 +22,6 @@ mod fetch_fn {
     #[cfg(feature = "blocking-client")]
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
     use maybe_async::maybe_async;
-    use std::borrow::Cow;
     use std::ops::ControlFlow;
 
     use super::{Action, Delegate, RefsAction};
@@ -108,14 +107,17 @@ mod fetch_fn {
                 Ok(RefsAction::Continue) => {
                     #[cfg(feature = "async-client")]
                     {
-                        LsRefsCommand::new(None, &capabilities, ("agent", Some(Cow::Owned(agent.clone()))))
+                        LsRefsCommand::new(None, &capabilities, ("agent", Some(agent.clone())))
                             .invoke_async(&mut transport, &mut progress, trace)
                             .await?
                     }
                     #[cfg(feature = "blocking-client")]
                     {
-                        LsRefsCommand::new(None, &capabilities, ("agent", Some(Cow::Owned(agent.clone()))))
-                            .invoke_blocking(&mut transport, &mut progress, trace)?
+                        LsRefsCommand::new(None, &capabilities, ("agent", Some(agent.clone()))).invoke_blocking(
+                            &mut transport,
+                            &mut progress,
+                            trace,
+                        )?
                     }
                 }
                 Err(err) => {
@@ -150,7 +152,7 @@ mod fetch_fn {
 
         Response::check_required_features(protocol_version, &fetch_features)?;
         let sideband_all = fetch_features.iter().any(|(n, _)| *n == "sideband-all");
-        fetch_features.push(("agent", Some(Cow::Owned(agent))));
+        fetch_features.push(("agent", Some(agent)));
         let mut arguments = Arguments::new(protocol_version, fetch_features, trace);
         let mut previous_response = None::<Response>;
         let mut round = 1;
@@ -211,12 +213,12 @@ pub use fetch_fn::{FetchConnection, legacy_fetch as fetch};
 
 mod delegate {
     use std::{
-        borrow::Cow,
         io,
         ops::{Deref, DerefMut},
     };
 
     use gix_protocol::{
+        command::Feature,
         fetch::{Arguments, Response},
         handshake::Ref,
     };
@@ -274,7 +276,7 @@ mod delegate {
             &mut self,
             _version: gix_transport::Protocol,
             _server: &Capabilities,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+            _features: &mut Vec<Feature>,
             _refs: &[Ref],
         ) -> std::io::Result<Action> {
             Ok(Action::Continue)
@@ -328,7 +330,7 @@ mod delegate {
             &mut self,
             _version: gix_transport::Protocol,
             _server: &Capabilities,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+            _features: &mut Vec<Feature>,
             _refs: &[Ref],
         ) -> io::Result<Action> {
             self.deref_mut().prepare_fetch(_version, _server, _features, _refs)
@@ -357,7 +359,7 @@ mod delegate {
             &mut self,
             _version: gix_transport::Protocol,
             _server: &Capabilities,
-            _features: &mut Vec<(&str, Option<Cow<'_, str>>)>,
+            _features: &mut Vec<Feature>,
             _refs: &[Ref],
         ) -> io::Result<Action> {
             self.deref_mut().prepare_fetch(_version, _server, _features, _refs)

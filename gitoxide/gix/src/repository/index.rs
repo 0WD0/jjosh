@@ -30,12 +30,8 @@ impl crate::Repository {
             .map(|value| crate::config::tree::Index::THREADS.try_into_index_threads(value))
             .transpose()
             .with_lenient_default(self.config.lenient_config)?;
-        let skip_hash = self
-            .config
-            .resolved
-            .boolean(Index::SKIP_HASH)
-            .map(|res| crate::config::tree::Index::SKIP_HASH.enrich_error(res))
-            .transpose()
+        let skip_hash = crate::config::tree::Index::SKIP_HASH
+            .enrich_error(self.config.resolved.boolean(Index::SKIP_HASH))
             .with_lenient_default(self.config.lenient_config)?
             .unwrap_or_default();
 

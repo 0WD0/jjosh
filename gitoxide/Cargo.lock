@@ -1729,6 +1729,7 @@ dependencies = [
  "gix-ref",
  "gix-sec",
  "gix-testtools",
+ "gix-utils",
  "serde",
  "serial_test",
  "smallvec",
@@ -2594,6 +2595,7 @@ dependencies = [
  "bstr",
  "fastrand",
  "getrandom 0.4.3",
+ "gix-utils",
  "unicode-normalization",
 ]
 

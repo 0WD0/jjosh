@@ -11,10 +11,9 @@ use bstr::{BStr, BString, ByteSlice};
 /// would have been rejected in the parsing stage).
 ///
 /// The return values should be safe for value interpretation.
-///
-/// This has optimizations for fully-quoted values, where the returned value
-/// will be a borrowed reference if the only mutation necessary is to unquote
-/// the value.
+/// If normalization requires no byte changes, including when it only trims enclosing quotes,
+/// the returned value borrows from `input`. Transforming escapes or embedded quotes produces an
+/// owned value instead.
 ///
 /// This is the function used to normalize raw values from higher level
 /// abstractions. Generally speaking these
@@ -22,58 +21,40 @@ use bstr::{BStr, BString, ByteSlice};
 /// need to call this yourself. However, if you're directly handling events
 /// from the parser, you may want to use this to help with value interpretation.
 ///
-/// Generally speaking, you'll want to use one of the variants of this function,
-/// such as [`normalize_bstr`] or [`normalize_bstring`].
-///
 /// # Examples
 ///
-/// Values don't need modification are returned borrowed, without allocation.
+/// Internally quoted values are turned into an owned variant with quotes removed.
 ///
 /// ```
-/// # use std::borrow::Cow;
-/// # use bstr::ByteSlice;
-/// # use gix_config::value::normalize_bstr;
-/// assert!(matches!(normalize_bstr("hello world"), Cow::Borrowed(_)));
-/// ```
-///
-/// Internally quoted values are turned into owned variant with quotes removed.
-///
-/// ```
-/// # use std::borrow::Cow;
-/// # use bstr::{BStr, BString};
-/// # use gix_config::value::{normalize_bstr};
-/// assert_eq!(normalize_bstr("hello \"world\""), Cow::<BStr>::Owned(BString::from("hello world")));
+/// # use gix_config::value::normalize;
+/// assert_eq!(&*normalize("hello \"world\""), "hello world");
 /// ```
 ///
 /// Escaped quotes are unescaped.
 ///
 /// ```
-/// # use std::borrow::Cow;
-/// # use bstr::{BStr, BString};
-/// # use gix_config::value::normalize_bstr;
-/// assert_eq!(normalize_bstr(r#"hello "world\"""#), Cow::<BStr>::Owned(BString::from(r#"hello world""#)));
+/// # use gix_config::value::normalize;
+/// assert_eq!(&*normalize(r#"hello "world\"""#), r#"hello world""#);
 /// ```
 #[must_use]
-pub fn normalize(mut input: Cow<'_, BStr>) -> Cow<'_, BStr> {
-    if input.as_ref() == "\"\"" {
-        return Cow::Borrowed("".into());
+pub fn normalize(input: &(impl crate::AsBStr + ?Sized)) -> Cow<'_, BStr> {
+    normalize_inner(input.as_bstr())
+}
+
+fn normalize_inner(mut input: &BStr) -> Cow<'_, BStr> {
+    if input == "\"\"" {
+        return Cow::Borrowed(BStr::new(&input[..0]));
     }
     // An optimization to strip enclosing quotes without producing a new value/copy it.
     while input.len() >= 3 && input[0] == b'"' && input[input.len() - 1] == b'"' && input[input.len() - 2] != b'\\' {
-        match &mut input {
-            Cow::Borrowed(input) => *input = &input[1..input.len() - 1],
-            Cow::Owned(input) => {
-                input.pop();
-                input.remove(0);
-            }
-        }
-        if input.as_ref() == "\"\"" {
-            return Cow::Borrowed("".into());
+        input = input[1..input.len() - 1].as_ref();
+        if input == "\"\"" {
+            return Cow::Borrowed(BStr::new(&input[..0]));
         }
     }
 
     if input.find_byteset(br#"\""#).is_none() {
-        return input;
+        return Cow::Borrowed(input);
     }
     let mut out: BString = Vec::with_capacity(input.len()).into();
     let mut bytes = input.iter().copied();
@@ -95,16 +76,4 @@ pub fn normalize(mut input: Cow<'_, BStr>) -> Cow<'_, BStr> {
         }
     }
     Cow::Owned(out)
-}
-
-/// `&[u8]` variant of [`normalize`].
-#[must_use]
-pub fn normalize_bstr<'a>(input: impl Into<&'a BStr>) -> Cow<'a, BStr> {
-    normalize(Cow::Borrowed(input.into()))
-}
-
-/// `Vec[u8]` variant of [`normalize`].
-#[must_use]
-pub fn normalize_bstring(input: impl Into<BString>) -> Cow<'static, BStr> {
-    normalize(Cow::Owned(input.into()))
 }

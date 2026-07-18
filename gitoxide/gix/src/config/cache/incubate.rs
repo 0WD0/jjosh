@@ -9,7 +9,7 @@ use crate::config::{
 /// A utility to deal with the cyclic dependency between the ref store and the configuration. The ref-store needs the
 /// object hash kind, and the configuration needs the current branch name to resolve conditional includes with `onbranch`.
 pub(crate) struct StageOne {
-    pub git_dir_config: gix_config::File<'static>,
+    pub git_dir_config: gix_config::File,
     pub buf: Vec<u8>,
 
     pub is_bare: Option<bool>,
@@ -40,10 +40,8 @@ impl StageOne {
         )?;
 
         let is_bare = util::config_bool_opt(&config, &Core::BARE, "core.bare", lenient)?;
-        let repo_format_version = config
-            .integer("core.repositoryFormatVersion")
-            .map(|version| Core::REPOSITORY_FORMAT_VERSION.try_into_usize(version))
-            .transpose()?
+        let repo_format_version = Core::REPOSITORY_FORMAT_VERSION
+            .try_into_usize(config.integer("core.repositoryFormatVersion"))?
             .unwrap_or_default();
         let object_hash = match (repo_format_version, config.string(Extensions::OBJECT_FORMAT)) {
             // objectFormat is a repository format version 1 extension.
@@ -69,24 +67,19 @@ impl StageOne {
                 lossy,
                 lenient,
             )?;
-            config.append(worktree_config);
+            config.append(worktree_config)?;
         }
-        let precompose_unicode = config
-            .boolean(Core::PRECOMPOSE_UNICODE)
-            .map(|v| Core::PRECOMPOSE_UNICODE.enrich_error(v))
-            .transpose()
+        let precompose_unicode = Core::PRECOMPOSE_UNICODE
+            .enrich_error(config.boolean(Core::PRECOMPOSE_UNICODE))
             .with_leniency(lenient)
             .map_err(Error::ConfigBoolean)?
             .unwrap_or_default();
 
         const IS_WINDOWS: bool = cfg!(windows);
         let protect_windows = gitoxide::Core::PROTECT_WINDOWS
-            .enrich_error(
-                config
-                    .boolean(gitoxide::Core::PROTECT_WINDOWS)
-                    .unwrap_or(Ok(IS_WINDOWS)),
-            )
-            .with_lenient_default_value(lenient, IS_WINDOWS)?;
+            .enrich_error(config.boolean(gitoxide::Core::PROTECT_WINDOWS))
+            .with_lenient_default_value(lenient, Some(IS_WINDOWS))?
+            .unwrap_or(IS_WINDOWS);
 
         let reflog = util::query_refupdates(&config, lenient)?;
         Ok(StageOne {
@@ -125,7 +118,7 @@ fn load_config(
     git_dir_trust: gix_sec::Trust,
     lossy: bool,
     lenient: bool,
-) -> Result<gix_config::File<'static>, Error> {
+) -> Result<gix_config::File, Error> {
     let metadata = gix_config::file::Metadata::from(source)
         .at(&config_path)
         .with(git_dir_trust);

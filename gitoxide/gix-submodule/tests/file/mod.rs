@@ -24,7 +24,7 @@ mod is_active_platform {
 
     fn assume_valid_active_state<'a>(
         module: &'a gix_submodule::File,
-        config: &'a gix_config::File<'static>,
+        config: &'a gix_config::File,
         defaults: gix_pathspec::Defaults,
     ) -> crate::Result<Vec<(&'a str, bool)>> {
         assume_valid_active_state_with_attrs(module, config, defaults, |_, _, _, _| {
@@ -34,7 +34,7 @@ mod is_active_platform {
 
     fn assume_valid_active_state_with_attrs<'a>(
         module: &'a gix_submodule::File,
-        config: &'a gix_config::File<'static>,
+        config: &'a gix_config::File,
         defaults: gix_pathspec::Defaults,
         mut attributes: impl FnMut(
             &BStr,
@@ -175,7 +175,7 @@ mod path {
     #[test]
     fn valid() -> crate::Result {
         let module = submodule("[submodule.a]\n path = relative/path/submodule");
-        assert_eq!(module.path("a".into())?.as_ref(), "relative/path/submodule");
+        assert_eq!(module.path("a".into())?, "relative/path/submodule");
         Ok(())
     }
 
@@ -274,7 +274,9 @@ mod update {
         let mut module = submodule("[submodule.a]\n update = merge");
         let repo_config = gix_config::File::from_str("[submodule.a]\n update = !dangerous")?;
         let prev_names = module.names().map(ToOwned::to_owned).collect::<Vec<_>>();
-        module.append_submodule_overrides(&repo_config);
+        module
+            .append_submodule_overrides(&repo_config)
+            .expect("the fixture fits into the backing buffer");
 
         assert_eq!(
             module.update("a".into())?.expect("present"),
@@ -310,7 +312,9 @@ mod update {
     fn modules_command_is_authorized_by_unrelated_same_named_override() -> crate::Result {
         let mut module = submodule("[submodule.a]\n update = !dangerous");
         let repo_config = gix_config::File::from_str("[submodule.a]\n url = trusted-local-override")?;
-        module.append_submodule_overrides(&repo_config);
+        module
+            .append_submodule_overrides(&repo_config)
+            .expect("the fixture fits into the backing buffer");
 
         assert!(
             matches!(
@@ -469,7 +473,9 @@ mod append_submodule_overrides {
         let repo_config = gix_config::File::from_str(
             "[submodule.a]\n url = a\n url = b\n ignore = x\n [submodule.a]\n url = c\n[submodule.b] url = not-relevant",
         )?;
-        module.append_submodule_overrides(&repo_config);
+        module
+            .append_submodule_overrides(&repo_config)
+            .expect("the fixture fits into the backing buffer");
         Ok(())
     }
 }

@@ -68,3 +68,17 @@ fn can_reconstruct_configs_without_whitespace_in_middle() {
 
     assert_eq!(File::try_from(config).unwrap().to_string(), config);
 }
+
+#[test]
+fn equality_ignores_section_and_value_name_case_but_not_subsection_case() -> crate::Result {
+    let mixed_case = File::try_from("[Core]\nMixedCase = value\n[Remote \"Origin\"]\nURL = location\n")?;
+    let equivalent = File::try_from("[core]\nmixedcase = value\n[remote \"Origin\"]\nurl = location\n")?;
+    assert_eq!(mixed_case, equivalent, "section and value names are case-insensitive");
+
+    let different_subsection = File::try_from("[core]\nmixedcase = value\n[remote \"origin\"]\nurl = location\n")?;
+    assert_ne!(
+        mixed_case, different_subsection,
+        "quoted subsection names are case-sensitive"
+    );
+    Ok(())
+}

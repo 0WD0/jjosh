@@ -1,8 +1,5 @@
-use crate::{
-    Remote,
-    bstr::{BStr, BString},
-    config, remote,
-};
+use crate::{Remote, bstr::BStr, config, remote};
+use gix_utils::AsBStr;
 
 /// The error returned by [`Remote::save_to()`].
 #[derive(Debug, thiserror::Error)]
@@ -10,6 +7,8 @@ use crate::{
 pub enum Error {
     #[error("The remote pointing to {} is anonymous and can't be saved.", url.to_bstring())]
     NameMissing { url: gix_url::Url },
+    #[error(transparent)]
+    Span(#[from] gix_config::parse::span::Error),
 }
 
 /// The error returned by [`Remote::save_as_to()`].
@@ -32,8 +31,8 @@ impl Remote<'_> {
     /// and the last `remote "<name>"` section will be containing all relevant values so that reloading the remote
     /// from `config` would yield the same in-memory state.
     #[allow(clippy::result_large_err)]
-    pub fn save_to(&self, config: &mut gix_config::File<'static>) -> Result<(), Error> {
-        fn as_key(name: &str) -> gix_config::parse::section::ValueName<'_> {
+    pub fn save_to(&self, config: &mut gix_config::File) -> Result<(), Error> {
+        fn as_key(name: &str) -> gix_config::parse::section::ValueName {
             name.try_into().expect("valid")
         }
         let name = self.name().ok_or_else(|| Error::NameMissing {
@@ -95,24 +94,24 @@ impl Remote<'_> {
             // it. The reset must follow all such values or reopening the written file would append
             // the foreign values once more.
             config
-                .new_section("remote", Some(name.as_ref().to_owned().into()))
+                .new_section("remote", name.as_bstr())
                 .expect("section name is validated and 'remote' is acceptable")
         } else {
             config
-                .section_mut_or_create_new_filter("remote", Some(name.as_ref()), |meta| *meta == target_meta)
+                .section_mut_or_create_new_filter("remote", name.as_bstr(), |meta| *meta == target_meta)
                 .expect("section name is validated and 'remote' is acceptable")
         };
         if needs_url_reset {
-            section.push(as_key(config::tree::Remote::URL.name), Some(BStr::new("")));
+            section.push(as_key(config::tree::Remote::URL.name), Some(BStr::new("")))?;
         }
         for url in &self.urls {
-            section.push(as_key("url"), Some(url.to_bstring().as_ref()));
+            section.push(as_key("url"), Some(url.to_bstring().as_ref()))?;
         }
         if needs_push_url_reset {
-            section.push(as_key(config::tree::Remote::PUSH_URL.name), Some(BStr::new("")));
+            section.push(as_key(config::tree::Remote::PUSH_URL.name), Some(BStr::new("")))?;
         }
         for url in &self.push_urls {
-            section.push(as_key("pushurl"), Some(url.to_bstring().as_ref()));
+            section.push(as_key("pushurl"), Some(url.to_bstring().as_ref()))?;
         }
         if self.fetch_tags != Default::default() {
             section.push(
@@ -123,7 +122,7 @@ impl Remote<'_> {
                     remote::fetch::Tags::Included => unreachable!("BUG: the default shouldn't be written and we try"),
                 })
                 .into(),
-            );
+            )?;
         }
         for (key, spec) in self
             .fetch_specs
@@ -131,7 +130,7 @@ impl Remote<'_> {
             .map(|spec| ("fetch", spec))
             .chain(self.push_specs.iter().map(|spec| ("push", spec)))
         {
-            section.push(as_key(key), Some(spec.to_ref().to_bstring().as_ref()));
+            section.push(as_key(key), Some(spec.to_ref().to_bstring().as_ref()))?;
         }
         Ok(())
     }
@@ -142,12 +141,8 @@ impl Remote<'_> {
     /// If this name is different from the current one, the git configuration will still contain the previous name,
     /// and the caller should account for that.
     #[allow(clippy::result_large_err)]
-    pub fn save_as_to(
-        &mut self,
-        name: impl Into<BString>,
-        config: &mut gix_config::File<'static>,
-    ) -> Result<(), AsError> {
-        let name = crate::remote::name::validated(name)?;
+    pub fn save_as_to(&mut self, name: impl AsBStr, config: &mut gix_config::File) -> Result<(), AsError> {
+        let name = crate::remote::name::validated(name.as_bstr().to_owned())?;
         let prev_name = self.name.take();
         self.name = Some(name.into());
         self.save_to(config).map_err(|err| {

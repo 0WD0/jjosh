@@ -2,7 +2,9 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
+
+use bstr::ByteSlice;
 
 /// All relevant information about a git module, typically from `.gitmodules` files.
 ///
@@ -11,7 +13,7 @@ use std::{borrow::Cow, collections::BTreeMap};
 /// from the superproject.
 #[derive(Clone)]
 pub struct File {
-    config: gix_config::File<'static>,
+    config: gix_config::File,
 }
 
 mod access;
@@ -38,7 +40,10 @@ impl File {
     /// * `branch`
     ///
     /// These values aren't validated yet, which will happen upon query.
-    pub fn append_submodule_overrides(&mut self, config: &gix_config::File<'_>) -> &mut Self {
+    pub fn append_submodule_overrides(
+        &mut self,
+        config: &gix_config::File,
+    ) -> Result<&mut Self, gix_config::parse::span::Error> {
         let mut values = BTreeMap::<_, Vec<_>>::new();
         for (module_name, section) in config
             .sections_by_name("submodule")
@@ -64,7 +69,7 @@ impl File {
         for ((module_name, field), values) in values {
             if prev_name != Some(module_name) {
                 config_to_append
-                    .new_section("submodule", Some(Cow::Owned(module_name.to_owned())))
+                    .new_section("submodule", module_name)
                     .expect("all names come from valid configuration, so remain valid");
                 prev_name = Some(module_name);
             }
@@ -73,17 +78,22 @@ impl File {
                 .expect("always set at this point")
                 .push(
                     field.try_into().expect("statically known key"),
-                    Some(values.last().expect("at least one value or we wouldn't be here")),
-                );
+                    Some(
+                        values
+                            .last()
+                            .expect("at least one value or we wouldn't be here")
+                            .as_bstr(),
+                    ),
+                )?;
         }
 
-        self.config.append(config_to_append);
-        self
+        self.config.append(config_to_append)?;
+        Ok(self)
     }
 }
 
 ///
-mod init {
+pub mod init {
     use std::path::PathBuf;
 
     use crate::File;
@@ -101,6 +111,17 @@ mod init {
     pub(crate) const META_MARKER: gix_config::Source = gix_config::Source::Api;
 
     /// Lifecycle
+    /// The error returned when parsing a submodule configuration file.
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        /// The configuration could not be parsed.
+        #[error(transparent)]
+        Parse(#[from] gix_config::parse::Error),
+        /// Applying configuration overrides exceeded the supported span size.
+        #[error(transparent)]
+        Span(#[from] gix_config::parse::span::Error),
+    }
+
     impl File {
         /// Parse `bytes` as git configuration, typically from `.gitmodules`, without doing any further validation.
         /// `path` can be provided to keep track of where the file was read from in the underlying [`config`](Self::config())
@@ -117,25 +138,25 @@ mod init {
         pub fn from_bytes(
             bytes: &[u8],
             path: impl Into<Option<PathBuf>>,
-            config: &gix_config::File<'_>,
-        ) -> Result<Self, gix_config::parse::Error> {
+            config: &gix_config::File,
+        ) -> Result<Self, Error> {
             let metadata = {
                 let mut meta = gix_config::file::Metadata::from(META_MARKER);
                 meta.path = path.into();
                 meta
             };
             let modules = gix_config::File::from_parse_events_no_includes(
-                gix_config::parse::Events::from_bytes_owned(bytes, None)?,
+                gix_config::parse::Events::from_bytes(bytes, None)?,
                 metadata,
             );
 
             let mut res = Self { config: modules };
-            res.append_submodule_overrides(config);
+            res.append_submodule_overrides(config)?;
             Ok(res)
         }
 
         /// Turn ourselves into the underlying parsed configuration file.
-        pub fn into_config(self) -> gix_config::File<'static> {
+        pub fn into_config(self) -> gix_config::File {
             self.config
         }
     }

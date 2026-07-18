@@ -75,9 +75,8 @@ pub(crate) mod hero {
         use crate::transport::client::async_io;
         #[cfg(feature = "blocking-client")]
         use crate::transport::client::blocking_io;
-        use crate::{Handshake, fetch::RefMap, ls_refs::RefPrefixes};
+        use crate::{Handshake, command::Feature, fetch::RefMap, ls_refs::RefPrefixes};
         use gix_features::progress::Progress;
-        use std::borrow::Cow;
 
         /// Intermediate state while potentially fetching a refmap after the handshake.
         pub enum ObtainRefMap<'a> {
@@ -134,7 +133,7 @@ pub(crate) mod hero {
             #[allow(clippy::result_large_err)]
             pub fn prepare_lsrefs_or_extract_refmap(
                 &mut self,
-                user_agent: (&'static str, Option<Cow<'static, str>>),
+                user_agent: Feature,
                 prefix_from_spec_as_filter_on_remote: bool,
                 refmap_context: crate::fetch::refmap::init::Context,
             ) -> Result<ObtainRefMap<'_>, crate::fetch::refmap::init::Error> {

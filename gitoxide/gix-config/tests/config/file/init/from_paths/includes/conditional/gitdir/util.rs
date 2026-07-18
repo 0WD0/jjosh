@@ -10,7 +10,7 @@ use bstr::{BString, ByteSlice};
 use gix_config::file::init::{self};
 
 use crate::file::{
-    cow_str,
+    bstring,
     init::from_paths::{
         escape_backslashes,
         includes::conditional::{git_init, options_with_git_dir},
@@ -138,8 +138,8 @@ pub fn assert_section_value(
     assert_eq!(
         config.string_by("section", None, "value"),
         match expected {
-            Some(Value::Original) => Some(cow_str("base-value")),
-            Some(Value::Override) => Some(cow_str("override-value")),
+            Some(Value::Original) => Some(bstring("base-value")),
+            Some(Value::Override) => Some(bstring("override-value")),
             None => None,
         },
         "gix-config disagrees with the expected value, {} for debugging",

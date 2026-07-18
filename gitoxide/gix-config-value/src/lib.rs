@@ -3,20 +3,18 @@
 //! ## Examples
 //!
 //! ```
-//! use std::borrow::Cow;
-//!
 //! use bstr::ByteSlice;
 //! use gix_config_value::{Boolean, Integer, Path};
 //!
-//! let auto_crlf: bool = Boolean::try_from("true".as_bytes().as_bstr()).unwrap().into();
+//! let auto_crlf: bool = Boolean::try_from("true").unwrap().into();
 //! assert!(auto_crlf);
 //!
 //! let packed_limit = Integer::try_from("10m".as_bytes().as_bstr()).unwrap();
 //! assert_eq!(packed_limit.to_decimal(), Some(10 * 1024 * 1024));
 //!
-//! let ignore_revs = Path::from(Cow::Borrowed(b":(optional)~/.git-blame-ignore-revs".as_bstr()));
+//! let ignore_revs = Path::from(":(optional)~/.git-blame-ignore-revs");
 //! assert!(ignore_revs.is_optional);
-//! assert_eq!(ignore_revs.value.as_ref(), b"~/.git-blame-ignore-revs".as_bstr());
+//! assert_eq!(ignore_revs.value.as_bstr(), "~/.git-blame-ignore-revs");
 //! ```
 //!
 //! ## Feature Flags
@@ -55,11 +53,11 @@ impl Error {
 }
 
 mod boolean;
-///
+/// Color value parsing and the supported color names and attributes.
 pub mod color;
-///
+/// Integer suffix parsing and conversion support.
 pub mod integer;
-///
+/// Path interpolation support.
 pub mod path;
 
 mod types;

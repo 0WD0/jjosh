@@ -81,7 +81,7 @@ where
             gix::refspec::parse(ref_name.as_bstr(), gix::refspec::parse::Operation::Fetch).map(|r| r.to_owned())
         })
         .collect::<Result<_, _>>()?;
-    let user_agent = ("agent", Some(agent.clone().into()));
+    let user_agent = ("agent", Some(agent.clone()));
 
     let context = gix::protocol::fetch::refmap::init::Context {
         fetch_refspecs: fetch_refspecs.clone(),

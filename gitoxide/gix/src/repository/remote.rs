@@ -65,8 +65,8 @@ impl crate::Repository {
     /// assert_eq!(remote.refspecs(gix::remote::Direction::Fetch).len(), 1);
     /// # Ok(()) }
     /// ```
-    pub fn find_remote<'a>(&self, name_or_url: impl Into<&'a BStr>) -> Result<Remote<'_>, find::existing::Error> {
-        let name_or_url = name_or_url.into();
+    pub fn find_remote(&self, name_or_url: impl gix_utils::AsBStr) -> Result<Remote<'_>, find::existing::Error> {
+        let name_or_url = name_or_url.as_bstr();
         Ok(self
             .try_find_remote(name_or_url)
             .ok_or_else(|| find::existing::Error::NotFound {
@@ -95,8 +95,7 @@ impl crate::Repository {
         &self,
         direction: remote::Direction,
     ) -> Option<Result<Remote<'_>, find::existing::Error>> {
-        self.remote_default_name(direction)
-            .map(|name| self.find_remote(name.as_ref()))
+        self.remote_default_name(direction).map(|name| self.find_remote(name))
     }
 
     /// Find the configured remote with the given `name_or_url` or return `None` if it doesn't exist,
@@ -179,7 +178,7 @@ impl crate::Repository {
         rewrite_urls: bool,
     ) -> Option<Result<Remote<'_>, find::Error>> {
         fn config_spec<T: config::tree::keys::Validate>(
-            specs: Vec<std::borrow::Cow<'_, BStr>>,
+            specs: Vec<crate::bstr::BString>,
             name_or_url: &BStr,
             key: &'static config::tree::keys::Any<T>,
             op: gix_refspec::parse::Operation,

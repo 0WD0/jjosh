@@ -28,6 +28,7 @@ gix-path = { version = "^0.12.2", path = "../gix-path" }
 gix-sec = { version = "^0.14.1", path = "../gix-sec" }
 gix-ref = { version = "^0.65.0", path = "../gix-ref" }
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
+gix-utils = { version = "^0.3.3", path = "../gix-utils", features = ["bstr"] }
 
 thiserror = "2.0.18"
 unicode-bom = { version = "2.0.3" }
@@ -49,6 +50,11 @@ cap = { version = "0.1.2", features = ["stats"] }
 name = "large_config_file"
 harness = false
 path = "./benches/large_config_file.rs"
+
+[[bench]]
+name = "lookup"
+harness = false
+path = "./benches/lookup.rs"
 
 [package.metadata.docs.rs]
 all-features = true

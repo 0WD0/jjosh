@@ -26,6 +26,8 @@ pub enum Error {
     ParseConfig(#[from] crate::config::overrides::Error),
     #[error(transparent)]
     ApplyConfig(#[from] crate::config::Error),
+    #[error(transparent)]
+    Span(#[from] gix_config::parse::span::Error),
     #[error("Failed to load repo-local git configuration before writing")]
     LoadConfig(#[from] gix_config::file::init::from_paths::Error),
     #[error("Failed to store configured remote in memory")]
@@ -51,7 +53,7 @@ pub enum Error {
         candidates: Vec<BString>,
     },
     #[error(transparent)]
-    CommitterOrFallback(#[from] crate::config::time::Error),
+    CommitterOrFallback(#[from] crate::config::commit_signature::Error),
     #[error(transparent)]
     RefMap(#[from] crate::remote::ref_map::Error),
     #[error(transparent)]
@@ -250,10 +252,12 @@ impl PrepareFetch {
         // The remote section just written to `.git/config`, kept around so we can
         // mirror it into the repository's in-memory config once we know which
         // repo handle survives.
-        let mut config = Some(util::append_remote_to_local_config_file(
+        let config = Some(util::append_remote_to_local_config_file(
             &mut remote,
             remote_name.clone(),
         )?);
+        #[cfg(feature = "sha256")]
+        let mut config = config;
 
         // Now we are free to apply remote configuration we don't want to be written to disk.
         if let Some(fetch_tags) = clone_fetch_tags {
@@ -351,7 +355,7 @@ impl PrepareFetch {
                     &mut in_memory_config,
                     gix_config::file::Metadata::api(),
                     Default::default(),
-                )?);
+                )?)?;
                 repo.config
                     .reread_values_and_clear_caches_replacing_config(resolved_config.into())?;
                 config = None;
@@ -374,7 +378,7 @@ impl PrepareFetch {
         // Before finalisation, the current repo handle still needs to
         // learn about the remote config written after it was opened.
         if let Some(config) = config {
-            util::append_config_to_repo_config(&mut repo, config);
+            util::append_config_to_repo_config(&mut repo, config)?;
         }
         util::update_head(
             &mut repo,

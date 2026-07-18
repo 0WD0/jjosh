@@ -114,21 +114,14 @@ impl crate::Repository {
         use crate::config::{cache::util::ApplyLeniency, tree::gitoxide};
 
         let pathspec_boolean = |key: &'static config::tree::keys::Boolean| {
-            self.config
-                .resolved
-                .boolean(key)
-                .map(|value| key.enrich_error(value))
-                .transpose()
+            key.enrich_error(self.config.resolved.boolean(key))
                 .with_leniency(self.config.lenient_config)
         };
 
         Ok(gix_command::Context {
             stderr: {
-                self.config
-                    .resolved
-                    .boolean(gitoxide::Core::EXTERNAL_COMMAND_STDERR)
-                    .map(|value| gitoxide::Core::EXTERNAL_COMMAND_STDERR.enrich_error(value))
-                    .transpose()
+                gitoxide::Core::EXTERNAL_COMMAND_STDERR
+                    .enrich_error(self.config.resolved.boolean(gitoxide::Core::EXTERNAL_COMMAND_STDERR))
                     .with_leniency(self.config.lenient_config)?
                     .unwrap_or(true)
                     .into()

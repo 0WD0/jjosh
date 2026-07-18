@@ -32,7 +32,7 @@ pub struct Context<'a, T> {
     /// How to self-identify during the `ls-refs` call in [`crate::Handshake::prepare_lsrefs_or_extract_refmap()`] or the `fetch` call in [`fetch()`](crate::fetch()).
     ///
     /// This could be read from the `gitoxide.userAgent` configuration variable.
-    pub user_agent: (&'static str, Option<std::borrow::Cow<'static, str>>),
+    pub user_agent: crate::command::Feature,
     /// If `true`, output all packetlines using the `gix-trace` machinery.
     pub trace_packetlines: bool,
 }

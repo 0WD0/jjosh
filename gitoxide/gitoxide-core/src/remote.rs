@@ -73,7 +73,7 @@ where
         &mut progress,
     )?;
     let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(
-        ("agent", Some(agent.into())),
+        ("agent", Some(agent)),
         false,
         protocol::fetch::refmap::init::Context {
             fetch_refspecs: Vec::new(),

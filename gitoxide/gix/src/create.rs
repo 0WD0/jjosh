@@ -23,6 +23,8 @@ pub enum Error {
     DirectoryNotEmpty { path: PathBuf },
     #[error("Could not create directory at '{}'", .path.display())]
     CreateDirectory { source: std::io::Error, path: PathBuf },
+    #[error(transparent)]
+    Span(#[from] gix_config::parse::span::Error),
 }
 
 /// The kind of repository to create.
@@ -255,26 +257,26 @@ pub fn into(
             let caps = fs_capabilities.unwrap_or_else(|| gix_fs::Capabilities::probe(&dot_git));
             let mut core = config.new_section("core", None).expect("valid section name");
 
-            core.push(key("filemode"), Some(bool(caps.executable_bit).into()));
-            core.push(key("bare"), Some(bool(bare).into()));
-            core.push(key("logallrefupdates"), Some(bool(!bare).into()));
-            core.push(key("symlinks"), Some(bool(caps.symlink).into()));
-            core.push(key("ignorecase"), Some(bool(caps.ignore_case).into()));
-            core.push(key("precomposeunicode"), Some(bool(caps.precompose_unicode).into()));
+            core.push(key("filemode"), Some(bool(caps.executable_bit).into()))?;
+            core.push(key("bare"), Some(bool(bare).into()))?;
+            core.push(key("logallrefupdates"), Some(bool(!bare).into()))?;
+            core.push(key("symlinks"), Some(bool(caps.symlink).into()))?;
+            core.push(key("ignorecase"), Some(bool(caps.ignore_case).into()))?;
+            core.push(key("precomposeunicode"), Some(bool(caps.precompose_unicode).into()))?;
 
             match object_hash {
                 #[cfg(feature = "sha256")]
                 Some(gix_hash::Kind::Sha256) => {
-                    core.push(key("repositoryformatversion"), Some("1".into()));
+                    core.push(key("repositoryformatversion"), Some("1".into()))?;
 
                     let mut extensions = config.new_section("extensions", None).expect("valid section name");
                     extensions.push(
                         key("objectformat"),
                         Some(gix_hash::Kind::Sha256.to_string().as_bytes().into()),
-                    );
+                    )?;
                 }
                 _ => {
-                    core.push(key("repositoryformatversion"), Some("0".into()));
+                    core.push(key("repositoryformatversion"), Some("0".into()))?;
                 }
             }
 
@@ -301,7 +303,7 @@ pub fn into(
     .expect("by now the `dot_git` dir is valid as we have accessed it"))
 }
 
-fn key(name: &'static str) -> section::ValueName<'static> {
+fn key(name: &'static str) -> section::ValueName {
     section::ValueName::try_from(name).expect("valid key name")
 }
 
