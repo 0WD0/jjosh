@@ -15,7 +15,7 @@ mod with_transport {
 
     /// Send a message to indicate the remote side that there is nothing more to expect from us, indicating a graceful shutdown.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
-    #[maybe_async::maybe_async]
+    #[crate::bisync::bisync]
     pub async fn indicate_end_of_interaction(
         mut transport: impl Transport,
         trace: bool,
@@ -65,7 +65,7 @@ mod with_transport {
         /// This will happen exactly once, and it is not considered an error to call it multiple times.
         ///
         /// For convenience, this is not consuming, but could be to assure the underlying transport isn't used anymore.
-        #[maybe_async::maybe_async]
+        #[crate::bisync::bisync]
         pub async fn indicate_end_of_interaction(&mut self) -> Result<(), gix_transport::client::Error> {
             if self.flush_packet_sent {
                 return Ok(());

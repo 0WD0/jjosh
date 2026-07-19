@@ -3,9 +3,9 @@ use std::io::{BufRead, Write};
 use std::{ops::Deref, sync::Arc};
 
 use bstr::ByteSlice;
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use futures_lite::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use gix_transport::client::{
     async_io::{Transport, TransportV2Ext},
     git::async_io::Connection,
@@ -23,7 +23,9 @@ use parking_lot::Mutex;
 
 use crate::fixture_bytes;
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v1_and_request() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
@@ -126,7 +128,7 @@ async fn handshake_v1_and_request() -> crate::Result {
     })));
 
     let expected_entries = 3;
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     let reader = futures_lite::io::BlockOn::new(reader);
     use gix_pack::data::input;
     let entries = gix_pack::data::input::BytesToEntriesIter::new_from_header(
@@ -151,7 +153,9 @@ async fn handshake_v1_and_request() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn push_v1_simulated() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/push.response");
@@ -217,7 +221,9 @@ async fn push_v1_simulated() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v1_process_mode() -> crate::Result {
     let mut out = Vec::new();
     let server_response = fixture_bytes("v1/clone.response");
@@ -240,7 +246,9 @@ async fn handshake_v1_process_mode() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v2_downgrade_to_v1() -> crate::Result {
     let mut out = Vec::new();
     let input = fixture_bytes("v1/clone.response");
@@ -269,8 +277,10 @@ async fn handshake_v2_downgrade_to_v1() -> crate::Result {
     Ok(())
 }
 
-#[expect(clippy::unit_arg)] // side-effect of maybe-async
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[expect(clippy::unit_arg)] // side-effect of bisync
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v2_and_request() -> crate::Result {
     #[cfg(feature = "blocking-client")]
     return handshake_v2_and_request_inner().await;
@@ -280,14 +290,14 @@ async fn handshake_v2_and_request() -> crate::Result {
     // Thinking about it, it's most certainly fine to do `fetch' commands on another thread and move the entire connection
     // there as it's always the end of an operation and a lot of IO is required that is blocking anyway, like accessing
     // commit graph information for fetch negotiations, and of course processing a received pack.
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     Ok(
         blocking::unblock(|| futures_lite::future::block_on(handshake_v2_and_request_inner()).expect("no failure"))
             .await,
     )
 }
 
-#[maybe_async::maybe_async]
+#[crate::bisync::bisync]
 async fn handshake_v2_and_request_inner() -> crate::Result {
     let mut out = Vec::new();
     let input = fixture_bytes("v2/clone.response");
@@ -405,7 +415,7 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
     })));
 
     let expected_entries = 3;
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     let reader = futures_lite::io::BlockOn::new(reader);
 
     use gix_pack::data::input;
@@ -445,7 +455,9 @@ async fn handshake_v2_and_request_inner() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v2_with_sha256_object_format() -> crate::Result {
     let mut out = Vec::new();
     let input = fixture_bytes("v2/handshake-sha256.response");

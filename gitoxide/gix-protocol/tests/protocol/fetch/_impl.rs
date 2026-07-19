@@ -11,6 +11,7 @@ pub enum RefsAction {
 }
 
 mod fetch_fn {
+    use crate::bisync::bisync;
     use gix_features::progress::NestedProgress;
     use gix_protocol::{
         Command, LsRefsCommand, credentials,
@@ -21,7 +22,6 @@ mod fetch_fn {
     use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
     #[cfg(feature = "blocking-client")]
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
-    use maybe_async::maybe_async;
     use std::ops::ControlFlow;
 
     use super::{Action, Delegate, RefsAction};
@@ -65,7 +65,7 @@ mod fetch_fn {
     /// # WARNING - Do not use!
     ///
     /// As it will hang when having multiple negotiation rounds.
-    #[maybe_async]
+    #[bisync]
     // TODO: remove this without losing test coverage - we have the same but better in `gix` and it's
     //       not really worth it to maintain the delegates here.
     pub async fn legacy_fetch<F, D, T, P>(

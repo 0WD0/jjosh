@@ -41,7 +41,7 @@ mod impls {
 }
 
 #[cfg(any(feature = "async-client", feature = "blocking-client"))]
-#[gix::protocol::maybe_async::maybe_async]
+#[gix::protocol::bisync::bisync]
 pub async fn connect<Url, E>(
     url: Url,
     options: io_mode::connect::Options,

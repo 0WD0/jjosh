@@ -19,7 +19,7 @@ mod blocking_and_async_io {
         remote::{Direction::Fetch, fetch, fetch::Status},
     };
     use gix_features::progress;
-    use gix_protocol::maybe_async;
+    use gix_protocol::bisync;
     use gix_testtools::tempfile::TempDir;
 
     use crate::{
@@ -297,10 +297,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn local_transport_fetches_head_against_remote_refs() -> crate::Result {
         let remote_dir = TempDir::new()?;
         let remote_repo = init_repo(remote_dir.path())?;
@@ -350,10 +349,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_with_multi_round_negotiation() -> crate::Result {
         for (algorithm, expected_negotiation_rounds) in [
             (gix::negotiate::Algorithm::Consecutive, 4),
@@ -431,10 +429,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_shallow_deepen_zero_does_not_fail() -> crate::Result {
         let (repo, tmp) = try_repo_rw_args("two-origins", ["--depth=2"], Mode::CloneWithShallowSupport)?;
         let daemon = spawn_git_daemon_if_async(tmp.path().join("base"))?;
@@ -470,10 +467,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_shallow_deepen_not_possible() -> crate::Result {
         let (repo, tmp) = try_repo_rw_args("two-origins", ["--depth=2"], Mode::CloneWithShallowSupport)?;
         let daemon = spawn_git_daemon_if_async(tmp.path().join("base"))?;
@@ -526,10 +522,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_empty_pack() -> crate::Result {
         for version in [
             gix::protocol::transport::Protocol::V1,
@@ -607,10 +602,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_pack_without_local_destination() -> crate::Result {
         let daemon = spawn_git_daemon_if_async(repo_path("clone-as-base-with-changes"))?;
         for (fetch_tags, expected_data_hash, num_objects_offset, expected_ref_edits) in [
@@ -693,10 +687,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetching_a_missing_explicit_ref_fails_even_if_ls_refs_returns_nothing() -> crate::Result {
         let daemon = spawn_git_daemon_if_async({
             let mut p = repo_path("base");
@@ -727,10 +720,9 @@ mod blocking_and_async_io {
         Ok(())
     }
 
-    #[maybe_async::test(
-        feature = "blocking-network-client",
-        async(feature = "async-network-client-async-std", async_std::test)
-    )]
+    #[bisync::bisync]
+    #[cfg_attr(feature = "blocking-network-client", test)]
+    #[cfg_attr(feature = "async-network-client-async-std", async_std::test)]
     async fn fetch_pack() -> crate::Result {
         let daemon = spawn_git_daemon_if_async({
             let mut p = repo_path("base");

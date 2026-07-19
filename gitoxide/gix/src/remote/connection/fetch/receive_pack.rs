@@ -53,8 +53,8 @@ where
     /// When **updating refs**, the `git-fetch` docs state the following:
     ///
     /// > Unlike when pushing with git-push, any updates outside of refs/{tags,heads}/* will be accepted without + in the refspec (or --force),
-    /// whether that’s swapping e.g. a tree object for a blob, or a commit for another commit that’s doesn’t have the previous commit
-    /// as an ancestor etc.
+    /// > whether that’s swapping e.g. a tree object for a blob, or a commit for another commit that’s doesn’t have the previous commit
+    /// > as an ancestor etc.
     ///
     /// We explicitly don't special case those refs and expect the caller to take control. Note that by its nature,
     /// force only applies to refs pointing to commits and if they don't, they will be updated either way in our
@@ -69,7 +69,7 @@ where
     ///
     /// - `gitoxide.userAgent` is read to obtain the application user agent for git servers and for HTTP servers as well.
     ///
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub async fn receive<P>(self, progress: P, should_interrupt: &AtomicBool) -> Result<Outcome, Error>
     where
         P: gix_features::progress::NestedProgress,
@@ -84,7 +84,7 @@ impl<T> PrepareDetached<'_, T>
 where
     T: Transport,
 {
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub(crate) async fn receive<P>(
         mut self,
         repo: &crate::Repository,

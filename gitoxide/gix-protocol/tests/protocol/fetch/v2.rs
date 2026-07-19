@@ -8,7 +8,9 @@ use crate::fetch::{
     transport,
 };
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn clone_abort_prep() -> crate::Result {
     let out = Vec::new();
     let mut dlg = CloneDelegate {
@@ -59,7 +61,9 @@ async fn clone_abort_prep() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn ls_remote() -> crate::Result {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate::default();
@@ -114,7 +118,9 @@ async fn ls_remote() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn ls_remote_abort_in_prep_ls_refs() -> crate::Result {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate {
@@ -154,7 +160,9 @@ async fn ls_remote_abort_in_prep_ls_refs() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn ref_in_want() -> crate::Result {
     let out = Vec::new();
     let mut delegate = CloneRefInWantDelegate {
@@ -211,7 +219,9 @@ async fn ref_in_want() -> crate::Result {
 
 /// Like `ref_in_want`, but the server advertises `object-format=sha256`.
 #[cfg(feature = "sha256")]
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn ref_in_want_sha256() -> crate::Result {
     let out = Vec::new();
     let mut delegate = CloneRefInWantDelegate {

@@ -7,7 +7,9 @@ fn oid(hex: &str) -> gix_hash::ObjectId {
 
 use gix_protocol::handshake::{Ref, refs};
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn extract_references_from_v2_refs() {
     let input = &mut Fixture(
         "808e50d724f604f69ab93c6da2919c014667bedb HEAD symref-target:refs/heads/main
@@ -68,7 +70,9 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
     );
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn extract_references_from_v1_refs() {
     let input = &mut Fixture(
         "73a6868963993a3328e7d8fe94e5a6ac5078a944 HEAD
@@ -119,7 +123,9 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
     );
 }
 
-#[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-client", test)]
+#[cfg_attr(feature = "async-client", async_std::test)]
 async fn extract_references_from_v1_refs_with_shallow() {
     use gix_protocol::fetch::response::ShallowUpdate;
     let input = &mut Fixture(

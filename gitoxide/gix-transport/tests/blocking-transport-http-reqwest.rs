@@ -1,5 +1,7 @@
 //! Regression tests specific to the blocking `reqwest` HTTP backend.
 
+pub use ::bisync::synchronous as bisync;
+
 use std::{
     error::Error,
     io::Write,

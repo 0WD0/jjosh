@@ -9,7 +9,7 @@ use crate::{OutputFormat, net, pack::receive::protocol::fetch::negotiate};
 use gix::protocol::transport::client::async_io::connect;
 #[cfg(feature = "blocking-client")]
 use gix::protocol::transport::client::blocking_io::connect;
-use gix::{DynNestedProgress, config::tree::Key, protocol::maybe_async, remote::fetch::Error};
+use gix::{DynNestedProgress, config::tree::Key, protocol::bisync, remote::fetch::Error};
 pub use gix::{
     NestedProgress, Progress,
     hash::ObjectId,
@@ -33,7 +33,7 @@ pub struct Context<W> {
     pub object_hash: gix::hash::Kind,
 }
 
-#[maybe_async::maybe_async]
+#[bisync::bisync]
 pub async fn receive<P, W>(
     protocol: Option<net::Protocol>,
     url: &str,

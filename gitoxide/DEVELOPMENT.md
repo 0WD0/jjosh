@@ -113,13 +113,9 @@ Parameters which are not available in git or specific to `gitoxide` or the needs
       needs a lot of resources and threads will do just fine.~~
       * Support async out of the box without locking it into particular traits using conditional complication. This will make integrating
         into an async codebase easier, which we assume is given on the server side _these days_.
-  * **usage of `maybe_async`**
-    * Right not we intentionally only use it in tests to allow one set of test cases to test both blocking and async implementations. This is the
-      only way to prevent drift of otherwise distinct implementations.
-    * **Why not use it to generate blocking versions of traits automatically?**
-      * This would require `maybe_async` and its dependencies to always be present, increasing compile times. For now we chose a little more code to handle
-        over increasing compile times for everyone. This stance may change later once compile times don't matter that much anymore to allow the removal of code.
-
+  * **usage of `bisync`**
+    * Use async-shaped source with `bisync::asynchronous` or `bisync::synchronous` for shared blocking and async call paths and tests. Select the
+      mode at each integration point so both variants can coexist while being generated from one implementation that cannot drift.
 * **`Default` trait implementations**
   * These can change only if the effect is contained within the callers process.
     This means **changing the default of a file version** is a **breaking change**.

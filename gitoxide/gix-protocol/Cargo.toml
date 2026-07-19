@@ -25,7 +25,6 @@ doctest = false
 ## If set, blocking command implementations are available and will use the blocking version of the `gix-transport` crate.
 blocking-client = [
     "gix-transport/blocking-client",
-    "maybe-async/is_sync",
     "handshake",
     "fetch"
 ]
@@ -104,7 +103,7 @@ bstr = { version = "1.12.0", default-features = false, features = [
 async-trait = { version = "0.1.51", optional = true }
 futures-io = { version = "0.3.32", optional = true }
 futures-lite = { version = "2.1.0", optional = true }
-maybe-async = "0.2.11"
+bisync = "0.3.0"
 
 document-features = { version = "0.2.0", optional = true }
 

@@ -197,12 +197,12 @@ unit-tests:
     cargo nextest run -p gix-pack --features parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-index --features parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features parallel --no-fail-fast
-    cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline --no-fail-fast
+    cargo nextest run -p gix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
     cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials,maybe-async/is_sync --test blocking-transport-http-only --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync --no-fail-fast
-    cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials,maybe-async/is_sync --test blocking-transport --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-curl --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials --test blocking-transport-http-only --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-reqwest --no-fail-fast
+    cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials --test blocking-transport --no-fail-fast
     cargo nextest run -p gix-transport --features async-client --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-traverse --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-traverse --no-fail-fast

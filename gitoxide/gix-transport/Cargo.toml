@@ -73,17 +73,17 @@ serde = ["dep:serde", "bstr/serde"]
 [[test]]
 name = "blocking-transport"
 path = "tests/blocking-transport.rs"
-required-features = ["blocking-client", "http-client-insecure-credentials", "maybe-async/is_sync"]
+required-features = ["blocking-client", "http-client-insecure-credentials"]
 
 [[test]]
 name = "blocking-transport-http-only"
 path = "tests/blocking-transport-http.rs"
-required-features = ["http-client-curl", "http-client-insecure-credentials", "maybe-async/is_sync"]
+required-features = ["http-client-curl", "http-client-insecure-credentials"]
 
 [[test]]
 name = "blocking-transport-http-reqwest"
 path = "tests/blocking-transport-http-reqwest.rs"
-required-features = ["http-client-reqwest", "maybe-async/is_sync"]
+required-features = ["http-client-reqwest"]
 
 [[test]]
 name = "async-transport"
@@ -141,7 +141,7 @@ gix-pack = { path = "../gix-pack", default-features = false, features = [
 ] }
 gix-hash = { path = "../gix-hash", features = ["sha1"] }
 async-std = { version = "1.9.0", features = ["attributes"] }
-maybe-async = "0.2.11"
+bisync = "0.3.0"
 blocking = "1.6.2"
 
 [package.metadata.docs.rs]

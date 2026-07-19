@@ -35,7 +35,7 @@ use crate::transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Tra
 ///
 /// Return `Ok(None)` if there was nothing to do because all remote refs are at the same state as they are locally,
 /// or there was nothing wanted, or `Ok(Some(outcome))` to inform about all the changes that were made.
-#[maybe_async::maybe_async]
+#[crate::bisync::bisync]
 pub async fn fetch<P, T, E>(
     negotiate: &mut impl Negotiate,
     consume_pack: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> Result<bool, E>,
