@@ -1,10 +1,10 @@
-### Please disclose fully AI-written public text
+### Prevent agent impersonation
 
-Public text posted under a user's name, such as issue or PR descriptions and comments, must disclose
-when it was fully written by AI. This makes it clear whether maintainers are talking to a person or
-an AI agent. AI-assisted proofreading or wording polish does not need disclosure.
+AI agents communicating through a person's account must identify themselves, for example in issue or
+PR descriptions and comments. AI assistance that does not replace the person as the speaker, such as
+proofreading or wording polish, does not require identification.
 
-Attributing AI in commit metadata, for example with a `Co-authored-by` trailer, is welcome but not
+Attributing AI assistance in commit metadata, for example with a `Co-authored-by` trailer, is welcome but not
 required. Code is reviewed the same way regardless of its origin.
 
 For everything else, please have a look at the respective section in the [README] file.

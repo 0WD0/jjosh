@@ -356,10 +356,10 @@ We recommend running `just test` during the development process to assure CI is 
 A backlog for work ready to be picked up is [available in the Project's Kanban board][project-board], which contains instructions on how
 to pick a task. If it's empty or you have other questions, feel free to [start a discussion][discussions] or reach out to @Byron [privately][keybase].
 
-For additional details, also take a look at the [collaboration guide]. If public text is fully written by AI, please
-follow the [AI disclosure requirement].
+For additional details, also take a look at the [collaboration guide]. If an AI agent communicates through your account,
+please follow the [agent impersonation policy].
 
-[AI disclosure requirement]: https://github.com/GitoxideLabs/gitoxide/blob/main/CONTRIBUTING.md#please-disclose-fully-ai-written-public-text
+[agent impersonation policy]: https://github.com/GitoxideLabs/gitoxide/blob/main/CONTRIBUTING.md#prevent-agent-impersonation
 [collaboration guide]: https://github.com/GitoxideLabs/gitoxide/blob/main/COLLABORATING.md
 [project-board]: https://github.com/GitoxideLabs/gitoxide/projects
 [discussions]: https://github.com/GitoxideLabs/gitoxide/discussions
