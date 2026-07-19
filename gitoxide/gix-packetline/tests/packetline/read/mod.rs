@@ -7,7 +7,7 @@ pub mod streaming_peek_iter {
     use gix_packetline::PacketLineRef;
     #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
     use gix_packetline::async_io::StreamingPeekableIter;
-    #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+    #[cfg(feature = "blocking-io")]
     use gix_packetline::blocking_io::StreamingPeekableIter;
 
     fn fixture_path(path: &str) -> PathBuf {
@@ -22,7 +22,9 @@ pub mod streaming_peek_iter {
         PacketLineRef::Data(b"7814e8a05a59c0cf5fb186661d1551c75d1299b5 HEAD\0multi_ack thin-pack side-band side-band-64k ofs-delta shallow deepen-since deepen-not deepen-relative no-progress include-tag multi_ack_detailed symref=HEAD:refs/heads/master object-format=sha1 agent=git/2.28.0\n")
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn peek_follows_read_line_delimiter_logic() -> crate::Result {
         let mut rd = StreamingPeekableIter::new(&b"0005a00000005b"[..], &[PacketLineRef::Flush], false);
         let res = rd.peek_line().await;
@@ -48,7 +50,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn peek_follows_read_line_err_logic() -> crate::Result {
         let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(true);
@@ -75,7 +79,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn peek_eof_is_none() -> crate::Result {
         let mut rd = StreamingPeekableIter::new(&b"0005a0009ERR e0000"[..], &[PacketLineRef::Flush], false);
         rd.fail_on_err_lines(false);
@@ -96,7 +102,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn peek_non_data() -> crate::Result {
         let mut rd = StreamingPeekableIter::new(&b"000000010002"[..], &[PacketLineRef::ResponseEnd], false);
         let res = rd.read_line().await;
@@ -122,7 +130,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn fail_on_err_lines() -> crate::Result {
         let input = b"00010009ERR e0002";
         let mut rd = StreamingPeekableIter::new(&input[..], &[], false);
@@ -160,7 +170,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn oversized_packet_lengths_are_reported_instead_of_panicking() -> crate::Result {
         let mut rd = StreamingPeekableIter::new(&b"ffff\n"[..], &[], false);
         let err = rd
@@ -176,7 +188,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn peek() -> crate::Result {
         let bytes = fixture_bytes("v1/fetch/01-many-refs.response");
         let mut rd = StreamingPeekableIter::new(&bytes[..], &[PacketLineRef::Flush], false);
@@ -212,7 +226,9 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+    #[crate::bisync::bisync]
+    #[cfg_attr(feature = "blocking-io", test)]
+    #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
     async fn read_from_file_and_reader_advancement() -> crate::Result {
         let mut bytes = fixture_bytes("v1/fetch/01-many-refs.response");
         bytes.extend(fixture_bytes("v1/fetch/01-many-refs.response"));
@@ -239,7 +255,7 @@ pub mod streaming_peek_iter {
         Ok(())
     }
 
-    #[maybe_async::maybe_async]
+    #[crate::bisync::bisync]
     async fn exhaust(rd: &mut StreamingPeekableIter<&[u8]>) -> i32 {
         let mut count = 0;
         while rd.read_line().await.is_some() {

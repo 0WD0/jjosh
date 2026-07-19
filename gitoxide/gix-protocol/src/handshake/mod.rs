@@ -71,10 +71,6 @@ pub(crate) mod hero {
 
     #[cfg(feature = "fetch")]
     mod fetch {
-        #[cfg(feature = "async-client")]
-        use crate::transport::client::async_io;
-        #[cfg(feature = "blocking-client")]
-        use crate::transport::client::blocking_io;
         use crate::{Handshake, command::Feature, fetch::RefMap, ls_refs::RefPrefixes};
         use gix_features::progress::Progress;
 
@@ -86,44 +82,52 @@ pub(crate) mod hero {
             LsRefsCommand(crate::LsRefsCommand<'a>, crate::fetch::refmap::init::Context),
         }
 
+        macro_rules! fetch {
+            ($name:ident, $bisync:path, $transport:path, $invoke:ident, $mode:literal) => {
+                /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
+                #[$bisync]
+                pub async fn $name(
+                    self,
+                    mut progress: impl Progress,
+                    transport: &mut impl $transport,
+                    trace_packetlines: bool,
+                ) -> Result<RefMap, crate::fetch::refmap::init::Error> {
+                    let (cmd, cx) = match self {
+                        ObtainRefMap::Existing(map) => return Ok(map),
+                        ObtainRefMap::LsRefsCommand(cmd, cx) => (cmd, cx),
+                    };
+
+                    let _span = gix_trace::coarse!(
+                        "gix_protocol::handshake::ObtainRefMap::fetch()",
+                        mode = $mode
+                    );
+                    let capabilities = cmd.capabilities;
+                    let remote_refs = cmd
+                        .$invoke(transport, &mut progress, trace_packetlines)
+                        .await?;
+                    RefMap::from_refs(remote_refs, capabilities, cx)
+                }
+            };
+        }
+
         impl ObtainRefMap<'_> {
-            /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "async-client")]
-            pub async fn fetch_async(
-                self,
-                mut progress: impl Progress,
-                transport: &mut impl async_io::Transport,
-                trace_packetlines: bool,
-            ) -> Result<RefMap, crate::fetch::refmap::init::Error> {
-                let (cmd, cx) = match self {
-                    ObtainRefMap::Existing(map) => return Ok(map),
-                    ObtainRefMap::LsRefsCommand(cmd, cx) => (cmd, cx),
-                };
+            fetch!(
+                fetch_async,
+                ::bisync::asynchronous::bisync,
+                crate::transport::client::async_io::Transport,
+                invoke_async,
+                "async"
+            );
 
-                let _span = gix_trace::coarse!("gix_protocol::handshake::ObtainRefMap::fetch_async()");
-                let capabilities = cmd.capabilities;
-                let remote_refs = cmd.invoke_async(transport, &mut progress, trace_packetlines).await?;
-                RefMap::from_refs(remote_refs, capabilities, cx)
-            }
-
-            /// Fetch the refmap, either by returning the existing one or invoking the `ls-refs` command.
             #[cfg(feature = "blocking-client")]
-            pub fn fetch_blocking(
-                self,
-                mut progress: impl Progress,
-                transport: &mut impl blocking_io::Transport,
-                trace_packetlines: bool,
-            ) -> Result<RefMap, crate::fetch::refmap::init::Error> {
-                let (cmd, cx) = match self {
-                    ObtainRefMap::Existing(map) => return Ok(map),
-                    ObtainRefMap::LsRefsCommand(cmd, cx) => (cmd, cx),
-                };
-
-                let _span = gix_trace::coarse!("gix_protocol::handshake::ObtainRefMap::fetch_blocking()");
-                let capabilities = cmd.capabilities;
-                let remote_refs = cmd.invoke_blocking(transport, &mut progress, trace_packetlines)?;
-                RefMap::from_refs(remote_refs, capabilities, cx)
-            }
+            fetch!(
+                fetch_blocking,
+                ::bisync::synchronous::bisync,
+                crate::transport::client::blocking_io::Transport,
+                invoke_blocking,
+                "blocking"
+            );
         }
 
         impl Handshake {

@@ -66,7 +66,7 @@ mod refs_impl {
         pub(crate) use super::{print, print_ref};
     }
 
-    #[gix::protocol::maybe_async::maybe_async]
+    #[gix::protocol::bisync::bisync]
     pub async fn refs_fn(
         repo: gix::Repository,
         kind: refs::Kind,

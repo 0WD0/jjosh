@@ -43,7 +43,7 @@ mod arguments;
 
 #[cfg(feature = "blocking-client")]
 type Cursor = std::io::Cursor<Vec<u8>>;
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 type Cursor = futures_lite::io::Cursor<Vec<u8>>;
 
 #[expect(clippy::result_large_err)]
@@ -225,7 +225,7 @@ mod blocking_io {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 mod async_io {
     use std::io;
 
@@ -289,7 +289,7 @@ pub fn oid(hex_sha: &str) -> gix_hash::ObjectId {
     gix_hash::ObjectId::from_hex(hex_sha.as_bytes()).expect("valid input")
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 pub fn transport<W: futures_io::AsyncWrite + Unpin>(
     out: W,
     path: &str,

@@ -50,10 +50,10 @@ check:
     etc/scripts/check-gix-crate-hash-feature-combinations.sh
     cargo check -p gix-packetline --all-features 2>/dev/null
     cargo check -p gix-transport --all-features 2>/dev/null
-    # assure compile error occurs
+    # Assure incompatible top-level feature combinations still fail, while gix-protocol supports both I/O modes together.
     ! cargo check --features lean-async 2>/dev/null
     ! cargo check -p gitoxide-core --all-features --features gix/sha1 2>/dev/null
-    ! cargo check -p gix-protocol --all-features 2>/dev/null
+    cargo check -p gix-protocol --all-features
     tree="$(cargo --color=never tree -p gix --no-default-features -e normal --prefix none --format '{p}')"; \
         ! printf '%s\n' "$tree" | rg -q '^gix-imara-diff(-01)? v'
     cargo --color=never tree -p gix --no-default-features -e normal -i gix-submodule \
@@ -197,12 +197,12 @@ unit-tests:
     cargo nextest run -p gix-pack --features parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-index --features parallel --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features parallel --no-fail-fast
-    cargo nextest run -p gix-packetline --features blocking-io,maybe-async/is_sync --test blocking-packetline --no-fail-fast
+    cargo nextest run -p gix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
     cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl,maybe-async/is_sync --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials,maybe-async/is_sync --test blocking-transport-http-only --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-reqwest,maybe-async/is_sync --no-fail-fast
-    cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials,maybe-async/is_sync --test blocking-transport --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-curl --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials --test blocking-transport-http-only --no-fail-fast
+    cargo nextest run -p gix-transport --features http-client-reqwest --no-fail-fast
+    cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials --test blocking-transport --no-fail-fast
     cargo nextest run -p gix-transport --features async-client --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-traverse --no-fail-fast
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-traverse --no-fail-fast

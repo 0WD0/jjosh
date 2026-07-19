@@ -1,12 +1,12 @@
+use crate::bisync::bisync;
 use gix_features::{progress, progress::Progress};
 use gix_transport::{Service, client};
-use maybe_async::maybe_async;
 
 use super::Error;
 use crate::Handshake;
-#[cfg(feature = "async-client")]
+#[crate::bisync::only_async]
 use crate::transport::client::async_io::{SetServiceResponse, Transport};
-#[cfg(feature = "blocking-client")]
+#[crate::bisync::only_sync]
 use crate::transport::client::blocking_io::{SetServiceResponse, Transport};
 use crate::{credentials, handshake::refs};
 
@@ -15,7 +15,7 @@ use crate::{credentials, handshake::refs};
 /// each time it is performed in case authentication is required.
 /// `progress` is used to inform about what's currently happening.
 /// The `service` tells the server whether to be in 'send' or 'receive' mode.
-#[maybe_async]
+#[bisync]
 pub async fn handshake<AuthFn, T>(
     mut transport: T,
     service: Service,

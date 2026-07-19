@@ -137,7 +137,7 @@ where
     /// should the fetch not be performed. Furthermore, there the code doing the fetch is inherently blocking and it's not offloaded to a thread,
     /// making this call block the executor.
     /// It's best to unblock it by placing it into its own thread or offload it should usage in an async context be truly required.
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub async fn prepare_fetch(
         self,
         progress: impl Progress,
@@ -153,7 +153,7 @@ impl<'remote, T> ConnectionDetached<'remote, T>
 where
     T: Transport,
 {
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub(crate) async fn prepare_fetch(
         mut self,
         repo: &crate::Repository,

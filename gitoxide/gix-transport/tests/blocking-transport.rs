@@ -1,3 +1,5 @@
+pub use ::bisync::synchronous as bisync;
+
 use std::path::PathBuf;
 
 pub type Error = Box<dyn std::error::Error>;

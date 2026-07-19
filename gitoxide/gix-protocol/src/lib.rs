@@ -33,6 +33,10 @@ pub enum Command {
 }
 pub mod command;
 
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+pub use ::bisync::asynchronous as bisync;
+#[cfg(feature = "blocking-client")]
+pub use ::bisync::synchronous as bisync;
 #[cfg(feature = "async-client")]
 pub use async_trait;
 #[cfg(feature = "async-client")]
@@ -43,7 +47,6 @@ pub use futures_lite;
 pub use gix_credentials as credentials;
 /// A convenience export allowing users of gix-protocol to use the transport layer without their own cargo dependency.
 pub use gix_transport as transport;
-pub use maybe_async;
 
 ///
 pub mod fetch;
@@ -52,9 +55,6 @@ pub use fetch::function::fetch;
 
 mod remote_progress;
 pub use remote_progress::RemoteProgress;
-
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-compile_error!("Cannot set both 'blocking-client' and 'async-client' features as they are mutually exclusive");
 
 ///
 pub mod handshake;

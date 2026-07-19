@@ -42,13 +42,10 @@ pub(crate) mod function {
 
     use super::Error;
     #[cfg(feature = "async-client")]
-    use crate::transport::client::async_io::{self, TransportV2Ext as _};
+    use crate::transport::client::async_io::TransportV2Ext as _;
     #[cfg(feature = "blocking-client")]
-    use crate::transport::client::blocking_io::{self, TransportV2Ext as _};
-    use crate::{
-        Command,
-        handshake::{Ref, refs::from_v2_refs},
-    };
+    use crate::transport::client::blocking_io::TransportV2Ext as _;
+    use crate::{Command, handshake::Ref};
 
     /// [`RefPrefixes`] are the set of prefixes that are sent to the server for
     /// filtering purposes.
@@ -125,12 +122,51 @@ pub(crate) mod function {
 
     /// A command to list references from a remote Git repository.
     ///
-    /// It acts as a utility to separate the invocation into the shared blocking portion,
-    /// and the one that performs IO either blocking or `async`.
+    /// Its invocation uses the same implementation with either blocking or asynchronous I/O.
     pub struct LsRefsCommand<'a> {
         pub(crate) capabilities: &'a Capabilities,
         features: Vec<crate::command::Feature>,
         arguments: Vec<BString>,
+    }
+
+    macro_rules! invoke {
+        ($name:ident, $bisync:path, $transport:path, $from_v2_refs:path, $mode:literal) => {
+            /// Invoke a ls-refs V2 command on `transport`.
+            ///
+            /// `progress` is used to provide feedback.
+            /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
+            #[$bisync]
+            pub async fn $name(
+                self,
+                mut transport: impl $transport,
+                progress: &mut impl Progress,
+                trace: bool,
+            ) -> Result<Vec<Ref>, Error> {
+                let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke()", mode = $mode);
+                Command::LsRefs.validate_argument_prefixes(
+                    gix_transport::Protocol::V2,
+                    self.capabilities,
+                    &self.arguments,
+                    &self.features,
+                )?;
+
+                progress.step();
+                progress.set_name("list refs".into());
+                let mut remote_refs = transport
+                    .invoke(
+                        Command::LsRefs.as_str(),
+                        self.features.into_iter(),
+                        if self.arguments.is_empty() {
+                            None
+                        } else {
+                            Some(self.arguments.into_iter())
+                        },
+                        trace,
+                    )
+                    .await?;
+                Ok($from_v2_refs(&mut remote_refs).await?)
+            }
+        };
     }
 
     impl<'a> LsRefsCommand<'a> {
@@ -167,75 +203,23 @@ pub(crate) mod function {
             }
         }
 
-        /// Invoke a ls-refs V2 command on `transport`.
-        ///
-        /// `progress` is used to provide feedback.
-        /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
         #[cfg(feature = "async-client")]
-        pub async fn invoke_async(
-            self,
-            mut transport: impl async_io::Transport,
-            progress: &mut impl Progress,
-            trace: bool,
-        ) -> Result<Vec<Ref>, Error> {
-            let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke_async()");
-            Command::LsRefs.validate_argument_prefixes(
-                gix_transport::Protocol::V2,
-                self.capabilities,
-                &self.arguments,
-                &self.features,
-            )?;
+        invoke!(
+            invoke_async,
+            ::bisync::asynchronous::bisync,
+            crate::transport::client::async_io::Transport,
+            crate::handshake::refs::async_io::from_v2_refs,
+            "async"
+        );
 
-            progress.step();
-            progress.set_name("list refs".into());
-            let mut remote_refs = transport
-                .invoke(
-                    Command::LsRefs.as_str(),
-                    self.features.into_iter(),
-                    if self.arguments.is_empty() {
-                        None
-                    } else {
-                        Some(self.arguments.into_iter())
-                    },
-                    trace,
-                )
-                .await?;
-            Ok(from_v2_refs(&mut remote_refs).await?)
-        }
-
-        /// Invoke a ls-refs V2 command on `transport`.
-        ///
-        /// `progress` is used to provide feedback.
-        /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
         #[cfg(feature = "blocking-client")]
-        pub fn invoke_blocking(
-            self,
-            mut transport: impl blocking_io::Transport,
-            progress: &mut impl Progress,
-            trace: bool,
-        ) -> Result<Vec<Ref>, Error> {
-            let _span = gix_features::trace::detail!("gix_protocol::LsRefsCommand::invoke_blocking()");
-            Command::LsRefs.validate_argument_prefixes(
-                gix_transport::Protocol::V2,
-                self.capabilities,
-                &self.arguments,
-                &self.features,
-            )?;
-
-            progress.step();
-            progress.set_name("list refs".into());
-            let mut remote_refs = transport.invoke(
-                Command::LsRefs.as_str(),
-                self.features.into_iter(),
-                if self.arguments.is_empty() {
-                    None
-                } else {
-                    Some(self.arguments.into_iter())
-                },
-                trace,
-            )?;
-            Ok(from_v2_refs(&mut remote_refs)?)
-        }
+        invoke!(
+            invoke_blocking,
+            ::bisync::synchronous::bisync,
+            crate::transport::client::blocking_io::Transport,
+            crate::handshake::refs::blocking_io::from_v2_refs,
+            "blocking"
+        );
     }
 
     #[cfg(test)]

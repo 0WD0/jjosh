@@ -1,3 +1,5 @@
+pub use ::bisync::synchronous as bisync;
+
 pub type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 pub fn assert_err_display<T: std::fmt::Debug, E: std::error::Error>(

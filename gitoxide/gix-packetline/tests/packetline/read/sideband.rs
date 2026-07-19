@@ -7,7 +7,7 @@ use futures_lite::io::AsyncReadExt;
 use gix_odb::pack;
 #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
 use gix_packetline::async_io::StreamingPeekableIter;
-#[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+#[cfg(feature = "blocking-io")]
 use gix_packetline::blocking_io::StreamingPeekableIter;
 use gix_packetline::{PacketLineRef, read::ProgressAction};
 
@@ -39,7 +39,9 @@ mod util {
     }
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn read_pack_with_progress_extraction() -> crate::Result {
     let buf = fixture_bytes("v1/01-clone.combined-output");
     let mut rd = StreamingPeekableIter::new(&buf[..], &[PacketLineRef::Flush], false);
@@ -103,7 +105,9 @@ async fn read_pack_with_progress_extraction() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn read_line_trait_method_reads_one_packet_line_at_a_time() -> crate::Result {
     let buf = fixture_bytes("v1/01-clone.combined-output-no-binary");
 
@@ -152,7 +156,9 @@ async fn read_line_trait_method_reads_one_packet_line_at_a_time() -> crate::Resu
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn readline_reads_one_packet_line_at_a_time() -> crate::Result {
     let buf = fixture_bytes("v1/01-clone.combined-output-no-binary");
 
@@ -201,7 +207,9 @@ async fn readline_reads_one_packet_line_at_a_time() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn empty_progress_and_error_sidebands_are_forwarded_without_panic() -> crate::Result {
     let input = b"0005\x020005\x030000";
     let mut rd = StreamingPeekableIter::new(&input[..], &[PacketLineRef::Flush], false);
@@ -225,7 +233,9 @@ async fn empty_progress_and_error_sidebands_are_forwarded_without_panic() -> cra
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn peek_past_an_actual_eof_is_an_error() -> crate::Result {
     let input = b"0009ERR e";
     let mut rd = StreamingPeekableIter::new(&input[..], &[], false);
@@ -249,7 +259,9 @@ async fn peek_past_an_actual_eof_is_an_error() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn peek_past_a_delimiter_is_no_error() -> crate::Result {
     let input = b"0009hello0000";
     let mut rd = StreamingPeekableIter::new(&input[..], &[PacketLineRef::Flush], false);
@@ -269,7 +281,9 @@ async fn peek_past_a_delimiter_is_no_error() -> crate::Result {
     Ok(())
 }
 
-#[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+#[crate::bisync::bisync]
+#[cfg_attr(feature = "blocking-io", test)]
+#[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
 async fn handling_of_err_lines() {
     let input = b"0009ERR e0009ERR x0000";
     let mut rd = StreamingPeekableIter::new(&input[..], &[], false);

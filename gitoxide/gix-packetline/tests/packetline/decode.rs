@@ -28,10 +28,12 @@ mod streaming {
         use crate::decode::streaming::assert_complete;
         #[cfg(all(feature = "async-io", not(feature = "blocking-io")))]
         use gix_packetline::async_io::encode as encode_io;
-        #[cfg(all(feature = "blocking-io", not(feature = "async-io")))]
+        #[cfg(feature = "blocking-io")]
         use gix_packetline::blocking_io::encode as encode_io;
 
-        #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+        #[crate::bisync::bisync]
+        #[cfg_attr(feature = "blocking-io", test)]
+        #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
         async fn trailing_line_feeds_are_removed_explicitly() -> crate::Result {
             let line = decode::all_at_once(b"0006a\n")?;
             assert_eq!(line.as_text().expect("text").0.as_bstr(), b"a".as_bstr());
@@ -43,7 +45,9 @@ mod streaming {
             Ok(())
         }
 
-        #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+        #[crate::bisync::bisync]
+        #[cfg_attr(feature = "blocking-io", test)]
+        #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
         async fn all_kinds_of_packetlines() -> crate::Result {
             for (line, bytes) in &[
                 (PacketLineRef::ResponseEnd, 4),
@@ -58,7 +62,9 @@ mod streaming {
             Ok(())
         }
 
-        #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+        #[crate::bisync::bisync]
+        #[cfg_attr(feature = "blocking-io", test)]
+        #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
         async fn error_line() -> crate::Result {
             let mut out = Vec::new();
             encode_io::write_error(
@@ -71,7 +77,9 @@ mod streaming {
             Ok(())
         }
 
-        #[maybe_async::test(feature = "blocking-io", async(feature = "async-io", async_std::test))]
+        #[crate::bisync::bisync]
+        #[cfg_attr(feature = "blocking-io", test)]
+        #[cfg_attr(all(feature = "async-io", not(feature = "blocking-io")), async_std::test)]
         async fn side_bands() -> crate::Result {
             for channel in &[Channel::Data, Channel::Error, Channel::Progress] {
                 let mut out = Vec::new();

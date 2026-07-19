@@ -86,7 +86,7 @@ where
     /// ### Configuration
     ///
     /// - `gitoxide.userAgent` is read to obtain the application user agent for git servers and for HTTP servers as well.
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub async fn ref_map(
         self,
         progress: impl Progress,
@@ -101,7 +101,7 @@ impl<T> ConnectionDetached<'_, T>
 where
     T: Transport,
 {
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub(crate) async fn ref_map(
         mut self,
         repo: &crate::Repository,
@@ -115,7 +115,7 @@ where
         Ok((refmap, handshake))
     }
 
-    #[gix_protocol::maybe_async::maybe_async]
+    #[gix_protocol::bisync::bisync]
     pub(crate) async fn ref_map_by_ref(
         &mut self,
         repo: &crate::Repository,
