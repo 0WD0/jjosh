@@ -67,11 +67,7 @@ impl super::Store {
                                         // something changed between us getting the lock, trigger a complete index refresh.
                                         None
                                     }
-                                    None => {
-                                        unreachable!(
-                                            "BUG: must set this handle to be stable to avoid slots to be cleared/changed"
-                                        )
-                                    }
+                                    None => None,
                                 };
                                 slot.files.store(files);
                                 Ok(pack)
@@ -81,9 +77,7 @@ impl super::Store {
                     // This can also happen if they use an old index into our new and refreshed data which might have a multi-index
                     // here.
                     Some(types::IndexAndPacks::MultiIndex(_)) => Ok(None),
-                    None => {
-                        unreachable!("BUG: must set this handle to be stable to avoid slots to be cleared/changed")
-                    }
+                    None => Ok(None),
                 }
             }
             Some(pack_index) => {
@@ -109,11 +103,7 @@ impl super::Store {
                                             .load_with_recovery(|path| {
                                                 load_pack(path, id, self.object_hash, self.alloc_limit_bytes)
                                             })?,
-                                        None => {
-                                            unreachable!(
-                                                "BUG: must set this handle to be stable to avoid slots to be cleared/changed"
-                                            )
-                                        }
+                                        None => None,
                                     };
                                     slot.files.store(files);
                                     Ok(pack)
@@ -124,9 +114,7 @@ impl super::Store {
                     // This can also happen if they use an old index into our new and refreshed data which might have a multi-index
                     // here.
                     Some(types::IndexAndPacks::Index(_)) => Ok(None),
-                    None => {
-                        unreachable!("BUG: must set this handle to be stable to avoid slots to be cleared/changed")
-                    }
+                    None => Ok(None),
                 }
             }
         }
