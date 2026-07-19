@@ -1,16 +1,20 @@
 use std::io;
 
+#[crate::bisync::only_async]
 use crate::transport::client::async_io::ExtendedBufRead;
-use gix_transport::{Protocol, client};
+#[crate::bisync::only_sync]
+use crate::transport::client::blocking_io::ExtendedBufRead;
+use gix_transport::{Protocol, client::MessageKind};
 
 use crate::fetch::{
     Response, response,
     response::{Acknowledgement, ShallowUpdate, WantedRef, shallow_update_from_line},
 };
 
-async fn parse_v2_section<T>(
+#[crate::bisync::bisync]
+async fn parse_v2_section<'a, T>(
     line: &mut String,
-    reader: &mut (impl ExtendedBufRead<'_> + Unpin),
+    reader: &mut impl ExtendedBufRead<'a>,
     res: &mut Vec<T>,
     parse: impl Fn(&str) -> Result<T, response::Error>,
 ) -> Result<bool, response::Error> {
@@ -20,7 +24,7 @@ async fn parse_v2_section<T>(
         line.clear();
     }
     // End of message, or end of section?
-    Ok(if reader.stopped_at() == Some(client::MessageKind::Delimiter) {
+    Ok(if reader.stopped_at() == Some(MessageKind::Delimiter) {
         // try reading more sections
         reader.reset(Protocol::V2);
         false
@@ -42,9 +46,10 @@ impl Response {
     /// is to predict how to parse V1 output only, and neither `client_expects_pack` nor `wants_to_negotiate` are relevant for V2.
     /// This ugliness is in place to avoid having to resort to an [an even more complex ugliness](https://github.com/git/git/blob/9e49351c3060e1fa6e0d2de64505b7becf157f28/fetch-pack.c#L583-L594)
     /// that `git` has to use to predict how many acks are supposed to be read. We also genuinely hope that this covers it all….
-    pub async fn from_line_reader(
+    #[crate::bisync::bisync]
+    pub async fn from_line_reader<'a>(
         version: Protocol,
-        reader: &mut (impl ExtendedBufRead<'_> + Unpin),
+        reader: &mut impl ExtendedBufRead<'a>,
         client_expects_pack: bool,
         wants_to_negotiate: bool,
     ) -> Result<Response, response::Error> {
@@ -71,7 +76,7 @@ impl Response {
                             // maybe we saw a shallow flush packet, let's reset and retry
                             debug_assert_eq!(
                                 reader.stopped_at(),
-                                Some(client::MessageKind::Flush),
+                                Some(MessageKind::Flush),
                                 "If this isn't a flush packet, we don't know what's going on"
                             );
                             reader.readline_str(&mut line).await?;

@@ -277,24 +277,24 @@ async fn handshake_v2_downgrade_to_v1() -> crate::Result {
     Ok(())
 }
 
-#[expect(clippy::unit_arg)] // side-effect of bisync
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
 #[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn handshake_v2_and_request() -> crate::Result {
-    #[cfg(feature = "blocking-client")]
-    return handshake_v2_and_request_inner().await;
-    // This monstrosity simulates how one can process a pack received in async-io by transforming it into
-    // blocking io::BufRead, while still handling the whole operation in a way that won't block the executor.
-    // It's a way of `spawn_blocking()` in other executors. Currently this can only be done on a per-command basis.
-    // Thinking about it, it's most certainly fine to do `fetch' commands on another thread and move the entire connection
-    // there as it's always the end of an operation and a lot of IO is required that is blocking anyway, like accessing
-    // commit graph information for fetch negotiations, and of course processing a received pack.
-    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
-    Ok(
+    #[crate::bisync::only_sync]
+    fn run() -> crate::Result {
+        handshake_v2_and_request_inner()
+    }
+
+    #[crate::bisync::only_async]
+    async fn run() -> crate::Result {
+        // This simulates processing a pack received with async I/O as blocking `BufRead` without blocking the executor.
         blocking::unblock(|| futures_lite::future::block_on(handshake_v2_and_request_inner()).expect("no failure"))
-            .await,
-    )
+            .await;
+        Ok(())
+    }
+
+    run().await
 }
 
 #[crate::bisync::bisync]

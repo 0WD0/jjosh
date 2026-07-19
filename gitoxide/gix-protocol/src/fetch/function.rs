@@ -8,9 +8,9 @@ use gix_features::progress::DynNestedProgress;
 use crate::fetch::{
     Arguments, Context, Error, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags, negotiate,
 };
-#[cfg(feature = "async-client")]
+#[crate::bisync::only_async]
 use crate::transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
-#[cfg(feature = "blocking-client")]
+#[crate::bisync::only_sync]
 use crate::transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
 
 /// Perform one fetch operation, relying on a `transport`.
@@ -104,7 +104,7 @@ where
             let mut rounds = Vec::new();
             let is_stateless = arguments.is_stateless(!transport.connection_persists_across_multiple_requests());
             let mut state = negotiate::one_round::State::new(is_stateless);
-            let mut reader = 'negotiation: loop {
+            let reader = 'negotiation: loop {
                 let _round = gix_trace::detail!("negotiate round", round = rounds.len() + 1);
                 progress.step();
                 progress.set_name(format!("negotiate (round {})", rounds.len() + 1));
@@ -152,37 +152,14 @@ where
                 shallow_lock = acquire_shallow_lock(&shallow_file).map(Some)?;
             }
 
-            #[cfg(feature = "async-client")]
-            let mut rd = crate::futures_lite::io::BlockOn::new(reader);
-            #[cfg(not(feature = "async-client"))]
-            let mut rd = reader;
-            let may_read_to_end =
-                consume_pack(&mut rd, &mut progress, should_interrupt).map_err(|err| Error::ConsumePack(err.into()))?;
-            #[cfg(feature = "async-client")]
-            {
-                reader = rd.into_inner();
-            }
-            #[cfg(not(feature = "async-client"))]
-            {
-                reader = rd;
-            }
+            let (mut reader, may_read_to_end) =
+                consume_received_pack(reader, consume_pack, &mut progress, should_interrupt)?;
 
             if may_read_to_end {
                 // Assure the final flush packet is consumed.
                 let has_read_to_end = reader.stopped_at().is_some();
-                #[cfg(feature = "async-client")]
-                {
-                    if !has_read_to_end {
-                        futures_lite::io::copy(&mut reader, &mut futures_lite::io::sink())
-                            .await
-                            .map_err(Error::ReadRemainingBytes)?;
-                    }
-                }
-                #[cfg(not(feature = "async-client"))]
-                {
-                    if !has_read_to_end {
-                        std::io::copy(&mut reader, &mut std::io::sink()).map_err(Error::ReadRemainingBytes)?;
-                    }
+                if !has_read_to_end {
+                    read_remaining(&mut reader).await.map_err(Error::ReadRemainingBytes)?;
                 }
             }
             drop(reader);
@@ -198,6 +175,51 @@ where
             }))
         }
     }
+}
+
+#[crate::bisync::only_async]
+fn consume_received_pack<R, E>(
+    reader: R,
+    consume: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> Result<bool, E>,
+    progress: &mut dyn DynNestedProgress,
+    should_interrupt: &AtomicBool,
+) -> Result<(R, bool), Error>
+where
+    R: crate::futures_io::AsyncBufRead + Unpin,
+    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+{
+    let mut reader = crate::futures_lite::io::BlockOn::new(reader);
+    let may_read_to_end =
+        consume(&mut reader, progress, should_interrupt).map_err(|err| Error::ConsumePack(err.into()))?;
+    Ok((reader.into_inner(), may_read_to_end))
+}
+
+#[crate::bisync::only_sync]
+fn consume_received_pack<R, E>(
+    mut reader: R,
+    consume: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> Result<bool, E>,
+    progress: &mut dyn DynNestedProgress,
+    should_interrupt: &AtomicBool,
+) -> Result<(R, bool), Error>
+where
+    R: std::io::BufRead,
+    E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+{
+    let may_read_to_end =
+        consume(&mut reader, progress, should_interrupt).map_err(|err| Error::ConsumePack(err.into()))?;
+    Ok((reader, may_read_to_end))
+}
+
+#[crate::bisync::only_async]
+async fn read_remaining(reader: &mut (impl crate::futures_io::AsyncRead + Unpin)) -> std::io::Result<()> {
+    crate::futures_lite::io::copy(reader, &mut crate::futures_lite::io::sink())
+        .await
+        .map(|_| ())
+}
+
+#[crate::bisync::only_sync]
+fn read_remaining(reader: &mut impl std::io::Read) -> std::io::Result<()> {
+    std::io::copy(reader, &mut std::io::sink()).map(|_| ())
 }
 
 fn acquire_shallow_lock(shallow_file: &Path) -> Result<gix_lock::File, Error> {

@@ -50,10 +50,10 @@ check:
     etc/scripts/check-gix-crate-hash-feature-combinations.sh
     cargo check -p gix-packetline --all-features 2>/dev/null
     cargo check -p gix-transport --all-features 2>/dev/null
-    # assure compile error occurs
+    # Assure incompatible top-level feature combinations still fail, while gix-protocol supports both I/O modes together.
     ! cargo check --features lean-async 2>/dev/null
     ! cargo check -p gitoxide-core --all-features --features gix/sha1 2>/dev/null
-    ! cargo check -p gix-protocol --all-features 2>/dev/null
+    cargo check -p gix-protocol --all-features
     tree="$(cargo --color=never tree -p gix --no-default-features -e normal --prefix none --format '{p}')"; \
         ! printf '%s\n' "$tree" | rg -q '^gix-imara-diff(-01)? v'
     cargo --color=never tree -p gix --no-default-features -e normal -i gix-submodule \

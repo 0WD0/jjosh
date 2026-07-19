@@ -7,7 +7,7 @@ use crate::fetch::{_impl::FetchConnection, CloneDelegate, LsRemoteDelegate, help
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn clone() -> crate::Result {
     for with_keepalive in [false, true] {
         let out = Vec::new();
@@ -42,7 +42,7 @@ async fn clone() -> crate::Result {
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn clone_empty_with_capabilities() -> crate::Result {
     let out = Vec::new();
     let mut dlg = CloneDelegate::default();
@@ -67,7 +67,7 @@ async fn clone_empty_with_capabilities() -> crate::Result {
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn ls_remote() -> crate::Result {
     let out = Vec::new();
     let mut delegate = LsRemoteDelegate::default();
@@ -113,7 +113,7 @@ async fn ls_remote() -> crate::Result {
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn ls_remote_handshake_failure_due_to_downgrade() -> crate::Result {
     let out = Vec::new();
     let delegate = LsRemoteDelegate::default();

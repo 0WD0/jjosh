@@ -4,9 +4,9 @@ use gix_transport::{Service, client};
 
 use super::Error;
 use crate::Handshake;
-#[cfg(feature = "async-client")]
+#[crate::bisync::only_async]
 use crate::transport::client::async_io::{SetServiceResponse, Transport};
-#[cfg(feature = "blocking-client")]
+#[crate::bisync::only_sync]
 use crate::transport::client::blocking_io::{SetServiceResponse, Transport};
 use crate::{credentials, handshake::refs};
 

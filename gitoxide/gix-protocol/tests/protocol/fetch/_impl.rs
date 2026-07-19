@@ -18,7 +18,7 @@ mod fetch_fn {
         fetch::{Arguments, Response},
         indicate_end_of_interaction,
     };
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
     #[cfg(feature = "blocking-client")]
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
@@ -104,7 +104,7 @@ mod fetch_fn {
             None => match delegate.action() {
                 Ok(RefsAction::Skip) => Vec::new(),
                 Ok(RefsAction::Continue) => {
-                    #[cfg(feature = "async-client")]
+                    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
                     {
                         LsRefsCommand::new(None, &capabilities, ("agent", Some(agent.clone())))
                             .invoke_async(&mut transport, &mut progress, trace)
@@ -436,7 +436,7 @@ mod delegate {
     #[cfg(feature = "blocking-client")]
     pub use blocking_io::Delegate;
 
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     mod async_io {
         use std::{io, ops::DerefMut};
 
@@ -501,7 +501,7 @@ mod delegate {
             }
         }
     }
-    #[cfg(feature = "async-client")]
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     pub use async_io::Delegate;
 }
 #[cfg(any(feature = "async-client", feature = "blocking-client"))]

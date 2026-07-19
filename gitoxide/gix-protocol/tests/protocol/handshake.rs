@@ -9,7 +9,7 @@ use gix_protocol::handshake::{Ref, refs};
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn extract_references_from_v2_refs() {
     let input = &mut Fixture(
         "808e50d724f604f69ab93c6da2919c014667bedb HEAD symref-target:refs/heads/main
@@ -72,7 +72,7 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn extract_references_from_v1_refs() {
     let input = &mut Fixture(
         "73a6868963993a3328e7d8fe94e5a6ac5078a944 HEAD
@@ -125,7 +125,7 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
 
 #[crate::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn extract_references_from_v1_refs_with_shallow() {
     use gix_protocol::fetch::response::ShallowUpdate;
     let input = &mut Fixture(
@@ -235,7 +235,7 @@ impl gix_transport::client::blocking_io::ReadlineBufRead for Fixture<'_> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 impl<'a> Fixture<'a> {
     fn project_inner(self: std::pin::Pin<&mut Self>) -> std::pin::Pin<&mut &'a [u8]> {
         #[expect(unsafe_code)]
@@ -245,7 +245,7 @@ impl<'a> Fixture<'a> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 impl futures_io::AsyncRead for Fixture<'_> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
@@ -256,7 +256,7 @@ impl futures_io::AsyncRead for Fixture<'_> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 impl futures_io::AsyncBufRead for Fixture<'_> {
     fn poll_fill_buf(
         self: std::pin::Pin<&mut Self>,
@@ -270,7 +270,7 @@ impl futures_io::AsyncBufRead for Fixture<'_> {
     }
 }
 
-#[cfg(feature = "async-client")]
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 #[async_trait::async_trait(?Send)]
 impl gix_transport::client::async_io::ReadlineBufRead for Fixture<'_> {
     async fn readline(

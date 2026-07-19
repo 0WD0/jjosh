@@ -1,4 +1,4 @@
-pub use ::bisync::synchronous as bisync;
+pub use gix_protocol::bisync;
 
 mod protocol;
 pub use protocol::*;

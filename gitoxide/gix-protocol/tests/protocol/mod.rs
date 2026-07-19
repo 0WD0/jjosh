@@ -13,7 +13,7 @@ pub mod remote_progress;
 
 #[gix_protocol::bisync::bisync]
 #[cfg_attr(feature = "blocking-client", test)]
-#[cfg_attr(feature = "async-client", async_std::test)]
+#[cfg_attr(all(feature = "async-client", not(feature = "blocking-client")), async_std::test)]
 async fn the_same_test_body_runs_in_both_client_modes() {
     #[gix_protocol::bisync::only_sync]
     fn identity(value: u8) -> u8 {
