@@ -1,6 +1,6 @@
 use bstr::{BStr, BString};
 
-use crate::{AsKey, File, file::Metadata, value};
+use crate::{AsBStrOpt, AsKey, File, file::Metadata, value};
 
 /// Comfortable API for accessing values
 impl File {
@@ -15,10 +15,10 @@ impl File {
     pub fn string_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Option<BString> {
-        self.string_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), |_| true)
+        self.string_filter_by(section_name, subsection_name, value_name, |_| true)
     }
 
     /// Like [`string_filter_by()`](File::string_filter_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -32,11 +32,11 @@ impl File {
     pub fn string_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         filter: impl FnMut(&Metadata) -> bool,
     ) -> Option<BString> {
-        self.raw_value_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), filter)
+        self.raw_value_filter_by(section_name, subsection_name, value_name, filter)
             .ok()
     }
 
@@ -54,10 +54,10 @@ impl File {
     pub fn path_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Option<crate::Path> {
-        self.path_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), |_| true)
+        self.path_filter_by(section_name, subsection_name, value_name, |_| true)
     }
 
     /// Like [`path_filter_by()`](File::path_filter_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -75,11 +75,11 @@ impl File {
     pub fn path_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         filter: impl FnMut(&Metadata) -> bool,
     ) -> Option<crate::Path> {
-        self.raw_value_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), filter)
+        self.raw_value_filter_by(section_name, subsection_name, value_name, filter)
             .ok()
             .map(crate::Path::from)
     }
@@ -93,10 +93,10 @@ impl File {
     pub fn boolean_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Result<Option<bool>, value::Error> {
-        self.boolean_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), |_| true)
+        self.boolean_filter_by(section_name, subsection_name, value_name, |_| true)
     }
 
     /// Like [`boolean_filter_by()`](File::boolean_filter_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -115,12 +115,14 @@ impl File {
     pub fn boolean_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         mut filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<bool>, value::Error> {
         let section_name = section_name.as_ref();
-        let section_ids = self.section_ids_by_name_and_subname(section_name, subsection_name).ok();
+        let section_ids = self
+            .section_ids_by_name_and_subname(section_name, subsection_name.as_bstr_opt())
+            .ok();
         let Some(section_ids) = section_ids else {
             return Ok(None);
         };
@@ -148,7 +150,7 @@ impl File {
     pub fn integer_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Result<Option<i64>, value::Error> {
         self.integer_filter_by(section_name, subsection_name, value_name, |_| true)
@@ -170,12 +172,12 @@ impl File {
     pub fn integer_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<i64>, value::Error> {
         let Some(int) = self
-            .raw_value_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), filter)
+            .raw_value_filter_by(section_name, subsection_name, value_name, filter)
             .ok()
         else {
             return Ok(None);
@@ -195,11 +197,10 @@ impl File {
     pub fn strings_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Option<Vec<BString>> {
-        self.raw_values_by(section_name.as_ref(), subsection_name, value_name.as_ref())
-            .ok()
+        self.raw_values_by(section_name, subsection_name, value_name).ok()
     }
 
     /// Like [`strings_filter_by()`](File::strings_filter_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -212,11 +213,11 @@ impl File {
     pub fn strings_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         filter: impl FnMut(&Metadata) -> bool,
     ) -> Option<Vec<BString>> {
-        self.raw_values_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), filter)
+        self.raw_values_filter_by(section_name, subsection_name, value_name, filter)
             .ok()
     }
 
@@ -230,10 +231,10 @@ impl File {
     pub fn integers_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
     ) -> Result<Option<Vec<i64>>, value::Error> {
-        self.integers_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), |_| true)
+        self.integers_filter_by(section_name, subsection_name, value_name, |_| true)
     }
 
     /// Like [`integers_filter_by()`](File::integers_filter_by()), but suitable for statically known `key`s like `remote.origin.url`.
@@ -253,12 +254,12 @@ impl File {
     pub fn integers_filter_by(
         &self,
         section_name: impl AsRef<str>,
-        subsection_name: Option<&BStr>,
+        subsection_name: impl AsBStrOpt,
         value_name: impl AsRef<str>,
         filter: impl FnMut(&Metadata) -> bool,
     ) -> Result<Option<Vec<i64>>, value::Error> {
         let Some(values) = self
-            .raw_values_filter_by(section_name.as_ref(), subsection_name, value_name.as_ref(), filter)
+            .raw_values_filter_by(section_name, subsection_name, value_name, filter)
             .ok()
         else {
             return Ok(None);

@@ -1,12 +1,13 @@
-use std::ops::Range;
+use std::{collections::HashMap, ops::Range};
 
 use bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix_sec::Trust;
 use smallvec::SmallVec;
 
 use crate::{
+    AsBStrOpt,
     file::{
-        self, Index, IntoBStringOpt, SectionData, SectionRef, Size,
+        self, Index, IntoBStringOpt, SectionData, SectionId, SectionLookup, SectionRef, Size,
         mutable::{Whitespace, escape_value},
     },
     lookup,
@@ -19,17 +20,43 @@ use crate::{
 pub struct SectionMut<'a> {
     section: &'a mut SectionData,
     backing: &'a mut Vec<u8>,
+    /// Present only if backed by [`crate::File`]
+    lookup: Option<LookupMut<'a>>,
     implicit_newline: bool,
     whitespace: Whitespace,
     newline: SmallVec<[u8; 2]>,
 }
 
+#[derive(Debug)]
+pub(crate) struct LookupMut<'a> {
+    pub(crate) tree: &'a mut HashMap<parse::section::Name, SectionLookup>,
+    pub(crate) order: &'a [SectionId],
+}
+
 /// Mutating methods.
 impl SectionMut<'_> {
+    /// Rename this section to `name` and the optional `subsection_name`.
+    ///
+    /// Section names are not unique, and renaming into an existing section name is permitted.
+    pub fn rename(
+        &mut self,
+        name: impl AsRef<str>,
+        subsection_name: impl IntoBStringOpt,
+    ) -> Result<&mut Self, parse::section::header::Error> {
+        let header = parse::section::HeaderData::new_in(name, subsection_name.into_bstring_opt(), self.backing)?;
+        self.set_header(header);
+        Ok(self)
+    }
+
     /// Adds an entry to the end of this section name `value_name` and `value`. If `value` is `None`, no equal sign will be written leaving
     /// just the key. This is useful for boolean values which are true if merely the key exists.
-    pub fn push(&mut self, value_name: ValueName, value: Option<&BStr>) -> Result<&mut Self, parse::span::Error> {
-        self.push_with_comment_inner(value_name, value, None)?;
+    pub fn push(
+        &mut self,
+        value_name: impl AsRef<str>,
+        value: impl AsBStrOpt,
+    ) -> Result<&mut Self, file::section::value::Error> {
+        let value_name = ValueName::try_from(value_name.as_ref())?;
+        self.push_with_comment_inner(value_name, value.as_bstr_opt(), None)?;
         Ok(self)
     }
 
@@ -39,11 +66,12 @@ impl SectionMut<'_> {
     /// into spaces.
     pub fn push_with_comment(
         &mut self,
-        value_name: ValueName,
-        value: Option<&BStr>,
+        value_name: impl AsRef<str>,
+        value: impl AsBStrOpt,
         comment: impl crate::AsBStr,
-    ) -> Result<&mut Self, parse::span::Error> {
-        self.push_with_comment_inner(value_name, value, Some(comment.as_bstr()))?;
+    ) -> Result<&mut Self, file::section::value::Error> {
+        let value_name = ValueName::try_from(value_name.as_ref())?;
+        self.push_with_comment_inner(value_name, value.as_bstr_opt(), Some(comment.as_bstr()))?;
         Ok(self)
     }
 
@@ -91,7 +119,7 @@ impl SectionMut<'_> {
 
     /// Removes all events until a key value pair is removed. This will also
     /// remove the whitespace preceding the key value pair, if any is found.
-    pub fn pop(&mut self) -> Option<(ValueName, BString)> {
+    pub fn pop(&mut self) -> Option<(String, BString)> {
         let mut values: Vec<BString> = Vec::new();
         // events are popped in reverse order
         let body = &mut self.section.body.0;
@@ -105,11 +133,20 @@ impl SectionMut<'_> {
 
                     if values.len() == 1 {
                         let value = values.pop().expect("vec is non-empty but popped to empty value");
-                        return Some((ValueName(k.to_bstring_in(self.backing)), normalize(&value).into_owned()));
+                        return Some((
+                            k.as_bstr_in(self.backing)
+                                .to_str()
+                                .expect("parsed value names are ASCII")
+                                .to_owned(),
+                            normalize(&value).into_owned(),
+                        ));
                     }
 
                     return Some((
-                        ValueName(k.to_bstring_in(self.backing)),
+                        k.as_bstr_in(self.backing)
+                            .to_str()
+                            .expect("parsed value names are ASCII")
+                            .to_owned(),
                         normalize(&{
                             let mut s = BString::default();
                             for value in values.into_iter().rev() {
@@ -132,11 +169,23 @@ impl SectionMut<'_> {
     /// Sets the last key value pair if it exists, or adds the new value.
     /// Returns the previous value if it replaced a value, or None if it adds
     /// the value.
-    pub fn set(&mut self, value_name: ValueName, value: &BStr) -> Result<Option<BString>, parse::span::Error> {
-        let value_name = value_name.to_owned();
+    pub fn set(
+        &mut self,
+        value_name: impl AsRef<str>,
+        value: impl crate::AsBStr,
+    ) -> Result<Option<BString>, file::section::value::Error> {
+        let value_name = ValueName::try_from(value_name.as_ref())?;
+        self.set_inner(value_name, value.as_bstr()).map_err(Into::into)
+    }
+
+    pub(crate) fn set_inner(
+        &mut self,
+        value_name: ValueName,
+        value: &BStr,
+    ) -> Result<Option<BString>, parse::span::Error> {
         match self.section.body.key_and_value_range_by_in(self.backing, &value_name) {
             None => {
-                self.push(value_name, Some(value))?;
+                self.push_with_comment_inner(value_name, Some(value), None)?;
                 Ok(None)
             }
             Some((key_range, value_range)) => {
@@ -274,9 +323,14 @@ impl SectionMut<'_> {
     }
 
     /// Returns an iterator visiting all value names in order.
-    pub fn value_names(&self) -> impl Iterator<Item = ValueName> + '_ {
+    pub fn value_names(&self) -> impl Iterator<Item = String> + '_ {
         self.section.body.as_ref().iter().filter_map(move |e| match e {
-            Event::SectionValueName(k) => Some(ValueName(k.to_bstring_in(self.backing))),
+            Event::SectionValueName(k) => Some(
+                k.as_bstr_in(self.backing)
+                    .to_str()
+                    .expect("parsed value names are ASCII")
+                    .to_owned(),
+            ),
             _ => None,
         })
     }
@@ -315,14 +369,28 @@ impl SectionMut<'_> {
 
 // Internal methods that may require exact indices for faster operations.
 impl<'a> SectionMut<'a> {
-    pub(crate) fn new(section: &'a mut SectionData, backing: &'a mut Vec<u8>, newline: SmallVec<[u8; 2]>) -> Self {
+    pub(crate) fn new(
+        section: &'a mut SectionData,
+        backing: &'a mut Vec<u8>,
+        lookup: Option<LookupMut<'a>>,
+        newline: SmallVec<[u8; 2]>,
+    ) -> Self {
         let whitespace = Whitespace::from_body(&section.body, backing);
         Self {
             section,
             backing,
+            lookup,
             implicit_newline: true,
             whitespace,
             newline,
+        }
+    }
+
+    pub(crate) fn set_header(&mut self, header: parse::section::HeaderData) {
+        if let Some(lookup) = &mut self.lookup {
+            crate::file::util::set_section_header(self.section, self.backing, lookup.tree, lookup.order, header);
+        } else {
+            self.section.header = header;
         }
     }
 

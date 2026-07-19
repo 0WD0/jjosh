@@ -34,6 +34,85 @@ fn last_one_wins_respected_across_section() -> crate::Result {
 }
 
 #[test]
+fn value_with_section_identifies_the_section_containing_the_resolved_value() -> crate::Result {
+    let config = File::try_from(
+        "[core]\n\
+         a=first\n\
+         [core]\n\
+         a\n",
+    )?;
+    let first_section_id = config.sections().next().expect("first section").id();
+
+    let (value, section) = config.raw_value_with_section("core.a")?;
+    assert_eq!(value, "first", "implicit values are skipped during resolution");
+    assert_eq!(section.id(), first_section_id, "the returned section owns the value");
+
+    let (value, section) = config.raw_value_with_section_by("core", None, "a")?;
+    assert_eq!(value, "first");
+    assert_eq!(section.id(), first_section_id);
+    Ok(())
+}
+
+#[test]
+fn value_with_section_filter_identifies_the_section_containing_the_resolved_value() -> crate::Result {
+    let config = File::try_from(
+        "[core]\n\
+         a=first\n\
+         [core]\n\
+         a=second\n",
+    )?;
+    let first_section_id = config.sections().next().expect("first section").id();
+
+    let mut reject_last_section = true;
+    let (value, section) =
+        config.raw_value_with_section_filter("core.a", |_meta| !std::mem::take(&mut reject_last_section))?;
+    assert_eq!(value, "first", "the last value in an accepted section wins");
+    assert_eq!(
+        section.id(),
+        first_section_id,
+        "the returned section is the one accepted by the filter"
+    );
+    Ok(())
+}
+
+#[test]
+fn mutable_value_filters_have_key_and_component_variants() -> crate::Result {
+    let mut config = File::try_from(
+        "[core]\n\
+         a=first\n\
+         [core]\n\
+         a=second\n",
+    )?;
+
+    let mut reject_last_section = true;
+    config
+        .raw_value_mut_filter("core.a", |_meta| !std::mem::take(&mut reject_last_section))?
+        .set("changed")?;
+    assert_eq!(
+        config.raw_values("core.a")?,
+        ["changed", "second"],
+        "the key variant mutates the value in the accepted section"
+    );
+
+    config
+        .raw_value_mut_filter_by(String::from("core"), None, String::from("a"), |_| true)?
+        .set("last")?;
+    assert_eq!(
+        config.raw_values("core.a")?,
+        ["changed", "last"],
+        "the component variant accepts owned string components"
+    );
+
+    insta::assert_snapshot!(config.to_string(), "both values changed", @"
+    [core]
+    a=changed
+    [core]
+    a=last
+    ");
+    Ok(())
+}
+
+#[test]
 fn section_not_found() -> crate::Result {
     let config = File::try_from("[core]\na=b\nc=d")?;
     assert!(matches!(

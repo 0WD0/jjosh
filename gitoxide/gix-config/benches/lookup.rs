@@ -46,22 +46,14 @@ fn minimal_file_with_values(num_values: usize) -> File {
     let mut file = File::default();
     file.new_section("user", None)
         .expect("static section name is valid")
-        .push(
-            "name".try_into().expect("static value name is valid"),
-            Some("A U Thor".into()),
-        )
+        .push("name", Some("A U Thor".into()))
         .expect("benchmark data fits into the backing buffer");
 
     {
         let mut section = file.new_section("core", None).expect("static section name is valid");
         for index in 0..num_values {
             section
-                .push(
-                    format!("key-{index}")
-                        .try_into()
-                        .expect("generated value name is valid"),
-                    Some("v".into()),
-                )
+                .push(format!("key-{index}"), Some("v".into()))
                 .expect("benchmark data fits into the backing buffer");
         }
     }
@@ -72,12 +64,7 @@ fn minimal_file_with_values(num_values: usize) -> File {
             .expect("static section and subsection names are valid");
         for index in 0..num_values {
             section
-                .push(
-                    format!("key-{index}")
-                        .try_into()
-                        .expect("generated value name is valid"),
-                    Some("v".into()),
-                )
+                .push(format!("key-{index}"), Some("v".into()))
                 .expect("benchmark data fits into the backing buffer");
         }
     }
@@ -88,14 +75,11 @@ fn minimal_file_with_multivar(num_values: usize) -> File {
     let mut file = File::default();
     file.new_section("user", None)
         .expect("static section name is valid")
-        .push("name".try_into().expect("static value name is valid"), Some("v".into()))
+        .push("name", Some("v".into()))
         .expect("benchmark data fits into the backing buffer");
     file.new_section("core", None)
         .expect("static section name is valid")
-        .push(
-            "editor".try_into().expect("static value name is valid"),
-            Some("v".into()),
-        )
+        .push("editor", Some("v".into()))
         .expect("benchmark data fits into the backing buffer");
 
     let mut section = file
@@ -103,10 +87,7 @@ fn minimal_file_with_multivar(num_values: usize) -> File {
         .expect("static section and subsection names are valid");
     for _ in 0..num_values {
         section
-            .push(
-                "fetch".try_into().expect("static value name is valid"),
-                Some("v".into()),
-            )
+            .push("fetch", Some("v".into()))
             .expect("benchmark data fits into the backing buffer");
     }
     file
@@ -135,7 +116,7 @@ fn lookup(c: &mut Criterion) {
             b.iter(|| {
                 for subsection_name in &subsection_names {
                     black_box(
-                        file.section("remote", Some(black_box(subsection_name.as_bstr())))
+                        file.section("remote", black_box(subsection_name.as_bstr()))
                             .expect("target subsection exists"),
                     );
                 }
@@ -201,7 +182,7 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_value_by(black_box("remote"), Some(black_box(subsection)), black_box("key-0"))
+                        file.raw_value_by(black_box("remote"), black_box(subsection), black_box("key-0"))
                             .expect("target value exists"),
                     )
                 });
@@ -213,12 +194,8 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_value_by(
-                            black_box("remote"),
-                            Some(black_box(subsection)),
-                            black_box(last_key.as_str()),
-                        )
-                        .expect("target value exists"),
+                        file.raw_value_by(black_box("remote"), black_box(subsection), black_box(last_key.as_str()))
+                            .expect("target value exists"),
                     )
                 });
             },
@@ -238,7 +215,7 @@ fn value_lookup(c: &mut Criterion) {
             |b, _| {
                 b.iter(|| {
                     black_box(
-                        file.raw_values_by(black_box("remote"), Some(black_box(subsection)), black_box("fetch"))
+                        file.raw_values_by(black_box("remote"), black_box(subsection), black_box("fetch"))
                             .expect("target values exist"),
                     )
                 });

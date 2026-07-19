@@ -38,7 +38,7 @@ pub mod btoi;
 #[cfg(feature = "bstr")]
 mod bstr;
 #[cfg(feature = "bstr")]
-pub use bstr::AsBStr;
+pub use bstr::{AsBStr, AsBStrOpt};
 
 /// A utility to do buffer-swapping with.
 ///

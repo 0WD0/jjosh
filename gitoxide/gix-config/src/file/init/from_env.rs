@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use bstr::ByteSlice;
 
 use crate::{File, KeyRef, file, file::init, parse::section, path::interpolate};
@@ -25,9 +23,7 @@ pub enum Error {
     #[error(transparent)]
     Section(#[from] section::header::Error),
     #[error(transparent)]
-    ValueName(#[from] section::value_name::Error),
-    #[error(transparent)]
-    Span(#[from] crate::parse::span::Error),
+    SectionValue(#[from] file::section::value::Error),
 }
 
 /// Instantiation from environment variables
@@ -70,7 +66,7 @@ impl File {
             config
                 .section_mut_or_create_new_inner(key.section_name, key.subsection_name)?
                 .push(
-                    section::ValueName::try_from(key.value_name.to_owned())?,
+                    key.value_name,
                     Some(
                         gix_path::os_str_into_bstr(&value)
                             .map_err(|_| Error::IllformedUtf8 {

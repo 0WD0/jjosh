@@ -162,4 +162,38 @@ mod types {
         "Wrapper struct for value names, like `path` in `include.path`, since keys are case-insensitive."
     );
 }
-pub use types::{Name, ValueName, name, value_name};
+pub(crate) use types::ValueName;
+pub use types::{Name, name, value_name};
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use super::ValueName;
+
+    fn key(key: &str) -> ValueName {
+        ValueName::try_from(key).expect("valid test key")
+    }
+
+    #[test]
+    fn value_names_reject_invalid_formats() {
+        for invalid in ["", "1a", "a.2", "##", "\""] {
+            assert!(ValueName::try_from(invalid).is_err(), "{invalid:?} is invalid");
+        }
+    }
+
+    #[test]
+    fn value_names_are_case_insensitive() {
+        assert_eq!(key("aB-c"), key("Ab-C"));
+        assert_eq!(key("a").cmp(&key("a")), Ordering::Equal);
+        assert_eq!(key("aBc").cmp(&key("AbC")), Ordering::Equal);
+
+        fn calculate_hash<T: std::hash::Hash>(value: T) -> u64 {
+            use std::hash::Hasher;
+            let mut state = std::collections::hash_map::DefaultHasher::new();
+            value.hash(&mut state);
+            state.finish()
+        }
+        assert_eq!(calculate_hash(key("aBc")), calculate_hash(key("AbC")));
+    }
+}

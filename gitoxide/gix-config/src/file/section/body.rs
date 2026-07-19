@@ -1,6 +1,6 @@
 use std::{borrow::Cow, iter::FusedIterator, ops::Range, slice};
 
-use bstr::{BStr, BString, ByteVec};
+use bstr::{BStr, BString, ByteSlice, ByteVec};
 
 use crate::{
     file::write::extract_newline,
@@ -45,9 +45,14 @@ impl BodyRef<'_> {
     }
 
     /// Returns an iterator visiting all value names in order.
-    pub fn value_names(&self) -> impl Iterator<Item = ValueName> + '_ {
+    pub fn value_names(&self) -> impl Iterator<Item = String> + '_ {
         self.body.0.iter().filter_map(move |e| match e {
-            Event::SectionValueName(k) => Some(ValueName(k.to_bstring_in(self.backing))),
+            Event::SectionValueName(k) => Some(
+                k.as_bstr_in(self.backing)
+                    .to_str()
+                    .expect("parsed value names are ASCII")
+                    .to_owned(),
+            ),
             _ => None,
         })
     }
@@ -233,7 +238,7 @@ pub struct BodyRefIter<'a> {
 }
 
 impl<'a> IntoIterator for BodyRef<'a> {
-    type Item = (ValueName, BString);
+    type Item = (String, BString);
 
     type IntoIter = BodyRefIter<'a>;
 
@@ -246,7 +251,7 @@ impl<'a> IntoIterator for BodyRef<'a> {
 }
 
 impl Iterator for BodyRefIter<'_> {
-    type Item = (ValueName, BString);
+    type Item = (String, BString);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut key = None;
@@ -255,7 +260,14 @@ impl Iterator for BodyRefIter<'_> {
 
         for event in self.iter.by_ref() {
             match event {
-                Event::SectionValueName(k) => key = Some(ValueName(k.to_bstring_in(self.backing))),
+                Event::SectionValueName(k) => {
+                    key = Some(
+                        k.as_bstr_in(self.backing)
+                            .to_str()
+                            .expect("parsed value names are ASCII")
+                            .to_owned(),
+                    );
+                }
                 Event::Value(v) => {
                     value = Some(Cow::Borrowed(v.as_bstr_in(self.backing)));
                     break;

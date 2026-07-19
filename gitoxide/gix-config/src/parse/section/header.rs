@@ -46,8 +46,8 @@ impl HeaderData {
 }
 
 /// Return true if `name` is valid as subsection name, like `origin` in `[remote "origin"]`.
-pub fn is_valid_subsection(name: &BStr) -> bool {
-    name.find_byteset(b"\n\0").is_none()
+pub fn is_valid_subsection(name: impl crate::AsBStr) -> bool {
+    name.as_bstr().find_byteset(b"\n\0").is_none()
 }
 
 fn validated_subsection(name: &BStr) -> Result<BString, Error> {

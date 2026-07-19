@@ -75,3 +75,13 @@ fn accepts_short_lived_keys() -> crate::Result {
     assert_eq!(file.string("new.key").expect("present"), "value");
     Ok(())
 }
+
+#[test]
+fn invalid_value_names_fail_without_creating_a_section() {
+    let mut file = gix_config::File::default();
+    assert!(matches!(
+        file.set_raw_value_by("new", None, "not.valid", "value"),
+        Err(gix_config::file::set_raw_value::Error::ValueName(_))
+    ));
+    assert_eq!(file.sections().count(), 0, "validation precedes section creation");
+}

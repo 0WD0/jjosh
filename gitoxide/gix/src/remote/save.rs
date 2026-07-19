@@ -9,6 +9,8 @@ pub enum Error {
     NameMissing { url: gix_url::Url },
     #[error(transparent)]
     Span(#[from] gix_config::parse::span::Error),
+    #[error(transparent)]
+    ConfigValue(#[from] gix_config::file::section::value::Error),
 }
 
 /// The error returned by [`Remote::save_as_to()`].
@@ -35,9 +37,6 @@ impl Remote<'_> {
         reason = "will be removed once `gix-error` is used consistently"
     )]
     pub fn save_to(&self, config: &mut gix_config::File) -> Result<(), Error> {
-        fn as_key(name: &str) -> gix_config::parse::section::ValueName {
-            name.try_into().expect("valid")
-        }
         let name = self.name().ok_or_else(|| Error::NameMissing {
             url: self
                 .urls
@@ -105,26 +104,25 @@ impl Remote<'_> {
                 .expect("section name is validated and 'remote' is acceptable")
         };
         if needs_url_reset {
-            section.push(as_key(config::tree::Remote::URL.name), Some(BStr::new("")))?;
+            section.push(config::tree::Remote::URL.name, "")?;
         }
         for url in &self.urls {
-            section.push(as_key("url"), Some(url.to_bstring().as_ref()))?;
+            section.push("url", url.to_bstring())?;
         }
         if needs_push_url_reset {
-            section.push(as_key(config::tree::Remote::PUSH_URL.name), Some(BStr::new("")))?;
+            section.push(config::tree::Remote::PUSH_URL.name, "")?;
         }
         for url in &self.push_urls {
-            section.push(as_key("pushurl"), Some(url.to_bstring().as_ref()))?;
+            section.push("pushurl", url.to_bstring())?;
         }
         if self.fetch_tags != Default::default() {
             section.push(
-                as_key(config::tree::Remote::TAG_OPT.name),
+                config::tree::Remote::TAG_OPT.name,
                 BStr::new(match self.fetch_tags {
                     remote::fetch::Tags::All => "--tags",
                     remote::fetch::Tags::None => "--no-tags",
                     remote::fetch::Tags::Included => unreachable!("BUG: the default shouldn't be written and we try"),
-                })
-                .into(),
+                }),
             )?;
         }
         for (key, spec) in self
@@ -133,7 +131,7 @@ impl Remote<'_> {
             .map(|spec| ("fetch", spec))
             .chain(self.push_specs.iter().map(|spec| ("push", spec)))
         {
-            section.push(as_key(key), Some(spec.to_ref().to_bstring().as_ref()))?;
+            section.push(key, spec.to_ref().to_bstring())?;
         }
         Ok(())
     }

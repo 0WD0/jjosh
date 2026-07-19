@@ -22,7 +22,7 @@ mod save_to {
         let previous_remote_state = repo
             .config_snapshot()
             .plumbing()
-            .section_by_key("remote.origin".into())
+            .section_by_key("remote.origin")
             .expect("present")
             .to_bstring();
         let mut config = repo.config_snapshot().plumbing().clone();
@@ -33,10 +33,7 @@ mod save_to {
             "amount of remotes are unaltered"
         );
         assert_eq!(
-            config
-                .section_by_key("remote.origin".into())
-                .expect("present")
-                .to_bstring(),
+            config.section_by_key("remote.origin").expect("present").to_bstring(),
             previous_remote_state,
             "the serialization doesn't modify anything"
         );
@@ -102,14 +99,14 @@ mod save_as_to {
 
         {
             let mut new_section = config.section_mut_or_create_new("unrelated", None).expect("works");
-            new_section.push("a".try_into()?, Some("value".into()))?;
+            new_section.push("a", "value")?;
 
             config
                 .section_mut_or_create_new("initially-empty-not-removed", "name")
                 .expect("works");
 
             let mut existing_section = config.section_mut_or_create_new("remote", "origin").expect("works");
-            existing_section.push("free".try_into()?, Some("should not be removed".into()))?;
+            existing_section.push("free", "should not be removed")?;
         }
         remote.save_as_to(remote_name, &mut config)?;
         assert_eq!(
@@ -241,9 +238,9 @@ mod save_as_to {
         // unrelated `prune` values keep both sections around to expose their order. Restoring the local
         // metadata makes it the save target, where the reset-bearing section must follow the foreign one.
         config
-            .section_mut_filter("remote", Some(BStr::new("origin")), |meta| *meta == local_meta)?
+            .section_mut_filter("remote", "origin", |meta| *meta == local_meta)?
             .expect("the fixture has a local origin section")
-            .push("prune".try_into()?, Some(BStr::new("1")))?;
+            .push("prune", "1")?;
         let included_meta = gix_config::file::Metadata::from(gix_config::Source::Local);
         assert_ne!(
             included_meta, local_meta,
@@ -251,8 +248,8 @@ mod save_as_to {
         );
         config.set_meta(included_meta);
         let mut included = config.new_section("remote", "origin")?;
-        included.push("url".try_into()?, Some(BStr::new(inherited_url)))?;
-        included.push("prune".try_into()?, Some(BStr::new("true")))?;
+        included.push("url", inherited_url)?;
+        included.push("prune", "true")?;
         config.set_meta(local_meta.clone());
 
         insta::assert_snapshot!(

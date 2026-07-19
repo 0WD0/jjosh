@@ -45,6 +45,7 @@ gix-testtools = { path = "../tests/tools", default-features = false }
 serial_test = { version = "3.4.0", default-features = false }
 bytesize = "2.3.1"
 cap = { version = "0.1.2", features = ["stats"] }
+insta = "1.46.3"
 
 [[bench]]
 name = "large_config_file"

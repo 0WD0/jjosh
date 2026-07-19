@@ -3,7 +3,7 @@ use gix_features::threading::OwnShared;
 use smallvec::SmallVec;
 
 use crate::{
-    AsKey, File,
+    AsBStrOpt, AsKey, File,
     file::{
         self, Metadata, SectionId,
         write::{extract_newline, platform_newline},
@@ -80,11 +80,39 @@ impl File {
     /// ```
     pub fn value_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
-        value_name: &str,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
     ) -> Result<T, lookup::Error<T::Error>> {
         T::try_from(self.raw_value_by(section_name, subsection_name, value_name)?)
+            .map_err(lookup::Error::FailedConversion)
+    }
+
+    /// Returns an interpreted value and the section containing it given a `key`.
+    ///
+    /// Resolution is identical to [`value()`][Self::value()]: the last explicit value wins, even across multiple
+    /// matching sections.
+    pub fn value_with_section<T: TryFrom<BString>>(
+        &self,
+        key: impl AsKey,
+    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+        let key = key.as_key();
+        self.value_with_section_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns an interpreted value and the section containing it given its individual key components.
+    ///
+    /// Resolution is identical to [`value_by()`][Self::value_by()]: the last explicit value wins, even across multiple
+    /// matching sections.
+    pub fn value_with_section_by<T: TryFrom<BString>>(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<(T, file::SectionRef<'_>), lookup::Error<T::Error>> {
+        let (value, section) = self.raw_value_with_section_by(section_name, subsection_name, value_name)?;
+        T::try_from(value)
+            .map(|value| (value, section))
             .map_err(lookup::Error::FailedConversion)
     }
 
@@ -97,9 +125,9 @@ impl File {
     /// Like [`value_by()`](File::value_by()), but returning an `None` if the value wasn't found at `section[.subsection].value_name`
     pub fn try_value_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
-        value_name: &str,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
     ) -> Result<Option<T>, T::Error> {
         self.raw_value_by(section_name, subsection_name, value_name)
             .ok()
@@ -209,9 +237,9 @@ impl File {
     /// [`TryFrom`]: std::convert::TryFrom
     pub fn values_by<T: TryFrom<BString>>(
         &self,
-        section_name: &str,
-        subsection_name: Option<&BStr>,
-        value_name: &str,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
     ) -> Result<Vec<T>, lookup::Error<T::Error>> {
         self.raw_values_by(section_name, subsection_name, value_name)?
             .into_iter()
@@ -220,11 +248,35 @@ impl File {
             .map_err(lookup::Error::FailedConversion)
     }
 
+    /// Returns all interpreted values and their containing sections given a `key`, in order of occurrence.
+    pub fn values_with_sections<T: TryFrom<BString>>(
+        &self,
+        key: impl AsKey,
+    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+        let key = key.as_key();
+        self.values_with_sections_by(key.section_name, key.subsection_name, key.value_name)
+    }
+
+    /// Returns all interpreted values and their containing sections given individual key components, in order of
+    /// occurrence.
+    pub fn values_with_sections_by<T: TryFrom<BString>>(
+        &self,
+        section_name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
+        value_name: impl AsRef<str>,
+    ) -> Result<Vec<(T, file::SectionRef<'_>)>, lookup::Error<T::Error>> {
+        self.raw_values_with_sections_by(section_name, subsection_name, value_name)?
+            .into_iter()
+            .map(|(value, section)| T::try_from(value).map(|value| (value, section)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(lookup::Error::FailedConversion)
+    }
+
     /// Returns the last found immutable section with a given `name` and optional `subsection_name`.
     pub fn section(
         &self,
-        name: &str,
-        subsection_name: Option<&BStr>,
+        name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
     ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
         self.section_filter(name, subsection_name, |_| true)?
             .ok_or(lookup::existing::Error::SectionMissing)
@@ -232,8 +284,11 @@ impl File {
 
     /// Returns the last found immutable section with a given `section_key`, identifying the name and subsection name like `core`
     /// or `remote.origin`.
-    pub fn section_by_key(&self, section_key: &BStr) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
-        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key)
+    pub fn section_by_key(
+        &self,
+        section_key: impl crate::AsBStr,
+    ) -> Result<file::SectionRef<'_>, lookup::existing::Error> {
+        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
             .ok_or(lookup::existing::Error::KeyMissing)?;
         self.section(key.section_name, key.subsection_name)
     }
@@ -242,14 +297,14 @@ impl File {
     ///
     /// If there are sections matching `section_name` and `subsection_name` but the `filter` rejects all of them, `Ok(None)`
     /// is returned.
-    pub fn section_filter<'a>(
-        &'a self,
-        name: &str,
-        subsection_name: Option<&BStr>,
+    pub fn section_filter(
+        &self,
+        name: impl AsRef<str>,
+        subsection_name: impl AsBStrOpt,
         mut filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'a>>, lookup::existing::Error> {
+    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
         Ok(self
-            .section_ids_by_name_and_subname(name.as_ref(), subsection_name)?
+            .section_ids_by_name_and_subname(name.as_ref(), subsection_name.as_bstr_opt())?
             .rev()
             .find_map({
                 let sections = &self.sections;
@@ -261,12 +316,12 @@ impl File {
     }
 
     /// Like [`section_filter()`](File::section_filter()), but identifies the section with `section_key` like `core` or `remote.origin`.
-    pub fn section_filter_by_key<'a>(
-        &'a self,
-        section_key: &BStr,
+    pub fn section_filter_by_key(
+        &self,
+        section_key: impl crate::AsBStr,
         filter: impl FnMut(&Metadata) -> bool,
-    ) -> Result<Option<file::SectionRef<'a>>, lookup::existing::Error> {
-        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key)
+    ) -> Result<Option<file::SectionRef<'_>>, lookup::existing::Error> {
+        let key = crate::parse::section::unvalidated::KeyRef::parse(section_key.as_bstr())
             .ok_or(lookup::existing::Error::KeyMissing)?;
         self.section_filter(key.section_name, key.subsection_name, filter)
     }
@@ -305,8 +360,8 @@ impl File {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn sections_by_name<'a>(&'a self, name: &'a str) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+    pub fn sections_by_name(&self, name: impl AsRef<str>) -> Option<impl Iterator<Item = file::SectionRef<'_>> + '_> {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 file::SectionRef::from_data(
                     self.sections
@@ -321,11 +376,11 @@ impl File {
     /// Similar to [`sections_by_name()`](Self::sections_by_name()), but returns an identifier for this section as well to allow
     /// referring to it unambiguously even in the light of deletions.
     #[must_use]
-    pub fn sections_and_ids_by_name<'a>(
-        &'a self,
-        name: &'a str,
-    ) -> Option<impl Iterator<Item = (file::SectionRef<'a>, SectionId)> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+    pub fn sections_and_ids_by_name(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Option<impl Iterator<Item = (file::SectionRef<'_>, SectionId)> + '_> {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.map(move |id| {
                 (
                     file::SectionRef::from_data(
@@ -344,10 +399,10 @@ impl File {
     #[must_use]
     pub fn sections_by_name_and_filter<'a>(
         &'a self,
-        name: &'a str,
+        name: impl AsRef<str>,
         mut filter: impl FnMut(&Metadata) -> bool + 'a,
     ) -> Option<impl Iterator<Item = file::SectionRef<'a>> + 'a> {
-        self.section_ids_by_name(name).ok().map(move |ids| {
+        self.section_ids_by_name(name.as_ref()).ok().map(move |ids| {
             ids.filter_map(move |id| {
                 let s = self
                     .sections

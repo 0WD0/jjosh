@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gix_config::parse::section;
 use gix_discover::DOT_GIT_DIR;
 
 /// The error used in [`into()`].
@@ -25,6 +24,8 @@ pub enum Error {
     CreateDirectory { source: std::io::Error, path: PathBuf },
     #[error(transparent)]
     Span(#[from] gix_config::parse::span::Error),
+    #[error(transparent)]
+    ConfigValue(#[from] gix_config::file::section::value::Error),
 }
 
 /// The kind of repository to create.
@@ -257,26 +258,23 @@ pub fn into(
             let caps = fs_capabilities.unwrap_or_else(|| gix_fs::Capabilities::probe(&dot_git));
             let mut core = config.new_section("core", None).expect("valid section name");
 
-            core.push(key("filemode"), Some(bool(caps.executable_bit).into()))?;
-            core.push(key("bare"), Some(bool(bare).into()))?;
-            core.push(key("logallrefupdates"), Some(bool(!bare).into()))?;
-            core.push(key("symlinks"), Some(bool(caps.symlink).into()))?;
-            core.push(key("ignorecase"), Some(bool(caps.ignore_case).into()))?;
-            core.push(key("precomposeunicode"), Some(bool(caps.precompose_unicode).into()))?;
+            core.push("filemode", bool(caps.executable_bit))?;
+            core.push("bare", bool(bare))?;
+            core.push("logallrefupdates", bool(!bare))?;
+            core.push("symlinks", bool(caps.symlink))?;
+            core.push("ignorecase", bool(caps.ignore_case))?;
+            core.push("precomposeunicode", bool(caps.precompose_unicode))?;
 
             match object_hash {
                 #[cfg(feature = "sha256")]
                 Some(gix_hash::Kind::Sha256) => {
-                    core.push(key("repositoryformatversion"), Some("1".into()))?;
+                    core.push("repositoryformatversion", "1")?;
 
                     let mut extensions = config.new_section("extensions", None).expect("valid section name");
-                    extensions.push(
-                        key("objectformat"),
-                        Some(gix_hash::Kind::Sha256.to_string().as_bytes().into()),
-                    )?;
+                    extensions.push("objectformat", gix_hash::Kind::Sha256.to_string())?;
                 }
                 _ => {
-                    core.push(key("repositoryformatversion"), Some("0".into()))?;
+                    core.push("repositoryformatversion", "0")?;
                 }
             }
 
@@ -301,10 +299,6 @@ pub fn into(
         &gix_fs::current_dir(caps.precompose_unicode)?,
     )
     .expect("by now the `dot_git` dir is valid as we have accessed it"))
-}
-
-fn key(name: &'static str) -> section::ValueName {
-    section::ValueName::try_from(name).expect("valid key name")
 }
 
 fn bool(v: bool) -> &'static str {
