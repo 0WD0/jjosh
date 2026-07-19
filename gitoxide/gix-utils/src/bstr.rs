@@ -11,6 +11,24 @@ pub trait AsBStr {
     fn as_bstr(&self) -> &BStr;
 }
 
+/// Provide an optional borrowed byte-string view of common string and byte containers.
+pub trait AsBStrOpt {
+    /// Return this value as a borrowed byte string, or `None` if it is absent.
+    fn as_bstr_opt(&self) -> Option<&BStr>;
+}
+
+impl<T: AsBStr + ?Sized> AsBStrOpt for T {
+    fn as_bstr_opt(&self) -> Option<&BStr> {
+        Some(self.as_bstr())
+    }
+}
+
+impl AsBStrOpt for Option<&BStr> {
+    fn as_bstr_opt(&self) -> Option<&BStr> {
+        *self
+    }
+}
+
 impl<T: AsBStr + ?Sized> AsBStr for &T {
     fn as_bstr(&self) -> &BStr {
         T::as_bstr(self)

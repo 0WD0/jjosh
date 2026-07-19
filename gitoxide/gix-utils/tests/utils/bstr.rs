@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use ::bstr::{BStr, BString};
 
-use gix_utils::AsBStr;
+use gix_utils::{AsBStr, AsBStrOpt};
 
 #[test]
 fn common_string_and_byte_containers_are_supported() {
@@ -22,4 +22,12 @@ fn common_string_and_byte_containers_are_supported() {
     ] {
         assert_eq!(actual, "value", "all supported containers provide the same view");
     }
+}
+
+#[test]
+fn optional_and_present_values_are_supported_without_allocation() {
+    let value = BStr::new("value");
+    assert_eq!(value.as_bstr_opt(), Some(value));
+    assert_eq!(Some(value).as_bstr_opt(), Some(value));
+    assert_eq!(Option::<&BStr>::None.as_bstr_opt(), None);
 }
