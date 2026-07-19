@@ -130,7 +130,8 @@ where
 mod config {
     use super::from_bytes;
     use crate::parse::tests::util::{
-        OwnedEvent as Event, name_event, newline_event, own_event, value_event, whitespace_event,
+        OwnedEvent as Event, comment_event, name_event, newline_custom_event, newline_event, own_event, value_event,
+        whitespace_event,
     };
 
     #[test]
@@ -150,6 +151,29 @@ mod config {
                 newline_event(),
             ],
             "Git accepts this and reports `a=b`, as git_parse_source() parses alphabetic keys even before any section"
+        );
+    }
+
+    #[test]
+    fn comments_do_not_consume_the_carriage_return_of_crlf() {
+        let mut events = Vec::new();
+        let backing = b"; comment\r\n";
+        from_bytes(backing, &mut |event| events.push(event)).expect("valid comment");
+        let events: Vec<_> = events.iter().map(|event| own_event(event, backing)).collect();
+        assert_eq!(
+            events,
+            vec![comment_event(';', " comment"), newline_custom_event("\r\n")],
+            "the complete CRLF sequence must belong to the newline event"
+        );
+
+        let mut events = Vec::new();
+        let backing = b"; comment\r";
+        from_bytes(backing, &mut |event| events.push(event)).expect("a bare carriage return is comment text");
+        let events: Vec<_> = events.iter().map(|event| own_event(event, backing)).collect();
+        assert_eq!(
+            events,
+            vec![comment_event(';', " comment\r")],
+            "a carriage return without a following line feed must remain part of the comment"
         );
     }
 }

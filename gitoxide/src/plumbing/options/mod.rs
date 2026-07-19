@@ -621,6 +621,8 @@ pub mod log {
 }
 
 pub mod config {
+    use std::path::PathBuf;
+
     use gix::bstr::BString;
 
     /// Print all entries in a configuration file or access other sub-commands.
@@ -633,6 +635,32 @@ pub mod config {
         /// and comparisons are case-insensitive.
         #[clap(value_parser = crate::shared::AsBString)]
         pub filter: Vec<BString>,
+
+        /// Subcommands for working with configuration files.
+        #[clap(subcommand)]
+        pub cmd: Option<Subcommands>,
+    }
+
+    #[derive(Debug, clap::Subcommand)]
+    pub enum Subcommands {
+        /// Show all resolved configuration entries, optionally filtered by section or subsection.
+        Show,
+        /// List all configuration files contributing to the resolved configuration.
+        ///
+        /// Included files are shown as well, along with the Source they inherit and their inclusion level.
+        List,
+        /// Format a git configuration file, normalizing insignificant whitespace.
+        ///
+        /// Includes are never resolved; only whitespace, newlines and the `=` separator are rewritten.
+        Fmt {
+            /// Write the formatted result back to the input file instead of to standard output.
+            #[clap(long)]
+            in_place: bool,
+            /// The configuration file to format. If unset, the repository-local configuration is used.
+            in_file: Option<PathBuf>,
+            /// Where to write the formatted result. If unset, it is written to standard output.
+            out_file: Option<PathBuf>,
+        },
     }
 }
 

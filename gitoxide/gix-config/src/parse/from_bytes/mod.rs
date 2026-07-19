@@ -75,7 +75,7 @@ fn newlines_from(original: &[u8], rest: &[u8]) -> usize {
 /// Parse a single Git config comment from `i`, computing slices from `backing`.
 ///
 /// A comment starts with `;` or `#` and continues until, but not including, the
-/// next `\n` or EOF. On success, `i` is advanced to the newline or empty suffix
+/// next `\n` or `\r\n` line ending or EOF. On success, `i` is advanced to the line ending or empty suffix
 /// and the returned [`Comment`] stores its text as a span into `backing`.
 fn comment(backing: &[u8], i: &mut &[u8]) -> ParseResult<Comment> {
     let Some((&tag, rest)) = i.split_first() else {
@@ -85,8 +85,13 @@ fn comment(backing: &[u8], i: &mut &[u8]) -> ParseResult<Comment> {
         return Err(());
     }
     let end = rest.find_byte(b'\n').unwrap_or(rest.len());
-    let text = rest[..end].as_bstr();
-    *i = &rest[end..];
+    let line_ending_start = if end < rest.len() && rest[..end].ends_with(b"\r") {
+        end - 1
+    } else {
+        end
+    };
+    let text = rest[..line_ending_start].as_bstr();
+    *i = &rest[line_ending_start..];
     Ok(Comment {
         tag,
         text: Span::new(backing, text),

@@ -77,6 +77,25 @@ fn inserted_newlines_use_each_sections_newline_style() {
 }
 
 #[test]
+fn crlf_after_a_comment_is_detected_and_used_for_insertions() -> crate::Result {
+    let input = "; root\r\n[core]\nkey=value\n";
+    let mut config = gix_config::File::try_from(input)?;
+    assert_eq!(
+        config.detect_newline_style(),
+        "\r\n",
+        "the first complete newline determines the file's newline style even when it follows a comment"
+    );
+
+    config.new_section("new", None)?.push("key", Some("value".into()))?;
+    assert_eq!(
+        config.to_bstring(),
+        "; root\r\n[core]\nkey=value\n\r\n[new]\r\n\tkey = value\r\n",
+        "new section boundaries and contents must use the CRLF style detected after the root comment"
+    );
+    Ok(())
+}
+
+#[test]
 fn complex_lossless_roundtrip() {
     let input = r#"
         [core]
