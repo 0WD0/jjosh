@@ -603,11 +603,7 @@ fn apply_environment_overrides(
             .expect("statically known valid section name");
         for (var, key) in data {
             if let Some(value) = var_as_bstring(var, permission) {
-                section.push_with_comment(
-                    (*key).try_into().expect("statically known to be valid"),
-                    Some(value.as_ref()),
-                    format!("from {var}").as_str(),
-                )?;
+                section.push_with_comment(*key, value, format!("from {var}"))?;
             }
         }
         if section.num_values() == 0 {
@@ -636,11 +632,7 @@ fn apply_environment_overrides(
             },
         ] {
             if let Some(value) = var_as_bstring(var, permission) {
-                section.push_with_comment(
-                    key.try_into().expect("statically known to be valid"),
-                    Some(value.as_ref()),
-                    format!("from {var}").as_str(),
-                )?;
+                section.push_with_comment(key, value, format!("from {var}"))?;
             }
         }
 

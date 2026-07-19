@@ -76,6 +76,43 @@ fn value_with_section_filter_identifies_the_section_containing_the_resolved_valu
 }
 
 #[test]
+fn mutable_value_filters_have_key_and_component_variants() -> crate::Result {
+    let mut config = File::try_from(
+        "[core]\n\
+         a=first\n\
+         [core]\n\
+         a=second\n",
+    )?;
+
+    let mut reject_last_section = true;
+    config
+        .raw_value_mut_filter("core.a", |_meta| !std::mem::take(&mut reject_last_section))?
+        .set("changed")?;
+    assert_eq!(
+        config.raw_values("core.a")?,
+        ["changed", "second"],
+        "the key variant mutates the value in the accepted section"
+    );
+
+    config
+        .raw_value_mut_filter_by(String::from("core"), None, String::from("a"), |_| true)?
+        .set("last")?;
+    assert_eq!(
+        config.raw_values("core.a")?,
+        ["changed", "last"],
+        "the component variant accepts owned string components"
+    );
+
+    insta::assert_snapshot!(config.to_string(), "both values changed", @"
+    [core]
+    a=changed
+    [core]
+    a=last
+    ");
+    Ok(())
+}
+
+#[test]
 fn section_not_found() -> crate::Result {
     let config = File::try_from("[core]\na=b\nc=d")?;
     assert!(matches!(

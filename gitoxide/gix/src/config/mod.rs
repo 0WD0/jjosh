@@ -109,6 +109,8 @@ pub enum Error {
     #[error(transparent)]
     Span(#[from] gix_config::parse::span::Error),
     #[error(transparent)]
+    ConfigValue(#[from] gix_config::file::section::value::Error),
+    #[error(transparent)]
     FromEnv(#[from] gix_config::file::init::from_env::Error),
     #[error("The path {path:?} at the 'core.worktree' configuration could not be interpolated")]
     PathInterpolation {

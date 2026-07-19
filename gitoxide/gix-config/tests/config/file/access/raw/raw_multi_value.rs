@@ -61,6 +61,37 @@ fn values_with_sections_identify_each_values_section_in_file_order() -> crate::R
 }
 
 #[test]
+fn values_with_sections_filter_returns_values_from_accepted_sections() -> crate::Result {
+    let config = File::try_from(
+        "[core]\n\
+         a=b\n\
+         a=c\n\
+         [core]a=d",
+    )?;
+    let second_section_id = config.sections().nth(1).expect("second section").id();
+
+    let mut reject_first_section = true;
+    let values =
+        config.raw_values_with_sections_filter("core.a", |_meta| !std::mem::take(&mut reject_first_section))?;
+    assert_eq!(
+        values
+            .into_iter()
+            .map(|(value, section)| (value, section.id()))
+            .collect::<Vec<_>>(),
+        [(bstring("d"), second_section_id)],
+        "only values from sections accepted by the filter are returned"
+    );
+
+    let values = config.raw_values_with_sections_filter_by("core", None, "a", |_| true)?;
+    assert_eq!(
+        values.len(),
+        3,
+        "the component variant applies the same lookup semantics"
+    );
+    Ok(())
+}
+
+#[test]
 fn section_not_found() -> crate::Result {
     let config = File::try_from("[core]\na=b\nc=d")?;
     assert!(matches!(

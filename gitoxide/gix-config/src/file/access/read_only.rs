@@ -82,7 +82,7 @@ impl File {
         &self,
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-        value_name: &str,
+        value_name: impl AsRef<str>,
     ) -> Result<T, lookup::Error<T::Error>> {
         T::try_from(self.raw_value_by(section_name, subsection_name, value_name)?)
             .map_err(lookup::Error::FailedConversion)
@@ -127,7 +127,7 @@ impl File {
         &self,
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-        value_name: &str,
+        value_name: impl AsRef<str>,
     ) -> Result<Option<T>, T::Error> {
         self.raw_value_by(section_name, subsection_name, value_name)
             .ok()
@@ -239,7 +239,7 @@ impl File {
         &self,
         section_name: impl AsRef<str>,
         subsection_name: impl AsBStrOpt,
-        value_name: &str,
+        value_name: impl AsRef<str>,
     ) -> Result<Vec<T>, lookup::Error<T::Error>> {
         self.raw_values_by(section_name, subsection_name, value_name)?
             .into_iter()

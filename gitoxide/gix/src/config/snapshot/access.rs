@@ -154,12 +154,9 @@ impl<'repo> SnapshotMut<'repo> {
             .expect("we know it needs a subsection");
         let key = gix_config::KeyRef::parse_unvalidated((**name).as_bstr())
             .expect("statically known keys can always be parsed");
-        let current = self.config.set_raw_value_by(
-            key.section_name,
-            key.subsection_name.map(ToOwned::to_owned),
-            key.value_name.to_owned(),
-            value,
-        )?;
+        let current = self
+            .config
+            .set_raw_value_by(key.section_name, key.subsection_name, key.value_name, value)?;
         Ok(current)
     }
 

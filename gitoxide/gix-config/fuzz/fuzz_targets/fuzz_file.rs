@@ -44,10 +44,10 @@ fn fuzz_mutable_section(
         }
         let kv_pair = section.pop().map(|(key, value)| (key.to_owned(), value));
         if let Some((key, value)) = kv_pair {
-            let _ = section.push_with_comment(key, Some(value.as_bstr()), "Popped");
+            let _ = section.push_with_comment(key, value.as_bstr(), "Popped");
         } else {
             let _ = section.push("new-implicit", None);
-            let _ = section.push("new", Some("value".into()));
+            let _ = section.push("new", "value");
         }
         section.id()
     };
@@ -59,24 +59,23 @@ fn fuzz_mutable_section(
     }
 
     let new_section_name = section_name.to_string() + "_new";
-    let subsection_name = subsection_name.map(ToOwned::to_owned);
-    _ = black_box(file.section_mut_or_create_new(&new_section_name, subsection_name.clone()));
+    _ = black_box(file.section_mut_or_create_new(&new_section_name, subsection_name));
 
-    if let Some(mut section) = file.remove_section(&new_section_name, subsection_name.clone()) {
-        let _ = section.to_mut().push("detached", Some("section".into()));
+    if let Some(mut section) = file.remove_section(&new_section_name, subsection_name) {
+        let _ = section.to_mut().push("detached", "section");
         _ = black_box(file.push_section(section));
     }
 
     _ = black_box(file.new_section(&new_section_name, None));
     let renamed_section_name = section_name.to_string() + "_renamed";
-    let renamed_subsection_name: Option<BString> = subsection_name.as_ref().map(|name| {
-        let mut renamed = name.clone();
+    let renamed_subsection_name: Option<BString> = subsection_name.map(|name| {
+        let mut renamed = name.to_owned();
         renamed.extend_from_slice(b"_renamed");
         renamed
     });
     _ = black_box(file.rename_section(
         &new_section_name,
-        subsection_name.clone(),
+        subsection_name,
         &renamed_section_name,
         renamed_subsection_name.clone(),
     ));

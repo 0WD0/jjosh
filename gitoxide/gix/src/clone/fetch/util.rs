@@ -49,8 +49,6 @@ pub(super) fn reinitialize_with_object_hash(
     repo: &crate::Repository,
     object_hash: gix_hash::Kind,
 ) -> Result<crate::Repository, Error> {
-    use gix_config::parse::section::ValueName;
-
     let git_dir = repo.git_dir();
     let config_path = git_dir.join("config");
 
@@ -61,18 +59,12 @@ pub(super) fn reinitialize_with_object_hash(
     config
         .section_mut("core", None)
         .expect("freshly initialized repository has a core section")
-        .set(
-            ValueName::try_from("repositoryformatversion").expect("valid"),
-            if is_sha256 { "1" } else { "0" }.into(),
-        )?;
+        .set("repositoryformatversion", if is_sha256 { "1" } else { "0" })?;
     if is_sha256 {
         config
             .section_mut_or_create_new("extensions", None)
             .expect("valid section name")
-            .set(
-                ValueName::try_from("objectformat").expect("valid"),
-                object_hash.to_string().as_str().into(),
-            )?;
+            .set("objectformat", object_hash.to_string())?;
     } else {
         // In a freshly initialized repository, this section exists solely to carry `objectformat`.
         config.remove_section("extensions", None);
@@ -348,11 +340,8 @@ fn setup_branch_config(
         let mut section = config
             .new_section("branch", short_name)
             .expect("section header name is always valid per naming rules, our input branch name is valid");
-        section.push("remote".try_into().expect("valid at compile time"), Some(remote_name))?;
-        section.push(
-            "merge".try_into().expect("valid at compile time"),
-            Some(branch.as_bstr()),
-        )?;
+        section.push("remote", remote_name)?;
+        section.push("merge", branch.as_bstr())?;
         write_to_local_config(&config, WriteMode::Overwrite)?;
         config.commit().expect("configuration we set is valid");
     }

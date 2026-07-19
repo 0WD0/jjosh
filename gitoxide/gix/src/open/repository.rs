@@ -258,7 +258,6 @@ impl ThreadSafeRepository {
 
         // core.worktree might be used to overwrite the worktree directory
         let worktree_dir_override_from_configuration = if !config.is_bare_but_assume_bare_if_unconfigured() {
-            let mut key_source = None;
             fn assure_config_is_from_current_repo(
                 section: &gix_config::file::Metadata,
                 git_dir: &Path,
@@ -278,15 +277,11 @@ impl ThreadSafeRepository {
             }
             let worktree_path = config
                 .resolved
-                .path_filter(Core::WORKTREE, |section| {
-                    let res =
-                        assure_config_is_from_current_repo(section, &git_dir, current_dir, &mut filter_config_section);
-                    if res {
-                        key_source = Some(section.source);
-                    }
-                    res
+                .raw_value_with_section_filter(Core::WORKTREE, |section| {
+                    assure_config_is_from_current_repo(section, &git_dir, current_dir, &mut filter_config_section)
                 })
-                .zip(key_source);
+                .ok()
+                .map(|(value, section)| (gix_config::Path::from(value), section.meta().source));
             if let Some((wt, key_source)) = worktree_path {
                 let wt_clone = wt.clone();
                 let wt_path = wt
