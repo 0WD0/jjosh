@@ -278,6 +278,61 @@ fn multi_index_keep_open() -> crate::Result {
 }
 
 #[test]
+fn an_object_in_a_pack_moved_by_an_external_process_can_be_found_from_a_stale_handle() -> crate::Result {
+    let tmp = gix_testtools::tempfile::tempdir()?;
+    let pack_dir = tmp.path().join("objects/pack");
+    std::fs::create_dir_all(&pack_dir)?;
+    gix_testtools::copy_recursively_into_existing_dir(fixture_path("objects/pack"), &pack_dir)?;
+
+    // Keep only the biggest pack visible so the first lookup captures exactly the index that will be moved,
+    // without opening its pack. Renaming the pair then models an external repack replacing an index in-place.
+    for name in [
+        "pack-11fdfa9e156ab73caae3b6da867192221f2089c2",
+        "pack-a2bf8e71d8c18879e499335762dd95119d93d9f1",
+    ] {
+        let stem = pack_dir.join(name);
+        std::fs::rename(
+            stem.with_extension("idx"),
+            stem.with_extension("idx.permanently-hidden"),
+        )?;
+        std::fs::rename(
+            stem.with_extension("pack"),
+            stem.with_extension("pack.permanently-hidden"),
+        )?;
+    }
+
+    let stale_handle = gix_odb::at(tmp.path().join("objects"))?;
+    let id = hex_to_id("dd25c539efbb0ab018caa4cda2d133285634e9b5");
+    assert!(
+        stale_handle.exists(&id),
+        "the soon-to-be-stale handle records the original index without loading its pack"
+    );
+    assert_eq!(
+        stale_handle.store_ref().metrics().open_reachable_packs,
+        0,
+        "the pack must stay unloaded for load_pack() to exercise the cleared slot"
+    );
+    let refresh_handle = stale_handle.clone();
+
+    let original = pack_dir.join("pack-c0438c19fb16422b6bbcce24387b3264416d485b");
+    let moved = pack_dir.join("pack-moved-by-external-process");
+    std::fs::rename(original.with_extension("idx"), moved.with_extension("idx"))?;
+    std::fs::rename(original.with_extension("pack"), moved.with_extension("pack"))?;
+    assert!(
+        !refresh_handle.exists(&missing_id(&refresh_handle)),
+        "a miss refreshes the shared store after the pack pair moved"
+    );
+
+    let mut buf = Vec::new();
+    assert_eq!(
+        stale_handle.find(&id, &mut buf)?.kind,
+        gix_object::Kind::Blob,
+        "a stale pack id should trigger an index refresh and find the moved pack"
+    );
+    Ok(())
+}
+
+#[test]
 fn write() -> crate::Result {
     let dir = gix_testtools::tempfile::tempdir()?;
     let mut handle = gix_odb::at(dir.path())?;
