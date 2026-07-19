@@ -38,7 +38,7 @@ pub fn list_files(
     Ok(())
 }
 
-pub fn list(
+pub fn show(
     repo: gix::Repository,
     filters: Vec<BString>,
     overrides: Vec<BString>,

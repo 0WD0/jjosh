@@ -643,6 +643,8 @@ pub mod config {
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
+        /// Show all resolved configuration entries, optionally filtered by section or subsection.
+        Show,
         /// List all configuration files contributing to the resolved configuration.
         ///
         /// Included files are shown as well, along with the Source they inherit and their inclusion level.
