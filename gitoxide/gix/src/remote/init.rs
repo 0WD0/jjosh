@@ -39,10 +39,6 @@ impl<'repo> Remote<'repo> {
         fetch_tags: remote::fetch::Tags,
         repo: &'repo Repository,
     ) -> Result<Self, Error> {
-        debug_assert!(
-            !urls.is_empty() || !push_urls.is_empty(),
-            "BUG: fetch or push url must be set at least"
-        );
         let (url_aliases, url_push_aliases, push_url_aliases) = if should_rewrite_urls {
             rewrite_urls(&repo.config, &urls, &push_urls)
         } else {
