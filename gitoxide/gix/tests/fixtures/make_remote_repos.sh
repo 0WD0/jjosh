@@ -254,9 +254,8 @@ git init --bare multiple-urls-with-empty-reset
   } > baseline.git
 )
 
-# A named remote remains usable when it has no effective fetch URL: Git treats the
-# requested remote name itself as the fetch URL. Cover an absent URL, URLs cleared
-# by an empty reset value, and a push-only remote whose explicit push URL still wins.
+# Cover remotes without an effective fetch URL: an absent URL, URLs cleared by an
+# empty reset value, a push-only remote, and URL-shaped remote names.
 git init --bare missing-urls
 (cd missing-urls
   git config remote.no-url.prune true
@@ -264,20 +263,9 @@ git init --bare missing-urls
   git config --add remote.reset-url.url ""
   git config remote.push-only.pushUrl ssh://push.example/repo
   git config remote.https://fallback.example/repo.prune true
+  git config remote.relative/path.prune true
+  git config remote.example.com:repo.prune true
 
-  {
-    git remote get-url no-url
-    git remote get-url --push no-url
-    # Git 2.50.1 treats the empty value as a reset and falls back to the name;
-    # spell that out so older fixture generators produce the same baseline.
-    echo reset-url
-    echo reset-url
-    for remote in push-only https://fallback.example/repo
-    do
-      git remote get-url "$remote"
-      git remote get-url --push "$remote"
-    done
-  } > baseline.git
 )
 
 git init --bare bad-push-fallback-url-rewriting

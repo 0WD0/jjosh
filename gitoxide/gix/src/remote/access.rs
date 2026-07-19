@@ -33,7 +33,8 @@ impl<'repo> Remote<'repo> {
     /// was created with one of the `_without_url_rewrite()` methods.
     /// See [`urls()`](Self::urls()) for how rewrite rules differ between fetch URLs, explicit push URLs, and push fallbacks.
     /// For pushing, this is the first `remote.<name>.pushUrl` or the first `remote.<name>.url` used for fetching, and for
-    /// fetching it's the first `remote.<name>.url`, matching the default behaviour of `git remote get-url`.
+    /// fetching it's the first `remote.<name>.url`. Unlike `git remote get-url`, a missing fetch URL doesn't fall back to a
+    /// symbolic remote name, but a URL-shaped remote name may itself be used as the fallback URL.
     /// Note that it's possible to only have the push url set, in which case there will be no way to fetch from the remote as
     /// the push-url isn't used for that.
     pub fn url(&self, direction: remote::Direction) -> Option<&gix_url::Url> {

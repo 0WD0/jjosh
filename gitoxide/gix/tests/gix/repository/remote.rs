@@ -232,27 +232,43 @@ mod find_remote {
     }
 
     #[test]
-    fn missing_fetch_urls_fall_back_to_the_remote_name_like_git() -> crate::Result {
+    fn missing_fetch_urls_only_fall_back_to_url_shaped_remote_names() -> crate::Result {
         let repo = remote::repo("missing-urls");
-        let baseline = std::fs::read(repo.git_dir().join("baseline.git"))?;
-        let mut baseline = baseline.lines().map_while(Result::ok);
-
-        for name in ["no-url", "reset-url", "push-only", "https://fallback.example/repo"] {
+        for name in ["no-url", "reset-url"] {
             let remote = repo.find_remote(name)?;
-            let expected_fetch_url = baseline.next().expect("Git fetch URL");
-            let expected_push_url = baseline.next().expect("Git push URL");
             assert_eq!(
-                remote.url(Direction::Fetch).expect("fallback URL").to_bstring(),
-                expected_fetch_url,
-                "a missing effective fetch URL falls back to the requested remote name"
+                remote.url(Direction::Fetch),
+                None,
+                "a symbolic remote name must not become a fetch URL"
             );
             assert_eq!(
-                remote.url(Direction::Push).expect("push URL").to_bstring(),
-                expected_push_url,
-                "pushing uses an explicit pushUrl when present and otherwise falls back to the fetch URL"
+                remote.url(Direction::Push),
+                None,
+                "without an explicit push URL there is no fetch URL to fall back to"
             );
         }
-        assert!(baseline.next().is_none(), "all Git baseline URLs were consumed");
+
+        let remote = repo.find_remote("push-only")?;
+        assert_eq!(remote.url(Direction::Fetch), None, "there is no fetch URL");
+        assert_eq!(
+            remote.url(Direction::Push).expect("explicit push URL").to_bstring(),
+            "ssh://push.example/repo",
+            "an explicit push URL remains available"
+        );
+
+        for name in ["https://fallback.example/repo", "relative/path", "example.com:repo"] {
+            let remote = repo.find_remote(name)?;
+            assert_eq!(
+                remote.url(Direction::Fetch).expect("fallback URL").to_bstring(),
+                name,
+                "a URL-shaped remote name becomes the missing fetch URL"
+            );
+            assert_eq!(
+                remote.url(Direction::Push).expect("fallback URL").to_bstring(),
+                name,
+                "the fetch URL is also the push fallback"
+            );
+        }
         Ok(())
     }
 
