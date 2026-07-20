@@ -100,7 +100,7 @@ where
                 },
                 filter_process_delay,
             )?;
-            let (num_bytes, file, set_executable_after_creation) = match filtered {
+            let (num_bytes, file, executable_bit_change) = match filtered {
                 ToWorktreeOutcome::Unchanged(buf) | ToWorktreeOutcome::Buffer(buf) => {
                     let (mut file, flag) = open_file(
                         dest,
@@ -135,7 +135,7 @@ where
             };
 
             // For possibly existing, overwritten files, we must change the file mode explicitly.
-            finalize_entry(entry, file, num_bytes as u64, set_executable_after_creation)?;
+            finalize_entry(entry, file, num_bytes as u64, executable_bit_change)?;
             num_bytes
         }
         gix_index::entry::Mode::SYMLINK => {
@@ -255,39 +255,45 @@ pub(crate) fn open_file(
     overwrite_existing: bool,
     fs_supports_executable_bit: bool,
     entry_mode: gix_index::entry::Mode,
-) -> std::io::Result<(std::fs::File, bool)> {
+) -> std::io::Result<(std::fs::File, ExecutableBitChange)> {
     #[cfg_attr(windows, allow(unused_mut))]
     let mut options = open_options(path, destination_is_initially_empty, overwrite_existing);
     let needs_executable_bit = fs_supports_executable_bit && entry_mode == gix_index::entry::Mode::FILE_EXECUTABLE;
     #[cfg(unix)]
-    let set_executable_after_creation = if needs_executable_bit && destination_is_initially_empty {
+    let executable_bit_change = if needs_executable_bit && destination_is_initially_empty {
         use std::os::unix::fs::OpenOptionsExt;
         // Note that these only work if the file was newly created, but won't if it's already
         // existing, possibly without the executable bit set. Thus we do this only if the file is new.
         options.mode(0o777);
-        false
+        ExecutableBitChange::NoChange
+    } else if !fs_supports_executable_bit || destination_is_initially_empty {
+        ExecutableBitChange::NoChange
+    } else if needs_executable_bit {
+        ExecutableBitChange::Set
     } else {
-        needs_executable_bit
+        ExecutableBitChange::Remove
     };
     //  not supported on windows
     #[cfg(windows)]
-    let set_executable_after_creation = needs_executable_bit;
-    try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, set_executable_after_creation))
+    let executable_bit_change = ExecutableBitChange::NoChange;
+    try_op_or_unlink(path, overwrite_existing, |p| options.open(p)).map(|f| (f, executable_bit_change))
 }
 
-/// Close `file` and store its stats in `entry`, possibly setting `file` executable.
+/// Close `file` and store its stats in `entry`, possibly adjusting whether `file` is executable.
 ///
 /// `desired_bytes` is the amount of bytes Git thinks the file should have after writing.
 pub(crate) fn finalize_entry(
     entry: &mut gix_index::Entry,
     file: std::fs::File,
     desired_bytes: u64,
-    #[cfg_attr(windows, allow(unused_variables))] set_executable_after_creation: bool,
+    #[cfg_attr(windows, allow(unused_variables))] executable_bit_change: ExecutableBitChange,
 ) -> Result<(), crate::checkout::Error> {
-    // For possibly existing, overwritten files, we must change the file mode explicitly.
+    // For possibly existing, overwritten files, we must change the file mode explicitly to match the index.
     #[cfg(unix)]
-    if set_executable_after_creation {
-        set_executable(&file)?;
+    match executable_bit_change {
+        ExecutableBitChange::NoChange => {}
+        ExecutableBitChange::Set => adjust_executable_bits(&file, true)?,
+        ExecutableBitChange::Remove => adjust_executable_bits(&file, false)?,
     }
 
     let md = &gix_index::fs::Metadata::from_file(&file)?;
@@ -305,30 +311,44 @@ pub(crate) fn finalize_entry(
     Ok(())
 }
 
-/// Use `fstat` and `fchmod` on a file descriptor to make a regular file executable.
+/// Use `fstat` and, if needed, `fchmod` on a file descriptor to adjust whether a regular file is executable.
 ///
-/// See `let_readers_execute` for the exact details of how the mode is transformed.
+/// See `adjust_mode_executable_bits` for the exact details of how the mode is transformed.
 #[cfg(unix)]
-fn set_executable(file: &std::fs::File) -> Result<(), std::io::Error> {
+fn adjust_executable_bits(file: &std::fs::File, executable: bool) -> Result<(), std::io::Error> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let old_mode = file.metadata()?.mode();
-    let new_mode = let_readers_execute(old_mode);
-    file.set_permissions(std::fs::Permissions::from_mode(new_mode))?;
+    let new_mode = adjust_mode_executable_bits(old_mode, executable);
+    if old_mode & 0o7777 != new_mode {
+        file.set_permissions(std::fs::Permissions::from_mode(new_mode))?;
+    }
     Ok(())
 }
 
-/// Given the st_mode of a regular file, compute the mode with executable bits safely added.
+/// Given the st_mode of a regular file, compute the mode with executable bits safely adjusted.
 ///
-/// Currently this adds executable bits for whoever has read bits already. It doesn't use the umask.
-/// Set-user-ID and set-group-ID bits are unset for safety. The sticky bit is also unset.
+/// When making a file executable, this adds executable bits for whoever has read bits already. When making a file
+/// non-executable, it removes all executable bits. It doesn't use the umask. Set-user-ID and set-group-ID bits are
+/// unset for safety. The sticky bit is also unset.
 ///
 /// This returns only mode bits, not file type. The return value can be used in chmod or fchmod.
 #[cfg(any(unix, test))]
-fn let_readers_execute(mut mode: u32) -> u32 {
+fn adjust_mode_executable_bits(mut mode: u32, executable: bool) -> u32 {
     assert_eq!(mode & 0o170000, 0o100000, "bug in caller if not from a regular file");
     mode &= 0o777; // Clear type, non-rwx mode bits (setuid, setgid, sticky).
-    mode |= (mode & 0o444) >> 2; // Let readers also execute.
+    if executable {
+        mode |= (mode & 0o444) >> 2; // Let readers also execute.
+    } else {
+        mode &= !0o111;
+    }
     mode
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ExecutableBitChange {
+    NoChange,
+    Set,
+    Remove,
 }
 
 #[cfg(test)]
@@ -382,7 +402,26 @@ mod tests {
             (0o102462, 0o572),
         ];
         for (st_mode, expected) in cases {
-            let actual = super::let_readers_execute(st_mode);
+            let actual = super::adjust_mode_executable_bits(st_mode, true);
+            assert_eq!(
+                actual, expected,
+                "{st_mode:06o} should become {expected:04o}, became {actual:04o}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_one_executes() {
+        let cases = [
+            (0o100755, 0o644),
+            (0o100750, 0o640),
+            (0o100700, 0o600),
+            (0o100111, 0o000),
+            (0o100571, 0o460),
+            (0o107755, 0o644),
+        ];
+        for (st_mode, expected) in cases {
+            let actual = super::adjust_mode_executable_bits(st_mode, false);
             assert_eq!(
                 actual, expected,
                 "{st_mode:06o} should become {expected:04o}, became {actual:04o}"
@@ -393,12 +432,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn let_readers_execute_panics_on_directory() {
-        super::let_readers_execute(0o040644);
+        super::adjust_mode_executable_bits(0o040644, true);
     }
 
     #[test]
     #[should_panic]
     fn let_readers_execute_should_panic_on_symlink() {
-        super::let_readers_execute(0o120644);
+        super::adjust_mode_executable_bits(0o120644, true);
     }
 }

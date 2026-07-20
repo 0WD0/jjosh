@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use std::os::unix::prelude::MetadataExt;
+use std::os::unix::prelude::{MetadataExt, PermissionsExt};
 use std::{
     fs,
     io::{ErrorKind, ErrorKind::AlreadyExists},
@@ -153,6 +153,50 @@ fn delayed_driver_process() -> crate::Result {
         std::fs::read(dest.join("dir").join("sub-dir").join("file"))?.as_bstr(),
         "➡even other content\r\n"
     );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn nonexclusive_checkout_adjusts_executable_bits_in_both_directions() -> crate::Result {
+    for overwrite_existing in [false, true] {
+        let mut opts = opts_from_probe();
+        opts.destination_is_initially_empty = false;
+        opts.overwrite_existing = overwrite_existing;
+        let (_source, destination, _index, outcome) = checkout_index_in_tmp_dir_opts(
+            opts,
+            "make_mixed_without_submodules_and_symlinks",
+            None,
+            |_| true,
+            |destination| {
+                let soon_non_executable = destination.join("empty");
+                std::fs::write(&soon_non_executable, [])?;
+                std::fs::set_permissions(&soon_non_executable, std::fs::Permissions::from_mode(0o755))?;
+
+                let soon_executable = destination.join("executable");
+                std::fs::write(&soon_executable, b"old content")?;
+                std::fs::set_permissions(&soon_executable, std::fs::Permissions::from_mode(0o644))?;
+                Ok(())
+            },
+        )?;
+
+        assert!(outcome.collisions.is_empty(), "regular files should not collide");
+        assert!(outcome.errors.is_empty(), "checkout should succeed");
+
+        let non_executable_mode = std::fs::metadata(destination.path().join("empty"))?.mode();
+        assert_eq!(
+            non_executable_mode & 0o111,
+            0,
+            "checkout must remove obsolete executable bits with overwrite_existing={overwrite_existing}"
+        );
+
+        let executable_mode = std::fs::metadata(destination.path().join("executable"))?.mode();
+        assert_ne!(
+            executable_mode & 0o111,
+            0,
+            "checkout must add tracked executable bits with overwrite_existing={overwrite_existing}"
+        );
+    }
     Ok(())
 }
 
