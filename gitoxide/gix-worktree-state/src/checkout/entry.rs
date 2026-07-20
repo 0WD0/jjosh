@@ -22,8 +22,8 @@ pub struct Context<'a, Find> {
 pub struct DelayedFilteredStream<'a> {
     /// The key identifying the driver program
     pub key: gix_filter::driver::Key,
-    /// If the file is going to be an executable.
-    pub needs_executable_bit: bool,
+    /// Whether the filesystem supports executable bits.
+    pub fs_supports_executable_bit: bool,
     /// The validated path on disk at which the file should be placed.
     pub validated_file_path: PathBuf,
     /// The entry to adjust with the file we will write.
@@ -126,7 +126,7 @@ where
                 ToWorktreeOutcome::Process(MaybeDelayed::Delayed(key)) => {
                     return Ok(Outcome::Delayed(DelayedFilteredStream {
                         key,
-                        needs_executable_bit: false,
+                        fs_supports_executable_bit: executable_bit,
                         validated_file_path: dest.to_owned(),
                         entry,
                         entry_path,

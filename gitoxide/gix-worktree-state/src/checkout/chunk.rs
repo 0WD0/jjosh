@@ -204,11 +204,11 @@ where
                         gix_filter::driver::Operation::Smudge,
                     )?,
                 );
-                let (file, set_executable_after_creation) = match entry::open_file(
+                let (file, executable_bit_change) = match entry::open_file(
                     &std::mem::take(&mut delayed.validated_file_path), // mark it as seen, relevant for `unprocessed_paths`
                     destination_is_initially_empty,
                     overwrite_existing,
-                    delayed.needs_executable_bit,
+                    delayed.fs_supports_executable_bit,
                     delayed.entry.mode,
                 ) {
                     Ok(res) => res,
@@ -230,7 +230,7 @@ where
                     delayed.entry,
                     write.inner.into_inner().map_err(std::io::IntoInnerError::into_error)?,
                     actual_bytes,
-                    set_executable_after_creation,
+                    executable_bit_change,
                 )?;
                 delayed_files += 1;
                 files.fetch_add(1, Ordering::Relaxed);

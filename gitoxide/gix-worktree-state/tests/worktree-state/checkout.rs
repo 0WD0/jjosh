@@ -124,10 +124,9 @@ fn writes_through_symlinks_are_prevented_even_if_overwriting_is_allowed() {
 #[test]
 fn delayed_driver_process() -> crate::Result {
     let mut opts = opts_from_probe();
-    opts.overwrite_existing = true;
     opts.filter_process_delay = gix_filter::driver::apply::Delay::Allow;
-    opts.destination_is_initially_empty = false;
     setup_filter_pipeline(opts.filters.options_mut());
+    let fs_supports_executable_bit = opts.fs.executable_bit;
     let (_source, destination, _index, outcome) = checkout_index_in_tmp_dir_opts(
         opts,
         "make_mixed_without_submodules_and_symlinks",
@@ -137,7 +136,7 @@ fn delayed_driver_process() -> crate::Result {
     )?;
     assert_eq!(outcome.collisions.len(), 0);
     assert_eq!(outcome.errors.len(), 0);
-    assert_eq!(outcome.files_updated, 5);
+    assert_eq!(outcome.files_updated, 6);
 
     let dest = destination.path();
     assert_eq!(
@@ -146,12 +145,55 @@ fn delayed_driver_process() -> crate::Result {
         "unfiltered"
     );
     assert_eq!(
+        std::fs::read(dest.join("filtered-executable"))?.as_bstr(),
+        "➡filtered content",
+        "filtered executable"
+    );
+    #[cfg(unix)]
+    if fs_supports_executable_bit {
+        assert_ne!(
+            std::fs::metadata(dest.join("filtered-executable"))?.mode() & 0o111,
+            0,
+            "a delayed filter must not prevent executable bits from being applied"
+        );
+    }
+    assert_eq!(
         std::fs::read(dest.join("dir").join("content"))?.as_bstr(),
         "➡other content\r\n"
     );
     assert_eq!(
         std::fs::read(dest.join("dir").join("sub-dir").join("file"))?.as_bstr(),
         "➡even other content\r\n"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn delayed_driver_process_removes_obsolete_executable_bits() -> crate::Result {
+    let mut opts = opts_from_probe();
+    opts.destination_is_initially_empty = false;
+    opts.filter_process_delay = gix_filter::driver::apply::Delay::Allow;
+    setup_filter_pipeline(opts.filters.options_mut());
+    let (_source, destination, _index, outcome) = checkout_index_in_tmp_dir_opts(
+        opts,
+        "make_mixed_without_submodules_and_symlinks",
+        None,
+        |_| true,
+        |destination| {
+            let filtered_non_executable = destination.join("empty");
+            std::fs::write(&filtered_non_executable, [])?;
+            std::fs::set_permissions(&filtered_non_executable, std::fs::Permissions::from_mode(0o755))?;
+            Ok(())
+        },
+    )?;
+
+    assert!(outcome.collisions.is_empty(), "regular files should not collide");
+    assert!(outcome.errors.is_empty(), "checkout should succeed");
+    assert_eq!(
+        std::fs::metadata(destination.path().join("empty"))?.mode() & 0o111,
+        0,
+        "a delayed filter must not prevent obsolete executable bits from being removed"
     );
     Ok(())
 }
