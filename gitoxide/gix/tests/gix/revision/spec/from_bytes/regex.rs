@@ -72,12 +72,14 @@ mod find_youngest_matching_commit {
     use gix::revision::Spec;
 
     use super::*;
-    use crate::revision::spec::from_bytes::parse_spec;
+    use crate::revision::spec::from_bytes::{parse_spec, repo_with_correct_pattern_revision_order};
 
     #[test]
     #[cfg(not(feature = "revparse-regex"))]
     fn contained_string_matches() {
-        let repo = repo("complex_graph").unwrap();
+        let Some(repo) = repo_with_correct_pattern_revision_order("complex_graph").unwrap() else {
+            return;
+        };
 
         assert_eq!(
             parse_spec(":/message", &repo).unwrap(),
@@ -111,7 +113,9 @@ mod find_youngest_matching_commit {
     #[test]
     #[cfg(feature = "revparse-regex")]
     fn regex_matches() {
-        let repo = repo("complex_graph").unwrap();
+        let Some(repo) = repo_with_correct_pattern_revision_order("complex_graph").unwrap() else {
+            return;
+        };
 
         assert_eq!(
             parse_spec(":/mes.age", &repo).unwrap(),

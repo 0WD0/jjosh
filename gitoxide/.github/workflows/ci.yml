@@ -401,7 +401,7 @@ jobs:
 
     runs-on: ${{ matrix.runner-os }}
 
-    container: ${{ matrix.container-architecture }}/debian:bookworm-slim
+    container: ${{ matrix.container-architecture }}/debian:stable-slim
 
     steps:
       - name: Prerequisites

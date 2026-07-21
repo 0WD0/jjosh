@@ -145,14 +145,13 @@ fn split_worktree_using_configuration() -> crate::Result {
 
 #[test]
 fn reftable() -> crate::Result {
-    let repo_path = match gix_testtools::scripted_fixture_read_only("make_reftable_repo.sh") {
-        Ok(root) => root.join("reftable-clone/.git"),
-        Err(_) if *gix_testtools::GIT_VERSION < (2, 44, 0) => {
-            eprintln!("Fixture script failure ignored as it looks like Git isn't recent enough.");
-            return Ok(());
-        }
-        Err(err) => panic!("{err}"),
+    let Some(root) = gix_testtools::scripted_fixture_read_only_with_git_version("make_reftable_repo.sh", |version| {
+        version >= (2, 44, 0)
+    })?
+    else {
+        return Ok(());
     };
+    let repo_path = root.join("reftable-clone/.git");
     let kind = gix_discover::is_git(&repo_path)?;
     assert_eq!(kind, gix_discover::repository::Kind::WorkTree { linked_git_dir: None });
     Ok(())

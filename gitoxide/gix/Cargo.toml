@@ -428,7 +428,6 @@ pretty_assertions = "1.4.0"
 gix-testtools = { path = "../tests/tools" }
 is_ci = "1.1.1"
 anyhow = "1"
-walkdir = "2.3.2"
 serial_test = { version = "3.4.0", default-features = false }
 async-std = { version = "1.12.0", features = ["attributes"] }
 termtree = "1.0.0"
