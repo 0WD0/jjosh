@@ -1927,12 +1927,10 @@ fn populate_meta_dir(destination_dir: &Path, script_identity: u32) -> std::io::R
         meta_dir.join(META_IDENTITY),
         format!("{}-{}", script_identity, family_name()).as_bytes(),
     )?;
+    let (major, minor, patch) = *GIT_VERSION;
     std::fs::write(
         meta_dir.join(META_GIT_VERSION),
-        std::process::Command::new(GIT_PROGRAM)
-            .arg("--version")
-            .output()?
-            .stdout,
+        format!("git version {major}.{minor}.{patch}\n"),
     )?;
     Ok(meta_dir)
 }
