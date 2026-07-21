@@ -53,6 +53,32 @@ title '`gix` crate'
 title "gix (with repository)"
 (with "a git repository"
   snapshot="$snapshot/repository"
+
+  title "gix index"
+  (with "the 'entries' sub-command"
+    snapshot="$snapshot/index/entries"
+    (sandbox
+      git init -q
+
+      # Keep the hostile names in the index only so this regression also works on
+      # filesystems that reject terminal control characters in paths.
+      empty_blob="$(git hash-object -w --stdin </dev/null)"
+      ansi_path="$(printf 'ansi-\033[31mred\033[0m')"
+      newline_path="$(printf 'line\nbreak')"
+      git update-index --add --cacheinfo "100644,$empty_blob,$ansi_path"
+      git update-index --add --cacheinfo "100644,$empty_blob,$newline_path"
+
+      it "escapes repository-controlled paths in simple output" && {
+        WITH_SNAPSHOT="$snapshot/control-characters-simple" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose index entries --no-attributes
+      }
+      it "escapes repository-controlled paths in rich output" && {
+        WITH_SNAPSHOT="$snapshot/control-characters-rich" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose index entries --no-attributes --format rich
+      }
+    )
+  )
+
   (small-repo-in-sandbox
     (with "the 'verify' sub-command"
       snapshot="$snapshot/verify"

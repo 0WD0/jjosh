@@ -25,7 +25,7 @@ pub(crate) mod function {
 
     use gix::{
         Repository,
-        bstr::{BStr, BString},
+        bstr::{BStr, BString, ByteSlice},
         index::entry::Stage,
         worktree::IndexPersistedOrInMemory,
     };
@@ -126,6 +126,9 @@ pub(crate) mod function {
         if let Some(entries) = index.prefixed_entries(pathspec.common_prefix()) {
             stats.entries_after_prune = entries.len();
             let mut entries = entries.iter().peekable();
+            let mut path = prefix.to_owned();
+            let prefix_len = path.len();
+            let mut buf = Vec::new();
             while let Some(entry) = entries.next() {
                 let mut last_match = None;
                 let attrs = cache
@@ -220,12 +223,20 @@ pub(crate) mod function {
                     )?;
                     stats.submodule.push((sm_path.into_owned(), sm_stats));
                 } else {
+                    let entry_path = entry.path(&index);
+                    let path = if prefix.is_empty() {
+                        entry_path
+                    } else {
+                        path.truncate(prefix_len);
+                        path.extend_from_slice(entry_path);
+                        path.as_bstr()
+                    };
                     match format {
                         OutputFormat::Human => {
                             if simple {
-                                to_human_simple(out, &index, entry, attrs, prefix)
+                                to_human_simple(out, entry, attrs, path, &mut buf)
                             } else {
-                                to_human(out, &index, entry, attrs, prefix)
+                                to_human(out, entry, attrs, path, &mut buf)
                             }?;
                         }
                         #[cfg(feature = "serde")]
@@ -364,34 +375,29 @@ pub(crate) mod function {
 
     fn to_human_simple(
         out: &mut impl std::io::Write,
-        file: &gix::index::File,
         entry: &gix::index::Entry,
         attrs: Option<Attrs>,
-        prefix: &BStr,
+        path: &BStr,
+        buf: &mut Vec<u8>,
     ) -> std::io::Result<()> {
-        if !prefix.is_empty() {
-            out.write_all(prefix)?;
-        }
+        crate::output::write_bstr(&mut *out, path, buf)?;
         match attrs {
-            Some(attrs) => {
-                out.write_all(entry.path(file))?;
-                out.write_all(print_attrs(Some(attrs), entry.mode).as_bytes())
-            }
-            None => out.write_all(entry.path(file)),
+            Some(attrs) => out.write_all(print_attrs(Some(attrs), entry.mode).as_bytes()),
+            None => Ok(()),
         }?;
         out.write_all(b"\n")
     }
 
     fn to_human(
         out: &mut impl std::io::Write,
-        file: &gix::index::File,
         entry: &gix::index::Entry,
         attrs: Option<Attrs>,
-        prefix: &BStr,
+        path: &BStr,
+        buf: &mut Vec<u8>,
     ) -> std::io::Result<()> {
-        writeln!(
+        write!(
             out,
-            "{} {}{:?} {} {}{}{}",
+            "{} {}{:?} {} ",
             match entry.flags.stage() {
                 Stage::Unconflicted => "       ",
                 Stage::Base => "BASE   ",
@@ -405,10 +411,10 @@ pub(crate) mod function {
             },
             entry.mode,
             entry.id,
-            prefix,
-            entry.path(file),
-            print_attrs(attrs, entry.mode)
-        )
+        )?;
+        crate::output::write_bstr(&mut *out, path, buf)?;
+        out.write_all(print_attrs(attrs, entry.mode).as_bytes())?;
+        out.write_all(b"\n")
     }
 
     fn print_attrs(attrs: Option<Attrs>, mode: gix::index::entry::Mode) -> Cow<'static, str> {
