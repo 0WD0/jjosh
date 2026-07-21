@@ -271,10 +271,14 @@ mod baseline {
 
 #[test]
 fn from_bare_parent_repo() {
-    if gix_testtools::should_skip_as_git_version_is_smaller_than(2, 31, 0) {
+    let Some(dir) = gix_testtools::scripted_fixture_read_only_with_args_with_git_version(
+        "make_worktree_repo.sh",
+        ["bare"],
+        |version| version >= (2, 31, 0),
+    )
+    .unwrap() else {
         return;
-    }
-    let dir = gix_testtools::scripted_fixture_read_only_with_args("make_worktree_repo.sh", ["bare"]).unwrap();
+    };
     let repo = gix::open(dir.join("repo.git")).unwrap();
 
     run_assertions(repo, true /* bare */);
@@ -282,10 +286,12 @@ fn from_bare_parent_repo() {
 
 #[test]
 fn from_nonbare_parent_repo() {
-    if gix_testtools::should_skip_as_git_version_is_smaller_than(2, 31, 0) {
+    let Some(dir) = gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_repo.sh", |version| {
+        version >= (2, 31, 0)
+    })
+    .unwrap() else {
         return;
-    }
-    let dir = gix_testtools::scripted_fixture_read_only("make_worktree_repo.sh").unwrap();
+    };
     let repo = gix::open(dir.join("repo")).unwrap();
 
     run_assertions(repo, false /* bare */);
@@ -345,11 +351,12 @@ fn linked_worktree_proxy_base_with_symlinked_main_repo() -> crate::Result {
 
 #[test]
 fn from_nonbare_parent_repo_set_workdir() -> gix_testtools::Result {
-    if gix_testtools::should_skip_as_git_version_is_smaller_than(2, 31, 0) {
+    let Some(dir) = gix_testtools::scripted_fixture_read_only_with_git_version("make_worktree_repo.sh", |version| {
+        version >= (2, 31, 0)
+    })?
+    else {
         return Ok(());
-    }
-
-    let dir = gix_testtools::scripted_fixture_read_only("make_worktree_repo.sh").unwrap();
+    };
     let mut repo = gix::open(dir.join("repo")).unwrap();
 
     assert!(repo.worktree().is_some_and(|wt| wt.is_main()), "we have main worktree");

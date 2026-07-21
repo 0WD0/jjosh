@@ -384,3 +384,160 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
             .any(|component| component.as_os_str() == "archive")
     );
 }
+
+struct Included;
+
+impl IsExcluded for Included {
+    fn is_excluded(&self, _archive: &Path) -> bool {
+        false
+    }
+}
+
+fn write_test_archive(source: &Path, archive: &Path, identity: u32) {
+    let meta_dir = populate_meta_dir(source, identity).expect("archive metadata can be created");
+    let mut archive_buf = Vec::new();
+    {
+        let mut builder = tar::Builder::new(&mut archive_buf);
+        builder.append_dir_all(".", source).expect("fixture can be archived");
+        builder.finish().expect("archive can be finished");
+    }
+
+    #[cfg(feature = "xz")]
+    {
+        use std::io::Write;
+
+        let mut encoder = xz2::write::XzEncoder::new(Vec::new(), 3);
+        encoder.write_all(&archive_buf).expect("archive can be compressed");
+        std::fs::write(archive, encoder.finish().expect("compression can finish"))
+            .expect("compressed archive can be written");
+    }
+    #[cfg(not(feature = "xz"))]
+    std::fs::write(archive, archive_buf).expect("archive can be written");
+
+    std::fs::remove_dir_all(meta_dir).expect("temporary metadata can be removed");
+}
+
+#[test]
+fn required_archives_never_fall_back_to_fixture_generation() {
+    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+    let archive = temp.path().join("missing.tar");
+    let destination = temp.path().join("fixture");
+    let mut generator_was_called = false;
+
+    let result = run_fixture_generator_with_marker_handling(
+        &archive,
+        &destination,
+        42,
+        false,
+        ArchivePolicy::Require,
+        &Included,
+        "from a test generator",
+        |_| {
+            generator_was_called = true;
+            Ok(())
+        },
+    )
+    .expect("a missing required archive is not an error");
+
+    assert!(result.is_none(), "the unavailable fixture is reported to the caller");
+    assert!(
+        !generator_was_called,
+        "an incompatible Git must never generate the fixture"
+    );
+    assert!(
+        !destination.exists(),
+        "an unavailable archive leaves no reusable cache directory"
+    );
+}
+
+#[test]
+#[serial_test::serial]
+fn required_archives_are_extracted_even_when_archives_are_ignored() {
+    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+    let source = temp.path().join("source");
+    std::fs::create_dir(&source).expect("source directory can be created");
+    std::fs::write(source.join("payload"), "from archive").expect("payload can be written");
+    let archive = temp.path().join(tar_extension());
+    write_test_archive(&source, &archive, 42);
+    let destination = temp.path().join("fixture");
+    let _env = Env::new().set("GIX_TEST_IGNORE_ARCHIVES", "1");
+
+    let result = run_fixture_generator_with_marker_handling(
+        &archive,
+        &destination,
+        42,
+        false,
+        ArchivePolicy::Require,
+        &Included,
+        "from a test generator",
+        |state| {
+            assert!(matches!(state, FixtureState::Fresh(_)), "the generator is not invoked");
+            std::fs::read_to_string(state.path().join("payload")).map_err(Into::into)
+        },
+    )
+    .expect("the required archive can be extracted");
+
+    assert_eq!(result.as_deref(), Some("from archive"));
+}
+
+#[test]
+fn stale_required_archives_are_unavailable_instead_of_generated() {
+    let temp = tempfile::TempDir::new().expect("temporary directory can be created");
+    let source = temp.path().join("source");
+    std::fs::create_dir(&source).expect("source directory can be created");
+    let archive = temp.path().join(tar_extension());
+    write_test_archive(&source, &archive, 41);
+    let destination = temp.path().join("fixture");
+    let mut generator_was_called = false;
+
+    let result = run_fixture_generator_with_marker_handling(
+        &archive,
+        &destination,
+        42,
+        false,
+        ArchivePolicy::Require,
+        &Included,
+        "from a test generator",
+        |_| {
+            generator_was_called = true;
+            Ok(())
+        },
+    )
+    .expect("a stale required archive is not an error");
+
+    assert!(result.is_none(), "the stale fixture is reported to the caller");
+    assert!(
+        !generator_was_called,
+        "a stale archive must not fall back to generation"
+    );
+}
+
+#[test]
+fn required_archives_use_a_dedicated_cache_directory() {
+    let fixture_base = Path::new("tests").join("fixtures");
+    let (_, generated_dir) = force_and_dir(None, &fixture_base, "scripted", Some(gix_hash::Kind::Sha1), &1234, None);
+    let (_, preferred_archive_dir) = force_and_dir(
+        None,
+        &fixture_base,
+        "scripted",
+        Some(gix_hash::Kind::Sha1),
+        &1234,
+        Some("archive"),
+    );
+    let (_, required_archive_dir) = force_and_dir(
+        None,
+        &fixture_base,
+        "scripted",
+        Some(gix_hash::Kind::Sha1),
+        &1234,
+        Some("required-archive"),
+    );
+
+    assert_ne!(required_archive_dir, generated_dir);
+    assert_ne!(required_archive_dir, preferred_archive_dir);
+    assert!(
+        required_archive_dir
+            .components()
+            .any(|component| component.as_os_str() == "required-archive")
+    );
+}

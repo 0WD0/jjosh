@@ -636,6 +636,47 @@ enum ArgsInHash {
     No,
 }
 
+/// Controls whether a scripted fixture may use or must use its archive.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum ArchivePolicy {
+    /// Honor `GIX_TEST_IGNORE_ARCHIVES` and generate the fixture if no archive is used.
+    Normal,
+    /// Ignore `GIX_TEST_IGNORE_ARCHIVES`, preferring the archive but falling back to generation.
+    Prefer,
+    /// Ignore `GIX_TEST_IGNORE_ARCHIVES` and return no fixture if the archive is unavailable.
+    Require,
+}
+
+impl ArchivePolicy {
+    /// Return the subdirectory used to keep this policy's extracted fixture separate.
+    /// This way fixtures extracted from a test that has a stricter policy will not accidentally
+    /// be reused by a test that has a weaker policy.
+    fn cache_variant(self) -> Option<&'static str> {
+        match self {
+            ArchivePolicy::Normal => None,
+            ArchivePolicy::Prefer => Some("archive"),
+            ArchivePolicy::Require => Some("required-archive"),
+        }
+    }
+
+    /// Return whether `GIX_TEST_IGNORE_ARCHIVES` must be ignored when extracting the fixture.
+    ///
+    /// Preferred archives freeze otherwise unstable generated contents, while required archives
+    /// are the only valid source when the installed Git is incompatible. Allowing the environment
+    /// override in either case would defeat that guarantee.
+    fn ignores_archive_override(self) -> bool {
+        !matches!(self, ArchivePolicy::Normal)
+    }
+
+    /// Return whether the fixture script may run when no usable archive is available.
+    ///
+    /// Generation is forbidden for [`ArchivePolicy::Require`] because that policy is selected when
+    /// the installed Git is incompatible; running the script would produce an unsupported fixture.
+    fn allows_generation(self) -> bool {
+        !matches!(self, ArchivePolicy::Require)
+    }
+}
+
 /// Return the path to the `<crate-root>/tests/fixtures/<path>` directory.
 pub fn fixture_path(path: impl AsRef<Path>) -> PathBuf {
     fixture_base().join(path.as_ref())
@@ -699,9 +740,23 @@ pub fn scripted_fixture_read_only_needs_archive(script_name: impl AsRef<Path>) -
         ArgsInHash::Yes,
         default_excludes(),
         None::<(u32, _)>,
-        true,
+        ArchivePolicy::Prefer,
     )
-    .map(|(dir, _)| dir)
+    .map(|fixture| fixture.expect("preferred archives fall back to generation").0)
+}
+
+/// Produce a read-only scripted fixture when the installed Git version is compatible, or extract it from a matching
+/// archive otherwise.
+///
+/// `is_git_version_compatible` receives [`GIT_VERSION`]. If it returns `true`, this behaves like
+/// [`scripted_fixture_read_only()`]. Otherwise, `GIX_TEST_IGNORE_ARCHIVES` is ignored and the fixture is only made
+/// available by extracting an archive whose identity matches the fixture script. The script is never run with an
+/// incompatible Git version, and `None` is returned if no matching archive is available.
+pub fn scripted_fixture_read_only_with_git_version(
+    script_name: impl AsRef<Path>,
+    is_git_version_compatible: impl FnOnce((u8, u8, u8)) -> bool,
+) -> Result<Option<PathBuf>> {
+    scripted_fixture_read_only_with_args_with_git_version(script_name, None::<String>, is_git_version_compatible)
 }
 
 /// Run the executable at `script_name`, like `make_repo.sh` to produce a writable directory to which
@@ -772,8 +827,9 @@ where
                 args_in_hash,
                 excludes,
                 post_process.as_mut().map(|(v, f)| (*v, f)),
-                false,
-            )?;
+                ArchivePolicy::Normal,
+            )?
+            .expect("normal fixtures fall back to generation");
             copy_recursively_into_existing_dir(ro_dir, dst.path())?;
             (dst, _res_ignored)
         }
@@ -786,8 +842,9 @@ where
                 args_in_hash,
                 excludes,
                 post_process.as_mut().map(|(v, f)| (*v, f)),
-                false,
-            )?;
+                ArchivePolicy::Normal,
+            )?
+            .expect("normal fixtures fall back to generation");
             (dst, post_result)
         }
     })
@@ -824,9 +881,32 @@ pub fn scripted_fixture_read_only_with_args(
         ArgsInHash::Yes,
         default_excludes(),
         None::<(u32, _)>,
-        false,
+        ArchivePolicy::Normal,
     )
-    .map(|(dir, _)| dir)
+    .map(|fixture| fixture.expect("normal fixtures fall back to generation").0)
+}
+
+/// Like [`scripted_fixture_read_only_with_git_version()`], but passes `args` to `script_name`.
+pub fn scripted_fixture_read_only_with_args_with_git_version(
+    script_name: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl Into<String>>,
+    is_git_version_compatible: impl FnOnce((u8, u8, u8)) -> bool,
+) -> Result<Option<PathBuf>> {
+    let archive_policy = if is_git_version_compatible(*GIT_VERSION) {
+        ArchivePolicy::Normal
+    } else {
+        ArchivePolicy::Require
+    };
+    scripted_fixture_read_only_with_args_inner::<fn(FixtureState<'_>) -> PostResult, ()>(
+        script_name,
+        args,
+        None,
+        ArgsInHash::Yes,
+        default_excludes(),
+        None::<(u32, _)>,
+        archive_policy,
+    )
+    .map(|fixture| fixture.map(|(dir, _)| dir))
 }
 
 /// Like `scripted_fixture_read_only()`], but passes `args` to `script_name`.
@@ -851,9 +931,9 @@ pub fn scripted_fixture_read_only_with_args_single_archive(
         ArgsInHash::No,
         default_excludes(),
         None::<(u32, _)>,
-        false,
+        ArchivePolicy::Normal,
     )
-    .map(|(dir, _)| dir)
+    .map(|fixture| fixture.expect("normal fixtures fall back to generation").0)
 }
 
 /// Like [`scripted_fixture_read_only`], but runs a Rust closure after the script completes.
@@ -876,9 +956,12 @@ pub fn scripted_fixture_read_only_with_post<T>(
         ArgsInHash::Yes,
         default_excludes(),
         Some((version, post_process)),
-        false,
+        ArchivePolicy::Normal,
     )
-    .map(|(path, opt)| (path, opt.expect("post_process was provided")))
+    .map(|fixture| {
+        let (path, opt) = fixture.expect("normal fixtures fall back to generation");
+        (path, opt.expect("post_process was provided"))
+    })
 }
 
 /// Like [`scripted_fixture_read_only_with_args`], but runs a Rust closure after the script completes.
@@ -897,9 +980,12 @@ pub fn scripted_fixture_read_only_with_args_with_post<T>(
         ArgsInHash::Yes,
         default_excludes(),
         Some((version, post_process)),
-        false,
+        ArchivePolicy::Normal,
     )
-    .map(|(path, opt)| (path, opt.expect("post_process was provided")))
+    .map(|fixture| {
+        let (path, opt) = fixture.expect("normal fixtures fall back to generation");
+        (path, opt.expect("post_process was provided"))
+    })
 }
 
 /// Like [`scripted_fixture_read_only_with_args_single_archive`], but runs a Rust closure after the script completes.
@@ -918,9 +1004,12 @@ pub fn scripted_fixture_read_only_with_args_single_archive_with_post<T>(
         ArgsInHash::No,
         default_excludes(),
         Some((version, post_process)),
-        false,
+        ArchivePolicy::Normal,
     )
-    .map(|(path, opt)| (path, opt.expect("post_process was provided")))
+    .map(|fixture| {
+        let (path, opt) = fixture.expect("normal fixtures fall back to generation");
+        (path, opt.expect("post_process was provided"))
+    })
 }
 
 /// Like [`scripted_fixture_writable`], but runs a Rust closure after the script completes.
@@ -1142,12 +1231,17 @@ where
         &script_result_directory,
         script_identity,
         force_run,
-        false,
+        ArchivePolicy::Normal,
         excludes,
         &format!("using Rust closure '{name}'"),
         make_fixture,
     )
-    .map(|res| (script_result_directory, res))
+    .map(|res| {
+        (
+            script_result_directory,
+            res.expect("normal fixtures fall back to generation"),
+        )
+    })
 }
 
 // We may assume that destination_dir is already unique (i.e. temp-dir) if present - thus there is no need for a lock,
@@ -1199,11 +1293,11 @@ fn run_fixture_generator_with_marker_handling<T, F>(
     script_result_directory: &Path,
     script_identity: u32,
     force_run: bool,
-    needs_archive: bool,
+    archive_policy: ArchivePolicy,
     excludes: &dyn IsExcluded,
     description: &str,
     make_fixture: F,
-) -> Result<T>
+) -> Result<Option<T>>
 where
     F: FnOnce(FixtureState<'_>) -> PostResult<T>,
 {
@@ -1222,7 +1316,7 @@ where
             archive_file_path,
             script_result_directory,
             script_identity,
-            needs_archive,
+            archive_policy.ignores_archive_override(),
         ) {
             Ok((archive_id, platform)) => {
                 eprintln!(
@@ -1231,17 +1325,29 @@ where
                     archive_id,
                     platform
                 );
-                make_fixture(FixtureState::Fresh(script_result_directory))
+                make_fixture(FixtureState::Fresh(script_result_directory)).map(Some)
             }
             Err(err) => {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
-                    std::fs::remove_dir_all(script_result_directory).map_err(|err| {
+                let archive_missing = err.kind() == std::io::ErrorKind::NotFound;
+                let generation_allowed = archive_policy.allows_generation();
+                if !generation_allowed || !archive_missing {
+                    // Remove incomplete output, or an empty required-fixture directory that a later call could
+                    // mistake for a valid cached fixture.
+                    std::fs::remove_dir_all(script_result_directory).map_err(|cleanup_err| {
                         format!(
-                            "Failed to remove '{script_result_directory}', please try to do that by hand. Original error: {err}",
-                            script_result_directory = script_result_directory.display()
+                            "Failed to remove incomplete fixture at '{}': {cleanup_err}",
+                            script_result_directory.display()
                         )
                     })?;
+                }
+                if !generation_allowed {
+                    if archive_missing {
+                        return Ok(None);
+                    }
+                    return Err(err.into());
+                }
+                if !archive_missing {
+                    eprintln!("failed to extract '{}': {}", archive_file_path.display(), err);
                     std::fs::create_dir_all(script_result_directory)?;
                 } else if !excludes.is_excluded(archive_file_path) {
                     eprintln!(
@@ -1261,11 +1367,11 @@ where
                     .inspect_err(|_err| {
                         write_failure_marker(&failure_marker);
                     })?;
-                Ok(res)
+                Ok(Some(res))
             }
         }
     } else {
-        make_fixture(FixtureState::Fresh(script_result_directory))
+        make_fixture(FixtureState::Fresh(script_result_directory)).map(Some)
     }
 }
 
@@ -1276,8 +1382,8 @@ fn scripted_fixture_read_only_with_args_inner<F, T>(
     args_in_hash: ArgsInHash,
     excludes: &dyn IsExcluded,
     post_process: Option<(u32, F)>,
-    needs_archive: bool,
-) -> Result<(PathBuf, Option<T>)>
+    archive_policy: ArchivePolicy,
+) -> Result<Option<(PathBuf, Option<T>)>>
 where
     F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
@@ -1361,7 +1467,7 @@ where
         script_basename,
         Some(object_hash),
         &script_identity,
-        needs_archive.then_some("archive"),
+        archive_policy.cache_variant(),
     );
     let _marker = marker_if_needed(destination_dir, script_basename)?;
 
@@ -1377,7 +1483,7 @@ where
         &script_result_directory,
         script_identity_for_archive,
         force_run,
-        needs_archive,
+        archive_policy,
         excludes,
         &format!("using script '{}'", script_location.display()),
         |fixture_state| {
@@ -1408,7 +1514,7 @@ where
         },
     )?;
 
-    Ok((script_result_directory, res))
+    Ok(res.map(|res| (script_result_directory, res)))
 }
 
 /// Returns the hash function that is used when creating or loading test fixtures.
@@ -1821,12 +1927,10 @@ fn populate_meta_dir(destination_dir: &Path, script_identity: u32) -> std::io::R
         meta_dir.join(META_IDENTITY),
         format!("{}-{}", script_identity, family_name()).as_bytes(),
     )?;
+    let (major, minor, patch) = *GIT_VERSION;
     std::fs::write(
         meta_dir.join(META_GIT_VERSION),
-        std::process::Command::new(GIT_PROGRAM)
-            .arg("--version")
-            .output()?
-            .stdout,
+        format!("git version {major}.{minor}.{patch}\n"),
     )?;
     Ok(meta_dir)
 }
@@ -1837,13 +1941,13 @@ fn extract_archive(
     archive: &Path,
     destination_dir: &Path,
     required_script_identity: u32,
-    needs_archive: bool,
+    ignore_archive_override: bool,
 ) -> std::io::Result<(u32, Option<String>)> {
     let archive_buf: Vec<u8> = {
         let mut buf = Vec::new();
         #[cfg_attr(feature = "xz", allow(unused_mut))]
         let mut input_archive = std::fs::File::open(archive)?;
-        if !needs_archive && env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
+        if !ignore_archive_override && env::var_os("GIX_TEST_IGNORE_ARCHIVES").is_some() {
             return Err(std::io::Error::other(format!(
                 "Ignoring archive at '{}' as GIX_TEST_IGNORE_ARCHIVES is set.",
                 archive.display()
