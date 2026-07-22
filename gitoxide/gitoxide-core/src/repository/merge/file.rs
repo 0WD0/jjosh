@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, anyhow, bail};
 use gix::{
     Id,
-    bstr::{BString, ByteSlice},
+    bstr::BString,
     merge::blob::{
         Resolution, ResourceKind,
         builtin_driver::{binary, text::Conflict},
@@ -26,24 +26,13 @@ pub fn file(
     if format != OutputFormat::Human {
         bail!("JSON output isn't implemented yet");
     }
-    let index = &repo.index_or_load_from_head()?;
-    let specs = repo.pathspec(
-        false,
-        [base, ours, theirs],
-        true,
-        index,
-        gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
-    )?;
-    // TODO: there should be a way to normalize paths without going through patterns, at least in this case maybe?
-    //       `Search` actually sorts patterns by excluding or not, all that can lead to strange results.
-    let mut patterns = specs.search().patterns().map(|p| p.path().to_owned());
-    let base = patterns.next().unwrap();
-    let ours = patterns.next().unwrap();
-    let theirs = patterns.next().unwrap();
+    let base = repo.normalize_path(&base)?;
+    let ours = repo.normalize_path(&ours)?;
+    let theirs = repo.normalize_path(&theirs)?;
 
-    let base_id = repo.rev_parse_single(base.as_bstr()).ok();
-    let ours_id = repo.rev_parse_single(ours.as_bstr()).ok();
-    let theirs_id = repo.rev_parse_single(theirs.as_bstr()).ok();
+    let base_id = repo.rev_parse_single(base.as_ref()).ok();
+    let ours_id = repo.rev_parse_single(ours.as_ref()).ok();
+    let theirs_id = repo.rev_parse_single(theirs.as_ref()).ok();
     let roots = worktree_roots(base_id, ours_id, theirs_id, repo.workdir())?;
 
     let mut cache = repo.merge_resource_cache(roots)?;
@@ -51,21 +40,21 @@ pub fn file(
     cache.set_resource(
         base_id.map_or(null, Id::detach),
         EntryKind::Blob,
-        base.as_bstr(),
+        base.as_ref(),
         ResourceKind::CommonAncestorOrBase,
         &repo.objects,
     )?;
     cache.set_resource(
         ours_id.map_or(null, Id::detach),
         EntryKind::Blob,
-        ours.as_bstr(),
+        ours.as_ref(),
         ResourceKind::CurrentOrOurs,
         &repo.objects,
     )?;
     cache.set_resource(
         theirs_id.map_or(null, Id::detach),
         EntryKind::Blob,
-        theirs.as_bstr(),
+        theirs.as_ref(),
         ResourceKind::OtherOrTheirs,
         &repo.objects,
     )?;
@@ -82,9 +71,9 @@ pub fn file(
     }
     let platform = cache.prepare_merge(&repo.objects, options)?;
     let labels = gix::merge::blob::builtin_driver::text::Labels {
-        ancestor: Some(base.as_bstr()),
-        current: Some(ours.as_bstr()),
-        other: Some(theirs.as_bstr()),
+        ancestor: Some(base.as_ref()),
+        current: Some(ours.as_ref()),
+        other: Some(theirs.as_ref()),
     };
     let mut buf = repo.empty_reusable_buffer();
     let (pick, resolution) = platform.merge(&mut buf, labels, &repo.command_context()?)?;
