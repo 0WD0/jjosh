@@ -1,7 +1,7 @@
 use std::{borrow::Cow, io};
 
 use anyhow::bail;
-use gix::bstr::BStr;
+use gix::bstr::{BStr, ByteSlice};
 
 use crate::{OutputFormat, is_dir_to_mode, repository::PathsOrPatterns};
 
@@ -44,69 +44,22 @@ pub fn query(
         Default::default(),
     )?;
 
-    match input {
-        PathsOrPatterns::Paths(paths) => {
-            for path in paths {
-                let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))
-                    .metadata()
-                    .ok()
-                    .map(|m| is_dir_to_mode(m.is_dir()));
-                let entry = cache.at_entry(&path, mode)?;
-                let match_ = entry
-                    .matching_exclude_pattern()
-                    .and_then(|m| (show_ignore_patterns || !m.pattern.is_negative()).then_some(m));
-                print_match(match_, path.as_ref(), &mut out)?;
-            }
-        }
-        PathsOrPatterns::Patterns(patterns) => {
-            let mut pathspec_matched_something = false;
-            let mut pathspec = repo.pathspec(
-                true,
-                patterns.iter(),
-                repo.workdir().is_some(),
-                &index,
-                gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
-            )?;
-
-            if let Some(it) = pathspec.index_entries_with_paths(&index) {
-                for (path, entry) in it {
-                    pathspec_matched_something = true;
-                    let entry = cache.at_entry(path, entry.mode.into())?;
-                    let match_ = entry
-                        .matching_exclude_pattern()
-                        .and_then(|m| (show_ignore_patterns || !m.pattern.is_negative()).then_some(m));
-                    print_match(match_, path, &mut out)?;
-                }
-            }
-
-            if !pathspec_matched_something {
-                // TODO(borrowchk): this shouldn't be necessary at all, but `pathspec` stays borrowed mutably for some reason.
-                //                  It's probably due to the strange lifetimes of `index_entries_with_paths()`.
-                let pathspec = repo.pathspec(
-                    true,
-                    patterns.iter(),
-                    repo.workdir().is_some(),
-                    &index,
-                    gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping
-                        .adjust_for_bare(repo.is_bare()),
-                )?;
-                let workdir = repo.workdir();
-                for pattern in pathspec.search().patterns() {
-                    let path = pattern.path();
-                    let entry = cache.at_entry(
-                        path,
-                        Some(is_dir_to_mode(
-                            workdir.is_some_and(|wd| wd.join(gix::path::from_bstr(path)).is_dir())
-                                || pattern.signature.contains(gix::pathspec::MagicSignature::MUST_BE_DIR),
-                        )),
-                    )?;
-                    let match_ = entry
-                        .matching_exclude_pattern()
-                        .and_then(|m| (show_ignore_patterns || !m.pattern.is_negative()).then_some(m));
-                    print_match(match_, path, &mut out)?;
-                }
-            }
-        }
+    let paths: Box<dyn Iterator<Item = gix::bstr::BString>> = match input {
+        PathsOrPatterns::Paths(paths) => paths,
+        PathsOrPatterns::Patterns(paths) => Box::new(paths.into_iter()),
+    };
+    for path in paths {
+        let mode = gix::path::from_bstr(Cow::Borrowed(path.as_ref()))
+            .metadata()
+            .ok()
+            .map(|m| is_dir_to_mode(m.is_dir()))
+            .or_else(|| path.ends_with(b"/").then_some(gix::index::entry::Mode::DIR));
+        let query_path = repo.normalize_path(&path)?;
+        let entry = cache.at_entry(query_path.as_bstr(), mode)?;
+        let match_ = entry
+            .matching_exclude_pattern()
+            .filter(|m| show_ignore_patterns || !m.pattern.is_negative());
+        print_match_unless_tracked(match_, &index, query_path.as_bstr(), path.as_ref(), &mut out)?;
     }
 
     if let Some(stats) = statistics.then(|| cache.take_statistics()) {
@@ -114,6 +67,21 @@ pub fn query(
         writeln!(err, "{stats:#?}").ok();
     }
     Ok(())
+}
+
+fn print_match_unless_tracked(
+    match_: Option<gix::ignore::search::Match<'_>>,
+    index: &gix::index::State,
+    query_path: &BStr,
+    display_path: &BStr,
+    out: impl std::io::Write,
+) -> std::io::Result<()> {
+    print_match(match_.filter(|_| !is_tracked(index, query_path)), display_path, out)
+}
+
+fn is_tracked(index: &gix::index::State, path: &BStr) -> bool {
+    let path = path.trim_end_with(|b| b == '/').as_bstr();
+    index.entry_by_path(path).is_some() || index.path_is_directory(path)
 }
 
 fn print_match(

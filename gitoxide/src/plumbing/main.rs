@@ -1653,7 +1653,7 @@ pub fn main() -> Result<()> {
             exclude::Subcommands::Query {
                 statistics,
                 patterns,
-                pathspec,
+                paths,
                 show_ignore_patterns,
             } => prepare_and_run(
                 "exclude-query",
@@ -1664,16 +1664,16 @@ pub fn main() -> Result<()> {
                 None,
                 move |_progress, out, err| {
                     let repo = repository(Mode::Strict)?;
-                    let pathspecs = if pathspec.is_empty() {
+                    let paths = if paths.is_empty() {
                         PathsOrPatterns::Paths(Box::new(
                             stdin_or_bail()?.byte_lines().filter_map(Result::ok).map(BString::from),
                         ))
                     } else {
-                        PathsOrPatterns::Patterns(pathspec)
+                        PathsOrPatterns::Patterns(paths)
                     };
                     core::repository::exclude::query(
                         repo,
-                        pathspecs,
+                        paths,
                         out,
                         err,
                         core::repository::exclude::query::Options {
