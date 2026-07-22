@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discuss a feature idea
+    url: https://github.com/GitoxideLabs/gitoxide/discussions/categories/ideas
+    about: Search existing ideas or start a discussion before proposing a feature.
