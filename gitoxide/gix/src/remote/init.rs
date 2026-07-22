@@ -114,7 +114,7 @@ pub(crate) fn rewrite_url(
         .url_rewrite()
         .longest(url, direction)
         .map(|url| {
-            gix_url::parse(url.as_ref()).map_err(|err| Error::RewrittenUrlInvalid {
+            gix_url::parse(&url).map_err(|err| Error::RewrittenUrlInvalid {
                 kind: match error_kind {
                     remote::Direction::Fetch => "fetch",
                     remote::Direction::Push => "push",

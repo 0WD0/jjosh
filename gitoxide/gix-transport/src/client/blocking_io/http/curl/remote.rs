@@ -142,7 +142,7 @@ fn absolute_location(request_url: &str, location: &str) -> Option<String> {
         return Some(location.to_owned());
     }
 
-    let request_url = gix_url::parse(request_url.into()).ok()?;
+    let request_url = gix_url::parse(request_url).ok()?;
     let mut out = format!("{}://", request_url.scheme.as_str());
     if location.starts_with("//") {
         out.push_str(location.trim_start_matches('/'));

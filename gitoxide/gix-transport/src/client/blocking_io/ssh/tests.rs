@@ -230,7 +230,7 @@ mod program_kind {
 
         #[test]
         fn disallow_shell_is_honored() -> Result {
-            let url = gix_url::parse("ssh://host/path".into()).expect("valid url");
+            let url = gix_url::parse("ssh://host/path").expect("valid url");
 
             let disallow_shell = false;
             let prepare =
@@ -256,7 +256,7 @@ mod program_kind {
             version: Protocol,
         ) -> std::result::Result<gix_command::Prepare, ssh::invocation::Error> {
             let ssh_cmd = kind.exe().unwrap_or_else(|| OsStr::new("simple"));
-            let url = gix_url::parse(url.into()).expect("valid url");
+            let url = gix_url::parse(url).expect("valid url");
             kind.prepare_invocation(ssh_cmd, &url, version, false)
         }
         fn call(kind: ProgramKind, url: &str, version: Protocol) -> gix_command::Prepare {

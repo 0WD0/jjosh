@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
         gix::interrupt::init_handler(1, || {})?;
     }
     std::fs::create_dir_all(&dst)?;
-    let url = gix::url::parse(repo_url.to_str().unwrap().into())?;
+    let url = gix::url::parse(repo_url.to_str().unwrap())?;
 
     println!("Url: {:?}", url.to_bstring());
     let mut prepare_clone = gix::prepare_clone(url, &dst)?;

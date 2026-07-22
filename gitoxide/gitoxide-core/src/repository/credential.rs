@@ -25,14 +25,12 @@ pub fn function(repo: Option<gix::Repository>, action: gix::credentials::program
                 .ok_or(Error::Protocol(gix::credentials::protocol::Error::UrlMissing))?;
 
             let (mut cascade, _action, prompt_options) = match repo {
-                Some(ref repo) => repo
-                    .config_snapshot()
-                    .credential_helpers(gix::url::parse(url.as_ref())?)?,
+                Some(ref repo) => repo.config_snapshot().credential_helpers(gix::url::parse(&url)?)?,
                 None => {
                     let config = gix::config::File::from_globals()?;
                     let environment = gix::open::permissions::Environment::all();
                     gix::config::credential_helpers(
-                        gix::url::parse(url.as_ref())?,
+                        gix::url::parse(&url)?,
                         &config,
                         false,    /* lenient config */
                         |_| true, /* section filter */

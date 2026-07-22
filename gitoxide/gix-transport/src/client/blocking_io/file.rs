@@ -413,7 +413,7 @@ mod tests {
                     ("user@host.xy:../username/repo", "../username/repo"),
                     ("user@host.xy:~/repo", "~/repo"),
                 ] {
-                    let url = gix_url::parse((*url).into()).expect("valid url");
+                    let url = gix_url::parse(url).expect("valid url");
                     let cmd = ssh::connect(url, Protocol::V1, Default::default(), false).expect("parse success");
                     assert_eq!(cmd.path, expected, "the path will be substituted by the remote shell");
                 }
@@ -435,7 +435,7 @@ mod tests {
                         &["ssh", "git@forge.com", "git-upload-pack", "'/path/repo'"][..],
                     ),
                 ] {
-                    let url = gix_url::parse((*url).into()).expect("valid url");
+                    let url = gix_url::parse(url).expect("valid url");
                     let cmd = ssh::connect(url, Protocol::V1, Default::default(), false).expect("parse success");
                     assert_eq!(
                         command_and_args(
@@ -455,7 +455,7 @@ mod tests {
                     "ssh://-oProxyCommand=open$IFS-aCalculator/foo",
                     "user@-oProxyCommand=open$IFS-aCalculator:username/repo",
                 ] {
-                    let url = gix_url::parse((*url).into()).expect("valid url");
+                    let url = gix_url::parse(url).expect("valid url");
                     let options = ssh::connect::Options {
                         command: Some("unrecognized".into()),
                         disallow_shell: false,
