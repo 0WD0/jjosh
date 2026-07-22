@@ -44,9 +44,9 @@ pub(crate) fn load(
             .iter()
             .map(|revision| {
                 let revision = gix::path::os_str_into_bstr(revision)
-                    .with_context(|| format!("revision {revision:?} is not valid UTF-8"))?;
+                    .with_context(|| format!("revision {} is not valid UTF-8", revision.to_string_lossy()))?;
                 repo.rev_parse_single(revision)
-                    .with_context(|| format!("could not resolve revision {revision:?}"))?
+                    .with_context(|| format!("could not resolve revision {revision}"))?
                     .object()
                     .context("could not read revision")?
                     .peel_to_kind(gix::object::Kind::Commit)
@@ -147,4 +147,5 @@ mod tests {
         assert!(matches!(cancelled.as_slice(), [Event::Decorations(_), Event::Cancelled]), "cancellation preserves decorations and stops before commits");
         Ok(())
     }
+
 }
