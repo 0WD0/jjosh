@@ -79,6 +79,59 @@ title "gix (with repository)"
     )
   )
 
+  title "gix exclude"
+  (with "the 'query' sub-command"
+    snapshot="$snapshot/exclude/query"
+    (sandbox
+      git init -q
+
+      # An ignored directory with an indexed file must still expose untracked ignored children.
+      mkdir -p src/bin other/bin
+      printf 'bin/\nbuild/\n' >.gitignore
+      printf 'fn main() {}\n' >src/bin/stub_gen.rs
+      git add -f .gitignore src/bin/stub_gen.rs
+      printf 'extra\n' >src/bin/extra.txt
+      printf 'other\n' >other/bin/file.txt
+      printf '%s\n' \
+        src/bin \
+        src/bin/ \
+        src/bin/stub_gen.rs \
+        src/bin/extra.txt \
+        other/bin \
+        other/bin/file.txt >paths
+
+      it "handles tracked paths below ignored directories" && {
+        WITH_SNAPSHOT="$snapshot/tracked-paths-below-ignored-directories" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query \
+          src/bin src/bin/ src/bin/stub_gen.rs src/bin/extra.txt other/bin other/bin/file.txt
+      }
+      it "produces the same output for paths read from stdin" && {
+        WITH_SNAPSHOT="$snapshot/same-paths-from-stdin" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query <paths
+      }
+      it "resolves stdin paths relative to the current directory" && {
+        (
+          cd src &&
+          WITH_SNAPSHOT="$snapshot/stdin-paths-relative-to-cwd" \
+          expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query \
+            < <(printf 'bin/stub_gen.rs\nbin/extra.txt\n')
+        )
+      }
+      it "doesn't show ignore patterns for tracked paths" && {
+        WITH_SNAPSHOT="$snapshot/tracked-path-with-ignore-patterns" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query --show-ignore-patterns src/bin/stub_gen.rs
+      }
+      it "keeps positional output in input order" && {
+        WITH_SNAPSHOT="$snapshot/positional-output-order" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query src/bin/stub_gen.rs other/bin/file.txt
+      }
+      it "preserves directory intent for missing paths" && {
+        WITH_SNAPSHOT="$snapshot/missing-directory" \
+        expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose exclude query build/
+      }
+    )
+  )
+
   (small-repo-in-sandbox
     (with "the 'verify' sub-command"
       snapshot="$snapshot/verify"

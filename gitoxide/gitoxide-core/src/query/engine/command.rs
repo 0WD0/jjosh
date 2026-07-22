@@ -19,23 +19,15 @@ impl query::Engine {
         match cmd {
             Command::TracePath { spec } => {
                 let is_excluded = spec.is_excluded();
-                // Just to get the normalized version of the path with everything auto-configured.
-                let relpath = self
-                    .repo
-                    .pathspec(
-                        true,
-                        Some(spec.to_bstring()),
-                        false,
-                        &gix::index::State::new(self.repo.object_hash()),
-                        gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping
-                            .adjust_for_bare(self.repo.is_bare()),
-                    )?
-                    .search()
-                    .patterns()
-                    .next()
-                    .expect("exactly one")
-                    .path()
-                    .to_owned();
+                let relpath = if spec.signature.contains(gix::pathspec::MagicSignature::TOP) {
+                    let root = self.repo.workdir().unwrap_or_else(|| self.repo.git_dir());
+                    let path = root.join(gix::path::from_bstr(spec.path()).as_ref());
+                    self.repo
+                        .normalize_path(gix::path::into_bstr(path).as_ref())?
+                        .into_owned()
+                } else {
+                    self.repo.normalize_path(spec.path())?.into_owned()
+                };
                 if relpath.is_empty() || is_excluded {
                     bail!(
                         "Invalid pathspec {spec} - path must not be empty, not be excluded, and wildcards are taken literally"

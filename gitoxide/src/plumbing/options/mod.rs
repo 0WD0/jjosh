@@ -1209,11 +1209,11 @@ pub mod exclude {
 
     use gix::bstr::BString;
 
-    use crate::shared::CheckPathSpec;
+    use crate::shared::AsBString;
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
-        /// Check if path-specs are excluded and print the result similar to `git check-ignore`.
+        /// Check if paths are excluded and print the result similar to `git check-ignore`.
         Query {
             /// Print various statistics to stderr.
             #[clap(long, short = 's')]
@@ -1228,9 +1228,9 @@ pub mod exclude {
             /// Useful for undoing previous patterns using the '!' prefix.
             #[clap(long, short = 'p')]
             patterns: Vec<OsString>,
-            /// The git path specifications to check for exclusion, or unset to read from stdin one per line.
-            #[clap(value_parser = CheckPathSpec)]
-            pathspec: Vec<BString>,
+            /// The paths to check for exclusion, or unset to read from stdin one per line.
+            #[clap(value_parser = AsBString)]
+            paths: Vec<BString>,
         },
     }
 }

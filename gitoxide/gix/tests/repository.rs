@@ -1,0 +1,109 @@
+use gix::bstr::ByteSlice;
+use serial_test::serial;
+
+#[test]
+#[serial]
+fn relative_paths_use_the_cwd_captured_when_opening() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let nested = root.join("some/very");
+
+    let _cwd = gix_testtools::set_current_dir(&nested)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    assert_eq!(
+        repo.normalize_path("file")?.as_bstr(),
+        "some/very/file",
+        "relative paths start at the captured CWD"
+    );
+    assert_eq!(
+        repo.normalize_path("../file")?.as_bstr(),
+        "some/file",
+        "parent components consume the captured CWD prefix"
+    );
+    assert_eq!(
+        repo.normalize_path("../../file")?.as_bstr(),
+        "file",
+        "all CWD components can be consumed"
+    );
+    assert_eq!(
+        repo.normalize_path("./file")?.as_bstr(),
+        "some/very/file",
+        "current-directory components are removed"
+    );
+
+    std::env::set_current_dir(&root)?;
+    assert_eq!(
+        repo.normalize_path("file")?.as_bstr(),
+        "some/very/file",
+        "Repository keeps the CWD captured when it was opened"
+    );
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    assert!(
+        matches!(repo.normalize_path("file")?, std::borrow::Cow::Borrowed(path) if path == "file"),
+        "unchanged paths are returned without allocation"
+    );
+    assert_eq!(
+        repo.normalize_path("")?.as_bstr(),
+        "",
+        "an empty path at the repository root remains empty"
+    );
+    assert_eq!(
+        repo.normalize_path(".")?.as_bstr(),
+        "",
+        "the repository root expressed as a current-directory component normalizes to an empty path"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn paths_cannot_leave_the_repository() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let nested = root.join("some");
+
+    let _cwd = gix_testtools::set_current_dir(&nested)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    let absolute = gix::path::into_bstr(root.join("some-with-file/very/deeply/nested/subdir/empty-file"));
+    assert_eq!(
+        repo.normalize_path(&absolute)?.as_bstr(),
+        "some-with-file/very/deeply/nested/subdir/empty-file",
+        "absolute paths inside the worktree become repository-relative"
+    );
+    assert!(
+        matches!(
+            repo.normalize_path("../../outside"),
+            Err(gix::repository::normalize_path::Error::OutsideOfRepository { .. })
+        ),
+        "relative paths cannot traverse above the worktree"
+    );
+
+    assert_eq!(
+        repo.normalize_path("")?.as_bstr(),
+        "some",
+        "an empty path refers to the captured current directory"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn absolute_paths_outside_the_repository_are_rejected() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let repo = gix::discover_opts(&root, Default::default(), gix::open::Options::isolated())?;
+    let outside = root.parent().expect("fixture has a parent").to_owned();
+    let outside_as_bstr = gix::path::into_bstr(outside.clone());
+
+    match repo
+        .normalize_path(&outside_as_bstr)
+        .expect_err("an absolute path outside the repository must fail")
+    {
+        gix::repository::normalize_path::Error::AbsolutePathOutsideOfRepository {
+            path,
+            root: actual_root,
+        } => {
+            assert_eq!(path, outside, "the rejected path is retained");
+            assert_eq!(actual_root, root, "the repository root is retained");
+        }
+        err => panic!("expected an absolute-path-outside error, got {err:?}"),
+    }
+    Ok(())
+}

@@ -1,0 +1,6 @@
+::	src/bin
+::	src/bin/
+::	src/bin/stub_gen.rs
+./.gitignore:1:bin/	src/bin/extra.txt
+./.gitignore:1:bin/	other/bin
+./.gitignore:1:bin/	other/bin/file.txt

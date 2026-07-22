@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 
-use gix::{bstr::ByteSlice, config::tree};
+use gix::{bstr::BStr, config::tree};
 
 pub fn blame_file(
     mut repo: gix::Repository,
@@ -19,21 +19,7 @@ pub fn blame_file(
     repo.object_cache_size_if_unset(repo.compute_object_cache_size_for_tree_diffs(&index));
 
     let file = gix::path::os_str_into_bstr(file)?;
-    let specs = repo.pathspec(
-        false,
-        [file],
-        true,
-        &index,
-        gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
-    )?;
-    // TODO: there should be a way to normalize paths without going through patterns, at least in this case maybe?
-    //       `Search` actually sorts patterns by excluding or not, all that can lead to strange results.
-    let file = specs
-        .search()
-        .patterns()
-        .map(|p| p.path().to_owned())
-        .next()
-        .expect("exactly one pattern");
+    let file = repo.normalize_path(file)?;
 
     let suspect: gix::ObjectId = repo.head()?.into_peeled_id()?.into();
     let cache: Option<gix::commitgraph::Graph> = repo.commit_graph_if_enabled()?;
@@ -43,11 +29,11 @@ pub fn blame_file(
         suspect,
         cache,
         &mut resource_cache,
-        file.as_bstr(),
+        file.as_ref(),
         options,
     )?;
     let statistics = outcome.statistics;
-    show_blame_entries(out, outcome, file)?;
+    show_blame_entries(out, outcome, file.as_ref())?;
 
     if let Some(err) = err {
         writeln!(err, "{statistics:#?}")?;
@@ -58,7 +44,7 @@ pub fn blame_file(
 fn show_blame_entries(
     mut out: impl std::io::Write,
     outcome: gix::blame::Outcome,
-    source_file_name: gix::bstr::BString,
+    source_file_name: &BStr,
 ) -> Result<(), std::io::Error> {
     for (entry, lines_in_hunk) in outcome.entries_with_lines() {
         for ((actual_lno, source_lno), line) in entry
@@ -73,7 +59,7 @@ fn show_blame_entries(
                 line_no = actual_lno + 1,
             )?;
 
-            let source_file_name = entry.source_file_name.as_ref().unwrap_or(&source_file_name);
+            let source_file_name = entry.source_file_name.as_ref().map_or(source_file_name, BStr::new);
             write!(out, "{source_file_name} ")?;
 
             write!(out, "{src_line_no} {line}", src_line_no = source_lno + 1)?;
