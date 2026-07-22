@@ -5,7 +5,7 @@ use std::hint::black_box;
 use std::path::Path;
 
 fn fuzz(data: &[u8]) -> Result<()> {
-    let url = gix_url::parse(data.into())?;
+    let url = gix_url::parse(data)?;
     _ = black_box(url.user());
     _ = black_box(url.password());
     _ = black_box(url.password());

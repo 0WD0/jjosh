@@ -1,8 +1,8 @@
-use bstr::{BStr, ByteSlice};
-use gix_url::{Scheme, testing::TestUrlExtension};
+use bstr::ByteSlice;
+use gix_url::{Scheme, parse, testing::TestUrlExtension};
 
 fn assert_url(url: &str, expected: gix_url::Url) -> Result<gix_url::Url, crate::Error> {
-    let actual = gix_url::parse(url.into())?;
+    let actual = gix_url::parse(url)?;
     assert_eq!(actual, expected);
     if actual.scheme.as_str().starts_with("http") {
         assert!(
@@ -20,10 +20,6 @@ fn assert_url(url: &str, expected: gix_url::Url) -> Result<gix_url::Url, crate::
 fn assert_url_roundtrip(url: &str, expected: gix_url::Url) -> crate::Result {
     assert_eq!(assert_url(url, expected)?.to_bstring(), url);
     Ok(())
-}
-
-fn parse<'a>(input: impl Into<&'a BStr>) -> Result<gix_url::Url, gix_url::parse::Error> {
-    gix_url::parse(input.into())
 }
 
 fn url<'a, 'b>(

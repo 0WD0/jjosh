@@ -2599,6 +2599,7 @@ dependencies = [
  "document-features",
  "gix-path",
  "gix-testtools",
+ "gix-utils",
  "percent-encoding",
  "serde",
  "thiserror 2.0.18",
