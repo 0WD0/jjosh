@@ -453,6 +453,28 @@ pub mod upstream_branch_and_remote_name_for_tracking_branch {
 }
 
 ///
+pub mod normalize_path {
+    /// The error returned by [Repository::normalize_path()](crate::Repository::normalize_path()).
+    #[derive(Debug, thiserror::Error)]
+    #[expect(missing_docs)]
+    pub enum Error {
+        #[error(transparent)]
+        Realpath(#[from] gix_path::realpath::Error),
+        #[error("The path '{}' leaves the repository", path.display())]
+        OutsideOfRepository { path: std::path::PathBuf },
+        #[error(
+            "The absolute path '{}' is not inside the repository at '{}'",
+            path.display(),
+            root.display()
+        )]
+        AbsolutePathOutsideOfRepository {
+            path: std::path::PathBuf,
+            root: std::path::PathBuf,
+        },
+    }
+}
+
+///
 #[cfg(feature = "attributes")]
 pub mod pathspec_defaults_ignore_case {
     /// The error returned by [Repository::pathspec_defaults_ignore_case()](crate::Repository::pathspec_defaults_inherit_ignore_case()).

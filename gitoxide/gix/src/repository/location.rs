@@ -1,7 +1,10 @@
 use gix_path::realpath::MAX_SYMLINKS;
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
-use crate::bstr::{BStr, ByteSlice};
+use crate::bstr::BStr;
 
 impl crate::Repository {
     /// Return the path to the repository itself, containing objects, references, configuration, and more.
@@ -91,14 +94,75 @@ impl crate::Repository {
         self.work_tree.as_deref()
     }
 
-    /// Turn `rela_path` into a path qualified with the [`workdir()`](Self::workdir()) of this instance,
-    /// if one is available.
+    /// Turn the repository-relative Git path `rela_path` into a filesystem path qualified with the
+    /// [`workdir()`](Self::workdir()) of this instance, if one is available.
+    ///
+    /// This is useful for accessing a path obtained from repository data, such as an index or tree entry, in the
+    /// worktree. It performs no normalization or containment checks. Use [`normalize_path()`](Self::normalize_path)
+    /// first for paths supplied relative to the current working directory, absolute paths, or paths with `.` or `..`
+    /// components.
     pub fn workdir_path(&self, rela_path: impl AsRef<BStr>) -> Option<PathBuf> {
         self.workdir().and_then(|wd| {
             gix_path::try_from_bstr(rela_path.as_ref())
                 .ok()
                 .map(|rela| wd.join(rela))
         })
+    }
+
+    /// Normalize `path` into a repository-relative Git path with slash separators.
+    ///
+    /// This is useful for turning user-supplied filesystem paths into paths suitable for querying repository data.
+    /// To access the corresponding file in a non-bare repository, pass the result to
+    /// [`workdir_path()`](Self::workdir_path).
+    ///
+    /// Relative paths are interpreted from [`current_dir()`](Self::current_dir), as captured when this repository was
+    /// instantiated, if it is inside the worktree. Otherwise they are considered repository-relative.
+    /// An empty path or `.` refers to that directory, and the result is empty if that directory is the repository root.
+    ///
+    /// Absolute paths must be within the worktree, or within the Git directory for bare repositories.
+    /// Paths which traverse outside of the repository are rejected. Note that passing absolute paths is expensive
+    /// as their realpath has to be determined.
+    pub fn normalize_path<'a>(
+        &self,
+        path: &'a (impl gix_utils::AsBStr + ?Sized),
+    ) -> Result<Cow<'a, BStr>, crate::repository::normalize_path::Error> {
+        use crate::repository::normalize_path::Error;
+
+        let path = gix_path::from_bstr(Cow::Borrowed(path.as_bstr()));
+        let path = if gix_path::is_absolute(path.as_ref()) {
+            let root = gix_path::realpath_opts(
+                self.workdir().unwrap_or_else(|| self.git_dir()),
+                self.current_dir(),
+                MAX_SYMLINKS,
+            )?;
+            let absolute = path.into_owned();
+            let relative = if let Ok(relative) = absolute.strip_prefix(&root) {
+                relative.to_owned()
+            } else {
+                gix_path::realpath_opts(&absolute, self.current_dir(), MAX_SYMLINKS)?
+                    .strip_prefix(&root)
+                    .map_err(|_| Error::AbsolutePathOutsideOfRepository { path: absolute, root })?
+                    .to_owned()
+            };
+            Cow::Owned(relative)
+        } else if let Some(prefix) = self.prefix()?.filter(|prefix| !prefix.as_os_str().is_empty()) {
+            Cow::Owned(prefix.join(path.as_ref()))
+        } else {
+            path
+        };
+
+        let path = match path {
+            Cow::Borrowed(path) => gix_path::normalize_and_clean(Cow::Borrowed(path), Path::new(""))
+                .ok_or_else(|| Error::OutsideOfRepository { path: path.to_owned() })?,
+            Cow::Owned(path) => {
+                if gix_path::normalize_and_clean(Cow::Borrowed(path.as_path()), Path::new("")).is_none() {
+                    return Err(Error::OutsideOfRepository { path });
+                }
+                gix_path::normalize_and_clean(Cow::Owned(path), Path::new(""))
+                    .expect("path was just validated as normalizable")
+            }
+        };
+        Ok(gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path)))
     }
 
     // TODO: tests, respect precomposeUnicode
@@ -142,6 +206,7 @@ impl crate::Repository {
     /// Return `None` if a defect in the database makes the answer uncertain.
     #[doc(alias = "is_empty", alias = "git2")]
     pub fn is_pristine(&self) -> Option<bool> {
+        use gix_utils::AsBStr;
         let name = self
             .config
             .resolved
