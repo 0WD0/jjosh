@@ -2526,6 +2526,11 @@ dependencies = [
 [[package]]
 name = "gix-tix"
 version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "gix",
+ "gix-testtools",
+]
 
 [[package]]
 name = "gix-trace"
