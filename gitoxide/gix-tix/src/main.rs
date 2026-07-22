@@ -45,7 +45,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>) -> Res
     let worker_cancelled = Arc::clone(&cancelled);
     let (sender, receiver) = mpsc::sync_channel(1024);
     std::thread::spawn(move || {
-        let result = history::load(&repository, &revisions, &worker_cancelled, |event| sender.send(Ok(event)).is_ok());
+        let result = history::load(&repository, &revisions, &worker_cancelled, |event| {
+            sender.send(Ok(event)).is_ok()
+        });
         if let Err(err) = result {
             let _ = sender.send(Err(err));
         }
@@ -66,7 +68,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>) -> Res
         if !event::poll(Duration::from_millis(16))? {
             continue;
         }
-        let TerminalEvent::Key(key) = event::read()? else { continue };
+        let TerminalEvent::Key(key) = event::read()? else {
+            continue;
+        };
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             continue;
         }
@@ -106,8 +110,14 @@ mod tests {
 
     #[test]
     fn maps_navigation_and_control_c() {
-        assert_eq!(action(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)), Some(Action::PageUp));
-        assert_eq!(action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)), Some(Action::Quit));
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
+            Some(Action::PageUp)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Some(Action::Quit)
+        );
         assert_eq!(action(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
     }
 }

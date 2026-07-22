@@ -1,4 +1,4 @@
-use gix::{bstr::BString, ObjectId};
+use gix::{ObjectId, bstr::BString};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CommitRow {
@@ -205,7 +205,10 @@ mod tests {
     #[test]
     fn completion_and_copy_effects_use_the_current_selection() {
         let mut app = App::new(10);
-        assert!(app.update(Action::Copy).is_empty(), "there is nothing to copy without a selection");
+        assert!(
+            app.update(Action::Copy).is_empty(),
+            "there is nothing to copy without a selection"
+        );
         app.update(Action::Commit(row(7)));
 
         assert_eq!(app.update(Action::Copy), vec![Effect::Copy(row(7).id)]);

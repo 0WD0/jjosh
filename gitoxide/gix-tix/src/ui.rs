@@ -18,7 +18,11 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     let rows = app.rows.iter().map(|row| {
         let id = row.id.to_hex().to_string();
         let labels = decorations.get(&row.id).map(|labels| {
-            labels.iter().map(|label| label.to_str_lossy()).collect::<Vec<_>>().join(", ")
+            labels
+                .iter()
+                .map(|label| label.to_str_lossy())
+                .collect::<Vec<_>>()
+                .join(", ")
         });
         Line::from(vec![
             Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
@@ -41,7 +45,10 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
         State::Cancelled => "cancelled",
     };
     frame.render_widget(
-        Paragraph::new(format!("{} commits · {status} · ↑↓/jk move · y copy · Esc cancel · q quit", app.rows.len())),
+        Paragraph::new(format!(
+            "{} commits · {status} · ↑↓/jk move · y copy · Esc cancel · q quit",
+            app.rows.len()
+        )),
         footer,
     );
 }
@@ -57,7 +64,10 @@ mod tests {
     fn renders_rows_decorations_selection_and_footer() -> Result<(), Box<dyn std::error::Error>> {
         let id = gix::ObjectId::Sha1([1; 20]);
         let mut app = App::new(2);
-        app.update(Action::Commit(CommitRow { id, subject: "subject".into() }));
+        app.update(Action::Commit(CommitRow {
+            id,
+            subject: "subject".into(),
+        }));
         app.update(Action::Complete);
         let decorations = Decorations::from([(id, vec!["HEAD".into()])]);
         let mut terminal = Terminal::new(TestBackend::new(54, 2))?;
@@ -72,9 +82,7 @@ mod tests {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
         for x in 2..9 {
-            expected[(x, 0)].set_style(
-                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD),
-            );
+            expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
         }
         terminal.backend().assert_buffer(&expected);
         Ok(())
