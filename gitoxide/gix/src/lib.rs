@@ -262,6 +262,29 @@ pub fn discover(directory: impl AsRef<std::path::Path>) -> Result<Repository, di
     ThreadSafeRepository::discover(directory).map(Into::into)
 }
 
+/// Try to open a git repository in `directory` and search upwards through its parents until one is found,
+/// using `open_options` regardless of the trust level of the discovered repository.
+/// The detected trust level is retained, so repositories with reduced trust still restrict their behavior accordingly.
+#[expect(
+    clippy::result_large_err,
+    reason = "will be removed once `gix-error` is used consistently"
+)]
+pub fn discover_opts(
+    directory: impl AsRef<std::path::Path>,
+    options: discover::upwards::Options<'_>,
+    open_options: open::Options,
+) -> Result<Repository, discover::Error> {
+    ThreadSafeRepository::discover_opts(
+        directory,
+        options,
+        sec::trust::Mapping {
+            full: open_options.clone(),
+            reduced: open_options,
+        },
+    )
+    .map(Into::into)
+}
+
 /// Try to discover a git repository directly from the environment.
 ///
 /// For details, see [`ThreadSafeRepository::discover_with_environment_overrides_opts()`].
