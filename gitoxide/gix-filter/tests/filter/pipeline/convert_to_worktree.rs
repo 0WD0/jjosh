@@ -108,3 +108,51 @@ fn no_filter() -> gix_testtools::Result {
     assert_eq!(actual.as_ptr(), input.as_ptr(), "…which means it's exactly the same");
     Ok(())
 }
+
+#[test]
+fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Result {
+    let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
+        (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
+    })?;
+    let out = pipe.convert_to_worktree_best_effort(
+        b"a\nb\n",
+        "file".into(),
+        &mut |path, attrs| {
+            cache
+                .at_entry(path, None, &gix_object::find::Never)
+                .expect("cannot fail")
+                .matching_attributes(attrs);
+        },
+        gix_filter::driver::apply::Delay::Forbid,
+    )?;
+    assert_eq!(
+        out.as_bytes().expect("converted in memory").as_bstr(),
+        "a\r\nb\r\n",
+        "an unavailable encoding leaves the result of earlier conversions intact"
+    );
+    Ok(())
+}
+
+#[test]
+fn unknown_encoding_is_an_error_by_default() -> gix_testtools::Result {
+    let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
+        (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
+    })?;
+
+    let err = pipe
+        .convert_to_worktree(
+            b"content",
+            "file".into(),
+            &mut |path, attrs| {
+                cache
+                    .at_entry(path, None, &gix_object::find::Never)
+                    .expect("cannot fail")
+                    .matching_attributes(attrs);
+            },
+            gix_filter::driver::apply::Delay::Forbid,
+        )
+        .err()
+        .expect("the default remains strict for diff, merge, archive, and cat callers");
+    assert_eq!(err.to_string(), "The encoding named 'not-an-encoding' isn't available");
+    Ok(())
+}

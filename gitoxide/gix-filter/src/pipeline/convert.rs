@@ -91,6 +91,7 @@ impl Pipeline {
             &mut self.attrs,
             attributes,
             self.options.eol_config,
+            false,
         )?;
 
         let mut in_src_buffer = false;
@@ -181,6 +182,29 @@ impl Pipeline {
         attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
         can_delay: driver::apply::Delay,
     ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
+        self.convert_to_worktree_inner(src, rela_path, attributes, can_delay, false)
+    }
+
+    /// Convert like [`convert_to_worktree()`](Self::convert_to_worktree), but leave prior conversions intact if the configured
+    /// worktree encoding is unavailable.
+    pub fn convert_to_worktree_best_effort<'input>(
+        &mut self,
+        src: &'input [u8],
+        rela_path: &BStr,
+        attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
+        can_delay: driver::apply::Delay,
+    ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
+        self.convert_to_worktree_inner(src, rela_path, attributes, can_delay, true)
+    }
+
+    fn convert_to_worktree_inner<'input>(
+        &mut self,
+        src: &'input [u8],
+        rela_path: &BStr,
+        attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
+        can_delay: driver::apply::Delay,
+        allow_unavailable_encoding: bool,
+    ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
         let Configuration {
             driver,
             digest,
@@ -193,6 +217,7 @@ impl Pipeline {
             &mut self.attrs,
             attributes,
             self.options.eol_config,
+            allow_unavailable_encoding,
         )?;
 
         let mut bufs = self.bufs.use_foreign_src(src);

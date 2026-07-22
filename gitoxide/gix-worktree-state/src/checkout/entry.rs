@@ -92,7 +92,7 @@ where
                     path: dest.to_path_buf(),
                 })?;
 
-            let filtered = filters.convert_to_worktree(
+            let filtered = filters.convert_to_worktree_best_effort(
                 obj.data,
                 entry_path,
                 &mut |_, attrs| {
