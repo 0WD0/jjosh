@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use bstr::ByteSlice;
-use gix_filter::pipeline::CrlfRoundTripCheck;
+use gix_filter::pipeline::{CrlfRoundTripCheck, convert::to_worktree};
 
 use crate::{driver::apply::driver_with_process, pipeline::pipeline};
 
@@ -25,7 +25,10 @@ fn all_stages() -> gix_testtools::Result {
                 .expect("cannot fail")
                 .matching_attributes(attrs);
         },
-        gix_filter::driver::apply::Delay::Forbid,
+        to_worktree::Options {
+            can_delay: gix_filter::driver::apply::Delay::Forbid,
+            unknown_encoding: to_worktree::UnknownEncoding::Fail,
+        },
     )?;
     assert!(out.is_changed(), "filters were applied");
     assert!(
@@ -63,7 +66,10 @@ fn all_stages_no_filter() -> gix_testtools::Result {
                 .expect("cannot fail")
                 .matching_attributes(attrs);
         },
-        gix_filter::driver::apply::Delay::Forbid,
+        to_worktree::Options {
+            can_delay: gix_filter::driver::apply::Delay::Forbid,
+            unknown_encoding: to_worktree::UnknownEncoding::Fail,
+        },
     )?;
     assert!(out.is_changed(), "filters were applied");
     assert!(
@@ -100,7 +106,10 @@ fn no_filter() -> gix_testtools::Result {
                 .expect("cannot fail")
                 .matching_attributes(attrs);
         },
-        gix_filter::driver::apply::Delay::Forbid,
+        to_worktree::Options {
+            can_delay: gix_filter::driver::apply::Delay::Forbid,
+            unknown_encoding: to_worktree::UnknownEncoding::Fail,
+        },
     )?;
     assert!(!out.is_changed(), "no filter was applied");
     let actual = out.as_bytes().expect("input is unchanged");
@@ -114,7 +123,7 @@ fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Resul
     let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
-    let out = pipe.convert_to_worktree_best_effort(
+    let out = pipe.convert_to_worktree(
         b"a\nb\n",
         "file".into(),
         &mut |path, attrs| {
@@ -123,7 +132,10 @@ fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Resul
                 .expect("cannot fail")
                 .matching_attributes(attrs);
         },
-        gix_filter::driver::apply::Delay::Forbid,
+        to_worktree::Options {
+            can_delay: gix_filter::driver::apply::Delay::Forbid,
+            ..Default::default()
+        },
     )?;
     assert_eq!(
         out.as_bytes().expect("converted in memory").as_bstr(),
@@ -134,7 +146,7 @@ fn unknown_encoding_is_ignored_after_other_conversions() -> gix_testtools::Resul
 }
 
 #[test]
-fn unknown_encoding_is_an_error_by_default() -> gix_testtools::Result {
+fn unknown_encoding_can_be_an_error() -> gix_testtools::Result {
     let (mut cache, mut pipe) = pipeline("unknown-encoding", || {
         (vec![], Vec::new(), CrlfRoundTripCheck::Skip, Default::default())
     })?;
@@ -149,10 +161,13 @@ fn unknown_encoding_is_an_error_by_default() -> gix_testtools::Result {
                     .expect("cannot fail")
                     .matching_attributes(attrs);
             },
-            gix_filter::driver::apply::Delay::Forbid,
+            to_worktree::Options {
+                can_delay: gix_filter::driver::apply::Delay::Forbid,
+                unknown_encoding: to_worktree::UnknownEncoding::Fail,
+            },
         )
         .err()
-        .expect("the default remains strict for diff, merge, archive, and cat callers");
+        .expect("unknown encodings can be rejected explicitly");
     assert_eq!(err.to_string(), "The encoding named 'not-an-encoding' isn't available");
     Ok(())
 }

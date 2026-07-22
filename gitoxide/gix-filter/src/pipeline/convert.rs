@@ -45,6 +45,27 @@ pub mod to_git {
 
 ///
 pub mod to_worktree {
+    use crate::driver;
+
+    /// Options for converting Git data to its worktree representation.
+    #[derive(Default, Debug, Copy, Clone)]
+    pub struct Options {
+        /// Whether process filters may delay their response.
+        pub can_delay: driver::apply::Delay,
+        /// How to handle a configured worktree encoding that isn't available.
+        pub unknown_encoding: UnknownEncoding,
+    }
+
+    /// How to handle a configured worktree encoding that isn't available.
+    #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+    pub enum UnknownEncoding {
+        /// Emit a warning as trace, ignore the encoding, and leave prior conversions intact.
+        #[default]
+        Ignore,
+        /// Return an error.
+        Fail,
+    }
+
     /// The error returned by [Pipeline::convert_to_worktree()][super::Pipeline::convert_to_worktree()].
     #[derive(Debug, thiserror::Error)]
     #[expect(missing_docs)]
@@ -170,7 +191,7 @@ impl Pipeline {
 
     /// Convert a `src` buffer located at `rela_path` (in the index) from what's in `git` to the worktree representation,
     /// asking for `attributes` with `rela_path` as first argument to configure the operation automatically.
-    /// `can_delay` defines if long-running processes can delay their response, and if they *choose* to the caller has to
+    /// [`Options::can_delay`](to_worktree::Options::can_delay) defines if long-running processes can delay their response, and if they *choose* to the caller has to
     /// specifically deal with it by interacting with the [`driver_state`][Pipeline::driver_state_mut()] directly.
     ///
     /// The reason `src` is a buffer is to indicate that `git` generally doesn't do well streaming data, so it should be small enough
@@ -180,30 +201,10 @@ impl Pipeline {
         src: &'input [u8],
         rela_path: &BStr,
         attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
-        can_delay: driver::apply::Delay,
-    ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
-        self.convert_to_worktree_inner(src, rela_path, attributes, can_delay, false)
-    }
-
-    /// Convert like [`convert_to_worktree()`](Self::convert_to_worktree), but leave prior conversions intact if the configured
-    /// worktree encoding is unavailable.
-    pub fn convert_to_worktree_best_effort<'input>(
-        &mut self,
-        src: &'input [u8],
-        rela_path: &BStr,
-        attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
-        can_delay: driver::apply::Delay,
-    ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
-        self.convert_to_worktree_inner(src, rela_path, attributes, can_delay, true)
-    }
-
-    fn convert_to_worktree_inner<'input>(
-        &mut self,
-        src: &'input [u8],
-        rela_path: &BStr,
-        attributes: &mut dyn FnMut(&BStr, &mut gix_attributes::search::Outcome),
-        can_delay: driver::apply::Delay,
-        allow_unavailable_encoding: bool,
+        to_worktree::Options {
+            can_delay,
+            unknown_encoding,
+        }: to_worktree::Options,
     ) -> Result<ToWorktreeOutcome<'input, '_>, to_worktree::Error> {
         let Configuration {
             driver,
@@ -217,7 +218,7 @@ impl Pipeline {
             &mut self.attrs,
             attributes,
             self.options.eol_config,
-            allow_unavailable_encoding,
+            unknown_encoding == to_worktree::UnknownEncoding::Ignore,
         )?;
 
         let mut bufs = self.bufs.use_foreign_src(src);
