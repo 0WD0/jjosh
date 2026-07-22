@@ -18,7 +18,7 @@ fn parse_and_compare_baseline_urls() {
             assert_urls_equal(expected, &actual);
 
             let url_serialized_again = actual.to_bstring();
-            let roundtrip = gix_url::parse(url_serialized_again.as_ref()).unwrap_or_else(|e| {
+            let roundtrip = gix_url::parse(&url_serialized_again).unwrap_or_else(|e| {
                 panic!("roundtrip should work for original '{url}', serialized to '{url_serialized_again}': {e}")
             });
             assert_eq!(roundtrip, actual, "roundtrip failed for url: {url}");

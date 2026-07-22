@@ -196,7 +196,7 @@ fn scp_like_with_windows_path() -> crate::Result {
 
 #[test]
 fn scp_like_with_windows_path_and_port_thinks_port_is_part_of_path() -> crate::Result {
-    let url = gix_url::parse("user@host.xz:42:C:/strange/absolute/path".into())?;
+    let url = gix_url::parse("user@host.xz:42:C:/strange/absolute/path")?;
     assert_eq!(
         url.to_bstring(),
         "user@host.xz:42:C:/strange/absolute/path",
@@ -314,7 +314,7 @@ fn ipv6_address_scp_like() -> crate::Result {
 
 #[test]
 fn ipv6_address_scp_like_with_user() -> crate::Result {
-    let result = gix_url::parse("user@[::1]:repo".into());
+    let result = gix_url::parse("user@[::1]:repo");
     assert!(
         result.is_err(),
         "SCP-like format with brackets is not supported - Git doesn't support this either"

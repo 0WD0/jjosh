@@ -27,8 +27,8 @@ impl Action {
 }
 
 fn parse_two_urls(a: &str, b: &str) -> Option<(gix_url::Url, gix_url::Url)> {
-    let a = gix_url::parse(a.into()).ok()?;
-    let b = gix_url::parse(b.into()).ok()?;
+    let a = gix_url::parse(a).ok()?;
+    let b = gix_url::parse(b).ok()?;
     Some((a, b))
 }
 

@@ -279,7 +279,7 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 #[tauri::command(async)]
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), Error> {
     let url =
-        gix::url::parse(repository_url.into()).context("Failed to parse repository URL")?;
+        gix::url::parse(repository_url).context("Failed to parse repository URL")?;
     let should_interrupt = AtomicBool::new(false);
     let mut prepared_clone =
         gix::prepare_clone(url, target_dir).context("Failed to prepare clone")?;
@@ -303,7 +303,7 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 ```Rust
 #[tauri::command(async)]
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), Error> {
-    let url = gix::url::parse(repository_url.into()).map_err(anyhow::Error::from)?;
+    let url = gix::url::parse(repository_url).map_err(anyhow::Error::from)?;
     let should_interrupt = AtomicBool::new(false);
 
     let (mut checkout, _outcome) = gix::prepare_clone(url, target_dir)

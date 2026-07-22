@@ -102,13 +102,13 @@ fn no_relative_paths_if_protocol() -> crate::Result {
     assert_url_roundtrip("file://a/", url(Scheme::File, None, "a", None, b"/"))?;
     if cfg!(windows) {
         assert_eq!(
-            gix_url::parse(r"file://.\".into())?,
+            gix_url::parse(r"file://.\")?,
             url(Scheme::File, None, ".", None, br"\"),
             "we are just as none-sensical as git here due to special handling."
         );
     } else {
         assert_matches::assert_matches!(
-            gix_url::parse(r"file://.\".into()),
+            gix_url::parse(r"file://.\"),
             Err(gix_url::parse::Error::MissingRepositoryPath { .. }),
             "DEVIATION: on windows, this parses with git into something nonsensical Diag: url=file://./ Diag: protocol=file Diag: hostandport=./ Diag: path=//./"
         );

@@ -114,7 +114,7 @@ mod mutate {
                 self.url = Some(self.to_url().ok_or(protocol::Error::UrlMissing)?);
             }
 
-            let url = gix_url::parse(self.url.as_ref().expect("URL is present after check above").as_ref())?;
+            let url = gix_url::parse(self.url.as_ref().expect("URL is present after check above"))?;
             self.protocol = Some(url.scheme.as_str().into());
             self.username = url.user().map(ToOwned::to_owned);
             self.password = url.password().map(ToOwned::to_owned);

@@ -55,7 +55,7 @@ mod baseline {
     });
 
     pub fn works_but_we_dont_parse_invalid_url(url: &str) {
-        assert!(gix::url::parse(url.into()).is_err(), "{url:?} should not be parseable");
+        assert!(gix::url::parse(url).is_err(), "{url:?} should not be parseable");
         assert!(
             BASELINE.get(url).is_some(),
             "Url {url} must be in baseline, whether it's valid or not"
@@ -66,7 +66,7 @@ mod baseline {
         let repo = remote::repo("credential-helpers");
         let (cascade, mut action, prompt_options) = repo
             .config_snapshot()
-            .credential_helpers(gix::url::parse(url.into()).expect("valid input URL"))
+            .credential_helpers(gix::url::parse(url).expect("valid input URL"))
             .unwrap();
 
         assert_ne!(

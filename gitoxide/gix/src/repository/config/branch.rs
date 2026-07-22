@@ -250,7 +250,7 @@ impl crate::Repository {
         self.try_find_remote(name.as_bstr())
             .map(|res| res.map_err(Into::into))
             .or_else(|| match name {
-                remote::Name::Url(url) => gix_url::parse(url.as_ref())
+                remote::Name::Url(url) => gix_url::parse(&url)
                     .map_err(Into::into)
                     .and_then(|url| {
                         self.remote_at(url)
