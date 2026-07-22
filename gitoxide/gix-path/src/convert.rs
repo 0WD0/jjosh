@@ -291,6 +291,44 @@ pub fn normalize<'a>(path: Cow<'a, Path>, current_dir: &Path) -> Option<Cow<'a, 
     .into()
 }
 
+/// Like [`normalize()`], but also removes `.` components and duplicate or trailing separators.
+///
+/// If cleaning leaves no components, `current_dir` is returned. Already-clean borrowed paths remain borrowed.
+pub fn normalize_and_clean<'a>(path: Cow<'a, Path>, current_dir: &Path) -> Option<Cow<'a, Path>> {
+    fn needs_cleaning(path: &Path) -> bool {
+        use std::path::Component::CurDir;
+
+        if path.as_os_str().is_empty() || path.components().any(|component| matches!(component, CurDir)) {
+            return true;
+        }
+
+        let mut components = path
+            .as_os_str()
+            .as_encoded_bytes()
+            .split(|byte| std::path::is_separator(*byte as char));
+        let Some(first) = components.next() else { return true };
+        first == b"." || components.any(|component| component.is_empty() || component == b".")
+    }
+
+    let path = normalize(path, current_dir)?;
+    if !needs_cleaning(path.as_ref()) {
+        return Some(path);
+    }
+
+    let mut cleaned: PathBuf = path
+        .components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .collect();
+    if cleaned.as_os_str().is_empty() {
+        cleaned.push(current_dir);
+    }
+    if cleaned.as_os_str() == path.as_os_str() {
+        Some(path)
+    } else {
+        Some(Cow::Owned(cleaned))
+    }
+}
+
 /// Rebuild the worktree-relative `relative_path` to be relative to `prefix`, which is the
 /// worktree-relative path equivalent to the position of the user, or current working directory.
 ///
