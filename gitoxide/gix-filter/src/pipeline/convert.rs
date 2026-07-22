@@ -52,11 +52,11 @@ pub mod to_worktree {
     pub struct Options {
         /// Whether process filters may delay their response.
         pub can_delay: driver::apply::Delay,
-        /// How to handle a configured worktree encoding that isn't available.
+        /// How to handle a configured worktree encoding that isn't available or cannot encode the input.
         pub unknown_encoding: UnknownEncoding,
     }
 
-    /// How to handle a configured worktree encoding that isn't available.
+    /// How to handle a configured worktree encoding that isn't available or cannot encode the input.
     #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
     pub enum UnknownEncoding {
         /// Emit a warning as trace, ignore the encoding, and leave prior conversions intact.
@@ -234,8 +234,13 @@ impl Pipeline {
 
         if let Some(encoding) = encoding {
             let (src, dest) = bufs.src_and_dest();
-            worktree::encode_to_worktree(src, encoding, dest)?;
-            bufs.swap();
+            match worktree::encode_to_worktree(src, encoding, dest) {
+                Ok(()) => bufs.swap(),
+                Err(_err) if unknown_encoding == to_worktree::UnknownEncoding::Ignore => {
+                    gix_trace::warn!(err = %_err, "Ignoring failed worktree encoding");
+                }
+                Err(err) => return Err(err.into()),
+            }
         }
 
         if let Some(driver) = driver {
