@@ -5,7 +5,10 @@ use std::{
 };
 
 use bstr::BStr;
-use gix_filter::{driver::apply::MaybeDelayed, pipeline::convert::ToWorktreeOutcome};
+use gix_filter::{
+    driver::apply::MaybeDelayed,
+    pipeline::convert::{ToWorktreeOutcome, to_worktree},
+};
 use gix_index::{Entry, entry::Stat};
 use gix_object::FindExt;
 use gix_worktree::Stack;
@@ -92,13 +95,16 @@ where
                     path: dest.to_path_buf(),
                 })?;
 
-            let filtered = filters.convert_to_worktree_best_effort(
+            let filtered = filters.convert_to_worktree(
                 obj.data,
                 entry_path,
                 &mut |_, attrs| {
                     path_cache.matching_attributes(attrs);
                 },
-                filter_process_delay,
+                to_worktree::Options {
+                    can_delay: filter_process_delay,
+                    unknown_encoding: to_worktree::UnknownEncoding::Ignore,
+                },
             )?;
             let (num_bytes, file, executable_bit_change) = match filtered {
                 ToWorktreeOutcome::Unchanged(buf) | ToWorktreeOutcome::Buffer(buf) => {

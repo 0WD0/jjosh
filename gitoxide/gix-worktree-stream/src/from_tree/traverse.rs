@@ -1,6 +1,9 @@
 use std::{collections::VecDeque, io::Write};
 
-use gix_filter::{driver::apply::MaybeDelayed, pipeline::convert::ToWorktreeOutcome};
+use gix_filter::{
+    driver::apply::MaybeDelayed,
+    pipeline::convert::{ToWorktreeOutcome, to_worktree},
+};
 use gix_object::{
     FindExt,
     bstr::{BStr, BString, ByteSlice, ByteVec},
@@ -81,7 +84,10 @@ where
                 &mut |a, b| {
                     (self.fetch_attributes)(a, entry.mode, b).ok();
                 },
-                gix_filter::driver::apply::Delay::Forbid,
+                to_worktree::Options {
+                    can_delay: gix_filter::driver::apply::Delay::Forbid,
+                    unknown_encoding: to_worktree::UnknownEncoding::Fail,
+                },
             )
             .or_raise(|| message("Could not convert to worktree representation"))?;
 
