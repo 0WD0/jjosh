@@ -186,14 +186,15 @@ impl Pipeline<'_> {
     /// This method will obtain all attributes and configuration necessary to know exactly which filters to apply.
     /// Note that the return-type implements [`std::io::Read`].
     ///
-    /// Use `can_delay` to tell driver processes that they may delay the return of data. Doing this will require the caller to specifically
+    /// Use `options` to control unavailable worktree encodings and whether driver processes may delay the return of data. Allowing delayed
+    /// processing will require the caller to specifically
     /// handle delayed files by keeping state and using [`Self::into_parts()`] to get access to the driver state to follow the delayed-files
     /// protocol. For simplicity, most will want to disallow delayed processing.
     pub fn convert_to_worktree<'input>(
         &mut self,
         src: &'input [u8],
         rela_path: &BStr,
-        can_delay: gix_filter::driver::apply::Delay,
+        options: gix_filter::pipeline::convert::to_worktree::Options,
     ) -> Result<gix_filter::pipeline::convert::ToWorktreeOutcome<'input, '_>, pipeline::convert_to_worktree::Error>
     {
         let entry = self.cache.at_entry(rela_path, None, &self.repo.objects)?;
@@ -203,7 +204,7 @@ impl Pipeline<'_> {
             &mut |_, attrs| {
                 entry.matching_attributes(attrs);
             },
-            can_delay,
+            options,
         )?)
     }
 

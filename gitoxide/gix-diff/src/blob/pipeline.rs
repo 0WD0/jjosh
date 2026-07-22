@@ -7,7 +7,7 @@ use std::{
 use bstr::{BStr, ByteSlice};
 use gix_filter::{
     driver::apply::{Delay, MaybeDelayed},
-    pipeline::convert::{ToGitOutcome, ToWorktreeOutcome},
+    pipeline::convert::{ToGitOutcome, ToWorktreeOutcome, to_worktree},
 };
 use gix_object::tree::EntryKind;
 
@@ -422,9 +422,15 @@ impl Pipeline {
                             || (convert == Mode::ToGitUnlessBinaryToTextIsPresent
                                 && driver.is_some_and(|d| d.binary_to_text_command.is_some()))
                         {
-                            let res =
-                                self.worktree_filter
-                                    .convert_to_worktree(out, rela_path, attributes, Delay::Forbid)?;
+                            let res = self.worktree_filter.convert_to_worktree(
+                                out,
+                                rela_path,
+                                attributes,
+                                to_worktree::Options {
+                                    can_delay: Delay::Forbid,
+                                    unknown_encoding: to_worktree::UnknownEncoding::Fail,
+                                },
+                            )?;
 
                             let cmd_and_file = driver
                                 .and_then(|d| {

@@ -1,5 +1,9 @@
 use anyhow::{Context, anyhow};
-use gix::{diff::blob::ResourceKind, filter::plumbing::driver::apply::Delay, revision::Spec};
+use gix::{
+    diff::blob::ResourceKind,
+    filter::plumbing::{driver::apply::Delay, pipeline::convert::to_worktree},
+    revision::Spec,
+};
 
 use crate::repository::revision::resolve::{BlobFormat, TreeMode};
 
@@ -31,7 +35,10 @@ pub fn display_object(
                         &mut |_path, attrs| {
                             let _ = platform.matching_attributes(attrs);
                         },
-                        Delay::Forbid,
+                        to_worktree::Options {
+                            can_delay: Delay::Forbid,
+                            unknown_encoding: to_worktree::UnknownEncoding::Fail,
+                        },
                     )?;
                     std::io::copy(&mut converted, &mut out)?;
                 }

@@ -11,6 +11,12 @@ EOF
   touch .gitattributes
 )
 
+(mkdir unknown-encoding && cd unknown-encoding
+  cat <<EOF > .gitattributes
+* text eol=crlf working-tree-encoding=not-an-encoding
+EOF
+)
+
 (mkdir driver-only && cd driver-only
   cat <<EOF > .gitattributes
 * filter=arrow

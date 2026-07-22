@@ -6,7 +6,7 @@ use std::{
 use bstr::BStr;
 use gix_filter::{
     driver::apply::{Delay, MaybeDelayed},
-    pipeline::convert::{ToGitOutcome, ToWorktreeOutcome},
+    pipeline::convert::{ToGitOutcome, ToWorktreeOutcome, to_worktree},
 };
 use gix_object::tree::EntryKind;
 
@@ -277,9 +277,15 @@ impl Pipeline {
 
                         if convert == Mode::Renormalize {
                             {
-                                let res = self
-                                    .filter
-                                    .convert_to_worktree(out, rela_path, attributes, Delay::Forbid)?;
+                                let res = self.filter.convert_to_worktree(
+                                    out,
+                                    rela_path,
+                                    attributes,
+                                    to_worktree::Options {
+                                        can_delay: Delay::Forbid,
+                                        unknown_encoding: to_worktree::UnknownEncoding::Fail,
+                                    },
+                                )?;
 
                                 match res {
                                     ToWorktreeOutcome::Unchanged(_) => {}

@@ -8,7 +8,7 @@ fn pipeline_in_nonbare_repo_without_index() -> crate::Result {
 }
 
 use gix::bstr::ByteSlice;
-use gix_filter::driver::apply::Delay;
+use gix_filter::pipeline::convert::to_worktree;
 
 use super::blob_id;
 use crate::util::{named_repo, named_subrepo_opts};
@@ -25,7 +25,7 @@ fn pipeline_in_repo_without_special_options() -> crate::Result {
     }
 
     {
-        let out = pipe.convert_to_worktree(input.as_bytes(), "file".into(), Delay::Forbid)?;
+        let out = pipe.convert_to_worktree(input.as_bytes(), "file".into(), to_worktree::Options::default())?;
         assert!(!out.is_changed(), "no filtering is configured, nothing changes");
     }
 
@@ -154,7 +154,7 @@ fn pipeline_with_autocrlf() -> crate::Result {
     }
 
     {
-        let out = pipe.convert_to_worktree("hi\n".as_bytes(), "file".into(), Delay::Forbid)?;
+        let out = pipe.convert_to_worktree("hi\n".as_bytes(), "file".into(), to_worktree::Options::default())?;
         assert_eq!(
             out.as_bytes()
                 .expect("a buffer is needed for eol conversions")
