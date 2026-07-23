@@ -13,11 +13,11 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
-use app::{Action, App, Effect};
+use app::{Action, App, Effect, State};
 use crossterm::{
     clipboard::CopyToClipboard,
     event::{self, Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -26,7 +26,7 @@ use crossterm::{
 use history::{Decorations, Event};
 
 const EVENT_BATCH_SIZE: usize = 256;
-const POLL_INTERVAL: Duration = Duration::from_millis(16);
+const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 
 /// Options for [`run()`].
 #[derive(Clone, Copy, Debug, Default)]
@@ -69,10 +69,32 @@ fn event_loop(
 
     let mut app = App::new(1);
     let mut decorations = Decorations::new();
+    draw(terminal, &mut app, &decorations)?;
+    let mut last_draw = Instant::now();
+    let mut dirty = false;
+    let mut urgent = false;
     loop {
+        if urgent {
+            draw(terminal, &mut app, &decorations)?;
+            last_draw = Instant::now();
+            dirty = false;
+            urgent = false;
+            continue;
+        }
         let mut events = 0;
-        for message in receiver.try_iter().take(EVENT_BATCH_SIZE) {
+        while events < EVENT_BATCH_SIZE {
+            let message = match receiver.try_recv() {
+                Ok(message) => message,
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) if matches!(app.state, State::Complete | State::Cancelled) => {
+                    break;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    anyhow::bail!("history worker stopped unexpectedly")
+                }
+            };
             events += 1;
+            dirty = true;
             match message? {
                 Event::Decorations(value) => decorations = value,
                 Event::Commits(rows) => app.extend_commits(rows),
@@ -85,17 +107,35 @@ fn event_loop(
                 Event::Cancelled => drop(app.update(Action::Cancelled)),
             }
         }
-        terminal.draw(|frame| ui::draw(frame, &mut app, &decorations))?;
-        if !event::poll(poll_timeout(events))? {
-            continue;
+        let streaming = matches!(app.state, State::Loading | State::Cancelling);
+        if should_draw(dirty, streaming, last_draw.elapsed()) {
+            draw(terminal, &mut app, &decorations)?;
+            last_draw = Instant::now();
+            dirty = false;
         }
-        let TerminalEvent::Key(key) = event::read()? else {
+        let terminal_event = match poll_timeout(streaming, events, dirty, last_draw.elapsed()) {
+            Some(timeout) if event::poll(timeout)? => Some(event::read()?),
+            Some(_) => None,
+            None => Some(event::read()?),
+        };
+        let Some(terminal_event) = terminal_event else {
             continue;
+        };
+        let key = match terminal_event {
+            TerminalEvent::Key(key) => key,
+            TerminalEvent::Resize(_, _) => {
+                dirty = true;
+                urgent = true;
+                continue;
+            }
+            _ => continue,
         };
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             continue;
         }
         let Some(action) = action(key) else { continue };
+        dirty = true;
+        urgent = true;
         for effect in app.update(action) {
             match effect {
                 Effect::Cancel => cancelled.store(true, Ordering::Relaxed),
@@ -109,12 +149,25 @@ fn event_loop(
     }
 }
 
-fn poll_timeout(events: usize) -> Duration {
-    if events == EVENT_BATCH_SIZE {
-        Duration::ZERO
-    } else {
-        POLL_INTERVAL
-    }
+fn draw(terminal: &mut ratatui::DefaultTerminal, app: &mut App, decorations: &Decorations) -> Result<()> {
+    terminal.draw(|frame| ui::draw(frame, app, decorations))?;
+    Ok(())
+}
+
+fn should_draw(dirty: bool, streaming: bool, since_draw: Duration) -> bool {
+    dirty && (!streaming || since_draw >= FRAME_INTERVAL)
+}
+
+fn poll_timeout(streaming: bool, events: usize, dirty: bool, since_draw: Duration) -> Option<Duration> {
+    streaming.then(|| {
+        if events == EVENT_BATCH_SIZE {
+            Duration::ZERO
+        } else if dirty {
+            FRAME_INTERVAL.saturating_sub(since_draw)
+        } else {
+            FRAME_INTERVAL
+        }
+    })
 }
 
 fn action(key: KeyEvent) -> Option<Action> {
@@ -206,8 +259,37 @@ mod tests {
     }
 
     #[test]
-    fn saturated_event_batches_do_not_wait() {
-        assert_eq!(poll_timeout(EVENT_BATCH_SIZE), Duration::ZERO);
-        assert_eq!(poll_timeout(EVENT_BATCH_SIZE - 1), POLL_INTERVAL);
+    fn rendering_is_reactive_and_capped_while_streaming() {
+        assert!(
+            !should_draw(false, false, Duration::MAX),
+            "clean frames are never redrawn"
+        );
+        assert!(
+            should_draw(true, false, Duration::ZERO),
+            "idle changes redraw immediately"
+        );
+        assert!(
+            !should_draw(true, true, FRAME_INTERVAL.saturating_sub(Duration::from_nanos(1))),
+            "streaming frames wait for the 60 fps deadline"
+        );
+        assert!(
+            should_draw(true, true, FRAME_INTERVAL),
+            "streaming frames draw at the deadline"
+        );
+        assert_eq!(
+            poll_timeout(false, 0, false, Duration::ZERO),
+            None,
+            "idle waits reactively for terminal input"
+        );
+        assert_eq!(
+            poll_timeout(true, EVENT_BATCH_SIZE, true, Duration::ZERO),
+            Some(Duration::ZERO),
+            "saturated history batches keep processing"
+        );
+        assert_eq!(
+            poll_timeout(true, 1, true, Duration::from_millis(10)),
+            Some(FRAME_INTERVAL.saturating_sub(Duration::from_millis(10))),
+            "dirty streaming frames wait only until their deadline"
+        );
     }
 }

@@ -152,6 +152,10 @@ impl App {
                 self.follow_tail = false;
                 self.ensure_visible();
             }
+            Action::Complete if self.state == State::Cancelling => {
+                self.state = State::Cancelled;
+                self.follow_tail = false;
+            }
             Action::Cancelled if self.state == State::Cancelling => self.state = State::Cancelled,
             Action::MoveUp => self.move_selection(1, false),
             Action::MoveDown => self.move_selection(1, true),
@@ -566,9 +570,13 @@ mod tests {
         app.extend_commits(vec![row(2)]);
         assert_eq!(app.rows.len(), 1, "commits arriving after cancellation are ignored");
 
-        app.update(Action::Cancelled);
+        app.update(Action::Complete);
         assert_eq!(app.state, State::Cancelled);
-        assert_eq!(app.rows.len(), 1, "cancellation keeps already displayed commits");
+        assert_eq!(
+            app.rows.len(),
+            1,
+            "completion racing cancellation keeps already displayed commits"
+        );
     }
 
     #[test]
