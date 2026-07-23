@@ -11,6 +11,10 @@ edition = "2024"
 rust-version = "1.88"
 include = ["/src/**/*", "/LICENSE-*"]
 
+[[bin]]
+name = "tix"
+path = "src/main.rs"
+
 [features]
 default = ["sha1"]
 sha1 = ["gix/sha1"]
