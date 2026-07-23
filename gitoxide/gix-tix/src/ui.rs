@@ -234,19 +234,7 @@ fn metadata_line<'a>(
         ));
     }
     if show_author_name {
-        let author = if use_mailmap {
-            mailmap
-                .try_resolve_ref(gix::actor::SignatureRef {
-                    name: row.author.name,
-                    email: row.author.email,
-                    time: "",
-                })
-                .and_then(|resolved| resolved.name)
-                .unwrap_or(row.author.name)
-        } else {
-            row.author.name
-        }
-        .to_str_lossy();
+        let author = author_name(row.author, mailmap, use_mailmap).to_str_lossy();
         spans.push(Span::styled(
             if row.author.is_bot() {
                 format!("[{author}] ")
@@ -279,7 +267,7 @@ fn metadata_line<'a>(
                     if index != 0 {
                         spans.push(Span::raw(", "));
                     }
-                    let name = actor.author.name.to_str_lossy();
+                    let name = author_name(actor.author, mailmap, use_mailmap).to_str_lossy();
                     spans.push(Span::styled(
                         if actor.author.is_bot() {
                             format!("[{name}]")
@@ -299,6 +287,21 @@ fn metadata_line<'a>(
     }
     spans.push(Span::raw(title.to_str_lossy()));
     Line::from(spans)
+}
+
+fn author_name<'a>(author: &'a crate::app::Author, mailmap: &'a gix::mailmap::Snapshot, use_mailmap: bool) -> &'a BStr {
+    if use_mailmap {
+        mailmap
+            .try_resolve_ref(gix::actor::SignatureRef {
+                name: author.name,
+                email: author.email,
+                time: "",
+            })
+            .and_then(|resolved| resolved.name)
+            .unwrap_or(author.name)
+    } else {
+        author.name
+    }
 }
 
 fn decoration_style(kind: DecorationKind) -> Style {
@@ -414,12 +417,16 @@ mod tests {
         app.selected = None;
         let mut terminal = Terminal::new(TestBackend::new(160, 2))?;
 
-        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        let mailmap =
+            gix::mailmap::Snapshot::from_bytes(b"Mapped Human <mapped@example.com> Human <human@example.com>\n");
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
 
         let row = rendered_row(&terminal);
         assert!(
-            row.contains("[Codex] Co: Human, [Claude] Re: Reviewer Ack: Acknowledger Te: Tester So: Signer subject"),
-            "same-kind trailers share one marker and bots use bracketed names"
+            row.contains(
+                "[Codex] Co: Mapped Human, [Claude] Re: Reviewer Ack: Acknowledger Te: Tester So: Signer subject"
+            ),
+            "same-kind trailers share one marker, use mailmap, and render bots with bracketed names"
         );
         let buffer = terminal.backend().buffer();
         let style_at = |needle: &str| {
@@ -458,12 +465,19 @@ mod tests {
 
         app.update(Action::ToggleTrailers);
         app.update(Action::ToggleName);
-        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
         let row = rendered_row(&terminal);
         assert!(!row.contains("Codex"), "n hides the primary actor");
         assert!(
             !row.contains("Reviewer"),
             "n hides trailer actors while trailers are enabled"
+        );
+        app.update(Action::ToggleName);
+        app.update(Action::ToggleMailmap);
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
+        assert!(
+            rendered_row(&terminal).contains("Co: Human, [Claude]"),
+            "m restores original trailer actor names"
         );
         Ok(())
     }
