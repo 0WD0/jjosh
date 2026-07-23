@@ -157,6 +157,15 @@ pub fn main() -> Result<()> {
     }
 
     match cmd {
+        #[cfg(feature = "tix")]
+        Subcommands::Tix {
+            quit_on_finish,
+            revisions,
+        } => gix_tix::run(
+            repository(Mode::Lenient)?.into_sync(),
+            revisions,
+            gix_tix::Options { quit_on_finish },
+        ),
         Subcommands::Env => prepare_and_run(
             "env",
             trace,
@@ -1825,5 +1834,26 @@ mod tests {
     fn clap() {
         use clap::CommandFactory;
         Args::command().debug_assert();
+    }
+
+    #[test]
+    #[cfg(feature = "tix")]
+    fn tix_aliases_are_visible_and_route_to_tix() {
+        use clap::{CommandFactory, Parser};
+
+        let command = Args::command();
+        let tix = command.find_subcommand("tix").expect("tix is registered");
+        assert_eq!(
+            tix.get_visible_aliases().collect::<Vec<_>>(),
+            ["tui", "interactive", "i"],
+            "all aliases are shown in help"
+        );
+        for name in ["tix", "tui", "interactive", "i"] {
+            let args = Args::try_parse_from(["gix", name]).expect("the command or alias parses");
+            assert!(
+                matches!(args.cmd, Subcommands::Tix { .. }),
+                "{name} routes to the tix command"
+            );
+        }
     }
 }

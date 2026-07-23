@@ -163,6 +163,16 @@ pub enum Subcommands {
     Env,
     Diff(diff::Platform),
     Log(log::Platform),
+    /// Interactively browse commits and their graph.
+    #[cfg(feature = "tix")]
+    #[clap(visible_alias = "tui", visible_alias = "interactive", visible_alias = "i")]
+    Tix {
+        /// Exit once all commits and graph lanes have been computed.
+        #[clap(long)]
+        quit_on_finish: bool,
+        /// Revisions whose reachable commits should be shown, or HEAD if omitted.
+        revisions: Vec<std::ffi::OsString>,
+    },
     Worktree(worktree::Platform),
     /// Subcommands that need no Git repository to run.
     #[clap(subcommand)]

@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     ffi::OsString,
-    path::Path,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -42,13 +41,11 @@ pub(crate) enum Event {
 }
 
 pub(crate) fn load(
-    repository: &Path,
+    repo: &gix::Repository,
     revisions: &[OsString],
     cancelled: &AtomicBool,
     mut emit: impl FnMut(Event) -> bool,
 ) -> Result<()> {
-    let repo =
-        gix::open(repository).with_context(|| format!("could not open repository at {}", repository.display()))?;
     let tips = if revisions.is_empty() {
         match repo
             .head()
@@ -58,7 +55,7 @@ pub(crate) fn load(
         {
             Some(id) => vec![id.detach()],
             None => {
-                emit(Event::Decorations(decorations(&repo)?));
+                emit(Event::Decorations(decorations(repo)?));
                 emit(Event::Complete);
                 return Ok(());
             }
@@ -80,7 +77,7 @@ pub(crate) fn load(
             .collect::<Result<Vec<_>>>()?
     };
 
-    if !emit(Event::Decorations(decorations(&repo)?)) {
+    if !emit(Event::Decorations(decorations(repo)?)) {
         return Ok(());
     }
     let walk = repo
@@ -151,11 +148,14 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
     {
         let mut reference = reference.map_err(|err| anyhow::anyhow!("could not read reference: {err}"))?;
         let mut kind = decoration_kind(reference.name().as_bstr());
-        if kind == DecorationKind::Tag
-            && let Some(id) = reference.try_id()
-            && id.header().context("could not inspect tag")?.kind() == gix::objs::Kind::Tag
-        {
-            kind = DecorationKind::AnnotatedTag;
+        if kind == DecorationKind::Tag {
+            let annotated = match reference.try_id() {
+                Some(id) => id.header().context("could not inspect tag")?.kind() == gix::objs::Kind::Tag,
+                None => false,
+            };
+            if annotated {
+                kind = DecorationKind::AnnotatedTag;
+            }
         }
         let id = reference.peel_to_id().context("could not peel reference")?.detach();
         let mut name = reference.name().shorten().to_owned();
@@ -200,10 +200,11 @@ mod tests {
         gix_testtools::scripted_fixture_read_only("history.sh")
     }
 
-    fn loaded(path: &Path, revisions: &[&str]) -> Result<Vec<Event>> {
+    fn loaded(path: &std::path::Path, revisions: &[&str]) -> Result<Vec<Event>> {
         let mut events = Vec::new();
+        let repo = gix::open(path)?;
         load(
-            path,
+            &repo,
             &revisions.iter().map(OsString::from).collect::<Vec<_>>(),
             &AtomicBool::new(false),
             |event| {
@@ -270,7 +271,8 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
-        load(&fixture, &[], &AtomicBool::new(true), |event| {
+        let repo = gix::open(&fixture)?;
+        load(&repo, &[], &AtomicBool::new(true), |event| {
             cancelled.push(event);
             true
         })?;

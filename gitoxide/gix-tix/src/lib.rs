@@ -1,3 +1,5 @@
+//! A fast, interactive commit graph for terminals.
+
 #![forbid(unsafe_code)]
 
 mod app;
@@ -26,17 +28,17 @@ use history::{Decorations, Event};
 const EVENT_BATCH_SIZE: usize = 256;
 const POLL_INTERVAL: Duration = Duration::from_millis(16);
 
-fn main() -> Result<()> {
-    let (revisions, quit_on_finish) = arguments(gix::env::args_os().skip(1));
-    if revisions.iter().any(|arg| arg == "-h" || arg == "--help") {
-        println!(
-            "Usage: tix [--quit-on-finish] [REVISION]...\n\nBrowse commits reachable from HEAD or the given revisions."
-        );
-        return Ok(());
-    }
+/// Options for [`run()`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Options {
+    /// Exit once all commits and graph lanes have been computed.
+    pub quit_on_finish: bool,
+}
 
+/// Run the interactive commit graph for `repository`.
+pub fn run(repository: gix::ThreadSafeRepository, revisions: Vec<OsString>, options: Options) -> Result<()> {
     let mut terminal = ratatui::try_init().context("could not initialize terminal")?;
-    let result = run(&mut terminal, revisions, quit_on_finish);
+    let result = event_loop(&mut terminal, repository, revisions, options);
     let restore = ratatui::try_restore().context("could not restore terminal");
     let lane_time = result?;
     restore?;
@@ -46,31 +48,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn arguments(args: impl Iterator<Item = OsString>) -> (Vec<OsString>, bool) {
-    let mut quit_on_finish = false;
-    let revisions = args
-        .filter(|arg| {
-            let is_option = arg == "--quit-on-finish";
-            quit_on_finish |= is_option;
-            !is_option
-        })
-        .collect();
-    (revisions, quit_on_finish)
-}
-
-fn run(
+fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
+    repository: gix::ThreadSafeRepository,
     revisions: Vec<OsString>,
-    quit_on_finish: bool,
+    options: Options,
 ) -> Result<Option<Duration>> {
-    let repository = match std::env::var_os("GIT_DIR") {
-        Some(git_dir) => git_dir.into(),
-        None => std::env::current_dir().context("could not determine current directory")?,
-    };
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = Arc::clone(&cancelled);
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
+        let repository = repository.to_thread_local();
         let result = history::load(&repository, &revisions, &worker_cancelled, |event| {
             sender.send(Ok(event)).is_ok()
         });
@@ -90,7 +78,7 @@ fn run(
                 Event::Commits(rows) => app.extend_commits(rows),
                 Event::Complete => {
                     drop(app.update(Action::Complete));
-                    if quit_on_finish {
+                    if options.quit_on_finish {
                         return Ok(app.lane_time);
                     }
                 }
@@ -215,13 +203,6 @@ mod tests {
             Some(Action::Quit)
         );
         assert_eq!(action(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
-    }
-
-    #[test]
-    fn quit_on_finish_is_not_a_revision() {
-        let (revisions, quit_on_finish) = arguments(["--quit-on-finish", "main"].into_iter().map(OsString::from));
-        assert!(quit_on_finish, "the option is enabled");
-        assert_eq!(revisions, ["main"], "only revisions remain");
     }
 
     #[test]

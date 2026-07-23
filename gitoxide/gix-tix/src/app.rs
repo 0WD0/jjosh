@@ -272,10 +272,9 @@ fn render_lanes(rows: &mut [CommitRow], known: &HashMap<ObjectId, usize>) {
                 _ => {
                     let destination = next.len();
                     next.push(*parent);
-                    if let Some(position) = old_position
-                        && *position != current
-                    {
-                        edges.push((*position, destination));
+                    match old_position {
+                        Some(position) if *position != current => edges.push((*position, destination)),
+                        _ => {}
                     }
                     destination
                 }
