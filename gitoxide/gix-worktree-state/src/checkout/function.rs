@@ -57,20 +57,24 @@ where
         None,
     );
 
+    let mut path_cache = Stack::from_state_and_ignore_case(
+        dir,
+        options.fs.ignore_case,
+        stack::State::for_checkout(
+            options.overwrite_existing,
+            options.validate,
+            std::mem::take(&mut options.attributes),
+        ),
+        index,
+        paths,
+    );
+    if !options.destination_is_initially_empty {
+        path_cache.enable_terminal_symlink_check();
+    }
     let mut ctx = chunk::Context {
         buf: Vec::new(),
         options: (&options).into(),
-        path_cache: Stack::from_state_and_ignore_case(
-            dir,
-            options.fs.ignore_case,
-            stack::State::for_checkout(
-                options.overwrite_existing,
-                options.validate,
-                std::mem::take(&mut options.attributes),
-            ),
-            index,
-            paths,
-        ),
+        path_cache,
         filters: options.filters,
         objects,
     };

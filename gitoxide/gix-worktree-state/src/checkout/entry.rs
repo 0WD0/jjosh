@@ -167,7 +167,7 @@ where
                 })?;
             } else {
                 let mut file = try_op_or_unlink(dest, overwrite_existing, |p| {
-                    open_options(p, destination_is_initially_empty, overwrite_existing).open(dest)
+                    open_options(destination_is_initially_empty, overwrite_existing).open(p)
                 })?;
                 file.write_all(obj.data)?;
                 file.close()?;
@@ -198,32 +198,39 @@ where
 /// Note that this works only because we assume to not race ourselves when symlinks are involved, and we do this by
 /// delaying symlink creation to the end and will always do that sequentially.
 /// It's still possible to fall for a race if other actors create symlinks in our path, but that's nothing to defend against.
+///
+/// Without overwrite permission, the worktree stack delegate rejects terminal symlinks for incremental checkout,
+/// while checkout into an empty destination uses exclusive creation.
+/// With overwrite permission, Windows checks here instead so a symlink is only removed once the replacement operation is ready.
+/// Other platforms rely on no-follow operations and inspect the path only after a collision.
 fn try_op_or_unlink<T>(
     path: &Path,
     overwrite_existing: bool,
     op: impl Fn(&Path) -> std::io::Result<T>,
 ) -> std::io::Result<T> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() && overwrite_existing => {
-            try_unlink_path_recursively(path, &meta)?;
-        }
-        Ok(meta) if meta.file_type().is_symlink() => return Err(std::io::ErrorKind::AlreadyExists.into()),
-        Ok(_) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => return Err(err),
+    if !overwrite_existing {
+        return op(path);
     }
 
-    if overwrite_existing {
-        match op(path) {
-            Ok(res) => Ok(res),
-            Err(err) if gix_fs::symlink::is_collision_error(&err) => {
-                try_unlink_path_recursively(path, &std::fs::symlink_metadata(path)?)?;
-                op(path)
+    #[cfg(windows)]
+    {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                try_unlink_path_recursively(path, &meta)?;
             }
-            Err(err) => Err(err),
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
         }
-    } else {
-        op(path)
+    }
+
+    match op(path) {
+        Ok(res) => Ok(res),
+        Err(err) if gix_fs::symlink::is_collision_error(&err) => {
+            try_unlink_path_recursively(path, &std::fs::symlink_metadata(path)?)?;
+            op(path)
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -237,25 +244,7 @@ fn try_unlink_path_recursively(path: &Path, path_meta: &std::fs::Metadata) -> st
     }
 }
 
-#[cfg(not(debug_assertions))]
-fn debug_assert_dest_is_no_symlink(_path: &Path) {}
-
-/// This is a debug assertion as we expect the machinery calling this to prevent this possibility in the first place
-#[cfg(debug_assertions)]
-fn debug_assert_dest_is_no_symlink(path: &Path) {
-    if let Ok(meta) = path.metadata() {
-        debug_assert!(
-            !meta.file_type().is_symlink(),
-            "BUG: should not ever allow to overwrite/write-into the target of a symbolic link: {}",
-            path.display()
-        );
-    }
-}
-
-fn open_options(path: &Path, destination_is_initially_empty: bool, overwrite_existing: bool) -> std::fs::OpenOptions {
-    if overwrite_existing || !destination_is_initially_empty {
-        debug_assert_dest_is_no_symlink(path);
-    }
+fn open_options(destination_is_initially_empty: bool, overwrite_existing: bool) -> std::fs::OpenOptions {
     let mut options = gix_features::fs::open_options_no_follow();
     options
         .create_new(destination_is_initially_empty && !overwrite_existing)
@@ -273,7 +262,7 @@ pub(crate) fn open_file(
     entry_mode: gix_index::entry::Mode,
 ) -> std::io::Result<(std::fs::File, ExecutableBitChange)> {
     #[cfg_attr(windows, allow(unused_mut))]
-    let mut options = open_options(path, destination_is_initially_empty, overwrite_existing);
+    let mut options = open_options(destination_is_initially_empty, overwrite_existing);
     let needs_executable_bit = fs_supports_executable_bit && entry_mode == gix_index::entry::Mode::FILE_EXECUTABLE;
     #[cfg(unix)]
     let executable_bit_change = if needs_executable_bit && destination_is_initially_empty {
@@ -370,50 +359,29 @@ pub(crate) enum ExecutableBitChange {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn operations_never_receive_terminal_symlinks() -> gix_testtools::Result {
+    #[cfg(windows)]
+    fn forced_operations_never_receive_terminal_symlinks() -> gix_testtools::Result {
         let dir = gix_testtools::tempfile::tempdir()?;
         let target = dir.path().join("target");
+        let link = dir.path().join("link");
         std::fs::write(&target, b"untouched")?;
-
-        for (name, overwrite_existing) in [("forbidden", false), ("forced", true)] {
-            let link = dir.path().join(name);
-            gix_fs::symlink::create(&target, &link)?;
-            let operation_called = std::cell::Cell::new(false);
-            let result = super::try_op_or_unlink(&link, overwrite_existing, |path| {
-                operation_called.set(true);
-                match path.symlink_metadata() {
-                    Ok(meta) => assert!(
-                        !meta.file_type().is_symlink(),
-                        "the operation must not receive a symlink"
-                    ),
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(err) => return Err(err),
-                }
-                Ok(())
-            });
-
-            if overwrite_existing {
-                result?;
-                assert!(
-                    operation_called.get(),
-                    "the operation should run after removing the symlink"
-                );
-            } else {
-                assert_eq!(
-                    result.expect_err("the symlink must be rejected").kind(),
-                    std::io::ErrorKind::AlreadyExists
-                );
-                assert!(
-                    !operation_called.get(),
-                    "the operation must not run for a forbidden symlink"
-                );
+        std::os::windows::fs::symlink_file(&target, &link)?;
+        super::try_op_or_unlink(&link, true, |path| {
+            match path.symlink_metadata() {
+                Ok(meta) => assert!(
+                    !meta.file_type().is_symlink(),
+                    "the operation must not receive a symlink"
+                ),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err),
             }
-            assert_eq!(
-                std::fs::read(&target)?,
-                b"untouched",
-                "the symlink target must stay unchanged"
-            );
-        }
+            Ok(())
+        })?;
+        assert_eq!(
+            std::fs::read(&target)?,
+            b"untouched",
+            "the symlink target must stay unchanged"
+        );
         Ok(())
     }
 

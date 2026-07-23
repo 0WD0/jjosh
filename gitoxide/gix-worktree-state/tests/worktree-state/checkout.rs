@@ -164,12 +164,18 @@ fn nonexclusive_checkout_does_not_follow_terminal_symlinks() -> crate::Result {
             );
         } else {
             assert_eq!(
-                outcome.collisions,
-                vec![Collision {
-                    path: "executable".into(),
-                    error_kind: AlreadyExists,
-                }],
+                outcome.collisions.len(),
+                1,
                 "non-forced checkout should report the terminal symlink as a collision"
+            );
+            assert_eq!(
+                outcome.collisions[0].path, "executable",
+                "the collision should identify the terminal symlink"
+            );
+            #[cfg(windows)]
+            assert_eq!(
+                outcome.collisions[0].error_kind, AlreadyExists,
+                "the collision error kind differs by platform and is only stable on Windows"
             );
             assert!(
                 checked_out.symlink_metadata()?.file_type().is_symlink(),
