@@ -24,19 +24,33 @@ use crossterm::{
 use history::{Decorations, Event};
 
 fn main() -> Result<()> {
-    let revisions: Vec<_> = gix::env::args_os().skip(1).collect();
+    let (revisions, quit_on_finish) = arguments(gix::env::args_os().skip(1));
     if revisions.iter().any(|arg| arg == "-h" || arg == "--help") {
-        println!("Usage: tix [REVISION]...\n\nBrowse commits reachable from HEAD or the given revisions.");
+        println!(
+            "Usage: tix [--quit-on-finish] [REVISION]...\n\nBrowse commits reachable from HEAD or the given revisions."
+        );
         return Ok(());
     }
 
     let mut terminal = ratatui::try_init().context("could not initialize terminal")?;
-    let result = run(&mut terminal, revisions);
+    let result = run(&mut terminal, revisions, quit_on_finish);
     let restore = ratatui::try_restore().context("could not restore terminal");
     result.and(restore)
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>) -> Result<()> {
+fn arguments(args: impl Iterator<Item = OsString>) -> (Vec<OsString>, bool) {
+    let mut quit_on_finish = false;
+    let revisions = args
+        .filter(|arg| {
+            let is_option = arg == "--quit-on-finish";
+            quit_on_finish |= is_option;
+            !is_option
+        })
+        .collect();
+    (revisions, quit_on_finish)
+}
+
+fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_on_finish: bool) -> Result<()> {
     let repository = match std::env::var_os("GIT_DIR") {
         Some(git_dir) => git_dir.into(),
         None => std::env::current_dir().context("could not determine current directory")?,
@@ -60,7 +74,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>) -> Res
             match message? {
                 Event::Decorations(value) => decorations = value,
                 Event::Commit(row) => drop(app.update(Action::Commit(row))),
-                Event::Complete => drop(app.update(Action::Complete)),
+                Event::Complete => {
+                    drop(app.update(Action::Complete));
+                    if quit_on_finish {
+                        return Ok(());
+                    }
+                }
                 Event::Cancelled => drop(app.update(Action::Cancelled)),
             }
         }
@@ -119,5 +138,12 @@ mod tests {
             Some(Action::Quit)
         );
         assert_eq!(action(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), None);
+    }
+
+    #[test]
+    fn quit_on_finish_is_not_a_revision() {
+        let (revisions, quit_on_finish) = arguments(["--quit-on-finish", "main"].into_iter().map(OsString::from));
+        assert!(quit_on_finish, "the option is enabled");
+        assert_eq!(revisions, ["main"], "only revisions remain");
     }
 }
