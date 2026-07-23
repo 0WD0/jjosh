@@ -80,7 +80,7 @@ fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> crate::R
     let (mut cache, tmp) = new_cache();
     let forbidden = tmp.path().join("forbidden");
     std::fs::create_dir(&forbidden)?;
-    symlink::symlink_dir(&forbidden, tmp.path().join("link-to-dir"))?;
+    gix_fs::symlink::create(&forbidden, &tmp.path().join("link-to-dir"))?;
     std::fs::write(tmp.path().join("file-in-dir"), [])?;
 
     for dirname in &["file-in-dir", "link-to-dir"] {
@@ -137,7 +137,7 @@ fn symlink_cached_as_file_is_revalidated_before_use_as_directory() -> crate::Res
         .at_path("link", IS_SYMLINK, &gix_object::find::Never)?
         .path()
         .to_owned();
-    symlink::symlink_dir(&forbidden, &link_path)?;
+    gix_fs::symlink::create(&forbidden, &link_path)?;
 
     let err = cache
         .at_path("link/file", IS_SYMLINK, &gix_object::find::Never)
@@ -160,7 +160,7 @@ fn symlink_cached_as_file_is_unlinked_before_use_as_directory_when_forced() -> c
         .at_path("link", IS_SYMLINK, &gix_object::find::Never)?
         .path()
         .to_owned();
-    symlink::symlink_dir(&forbidden, &link_path)?;
+    gix_fs::symlink::create(&forbidden, &link_path)?;
     if let stack::State::CreateDirectoryAndAttributesStack {
         unlink_on_collision, ..
     } = cache.state_mut()
