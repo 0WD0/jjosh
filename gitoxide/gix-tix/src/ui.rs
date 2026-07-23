@@ -1,16 +1,14 @@
-use std::borrow::Cow;
-
 use gix::bstr::ByteSlice;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{HighlightSpacing, List, ListState, Paragraph},
+    widgets::{Clear, Paragraph},
 };
 
 use crate::{
-    app::{App, State},
+    app::{App, CommitRow, State},
     history::Decorations,
 };
 
@@ -21,50 +19,96 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     let start = app.offset.min(app.rows.len());
     let end = start.saturating_add(app.viewport_rows).min(app.rows.len());
     let visible_rows = &app.rows[start..end];
-    let graph_width = ((body.width as usize) / 3).saturating_sub(2).max(1);
-    let graph_is_wide = visible_rows.iter().any(|row| row.lane.chars().count() > graph_width);
+    let content = Rect::new(
+        body.x.saturating_add(2),
+        body.y,
+        body.width.saturating_sub(2),
+        body.height,
+    );
+    let max_lane_width = visible_rows
+        .iter()
+        .map(|row| row.lane.trim_end().chars().count().saturating_add(1))
+        .max()
+        .unwrap_or_default();
+    let pane_limit = ((body.width as usize) / 3)
+        .saturating_sub(2)
+        .max(1)
+        .min(content.width as usize);
+    let pane_width = max_lane_width.min(pane_limit);
+    let graph_is_wide = max_lane_width > pane_limit;
     let pin_metadata = app.pin_metadata.unwrap_or(graph_is_wide);
     let show_committer_date = app.show_committer_date;
     let show_author_name = app.show_author_name;
     let show_special_refs = app.show_special_refs;
-    let rows = visible_rows.iter().map(|row| {
-        let id = row.id.to_hex().to_string();
-        let labels = decorations.get(&row.id).and_then(|labels| {
-            let labels = labels
-                .iter()
-                .filter(|decoration| show_special_refs || !decoration.special)
-                .map(|decoration| decoration.name.to_str_lossy())
-                .collect::<Vec<_>>()
-                .join(", ");
-            (!labels.is_empty()).then_some(labels)
-        });
-        let mut spans = vec![
-            Span::raw(lane_for_pane(&row.lane, graph_width, pin_metadata)),
-            Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
-        ];
-        if show_committer_date {
-            spans.push(Span::raw(format!(
-                "{} ",
-                row.committer_time.format_or_unix(gix::date::time::format::SHORT)
-            )));
+    let metadata: Vec<_> = visible_rows
+        .iter()
+        .map(|row| {
+            metadata_line(
+                row,
+                decorations,
+                show_committer_date,
+                show_author_name,
+                show_special_refs,
+            )
+        })
+        .collect();
+    let max_offset = if pin_metadata {
+        max_lane_width.saturating_sub(pane_width)
+    } else {
+        visible_rows
+            .iter()
+            .zip(&metadata)
+            .map(|(row, metadata)| row.lane.chars().count().saturating_add(metadata.width()))
+            .max()
+            .unwrap_or_default()
+            .saturating_sub(content.width as usize)
+    }
+    .min(u16::MAX as usize);
+    app.set_horizontal_bounds(content.width as usize, max_offset);
+    let horizontal_offset = app.horizontal_offset as u16;
+
+    let visible_rows = &app.rows[start..end];
+    for (index, (row, metadata)) in visible_rows.iter().zip(metadata).enumerate() {
+        let y = body.y.saturating_add(index as u16);
+        let selected = app.selected == Some(start + index);
+        let style = if selected {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        frame.render_widget(
+            Paragraph::new(if selected { "> " } else { "  " }).style(style),
+            Rect::new(body.x, y, body.width.min(2), 1),
+        );
+
+        let row_area = Rect::new(content.x, y, content.width, 1);
+        if pin_metadata {
+            frame.render_widget(
+                Paragraph::new(row.lane.as_str())
+                    .style(style)
+                    .scroll((0, horizontal_offset)),
+                row_area,
+            );
+            let pane = Rect::new(
+                content.x.saturating_add(pane_width as u16),
+                y,
+                content.width.saturating_sub(pane_width as u16),
+                1,
+            );
+            frame.render_widget(Clear, pane);
+            frame.render_widget(Paragraph::new(metadata).style(style), pane);
+        } else {
+            let mut spans = Vec::with_capacity(metadata.spans.len() + 1);
+            spans.push(Span::raw(row.lane.as_str()));
+            spans.extend(metadata.spans);
+            frame.render_widget(
+                Paragraph::new(Line::from(spans))
+                    .style(style)
+                    .scroll((0, horizontal_offset)),
+                row_area,
+            );
         }
-        if show_author_name {
-            spans.push(Span::raw(format!("{} ", row.author_name.to_str_lossy())));
-        }
-        spans.push(Span::raw(row.subject.to_str_lossy()));
-        Line::from(spans)
-    });
-    let list = List::new(rows)
-        .highlight_symbol("> ")
-        .highlight_spacing(HighlightSpacing::Always)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    let selected = app
-        .selected
-        .and_then(|selected| selected.checked_sub(start))
-        .filter(|selected| *selected < end - start);
-    let mut state = ListState::default().with_selected(selected);
-    frame.render_stateful_widget(list, body, &mut state);
+    }
 
     let status = match app.state {
         State::Loading => "loading",
@@ -74,32 +118,45 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status} · ↑↓/jk move · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
+            "{} commits · {status} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
     );
 }
 
-fn lane_for_pane(lane: &str, width: usize, pinned: bool) -> Cow<'_, str> {
-    if !pinned {
-        return Cow::Borrowed(lane);
+fn metadata_line(
+    row: &CommitRow,
+    decorations: &Decorations,
+    show_committer_date: bool,
+    show_author_name: bool,
+    show_special_refs: bool,
+) -> Line<'static> {
+    let id = row.id.to_hex().to_string();
+    let labels = decorations.get(&row.id).and_then(|labels| {
+        let labels = labels
+            .iter()
+            .filter(|decoration| show_special_refs || !decoration.special)
+            .map(|decoration| decoration.name.to_str_lossy())
+            .collect::<Vec<_>>()
+            .join(", ");
+        (!labels.is_empty()).then_some(labels)
+    });
+    let mut spans = vec![
+        Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
+    ];
+    if show_committer_date {
+        spans.push(Span::raw(format!(
+            "{} ",
+            row.committer_time.format_or_unix(gix::date::time::format::SHORT)
+        )));
     }
-    let len = lane.chars().count();
-    let mut out = String::with_capacity(width);
-    if len > width {
-        out.extend(lane.chars().take(width.saturating_sub(2)));
-        if width > 1 {
-            out.push('…');
-            out.push(' ');
-        } else {
-            out.push('…');
-        }
-    } else {
-        out.push_str(lane);
-        out.extend(std::iter::repeat_n(' ', width - len));
+    if show_author_name {
+        spans.push(Span::raw(format!("{} ", row.author_name.to_str_lossy())));
     }
-    Cow::Owned(out)
+    spans.push(Span::raw(row.subject.to_str_lossy().into_owned()));
+    Line::from(spans)
 }
 
 #[cfg(test)]
@@ -146,7 +203,7 @@ mod tests {
             format!("{:<130}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
             format!(
                 "{:<130}",
-                "1 commits · complete · ↑↓/jk move · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit"
+                "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit"
             ),
         ]);
         for x in 0..130 {
@@ -217,15 +274,29 @@ mod tests {
             subject: "subject".into(),
         }]);
         app.update(Action::Complete);
-        app.rows[0].lane = "│".repeat(80);
+        app.rows[0].lane = format!("{}{}", "A".repeat(40), "B".repeat(40));
         let mut terminal = Terminal::new(TestBackend::new(60, 2))?;
 
         terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        let pane_column = rendered_row(&terminal)
+            .find("0101010")
+            .expect("wide graphs automatically pin metadata");
         assert!(
-            rendered_row(&terminal).contains("0101010"),
-            "wide graphs automatically pin metadata"
+            pane_column < 60,
+            "wide graphs automatically pin metadata within the viewport"
         );
 
+        app.update(Action::ScrollRight);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert_eq!(terminal.backend().buffer()[(2, 0)].symbol(), "B");
+        assert_eq!(
+            rendered_row(&terminal).find("0101010"),
+            Some(pane_column),
+            "horizontal graph scrolling leaves pinned metadata fixed"
+        );
+
+        app.update(Action::ScrollLeft);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
         app.update(Action::UnpinMetadata);
         terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
         assert!(
@@ -233,9 +304,21 @@ mod tests {
             "] restores natural post-graph placement"
         );
 
+        app.update(Action::ScrollRight);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(
+            rendered_row(&terminal).contains("0101010"),
+            "l pages far enough right to reveal natural metadata"
+        );
+
+        app.rows[0].lane = "● ".into();
         app.update(Action::PinMetadata);
         terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
-        assert!(rendered_row(&terminal).contains("0101010"), "[ pins metadata again");
+        assert_eq!(
+            terminal.backend().buffer()[(4, 0)].symbol(),
+            "0",
+            "the pane starts immediately after the widest visible lane"
+        );
         Ok(())
     }
 

@@ -29,6 +29,8 @@ pub(crate) enum Action {
     Cancelled,
     MoveUp,
     MoveDown,
+    ScrollLeft,
+    ScrollRight,
     HalfPageUp,
     HalfPageDown,
     PageUp,
@@ -64,6 +66,9 @@ pub(crate) struct App {
     pub show_author_name: bool,
     pub show_special_refs: bool,
     pub pin_metadata: Option<bool>,
+    pub horizontal_offset: usize,
+    horizontal_page: usize,
+    horizontal_max: usize,
     follow_tail: bool,
 }
 
@@ -80,6 +85,9 @@ impl App {
             show_author_name: true,
             show_special_refs: false,
             pin_metadata: None,
+            horizontal_offset: 0,
+            horizontal_page: 1,
+            horizontal_max: 0,
             follow_tail: false,
         }
     }
@@ -112,6 +120,15 @@ impl App {
             Action::Cancelled if self.state == State::Cancelling => self.state = State::Cancelled,
             Action::MoveUp => self.move_selection(1, false),
             Action::MoveDown => self.move_selection(1, true),
+            Action::ScrollLeft => {
+                self.horizontal_offset = self.horizontal_offset.saturating_sub(self.horizontal_page);
+            }
+            Action::ScrollRight => {
+                self.horizontal_offset = self
+                    .horizontal_offset
+                    .saturating_add(self.horizontal_page)
+                    .min(self.horizontal_max);
+            }
             Action::HalfPageUp => self.move_selection((self.viewport_rows / 2).max(1), false),
             Action::HalfPageDown => self.move_selection((self.viewport_rows / 2).max(1), true),
             Action::PageUp => self.move_selection(self.viewport_rows.max(1), false),
@@ -175,6 +192,12 @@ impl App {
         } else if selected >= self.offset.saturating_add(height) {
             self.offset = selected + 1 - height;
         }
+    }
+
+    pub(crate) fn set_horizontal_bounds(&mut self, page: usize, max: usize) {
+        self.horizontal_page = page.max(1);
+        self.horizontal_max = max;
+        self.horizontal_offset = self.horizontal_offset.min(max);
     }
 }
 
@@ -463,6 +486,23 @@ mod tests {
         assert_eq!(app.selected, Some(2));
         app.update(Action::HalfPageUp);
         assert_eq!(app.selected, Some(0));
+    }
+
+    #[test]
+    fn horizontal_pages_are_clamped_to_available_content() {
+        let mut app = App::new(1);
+        app.set_horizontal_bounds(10, 25);
+
+        app.update(Action::ScrollRight);
+        app.update(Action::ScrollRight);
+        app.update(Action::ScrollRight);
+        assert_eq!(app.horizontal_offset, 25);
+        app.update(Action::ScrollLeft);
+        assert_eq!(app.horizontal_offset, 15);
+
+        app.set_horizontal_bounds(10, 0);
+        app.update(Action::ScrollRight);
+        assert_eq!(app.horizontal_offset, 0, "scrolling is disabled when content fits");
     }
 
     #[test]

@@ -136,6 +136,8 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveUp),
         KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveDown),
+        KeyCode::Char('h') => Some(Action::ScrollLeft),
+        KeyCode::Char('l') => Some(Action::ScrollRight),
         KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::PageUp),
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::PageDown),
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::HalfPageUp),
@@ -179,6 +181,14 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
             Some(Action::HalfPageDown)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Some(Action::ScrollLeft)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
+            Some(Action::ScrollRight)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)),
