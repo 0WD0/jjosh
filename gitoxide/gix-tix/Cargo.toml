@@ -8,10 +8,28 @@ license = "MIT OR Apache-2.0"
 description = "A tool like `tig`, but minimal, fast and efficient"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 include = ["/src/**/*", "/LICENSE-*"]
 
-[lib]
-doctest = false
+[[bin]]
+name = "tix"
+path = "src/main.rs"
+required-features = ["sha1"]
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["gix/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["gix/sha256"]
 
 [dependencies]
+anyhow = "1.0.98"
+crossterm = { version = "0.29.0", features = ["osc52"] }
+gix = { version = "^0.85.0", path = "../gix", default-features = false, features = ["parallel", "revision"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+
+[dev-dependencies]
+gix-testtools = { path = "../tests/tools" }
+
+[package.metadata.docs.rs]
+features = ["sha1"]

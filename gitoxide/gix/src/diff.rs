@@ -7,7 +7,7 @@ pub mod options {
     pub mod init {
         /// The error returned when instantiating [diff options](crate::diff::Options).
         #[derive(Debug, thiserror::Error)]
-        #[expect(missing_docs)]
+        #[cfg_attr(feature = "blob-diff", expect(missing_docs))]
         pub enum Error {
             #[cfg(feature = "blob-diff")]
             #[error(transparent)]

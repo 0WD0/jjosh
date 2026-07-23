@@ -157,6 +157,17 @@ pub fn main() -> Result<()> {
     }
 
     match cmd {
+        #[cfg(feature = "tix")]
+        Subcommands::Tix {
+            help: _,
+            quit_on_finish,
+            hide,
+            revisions,
+        } => gix_tix::run(
+            repository(Mode::Lenient)?.into_sync(),
+            revisions,
+            gix_tix::Options { quit_on_finish, hide },
+        ),
         Subcommands::Env => prepare_and_run(
             "env",
             trace,
@@ -1825,5 +1836,41 @@ mod tests {
     fn clap() {
         use clap::CommandFactory;
         Args::command().debug_assert();
+    }
+
+    #[test]
+    #[cfg(feature = "tix")]
+    fn tix_aliases_are_visible_and_route_to_tix() {
+        use clap::{CommandFactory, Parser};
+
+        let command = Args::command();
+        let tix = command.find_subcommand("tix").expect("tix is registered");
+        assert_eq!(
+            tix.get_visible_aliases().collect::<Vec<_>>(),
+            ["tui", "interactive", "i"],
+            "all aliases are shown in help"
+        );
+        for name in ["tix", "tui", "interactive", "i"] {
+            let args = Args::try_parse_from(["gix", name]).expect("the command or alias parses");
+            assert!(
+                matches!(args.cmd, Subcommands::Tix { .. }),
+                "{name} routes to the tix command"
+            );
+        }
+
+        let args = Args::try_parse_from(["gix", "tix", "-h", "main", "--hide", "tag", "topic"])
+            .expect("hide options and a visible revision parse");
+        let Subcommands::Tix { hide, revisions, .. } = args.cmd else {
+            panic!("tix arguments route to tix")
+        };
+        assert_eq!(hide, ["main", "tag"], "short and long hide options append");
+        assert_eq!(revisions, ["topic"], "positional revisions remain visible tips");
+        assert_eq!(
+            Args::try_parse_from(["gix", "tix", "--help"])
+                .expect_err("help exits through clap")
+                .kind(),
+            clap::error::ErrorKind::DisplayHelp,
+            "long help remains available while -h belongs to hide"
+        );
     }
 }
