@@ -45,7 +45,6 @@ gix-hash = { path = "../gix-hash", features = ["sha256"] }
 gix-fs = { path = "../gix-fs" }
 gix-testtools = { path = "../tests/tools", default-features = false }
 gix-odb = { path = "../gix-odb" }
-symlink = "0.1.0"
 walkdir = "2.3.2"
 
 [package.metadata.docs.rs]

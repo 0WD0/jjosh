@@ -50,6 +50,8 @@ pub struct Stack {
     stack: gix_fs::Stack,
     /// tells us what to do as we change paths.
     state: stack::State,
+    /// Whether to reject terminal non-directory symlinks on Windows.
+    reject_terminal_symlinks: bool,
     /// A buffer used when reading attribute or ignore files or their respective objects from the object database.
     buf: Vec<u8>,
     /// If case folding should happen when looking up attributes or exclusions.

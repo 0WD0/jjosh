@@ -2653,7 +2653,6 @@ dependencies = [
  "gix-testtools",
  "gix-validate",
  "serde",
- "symlink",
 ]
 
 [[package]]
@@ -2674,7 +2673,6 @@ dependencies = [
  "gix-worktree",
  "gix-worktree-state",
  "io-close",
- "symlink",
  "thiserror 2.0.18",
  "walkdir",
 ]
@@ -4937,12 +4935,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "symlink"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
 
 [[package]]
 name = "syn"
