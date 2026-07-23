@@ -128,6 +128,37 @@ fn symlinks_or_files_in_path_are_forbidden_or_unlinked_when_forced() -> crate::R
 }
 
 #[test]
+#[cfg(windows)]
+fn terminal_symlinks_are_forbidden_without_force() -> crate::Result {
+    let (mut cache, tmp) = new_cache();
+    cache.enable_terminal_symlink_check();
+
+    let target = tmp.path().join("target");
+    let link = tmp.path().join("link");
+    std::fs::write(&target, b"untouched")?;
+    std::os::windows::fs::symlink_file(&target, &link)?;
+
+    assert_eq!(
+        cache
+            .at_path("link", IS_FILE, &gix_object::find::Never)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::AlreadyExists,
+        "the terminal symlink must be rejected"
+    );
+    assert!(
+        link.symlink_metadata()?.file_type().is_symlink(),
+        "the terminal symlink must remain in place"
+    );
+    assert_eq!(
+        std::fs::read(&target)?,
+        b"untouched",
+        "the symlink target must stay unchanged"
+    );
+    Ok(())
+}
+
+#[test]
 fn symlink_cached_as_file_is_revalidated_before_use_as_directory() -> crate::Result {
     let (mut cache, tmp) = new_cache();
     let forbidden = tmp.path().join("forbidden");

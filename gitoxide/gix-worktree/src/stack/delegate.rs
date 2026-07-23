@@ -24,6 +24,7 @@ pub(crate) struct StackDelegate<'a, 'find> {
     pub id_mappings: &'a Vec<PathIdMapping>,
     pub objects: &'find dyn gix_object::Find,
     pub case: gix_glob::pattern::Case,
+    pub reject_temrinal_symlinks: bool,
     pub statistics: &'a mut super::Statistics,
 }
 
@@ -98,6 +99,7 @@ impl gix_fs::stack::Delegate for StackDelegate<'_, '_> {
                     self.mode,
                     &mut self.statistics.delegate.num_mkdir_calls,
                     *unlink_on_collision,
+                    self.reject_temrinal_symlinks,
                 )?;
             }
             #[cfg(feature = "attributes")]
@@ -162,9 +164,28 @@ fn create_leading_directory(
     mode: Option<gix_index::entry::Mode>,
     mkdir_calls: &mut usize,
     unlink_on_collision: bool,
+    #[cfg_attr(not(windows), allow(unused_variables))] check_terminal_symlinks: bool,
 ) -> std::io::Result<()> {
     if is_last_component && !crate::stack::mode_is_dir(mode).unwrap_or(false) {
-        return Ok(());
+        #[cfg(not(windows))]
+        {
+            return Ok(());
+        }
+        #[cfg(windows)]
+        {
+            // Forced checkout delegates terminal symlink detection and removal to the caller immediately before
+            // replacement, avoiding a redundant check here. Callers combining these flags must uphold that no-follow
+            // contract; this stack only protects leading components in that mode.
+            if unlink_on_collision || !check_terminal_symlinks {
+                return Ok(());
+            }
+            return match stack.current().symlink_metadata() {
+                Ok(meta) if meta.file_type().is_symlink() => Err(std::io::ErrorKind::AlreadyExists.into()),
+                Ok(_) => Ok(()),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(err) => Err(err),
+            };
+        }
     }
     *mkdir_calls += 1;
     match std::fs::create_dir(stack.current()) {
