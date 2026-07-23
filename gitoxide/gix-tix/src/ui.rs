@@ -259,7 +259,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: "author".into(),
+            author_name: b"author".as_bstr(),
             title: "subject".into(),
         }]);
         app.update(Action::Complete);
@@ -320,7 +320,7 @@ mod tests {
                     parent_ids: Default::default(),
                     lane: String::new(),
                     committer_time: gix::date::Time::default(),
-                    author_name: "author".into(),
+                    author_name: b"author".as_bstr(),
                     title: format!("subject {n}").into(),
                 })
                 .collect(),
@@ -351,7 +351,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: "● │ │ │ │ │ │ │ ".into(),
             committer_time: gix::date::Time::default(),
-            author_name: "author".into(),
+            author_name: b"author".as_bstr(),
             title: "subject".into(),
         };
         let decorations = Decorations::from([(
@@ -434,7 +434,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: "author".into(),
+            author_name: b"author".as_bstr(),
             title: "subject".into(),
         }]);
         app.update(Action::Complete);

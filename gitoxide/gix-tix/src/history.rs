@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use gix::{
     ObjectId,
-    bstr::{BString, ByteVec},
+    bstr::{BStr, BString, ByteSlice, ByteVec},
     objs::commit::ref_iter::Token,
 };
 
@@ -85,6 +85,7 @@ pub(crate) fn load(
         .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .all()
         .context("could not start revision walk")?;
+    let mut author_names = HashSet::new();
     let mut rows = Vec::with_capacity(COMMIT_BATCH_SIZE);
     for info in walk {
         if cancelled.load(Ordering::Relaxed) {
@@ -99,7 +100,7 @@ pub(crate) fn load(
         for token in object.iter() {
             match token.context("could not decode commit")? {
                 Token::Author { signature } => {
-                    author_name = Some(signature.trim().name.to_owned());
+                    author_name = Some(intern(&mut author_names, signature.trim().name));
                 }
                 Token::Committer { signature } => {
                     committer_time = Some(signature.time().context("could not decode committer time")?);
@@ -136,6 +137,17 @@ pub(crate) fn load(
     }
     emit(Event::Complete);
     Ok(())
+}
+
+fn intern(names: &mut HashSet<&'static [u8]>, name: &[u8]) -> &'static BStr {
+    match names.get(name) {
+        Some(name) => name.as_bstr(),
+        None => {
+            let name: &'static [u8] = Box::leak(name.to_vec().into_boxed_slice());
+            names.insert(name);
+            name.as_bstr()
+        }
+    }
 }
 
 fn decorations(repo: &gix::Repository) -> Result<Decorations> {
@@ -290,5 +302,19 @@ mod tests {
         assert_eq!(decoration_kind(b"refs/remotes/origin/main"), DecorationKind::Remote);
         assert_eq!(decoration_kind(b"refs/patches/main/patch"), DecorationKind::Special);
         assert_eq!(decoration_kind(b"refs/stash"), DecorationKind::Special);
+    }
+
+    #[test]
+    fn interns_author_names_as_raw_bytes() {
+        let mut names = HashSet::new();
+
+        let first = intern(&mut names, b"author\xff");
+        let second = intern(&mut names, b"author\xff");
+        let other = intern(&mut names, b"other");
+
+        assert!(std::ptr::eq(first, second), "equal names share one allocation");
+        assert!(!std::ptr::eq(first, other), "different names remain distinct");
+        assert_eq!(names.len(), 2);
+        assert_eq!(first, b"author\xff".as_bstr(), "Git names remain byte strings");
     }
 }

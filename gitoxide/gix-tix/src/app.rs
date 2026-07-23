@@ -16,7 +16,7 @@ pub(crate) struct Commit<T> {
     pub parent_ids: ParentIds,
     pub lane: String,
     pub committer_time: gix::date::Time,
-    pub author_name: BString,
+    pub author_name: &'static BStr,
     pub title: T,
 }
 
@@ -407,7 +407,7 @@ mod tests {
             parent_ids: ParentIds::new(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: "author".into(),
+            author_name: b"author".as_bstr(),
             title: format!("commit {n}").into(),
         }
     }
