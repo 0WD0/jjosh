@@ -37,6 +37,7 @@ pub(crate) enum Action {
     Last,
     ToggleDate,
     ToggleName,
+    ToggleSpecialRefs,
     PinMetadata,
     UnpinMetadata,
     Cancel,
@@ -61,6 +62,7 @@ pub(crate) struct App {
     pub lane_time: Option<Duration>,
     pub show_committer_date: bool,
     pub show_author_name: bool,
+    pub show_special_refs: bool,
     pub pin_metadata: Option<bool>,
     follow_tail: bool,
 }
@@ -76,6 +78,7 @@ impl App {
             lane_time: None,
             show_committer_date: true,
             show_author_name: true,
+            show_special_refs: false,
             pin_metadata: None,
             follow_tail: false,
         }
@@ -121,6 +124,7 @@ impl App {
             }
             Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
             Action::ToggleName => self.show_author_name = !self.show_author_name,
+            Action::ToggleSpecialRefs => self.show_special_refs = !self.show_special_refs,
             Action::PinMetadata => self.pin_metadata = Some(true),
             Action::UnpinMetadata => self.pin_metadata = Some(false),
             Action::Cancel if self.state == State::Loading => {
@@ -467,10 +471,12 @@ mod tests {
 
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
+        app.update(Action::ToggleSpecialRefs);
         app.update(Action::PinMetadata);
 
         assert!(!app.show_committer_date);
         assert!(!app.show_author_name);
+        assert!(app.show_special_refs);
         assert_eq!(app.pin_metadata, Some(true));
         app.update(Action::UnpinMetadata);
         assert_eq!(app.pin_metadata, Some(false));

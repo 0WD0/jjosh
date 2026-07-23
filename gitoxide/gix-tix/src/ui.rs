@@ -26,14 +26,17 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     let pin_metadata = app.pin_metadata.unwrap_or(graph_is_wide);
     let show_committer_date = app.show_committer_date;
     let show_author_name = app.show_author_name;
+    let show_special_refs = app.show_special_refs;
     let rows = visible_rows.iter().map(|row| {
         let id = row.id.to_hex().to_string();
-        let labels = decorations.get(&row.id).map(|labels| {
-            labels
+        let labels = decorations.get(&row.id).and_then(|labels| {
+            let labels = labels
                 .iter()
-                .map(|label| label.to_str_lossy())
+                .filter(|decoration| show_special_refs || !decoration.special)
+                .map(|decoration| decoration.name.to_str_lossy())
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", ");
+            (!labels.is_empty()).then_some(labels)
         });
         let mut spans = vec![
             Span::raw(lane_for_pane(&row.lane, graph_width, pin_metadata)),
@@ -71,7 +74,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status} · ↑↓/jk move · [ pane · ] natural · d date · n name · y copy · Esc cancel · q quit",
+            "{} commits · {status} · ↑↓/jk move · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
@@ -104,7 +107,10 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     use super::*;
-    use crate::app::{Action, CommitRow};
+    use crate::{
+        app::{Action, CommitRow},
+        history::Decoration,
+    };
 
     #[test]
     fn renders_rows_decorations_selection_and_footer() -> Result<(), Box<dyn std::error::Error>> {
@@ -119,19 +125,31 @@ mod tests {
             subject: "subject".into(),
         }]);
         app.update(Action::Complete);
-        let decorations = Decorations::from([(id, vec!["HEAD".into()])]);
-        let mut terminal = Terminal::new(TestBackend::new(120, 2))?;
+        let decorations = Decorations::from([(
+            id,
+            vec![
+                Decoration {
+                    name: "HEAD".into(),
+                    special: false,
+                },
+                Decoration {
+                    name: "refs/patches/main/patch".into(),
+                    special: true,
+                },
+            ],
+        )]);
+        let mut terminal = Terminal::new(TestBackend::new(130, 2))?;
 
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
 
         let mut expected = Buffer::with_lines([
-            format!("{:<120}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
+            format!("{:<130}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
             format!(
-                "{:<120}",
-                "1 commits · complete · ↑↓/jk move · [ pane · ] natural · d date · n name · y copy · Esc cancel · q quit"
+                "{:<130}",
+                "1 commits · complete · ↑↓/jk move · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit"
             ),
         ]);
-        for x in 0..120 {
+        for x in 0..130 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
         for x in 4..11 {
@@ -145,7 +163,12 @@ mod tests {
         let row = rendered_row(&terminal);
         assert!(!row.contains("1970-01-01"), "d hides the committer date");
         assert!(!row.contains("author"), "n hides the author name");
+        assert!(!row.contains("refs/patches"), "special refs are hidden until requested");
         assert!(row.contains("subject"), "the commit subject remains visible");
+
+        app.update(Action::ToggleSpecialRefs);
+        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        assert!(rendered_row(&terminal).contains("refs/patches"), "r shows special refs");
         Ok(())
     }
 

@@ -14,7 +14,13 @@ use gix::{
 
 use crate::app::CommitRow;
 
-pub(crate) type Decorations = HashMap<ObjectId, Vec<BString>>;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Decoration {
+    pub name: BString,
+    pub special: bool,
+}
+
+pub(crate) type Decorations = HashMap<ObjectId, Vec<Decoration>>;
 const COMMIT_BATCH_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -135,11 +141,12 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
     {
         let mut reference = reference.map_err(|err| anyhow::anyhow!("could not read reference: {err}"))?;
         let id = reference.peel_to_id().context("could not peel reference")?.detach();
+        let special = is_special_ref(reference.name().as_bstr());
         let mut name = reference.name().shorten().to_owned();
         if reference.name().as_bstr().starts_with_str("refs/tags/") {
             name.insert_str(0, "tag: ");
         }
-        out.entry(id).or_default().push(name);
+        out.entry(id).or_default().push(Decoration { name, special });
     }
     if let Some(id) = repo
         .head()
@@ -147,9 +154,16 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
         .try_peel_to_id()
         .context("could not peel HEAD")?
     {
-        out.entry(id.detach()).or_default().push("HEAD".into());
+        out.entry(id.detach()).or_default().push(Decoration {
+            name: "HEAD".into(),
+            special: false,
+        });
     }
     Ok(out)
+}
+
+fn is_special_ref(name: &[u8]) -> bool {
+    !name.starts_with(b"refs/heads/") && !name.starts_with(b"refs/tags/") && !name.starts_with(b"refs/remotes/")
 }
 
 #[cfg(test)]
@@ -224,7 +238,10 @@ mod tests {
             panic!("decorations are sent first")
         };
         assert!(
-            decorations.values().flatten().any(|name| name == "tag: v1"),
+            decorations
+                .values()
+                .flatten()
+                .any(|decoration| decoration.name == "tag: v1"),
             "annotated tags decorate their commit"
         );
 
@@ -238,5 +255,14 @@ mod tests {
             "cancellation preserves decorations and stops before commits"
         );
         Ok(())
+    }
+
+    #[test]
+    fn classifies_refs_outside_standard_namespaces_as_special() {
+        assert!(!is_special_ref(b"refs/heads/main"));
+        assert!(!is_special_ref(b"refs/tags/v1"));
+        assert!(!is_special_ref(b"refs/remotes/origin/main"));
+        assert!(is_special_ref(b"refs/patches/main/patch"));
+        assert!(is_special_ref(b"refs/stash"));
     }
 }
