@@ -77,6 +77,7 @@ pub(crate) fn load(
         .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .all()
         .context("could not start revision walk")?;
+    let mailmap = repo.open_mailmap();
     let mut rows = Vec::with_capacity(COMMIT_BATCH_SIZE);
     for info in walk {
         if cancelled.load(Ordering::Relaxed) {
@@ -87,6 +88,7 @@ pub(crate) fn load(
         let object = info.object().context("could not read commit")?;
         let mut committer_time = None;
         let mut author_name = None;
+        let mut mailmapped_author_name = None;
         let mut author_is_bot = false;
         let mut attributions = Vec::new();
         let mut title = None;
@@ -95,6 +97,7 @@ pub(crate) fn load(
                 Token::Author { signature } => {
                     let signature = signature.trim();
                     author_name = Some(intern(author_names, signature.name));
+                    mailmapped_author_name = Some(intern(author_names, mailmap.resolve_cow(signature).name.as_ref()));
                     author_is_bot = is_bot(signature.email);
                 }
                 Token::Committer { signature } => {
@@ -133,6 +136,7 @@ pub(crate) fn load(
             lane: String::new(),
             committer_time: committer_time.context("commit has no committer time")?,
             author_name: author_name.context("commit has no author name")?,
+            mailmapped_author_name: mailmapped_author_name.context("commit has no mailmapped author name")?,
             author_is_bot,
             attributions: attributions.into_boxed_slice(),
             title: title.context("commit has no message")?,
@@ -338,6 +342,10 @@ mod tests {
                 (AttributionKind::SignedOff, b"Signer".as_bstr(), false),
             ],
             "known attribution trailers retain their order and malformed identities are omitted"
+        );
+        assert_eq!(
+            topic.mailmapped_author_name, "Mailmapped Author",
+            "the repository mailmap is applied"
         );
         assert_eq!(
             topic.committer_time.format_or_unix(gix::date::time::format::SHORT),

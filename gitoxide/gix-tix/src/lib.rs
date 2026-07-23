@@ -233,6 +233,7 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('d') => Some(Action::ToggleDate),
         KeyCode::Char('n') => Some(Action::ToggleName),
         KeyCode::Char('t') => Some(Action::ToggleTrailers),
+        KeyCode::Char('m') => Some(Action::ToggleMailmap),
         KeyCode::Char('r') => Some(Action::ToggleSpecialRefs),
         KeyCode::Char('v') => Some(Action::ToggleHidden),
         KeyCode::Char('[') => Some(Action::PinMetadata),
@@ -287,6 +288,10 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
             Some(Action::ToggleTrailers)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)),
+            Some(Action::ToggleMailmap)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
