@@ -38,7 +38,12 @@ fn main() -> Result<()> {
     let mut terminal = ratatui::try_init().context("could not initialize terminal")?;
     let result = run(&mut terminal, revisions, quit_on_finish);
     let restore = ratatui::try_restore().context("could not restore terminal");
-    result.and(restore)
+    let lane_time = result?;
+    restore?;
+    if let Some(lane_time) = lane_time {
+        eprintln!("lane computation: {:.3}s", lane_time.as_secs_f64());
+    }
+    Ok(())
 }
 
 fn arguments(args: impl Iterator<Item = OsString>) -> (Vec<OsString>, bool) {
@@ -53,14 +58,18 @@ fn arguments(args: impl Iterator<Item = OsString>) -> (Vec<OsString>, bool) {
     (revisions, quit_on_finish)
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_on_finish: bool) -> Result<()> {
+fn run(
+    terminal: &mut ratatui::DefaultTerminal,
+    revisions: Vec<OsString>,
+    quit_on_finish: bool,
+) -> Result<Option<Duration>> {
     let repository = match std::env::var_os("GIT_DIR") {
         Some(git_dir) => git_dir.into(),
         None => std::env::current_dir().context("could not determine current directory")?,
     };
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = Arc::clone(&cancelled);
-    let (sender, receiver) = mpsc::sync_channel(1024);
+    let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let result = history::load(&repository, &revisions, &worker_cancelled, |event| {
             sender.send(Ok(event)).is_ok()
@@ -78,11 +87,11 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_o
             events += 1;
             match message? {
                 Event::Decorations(value) => decorations = value,
-                Event::Commit(row) => drop(app.update(Action::Commit(row))),
+                Event::Commits(rows) => app.extend_commits(rows),
                 Event::Complete => {
                     drop(app.update(Action::Complete));
                     if quit_on_finish {
-                        return Ok(());
+                        return Ok(app.lane_time);
                     }
                 }
                 Event::Cancelled => drop(app.update(Action::Cancelled)),
@@ -106,7 +115,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_o
                     terminal.backend_mut(),
                     CopyToClipboard::to_clipboard_from(id.to_hex().to_string())
                 )?,
-                Effect::Quit => return Ok(()),
+                Effect::Quit => return Ok(None),
             }
         }
     }

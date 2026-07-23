@@ -71,12 +71,12 @@ mod tests {
     fn renders_rows_decorations_selection_and_footer() -> Result<(), Box<dyn std::error::Error>> {
         let id = gix::ObjectId::Sha1([1; 20]);
         let mut app = App::new(2);
-        app.update(Action::Commit(CommitRow {
+        app.extend_commits(vec![CommitRow {
             id,
             parent_ids: Default::default(),
             lane: String::new(),
             subject: "subject".into(),
-        }));
+        }]);
         app.update(Action::Complete);
         let decorations = Decorations::from([(id, vec!["HEAD".into()])]);
         let mut terminal = Terminal::new(TestBackend::new(54, 2))?;
@@ -100,14 +100,16 @@ mod tests {
     #[test]
     fn renders_only_the_visible_rows() -> Result<(), Box<dyn std::error::Error>> {
         let mut app = App::new(2);
-        for n in 1..=3 {
-            app.update(Action::Commit(CommitRow {
-                id: gix::ObjectId::Sha1([n; 20]),
-                parent_ids: Default::default(),
-                lane: String::new(),
-                subject: format!("subject {n}").into(),
-            }));
-        }
+        app.extend_commits(
+            (1..=3)
+                .map(|n| CommitRow {
+                    id: gix::ObjectId::Sha1([n; 20]),
+                    parent_ids: Default::default(),
+                    lane: String::new(),
+                    subject: format!("subject {n}").into(),
+                })
+                .collect(),
+        );
         app.update(Action::Complete);
         app.update(Action::Last);
         let mut terminal = Terminal::new(TestBackend::new(24, 3))?;

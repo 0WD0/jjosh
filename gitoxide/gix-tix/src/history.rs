@@ -14,11 +14,12 @@ use gix::{
 use crate::app::CommitRow;
 
 pub(crate) type Decorations = HashMap<ObjectId, Vec<BString>>;
+const COMMIT_BATCH_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) enum Event {
     Decorations(Decorations),
-    Commit(CommitRow),
+    Commits(Vec<CommitRow>),
     Complete,
     Cancelled,
 }
@@ -70,6 +71,7 @@ pub(crate) fn load(
         .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .all()
         .context("could not start revision walk")?;
+    let mut rows = Vec::with_capacity(COMMIT_BATCH_SIZE);
     for info in walk {
         if cancelled.load(Ordering::Relaxed) {
             emit(Event::Cancelled);
@@ -83,14 +85,23 @@ pub(crate) fn load(
             .context("could not decode commit message")?
             .summary()
             .into_owned();
-        if !emit(Event::Commit(CommitRow {
+        rows.push(CommitRow {
             id: info.id,
             parent_ids: info.parent_ids,
             lane: String::new(),
             subject,
-        })) {
+        });
+        if rows.len() == COMMIT_BATCH_SIZE
+            && !emit(Event::Commits(std::mem::replace(
+                &mut rows,
+                Vec::with_capacity(COMMIT_BATCH_SIZE),
+            )))
+        {
             return Ok(());
         }
+    }
+    if !rows.is_empty() && !emit(Event::Commits(rows)) {
+        return Ok(());
     }
     emit(Event::Complete);
     Ok(())
@@ -153,9 +164,9 @@ mod tests {
         let events = loaded(&fixture, &["main", "topic"])?;
         let actual: HashSet<_> = events
             .iter()
-            .filter_map(|event| match event {
-                Event::Commit(row) => Some(row.id.to_hex().to_string()),
-                _ => None,
+            .flat_map(|event| match event {
+                Event::Commits(rows) => rows.iter().map(|row| row.id.to_hex().to_string()).collect(),
+                _ => Vec::new(),
             })
             .collect();
         let output = Command::new("git")

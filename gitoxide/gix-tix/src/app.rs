@@ -1,6 +1,7 @@
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::{BinaryHeap, HashMap},
+    time::{Duration, Instant},
 };
 
 use gix::{ObjectId, bstr::BString, traverse::commit::ParentIds};
@@ -23,7 +24,6 @@ pub(crate) enum State {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Action {
-    Commit(CommitRow),
     Complete,
     Cancelled,
     MoveUp,
@@ -53,6 +53,7 @@ pub(crate) struct App {
     pub offset: usize,
     pub state: State,
     pub viewport_rows: usize,
+    pub lane_time: Option<Duration>,
     follow_tail: bool,
 }
 
@@ -64,24 +65,31 @@ impl App {
             offset: 0,
             state: State::Loading,
             viewport_rows,
+            lane_time: None,
             follow_tail: false,
+        }
+    }
+
+    pub(crate) fn extend_commits(&mut self, rows: Vec<CommitRow>) {
+        if self.state != State::Loading || rows.is_empty() {
+            return;
+        }
+        let was_empty = self.rows.is_empty();
+        self.rows.extend(rows);
+        if was_empty {
+            self.selected = Some(0);
+            self.ensure_visible();
+        } else if self.follow_tail {
+            self.selected = Some(self.rows.len() - 1);
+            self.ensure_visible();
         }
     }
 
     pub fn update(&mut self, action: Action) -> Vec<Effect> {
         match action {
-            Action::Commit(row) if self.state == State::Loading => {
-                self.rows.push(row);
-                if self.selected.is_none() {
-                    self.selected = Some(0);
-                } else if self.follow_tail {
-                    self.selected = Some(self.rows.len() - 1);
-                }
-                self.ensure_visible();
-            }
             Action::Complete if self.state == State::Loading => {
                 let selected = self.selected.map(|index| self.rows[index].id);
-                finish_rows(&mut self.rows);
+                self.lane_time = Some(finish_rows(&mut self.rows));
                 self.selected = selected.and_then(|id| self.rows.iter().position(|row| row.id == id));
                 self.state = State::Complete;
                 self.follow_tail = false;
@@ -151,7 +159,7 @@ impl App {
     }
 }
 
-fn finish_rows(rows: &mut Vec<CommitRow>) {
+fn finish_rows(rows: &mut Vec<CommitRow>) -> Duration {
     let positions: HashMap<_, _> = rows.iter().enumerate().map(|(index, row)| (row.id, index)).collect();
     let mut children = vec![0usize; rows.len()];
     for row in rows.iter() {
@@ -186,45 +194,63 @@ fn finish_rows(rows: &mut Vec<CommitRow>) {
             .map(|index| old[index].take().expect("each row is moved exactly once"))
             .collect();
     }
-    render_lanes(rows);
+    let start = Instant::now();
+    render_lanes(rows, &positions);
+    start.elapsed()
 }
 
-fn render_lanes(rows: &mut [CommitRow]) {
-    let known: HashSet<_> = rows.iter().map(|row| row.id).collect();
+fn render_lanes(rows: &mut [CommitRow], known: &HashMap<ObjectId, usize>) {
     let mut columns = Vec::new();
+    let mut next = Vec::new();
+    let mut parents = Vec::new();
+    let mut edges = Vec::new();
     for row in rows {
         let current = columns.iter().position(|id| *id == row.id).unwrap_or_else(|| {
             columns.push(row.id);
             columns.len() - 1
         });
-        let mut next = Vec::new();
-        for (index, id) in columns.iter().copied().enumerate() {
-            if index == current {
-                for parent in row.parent_ids.iter().copied().filter(|id| known.contains(id)) {
-                    if !next.contains(&parent) {
-                        next.push(parent);
-                    }
-                }
-            } else if !next.contains(&id) {
-                next.push(id);
-            }
-        }
 
-        let mut edges = Vec::new();
-        for (index, id) in columns.iter().enumerate() {
-            if index != current
-                && let Some(next_index) = next.iter().position(|next_id| next_id == id)
-            {
-                edges.push((index, next_index));
+        parents.clear();
+        for parent in row.parent_ids.iter().copied().filter(|id| known.contains_key(id)) {
+            if !parents.iter().any(|(id, _, _)| *id == parent) {
+                parents.push((parent, columns.iter().position(|id| *id == parent), 0));
             }
         }
-        for parent in row.parent_ids.iter().copied().filter(|id| known.contains(id)) {
-            if let Some(next_index) = next.iter().position(|id| *id == parent) {
-                edges.push((current, next_index));
+        next.clear();
+        edges.clear();
+        for (index, id) in columns[..current].iter().copied().enumerate() {
+            let destination = next.len();
+            next.push(id);
+            edges.push((index, destination));
+        }
+        for (parent, old_position, destination) in &mut parents {
+            *destination = match old_position {
+                Some(position) if *position < current => *position,
+                _ => {
+                    let destination = next.len();
+                    next.push(*parent);
+                    if let Some(position) = old_position
+                        && *position != current
+                    {
+                        edges.push((*position, destination));
+                    }
+                    destination
+                }
+            };
+        }
+        for (index, id) in columns.iter().copied().enumerate().skip(current + 1) {
+            if parents.iter().any(|(_, position, _)| *position == Some(index)) {
+                continue;
             }
+            let destination = next.len();
+            next.push(id);
+            edges.push((index, destination));
+        }
+        for (_, _, destination) in &parents {
+            edges.push((current, *destination));
         }
         row.lane = transition(columns.len(), next.len(), current, &edges);
-        columns = next;
+        std::mem::swap(&mut columns, &mut next);
     }
 }
 
@@ -322,7 +348,7 @@ mod tests {
             row(1),
             row_with_parents(2, &[1]),
         ] {
-            app.update(Action::Commit(row));
+            app.extend_commits(vec![row]);
         }
 
         app.update(Action::Complete);
@@ -338,31 +364,42 @@ mod tests {
     }
 
     #[test]
+    fn lane_reuses_a_parent_that_is_already_to_the_right() {
+        let mut app = App::new(10);
+        for row in [row_with_parents(4, &[2, 3]), row_with_parents(2, &[3]), row(3)] {
+            app.extend_commits(vec![row]);
+        }
+
+        app.update(Action::Complete);
+
+        assert_eq!(
+            app.rows.iter().map(|row| row.lane.as_str()).collect::<Vec<_>>(),
+            ["●─┐ ", "●─┘ ", "● "]
+        );
+    }
+
+    #[test]
     fn selection_follows_the_oldest_commit_until_the_user_moves() {
         let mut app = App::new(2);
-        app.update(Action::Commit(row(1)));
-        app.update(Action::Commit(row(2)));
-        app.update(Action::Commit(row(3)));
+        app.extend_commits(vec![row(1), row(2), row(3)]);
 
         app.update(Action::Last);
         assert_eq!(app.selected, Some(2), "Last selects the oldest loaded commit");
         assert_eq!(app.offset, 1, "the selection remains visible");
 
-        app.update(Action::Commit(row(4)));
+        app.extend_commits(vec![row(4)]);
         assert_eq!(app.selected, Some(3), "new commits extend the followed tail");
         assert_eq!(app.offset, 2, "the viewport follows the tail");
 
         app.update(Action::MoveUp);
-        app.update(Action::Commit(row(5)));
+        app.extend_commits(vec![row(5)]);
         assert_eq!(app.selected, Some(2), "manual navigation stops following the tail");
     }
 
     #[test]
     fn navigation_is_clamped_and_uses_the_viewport_for_pages() {
         let mut app = App::new(2);
-        for n in 1..=5 {
-            app.update(Action::Commit(row(n)));
-        }
+        app.extend_commits((1..=5).map(row).collect());
 
         app.update(Action::PageDown);
         assert_eq!(app.selected, Some(2), "page-down advances by the viewport height");
@@ -378,9 +415,7 @@ mod tests {
     #[test]
     fn half_pages_use_half_the_viewport() {
         let mut app = App::new(4);
-        for n in 1..=5 {
-            app.update(Action::Commit(row(n)));
-        }
+        app.extend_commits((1..=5).map(row).collect());
 
         app.update(Action::HalfPageDown);
         assert_eq!(app.selected, Some(2));
@@ -391,11 +426,11 @@ mod tests {
     #[test]
     fn cancellation_preserves_rows_and_ignores_late_worker_events() {
         let mut app = App::new(10);
-        app.update(Action::Commit(row(1)));
+        app.extend_commits(vec![row(1)]);
 
         assert_eq!(app.update(Action::Cancel), vec![Effect::Cancel]);
         assert_eq!(app.state, State::Cancelling);
-        app.update(Action::Commit(row(2)));
+        app.extend_commits(vec![row(2)]);
         assert_eq!(app.rows.len(), 1, "commits arriving after cancellation are ignored");
 
         app.update(Action::Cancelled);
@@ -410,7 +445,7 @@ mod tests {
             app.update(Action::Copy).is_empty(),
             "there is nothing to copy without a selection"
         );
-        app.update(Action::Commit(row(7)));
+        app.extend_commits(vec![row(7)]);
 
         assert_eq!(app.update(Action::Copy), vec![Effect::Copy(row(7).id)]);
         app.update(Action::Complete);
