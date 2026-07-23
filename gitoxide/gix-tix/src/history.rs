@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use gix::{
     ObjectId,
-    bstr::{BString, ByteSlice, ByteVec},
+    bstr::{BString, ByteVec},
     objs::commit::ref_iter::Token,
 };
 
@@ -17,7 +17,17 @@ use crate::app::CommitRow;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Decoration {
     pub name: BString,
-    pub special: bool,
+    pub kind: DecorationKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DecorationKind {
+    Head,
+    Local,
+    Remote,
+    Tag,
+    AnnotatedTag,
+    Special,
 }
 
 pub(crate) type Decorations = HashMap<ObjectId, Vec<Decoration>>;
@@ -140,13 +150,19 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
         .context("could not iterate references")?
     {
         let mut reference = reference.map_err(|err| anyhow::anyhow!("could not read reference: {err}"))?;
+        let mut kind = decoration_kind(reference.name().as_bstr());
+        if kind == DecorationKind::Tag
+            && let Some(id) = reference.try_id()
+            && id.header().context("could not inspect tag")?.kind() == gix::objs::Kind::Tag
+        {
+            kind = DecorationKind::AnnotatedTag;
+        }
         let id = reference.peel_to_id().context("could not peel reference")?.detach();
-        let special = is_special_ref(reference.name().as_bstr());
         let mut name = reference.name().shorten().to_owned();
-        if reference.name().as_bstr().starts_with_str("refs/tags/") {
+        if matches!(kind, DecorationKind::Tag | DecorationKind::AnnotatedTag) {
             name.insert_str(0, "tag: ");
         }
-        out.entry(id).or_default().push(Decoration { name, special });
+        out.entry(id).or_default().push(Decoration { name, kind });
     }
     if let Some(id) = repo
         .head()
@@ -156,14 +172,22 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
     {
         out.entry(id.detach()).or_default().push(Decoration {
             name: "HEAD".into(),
-            special: false,
+            kind: DecorationKind::Head,
         });
     }
     Ok(out)
 }
 
-fn is_special_ref(name: &[u8]) -> bool {
-    !name.starts_with(b"refs/heads/") && !name.starts_with(b"refs/tags/") && !name.starts_with(b"refs/remotes/")
+fn decoration_kind(name: &[u8]) -> DecorationKind {
+    if name.starts_with(b"refs/heads/") {
+        DecorationKind::Local
+    } else if name.starts_with(b"refs/tags/") {
+        DecorationKind::Tag
+    } else if name.starts_with(b"refs/remotes/") {
+        DecorationKind::Remote
+    } else {
+        DecorationKind::Special
+    }
 }
 
 #[cfg(test)]
@@ -241,7 +265,7 @@ mod tests {
             decorations
                 .values()
                 .flatten()
-                .any(|decoration| decoration.name == "tag: v1"),
+                .any(|decoration| { decoration.name == "tag: v1" && decoration.kind == DecorationKind::AnnotatedTag }),
             "annotated tags decorate their commit"
         );
 
@@ -258,11 +282,11 @@ mod tests {
     }
 
     #[test]
-    fn classifies_refs_outside_standard_namespaces_as_special() {
-        assert!(!is_special_ref(b"refs/heads/main"));
-        assert!(!is_special_ref(b"refs/tags/v1"));
-        assert!(!is_special_ref(b"refs/remotes/origin/main"));
-        assert!(is_special_ref(b"refs/patches/main/patch"));
-        assert!(is_special_ref(b"refs/stash"));
+    fn classifies_reference_kinds() {
+        assert_eq!(decoration_kind(b"refs/heads/main"), DecorationKind::Local);
+        assert_eq!(decoration_kind(b"refs/tags/v1"), DecorationKind::Tag);
+        assert_eq!(decoration_kind(b"refs/remotes/origin/main"), DecorationKind::Remote);
+        assert_eq!(decoration_kind(b"refs/patches/main/patch"), DecorationKind::Special);
+        assert_eq!(decoration_kind(b"refs/stash"), DecorationKind::Special);
     }
 }

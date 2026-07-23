@@ -2,14 +2,14 @@ use gix::bstr::ByteSlice;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
 };
 
 use crate::{
     app::{App, CommitRow, State},
-    history::Decorations,
+    history::{DecorationKind, Decorations},
 };
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
@@ -40,15 +40,18 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     let show_committer_date = app.show_committer_date;
     let show_author_name = app.show_author_name;
     let show_special_refs = app.show_special_refs;
+    let selected = app.selected;
     let metadata: Vec<_> = visible_rows
         .iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(index, row)| {
             metadata_line(
                 row,
                 decorations,
                 show_committer_date,
                 show_author_name,
                 show_special_refs,
+                selected == Some(start + index),
             )
         })
         .collect();
@@ -89,6 +92,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                     .scroll((0, horizontal_offset)),
                 row_area,
             );
+            color_graph(frame, row_area, &row.lane, horizontal_offset as usize, selected);
             let pane = Rect::new(
                 content.x.saturating_add(pane_width as u16),
                 y,
@@ -107,6 +111,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                     .scroll((0, horizontal_offset)),
                 row_area,
             );
+            color_graph(frame, row_area, &row.lane, horizontal_offset as usize, selected);
         }
     }
 
@@ -131,32 +136,106 @@ fn metadata_line(
     show_committer_date: bool,
     show_author_name: bool,
     show_special_refs: bool,
+    selected: bool,
 ) -> Line<'static> {
     let id = row.id.to_hex().to_string();
-    let labels = decorations.get(&row.id).and_then(|labels| {
-        let labels = labels
-            .iter()
-            .filter(|decoration| show_special_refs || !decoration.special)
-            .map(|decoration| decoration.name.to_str_lossy())
-            .collect::<Vec<_>>()
-            .join(", ");
-        (!labels.is_empty()).then_some(labels)
-    });
-    let mut spans = vec![
-        Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
-    ];
+    let mut spans = vec![Span::styled(
+        id[..7].to_owned(),
+        color(Color::Magenta, selected).add_modifier(Modifier::BOLD),
+    )];
+    let mut labels = decorations
+        .get(&row.id)
+        .into_iter()
+        .flatten()
+        .filter(|decoration| show_special_refs || decoration.kind != DecorationKind::Special)
+        .peekable();
+    if labels.peek().is_some() {
+        spans.push(Span::raw(" ("));
+        for (index, decoration) in labels.enumerate() {
+            if index != 0 {
+                spans.push(Span::raw(", "));
+            }
+            spans.push(Span::styled(
+                decoration.name.to_str_lossy().into_owned(),
+                decoration_style(decoration.kind, selected),
+            ));
+        }
+        spans.push(Span::raw(") "));
+    } else {
+        spans.push(Span::raw(" "));
+    }
     if show_committer_date {
-        spans.push(Span::raw(format!(
-            "{} ",
-            row.committer_time.format_or_unix(gix::date::time::format::SHORT)
-        )));
+        spans.push(Span::styled(
+            format!("{} ", row.committer_time.format_or_unix(gix::date::time::format::SHORT)),
+            color(Color::Blue, selected),
+        ));
     }
     if show_author_name {
-        spans.push(Span::raw(format!("{} ", row.author_name.to_str_lossy())));
+        spans.push(Span::styled(
+            format!("{} ", row.author_name.to_str_lossy()),
+            color(Color::Green, selected),
+        ));
     }
     spans.push(Span::raw(row.subject.to_str_lossy().into_owned()));
     Line::from(spans)
+}
+
+fn decoration_style(kind: DecorationKind, selected: bool) -> Style {
+    if selected {
+        return Style::default();
+    }
+    match kind {
+        DecorationKind::Head => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        DecorationKind::Local => Style::default().fg(Color::Cyan),
+        DecorationKind::Remote => Style::default().fg(Color::Yellow),
+        DecorationKind::Tag => Style::default().fg(Color::Magenta),
+        DecorationKind::AnnotatedTag => Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+        DecorationKind::Special => Style::default().fg(Color::Blue),
+    }
+}
+
+fn color(color: Color, selected: bool) -> Style {
+    if selected {
+        Style::default()
+    } else {
+        Style::default().fg(color)
+    }
+}
+
+fn color_graph(frame: &mut Frame<'_>, area: Rect, graph: &str, offset: usize, selected: bool) {
+    if selected {
+        return;
+    }
+    for (x, symbol) in graph.chars().skip(offset).take(area.width as usize).enumerate() {
+        if symbol.is_whitespace() {
+            continue;
+        }
+        let style = if symbol == '●' {
+            Style::default().fg(Color::Blue)
+        } else {
+            graph_style(offset.saturating_add(x) / 2)
+        };
+        frame.buffer_mut()[(area.x + x as u16, area.y)].set_style(style);
+    }
+}
+
+fn graph_style(column: usize) -> Style {
+    const COLORS: [Color; 7] = [
+        Color::Magenta,
+        Color::Yellow,
+        Color::Cyan,
+        Color::Green,
+        Color::Reset,
+        Color::White,
+        Color::Red,
+    ];
+    let index = column % 14;
+    let style = Style::default().fg(COLORS[index % COLORS.len()]);
+    if index >= COLORS.len() {
+        style.add_modifier(Modifier::BOLD)
+    } else {
+        style
+    }
 }
 
 #[cfg(test)]
@@ -166,7 +245,7 @@ mod tests {
     use super::*;
     use crate::{
         app::{Action, CommitRow},
-        history::Decoration,
+        history::{Decoration, DecorationKind},
     };
 
     #[test]
@@ -187,11 +266,11 @@ mod tests {
             vec![
                 Decoration {
                     name: "HEAD".into(),
-                    special: false,
+                    kind: DecorationKind::Head,
                 },
                 Decoration {
                     name: "refs/patches/main/patch".into(),
-                    special: true,
+                    kind: DecorationKind::Special,
                 },
             ],
         )]);
@@ -259,6 +338,88 @@ mod tests {
         );
         assert_eq!(app.selected, Some(2), "drawing preserves the global selection");
         assert_eq!(app.offset, 1, "drawing preserves the global offset");
+        Ok(())
+    }
+
+    #[test]
+    fn uses_the_tig_palette_without_coloring_the_selection() -> Result<(), Box<dyn std::error::Error>> {
+        let id = gix::ObjectId::Sha1([1; 20]);
+        let row = CommitRow {
+            id,
+            parent_ids: Default::default(),
+            lane: "● │ │ │ │ │ │ │ ".into(),
+            committer_time: gix::date::Time::default(),
+            author_name: "author".into(),
+            subject: "subject".into(),
+        };
+        let decorations = Decorations::from([(
+            id,
+            vec![
+                Decoration {
+                    name: "HEAD".into(),
+                    kind: DecorationKind::Head,
+                },
+                Decoration {
+                    name: "main".into(),
+                    kind: DecorationKind::Local,
+                },
+                Decoration {
+                    name: "origin/main".into(),
+                    kind: DecorationKind::Remote,
+                },
+                Decoration {
+                    name: "tag: v1".into(),
+                    kind: DecorationKind::AnnotatedTag,
+                },
+                Decoration {
+                    name: "refs/stash".into(),
+                    kind: DecorationKind::Special,
+                },
+            ],
+        )]);
+        let line = metadata_line(&row, &decorations, true, true, true, false);
+        let style = |text| {
+            line.spans
+                .iter()
+                .find(|span| span.content == text)
+                .expect("the styled field is present")
+                .style
+        };
+        assert_eq!(
+            style("0101010"),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(style("1970-01-01 "), Style::default().fg(Color::Blue));
+        assert_eq!(style("author "), Style::default().fg(Color::Green));
+        assert_eq!(
+            style("HEAD"),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(style("main"), Style::default().fg(Color::Cyan));
+        assert_eq!(style("origin/main"), Style::default().fg(Color::Yellow));
+        assert_eq!(
+            style("tag: v1"),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(style("refs/stash"), Style::default().fg(Color::Blue));
+
+        let mut app = App::new(1);
+        app.extend_commits(vec![row]);
+        app.selected = None;
+        let mut terminal = Terminal::new(TestBackend::new(80, 2))?;
+        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 0)].fg, Color::Blue, "commit dots use graph-commit");
+        assert_eq!(buffer[(4, 0)].fg, Color::Yellow, "lanes cycle through tig's palette");
+        assert_eq!(
+            buffer[(16, 0)].fg,
+            Color::Magenta,
+            "the palette repeats after seven lanes"
+        );
+        assert!(
+            buffer[(16, 0)].modifier.contains(Modifier::BOLD),
+            "the second palette cycle is bold"
+        );
         Ok(())
     }
 
