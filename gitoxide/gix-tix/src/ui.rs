@@ -12,7 +12,7 @@ use crate::{
     history::{DecorationKind, Decorations},
 };
 
-pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
+pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations, mailmap: &gix::mailmap::Snapshot) {
     let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     app.viewport_rows = body.height as usize;
     app.ensure_visible();
@@ -50,6 +50,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 row,
                 app.title(row),
                 decorations,
+                mailmap,
                 MetadataOptions {
                     show_committer_date,
                     show_author_name,
@@ -183,9 +184,10 @@ struct MetadataOptions {
 }
 
 fn metadata_line<'a>(
-    row: &CommitRow,
+    row: &'a CommitRow,
     title: &'a BStr,
     decorations: &'a Decorations,
+    mailmap: &'a gix::mailmap::Snapshot,
     options: MetadataOptions,
 ) -> Line<'a> {
     let MetadataOptions {
@@ -230,19 +232,26 @@ fn metadata_line<'a>(
     }
     if show_author_name {
         let author = if use_mailmap {
-            row.mailmapped_author_name
+            mailmap
+                .try_resolve_ref(gix::actor::SignatureRef {
+                    name: row.author.name,
+                    email: row.author.email,
+                    time: "",
+                })
+                .and_then(|resolved| resolved.name)
+                .unwrap_or(row.author.name)
         } else {
-            row.author_name
+            row.author.name
         }
         .to_str_lossy();
         spans.push(Span::styled(
-            if row.author_is_bot {
+            if row.author.is_bot() {
                 format!("[{author}] ")
             } else {
                 format!("{author} ")
             },
             color(
-                if row.author_is_bot {
+                if row.author.is_bot() {
                     Color::LightYellow
                 } else {
                     Color::Green
@@ -270,14 +279,21 @@ fn metadata_line<'a>(
                     if index != 0 {
                         spans.push(Span::raw(", "));
                     }
-                    let name = actor.name.to_str_lossy();
+                    let name = actor.author.name.to_str_lossy();
                     spans.push(Span::styled(
-                        if actor.is_bot {
+                        if actor.author.is_bot() {
                             format!("[{name}]")
                         } else {
                             name.into_owned()
                         },
-                        color(if actor.is_bot { Color::LightYellow } else { Color::Green }, selected),
+                        color(
+                            if actor.author.is_bot() {
+                                Color::LightYellow
+                            } else {
+                                Color::Green
+                            },
+                            selected,
+                        ),
                     ));
                 }
                 spans.push(Span::raw(" "));
@@ -352,9 +368,20 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{Action, Attribution, AttributionKind, Commit},
+        app::{Action, Attribution, AttributionKind, Author, Commit},
         history::{Decoration, DecorationKind},
     };
+
+    fn author(name: &'static [u8], email: &'static [u8]) -> &'static Author {
+        Box::leak(Box::new(Author {
+            name: name.as_bstr(),
+            email: email.as_bstr(),
+        }))
+    }
+
+    fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
+        super::draw(frame, app, decorations, &gix::mailmap::Snapshot::default());
+    }
 
     #[test]
     fn renders_grouped_attributions_and_bot_names() -> Result<(), Box<dyn std::error::Error>> {
@@ -364,39 +391,31 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"Codex".as_bstr(),
-            mailmapped_author_name: b"Codex".as_bstr(),
-            author_is_bot: true,
+            author: author(b"Codex", b"codex@openai.com"),
             attributions: vec![
                 Attribution {
                     kind: AttributionKind::CoAuthor,
-                    name: b"Human".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Human", b"human@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::CoAuthor,
-                    name: b"Claude".as_bstr(),
-                    is_bot: true,
+                    author: author(b"Claude", b"noreply@anthropic.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Reviewed,
-                    name: b"Reviewer".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Reviewer", b"reviewer@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Acked,
-                    name: b"Acknowledger".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Acknowledger", b"ack@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Tested,
-                    name: b"Tester".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Tester", b"tester@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::SignedOff,
-                    name: b"Signer".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Signer", b"signer@example.com"),
                 },
             ]
             .into_boxed_slice(),
@@ -468,9 +487,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            mailmapped_author_name: b"mapped author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         }]);
@@ -488,9 +505,11 @@ mod tests {
                 },
             ],
         )]);
+        let mailmap =
+            gix::mailmap::Snapshot::from_bytes(b"mapped author <mapped@example.com> author <author@example.com>\n");
         let mut terminal = Terminal::new(TestBackend::new(140, 2))?;
 
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
 
         let footer_text = "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · m mailmap · t trailers · r refs · y copy · q quit";
         let mut expected = Buffer::with_lines([
@@ -516,7 +535,7 @@ mod tests {
         );
 
         app.update(Action::ToggleMailmap);
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(
             rendered_row(&terminal).contains(" author subject"),
             "m restores the original author name"
@@ -526,7 +545,7 @@ mod tests {
 
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         let row = rendered_row(&terminal);
         assert!(!row.contains("1970-01-01"), "d hides the committer date");
         assert!(!row.contains("author"), "n hides the author name");
@@ -536,18 +555,18 @@ mod tests {
         assert!(footer_is_dim(&terminal, "n name"), "disabled name is dimmed");
 
         app.update(Action::ToggleSpecialRefs);
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(rendered_row(&terminal).contains("refs/patches"), "r shows special refs");
         assert!(!footer_is_dim(&terminal, "r refs"), "enabled refs are not dimmed");
 
         app.has_hidden_filter = true;
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(
             rendered_line(&terminal, 1).contains("v show hidden"),
             "the footer advertises the configured hidden-history toggle"
         );
         app.show_hidden = true;
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(
             rendered_line(&terminal, 1).contains("v hide hidden"),
             "the footer reflects the unfiltered view"
@@ -579,9 +598,7 @@ mod tests {
                     parent_ids: Default::default(),
                     lane: String::new(),
                     committer_time: gix::date::Time::default(),
-                    author_name: b"author".as_bstr(),
-                    mailmapped_author_name: b"mapped author".as_bstr(),
-                    author_is_bot: false,
+                    author: author(b"author", b"author@example.com"),
                     attributions: Box::default(),
                     title: format!("subject {n}").into(),
                 })
@@ -613,9 +630,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: "● │ │ │ │ │ │ │ ".into(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            mailmapped_author_name: b"mapped author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         };
@@ -647,10 +662,12 @@ mod tests {
         let mut app = App::new(1);
         app.extend_commits(vec![commit]);
         let row = &app.rows[0];
+        let mailmap = gix::mailmap::Snapshot::default();
         let line = metadata_line(
             row,
             app.title(row),
             &decorations,
+            &mailmap,
             MetadataOptions {
                 show_committer_date: true,
                 show_author_name: true,
@@ -711,9 +728,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            mailmapped_author_name: b"mapped author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         }]);

@@ -11,7 +11,7 @@ use gix::{
     objs::commit::ref_iter::Token,
 };
 
-use crate::app::{Attribution, AttributionKind, Commit, LoadedCommit};
+use crate::app::{Attribution, AttributionKind, Author, Commit, LoadedCommit};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Decoration {
@@ -30,7 +30,11 @@ pub(crate) enum DecorationKind {
 }
 
 pub(crate) type Decorations = HashMap<ObjectId, Vec<Decoration>>;
-pub(crate) type AuthorNames = HashSet<&'static [u8]>;
+#[derive(Default)]
+pub(crate) struct Authors {
+    strings: HashSet<&'static [u8]>,
+    authors: HashMap<(&'static BStr, &'static BStr), &'static Author>,
+}
 const COMMIT_BATCH_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -45,7 +49,7 @@ pub(crate) fn load(
     repo: &gix::Repository,
     revisions: &[OsString],
     hidden_revisions: &[OsString],
-    author_names: &mut AuthorNames,
+    authors: &mut Authors,
     cancelled: &AtomicBool,
     mut emit: impl FnMut(Event) -> bool,
 ) -> Result<()> {
@@ -77,7 +81,6 @@ pub(crate) fn load(
         .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .all()
         .context("could not start revision walk")?;
-    let mailmap = repo.open_mailmap();
     let mut rows = Vec::with_capacity(COMMIT_BATCH_SIZE);
     for info in walk {
         if cancelled.load(Ordering::Relaxed) {
@@ -87,18 +90,14 @@ pub(crate) fn load(
         let info = info.context("could not traverse revision history")?;
         let object = info.object().context("could not read commit")?;
         let mut committer_time = None;
-        let mut author_name = None;
-        let mut mailmapped_author_name = None;
-        let mut author_is_bot = false;
+        let mut author = None;
         let mut attributions = Vec::new();
         let mut title = None;
         for token in object.iter() {
             match token.context("could not decode commit")? {
                 Token::Author { signature } => {
                     let signature = signature.trim();
-                    author_name = Some(intern(author_names, signature.name));
-                    mailmapped_author_name = Some(intern(author_names, mailmap.resolve_cow(signature).name.as_ref()));
-                    author_is_bot = is_bot(signature.email);
+                    author = Some(authors.intern_author(signature.name, signature.email));
                 }
                 Token::Committer { signature } => {
                     committer_time = Some(signature.time().context("could not decode committer time")?);
@@ -121,8 +120,7 @@ pub(crate) fn load(
                             let identity = identity.trim();
                             attributions.push(Attribution {
                                 kind,
-                                name: intern(author_names, identity.name),
-                                is_bot: is_bot(identity.email),
+                                author: authors.intern_author(identity.name, identity.email),
                             });
                         }
                     }
@@ -135,9 +133,7 @@ pub(crate) fn load(
             parent_ids: info.parent_ids,
             lane: String::new(),
             committer_time: committer_time.context("commit has no committer time")?,
-            author_name: author_name.context("commit has no author name")?,
-            mailmapped_author_name: mailmapped_author_name.context("commit has no mailmapped author name")?,
-            author_is_bot,
+            author: author.context("commit has no author")?,
             attributions: attributions.into_boxed_slice(),
             title: title.context("commit has no message")?,
         });
@@ -155,12 +151,6 @@ pub(crate) fn load(
     }
     emit(Event::Complete);
     Ok(())
-}
-
-fn is_bot(email: &BStr) -> bool {
-    [b"codex@openai.com".as_slice(), b"noreply@anthropic.com".as_slice()]
-        .iter()
-        .any(|candidate| email.eq_ignore_ascii_case(candidate))
 }
 
 fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
@@ -196,13 +186,24 @@ fn resolve_revisions(repo: &gix::Repository, revisions: &[OsString], kind: &str)
         .collect()
 }
 
-fn intern(names: &mut AuthorNames, name: &[u8]) -> &'static BStr {
-    match names.get(name) {
-        Some(name) => name.as_bstr(),
-        None => {
-            let name: &'static [u8] = Box::leak(name.to_vec().into_boxed_slice());
-            names.insert(name);
-            name.as_bstr()
+impl Authors {
+    fn intern_author(&mut self, name: &[u8], email: &[u8]) -> &'static Author {
+        let name = self.intern_string(name);
+        let email = self.intern_string(email);
+        self.authors.entry((name, email)).or_insert_with(|| {
+            let author: &'static Author = Box::leak(Box::new(Author { name, email }));
+            author
+        })
+    }
+
+    fn intern_string(&mut self, value: &[u8]) -> &'static BStr {
+        match self.strings.get(value) {
+            Some(value) => value.as_bstr(),
+            None => {
+                let value: &'static [u8] = Box::leak(value.to_vec().into_boxed_slice());
+                self.strings.insert(value);
+                value.as_bstr()
+            }
         }
     }
 }
@@ -275,13 +276,13 @@ mod tests {
 
     fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> Result<Vec<Event>> {
         let mut events = Vec::new();
-        let mut author_names = AuthorNames::new();
+        let mut authors = Authors::default();
         let repo = gix::open(path)?;
         load(
             &repo,
             &revisions.iter().map(OsString::from).collect::<Vec<_>>(),
             &hidden_revisions.iter().map(OsString::from).collect::<Vec<_>>(),
-            &mut author_names,
+            &mut authors,
             &AtomicBool::new(false),
             |event| {
                 events.push(event);
@@ -322,16 +323,20 @@ mod tests {
             })
             .next()
             .expect("the topic commit is reachable");
-        assert_eq!(topic.author_name, "Codex", "the author name is retained");
+        assert_eq!(
+            topic.author.name, "Codex",
+            "history loading retains the raw name despite the configured mailmap"
+        );
+        assert_eq!(topic.author.email, "Codex@OpenAI.com", "the author email is retained");
         assert!(
-            topic.author_is_bot,
+            topic.author.is_bot(),
             "well-known bot email addresses identify bot authors"
         );
         assert_eq!(
             topic
                 .attributions
                 .iter()
-                .map(|attribution| (attribution.kind, attribution.name, attribution.is_bot))
+                .map(|attribution| { (attribution.kind, attribution.author.name, attribution.author.is_bot(),) })
                 .collect::<Vec<_>>(),
             [
                 (AttributionKind::CoAuthor, b"Human Coauthor".as_bstr(), false),
@@ -342,10 +347,6 @@ mod tests {
                 (AttributionKind::SignedOff, b"Signer".as_bstr(), false),
             ],
             "known attribution trailers retain their order and malformed identities are omitted"
-        );
-        assert_eq!(
-            topic.mailmapped_author_name, "Mailmapped Author",
-            "the repository mailmap is applied"
         );
         assert_eq!(
             topic.committer_time.format_or_unix(gix::date::time::format::SHORT),
@@ -407,9 +408,9 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
-        let mut author_names = AuthorNames::new();
+        let mut authors = Authors::default();
         let repo = gix::open(&fixture)?;
-        load(&repo, &[], &[], &mut author_names, &AtomicBool::new(true), |event| {
+        load(&repo, &[], &[], &mut authors, &AtomicBool::new(true), |event| {
             cancelled.push(event);
             true
         })?;
@@ -430,16 +431,16 @@ mod tests {
     }
 
     #[test]
-    fn interns_author_names_as_raw_bytes() {
-        let mut names = HashSet::new();
+    fn interns_raw_author_identities() {
+        let mut authors = Authors::default();
 
-        let first = intern(&mut names, b"author\xff");
-        let second = intern(&mut names, b"author\xff");
-        let other = intern(&mut names, b"other");
+        let first = authors.intern_author(b"author\xff", b"one@example.com");
+        let second = authors.intern_author(b"author\xff", b"one@example.com");
+        let other = authors.intern_author(b"author\xff", b"two@example.com");
 
-        assert!(std::ptr::eq(first, second), "equal names share one allocation");
-        assert!(!std::ptr::eq(first, other), "different names remain distinct");
-        assert_eq!(names.len(), 2);
-        assert_eq!(first, b"author\xff".as_bstr(), "Git names remain byte strings");
+        assert!(std::ptr::eq(first, second), "equal identities share one allocation");
+        assert!(!std::ptr::eq(first, other), "different emails remain distinct");
+        assert_eq!(authors.authors.len(), 2);
+        assert_eq!(first.name, b"author\xff".as_bstr(), "Git names remain byte strings");
     }
 }

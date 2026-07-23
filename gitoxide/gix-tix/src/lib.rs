@@ -23,11 +23,11 @@ use crossterm::{
     event::{self, Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
 };
-use history::{AuthorNames, Decorations, Event};
+use history::{Authors, Decorations, Event};
 
 const EVENT_BATCH_SIZE: usize = 256;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
-type SharedAuthorNames = gix::features::threading::OwnShared<gix::features::threading::Mutable<AuthorNames>>;
+type SharedAuthors = gix::features::threading::OwnShared<gix::features::threading::Mutable<Authors>>;
 
 /// Options for [`run()`].
 #[derive(Clone, Debug, Default)]
@@ -58,25 +58,25 @@ fn event_loop(
     options: Options,
 ) -> Result<Option<Duration>> {
     let Options { quit_on_finish, hide } = options;
-    let author_names =
-        gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(AuthorNames::new()));
+    let mailmap = repository.to_thread_local().open_mailmap();
+    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
     let (mut cancelled, mut receiver) = start_history(
         &repository,
         &revisions,
         &hide,
-        gix::features::threading::OwnShared::clone(&author_names),
+        gix::features::threading::OwnShared::clone(&authors),
     );
 
     let mut app = App::new(1);
     app.has_hidden_filter = !hide.is_empty();
     let mut decorations = Decorations::new();
-    draw(terminal, &mut app, &decorations)?;
+    draw(terminal, &mut app, &decorations, &mailmap)?;
     let mut last_draw = Instant::now();
     let mut dirty = false;
     let mut urgent = false;
     loop {
         if urgent {
-            draw(terminal, &mut app, &decorations)?;
+            draw(terminal, &mut app, &decorations, &mailmap)?;
             last_draw = Instant::now();
             dirty = false;
             urgent = false;
@@ -110,7 +110,7 @@ fn event_loop(
         }
         let streaming = matches!(app.state, State::Loading | State::Cancelling);
         if should_draw(dirty, streaming, last_draw.elapsed()) {
-            draw(terminal, &mut app, &decorations)?;
+            draw(terminal, &mut app, &decorations, &mailmap)?;
             last_draw = Instant::now();
             dirty = false;
         }
@@ -153,7 +153,7 @@ fn event_loop(
                         &repository,
                         &revisions,
                         hidden,
-                        gix::features::threading::OwnShared::clone(&author_names),
+                        gix::features::threading::OwnShared::clone(&authors),
                     );
                 }
                 Effect::Quit => return Ok(None),
@@ -166,7 +166,7 @@ fn start_history(
     repository: &gix::ThreadSafeRepository,
     revisions: &[OsString],
     hidden_revisions: &[OsString],
-    author_names: SharedAuthorNames,
+    authors: SharedAuthors,
 ) -> (Arc<AtomicBool>, mpsc::Receiver<Result<Event>>) {
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = Arc::clone(&cancelled);
@@ -176,12 +176,12 @@ fn start_history(
     let hidden_revisions = hidden_revisions.to_vec();
     std::thread::spawn(move || {
         let repository = repository.to_thread_local();
-        let mut author_names = gix::features::threading::lock(&author_names);
+        let mut authors = gix::features::threading::lock(&authors);
         let result = history::load(
             &repository,
             &revisions,
             &hidden_revisions,
-            &mut author_names,
+            &mut authors,
             &worker_cancelled,
             |event| sender.send(Ok(event)).is_ok(),
         );
@@ -192,8 +192,13 @@ fn start_history(
     (cancelled, receiver)
 }
 
-fn draw(terminal: &mut ratatui::DefaultTerminal, app: &mut App, decorations: &Decorations) -> Result<()> {
-    terminal.draw(|frame| ui::draw(frame, app, decorations))?;
+fn draw(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut App,
+    decorations: &Decorations,
+    mailmap: &gix::mailmap::Snapshot,
+) -> Result<()> {
+    terminal.draw(|frame| ui::draw(frame, app, decorations, mailmap))?;
     Ok(())
 }
 

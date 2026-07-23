@@ -16,18 +16,29 @@ pub(crate) struct Commit<T> {
     pub parent_ids: ParentIds,
     pub lane: String,
     pub committer_time: gix::date::Time,
-    pub author_name: &'static BStr,
-    pub mailmapped_author_name: &'static BStr,
-    pub author_is_bot: bool,
+    pub author: &'static Author,
     pub attributions: Box<[Attribution]>,
     pub title: T,
+}
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub(crate) struct Author {
+    pub name: &'static BStr,
+    pub email: &'static BStr,
+}
+
+impl Author {
+    pub fn is_bot(&self) -> bool {
+        [b"codex@openai.com".as_slice(), b"noreply@anthropic.com".as_slice()]
+            .iter()
+            .any(|candidate| self.email.eq_ignore_ascii_case(candidate))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Attribution {
     pub kind: AttributionKind,
-    pub name: &'static BStr,
-    pub is_bot: bool,
+    pub author: &'static Author,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -146,9 +157,7 @@ impl App {
                 parent_ids,
                 lane,
                 committer_time,
-                author_name,
-                mailmapped_author_name,
-                author_is_bot,
+                author,
                 attributions,
                 title,
             } = row;
@@ -159,9 +168,7 @@ impl App {
                 parent_ids,
                 lane,
                 committer_time,
-                author_name,
-                mailmapped_author_name,
-                author_is_bot,
+                author,
                 attributions,
                 title: start..self.titles.len(),
             });
@@ -467,9 +474,10 @@ mod tests {
             parent_ids: ParentIds::new(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            mailmapped_author_name: b"mapped author".as_bstr(),
-            author_is_bot: false,
+            author: Box::leak(Box::new(Author {
+                name: b"author".as_bstr(),
+                email: b"author@example.com".as_bstr(),
+            })),
             attributions: Box::default(),
             title: format!("commit {n}").into(),
         }
