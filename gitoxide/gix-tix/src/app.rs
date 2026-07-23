@@ -1,19 +1,27 @@
 use std::{
     collections::HashMap,
+    ops::Range,
     time::{Duration, Instant},
 };
 
-use gix::{ObjectId, bstr::BString, traverse::commit::ParentIds};
+use gix::{
+    ObjectId,
+    bstr::{BStr, BString, ByteSlice},
+    traverse::commit::ParentIds,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct CommitRow {
+pub(crate) struct Commit<T> {
     pub id: ObjectId,
     pub parent_ids: ParentIds,
     pub lane: String,
     pub committer_time: gix::date::Time,
     pub author_name: BString,
-    pub subject: BString,
+    pub title: T,
 }
+
+pub(crate) type LoadedCommit = Commit<BString>;
+pub(crate) type CommitRow = Commit<Range<usize>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum State {
@@ -57,6 +65,7 @@ pub(crate) enum Effect {
 #[derive(Debug)]
 pub(crate) struct App {
     pub rows: Vec<CommitRow>,
+    titles: Vec<u8>,
     pub selected: Option<usize>,
     pub offset: usize,
     pub state: State,
@@ -76,6 +85,7 @@ impl App {
     pub fn new(viewport_rows: usize) -> Self {
         App {
             rows: Vec::new(),
+            titles: Vec::new(),
             selected: None,
             offset: 0,
             state: State::Loading,
@@ -92,12 +102,33 @@ impl App {
         }
     }
 
-    pub(crate) fn extend_commits(&mut self, rows: Vec<CommitRow>) {
+    pub(crate) fn extend_commits(&mut self, rows: Vec<LoadedCommit>) {
         if self.state != State::Loading || rows.is_empty() {
             return;
         }
         let was_empty = self.rows.is_empty();
-        self.rows.extend(rows);
+        self.titles.reserve(rows.iter().map(|row| row.title.len()).sum());
+        self.rows.reserve(rows.len());
+        for row in rows {
+            let Commit {
+                id,
+                parent_ids,
+                lane,
+                committer_time,
+                author_name,
+                title,
+            } = row;
+            let start = self.titles.len();
+            self.titles.extend_from_slice(&title);
+            self.rows.push(Commit {
+                id,
+                parent_ids,
+                lane,
+                committer_time,
+                author_name,
+                title: start..self.titles.len(),
+            });
+        }
         if was_empty {
             self.selected = Some(0);
             self.ensure_visible();
@@ -105,6 +136,10 @@ impl App {
             self.selected = Some(self.rows.len() - 1);
             self.ensure_visible();
         }
+    }
+
+    pub(crate) fn title(&self, row: &CommitRow) -> &BStr {
+        self.titles[row.title.clone()].as_bstr()
     }
 
     pub fn update(&mut self, action: Action) -> Vec<Effect> {
@@ -364,20 +399,20 @@ fn transition(before: usize, after: usize, current: usize, edges: &[(usize, usiz
 mod tests {
     use super::*;
 
-    fn row(n: u8) -> CommitRow {
+    fn row(n: u8) -> LoadedCommit {
         let mut bytes = [0; 20];
         bytes[19] = n;
-        CommitRow {
+        Commit {
             id: ObjectId::Sha1(bytes),
             parent_ids: ParentIds::new(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: "author".into(),
-            subject: format!("commit {n}").into(),
+            title: format!("commit {n}").into(),
         }
     }
 
-    fn row_with_parents(n: u8, parents: &[u8]) -> CommitRow {
+    fn row_with_parents(n: u8, parents: &[u8]) -> LoadedCommit {
         let mut commit = row(n);
         commit.parent_ids = parents.iter().map(|n| row(*n).id).collect();
         commit
@@ -550,5 +585,29 @@ mod tests {
         assert_eq!(app.state, State::Complete);
         assert_eq!(app.rows.len(), 1, "the loaded row count is the completed total");
         assert_eq!(app.update(Action::Quit), vec![Effect::Quit]);
+    }
+
+    #[test]
+    fn packs_titles_as_raw_bytes() {
+        let mut first = row(1);
+        first.title = vec![b'a', 0xff].into();
+        let mut second = row(2);
+        second.title = "second".into();
+        let mut app = App::new(2);
+
+        app.extend_commits(vec![first]);
+        app.extend_commits(vec![second]);
+
+        assert_eq!(app.titles, b"a\xffsecond", "title bytes share one allocation");
+        assert_eq!(
+            app.title(&app.rows[0]),
+            b"a\xff".as_bstr(),
+            "the first span preserves arbitrary bytes"
+        );
+        assert_eq!(
+            app.title(&app.rows[1]),
+            b"second".as_bstr(),
+            "the second span starts at the right offset"
+        );
     }
 }

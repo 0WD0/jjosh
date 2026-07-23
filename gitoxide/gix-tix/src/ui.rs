@@ -1,4 +1,4 @@
-use gix::bstr::ByteSlice;
+use gix::bstr::{BStr, ByteSlice};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -47,6 +47,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
         .map(|(index, row)| {
             metadata_line(
                 row,
+                app.title(row),
                 decorations,
                 show_committer_date,
                 show_author_name,
@@ -67,8 +68,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
             .saturating_sub(content.width as usize)
     }
     .min(u16::MAX as usize);
-    app.set_horizontal_bounds(content.width as usize, max_offset);
-    let horizontal_offset = app.horizontal_offset as u16;
+    let horizontal_offset = app.horizontal_offset.min(max_offset) as u16;
 
     let visible_rows = &app.rows[start..end];
     for (index, (row, metadata)) in visible_rows.iter().zip(metadata).enumerate() {
@@ -114,6 +114,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
             color_graph(frame, row_area, &row.lane, horizontal_offset as usize, selected);
         }
     }
+    app.set_horizontal_bounds(content.width as usize, max_offset);
 
     let status = match app.state {
         State::Loading => "loading",
@@ -130,14 +131,15 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     );
 }
 
-fn metadata_line(
+fn metadata_line<'a>(
     row: &CommitRow,
-    decorations: &Decorations,
+    title: &'a BStr,
+    decorations: &'a Decorations,
     show_committer_date: bool,
     show_author_name: bool,
     show_special_refs: bool,
     selected: bool,
-) -> Line<'static> {
+) -> Line<'a> {
     let id = row.id.to_hex().to_string();
     let mut spans = vec![Span::styled(
         id[..7].to_owned(),
@@ -156,7 +158,7 @@ fn metadata_line(
                 spans.push(Span::raw(", "));
             }
             spans.push(Span::styled(
-                decoration.name.to_str_lossy().into_owned(),
+                decoration.name.to_str_lossy(),
                 decoration_style(decoration.kind, selected),
             ));
         }
@@ -176,7 +178,7 @@ fn metadata_line(
             color(Color::Green, selected),
         ));
     }
-    spans.push(Span::raw(row.subject.to_str_lossy().into_owned()));
+    spans.push(Span::raw(title.to_str_lossy()));
     Line::from(spans)
 }
 
@@ -244,7 +246,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{Action, CommitRow},
+        app::{Action, Commit},
         history::{Decoration, DecorationKind},
     };
 
@@ -252,13 +254,13 @@ mod tests {
     fn renders_rows_decorations_selection_and_footer() -> Result<(), Box<dyn std::error::Error>> {
         let id = gix::ObjectId::Sha1([1; 20]);
         let mut app = App::new(2);
-        app.extend_commits(vec![CommitRow {
+        app.extend_commits(vec![Commit {
             id,
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: "author".into(),
-            subject: "subject".into(),
+            title: "subject".into(),
         }]);
         app.update(Action::Complete);
         let decorations = Decorations::from([(
@@ -313,13 +315,13 @@ mod tests {
         let mut app = App::new(2);
         app.extend_commits(
             (1..=3)
-                .map(|n| CommitRow {
+                .map(|n| Commit {
                     id: gix::ObjectId::Sha1([n; 20]),
                     parent_ids: Default::default(),
                     lane: String::new(),
                     committer_time: gix::date::Time::default(),
                     author_name: "author".into(),
-                    subject: format!("subject {n}").into(),
+                    title: format!("subject {n}").into(),
                 })
                 .collect(),
         );
@@ -344,13 +346,13 @@ mod tests {
     #[test]
     fn uses_the_tig_palette_without_coloring_the_selection() -> Result<(), Box<dyn std::error::Error>> {
         let id = gix::ObjectId::Sha1([1; 20]);
-        let row = CommitRow {
+        let commit = Commit {
             id,
             parent_ids: Default::default(),
             lane: "● │ │ │ │ │ │ │ ".into(),
             committer_time: gix::date::Time::default(),
             author_name: "author".into(),
-            subject: "subject".into(),
+            title: "subject".into(),
         };
         let decorations = Decorations::from([(
             id,
@@ -377,7 +379,10 @@ mod tests {
                 },
             ],
         )]);
-        let line = metadata_line(&row, &decorations, true, true, true, false);
+        let mut app = App::new(1);
+        app.extend_commits(vec![commit]);
+        let row = &app.rows[0];
+        let line = metadata_line(row, app.title(row), &decorations, true, true, true, false);
         let style = |text| {
             line.spans
                 .iter()
@@ -403,8 +408,6 @@ mod tests {
         );
         assert_eq!(style("refs/stash"), Style::default().fg(Color::Blue));
 
-        let mut app = App::new(1);
-        app.extend_commits(vec![row]);
         app.selected = None;
         let mut terminal = Terminal::new(TestBackend::new(80, 2))?;
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
@@ -426,13 +429,13 @@ mod tests {
     #[test]
     fn overlays_metadata_on_wide_graphs_and_allows_natural_flow() -> Result<(), Box<dyn std::error::Error>> {
         let mut app = App::new(1);
-        app.extend_commits(vec![CommitRow {
+        app.extend_commits(vec![Commit {
             id: gix::ObjectId::Sha1([1; 20]),
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: "author".into(),
-            subject: "subject".into(),
+            title: "subject".into(),
         }]);
         app.update(Action::Complete);
         app.rows[0].lane = format!("{}{}", "A".repeat(40), "B".repeat(40));

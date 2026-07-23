@@ -11,7 +11,7 @@ use gix::{
     objs::commit::ref_iter::Token,
 };
 
-use crate::app::CommitRow;
+use crate::app::{Commit, LoadedCommit};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Decoration {
@@ -35,7 +35,7 @@ const COMMIT_BATCH_SIZE: usize = 1024;
 #[derive(Debug)]
 pub(crate) enum Event {
     Decorations(Decorations),
-    Commits(Vec<CommitRow>),
+    Commits(Vec<LoadedCommit>),
     Complete,
     Cancelled,
 }
@@ -95,7 +95,7 @@ pub(crate) fn load(
         let object = info.object().context("could not read commit")?;
         let mut committer_time = None;
         let mut author_name = None;
-        let mut subject = None;
+        let mut title = None;
         for token in object.iter() {
             match token.context("could not decode commit")? {
                 Token::Author { signature } => {
@@ -105,7 +105,7 @@ pub(crate) fn load(
                     committer_time = Some(signature.time().context("could not decode committer time")?);
                 }
                 Token::Message(message) => {
-                    subject = Some(
+                    title = Some(
                         gix::objs::commit::MessageRef::from_bytes(message)
                             .summary()
                             .into_owned(),
@@ -114,13 +114,13 @@ pub(crate) fn load(
                 _ => {}
             }
         }
-        rows.push(CommitRow {
+        rows.push(Commit {
             id: info.id,
             parent_ids: info.parent_ids,
             lane: String::new(),
             committer_time: committer_time.context("commit has no committer time")?,
             author_name: author_name.context("commit has no author name")?,
-            subject: subject.context("commit has no message")?,
+            title: title.context("commit has no message")?,
         });
         if rows.len() == COMMIT_BATCH_SIZE
             && !emit(Event::Commits(std::mem::replace(
@@ -241,7 +241,7 @@ mod tests {
         let topic = events
             .iter()
             .filter_map(|event| match event {
-                Event::Commits(rows) => rows.iter().find(|row| row.subject == "topic"),
+                Event::Commits(rows) => rows.iter().find(|row| row.title == "topic"),
                 _ => None,
             })
             .next()
