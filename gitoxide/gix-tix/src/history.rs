@@ -53,22 +53,10 @@ pub(crate) fn load(
     cancelled: &AtomicBool,
     mut emit: impl FnMut(Event) -> bool,
 ) -> Result<()> {
-    let tips = if revisions.is_empty() {
-        match repo
-            .head()
-            .context("could not read HEAD")?
-            .try_peel_to_id()
-            .context("could not resolve HEAD")?
-        {
-            Some(id) => vec![id.detach()],
-            None => {
-                emit(Event::Decorations(decorations(repo)?));
-                emit(Event::Complete);
-                return Ok(());
-            }
-        }
-    } else {
-        resolve_revisions(repo, revisions, "")?
+    let Some(tips) = resolve_tips(repo, revisions)? else {
+        emit(Event::Decorations(decorations(repo)?));
+        emit(Event::Complete);
+        return Ok(());
     };
     let hidden_tips = resolve_revisions(repo, hidden_revisions, "hidden ")?;
 
@@ -151,6 +139,42 @@ pub(crate) fn load(
     }
     emit(Event::Complete);
     Ok(())
+}
+
+pub(crate) fn count_up_to(
+    repo: &gix::Repository,
+    revisions: &[OsString],
+    hidden_revisions: &[OsString],
+    limit: usize,
+) -> Result<usize> {
+    let Some(tips) = resolve_tips(repo, revisions)? else {
+        return Ok(0);
+    };
+    let hidden_tips = resolve_revisions(repo, hidden_revisions, "hidden ")?;
+    let walk = repo
+        .rev_walk(tips)
+        .with_hidden(hidden_tips)
+        .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
+        .all()
+        .context("could not start revision walk")?;
+    let mut count = 0;
+    for info in walk.take(limit) {
+        info.context("could not traverse revision history")?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn resolve_tips(repo: &gix::Repository, revisions: &[OsString]) -> Result<Option<Vec<ObjectId>>> {
+    if revisions.is_empty() {
+        repo.head()
+            .context("could not read HEAD")?
+            .try_peel_to_id()
+            .context("could not resolve HEAD")
+            .map(|id| id.map(|id| vec![id.detach()]))
+    } else {
+        resolve_revisions(repo, revisions, "").map(Some)
+    }
 }
 
 fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
@@ -378,6 +402,19 @@ mod tests {
         );
         let expected = String::from_utf8(output.stdout)?.lines().map(str::to_owned).collect();
         assert_eq!(actual, expected, "hidden tips use Git's exclusion semantics");
+        let repo = gix::open(&fixture)?;
+        let revisions = [OsString::from("topic")];
+        let hidden = [OsString::from("main")];
+        assert_eq!(
+            count_up_to(&repo, &revisions, &hidden, 1)?,
+            actual.len().min(1),
+            "the screen-size probe stops at its limit"
+        );
+        assert_eq!(
+            count_up_to(&repo, &revisions, &hidden, usize::MAX)?,
+            actual.len(),
+            "the screen-size probe uses the same hidden history"
+        );
         assert!(
             matches!(events.last(), Some(Event::Complete)),
             "the filtered walk completes"

@@ -161,13 +161,26 @@ pub fn main() -> Result<()> {
         Subcommands::Tix {
             help: _,
             quit_on_finish,
+            screen,
             hide,
             revisions,
-        } => gix_tix::run(
-            repository(Mode::Lenient)?.into_sync(),
-            revisions,
-            gix_tix::Options { quit_on_finish, hide },
-        ),
+        } => {
+            let screen = match screen.as_str() {
+                "auto" => gix_tix::Screen::Auto,
+                "always" => gix_tix::Screen::Always,
+                "half" => gix_tix::Screen::Half,
+                value => anyhow::bail!("invalid screen mode: {value}"),
+            };
+            gix_tix::run(
+                repository(Mode::Lenient)?.into_sync(),
+                revisions,
+                gix_tix::Options {
+                    quit_on_finish,
+                    hide,
+                    screen,
+                },
+            )
+        }
         Subcommands::Env => prepare_and_run(
             "env",
             trace,
@@ -1865,6 +1878,18 @@ mod tests {
         };
         assert_eq!(hide, ["main", "tag"], "short and long hide options append");
         assert_eq!(revisions, ["topic"], "positional revisions remain visible tips");
+        let args = Args::try_parse_from(["gix", "tix", "--screen", "half"]).expect("the half-screen mode parses");
+        let Subcommands::Tix { screen, .. } = args.cmd else {
+            panic!("tix arguments route to tix")
+        };
+        assert_eq!(screen, "half", "the requested screen mode is retained");
+        assert_eq!(
+            Args::try_parse_from(["gix", "tix", "--screen", "other"])
+                .expect_err("unknown screen modes are rejected")
+                .kind(),
+            clap::error::ErrorKind::InvalidValue,
+            "screen mode validation happens at the command line"
+        );
         assert_eq!(
             Args::try_parse_from(["gix", "tix", "--help"])
                 .expect_err("help exits through clap")

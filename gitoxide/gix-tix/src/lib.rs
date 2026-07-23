@@ -20,10 +20,14 @@ use anyhow::{Context, Result};
 use app::{Action, App, Effect, State};
 use crossterm::{
     clipboard::CopyToClipboard,
+    cursor,
     event::{self, Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
+    style::Print,
+    terminal,
 };
 use history::{Authors, Decorations, Event};
+use ratatui::{TerminalOptions, Viewport};
 
 const EVENT_BATCH_SIZE: usize = 256;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
@@ -36,18 +40,95 @@ pub struct Options {
     pub quit_on_finish: bool,
     /// Revisions whose reachable commits should initially be hidden.
     pub hide: Vec<OsString>,
+    /// How much of the terminal to use.
+    pub screen: Screen,
+}
+
+/// How `gix-tix` occupies the terminal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Screen {
+    /// Use the main screen for short histories, otherwise the alternate screen.
+    #[default]
+    Auto,
+    /// Always use the alternate screen.
+    Always,
+    /// Use half of the main screen.
+    Half,
 }
 
 /// Run the interactive commit graph for `repository`.
 pub fn run(repository: gix::ThreadSafeRepository, revisions: Vec<OsString>, options: Options) -> Result<()> {
-    let mut terminal = ratatui::try_init().context("could not initialize terminal")?;
+    let terminal_height = match options.screen {
+        Screen::Always => 0,
+        Screen::Auto | Screen::Half => terminal::size().context("could not determine terminal size")?.1,
+    };
+    let visible_commits = match options.screen {
+        Screen::Auto | Screen::Half => history::count_up_to(
+            &repository.to_thread_local(),
+            &revisions,
+            &options.hide,
+            half_height(terminal_height) as usize,
+        )?,
+        Screen::Always => 0,
+    };
+    let inline_height = inline_height(options.screen, terminal_height, visible_commits);
+    let mut terminal = match inline_height {
+        Some(height) => ratatui::try_init_with_options(TerminalOptions {
+            viewport: Viewport::Inline(height),
+        }),
+        None => ratatui::try_init(),
+    }
+    .context("could not initialize terminal")?;
     let result = event_loop(&mut terminal, repository, revisions, options);
-    let restore = ratatui::try_restore().context("could not restore terminal");
+    let restore = restore_terminal(&mut terminal, inline_height.is_some());
     let lane_time = result?;
     restore?;
     if let Some(lane_time) = lane_time {
         eprintln!("lane computation: {:.3}s", lane_time.as_secs_f64());
     }
+    Ok(())
+}
+
+fn half_height(terminal_height: u16) -> u16 {
+    (terminal_height / 2).max(1)
+}
+
+fn inline_height(screen: Screen, terminal_height: u16, visible_commits: usize) -> Option<u16> {
+    let half = half_height(terminal_height);
+    let compact = u16::try_from(visible_commits)
+        .unwrap_or(u16::MAX)
+        .saturating_add(1)
+        .min(half);
+    match screen {
+        Screen::Always => None,
+        Screen::Half => Some(compact),
+        Screen::Auto if visible_commits < half as usize => Some(compact),
+        Screen::Auto => None,
+    }
+}
+
+fn restore_terminal(terminal: &mut ratatui::DefaultTerminal, inline: bool) -> Result<()> {
+    if !inline {
+        return ratatui::try_restore().context("could not restore terminal");
+    }
+
+    let cursor = (|| {
+        let area = terminal.get_frame().area();
+        let terminal_height = terminal.size()?.height;
+        if area.bottom() < terminal_height {
+            execute!(terminal.backend_mut(), cursor::MoveTo(0, area.bottom()))
+        } else {
+            execute!(
+                terminal.backend_mut(),
+                cursor::MoveTo(0, terminal_height.saturating_sub(1)),
+                Print("\r\n")
+            )
+        }
+        .and_then(|()| terminal.show_cursor())
+    })();
+    let raw_mode = terminal::disable_raw_mode();
+    cursor.context("could not restore terminal cursor")?;
+    raw_mode.context("could not disable terminal raw mode")?;
     Ok(())
 }
 
@@ -57,7 +138,11 @@ fn event_loop(
     revisions: Vec<OsString>,
     options: Options,
 ) -> Result<Option<Duration>> {
-    let Options { quit_on_finish, hide } = options;
+    let Options {
+        quit_on_finish,
+        hide,
+        screen: _,
+    } = options;
     let mailmap = repository.to_thread_local().open_mailmap();
     let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
     let (mut cancelled, mut receiver) = start_history(
@@ -251,6 +336,40 @@ fn action(key: KeyEvent) -> Option<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chooses_screen_from_terminal_and_history_height() {
+        assert_eq!(
+            inline_height(Screen::Auto, 20, 9),
+            Some(10),
+            "short histories occupy only their rows and footer"
+        );
+        assert_eq!(
+            inline_height(Screen::Auto, 20, 10),
+            None,
+            "the auto cutoff is strictly less than half the terminal"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 3),
+            Some(4),
+            "half mode shrinks to the rows and footer needed by short histories"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 10),
+            Some(10),
+            "half mode is capped at half the terminal, rounded down"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 0),
+            Some(1),
+            "an empty history only needs its footer"
+        );
+        assert_eq!(
+            inline_height(Screen::Always, 20, 0),
+            None,
+            "always mode uses the alternate screen"
+        );
+    }
 
     #[test]
     fn maps_navigation_and_control_c() {
