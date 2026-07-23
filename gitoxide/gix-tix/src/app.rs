@@ -1,6 +1,5 @@
 use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap},
+    collections::HashMap,
     time::{Duration, Instant},
 };
 
@@ -38,6 +37,8 @@ pub(crate) enum Action {
     Last,
     ToggleDate,
     ToggleName,
+    PinMetadata,
+    UnpinMetadata,
     Cancel,
     Copy,
     Quit,
@@ -60,6 +61,7 @@ pub(crate) struct App {
     pub lane_time: Option<Duration>,
     pub show_committer_date: bool,
     pub show_author_name: bool,
+    pub pin_metadata: Option<bool>,
     follow_tail: bool,
 }
 
@@ -74,6 +76,7 @@ impl App {
             lane_time: None,
             show_committer_date: true,
             show_author_name: true,
+            pin_metadata: None,
             follow_tail: false,
         }
     }
@@ -118,6 +121,8 @@ impl App {
             }
             Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
             Action::ToggleName => self.show_author_name = !self.show_author_name,
+            Action::PinMetadata => self.pin_metadata = Some(true),
+            Action::UnpinMetadata => self.pin_metadata = Some(false),
             Action::Cancel if self.state == State::Loading => {
                 self.state = State::Cancelling;
                 return vec![Effect::Cancel];
@@ -180,19 +185,20 @@ fn finish_rows(rows: &mut Vec<CommitRow>) -> Duration {
         }
     }
 
-    let mut ready: BinaryHeap<_> = children
+    let mut ready: Vec<_> = children
         .iter()
         .enumerate()
-        .filter_map(|(index, count)| (*count == 0).then_some(Reverse(index)))
+        .rev()
+        .filter_map(|(index, count)| (*count == 0).then_some(index))
         .collect();
     let mut order = Vec::with_capacity(rows.len());
-    while let Some(Reverse(index)) = ready.pop() {
+    while let Some(index) = ready.pop() {
         order.push(index);
-        for parent in &rows[index].parent_ids {
+        for parent in rows[index].parent_ids.iter().rev() {
             if let Some(parent_index) = positions.get(parent) {
                 children[*parent_index] -= 1;
                 if children[*parent_index] == 0 {
-                    ready.push(Reverse(*parent_index));
+                    ready.push(*parent_index);
                 }
             }
         }
@@ -391,6 +397,26 @@ mod tests {
     }
 
     #[test]
+    fn completion_keeps_independent_lines_of_history_together() {
+        let mut app = App::new(10);
+        app.extend_commits(vec![
+            row_with_parents(5, &[3]),
+            row_with_parents(4, &[2]),
+            row_with_parents(3, &[1]),
+            row_with_parents(2, &[1]),
+            row(1),
+        ]);
+
+        app.update(Action::Complete);
+
+        assert_eq!(
+            app.rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [row(5).id, row(3).id, row(4).id, row(2).id, row(1).id],
+            "topological order finishes one line before showing another"
+        );
+    }
+
+    #[test]
     fn selection_follows_the_oldest_commit_until_the_user_moves() {
         let mut app = App::new(2);
         app.extend_commits(vec![row(1), row(2), row(3)]);
@@ -441,9 +467,13 @@ mod tests {
 
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
+        app.update(Action::PinMetadata);
 
         assert!(!app.show_committer_date);
         assert!(!app.show_author_name);
+        assert_eq!(app.pin_metadata, Some(true));
+        app.update(Action::UnpinMetadata);
+        assert_eq!(app.pin_metadata, Some(false));
     }
 
     #[test]

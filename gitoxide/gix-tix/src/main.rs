@@ -146,6 +146,8 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::End | KeyCode::Char('G') => Some(Action::Last),
         KeyCode::Char('d') => Some(Action::ToggleDate),
         KeyCode::Char('n') => Some(Action::ToggleName),
+        KeyCode::Char('[') => Some(Action::PinMetadata),
+        KeyCode::Char(']') => Some(Action::UnpinMetadata),
         KeyCode::Char('y') => Some(Action::Copy),
         _ => None,
     }
@@ -184,6 +186,14 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)),
             Some(Action::ToggleName)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE)),
+            Some(Action::PinMetadata)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE)),
+            Some(Action::UnpinMetadata)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),

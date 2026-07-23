@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use gix::bstr::ByteSlice;
 use ratatui::{
     Frame,
@@ -18,9 +20,13 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     app.ensure_visible();
     let start = app.offset.min(app.rows.len());
     let end = start.saturating_add(app.viewport_rows).min(app.rows.len());
+    let visible_rows = &app.rows[start..end];
+    let graph_width = ((body.width as usize) / 3).saturating_sub(2).max(1);
+    let graph_is_wide = visible_rows.iter().any(|row| row.lane.chars().count() > graph_width);
+    let pin_metadata = app.pin_metadata.unwrap_or(graph_is_wide);
     let show_committer_date = app.show_committer_date;
     let show_author_name = app.show_author_name;
-    let rows = app.rows[start..end].iter().map(|row| {
+    let rows = visible_rows.iter().map(|row| {
         let id = row.id.to_hex().to_string();
         let labels = decorations.get(&row.id).map(|labels| {
             labels
@@ -30,7 +36,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 .join(", ")
         });
         let mut spans = vec![
-            Span::raw(&row.lane),
+            Span::raw(lane_for_pane(&row.lane, graph_width, pin_metadata)),
             Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
         ];
@@ -65,11 +71,32 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status} · ↑↓/jk move · d date · n name · y copy · Esc cancel · q quit",
+            "{} commits · {status} · ↑↓/jk move · [ pane · ] natural · d date · n name · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
     );
+}
+
+fn lane_for_pane(lane: &str, width: usize, pinned: bool) -> Cow<'_, str> {
+    if !pinned {
+        return Cow::Borrowed(lane);
+    }
+    let len = lane.chars().count();
+    let mut out = String::with_capacity(width);
+    if len > width {
+        out.extend(lane.chars().take(width.saturating_sub(2)));
+        if width > 1 {
+            out.push('…');
+            out.push(' ');
+        } else {
+            out.push('…');
+        }
+    } else {
+        out.push_str(lane);
+        out.extend(std::iter::repeat_n(' ', width - len));
+    }
+    Cow::Owned(out)
 }
 
 #[cfg(test)]
@@ -93,18 +120,18 @@ mod tests {
         }]);
         app.update(Action::Complete);
         let decorations = Decorations::from([(id, vec!["HEAD".into()])]);
-        let mut terminal = Terminal::new(TestBackend::new(90, 2))?;
+        let mut terminal = Terminal::new(TestBackend::new(120, 2))?;
 
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
 
         let mut expected = Buffer::with_lines([
-            format!("{:<90}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
+            format!("{:<120}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
             format!(
-                "{:<90}",
-                "1 commits · complete · ↑↓/jk move · d date · n name · y copy · Esc cancel · q quit"
+                "{:<120}",
+                "1 commits · complete · ↑↓/jk move · [ pane · ] natural · d date · n name · y copy · Esc cancel · q quit"
             ),
         ]);
-        for x in 0..90 {
+        for x in 0..120 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
         for x in 4..11 {
@@ -115,10 +142,7 @@ mod tests {
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
-        let row = (0..90).fold(String::new(), |mut out, x| {
-            out.push_str(terminal.backend().buffer()[(x, 0)].symbol());
-            out
-        });
+        let row = rendered_row(&terminal);
         assert!(!row.contains("1970-01-01"), "d hides the committer date");
         assert!(!row.contains("author"), "n hides the author name");
         assert!(row.contains("subject"), "the commit subject remains visible");
@@ -156,5 +180,46 @@ mod tests {
         assert_eq!(app.selected, Some(2), "drawing preserves the global selection");
         assert_eq!(app.offset, 1, "drawing preserves the global offset");
         Ok(())
+    }
+
+    #[test]
+    fn overlays_metadata_on_wide_graphs_and_allows_natural_flow() -> Result<(), Box<dyn std::error::Error>> {
+        let mut app = App::new(1);
+        app.extend_commits(vec![CommitRow {
+            id: gix::ObjectId::Sha1([1; 20]),
+            parent_ids: Default::default(),
+            lane: String::new(),
+            committer_time: gix::date::Time::default(),
+            author_name: "author".into(),
+            subject: "subject".into(),
+        }]);
+        app.update(Action::Complete);
+        app.rows[0].lane = "│".repeat(80);
+        let mut terminal = Terminal::new(TestBackend::new(60, 2))?;
+
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(
+            rendered_row(&terminal).contains("0101010"),
+            "wide graphs automatically pin metadata"
+        );
+
+        app.update(Action::UnpinMetadata);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(
+            !rendered_row(&terminal).contains("0101010"),
+            "] restores natural post-graph placement"
+        );
+
+        app.update(Action::PinMetadata);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(rendered_row(&terminal).contains("0101010"), "[ pins metadata again");
+        Ok(())
+    }
+
+    fn rendered_row(terminal: &Terminal<TestBackend>) -> String {
+        (0..terminal.backend().buffer().area.width).fold(String::new(), |mut out, x| {
+            out.push_str(terminal.backend().buffer()[(x, 0)].symbol());
+            out
+        })
     }
 }
