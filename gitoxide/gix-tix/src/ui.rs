@@ -25,6 +25,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 .join(", ")
         });
         Line::from(vec![
+            Span::raw(&row.lane),
             Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
             Span::raw(row.subject.to_str_lossy()),
@@ -66,6 +67,8 @@ mod tests {
         let mut app = App::new(2);
         app.update(Action::Commit(CommitRow {
             id,
+            parent_ids: Default::default(),
+            lane: String::new(),
             subject: "subject".into(),
         }));
         app.update(Action::Complete);
@@ -75,13 +78,13 @@ mod tests {
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
 
         let mut expected = Buffer::with_lines([
-            "> 0101010 (HEAD) subject                             ",
+            "> ● 0101010 (HEAD) subject                           ",
             "1 commits · complete · ↑↓/jk move · y copy · Esc cance",
         ]);
         for x in 0..54 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
-        for x in 2..9 {
+        for x in 4..11 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
         }
         terminal.backend().assert_buffer(&expected);

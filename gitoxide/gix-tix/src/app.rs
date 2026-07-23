@@ -1,8 +1,15 @@
-use gix::{ObjectId, bstr::BString};
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, HashSet},
+};
+
+use gix::{ObjectId, bstr::BString, traverse::commit::ParentIds};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CommitRow {
     pub id: ObjectId,
+    pub parent_ids: ParentIds,
+    pub lane: String,
     pub subject: BString,
 }
 
@@ -73,8 +80,12 @@ impl App {
                 self.ensure_visible();
             }
             Action::Complete if self.state == State::Loading => {
+                let selected = self.selected.map(|index| self.rows[index].id);
+                finish_rows(&mut self.rows);
+                self.selected = selected.and_then(|id| self.rows.iter().position(|row| row.id == id));
                 self.state = State::Complete;
                 self.follow_tail = false;
+                self.ensure_visible();
             }
             Action::Cancelled if self.state == State::Cancelling => self.state = State::Cancelled,
             Action::MoveUp => self.move_selection(1, false),
@@ -140,6 +151,147 @@ impl App {
     }
 }
 
+fn finish_rows(rows: &mut Vec<CommitRow>) {
+    let positions: HashMap<_, _> = rows.iter().enumerate().map(|(index, row)| (row.id, index)).collect();
+    let mut children = vec![0usize; rows.len()];
+    for row in rows.iter() {
+        for parent in &row.parent_ids {
+            if let Some(index) = positions.get(parent) {
+                children[*index] += 1;
+            }
+        }
+    }
+
+    let mut ready: BinaryHeap<_> = children
+        .iter()
+        .enumerate()
+        .filter_map(|(index, count)| (*count == 0).then_some(Reverse(index)))
+        .collect();
+    let mut order = Vec::with_capacity(rows.len());
+    while let Some(Reverse(index)) = ready.pop() {
+        order.push(index);
+        for parent in &rows[index].parent_ids {
+            if let Some(parent_index) = positions.get(parent) {
+                children[*parent_index] -= 1;
+                if children[*parent_index] == 0 {
+                    ready.push(Reverse(*parent_index));
+                }
+            }
+        }
+    }
+    if order.len() == rows.len() {
+        let mut old: Vec<_> = std::mem::take(rows).into_iter().map(Some).collect();
+        *rows = order
+            .into_iter()
+            .map(|index| old[index].take().expect("each row is moved exactly once"))
+            .collect();
+    }
+    render_lanes(rows);
+}
+
+fn render_lanes(rows: &mut [CommitRow]) {
+    let known: HashSet<_> = rows.iter().map(|row| row.id).collect();
+    let mut columns = Vec::new();
+    for row in rows {
+        let current = columns.iter().position(|id| *id == row.id).unwrap_or_else(|| {
+            columns.push(row.id);
+            columns.len() - 1
+        });
+        let mut next = Vec::new();
+        for (index, id) in columns.iter().copied().enumerate() {
+            if index == current {
+                for parent in row.parent_ids.iter().copied().filter(|id| known.contains(id)) {
+                    if !next.contains(&parent) {
+                        next.push(parent);
+                    }
+                }
+            } else if !next.contains(&id) {
+                next.push(id);
+            }
+        }
+
+        let mut edges = Vec::new();
+        for (index, id) in columns.iter().enumerate() {
+            if index != current
+                && let Some(next_index) = next.iter().position(|next_id| next_id == id)
+            {
+                edges.push((index, next_index));
+            }
+        }
+        for parent in row.parent_ids.iter().copied().filter(|id| known.contains(id)) {
+            if let Some(next_index) = next.iter().position(|id| *id == parent) {
+                edges.push((current, next_index));
+            }
+        }
+        row.lane = transition(columns.len(), next.len(), current, &edges);
+        columns = next;
+    }
+}
+
+fn transition(before: usize, after: usize, current: usize, edges: &[(usize, usize)]) -> String {
+    const UP: u8 = 1;
+    const DOWN: u8 = 2;
+    const LEFT: u8 = 4;
+    const RIGHT: u8 = 8;
+    const VERTICAL: u8 = UP | DOWN;
+    const HORIZONTAL: u8 = LEFT | RIGHT;
+    const CROSS: u8 = VERTICAL | HORIZONTAL;
+    const VERTICAL_RIGHT: u8 = VERTICAL | RIGHT;
+    const VERTICAL_LEFT: u8 = VERTICAL | LEFT;
+    const DOWN_HORIZONTAL: u8 = DOWN | HORIZONTAL;
+    const UP_HORIZONTAL: u8 = UP | HORIZONTAL;
+    const DOWN_RIGHT: u8 = DOWN | RIGHT;
+    const DOWN_LEFT: u8 = DOWN | LEFT;
+    const UP_RIGHT: u8 = UP | RIGHT;
+    const UP_LEFT: u8 = UP | LEFT;
+
+    let width = before.max(after).max(current + 1) * 2 - 1;
+    let mut cells = vec![0u8; width];
+    for &(from, to) in edges {
+        let from = from * 2;
+        let to = to * 2;
+        cells[from] |= UP;
+        cells[to] |= DOWN;
+        if from < to {
+            cells[from] |= RIGHT;
+            cells[to] |= LEFT;
+            for cell in &mut cells[from + 1..to] {
+                *cell |= LEFT | RIGHT;
+            }
+        } else if to < from {
+            cells[from] |= LEFT;
+            cells[to] |= RIGHT;
+            for cell in &mut cells[to + 1..from] {
+                *cell |= LEFT | RIGHT;
+            }
+        }
+    }
+
+    let mut out = String::with_capacity(width + 1);
+    for (index, cell) in cells.into_iter().enumerate() {
+        out.push(if index == current * 2 {
+            '●'
+        } else {
+            match cell {
+                0 => ' ',
+                CROSS => '┼',
+                VERTICAL_RIGHT => '├',
+                VERTICAL_LEFT => '┤',
+                DOWN_HORIZONTAL => '┬',
+                UP_HORIZONTAL => '┴',
+                DOWN_RIGHT => '┌',
+                DOWN_LEFT => '┐',
+                UP_RIGHT => '└',
+                UP_LEFT => '┘',
+                HORIZONTAL => '─',
+                _ => '│',
+            }
+        });
+    }
+    out.push(' ');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,8 +301,40 @@ mod tests {
         bytes[19] = n;
         CommitRow {
             id: ObjectId::Sha1(bytes),
+            parent_ids: ParentIds::new(),
+            lane: String::new(),
             subject: format!("commit {n}").into(),
         }
+    }
+
+    fn row_with_parents(n: u8, parents: &[u8]) -> CommitRow {
+        let mut commit = row(n);
+        commit.parent_ids = parents.iter().map(|n| row(*n).id).collect();
+        commit
+    }
+
+    #[test]
+    fn completion_orders_and_draws_merge_lanes() {
+        let mut app = App::new(10);
+        for row in [
+            row_with_parents(4, &[3, 2]),
+            row_with_parents(3, &[1]),
+            row(1),
+            row_with_parents(2, &[1]),
+        ] {
+            app.update(Action::Commit(row));
+        }
+
+        app.update(Action::Complete);
+
+        assert_eq!(
+            app.rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [row(4).id, row(3).id, row(2).id, row(1).id]
+        );
+        assert_eq!(
+            app.rows.iter().map(|row| row.lane.as_str()).collect::<Vec<_>>(),
+            ["●─┐ ", "● │ ", "├─● ", "● "]
+        );
     }
 
     #[test]

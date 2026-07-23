@@ -83,7 +83,12 @@ pub(crate) fn load(
             .context("could not decode commit message")?
             .summary()
             .into_owned();
-        if !emit(Event::Commit(CommitRow { id: info.id, subject })) {
+        if !emit(Event::Commit(CommitRow {
+            id: info.id,
+            parent_ids: info.parent_ids,
+            lane: String::new(),
+            subject,
+        })) {
             return Ok(());
         }
     }
