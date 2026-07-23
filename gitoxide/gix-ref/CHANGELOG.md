@@ -5,13 +5,159 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Bug Fixes
+
+ - <csr-id-cde8272517fe1480ad283fbbbe1cea0d488e75e9/> remove global lock optimization to align with Git
+   Previously, a transaction would rely on the packed-refs lock
+   only when available, and skip per-ref locks entirely.
+   
+   This would, however, incorrectly serialise ref writers globally,
+   giving it the same write performance as ref-tables, while allowing
+   races with Git processes.
+ - <csr-id-4aae42578517c5d1bfd4981e79d4956ea650351b/> check Windows device names before acquiring lock
+   Move the prohibit_windows_device_names validation ahead of lock
+   acquisition in lock_ref_and_apply_change(). Previously the check
+   ran inside ref_contents(), which is called by read_existing_ref()
+   after the .lock file was already created. For a ref such as
+   refs/heads/CON the lock path CON.lock is itself a reserved Windows
+   device name, so prepare() would fail during lock acquisition (or
+   open the device) rather than returning the configured validation
+   error.
+   
+   Extract the device-name check from ref_contents() into a new
+   check_windows_device_name() helper on the store and call it at the
+   top of lock_ref_and_apply_change(), before either the Delete or
+   Update branch tries to acquire a lock. ref_contents() still
+   delegates to the same helper for callers that read refs outside the
+   transaction path.
+ - <csr-id-8480e2aea4e713c277bfb0a05ff701e1d42302be/> close TOCTOU race in CAS check during ref transaction prepare
+   Read the existing ref value after acquiring the lock rather than before,
+   so the PreviousValue check compares against a value that cannot be
+   changed concurrently.  Without this, two transactions can both read the
+   old value, serialize through the lock, and both pass the CAS check —
+   silently losing one update.
+   
+   The TOCTOU fix moved the existing-ref read under the lock, which for the
+   Change::Update branch is now after lock acquisition. A path-prefix
+   collision (creating `a/b` while `a` is a ref file) therefore surfaced via
+   the lock's create_dir_all as `AlreadyExists`, reported as the misleading
+   `LockAcquire(PermanentlyLocked)` rather than the historical
+   `Io(NotADirectory)`.
+   
+   Thanks to the `gix-fs` fix, lock-acquisition I/O errors surface as `Error::Io`
+   (reserving `Error::LockAcquire` for actual contention), which restores the
+   historical `Io(NotADirectory)` for path-prefix collisions in the
+   `Change::Update` branch.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 16 commits contributed to the release.
+ - 31 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-trace v0.1.21, gix-validate v0.11.3, gix-path v0.12.3, gix-utils v0.3.5, gix-config-value v0.19.0, gix-prompt v0.16.0, gix-sec v0.14.2, gix-url v0.37.0, gix-credentials v0.39.0, safety bump 18 crates ([`f0ec710`](https://github.com/GitoxideLabs/gitoxide/commit/f0ec71076aa1cef3181b77946ee556a89c651b8e))
+    - Merge pull request #2722 from GitoxideLabs/reasons ([`c16b5a1`](https://github.com/GitoxideLabs/gitoxide/commit/c16b5a1892704b7c72a253bdd74a6848dd61032a))
+    - Replace lint allowances with expectations ([`43ff87a`](https://github.com/GitoxideLabs/gitoxide/commit/43ff87a73897b70313e3a58e7de82231be5b59ad))
+    - Merge pull request #2714 from GitoxideLabs/fix-credentials-parsing ([`cf3053a`](https://github.com/GitoxideLabs/gitoxide/commit/cf3053a3c18e2de788cdaa9f41b5bd343bdc0091))
+    - Release gix-path v0.12.2, gix-error v0.2.5, gix-utils v0.3.4, gix-date v0.15.6, gix-url v0.36.2, gix-credentials v0.38.2 ([`27aec47`](https://github.com/GitoxideLabs/gitoxide/commit/27aec474c113cc885d44631b329454dc1ad0fed2))
+    - Merge pull request #2702 from ameyypawar/fix/2694-exn-source-chain ([`e9c973d`](https://github.com/GitoxideLabs/gitoxide/commit/e9c973d9476bef293bec89cd683cb60b02a85e52))
+    - Thanks clippy ([`d533f0c`](https://github.com/GitoxideLabs/gitoxide/commit/d533f0c7a6a6b20cbcfe5a755d472b921e38b4a1))
+    - Merge pull request #2674 from GitoxideLabs/fix-ref-transaction-toctou ([`7471d07`](https://github.com/GitoxideLabs/gitoxide/commit/7471d075d951789654bd083d5345e4fa134ec3b6))
+    - Remove global lock optimization to align with Git ([`cde8272`](https://github.com/GitoxideLabs/gitoxide/commit/cde8272517fe1480ad283fbbbe1cea0d488e75e9))
+    - Merge pull request #2659 from willstott101/fix-ref-transaction-toctou ([`43dd683`](https://github.com/GitoxideLabs/gitoxide/commit/43dd6839d7d63c396c7c296244a5d87a92f09804))
+    - Review ([`7a1ebfb`](https://github.com/GitoxideLabs/gitoxide/commit/7a1ebfb930249f38a3c3feaf5b4a85d5714999ff))
+    - Check Windows device names before acquiring lock ([`4aae425`](https://github.com/GitoxideLabs/gitoxide/commit/4aae42578517c5d1bfd4981e79d4956ea650351b))
+    - Close TOCTOU race in CAS check during ref transaction prepare ([`8480e2a`](https://github.com/GitoxideLabs/gitoxide/commit/8480e2aea4e713c277bfb0a05ff701e1d42302be))
+    - Merge pull request #2670 from GitoxideLabs/fix-ci ([`d785bbc`](https://github.com/GitoxideLabs/gitoxide/commit/d785bbca609c287973f35c0e07ac9e0ade4d0f72))
+    - Update `mmap2` to avoid potential for unsoundness ([`eda41b1`](https://github.com/GitoxideLabs/gitoxide/commit/eda41b12df5d028a847d873736df1f1e973d1946))
+    - Merge pull request #2646 from GitoxideLabs/report ([`1b1541e`](https://github.com/GitoxideLabs/gitoxide/commit/1b1541ed7a457afd48385c1ee39113949a9f5263))
+</details>
+
+## 0.65.0 (2026-06-22)
+
+### Bug Fixes
+
+ - <csr-id-5d702e36b7489bd2fdc3529688aca480c5f29ac0/> tolerate NUL suffixes in symbolic ref files
+   Loose symbolic ref files can contain bytes after a NUL terminator. Git treats
+   those bytes as invisible when reading the referent, so a HEAD file like
+   'ref: refs/heads/main\0...' still resolves to refs/heads/main.
+   
+   gitoxide read the entire line until CR/LF before validating the symbolic target,
+   which made the embedded NUL fail refname validation.
+   
+   Match Git by stopping symbolic target parsing at the first NUL byte, while
+   leaving direct object ref parsing unchanged.
+   
+   Git baseline: local Git checkout 7760f83b59, refs/files-backend.c
+   parse_loose_ref_contents() uses C-string semantics for symbolic referents;
+   'git symbolic-ref HEAD' returns refs/heads/main for a HEAD containing
+   'ref: refs/heads/main\0codex-hidden-head-metadata: status-clean-demo'.
+ - <csr-id-c3ee5991fe9cbe0d9b229f1cc0b1b05d55a30f1c/> skip name validation in packed-refs binary search to unlock performance
+ - <csr-id-9f432ef509daf09dc1a5bb3cd8201bef81d881ed/> handle loose ref path-prefix collisions
+   The GitButler branch creation flow reported that
+   `repo.try_find_reference("refs/heads/A/new")` could fail with a low-level
+   `NotADirectory` error when `refs/heads/A` already exists as a loose ref. That
+   lookup is asking whether the longer ref exists; the path-prefix collision
+   matters to creation/update code, but find should report absence for that
+   candidate.
+   
+   Git reference: `refs/refs-internal.h` documents `ENOTDIR` as the case where a
+   ref prefix is not a directory, alongside `ENOENT` for non-existing refs. For
+   lookup, both mean the requested ref candidate was not found.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 10 commits contributed to the release over the course of 27 calendar days.
+ - 27 days passed between releases.
+ - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 0 issues like '(#ID)' were seen in commit messages
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **Uncategorized**
+    - Release gix-date v0.15.5, gix-hashtable v0.15.2, gix-object v0.62.0, gix-attributes v0.33.2, gix-filter v0.32.0, gix-revwalk v0.33.0, gix-traverse v0.59.0, gix-worktree-stream v0.34.0, gix-archive v0.34.0, gix-tempfile v23.0.2, gix-index v0.53.0, gix-worktree v0.54.0, gix-imara-diff v0.2.3, gix-diff v0.65.0, gix-blame v0.15.0, gix-ref v0.65.0, gix-config v0.58.0, gix-discover v0.53.0, gix-dir v0.27.0, gix-revision v0.47.0, gix-merge v0.18.0, gix-negotiate v0.33.0, gix-pack v0.72.0, gix-odb v0.82.0, gix-refspec v0.43.0, gix-transport v0.57.2, gix-protocol v0.63.0, gix-status v0.32.0, gix-submodule v0.32.0, gix-worktree-state v0.32.0, gix v0.85.0, gix-fsck v0.23.0, gitoxide-core v0.59.0, gitoxide v0.55.0, safety bump 28 crates ([`6428edc`](https://github.com/GitoxideLabs/gitoxide/commit/6428edc82fc8a16d5ef34ca2d49aa6fdff3645fe))
+    - Merge pull request #2658 from GitoxideLabs/compliant-ref-parser ([`1514b0f`](https://github.com/GitoxideLabs/gitoxide/commit/1514b0f949151b3ecc1623d593f0f936aba3d066))
+    - Tolerate NUL suffixes in symbolic ref files ([`5d702e3`](https://github.com/GitoxideLabs/gitoxide/commit/5d702e36b7489bd2fdc3529688aca480c5f29ac0))
+    - Merge pull request #2604 from nikicat/skip-validation-in-binary-search ([`66f70f3`](https://github.com/GitoxideLabs/gitoxide/commit/66f70f3063724b4145b21c6691c4f57892c7a74e))
+    - Review ([`a8b885d`](https://github.com/GitoxideLabs/gitoxide/commit/a8b885d69faf4eb5376dd357f8160db63cd3a43f))
+    - Skip name validation in packed-refs binary search to unlock performance ([`c3ee599`](https://github.com/GitoxideLabs/gitoxide/commit/c3ee5991fe9cbe0d9b229f1cc0b1b05d55a30f1c))
+    - Merge pull request #2645 from GitoxideLabs/try-find-reference-path-prefix-collision ([`4f089fc`](https://github.com/GitoxideLabs/gitoxide/commit/4f089fce944ce8b3a8f3417441ed3c02cabcac26))
+    - Handle Windows ref path-prefix collisions in ref_contents ([`c9191ab`](https://github.com/GitoxideLabs/gitoxide/commit/c9191ab7f94582eb1a06d418e4b90e12cb1d0f82))
+    - Handle loose ref path-prefix collisions ([`9f432ef`](https://github.com/GitoxideLabs/gitoxide/commit/9f432ef509daf09dc1a5bb3cd8201bef81d881ed))
+    - Merge pull request #2618 from GitoxideLabs/report ([`f7d4f33`](https://github.com/GitoxideLabs/gitoxide/commit/f7d4f33b58503996ae90497b69ce4c3a757982ac))
+</details>
+
 ## 0.64.0 (2026-05-26)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 15 commits contributed to the release over the course of 28 calendar days.
+ - 16 commits contributed to the release over the course of 28 calendar days.
  - 28 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-error v0.2.4, gix-date v0.15.4, gix-actor v0.41.1, gix-trace v0.1.20, gix-validate v0.11.2, gix-path v0.12.1, gix-utils v0.3.3, gix-features v0.48.1, gix-hash v0.25.1, gix-hashtable v0.15.1, gix-object v0.61.0, gix-glob v0.26.1, gix-quote v0.7.2, gix-attributes v0.33.1, gix-command v0.9.1, gix-packetline v0.21.4, gix-filter v0.31.0, gix-fs v0.21.2, gix-chunk v0.7.2, gix-commitgraph v0.37.1, gix-revwalk v0.32.0, gix-traverse v0.58.0, gix-worktree-stream v0.33.0, gix-archive v0.33.0, gix-bitmap v0.3.2, gix-tempfile v23.0.1, gix-lock v23.0.1, gix-index v0.52.0, gix-config-value v0.18.1, gix-pathspec v0.18.1, gix-ignore v0.21.1, gix-worktree v0.53.0, gix-imara-diff v0.2.2, gix-diff v0.64.0, gix-blame v0.14.0, gix-ref v0.64.0, gix-sec v0.14.1, gix-config v0.57.0, gix-prompt v0.15.1, gix-url v0.36.1, gix-credentials v0.38.1, gix-discover v0.52.0, gix-dir v0.26.0, gix-mailmap v0.33.1, gix-revision v0.46.0, gix-merge v0.17.0, gix-negotiate v0.32.0, gix-pack v0.71.0, gix-odb v0.81.0, gix-refspec v0.42.0, gix-shallow v0.12.1, gix-transport v0.57.1, gix-protocol v0.62.0, gix-status v0.31.0, gix-submodule v0.31.0, gix-worktree-state v0.31.0, gix v0.84.0, gix-fsck v0.22.0, gitoxide-core v0.58.0, gitoxide v0.54.0, safety bump 27 crates ([`10c58bb`](https://github.com/GitoxideLabs/gitoxide/commit/10c58bb56597d9335611da121aac21f9b09b6e5b))
     - Merge pull request #2590 from GitoxideLabs/independent-testtools ([`575113d`](https://github.com/GitoxideLabs/gitoxide/commit/575113dfb10b3ba12eb57f57a81b241e773968bd))
     - Adapt to changes in `gix-testtools` ([`ce9e6bd`](https://github.com/GitoxideLabs/gitoxide/commit/ce9e6bded2cb47cc9b995f8882d98c09ba5c2c8b))
     - Merge pull request #2575 from SarthakB11/fix/issue-2316 ([`4743361`](https://github.com/GitoxideLabs/gitoxide/commit/4743361e69238245b77f5687620b20652e62a23c))
@@ -51,8 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
  - <csr-id-1bf4099e3bb0c1fc81d8d139bd6531203a164104/> don't fail reflog creation if newlines are used in the configured user name
    > Look at https://github.com/GitoxideLabs/gitoxide/issues/2491 and compare this with what Git at /Users/b
-     yron/dev/github.com/git/git does. I think it will allow newlines and just trim whitespace. Once validat
-     ed, create a test in `gix-ref` to reproduce the issue, then fix it.
+   yron/dev/github.com/git/git does. I think it will allow newlines and just trim whitespace. Once validat
+   ed, create a test in `gix-ref` to reproduce the issue, then fix it.
 
 ### New Features (BREAKING)
 
@@ -81,7 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release over the course of 2 calendar days.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2491](https://github.com/GitoxideLabs/gitoxide/issues/2491)
 
@@ -120,7 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release over the course of 32 calendar days.
- - 32 days passed between releases.
+ - 33 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -161,6 +308,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release.
+ - 28 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -237,7 +385,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 14 commits contributed to the release over the course of 21 calendar days.
- - 21 days passed between releases.
+ - 22 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2363](https://github.com/GitoxideLabs/gitoxide/issues/2363)
 
@@ -294,7 +442,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
- - 29 days passed between releases.
+ - 30 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -322,6 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
+ - 30 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -469,7 +618,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 19 commits contributed to the release over the course of 79 calendar days.
- - 79 days passed between releases.
+ - 80 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -514,6 +663,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -568,6 +718,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 30 commits contributed to the release.
+ - 21 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1928](https://github.com/GitoxideLabs/gitoxide/issues/1928)
 
@@ -620,6 +771,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 18 commits contributed to the release.
+ - 76 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1850](https://github.com/GitoxideLabs/gitoxide/issues/1850)
 
@@ -744,6 +896,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 10 commits contributed to the release.
+ - 33 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -792,7 +945,7 @@ This release adjusts writes to lose ref files so they will contain newlines afte
 <csr-read-only-do-not-edit/>
 
  - 22 commits contributed to the release over the course of 60 calendar days.
- - 60 days passed between releases.
+ - 61 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -972,7 +1125,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 2 commits contributed to the release.
- - 4 days passed between releases.
+ - 5 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1017,6 +1170,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 13 commits contributed to the release over the course of 30 calendar days.
+ - 69 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1348](https://github.com/GitoxideLabs/gitoxide/issues/1348)
 
@@ -1120,7 +1274,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 4 calendar days.
- - 20 days passed between releases.
+ - 21 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1148,6 +1302,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1229,7 +1384,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 5 calendar days.
- - 8 days passed between releases.
+ - 9 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1183](https://github.com/GitoxideLabs/gitoxide/issues/1183)
 
@@ -1264,6 +1419,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release.
+ - 55 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1300,7 +1456,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release over the course of 6 calendar days.
- - 17 days passed between releases.
+ - 18 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1431,7 +1587,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 3 calendar days.
- - 4 days passed between releases.
+ - 5 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1486,7 +1642,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
- - 1 day passed between releases.
+ - 2 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1540,7 +1696,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
- - 19 days passed between releases.
+ - 20 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1589,7 +1745,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release over the course of 6 calendar days.
- - 6 days passed between releases.
+ - 7 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1614,7 +1770,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release over the course of 11 calendar days.
- - 15 days passed between releases.
+ - 16 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1685,7 +1841,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 2 commits contributed to the release.
- - 1 day passed between releases.
+ - 2 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1709,6 +1865,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1809,6 +1966,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release.
+ - 14 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1841,7 +1999,7 @@ A maintenance release without any user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release over the course of 3 calendar days.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1922,7 +2080,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 8 commits contributed to the release over the course of 2 calendar days.
- - 8 days passed between releases.
+ - 9 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
