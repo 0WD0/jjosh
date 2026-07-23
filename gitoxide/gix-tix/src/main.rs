@@ -23,6 +23,9 @@ use crossterm::{
 };
 use history::{Decorations, Event};
 
+const EVENT_BATCH_SIZE: usize = 256;
+const POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 fn main() -> Result<()> {
     let (revisions, quit_on_finish) = arguments(gix::env::args_os().skip(1));
     if revisions.iter().any(|arg| arg == "-h" || arg == "--help") {
@@ -70,7 +73,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_o
     let mut app = App::new(1);
     let mut decorations = Decorations::new();
     loop {
-        for message in receiver.try_iter().take(256) {
+        let mut events = 0;
+        for message in receiver.try_iter().take(EVENT_BATCH_SIZE) {
+            events += 1;
             match message? {
                 Event::Decorations(value) => decorations = value,
                 Event::Commit(row) => drop(app.update(Action::Commit(row))),
@@ -84,7 +89,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_o
             }
         }
         terminal.draw(|frame| ui::draw(frame, &mut app, &decorations))?;
-        if !event::poll(Duration::from_millis(16))? {
+        if !event::poll(poll_timeout(events))? {
             continue;
         }
         let TerminalEvent::Key(key) = event::read()? else {
@@ -104,6 +109,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, revisions: Vec<OsString>, quit_o
                 Effect::Quit => return Ok(()),
             }
         }
+    }
+}
+
+fn poll_timeout(events: usize) -> Duration {
+    if events == EVENT_BATCH_SIZE {
+        Duration::ZERO
+    } else {
+        POLL_INTERVAL
     }
 }
 
@@ -165,5 +178,11 @@ mod tests {
         let (revisions, quit_on_finish) = arguments(["--quit-on-finish", "main"].into_iter().map(OsString::from));
         assert!(quit_on_finish, "the option is enabled");
         assert_eq!(revisions, ["main"], "only revisions remain");
+    }
+
+    #[test]
+    fn saturated_event_batches_do_not_wait() {
+        assert_eq!(poll_timeout(EVENT_BATCH_SIZE), Duration::ZERO);
+        assert_eq!(poll_timeout(EVENT_BATCH_SIZE - 1), POLL_INTERVAL);
     }
 }

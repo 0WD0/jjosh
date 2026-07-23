@@ -15,7 +15,10 @@ use crate::{
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
     let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     app.viewport_rows = body.height as usize;
-    let rows = app.rows.iter().map(|row| {
+    app.ensure_visible();
+    let start = app.offset.min(app.rows.len());
+    let end = start.saturating_add(app.viewport_rows).min(app.rows.len());
+    let rows = app.rows[start..end].iter().map(|row| {
         let id = row.id.to_hex().to_string();
         let labels = decorations.get(&row.id).map(|labels| {
             labels
@@ -35,9 +38,12 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
         .highlight_symbol("> ")
         .highlight_spacing(HighlightSpacing::Always)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    let mut state = ListState::default().with_offset(app.offset).with_selected(app.selected);
+    let selected = app
+        .selected
+        .and_then(|selected| selected.checked_sub(start))
+        .filter(|selected| *selected < end - start);
+    let mut state = ListState::default().with_selected(selected);
     frame.render_stateful_widget(list, body, &mut state);
-    app.offset = state.offset();
 
     let status = match app.state {
         State::Loading => "loading",
@@ -88,6 +94,35 @@ mod tests {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
         }
         terminal.backend().assert_buffer(&expected);
+        Ok(())
+    }
+
+    #[test]
+    fn renders_only_the_visible_rows() -> Result<(), Box<dyn std::error::Error>> {
+        let mut app = App::new(2);
+        for n in 1..=3 {
+            app.update(Action::Commit(CommitRow {
+                id: gix::ObjectId::Sha1([n; 20]),
+                parent_ids: Default::default(),
+                lane: String::new(),
+                subject: format!("subject {n}").into(),
+            }));
+        }
+        app.update(Action::Complete);
+        app.update(Action::Last);
+        let mut terminal = Terminal::new(TestBackend::new(24, 3))?;
+
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(5, 0)].symbol(), "2", "the viewport starts at the second row");
+        assert_eq!(buffer[(5, 1)].symbol(), "3", "the selected third row remains visible");
+        assert!(
+            buffer[(0, 1)].modifier.contains(Modifier::REVERSED),
+            "the slice-local selection highlights the global selection"
+        );
+        assert_eq!(app.selected, Some(2), "drawing preserves the global selection");
+        assert_eq!(app.offset, 1, "drawing preserves the global offset");
         Ok(())
     }
 }

@@ -140,7 +140,7 @@ impl App {
         }
     }
 
-    fn ensure_visible(&mut self) {
+    pub(crate) fn ensure_visible(&mut self) {
         let Some(selected) = self.selected else { return };
         let height = self.viewport_rows.max(1);
         if selected < self.offset {
