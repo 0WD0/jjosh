@@ -39,11 +39,11 @@ gix-features = { version = "^0.48.1", path = "../gix-features", features = [
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
 gix-bitmap = { version = "^0.3.2", path = "../gix-bitmap" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
-gix-validate = { version = "^0.11.2", path = "../gix-validate" }
+gix-validate = { version = "^0.11.3", path = "../gix-validate" }
 gix-traverse = { version = "^0.59.0", path = "../gix-traverse" }
 gix-lock = { version = "^23.0.0", path = "../gix-lock" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
-gix-utils = { version = "^0.3.4", path = "../gix-utils" }
+gix-utils = { version = "^0.3.5", path = "../gix-utils" }
 
 hashbrown = "0.17.1"
 fnv = "1.0.7"

@@ -28,11 +28,11 @@ parallel = ["gix-features/parallel"]
 [dependencies]
 gix-features = { version = "^0.48.1", path = "../gix-features", features = ["walkdir"] }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
-gix-path = { version = "^0.12.2", path = "../gix-path" }
+gix-path = { version = "^0.12.3", path = "../gix-path" }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
-gix-utils = { version = "^0.3.4", path = "../gix-utils" }
-gix-validate = { version = "^0.11.2", path = "../gix-validate" }
+gix-utils = { version = "^0.3.5", path = "../gix-utils" }
+gix-validate = { version = "^0.11.3", path = "../gix-validate" }
 gix-actor = { version = "^0.41.1", path = "../gix-actor" }
 gix-lock = { version = "^23.0.0", path = "../gix-lock" }
 gix-tempfile = { version = "^23.0.0", default-features = false, path = "../gix-tempfile" }

@@ -27,10 +27,10 @@ parallel = ["gix-features/parallel"]
 
 [dependencies]
 gix-features = { version = "^0.48.1", path = "../gix-features" }
-gix-path = { version = "^0.12.2", path = "../gix-path" }
+gix-path = { version = "^0.12.3", path = "../gix-path" }
 gix-quote = { version = "^0.7.2", path = "../gix-quote" }
 gix-glob = { version = "^0.26.1", path = "../gix-glob" }
-gix-trace = { version = "^0.1.20", path = "../gix-trace" }
+gix-trace = { version = "^0.1.21", path = "../gix-trace" }
 
 bstr = { version = "1.12.0", default-features = false, features = ["std", "unicode"] }
 smallvec = "1.15.1"

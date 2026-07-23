@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "gix-pack"
-version = "0.72.0"
+version = "0.73.0"
 repository = "https://github.com/GitoxideLabs/gitoxide"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -45,7 +45,7 @@ wasm = ["gix-diff?/wasm"]
 [dependencies]
 gix-features = { version = "^0.48.1", path = "../gix-features", features = ["crc32", "progress"] }
 gix-zlib = { version = "^0.1.0", path = "../gix-zlib" }
-gix-path = { version = "^0.12.2", path = "../gix-path" }
+gix-path = { version = "^0.12.3", path = "../gix-path" }
 gix-hash = { version = "^0.25.1", path = "../gix-hash" }
 gix-chunk = { version = "^0.7.2", path = "../gix-chunk" }
 gix-error = { version = "^0.2.5", path = "../gix-error" }
@@ -54,7 +54,7 @@ gix-hashtable = { version = "^0.15.2", path = "../gix-hashtable", optional = tru
 
 # for streaming of packs (input, output)
 gix-traverse = { version = "^0.59.0", path = "../gix-traverse", optional = true }
-gix-diff = { version = "^0.65.0", path = "../gix-diff", default-features = false, optional = true }
+gix-diff = { version = "^0.66.0", path = "../gix-diff", default-features = false, optional = true }
 
 memmap2 = "0.9.11"
 smallvec = "1.15.1"

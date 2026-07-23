@@ -27,7 +27,7 @@ gix-worktree = { version = "^0.54.0", path = "../gix-worktree", default-features
 gix-index = { version = "^0.53.0", path = "../gix-index" }
 gix-fs = { version = "^0.21.2", path = "../gix-fs" }
 gix-object = { version = "^0.62.0", path = "../gix-object" }
-gix-path = { version = "^0.12.2", path = "../gix-path" }
+gix-path = { version = "^0.12.3", path = "../gix-path" }
 gix-features = { version = "^0.48.1", path = "../gix-features" }
 gix-filter = { version = "^0.32.0", path = "../gix-filter" }
 
