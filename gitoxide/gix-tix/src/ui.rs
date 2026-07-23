@@ -122,9 +122,18 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
         State::Complete => "complete",
         State::Cancelled => "cancelled",
     };
+    let hidden = if app.has_hidden_filter {
+        if app.show_hidden {
+            " · v hide hidden"
+        } else {
+            " · v show hidden"
+        }
+    } else {
+        ""
+    };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
+            "{} commits · {status}{hidden} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
@@ -307,6 +316,19 @@ mod tests {
         app.update(Action::ToggleSpecialRefs);
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
         assert!(rendered_row(&terminal).contains("refs/patches"), "r shows special refs");
+
+        app.has_hidden_filter = true;
+        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        assert!(
+            rendered_line(&terminal, 1).contains("v show hidden"),
+            "the footer advertises the configured hidden-history toggle"
+        );
+        app.show_hidden = true;
+        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        assert!(
+            rendered_line(&terminal, 1).contains("v hide hidden"),
+            "the footer reflects the unfiltered view"
+        );
         Ok(())
     }
 
@@ -487,8 +509,12 @@ mod tests {
     }
 
     fn rendered_row(terminal: &Terminal<TestBackend>) -> String {
+        rendered_line(terminal, 0)
+    }
+
+    fn rendered_line(terminal: &Terminal<TestBackend>, y: u16) -> String {
         (0..terminal.backend().buffer().area.width).fold(String::new(), |mut out, x| {
-            out.push_str(terminal.backend().buffer()[(x, 0)].symbol());
+            out.push_str(terminal.backend().buffer()[(x, y)].symbol());
             out
         })
     }

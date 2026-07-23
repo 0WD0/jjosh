@@ -48,6 +48,7 @@ pub(crate) enum Action {
     ToggleDate,
     ToggleName,
     ToggleSpecialRefs,
+    ToggleHidden,
     PinMetadata,
     UnpinMetadata,
     Cancel,
@@ -59,6 +60,7 @@ pub(crate) enum Action {
 pub(crate) enum Effect {
     Cancel,
     Copy(ObjectId),
+    Reload(bool),
     Quit,
 }
 
@@ -74,6 +76,8 @@ pub(crate) struct App {
     pub show_committer_date: bool,
     pub show_author_name: bool,
     pub show_special_refs: bool,
+    pub has_hidden_filter: bool,
+    pub show_hidden: bool,
     pub pin_metadata: Option<bool>,
     pub horizontal_offset: usize,
     horizontal_page: usize,
@@ -94,6 +98,8 @@ impl App {
             show_committer_date: true,
             show_author_name: true,
             show_special_refs: false,
+            has_hidden_filter: false,
+            show_hidden: false,
             pin_metadata: None,
             horizontal_offset: 0,
             horizontal_page: 1,
@@ -181,6 +187,11 @@ impl App {
             Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
             Action::ToggleName => self.show_author_name = !self.show_author_name,
             Action::ToggleSpecialRefs => self.show_special_refs = !self.show_special_refs,
+            Action::ToggleHidden
+                if self.has_hidden_filter && matches!(self.state, State::Complete | State::Cancelled) =>
+            {
+                return vec![Effect::Reload(!self.show_hidden)];
+            }
             Action::PinMetadata => self.pin_metadata = Some(true),
             Action::UnpinMetadata => self.pin_metadata = Some(false),
             Action::Cancel if self.state == State::Loading => {
@@ -202,6 +213,18 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    pub(crate) fn reload(&mut self, show_hidden: bool) {
+        self.rows = Vec::new();
+        self.titles = Vec::new();
+        self.selected = None;
+        self.offset = 0;
+        self.state = State::Loading;
+        self.lane_time = None;
+        self.show_hidden = show_hidden;
+        self.horizontal_offset = 0;
+        self.follow_tail = false;
     }
 
     fn move_selection(&mut self, distance: usize, down: bool) {
@@ -558,6 +581,34 @@ mod tests {
         assert_eq!(app.pin_metadata, Some(true));
         app.update(Action::UnpinMetadata);
         assert_eq!(app.pin_metadata, Some(false));
+    }
+
+    #[test]
+    fn hidden_history_is_reloaded_only_when_configured() {
+        let mut app = App::new(1);
+        assert!(
+            app.update(Action::ToggleHidden).is_empty(),
+            "the key is inert without hidden revisions"
+        );
+
+        app.has_hidden_filter = true;
+        app.extend_commits(vec![row(1)]);
+        assert!(
+            app.update(Action::ToggleHidden).is_empty(),
+            "a running walk cannot be replaced by another detached worker"
+        );
+        app.update(Action::Complete);
+        assert_eq!(app.update(Action::ToggleHidden), vec![Effect::Reload(true)]);
+        app.reload(true);
+        assert!(app.rows.is_empty(), "reloading drops rows from the previous view");
+        assert!(app.show_hidden);
+        assert_eq!(app.state, State::Loading);
+        assert!(
+            app.update(Action::ToggleHidden).is_empty(),
+            "the replacement walk must finish before it can be toggled again"
+        );
+        app.update(Action::Complete);
+        assert_eq!(app.update(Action::ToggleHidden), vec![Effect::Reload(false)]);
     }
 
     #[test]

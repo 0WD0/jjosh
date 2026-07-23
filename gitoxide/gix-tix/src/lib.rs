@@ -23,16 +23,19 @@ use crossterm::{
     event::{self, Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
 };
-use history::{Decorations, Event};
+use history::{AuthorNames, Decorations, Event};
 
 const EVENT_BATCH_SIZE: usize = 256;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
+type SharedAuthorNames = gix::features::threading::OwnShared<gix::features::threading::Mutable<AuthorNames>>;
 
 /// Options for [`run()`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Options {
     /// Exit once all commits and graph lanes have been computed.
     pub quit_on_finish: bool,
+    /// Revisions whose reachable commits should initially be hidden.
+    pub hide: Vec<OsString>,
 }
 
 /// Run the interactive commit graph for `repository`.
@@ -54,20 +57,18 @@ fn event_loop(
     revisions: Vec<OsString>,
     options: Options,
 ) -> Result<Option<Duration>> {
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let worker_cancelled = Arc::clone(&cancelled);
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let repository = repository.to_thread_local();
-        let result = history::load(&repository, &revisions, &worker_cancelled, |event| {
-            sender.send(Ok(event)).is_ok()
-        });
-        if let Err(err) = result {
-            let _ = sender.send(Err(err));
-        }
-    });
+    let Options { quit_on_finish, hide } = options;
+    let author_names =
+        gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(AuthorNames::new()));
+    let (mut cancelled, mut receiver) = start_history(
+        &repository,
+        &revisions,
+        &hide,
+        gix::features::threading::OwnShared::clone(&author_names),
+    );
 
     let mut app = App::new(1);
+    app.has_hidden_filter = !hide.is_empty();
     let mut decorations = Decorations::new();
     draw(terminal, &mut app, &decorations)?;
     let mut last_draw = Instant::now();
@@ -100,7 +101,7 @@ fn event_loop(
                 Event::Commits(rows) => app.extend_commits(rows),
                 Event::Complete => {
                     drop(app.update(Action::Complete));
-                    if options.quit_on_finish {
+                    if quit_on_finish {
                         return Ok(app.lane_time);
                     }
                 }
@@ -143,10 +144,52 @@ fn event_loop(
                     terminal.backend_mut(),
                     CopyToClipboard::to_clipboard_from(id.to_hex().to_string())
                 )?,
+                Effect::Reload(show_hidden) => {
+                    cancelled.store(true, Ordering::Relaxed);
+                    app.reload(show_hidden);
+                    decorations.clear();
+                    let hidden = if show_hidden { &[][..] } else { hide.as_slice() };
+                    (cancelled, receiver) = start_history(
+                        &repository,
+                        &revisions,
+                        hidden,
+                        gix::features::threading::OwnShared::clone(&author_names),
+                    );
+                }
                 Effect::Quit => return Ok(None),
             }
         }
     }
+}
+
+fn start_history(
+    repository: &gix::ThreadSafeRepository,
+    revisions: &[OsString],
+    hidden_revisions: &[OsString],
+    author_names: SharedAuthorNames,
+) -> (Arc<AtomicBool>, mpsc::Receiver<Result<Event>>) {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = Arc::clone(&cancelled);
+    let (sender, receiver) = mpsc::channel();
+    let repository = repository.clone();
+    let revisions = revisions.to_vec();
+    let hidden_revisions = hidden_revisions.to_vec();
+    std::thread::spawn(move || {
+        let repository = repository.to_thread_local();
+        let mut author_names = gix::features::threading::lock(&author_names);
+        let result = history::load(
+            &repository,
+            &revisions,
+            &hidden_revisions,
+            &mut author_names,
+            &worker_cancelled,
+            |event| sender.send(Ok(event)).is_ok(),
+        );
+        if let Err(err) = result {
+            let _ = sender.send(Err(err));
+        }
+    });
+    (cancelled, receiver)
 }
 
 fn draw(terminal: &mut ratatui::DefaultTerminal, app: &mut App, decorations: &Decorations) -> Result<()> {
@@ -190,6 +233,7 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('d') => Some(Action::ToggleDate),
         KeyCode::Char('n') => Some(Action::ToggleName),
         KeyCode::Char('r') => Some(Action::ToggleSpecialRefs),
+        KeyCode::Char('v') => Some(Action::ToggleHidden),
         KeyCode::Char('[') => Some(Action::PinMetadata),
         KeyCode::Char(']') => Some(Action::UnpinMetadata),
         KeyCode::Char('y') => Some(Action::Copy),
@@ -242,6 +286,10 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::ToggleSpecialRefs)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE)),
+            Some(Action::ToggleHidden)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE)),

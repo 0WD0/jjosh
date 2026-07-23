@@ -30,6 +30,7 @@ pub(crate) enum DecorationKind {
 }
 
 pub(crate) type Decorations = HashMap<ObjectId, Vec<Decoration>>;
+pub(crate) type AuthorNames = HashSet<&'static [u8]>;
 const COMMIT_BATCH_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -43,6 +44,8 @@ pub(crate) enum Event {
 pub(crate) fn load(
     repo: &gix::Repository,
     revisions: &[OsString],
+    hidden_revisions: &[OsString],
+    author_names: &mut AuthorNames,
     cancelled: &AtomicBool,
     mut emit: impl FnMut(Event) -> bool,
 ) -> Result<()> {
@@ -61,31 +64,19 @@ pub(crate) fn load(
             }
         }
     } else {
-        revisions
-            .iter()
-            .map(|revision| {
-                let revision = gix::path::os_str_into_bstr(revision)
-                    .with_context(|| format!("revision {} is not valid UTF-8", revision.to_string_lossy()))?;
-                repo.rev_parse_single(revision)
-                    .with_context(|| format!("could not resolve revision {revision}"))?
-                    .object()
-                    .context("could not read revision")?
-                    .peel_to_kind(gix::object::Kind::Commit)
-                    .context("revision does not resolve to a commit")
-                    .map(|object| object.id)
-            })
-            .collect::<Result<Vec<_>>>()?
+        resolve_revisions(repo, revisions, "")?
     };
+    let hidden_tips = resolve_revisions(repo, hidden_revisions, "hidden ")?;
 
     if !emit(Event::Decorations(decorations(repo)?)) {
         return Ok(());
     }
     let walk = repo
         .rev_walk(tips)
+        .with_hidden(hidden_tips)
         .sorting(gix::revision::walk::Sorting::ByCommitTime(Default::default()))
         .all()
         .context("could not start revision walk")?;
-    let mut author_names = HashSet::new();
     let mut rows = Vec::with_capacity(COMMIT_BATCH_SIZE);
     for info in walk {
         if cancelled.load(Ordering::Relaxed) {
@@ -100,7 +91,7 @@ pub(crate) fn load(
         for token in object.iter() {
             match token.context("could not decode commit")? {
                 Token::Author { signature } => {
-                    author_name = Some(intern(&mut author_names, signature.trim().name));
+                    author_name = Some(intern(author_names, signature.trim().name));
                 }
                 Token::Committer { signature } => {
                     committer_time = Some(signature.time().context("could not decode committer time")?);
@@ -139,7 +130,24 @@ pub(crate) fn load(
     Ok(())
 }
 
-fn intern(names: &mut HashSet<&'static [u8]>, name: &[u8]) -> &'static BStr {
+fn resolve_revisions(repo: &gix::Repository, revisions: &[OsString], kind: &str) -> Result<Vec<ObjectId>> {
+    revisions
+        .iter()
+        .map(|revision| {
+            let revision = gix::path::os_str_into_bstr(revision)
+                .with_context(|| format!("{kind}revision {} is not valid UTF-8", revision.to_string_lossy()))?;
+            repo.rev_parse_single(revision)
+                .with_context(|| format!("could not resolve {kind}revision {revision}"))?
+                .object()
+                .with_context(|| format!("could not read {kind}revision"))?
+                .peel_to_kind(gix::object::Kind::Commit)
+                .with_context(|| format!("{kind}revision does not resolve to a commit"))
+                .map(|object| object.id)
+        })
+        .collect()
+}
+
+fn intern(names: &mut AuthorNames, name: &[u8]) -> &'static BStr {
     match names.get(name) {
         Some(name) => name.as_bstr(),
         None => {
@@ -212,12 +220,15 @@ mod tests {
         gix_testtools::scripted_fixture_read_only("history.sh")
     }
 
-    fn loaded(path: &std::path::Path, revisions: &[&str]) -> Result<Vec<Event>> {
+    fn loaded(path: &std::path::Path, revisions: &[&str], hidden_revisions: &[&str]) -> Result<Vec<Event>> {
         let mut events = Vec::new();
+        let mut author_names = AuthorNames::new();
         let repo = gix::open(path)?;
         load(
             &repo,
             &revisions.iter().map(OsString::from).collect::<Vec<_>>(),
+            &hidden_revisions.iter().map(OsString::from).collect::<Vec<_>>(),
+            &mut author_names,
             &AtomicBool::new(false),
             |event| {
                 events.push(event);
@@ -230,7 +241,7 @@ mod tests {
     #[test]
     fn walks_the_same_reachable_set_as_git_for_multiple_tips() -> gix_testtools::Result {
         let fixture = fixture()?;
-        let events = loaded(&fixture, &["main", "topic"])?;
+        let events = loaded(&fixture, &["main", "topic"], &[])?;
         let actual: HashSet<_> = events
             .iter()
             .flat_map(|event| match event {
@@ -268,9 +279,38 @@ mod tests {
     }
 
     #[test]
+    fn hides_tips_and_every_commit_reachable_from_them() -> gix_testtools::Result {
+        let fixture = fixture()?;
+        let events = loaded(&fixture, &["topic"], &["main"])?;
+        let actual: HashSet<_> = events
+            .iter()
+            .flat_map(|event| match event {
+                Event::Commits(rows) => rows.iter().map(|row| row.id.to_hex().to_string()).collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let output = Command::new("git")
+            .current_dir(&fixture)
+            .args(["rev-list", "topic", "--not", "main", "--"])
+            .output()?;
+        assert!(
+            output.status.success(),
+            "git rev-list provides the reference result: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected = String::from_utf8(output.stdout)?.lines().map(str::to_owned).collect();
+        assert_eq!(actual, expected, "hidden tips use Git's exclusion semantics");
+        assert!(
+            matches!(events.last(), Some(Event::Complete)),
+            "the filtered walk completes"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn reports_decorations_and_honours_cancellation() -> gix_testtools::Result {
         let fixture = fixture()?;
-        let events = loaded(&fixture, &["main"])?;
+        let events = loaded(&fixture, &["main"], &[])?;
         let Event::Decorations(decorations) = &events[0] else {
             panic!("decorations are sent first")
         };
@@ -283,8 +323,9 @@ mod tests {
         );
 
         let mut cancelled = Vec::new();
+        let mut author_names = AuthorNames::new();
         let repo = gix::open(&fixture)?;
-        load(&repo, &[], &AtomicBool::new(true), |event| {
+        load(&repo, &[], &[], &mut author_names, &AtomicBool::new(true), |event| {
             cancelled.push(event);
             true
         })?;

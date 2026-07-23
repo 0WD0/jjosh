@@ -159,12 +159,14 @@ pub fn main() -> Result<()> {
     match cmd {
         #[cfg(feature = "tix")]
         Subcommands::Tix {
+            help: _,
             quit_on_finish,
+            hide,
             revisions,
         } => gix_tix::run(
             repository(Mode::Lenient)?.into_sync(),
             revisions,
-            gix_tix::Options { quit_on_finish },
+            gix_tix::Options { quit_on_finish, hide },
         ),
         Subcommands::Env => prepare_and_run(
             "env",
@@ -1855,5 +1857,20 @@ mod tests {
                 "{name} routes to the tix command"
             );
         }
+
+        let args = Args::try_parse_from(["gix", "tix", "-h", "main", "--hide", "tag", "topic"])
+            .expect("hide options and a visible revision parse");
+        let Subcommands::Tix { hide, revisions, .. } = args.cmd else {
+            panic!("tix arguments route to tix")
+        };
+        assert_eq!(hide, ["main", "tag"], "short and long hide options append");
+        assert_eq!(revisions, ["topic"], "positional revisions remain visible tips");
+        assert_eq!(
+            Args::try_parse_from(["gix", "tix", "--help"])
+                .expect_err("help exits through clap")
+                .kind(),
+            clap::error::ErrorKind::DisplayHelp,
+            "long help remains available while -h belongs to hide"
+        );
     }
 }
