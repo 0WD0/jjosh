@@ -17,7 +17,25 @@ pub(crate) struct Commit<T> {
     pub lane: String,
     pub committer_time: gix::date::Time,
     pub author_name: &'static BStr,
+    pub author_is_bot: bool,
+    pub attributions: Box<[Attribution]>,
     pub title: T,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Attribution {
+    pub kind: AttributionKind,
+    pub name: &'static BStr,
+    pub is_bot: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AttributionKind {
+    CoAuthor,
+    Reviewed,
+    Acked,
+    Tested,
+    SignedOff,
 }
 
 pub(crate) type LoadedCommit = Commit<BString>;
@@ -47,6 +65,7 @@ pub(crate) enum Action {
     Last,
     ToggleDate,
     ToggleName,
+    ToggleTrailers,
     ToggleSpecialRefs,
     ToggleHidden,
     PinMetadata,
@@ -75,6 +94,7 @@ pub(crate) struct App {
     pub lane_time: Option<Duration>,
     pub show_committer_date: bool,
     pub show_author_name: bool,
+    pub show_trailers: bool,
     pub show_special_refs: bool,
     pub has_hidden_filter: bool,
     pub show_hidden: bool,
@@ -97,6 +117,7 @@ impl App {
             lane_time: None,
             show_committer_date: true,
             show_author_name: true,
+            show_trailers: true,
             show_special_refs: false,
             has_hidden_filter: false,
             show_hidden: false,
@@ -122,6 +143,8 @@ impl App {
                 lane,
                 committer_time,
                 author_name,
+                author_is_bot,
+                attributions,
                 title,
             } = row;
             let start = self.titles.len();
@@ -132,6 +155,8 @@ impl App {
                 lane,
                 committer_time,
                 author_name,
+                author_is_bot,
+                attributions,
                 title: start..self.titles.len(),
             });
         }
@@ -186,6 +211,7 @@ impl App {
             }
             Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
             Action::ToggleName => self.show_author_name = !self.show_author_name,
+            Action::ToggleTrailers => self.show_trailers = !self.show_trailers,
             Action::ToggleSpecialRefs => self.show_special_refs = !self.show_special_refs,
             Action::ToggleHidden
                 if self.has_hidden_filter && matches!(self.state, State::Complete | State::Cancelled) =>
@@ -435,6 +461,8 @@ mod tests {
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: b"author".as_bstr(),
+            author_is_bot: false,
+            attributions: Box::default(),
             title: format!("commit {n}").into(),
         }
     }
@@ -569,14 +597,17 @@ mod tests {
     #[test]
     fn toggles_metadata_columns() {
         let mut app = App::new(1);
+        assert!(app.show_trailers, "trailer attribution is visible by default");
 
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
+        app.update(Action::ToggleTrailers);
         app.update(Action::ToggleSpecialRefs);
         app.update(Action::PinMetadata);
 
         assert!(!app.show_committer_date);
         assert!(!app.show_author_name);
+        assert!(!app.show_trailers);
         assert!(app.show_special_refs);
         assert_eq!(app.pin_metadata, Some(true));
         app.update(Action::UnpinMetadata);

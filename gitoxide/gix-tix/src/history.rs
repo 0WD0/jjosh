@@ -11,7 +11,7 @@ use gix::{
     objs::commit::ref_iter::Token,
 };
 
-use crate::app::{Commit, LoadedCommit};
+use crate::app::{Attribution, AttributionKind, Commit, LoadedCommit};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Decoration {
@@ -87,21 +87,42 @@ pub(crate) fn load(
         let object = info.object().context("could not read commit")?;
         let mut committer_time = None;
         let mut author_name = None;
+        let mut author_is_bot = false;
+        let mut attributions = Vec::new();
         let mut title = None;
         for token in object.iter() {
             match token.context("could not decode commit")? {
                 Token::Author { signature } => {
-                    author_name = Some(intern(author_names, signature.trim().name));
+                    let signature = signature.trim();
+                    author_name = Some(intern(author_names, signature.name));
+                    author_is_bot = is_bot(signature.email);
                 }
                 Token::Committer { signature } => {
                     committer_time = Some(signature.time().context("could not decode committer time")?);
                 }
                 Token::Message(message) => {
-                    title = Some(
-                        gix::objs::commit::MessageRef::from_bytes(message)
-                            .summary()
-                            .into_owned(),
-                    );
+                    let message = gix::objs::commit::MessageRef::from_bytes(message);
+                    title = Some(message.summary().into_owned());
+                    if let Some(body) = message.body() {
+                        for trailer in body.trailers() {
+                            let Some(kind) = attribution_kind(&trailer) else {
+                                continue;
+                            };
+                            let mut value: &[u8] = trailer.value.as_ref();
+                            let Ok(identity) = gix::actor::IdentityRef::from_bytes_consuming(&mut value) else {
+                                continue;
+                            };
+                            if !value.trim().is_empty() {
+                                continue;
+                            }
+                            let identity = identity.trim();
+                            attributions.push(Attribution {
+                                kind,
+                                name: intern(author_names, identity.name),
+                                is_bot: is_bot(identity.email),
+                            });
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -112,6 +133,8 @@ pub(crate) fn load(
             lane: String::new(),
             committer_time: committer_time.context("commit has no committer time")?,
             author_name: author_name.context("commit has no author name")?,
+            author_is_bot,
+            attributions: attributions.into_boxed_slice(),
             title: title.context("commit has no message")?,
         });
         if rows.len() == COMMIT_BATCH_SIZE
@@ -128,6 +151,28 @@ pub(crate) fn load(
     }
     emit(Event::Complete);
     Ok(())
+}
+
+fn is_bot(email: &BStr) -> bool {
+    [b"codex@openai.com".as_slice(), b"noreply@anthropic.com".as_slice()]
+        .iter()
+        .any(|candidate| email.eq_ignore_ascii_case(candidate))
+}
+
+fn attribution_kind(trailer: &gix::objs::commit::message::body::TrailerRef<'_>) -> Option<AttributionKind> {
+    if trailer.is_co_authored_by() {
+        Some(AttributionKind::CoAuthor)
+    } else if trailer.is_reviewed_by() {
+        Some(AttributionKind::Reviewed)
+    } else if trailer.is_acked_by() {
+        Some(AttributionKind::Acked)
+    } else if trailer.is_tested_by() {
+        Some(AttributionKind::Tested)
+    } else if trailer.is_signed_off_by() {
+        Some(AttributionKind::SignedOff)
+    } else {
+        None
+    }
 }
 
 fn resolve_revisions(repo: &gix::Repository, revisions: &[OsString], kind: &str) -> Result<Vec<ObjectId>> {
@@ -218,6 +263,7 @@ mod tests {
     use std::{collections::HashSet, process::Command};
 
     use super::*;
+    use crate::app::AttributionKind;
 
     fn fixture() -> gix_testtools::Result<std::path::PathBuf> {
         gix_testtools::scripted_fixture_read_only("history.sh")
@@ -272,7 +318,27 @@ mod tests {
             })
             .next()
             .expect("the topic commit is reachable");
-        assert_eq!(topic.author_name, "author", "the author name is retained");
+        assert_eq!(topic.author_name, "Codex", "the author name is retained");
+        assert!(
+            topic.author_is_bot,
+            "well-known bot email addresses identify bot authors"
+        );
+        assert_eq!(
+            topic
+                .attributions
+                .iter()
+                .map(|attribution| (attribution.kind, attribution.name, attribution.is_bot))
+                .collect::<Vec<_>>(),
+            [
+                (AttributionKind::CoAuthor, b"Human Coauthor".as_bstr(), false),
+                (AttributionKind::CoAuthor, b"Claude".as_bstr(), true),
+                (AttributionKind::Reviewed, b"Reviewer".as_bstr(), false),
+                (AttributionKind::Acked, b"Acknowledger".as_bstr(), false),
+                (AttributionKind::Tested, b"Tester".as_bstr(), false),
+                (AttributionKind::SignedOff, b"Signer".as_bstr(), false),
+            ],
+            "known attribution trailers retain their order and malformed identities are omitted"
+        );
         assert_eq!(
             topic.committer_time.format_or_unix(gix::date::time::format::SHORT),
             "2000-01-04",
