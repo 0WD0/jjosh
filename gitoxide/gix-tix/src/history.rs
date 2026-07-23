@@ -177,7 +177,10 @@ fn decorations(repo: &gix::Repository) -> Result<Decorations> {
                 kind = DecorationKind::AnnotatedTag;
             }
         }
-        let id = reference.peel_to_id().context("could not peel reference")?.detach();
+        let Ok(id) = reference.peel_to_id() else {
+            continue;
+        };
+        let id = id.detach();
         let mut name = reference.name().shorten().to_owned();
         if matches!(kind, DecorationKind::Tag | DecorationKind::AnnotatedTag) {
             name.insert_str(0, "tag: ");
@@ -320,6 +323,13 @@ mod tests {
                 .flatten()
                 .any(|decoration| { decoration.name == "tag: v1" && decoration.kind == DecorationKind::AnnotatedTag }),
             "annotated tags decorate their commit"
+        );
+        assert!(
+            decorations
+                .values()
+                .flatten()
+                .all(|decoration| decoration.name != "origin/HEAD"),
+            "dangling symbolic references are omitted"
         );
 
         let mut cancelled = Vec::new();

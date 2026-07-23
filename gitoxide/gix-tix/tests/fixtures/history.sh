@@ -22,3 +22,6 @@ git merge -q --no-edit merged
 git switch -q -c topic HEAD~1
 commit topic "2000-01-04T00:00:00"
 git switch -q main
+
+# Decorations are optional, so this unrelated stale remote HEAD must not break history loading.
+git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/missing
