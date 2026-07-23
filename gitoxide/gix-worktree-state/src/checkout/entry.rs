@@ -203,6 +203,16 @@ fn try_op_or_unlink<T>(
     overwrite_existing: bool,
     op: impl Fn(&Path) -> std::io::Result<T>,
 ) -> std::io::Result<T> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() && overwrite_existing => {
+            try_unlink_path_recursively(path, &meta)?;
+        }
+        Ok(meta) if meta.file_type().is_symlink() => return Err(std::io::ErrorKind::AlreadyExists.into()),
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+
     if overwrite_existing {
         match op(path) {
             Ok(res) => Ok(res),
@@ -359,6 +369,54 @@ pub(crate) enum ExecutableBitChange {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn operations_never_receive_terminal_symlinks() -> gix_testtools::Result {
+        let dir = gix_testtools::tempfile::tempdir()?;
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"untouched")?;
+
+        for (name, overwrite_existing) in [("forbidden", false), ("forced", true)] {
+            let link = dir.path().join(name);
+            gix_fs::symlink::create(&target, &link)?;
+            let operation_called = std::cell::Cell::new(false);
+            let result = super::try_op_or_unlink(&link, overwrite_existing, |path| {
+                operation_called.set(true);
+                match path.symlink_metadata() {
+                    Ok(meta) => assert!(
+                        !meta.file_type().is_symlink(),
+                        "the operation must not receive a symlink"
+                    ),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(err) => return Err(err),
+                }
+                Ok(())
+            });
+
+            if overwrite_existing {
+                result?;
+                assert!(
+                    operation_called.get(),
+                    "the operation should run after removing the symlink"
+                );
+            } else {
+                assert_eq!(
+                    result.expect_err("the symlink must be rejected").kind(),
+                    std::io::ErrorKind::AlreadyExists
+                );
+                assert!(
+                    !operation_called.get(),
+                    "the operation must not run for a forbidden symlink"
+                );
+            }
+            assert_eq!(
+                std::fs::read(&target)?,
+                b"untouched",
+                "the symlink target must stay unchanged"
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn let_readers_execute() {
         let cases = [
