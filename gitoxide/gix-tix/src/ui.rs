@@ -106,15 +106,13 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 1,
             );
             frame.render_widget(Clear, pane);
-            frame.render_widget(Paragraph::new(metadata).style(style), pane);
+            frame.render_widget(Paragraph::new(metadata), pane);
         } else {
             let mut spans = Vec::with_capacity(metadata.spans.len() + 1);
-            spans.push(Span::raw(row.lane.as_str()));
+            spans.push(Span::styled(row.lane.as_str(), style));
             spans.extend(metadata.spans);
             frame.render_widget(
-                Paragraph::new(Line::from(spans))
-                    .style(style)
-                    .scroll((0, horizontal_offset)),
+                Paragraph::new(Line::from(spans)).scroll((0, horizontal_offset)),
                 row_area,
             );
             color_graph(frame, row_area, &row.lane, horizontal_offset as usize, selected);
@@ -199,9 +197,14 @@ fn metadata_line<'a>(
         selected,
     } = options;
     let id = row.id.to_hex().to_string();
+    let id_style = color(Color::Magenta).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::styled(
         id[..7].to_owned(),
-        color(Color::Magenta, selected).add_modifier(Modifier::BOLD),
+        if selected {
+            id_style.add_modifier(Modifier::REVERSED)
+        } else {
+            id_style
+        },
     )];
     let mut labels = decorations
         .get(&row.id)
@@ -217,7 +220,7 @@ fn metadata_line<'a>(
             }
             spans.push(Span::styled(
                 decoration.name.to_str_lossy(),
-                decoration_style(decoration.kind, selected),
+                decoration_style(decoration.kind),
             ));
         }
         spans.push(Span::raw(") "));
@@ -227,7 +230,7 @@ fn metadata_line<'a>(
     if show_committer_date {
         spans.push(Span::styled(
             format!("{} ", row.committer_time.format_or_unix(gix::date::time::format::SHORT)),
-            color(Color::Blue, selected),
+            color(Color::Blue),
         ));
     }
     if show_author_name {
@@ -250,14 +253,11 @@ fn metadata_line<'a>(
             } else {
                 format!("{author} ")
             },
-            color(
-                if row.author.is_bot() {
-                    Color::LightYellow
-                } else {
-                    Color::Green
-                },
-                selected,
-            ),
+            color(if row.author.is_bot() {
+                Color::LightYellow
+            } else {
+                Color::Green
+            }),
         ));
         if show_trailers {
             for (kind, marker) in [
@@ -273,7 +273,7 @@ fn metadata_line<'a>(
                 }
                 spans.push(Span::styled(
                     marker,
-                    color(Color::LightYellow, selected).add_modifier(Modifier::DIM),
+                    color(Color::LightYellow).add_modifier(Modifier::DIM),
                 ));
                 for (index, actor) in actors.enumerate() {
                     if index != 0 {
@@ -286,14 +286,11 @@ fn metadata_line<'a>(
                         } else {
                             name.into_owned()
                         },
-                        color(
-                            if actor.author.is_bot() {
-                                Color::LightYellow
-                            } else {
-                                Color::Green
-                            },
-                            selected,
-                        ),
+                        color(if actor.author.is_bot() {
+                            Color::LightYellow
+                        } else {
+                            Color::Green
+                        }),
                     ));
                 }
                 spans.push(Span::raw(" "));
@@ -304,10 +301,7 @@ fn metadata_line<'a>(
     Line::from(spans)
 }
 
-fn decoration_style(kind: DecorationKind, selected: bool) -> Style {
-    if selected {
-        return Style::default();
-    }
+fn decoration_style(kind: DecorationKind) -> Style {
     match kind {
         DecorationKind::Head => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         DecorationKind::Local => Style::default().fg(Color::Cyan),
@@ -318,27 +312,23 @@ fn decoration_style(kind: DecorationKind, selected: bool) -> Style {
     }
 }
 
-fn color(color: Color, selected: bool) -> Style {
-    if selected {
-        Style::default()
-    } else {
-        Style::default().fg(color)
-    }
+fn color(color: Color) -> Style {
+    Style::default().fg(color)
 }
 
 fn color_graph(frame: &mut Frame<'_>, area: Rect, graph: &str, offset: usize, selected: bool) {
-    if selected {
-        return;
-    }
     for (x, symbol) in graph.chars().skip(offset).take(area.width as usize).enumerate() {
         if symbol.is_whitespace() {
             continue;
         }
-        let style = if symbol == '●' {
+        let mut style = if symbol == '●' {
             Style::default().fg(Color::Blue)
         } else {
             graph_style(offset.saturating_add(x) / 2)
         };
+        if selected {
+            style = style.add_modifier(Modifier::REVERSED);
+        }
         frame.buffer_mut()[(area.x + x as u16, area.y)].set_style(style);
     }
 }
@@ -516,11 +506,25 @@ mod tests {
             format!("{:<140}", "> ● 0101010 (HEAD) 1970-01-01 mapped author subject"),
             format!("{footer_text:<140}"),
         ]);
-        for x in 0..140 {
+        for x in 0..11 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
+        expected[(2, 0)].set_style(Style::default().fg(Color::Blue).add_modifier(Modifier::REVERSED));
         for x in 4..11 {
-            expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
+            expected[(x, 0)].set_style(
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            );
+        }
+        for x in 13..17 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        }
+        for x in 19..30 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Blue));
+        }
+        for x in 30..44 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Green));
         }
         let refs = footer_text[..footer_text.find("r refs").expect("the refs toggle is present")]
             .chars()
@@ -529,6 +533,16 @@ mod tests {
             expected[(x as u16, 1)].set_style(Style::default().add_modifier(Modifier::DIM));
         }
         terminal.backend().assert_buffer(&expected);
+        let row = terminal.backend().buffer();
+        assert!(
+            row[(10, 0)].modifier.contains(Modifier::REVERSED),
+            "selection includes the final hash character"
+        );
+        assert!(
+            !row[(11, 0)].modifier.contains(Modifier::REVERSED),
+            "selection ends immediately after the hash"
+        );
+        assert_eq!(row[(13, 0)].fg, Color::Cyan, "reference colors remain visible");
         assert!(
             !rendered_line(&terminal, 1).contains("Esc cancel"),
             "completed work cannot be cancelled"
