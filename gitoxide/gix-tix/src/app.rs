@@ -21,6 +21,8 @@ pub(crate) enum Action {
     Cancelled,
     MoveUp,
     MoveDown,
+    HalfPageUp,
+    HalfPageDown,
     PageUp,
     PageDown,
     First,
@@ -77,6 +79,8 @@ impl App {
             Action::Cancelled if self.state == State::Cancelling => self.state = State::Cancelled,
             Action::MoveUp => self.move_selection(1, false),
             Action::MoveDown => self.move_selection(1, true),
+            Action::HalfPageUp => self.move_selection((self.viewport_rows / 2).max(1), false),
+            Action::HalfPageDown => self.move_selection((self.viewport_rows / 2).max(1), true),
             Action::PageUp => self.move_selection(self.viewport_rows.max(1), false),
             Action::PageDown => self.move_selection(self.viewport_rows.max(1), true),
             Action::First => self.select(0),
@@ -185,6 +189,19 @@ mod tests {
         app.update(Action::First);
         assert_eq!(app.selected, Some(0), "First selects the newest commit");
         assert_eq!(app.offset, 0, "the newest commit is visible");
+    }
+
+    #[test]
+    fn half_pages_use_half_the_viewport() {
+        let mut app = App::new(4);
+        for n in 1..=5 {
+            app.update(Action::Commit(row(n)));
+        }
+
+        app.update(Action::HalfPageDown);
+        assert_eq!(app.selected, Some(2));
+        app.update(Action::HalfPageUp);
+        assert_eq!(app.selected, Some(0));
     }
 
     #[test]

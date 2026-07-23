@@ -114,6 +114,10 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveUp),
         KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveDown),
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::PageUp),
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::PageDown),
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::HalfPageUp),
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::HalfPageDown),
         KeyCode::PageUp => Some(Action::PageUp),
         KeyCode::PageDown => Some(Action::PageDown),
         KeyCode::Home | KeyCode::Char('g') => Some(Action::First),
@@ -132,6 +136,22 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)),
             Some(Action::PageUp)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::PageUp)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)),
+            Some(Action::PageDown)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
+            Some(Action::HalfPageUp)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Some(Action::HalfPageDown)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
