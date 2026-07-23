@@ -232,6 +232,7 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::End | KeyCode::Char('G') => Some(Action::Last),
         KeyCode::Char('d') => Some(Action::ToggleDate),
         KeyCode::Char('n') => Some(Action::ToggleName),
+        KeyCode::Char('t') => Some(Action::ToggleTrailers),
         KeyCode::Char('r') => Some(Action::ToggleSpecialRefs),
         KeyCode::Char('v') => Some(Action::ToggleHidden),
         KeyCode::Char('[') => Some(Action::PinMetadata),
@@ -282,6 +283,10 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)),
             Some(Action::ToggleName)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
+            Some(Action::ToggleTrailers)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),

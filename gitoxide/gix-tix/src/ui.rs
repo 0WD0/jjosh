@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, CommitRow, State},
+    app::{App, AttributionKind, CommitRow, State},
     history::{DecorationKind, Decorations},
 };
 
@@ -39,6 +39,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     let pin_metadata = app.pin_metadata.unwrap_or(graph_is_wide);
     let show_committer_date = app.show_committer_date;
     let show_author_name = app.show_author_name;
+    let show_trailers = app.show_trailers;
     let show_special_refs = app.show_special_refs;
     let selected = app.selected;
     let metadata: Vec<_> = visible_rows
@@ -49,10 +50,13 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 row,
                 app.title(row),
                 decorations,
-                show_committer_date,
-                show_author_name,
-                show_special_refs,
-                selected == Some(start + index),
+                MetadataOptions {
+                    show_committer_date,
+                    show_author_name,
+                    show_trailers,
+                    show_special_refs,
+                    selected: selected == Some(start + index),
+                },
             )
         })
         .collect();
@@ -133,22 +137,35 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status}{hidden} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit",
+            "{} commits · {status}{hidden} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · t trailers · r refs · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
     );
 }
 
+#[derive(Clone, Copy)]
+struct MetadataOptions {
+    show_committer_date: bool,
+    show_author_name: bool,
+    show_trailers: bool,
+    show_special_refs: bool,
+    selected: bool,
+}
+
 fn metadata_line<'a>(
     row: &CommitRow,
     title: &'a BStr,
     decorations: &'a Decorations,
-    show_committer_date: bool,
-    show_author_name: bool,
-    show_special_refs: bool,
-    selected: bool,
+    options: MetadataOptions,
 ) -> Line<'a> {
+    let MetadataOptions {
+        show_committer_date,
+        show_author_name,
+        show_trailers,
+        show_special_refs,
+        selected,
+    } = options;
     let id = row.id.to_hex().to_string();
     let mut spans = vec![Span::styled(
         id[..7].to_owned(),
@@ -182,10 +199,55 @@ fn metadata_line<'a>(
         ));
     }
     if show_author_name {
+        let author = row.author_name.to_str_lossy();
         spans.push(Span::styled(
-            format!("{} ", row.author_name.to_str_lossy()),
-            color(Color::Green, selected),
+            if row.author_is_bot {
+                format!("[{author}] ")
+            } else {
+                format!("{author} ")
+            },
+            color(
+                if row.author_is_bot {
+                    Color::LightYellow
+                } else {
+                    Color::Green
+                },
+                selected,
+            ),
         ));
+        if show_trailers {
+            for (kind, marker) in [
+                (AttributionKind::CoAuthor, "Co: "),
+                (AttributionKind::Reviewed, "Re: "),
+                (AttributionKind::Acked, "Ack: "),
+                (AttributionKind::Tested, "Te: "),
+                (AttributionKind::SignedOff, "So: "),
+            ] {
+                let mut actors = row.attributions.iter().filter(|actor| actor.kind == kind).peekable();
+                if actors.peek().is_none() {
+                    continue;
+                }
+                spans.push(Span::styled(
+                    marker,
+                    color(Color::LightYellow, selected).add_modifier(Modifier::DIM),
+                ));
+                for (index, actor) in actors.enumerate() {
+                    if index != 0 {
+                        spans.push(Span::raw(", "));
+                    }
+                    let name = actor.name.to_str_lossy();
+                    spans.push(Span::styled(
+                        if actor.is_bot {
+                            format!("[{name}]")
+                        } else {
+                            name.into_owned()
+                        },
+                        color(if actor.is_bot { Color::LightYellow } else { Color::Green }, selected),
+                    ));
+                }
+                spans.push(Span::raw(" "));
+            }
+        }
     }
     spans.push(Span::raw(title.to_str_lossy()));
     Line::from(spans)
@@ -255,9 +317,111 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{Action, Commit},
+        app::{Action, Attribution, AttributionKind, Commit},
         history::{Decoration, DecorationKind},
     };
+
+    #[test]
+    fn renders_grouped_attributions_and_bot_names() -> Result<(), Box<dyn std::error::Error>> {
+        let mut app = App::new(1);
+        app.extend_commits(vec![Commit {
+            id: gix::ObjectId::Sha1([1; 20]),
+            parent_ids: Default::default(),
+            lane: String::new(),
+            committer_time: gix::date::Time::default(),
+            author_name: b"Codex".as_bstr(),
+            author_is_bot: true,
+            attributions: vec![
+                Attribution {
+                    kind: AttributionKind::CoAuthor,
+                    name: b"Human".as_bstr(),
+                    is_bot: false,
+                },
+                Attribution {
+                    kind: AttributionKind::CoAuthor,
+                    name: b"Claude".as_bstr(),
+                    is_bot: true,
+                },
+                Attribution {
+                    kind: AttributionKind::Reviewed,
+                    name: b"Reviewer".as_bstr(),
+                    is_bot: false,
+                },
+                Attribution {
+                    kind: AttributionKind::Acked,
+                    name: b"Acknowledger".as_bstr(),
+                    is_bot: false,
+                },
+                Attribution {
+                    kind: AttributionKind::Tested,
+                    name: b"Tester".as_bstr(),
+                    is_bot: false,
+                },
+                Attribution {
+                    kind: AttributionKind::SignedOff,
+                    name: b"Signer".as_bstr(),
+                    is_bot: false,
+                },
+            ]
+            .into_boxed_slice(),
+            title: "subject".into(),
+        }]);
+        app.selected = None;
+        let mut terminal = Terminal::new(TestBackend::new(160, 2))?;
+
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+
+        let row = rendered_row(&terminal);
+        assert!(
+            row.contains("[Codex] Co: Human, [Claude] Re: Reviewer Ack: Acknowledger Te: Tester So: Signer subject"),
+            "same-kind trailers share one marker and bots use bracketed names"
+        );
+        let buffer = terminal.backend().buffer();
+        let style_at = |needle: &str| {
+            let x = row.find(needle).expect("rendered metadata contains the named actor") as u16;
+            buffer[(x, 0)].fg
+        };
+        assert_eq!(
+            style_at("[Codex]"),
+            Color::LightYellow,
+            "bot authors use the agent color"
+        );
+        assert_eq!(
+            style_at("Co:"),
+            Color::LightYellow,
+            "attribution markers use the agent color"
+        );
+        let marker_x = row.find("Co:").expect("rendered metadata contains a trailer marker") as u16;
+        assert!(
+            buffer[(marker_x, 0)].modifier.contains(Modifier::DIM),
+            "attribution markers are dimmed"
+        );
+        assert_eq!(style_at("Human"), Color::Green, "human trailer actors are green");
+        assert_eq!(
+            style_at("[Claude]"),
+            Color::LightYellow,
+            "bot co-authors use agent styling"
+        );
+        assert!(
+            rendered_line(&terminal, 1).contains("t trailers"),
+            "the footer advertises the trailer toggle"
+        );
+
+        app.update(Action::ToggleTrailers);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(!rendered_row(&terminal).contains("Co:"), "t hides trailer attribution");
+
+        app.update(Action::ToggleTrailers);
+        app.update(Action::ToggleName);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        let row = rendered_row(&terminal);
+        assert!(!row.contains("Codex"), "n hides the primary actor");
+        assert!(
+            !row.contains("Reviewer"),
+            "n hides trailer actors while trailers are enabled"
+        );
+        Ok(())
+    }
 
     #[test]
     fn renders_rows_decorations_selection_and_footer() -> Result<(), Box<dyn std::error::Error>> {
@@ -269,6 +433,8 @@ mod tests {
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: b"author".as_bstr(),
+            author_is_bot: false,
+            attributions: Box::default(),
             title: "subject".into(),
         }]);
         app.update(Action::Complete);
@@ -285,18 +451,18 @@ mod tests {
                 },
             ],
         )]);
-        let mut terminal = Terminal::new(TestBackend::new(130, 2))?;
+        let mut terminal = Terminal::new(TestBackend::new(140, 2))?;
 
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
 
         let mut expected = Buffer::with_lines([
-            format!("{:<130}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
+            format!("{:<140}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
             format!(
-                "{:<130}",
-                "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · r refs · y copy · Esc cancel · q quit"
+                "{:<140}",
+                "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · t trailers · r refs · y copy · Esc cancel · q quit"
             ),
         ]);
-        for x in 0..130 {
+        for x in 0..140 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
         for x in 4..11 {
@@ -343,6 +509,8 @@ mod tests {
                     lane: String::new(),
                     committer_time: gix::date::Time::default(),
                     author_name: b"author".as_bstr(),
+                    author_is_bot: false,
+                    attributions: Box::default(),
                     title: format!("subject {n}").into(),
                 })
                 .collect(),
@@ -374,6 +542,8 @@ mod tests {
             lane: "● │ │ │ │ │ │ │ ".into(),
             committer_time: gix::date::Time::default(),
             author_name: b"author".as_bstr(),
+            author_is_bot: false,
+            attributions: Box::default(),
             title: "subject".into(),
         };
         let decorations = Decorations::from([(
@@ -404,7 +574,18 @@ mod tests {
         let mut app = App::new(1);
         app.extend_commits(vec![commit]);
         let row = &app.rows[0];
-        let line = metadata_line(row, app.title(row), &decorations, true, true, true, false);
+        let line = metadata_line(
+            row,
+            app.title(row),
+            &decorations,
+            MetadataOptions {
+                show_committer_date: true,
+                show_author_name: true,
+                show_trailers: true,
+                show_special_refs: true,
+                selected: false,
+            },
+        );
         let style = |text| {
             line.spans
                 .iter()
@@ -457,6 +638,8 @@ mod tests {
             lane: String::new(),
             committer_time: gix::date::Time::default(),
             author_name: b"author".as_bstr(),
+            author_is_bot: false,
+            attributions: Box::default(),
             title: "subject".into(),
         }]);
         app.update(Action::Complete);

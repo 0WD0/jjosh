@@ -20,7 +20,17 @@ git switch -q main
 commit main "2000-01-03T00:00:00"
 git merge -q --no-edit merged
 git switch -q -c topic HEAD~1
-commit topic "2000-01-04T00:00:00"
+echo topic >topic
+git add topic
+GIT_AUTHOR_DATE="2000-01-04T00:00:00 +0000" GIT_COMMITTER_DATE="2000-01-04T00:00:00 +0000" \
+  git commit -q --author="Codex <Codex@OpenAI.com>" -m topic \
+    -m "Co-authored-by: Human Coauthor <human@example.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+rEvIeWeD-bY: Reviewer <reviewer@example.com>
+Acked-by: Acknowledger <ack@example.com>
+Tested-by: Tester <tester@example.com>
+Signed-off-by: Signer <signer@example.com>
+Co-authored-by: Broken <broken@example.com> trailing garbage"
 git switch -q main
 
 # Decorations are optional, so this unrelated stale remote HEAD must not break history loading.
