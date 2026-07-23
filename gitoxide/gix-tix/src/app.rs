@@ -11,6 +11,8 @@ pub(crate) struct CommitRow {
     pub id: ObjectId,
     pub parent_ids: ParentIds,
     pub lane: String,
+    pub committer_time: gix::date::Time,
+    pub author_name: BString,
     pub subject: BString,
 }
 
@@ -34,6 +36,8 @@ pub(crate) enum Action {
     PageDown,
     First,
     Last,
+    ToggleDate,
+    ToggleName,
     Cancel,
     Copy,
     Quit,
@@ -54,6 +58,8 @@ pub(crate) struct App {
     pub state: State,
     pub viewport_rows: usize,
     pub lane_time: Option<Duration>,
+    pub show_committer_date: bool,
+    pub show_author_name: bool,
     follow_tail: bool,
 }
 
@@ -66,6 +72,8 @@ impl App {
             state: State::Loading,
             viewport_rows,
             lane_time: None,
+            show_committer_date: true,
+            show_author_name: true,
             follow_tail: false,
         }
     }
@@ -108,6 +116,8 @@ impl App {
                 self.follow_tail = self.state == State::Loading;
                 self.ensure_visible();
             }
+            Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
+            Action::ToggleName => self.show_author_name = !self.show_author_name,
             Action::Cancel if self.state == State::Loading => {
                 self.state = State::Cancelling;
                 return vec![Effect::Cancel];
@@ -329,6 +339,8 @@ mod tests {
             id: ObjectId::Sha1(bytes),
             parent_ids: ParentIds::new(),
             lane: String::new(),
+            committer_time: gix::date::Time::default(),
+            author_name: "author".into(),
             subject: format!("commit {n}").into(),
         }
     }
@@ -421,6 +433,17 @@ mod tests {
         assert_eq!(app.selected, Some(2));
         app.update(Action::HalfPageUp);
         assert_eq!(app.selected, Some(0));
+    }
+
+    #[test]
+    fn toggles_metadata_columns() {
+        let mut app = App::new(1);
+
+        app.update(Action::ToggleDate);
+        app.update(Action::ToggleName);
+
+        assert!(!app.show_committer_date);
+        assert!(!app.show_author_name);
     }
 
     #[test]

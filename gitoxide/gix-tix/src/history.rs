@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use gix::{
     ObjectId,
     bstr::{BString, ByteSlice, ByteVec},
+    objs::commit::ref_iter::Token,
 };
 
 use crate::app::CommitRow;
@@ -78,18 +79,35 @@ pub(crate) fn load(
             return Ok(());
         }
         let info = info.context("could not traverse revision history")?;
-        let subject = info
-            .object()
-            .context("could not read commit")?
-            .message()
-            .context("could not decode commit message")?
-            .summary()
-            .into_owned();
+        let object = info.object().context("could not read commit")?;
+        let mut committer_time = None;
+        let mut author_name = None;
+        let mut subject = None;
+        for token in object.iter() {
+            match token.context("could not decode commit")? {
+                Token::Author { signature } => {
+                    author_name = Some(signature.trim().name.to_owned());
+                }
+                Token::Committer { signature } => {
+                    committer_time = Some(signature.time().context("could not decode committer time")?);
+                }
+                Token::Message(message) => {
+                    subject = Some(
+                        gix::objs::commit::MessageRef::from_bytes(message)
+                            .summary()
+                            .into_owned(),
+                    );
+                }
+                _ => {}
+            }
+        }
         rows.push(CommitRow {
             id: info.id,
             parent_ids: info.parent_ids,
             lane: String::new(),
-            subject,
+            committer_time: committer_time.context("commit has no committer time")?,
+            author_name: author_name.context("commit has no author name")?,
+            subject: subject.context("commit has no message")?,
         });
         if rows.len() == COMMIT_BATCH_SIZE
             && !emit(Event::Commits(std::mem::replace(
@@ -181,6 +199,20 @@ mod tests {
         let expected = String::from_utf8(output.stdout)?.lines().map(str::to_owned).collect();
         assert_eq!(actual, expected, "all commits reachable from either tip are shown once");
         assert!(matches!(events.last(), Some(Event::Complete)), "the walk completes");
+        let topic = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Commits(rows) => rows.iter().find(|row| row.subject == "topic"),
+                _ => None,
+            })
+            .next()
+            .expect("the topic commit is reachable");
+        assert_eq!(topic.author_name, "author", "the author name is retained");
+        assert_eq!(
+            topic.committer_time.format_or_unix(gix::date::time::format::SHORT),
+            "2000-01-04",
+            "the committer date is retained"
+        );
         Ok(())
     }
 

@@ -18,6 +18,8 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     app.ensure_visible();
     let start = app.offset.min(app.rows.len());
     let end = start.saturating_add(app.viewport_rows).min(app.rows.len());
+    let show_committer_date = app.show_committer_date;
+    let show_author_name = app.show_author_name;
     let rows = app.rows[start..end].iter().map(|row| {
         let id = row.id.to_hex().to_string();
         let labels = decorations.get(&row.id).map(|labels| {
@@ -27,12 +29,22 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 .collect::<Vec<_>>()
                 .join(", ")
         });
-        Line::from(vec![
+        let mut spans = vec![
             Span::raw(&row.lane),
             Span::styled(id[..7].to_owned(), Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(labels.map_or_else(|| " ".into(), |labels| format!(" ({labels}) "))),
-            Span::raw(row.subject.to_str_lossy()),
-        ])
+        ];
+        if show_committer_date {
+            spans.push(Span::raw(format!(
+                "{} ",
+                row.committer_time.format_or_unix(gix::date::time::format::SHORT)
+            )));
+        }
+        if show_author_name {
+            spans.push(Span::raw(format!("{} ", row.author_name.to_str_lossy())));
+        }
+        spans.push(Span::raw(row.subject.to_str_lossy()));
+        Line::from(spans)
     });
     let list = List::new(rows)
         .highlight_symbol("> ")
@@ -53,7 +65,7 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{} commits · {status} · ↑↓/jk move · y copy · Esc cancel · q quit",
+            "{} commits · {status} · ↑↓/jk move · d date · n name · y copy · Esc cancel · q quit",
             app.rows.len()
         )),
         footer,
@@ -75,25 +87,41 @@ mod tests {
             id,
             parent_ids: Default::default(),
             lane: String::new(),
+            committer_time: gix::date::Time::default(),
+            author_name: "author".into(),
             subject: "subject".into(),
         }]);
         app.update(Action::Complete);
         let decorations = Decorations::from([(id, vec!["HEAD".into()])]);
-        let mut terminal = Terminal::new(TestBackend::new(54, 2))?;
+        let mut terminal = Terminal::new(TestBackend::new(90, 2))?;
 
         terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
 
         let mut expected = Buffer::with_lines([
-            "> ● 0101010 (HEAD) subject                           ",
-            "1 commits · complete · ↑↓/jk move · y copy · Esc cance",
+            format!("{:<90}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
+            format!(
+                "{:<90}",
+                "1 commits · complete · ↑↓/jk move · d date · n name · y copy · Esc cancel · q quit"
+            ),
         ]);
-        for x in 0..54 {
+        for x in 0..90 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
         for x in 4..11 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
         }
         terminal.backend().assert_buffer(&expected);
+
+        app.update(Action::ToggleDate);
+        app.update(Action::ToggleName);
+        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        let row = (0..90).fold(String::new(), |mut out, x| {
+            out.push_str(terminal.backend().buffer()[(x, 0)].symbol());
+            out
+        });
+        assert!(!row.contains("1970-01-01"), "d hides the committer date");
+        assert!(!row.contains("author"), "n hides the author name");
+        assert!(row.contains("subject"), "the commit subject remains visible");
         Ok(())
     }
 
@@ -106,6 +134,8 @@ mod tests {
                     id: gix::ObjectId::Sha1([n; 20]),
                     parent_ids: Default::default(),
                     lane: String::new(),
+                    committer_time: gix::date::Time::default(),
+                    author_name: "author".into(),
                     subject: format!("subject {n}").into(),
                 })
                 .collect(),

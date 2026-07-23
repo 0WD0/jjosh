@@ -144,6 +144,8 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::PageDown => Some(Action::PageDown),
         KeyCode::Home | KeyCode::Char('g') => Some(Action::First),
         KeyCode::End | KeyCode::Char('G') => Some(Action::Last),
+        KeyCode::Char('d') => Some(Action::ToggleDate),
+        KeyCode::Char('n') => Some(Action::ToggleName),
         KeyCode::Char('y') => Some(Action::Copy),
         _ => None,
     }
@@ -174,6 +176,14 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
             Some(Action::HalfPageDown)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)),
+            Some(Action::ToggleDate)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)),
+            Some(Action::ToggleName)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
