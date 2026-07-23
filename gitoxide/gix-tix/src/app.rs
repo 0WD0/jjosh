@@ -16,17 +16,29 @@ pub(crate) struct Commit<T> {
     pub parent_ids: ParentIds,
     pub lane: String,
     pub committer_time: gix::date::Time,
-    pub author_name: &'static BStr,
-    pub author_is_bot: bool,
+    pub author: &'static Author,
     pub attributions: Box<[Attribution]>,
     pub title: T,
+}
+
+#[derive(Debug, Eq, Hash, PartialEq)]
+pub(crate) struct Author {
+    pub name: &'static BStr,
+    pub email: &'static BStr,
+}
+
+impl Author {
+    pub fn is_bot(&self) -> bool {
+        [b"codex@openai.com".as_slice(), b"noreply@anthropic.com".as_slice()]
+            .iter()
+            .any(|candidate| self.email.eq_ignore_ascii_case(candidate))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Attribution {
     pub kind: AttributionKind,
-    pub name: &'static BStr,
-    pub is_bot: bool,
+    pub author: &'static Author,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +78,7 @@ pub(crate) enum Action {
     ToggleDate,
     ToggleName,
     ToggleTrailers,
+    ToggleMailmap,
     ToggleSpecialRefs,
     ToggleHidden,
     PinMetadata,
@@ -95,6 +108,7 @@ pub(crate) struct App {
     pub show_committer_date: bool,
     pub show_author_name: bool,
     pub show_trailers: bool,
+    pub use_mailmap: bool,
     pub show_special_refs: bool,
     pub has_hidden_filter: bool,
     pub show_hidden: bool,
@@ -118,6 +132,7 @@ impl App {
             show_committer_date: true,
             show_author_name: true,
             show_trailers: true,
+            use_mailmap: true,
             show_special_refs: false,
             has_hidden_filter: false,
             show_hidden: false,
@@ -142,8 +157,7 @@ impl App {
                 parent_ids,
                 lane,
                 committer_time,
-                author_name,
-                author_is_bot,
+                author,
                 attributions,
                 title,
             } = row;
@@ -154,8 +168,7 @@ impl App {
                 parent_ids,
                 lane,
                 committer_time,
-                author_name,
-                author_is_bot,
+                author,
                 attributions,
                 title: start..self.titles.len(),
             });
@@ -212,6 +225,7 @@ impl App {
             Action::ToggleDate => self.show_committer_date = !self.show_committer_date,
             Action::ToggleName => self.show_author_name = !self.show_author_name,
             Action::ToggleTrailers => self.show_trailers = !self.show_trailers,
+            Action::ToggleMailmap => self.use_mailmap = !self.use_mailmap,
             Action::ToggleSpecialRefs => self.show_special_refs = !self.show_special_refs,
             Action::ToggleHidden
                 if self.has_hidden_filter && matches!(self.state, State::Complete | State::Cancelled) =>
@@ -460,8 +474,10 @@ mod tests {
             parent_ids: ParentIds::new(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            author_is_bot: false,
+            author: Box::leak(Box::new(Author {
+                name: b"author".as_bstr(),
+                email: b"author@example.com".as_bstr(),
+            })),
             attributions: Box::default(),
             title: format!("commit {n}").into(),
         }
@@ -602,12 +618,14 @@ mod tests {
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
         app.update(Action::ToggleTrailers);
+        app.update(Action::ToggleMailmap);
         app.update(Action::ToggleSpecialRefs);
         app.update(Action::PinMetadata);
 
         assert!(!app.show_committer_date);
         assert!(!app.show_author_name);
         assert!(!app.show_trailers);
+        assert!(!app.use_mailmap);
         assert!(app.show_special_refs);
         assert_eq!(app.pin_metadata, Some(true));
         app.update(Action::UnpinMetadata);

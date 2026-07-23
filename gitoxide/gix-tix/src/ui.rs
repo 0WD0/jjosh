@@ -12,7 +12,7 @@ use crate::{
     history::{DecorationKind, Decorations},
 };
 
-pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
+pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations, mailmap: &gix::mailmap::Snapshot) {
     let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     app.viewport_rows = body.height as usize;
     app.ensure_visible();
@@ -50,10 +50,12 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 row,
                 app.title(row),
                 decorations,
+                mailmap,
                 MetadataOptions {
                     show_committer_date,
                     show_author_name,
                     show_trailers,
+                    use_mailmap: app.use_mailmap,
                     show_special_refs,
                     selected: selected == Some(start + index),
                 },
@@ -104,15 +106,13 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
                 1,
             );
             frame.render_widget(Clear, pane);
-            frame.render_widget(Paragraph::new(metadata).style(style), pane);
+            frame.render_widget(Paragraph::new(metadata), pane);
         } else {
             let mut spans = Vec::with_capacity(metadata.spans.len() + 1);
-            spans.push(Span::raw(row.lane.as_str()));
+            spans.push(Span::styled(row.lane.as_str(), style));
             spans.extend(metadata.spans);
             frame.render_widget(
-                Paragraph::new(Line::from(spans))
-                    .style(style)
-                    .scroll((0, horizontal_offset)),
+                Paragraph::new(Line::from(spans)).scroll((0, horizontal_offset)),
                 row_area,
             );
             color_graph(frame, row_area, &row.lane, horizontal_offset as usize, selected);
@@ -126,22 +126,49 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decoratio
         State::Complete => "complete",
         State::Cancelled => "cancelled",
     };
-    let hidden = if app.has_hidden_filter {
-        if app.show_hidden {
-            " · v hide hidden"
+    let mut footer_spans = vec![Span::raw(format!(
+        "{} commits · {status} · ↑↓/jk move · h/l pan · [ pane · ] natural",
+        app.rows.len()
+    ))];
+    if app.has_hidden_filter {
+        footer_spans.extend([
+            Span::raw(" · "),
+            toggle(
+                if app.show_hidden {
+                    "v hide hidden"
+                } else {
+                    "v show hidden"
+                },
+                app.show_hidden,
+            ),
+        ]);
+    }
+    for (label, enabled) in [
+        ("d date", app.show_committer_date),
+        ("n name", app.show_author_name),
+        ("m mailmap", app.use_mailmap),
+        ("t trailers", app.show_trailers),
+        ("r refs", app.show_special_refs),
+    ] {
+        footer_spans.extend([Span::raw(" · "), toggle(label, enabled)]);
+    }
+    footer_spans.extend([Span::raw(" · y copy")]);
+    if app.state == State::Loading {
+        footer_spans.push(Span::raw(" · Esc cancel"));
+    }
+    footer_spans.push(Span::raw(" · q quit"));
+    frame.render_widget(Paragraph::new(Line::from(footer_spans)), footer);
+}
+
+fn toggle(label: &'static str, enabled: bool) -> Span<'static> {
+    Span::styled(
+        label,
+        if enabled {
+            Style::default()
         } else {
-            " · v show hidden"
-        }
-    } else {
-        ""
-    };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{} commits · {status}{hidden} · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · t trailers · r refs · y copy · Esc cancel · q quit",
-            app.rows.len()
-        )),
-        footer,
-    );
+            Style::default().add_modifier(Modifier::DIM)
+        },
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -149,27 +176,35 @@ struct MetadataOptions {
     show_committer_date: bool,
     show_author_name: bool,
     show_trailers: bool,
+    use_mailmap: bool,
     show_special_refs: bool,
     selected: bool,
 }
 
 fn metadata_line<'a>(
-    row: &CommitRow,
+    row: &'a CommitRow,
     title: &'a BStr,
     decorations: &'a Decorations,
+    mailmap: &'a gix::mailmap::Snapshot,
     options: MetadataOptions,
 ) -> Line<'a> {
     let MetadataOptions {
         show_committer_date,
         show_author_name,
         show_trailers,
+        use_mailmap,
         show_special_refs,
         selected,
     } = options;
     let id = row.id.to_hex().to_string();
+    let id_style = color(Color::Magenta).add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::styled(
         id[..7].to_owned(),
-        color(Color::Magenta, selected).add_modifier(Modifier::BOLD),
+        if selected {
+            id_style.add_modifier(Modifier::REVERSED)
+        } else {
+            id_style
+        },
     )];
     let mut labels = decorations
         .get(&row.id)
@@ -185,7 +220,7 @@ fn metadata_line<'a>(
             }
             spans.push(Span::styled(
                 decoration.name.to_str_lossy(),
-                decoration_style(decoration.kind, selected),
+                decoration_style(decoration.kind),
             ));
         }
         spans.push(Span::raw(") "));
@@ -195,25 +230,22 @@ fn metadata_line<'a>(
     if show_committer_date {
         spans.push(Span::styled(
             format!("{} ", row.committer_time.format_or_unix(gix::date::time::format::SHORT)),
-            color(Color::Blue, selected),
+            color(Color::Blue),
         ));
     }
     if show_author_name {
-        let author = row.author_name.to_str_lossy();
+        let author = author_name(row.author, mailmap, use_mailmap).to_str_lossy();
         spans.push(Span::styled(
-            if row.author_is_bot {
+            if row.author.is_bot() {
                 format!("[{author}] ")
             } else {
                 format!("{author} ")
             },
-            color(
-                if row.author_is_bot {
-                    Color::LightYellow
-                } else {
-                    Color::Green
-                },
-                selected,
-            ),
+            color(if row.author.is_bot() {
+                Color::LightYellow
+            } else {
+                Color::Green
+            }),
         ));
         if show_trailers {
             for (kind, marker) in [
@@ -229,20 +261,24 @@ fn metadata_line<'a>(
                 }
                 spans.push(Span::styled(
                     marker,
-                    color(Color::LightYellow, selected).add_modifier(Modifier::DIM),
+                    color(Color::LightYellow).add_modifier(Modifier::DIM),
                 ));
                 for (index, actor) in actors.enumerate() {
                     if index != 0 {
                         spans.push(Span::raw(", "));
                     }
-                    let name = actor.name.to_str_lossy();
+                    let name = author_name(actor.author, mailmap, use_mailmap).to_str_lossy();
                     spans.push(Span::styled(
-                        if actor.is_bot {
+                        if actor.author.is_bot() {
                             format!("[{name}]")
                         } else {
                             name.into_owned()
                         },
-                        color(if actor.is_bot { Color::LightYellow } else { Color::Green }, selected),
+                        color(if actor.author.is_bot() {
+                            Color::LightYellow
+                        } else {
+                            Color::Green
+                        }),
                     ));
                 }
                 spans.push(Span::raw(" "));
@@ -253,10 +289,22 @@ fn metadata_line<'a>(
     Line::from(spans)
 }
 
-fn decoration_style(kind: DecorationKind, selected: bool) -> Style {
-    if selected {
-        return Style::default();
+fn author_name<'a>(author: &'a crate::app::Author, mailmap: &'a gix::mailmap::Snapshot, use_mailmap: bool) -> &'a BStr {
+    if use_mailmap {
+        mailmap
+            .try_resolve_ref(gix::actor::SignatureRef {
+                name: author.name,
+                email: author.email,
+                time: "",
+            })
+            .and_then(|resolved| resolved.name)
+            .unwrap_or(author.name)
+    } else {
+        author.name
     }
+}
+
+fn decoration_style(kind: DecorationKind) -> Style {
     match kind {
         DecorationKind::Head => Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         DecorationKind::Local => Style::default().fg(Color::Cyan),
@@ -267,27 +315,23 @@ fn decoration_style(kind: DecorationKind, selected: bool) -> Style {
     }
 }
 
-fn color(color: Color, selected: bool) -> Style {
-    if selected {
-        Style::default()
-    } else {
-        Style::default().fg(color)
-    }
+fn color(color: Color) -> Style {
+    Style::default().fg(color)
 }
 
 fn color_graph(frame: &mut Frame<'_>, area: Rect, graph: &str, offset: usize, selected: bool) {
-    if selected {
-        return;
-    }
     for (x, symbol) in graph.chars().skip(offset).take(area.width as usize).enumerate() {
         if symbol.is_whitespace() {
             continue;
         }
-        let style = if symbol == '●' {
+        let mut style = if symbol == '●' {
             Style::default().fg(Color::Blue)
         } else {
             graph_style(offset.saturating_add(x) / 2)
         };
+        if selected {
+            style = style.add_modifier(Modifier::REVERSED);
+        }
         frame.buffer_mut()[(area.x + x as u16, area.y)].set_style(style);
     }
 }
@@ -317,9 +361,20 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{Action, Attribution, AttributionKind, Commit},
+        app::{Action, Attribution, AttributionKind, Author, Commit},
         history::{Decoration, DecorationKind},
     };
+
+    fn author(name: &'static [u8], email: &'static [u8]) -> &'static Author {
+        Box::leak(Box::new(Author {
+            name: name.as_bstr(),
+            email: email.as_bstr(),
+        }))
+    }
+
+    fn draw(frame: &mut Frame<'_>, app: &mut App, decorations: &Decorations) {
+        super::draw(frame, app, decorations, &gix::mailmap::Snapshot::default());
+    }
 
     #[test]
     fn renders_grouped_attributions_and_bot_names() -> Result<(), Box<dyn std::error::Error>> {
@@ -329,38 +384,31 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"Codex".as_bstr(),
-            author_is_bot: true,
+            author: author(b"Codex", b"codex@openai.com"),
             attributions: vec![
                 Attribution {
                     kind: AttributionKind::CoAuthor,
-                    name: b"Human".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Human", b"human@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::CoAuthor,
-                    name: b"Claude".as_bstr(),
-                    is_bot: true,
+                    author: author(b"Claude", b"noreply@anthropic.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Reviewed,
-                    name: b"Reviewer".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Reviewer", b"reviewer@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Acked,
-                    name: b"Acknowledger".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Acknowledger", b"ack@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::Tested,
-                    name: b"Tester".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Tester", b"tester@example.com"),
                 },
                 Attribution {
                     kind: AttributionKind::SignedOff,
-                    name: b"Signer".as_bstr(),
-                    is_bot: false,
+                    author: author(b"Signer", b"signer@example.com"),
                 },
             ]
             .into_boxed_slice(),
@@ -369,12 +417,16 @@ mod tests {
         app.selected = None;
         let mut terminal = Terminal::new(TestBackend::new(160, 2))?;
 
-        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        let mailmap =
+            gix::mailmap::Snapshot::from_bytes(b"Mapped Human <mapped@example.com> Human <human@example.com>\n");
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
 
         let row = rendered_row(&terminal);
         assert!(
-            row.contains("[Codex] Co: Human, [Claude] Re: Reviewer Ack: Acknowledger Te: Tester So: Signer subject"),
-            "same-kind trailers share one marker and bots use bracketed names"
+            row.contains(
+                "[Codex] Co: Mapped Human, [Claude] Re: Reviewer Ack: Acknowledger Te: Tester So: Signer subject"
+            ),
+            "same-kind trailers share one marker, use mailmap, and render bots with bracketed names"
         );
         let buffer = terminal.backend().buffer();
         let style_at = |needle: &str| {
@@ -413,12 +465,19 @@ mod tests {
 
         app.update(Action::ToggleTrailers);
         app.update(Action::ToggleName);
-        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
         let row = rendered_row(&terminal);
         assert!(!row.contains("Codex"), "n hides the primary actor");
         assert!(
             !row.contains("Reviewer"),
             "n hides trailer actors while trailers are enabled"
+        );
+        app.update(Action::ToggleName);
+        app.update(Action::ToggleMailmap);
+        terminal.draw(|frame| super::draw(frame, &mut app, &Decorations::new(), &mailmap))?;
+        assert!(
+            rendered_row(&terminal).contains("Co: Human, [Claude]"),
+            "m restores original trailer actor names"
         );
         Ok(())
     }
@@ -432,8 +491,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         }]);
@@ -451,50 +509,110 @@ mod tests {
                 },
             ],
         )]);
+        let mailmap =
+            gix::mailmap::Snapshot::from_bytes(b"mapped author <mapped@example.com> author <author@example.com>\n");
         let mut terminal = Terminal::new(TestBackend::new(140, 2))?;
 
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
 
+        let footer_text = "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · m mailmap · t trailers · r refs · y copy · q quit";
         let mut expected = Buffer::with_lines([
-            format!("{:<140}", "> ● 0101010 (HEAD) 1970-01-01 author subject"),
-            format!(
-                "{:<140}",
-                "1 commits · complete · ↑↓/jk move · h/l pan · [ pane · ] natural · d date · n name · t trailers · r refs · y copy · Esc cancel · q quit"
-            ),
+            format!("{:<140}", "> ● 0101010 (HEAD) 1970-01-01 mapped author subject"),
+            format!("{footer_text:<140}"),
         ]);
-        for x in 0..140 {
+        for x in 0..11 {
             expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED));
         }
+        expected[(2, 0)].set_style(Style::default().fg(Color::Blue).add_modifier(Modifier::REVERSED));
         for x in 4..11 {
-            expected[(x, 0)].set_style(Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD));
+            expected[(x, 0)].set_style(
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            );
+        }
+        for x in 13..17 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        }
+        for x in 19..30 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Blue));
+        }
+        for x in 30..44 {
+            expected[(x, 0)].set_style(Style::default().fg(Color::Green));
+        }
+        let refs = footer_text[..footer_text.find("r refs").expect("the refs toggle is present")]
+            .chars()
+            .count();
+        for x in refs..refs + "r refs".len() {
+            expected[(x as u16, 1)].set_style(Style::default().add_modifier(Modifier::DIM));
         }
         terminal.backend().assert_buffer(&expected);
+        let row = terminal.backend().buffer();
+        assert!(
+            row[(10, 0)].modifier.contains(Modifier::REVERSED),
+            "selection includes the final hash character"
+        );
+        assert!(
+            !row[(11, 0)].modifier.contains(Modifier::REVERSED),
+            "selection ends immediately after the hash"
+        );
+        assert_eq!(row[(13, 0)].fg, Color::Cyan, "reference colors remain visible");
+        assert!(
+            !rendered_line(&terminal, 1).contains("Esc cancel"),
+            "completed work cannot be cancelled"
+        );
+
+        app.update(Action::ToggleMailmap);
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
+        assert!(
+            rendered_row(&terminal).contains(" author subject"),
+            "m restores the original author name"
+        );
+        assert!(footer_is_dim(&terminal, "m mailmap"), "disabled mailmap is dimmed");
+        app.update(Action::ToggleMailmap);
 
         app.update(Action::ToggleDate);
         app.update(Action::ToggleName);
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         let row = rendered_row(&terminal);
         assert!(!row.contains("1970-01-01"), "d hides the committer date");
         assert!(!row.contains("author"), "n hides the author name");
         assert!(!row.contains("refs/patches"), "special refs are hidden until requested");
         assert!(row.contains("subject"), "the commit subject remains visible");
+        assert!(footer_is_dim(&terminal, "d date"), "disabled date is dimmed");
+        assert!(footer_is_dim(&terminal, "n name"), "disabled name is dimmed");
 
         app.update(Action::ToggleSpecialRefs);
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(rendered_row(&terminal).contains("refs/patches"), "r shows special refs");
+        assert!(!footer_is_dim(&terminal, "r refs"), "enabled refs are not dimmed");
 
         app.has_hidden_filter = true;
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(
             rendered_line(&terminal, 1).contains("v show hidden"),
             "the footer advertises the configured hidden-history toggle"
         );
         app.show_hidden = true;
-        terminal.draw(|frame| draw(frame, &mut app, &decorations))?;
+        terminal.draw(|frame| super::draw(frame, &mut app, &decorations, &mailmap))?;
         assert!(
             rendered_line(&terminal, 1).contains("v hide hidden"),
             "the footer reflects the unfiltered view"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn advertises_cancel_only_while_loading() -> Result<(), Box<dyn std::error::Error>> {
+        let mut app = App::new(1);
+        let mut terminal = Terminal::new(TestBackend::new(180, 2))?;
+
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(rendered_line(&terminal, 1).contains("Esc cancel"));
+
+        app.update(Action::Cancel);
+        terminal.draw(|frame| draw(frame, &mut app, &Decorations::new()))?;
+        assert!(!rendered_line(&terminal, 1).contains("Esc cancel"));
         Ok(())
     }
 
@@ -508,8 +626,7 @@ mod tests {
                     parent_ids: Default::default(),
                     lane: String::new(),
                     committer_time: gix::date::Time::default(),
-                    author_name: b"author".as_bstr(),
-                    author_is_bot: false,
+                    author: author(b"author", b"author@example.com"),
                     attributions: Box::default(),
                     title: format!("subject {n}").into(),
                 })
@@ -541,8 +658,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: "● │ │ │ │ │ │ │ ".into(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         };
@@ -574,14 +690,17 @@ mod tests {
         let mut app = App::new(1);
         app.extend_commits(vec![commit]);
         let row = &app.rows[0];
+        let mailmap = gix::mailmap::Snapshot::default();
         let line = metadata_line(
             row,
             app.title(row),
             &decorations,
+            &mailmap,
             MetadataOptions {
                 show_committer_date: true,
                 show_author_name: true,
                 show_trailers: true,
+                use_mailmap: false,
                 show_special_refs: true,
                 selected: false,
             },
@@ -637,8 +756,7 @@ mod tests {
             parent_ids: Default::default(),
             lane: String::new(),
             committer_time: gix::date::Time::default(),
-            author_name: b"author".as_bstr(),
-            author_is_bot: false,
+            author: author(b"author", b"author@example.com"),
             attributions: Box::default(),
             title: "subject".into(),
         }]);
@@ -700,5 +818,11 @@ mod tests {
             out.push_str(terminal.backend().buffer()[(x, y)].symbol());
             out
         })
+    }
+
+    fn footer_is_dim(terminal: &Terminal<TestBackend>, label: &str) -> bool {
+        let footer = rendered_line(terminal, 1);
+        let x = footer[..footer.find(label).expect("toggle is visible")].chars().count() as u16;
+        terminal.backend().buffer()[(x, 1)].modifier.contains(Modifier::DIM)
     }
 }

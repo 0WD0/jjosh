@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-21401427be1873e72dce7a802587571543e529e7/> add configurable terminal screen modes.
+ - <csr-id-fed0051609450abf49c6aeebdfa36e191f4292c7/> hide revision ancestry in tix
+ - <csr-id-31a94aa8e268fb9e3442ce786788624938fce275/> add tix to the gix CLI
+ - <csr-id-06a927c422c73be8a433ef71ea9696770bffd31c/> add explicit gix config show subcommand.
+ - <csr-id-bd595de3f204fa431d681bde20774463cb72fbc5/> add `gix config list` for showing the git-configuration files.
+ - <csr-id-87a5e89ef78751282919c3882064b7d01c94170d/> add the `gix config fmt` subcommand
+   Expose the gix-config whitespace formatter as
+   `gix config fmt [--in-place] [in-file] [out-file]`: with no in-file it
+   formats the repository-local configuration, and with no out-file it writes
+   to stdout. The repository is only opened when the repository-local
+   configuration is needed, so formatting an explicit file works outside a
+   repository too.
+ - <csr-id-9316ff8168a2d147e5791663168ae3ee2a78d395/> add `gix status --untracked` flag
+   This allows to control how untracked files are folded, but also
+   can completely turn dirwalking off.
+ - <csr-id-6767b308dab7cb02b0946ce94bb1e05a1aecd370/> add `gix free remote refs` to list and write remote refs.
+   Add `gix free remote refs` to perform an upload-pack handshake, discover
+   the remote reference advertisement, and print the refs without negotiating
+   or receiving a pack.
+   
+   The command can also write the advertised refs into a standalone ref store:
+   
+   ```sh
+   gix free remote refs --refs-directory out-refs <url>
+   ```
+
+### Bug Fixes
+
+ - <csr-id-5f244b32c44795062b0aa9e352404cbd1412a844/> preserve multiple remote URLs
+   Configured remotes can have multiple remote.<name>.url or remote.<name>.pushUrl
+   values, but `gix::Remote` kept only one value because lookup used the singular
+   config accessor. That meant the most recent config value won, while Git exposes
+   every effective URL and uses the first one for the singular get-url form.
+   
+   Add ordered URL storage to `gix::Remote` and expose `Remote::urls(Direction)` for
+   all effective URLs. Keep Remote::url(Direction) as the singular compatibility
+   API, now returning the first effective URL. Fetch URLs used as push fallbacks
+   try pushInsteadOf first and then insteadOf, matching Git behavior.
+   
+   The regression fixture records Git 2.50.1 behavior with git remote get-url:
+   without --all it prints the first configured URL, and with --all it prints all
+   configured URLs in order for both fetch and push.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-b1851470ef477a3edfa3a96fa07c4472c2ae7962/> make exclude queries index-aware
+   <!-- agent -->
+   
+   `gix exclude query` reported ignore matches for tracked files and directories
+   containing tracked entries, unlike `git check-ignore`. Positional arguments were
+   also interpreted as pathspecs while stdin supplied paths.
+   
+   Treat positional and stdin input uniformly as paths, normalize them relative
+   to the repository, and suppress ignore matches for indexed files or directories
+   containing indexed entries. This changes positional arguments from pathspecs
+   to paths.
+   
+   Add journey coverage for tracked and untracked paths below ignored directories,
+   stdin from a nested working directory, ignore-pattern display, and positional
+   output order.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 22 commits contributed to the release.
+ - 31 days passed between releases.
+ - 10 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 2 unique issues were worked on: [#2562](https://github.com/GitoxideLabs/gitoxide/issues/2562), [#2696](https://github.com/GitoxideLabs/gitoxide/issues/2696)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2562](https://github.com/GitoxideLabs/gitoxide/issues/2562)**
+    - Make exclude queries index-aware ([`b185147`](https://github.com/GitoxideLabs/gitoxide/commit/b1851470ef477a3edfa3a96fa07c4472c2ae7962))
+ * **[#2696](https://github.com/GitoxideLabs/gitoxide/issues/2696)**
+    - Preserve multiple remote URLs ([`5f244b3`](https://github.com/GitoxideLabs/gitoxide/commit/5f244b32c44795062b0aa9e352404cbd1412a844))
+ * **Uncategorized**
+    - Add configurable terminal screen modes. ([`2140142`](https://github.com/GitoxideLabs/gitoxide/commit/21401427be1873e72dce7a802587571543e529e7))
+    - Merge pull request #2809 from GitoxideLabs/gix-tix-mvp ([`443b401`](https://github.com/GitoxideLabs/gitoxide/commit/443b401730e91503666192f502556f334049fbc0))
+    - Hide revision ancestry in tix ([`fed0051`](https://github.com/GitoxideLabs/gitoxide/commit/fed0051609450abf49c6aeebdfa36e191f4292c7))
+    - Add tix to the gix CLI ([`31a94aa`](https://github.com/GitoxideLabs/gitoxide/commit/31a94aa8e268fb9e3442ce786788624938fce275))
+    - Merge pull request #2735 from GitoxideLabs/better-exclude-handling ([`02cb162`](https://github.com/GitoxideLabs/gitoxide/commit/02cb162e31fb7fed5f93d29c7447f68f690442df))
+    - Merge pull request #2636 from ameyypawar/gix-config-formatter ([`cfd3899`](https://github.com/GitoxideLabs/gitoxide/commit/cfd389911b33a80576519a228e60d51a789df857))
+    - Add explicit gix config show subcommand. ([`06a927c`](https://github.com/GitoxideLabs/gitoxide/commit/06a927c422c73be8a433ef71ea9696770bffd31c))
+    - Add `gix config list` for showing the git-configuration files. ([`bd595de`](https://github.com/GitoxideLabs/gitoxide/commit/bd595de3f204fa431d681bde20774463cb72fbc5))
+    - Add the `gix config fmt` subcommand ([`87a5e89`](https://github.com/GitoxideLabs/gitoxide/commit/87a5e89ef78751282919c3882064b7d01c94170d))
+    - Merge pull request #2721 from GitoxideLabs/remove-kstring ([`e70732a`](https://github.com/GitoxideLabs/gitoxide/commit/e70732a7cad4b5dca4890d394908c858ab406906))
+    - Adapt to changes in `gix-attributes` ([`e11d7a2`](https://github.com/GitoxideLabs/gitoxide/commit/e11d7a2c734882e4ddb74c82ce5fe50b46265467))
+    - Merge pull request #2722 from GitoxideLabs/reasons ([`c16b5a1`](https://github.com/GitoxideLabs/gitoxide/commit/c16b5a1892704b7c72a253bdd74a6848dd61032a))
+    - Replace lint allowances with expectations ([`43ff87a`](https://github.com/GitoxideLabs/gitoxide/commit/43ff87a73897b70313e3a58e7de82231be5b59ad))
+    - Merge pull request #2667 from GitoxideLabs/lifetime-free-config-parser ([`55b5158`](https://github.com/GitoxideLabs/gitoxide/commit/55b51580c2b018f9f35b4b865fe86a28a5c0ff84))
+    - Adapt to changes in `gix-config` ([`376e946`](https://github.com/GitoxideLabs/gitoxide/commit/376e94627bf694d78314e044ece058fe09a54dec))
+    - Merge pull request #2698 from GitoxideLabs/multi-remote-url ([`7056d62`](https://github.com/GitoxideLabs/gitoxide/commit/7056d62dd3fda005f55a1f59ce36179000749013))
+    - Merge pull request #2547 from special-bread/windows-status-performance ([`3e43c42`](https://github.com/GitoxideLabs/gitoxide/commit/3e43c42e96502d7fb0998ba05efcdf67d07eb957))
+    - Add `gix status --untracked` flag ([`9316ff8`](https://github.com/GitoxideLabs/gitoxide/commit/9316ff8168a2d147e5791663168ae3ee2a78d395))
+    - Merge pull request #2659 from willstott101/fix-ref-transaction-toctou ([`43dd683`](https://github.com/GitoxideLabs/gitoxide/commit/43dd6839d7d63c396c7c296244a5d87a92f09804))
+    - Add `gix free remote refs` to list and write remote refs. ([`6767b30`](https://github.com/GitoxideLabs/gitoxide/commit/6767b308dab7cb02b0946ce94bb1e05a1aecd370))
+</details>
+
 ## 0.55.0 (2026-06-22)
 
 ## 0.54.0 (2026-05-26)
@@ -57,7 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 27 calendar days.
- - 32 days passed between releases.
+ - 33 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -93,7 +200,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release over the course of 12 calendar days.
- - 21 days passed between releases.
+ - 22 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -127,6 +234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release.
+ - 31 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2198](https://github.com/GitoxideLabs/gitoxide/issues/2198)
 
@@ -205,7 +313,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 19 commits contributed to the release over the course of 78 calendar days.
- - 79 days passed between releases.
+ - 80 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -248,6 +356,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
+ - 21 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -277,6 +386,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 14 commits contributed to the release.
+ - 76 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -403,6 +513,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release over the course of 21 calendar days.
+ - 33 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -595,7 +706,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 10 calendar days.
- - 38 days passed between releases.
+ - 39 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -646,6 +757,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 11 commits contributed to the release.
+ - 48 days passed between releases.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -735,7 +847,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release over the course of 21 calendar days.
- - 22 days passed between releases.
+ - 23 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -791,6 +903,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 27 commits contributed to the release.
+ - 54 days passed between releases.
  - 10 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -839,6 +952,7 @@ A re-release to deal with breakage in the dependency tree (self-caused).
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -972,7 +1086,7 @@ strings. The above can, on MacOS, launch the calculator app when using it with `
 <csr-read-only-do-not-edit/>
 
  - 20 commits contributed to the release over the course of 15 calendar days.
- - 30 days passed between releases.
+ - 31 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1136,7 +1250,7 @@ Further, `gix index entries` now lists attributes as well, and there is the new 
 <csr-read-only-do-not-edit/>
 
  - 17 commits contributed to the release over the course of 34 calendar days.
- - 40 days passed between releases.
+ - 41 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1195,6 +1309,7 @@ A maintenance release without user-facing changes, just to fix installation
 <csr-read-only-do-not-edit/>
 
  - 25 commits contributed to the release.
+ - 62 days passed between releases.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#301](https://github.com/GitoxideLabs/gitoxide/issues/301), [#790](https://github.com/GitoxideLabs/gitoxide/issues/790)
 
@@ -1307,7 +1422,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release.
- - 7 days passed between releases.
+ - 8 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1428,7 +1543,7 @@ This release also fixes compatibility issues that formerly prevented to fetch or
 <csr-read-only-do-not-edit/>
 
  - 22 commits contributed to the release over the course of 30 calendar days.
- - 30 days passed between releases.
+ - 31 days passed between releases.
  - 7 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1508,7 +1623,7 @@ It's also an attempt to trigger CI to build binary releases.
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release over the course of 9 calendar days.
- - 10 days passed between releases.
+ - 11 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1568,6 +1683,7 @@ It's also an attempt to trigger CI to build binary releases.
 <csr-read-only-do-not-edit/>
 
  - 65 commits contributed to the release.
+ - 47 days passed between releases.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 2 unique issues were worked on: [#450](https://github.com/GitoxideLabs/gitoxide/issues/450), [#536](https://github.com/GitoxideLabs/gitoxide/issues/536)
 
@@ -1734,7 +1850,7 @@ It's also an attempt to trigger CI to build binary releases.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release over the course of 5 calendar days.
- - 6 days passed between releases.
+ - 7 days passed between releases.
  - 5 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#450](https://github.com/GitoxideLabs/gitoxide/issues/450)
 
@@ -2081,7 +2197,7 @@ to the `clap-derive` crate.
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release over the course of 1 calendar day.
- - 4 days passed between releases.
+ - 5 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#222](https://github.com/GitoxideLabs/gitoxide/issues/222)
 
@@ -2139,7 +2255,7 @@ This is a maintenance release.
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release over the course of 8 calendar days.
- - 20 days passed between releases.
+ - 21 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -2150,7 +2266,7 @@ This is a maintenance release.
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release over the course of 1 calendar day.
- - 1 day passed between releases.
+ - 2 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -2178,7 +2294,7 @@ This is a maintenance release.
 <csr-read-only-do-not-edit/>
 
  - 32 commits contributed to the release over the course of 128 calendar days.
- - 143 days passed between releases.
+ - 144 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -2235,7 +2351,7 @@ Maintenance release without any new features.
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release over the course of 1 calendar day.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -2277,7 +2393,7 @@ Maintenance release without any new features.
 <csr-read-only-do-not-edit/>
 
  - 14 commits contributed to the release over the course of 29 calendar days.
- - 30 days passed between releases.
+ - 31 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 

@@ -5,13 +5,158 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-d125a59a25540f5945ce235a897b8ef6709624bb/> add `parse::format` to normalize git-config whitespace.
+   Adds `gix_config::parse::format::normalize(input, &Options)`, which re-emits a
+   single config file with sanitized whitespace without resolving includes. Values,
+   comments and section headers are preserved verbatim; only insignificant
+   whitespace, the `=` separator and newlines are rewritten.
+   
+   `Options` controls indentation (two spaces by default; tabs or none also
+   available), spacing around `=`, the newline sequence (detect/LF/CRLF), the
+   trailing newline, and optional blank-line collapsing.
+   
+   This is the library portion; the CLI will follow separately.
+ - <csr-id-ec2895f89f0f76f95ed84d1bc14ccfa927bce504/> return config values with their containing sections via `File::*_with_sections()` methods.
+   That way it's easier to know where a value is coming from.
+   Also streamline arguments and available methods for concistency.
+ - <csr-id-1ce5b56af685e34ccfc564649b51d357b2e24073/> add `SectionMut::rename()` for precise single-section renames.
+   This is important now that `File::rename_section*()` renames all matching
+   sections.
+
+### Bug Fixes
+
+ - <csr-id-b92d0ffe44234894b8f531c2c05406c0eaa30afa/> rename all matching sections in File::rename_section(), instead of just the last matching one.
+   This is the correct behaviour and is what Git uses, even though it could break previous users in a setting
+   where there are global configurations, like remote sections.
+
+### Changed (BREAKING)
+
+ - <csr-id-0887485bbd735ba442138deb58f6a0f858d7915c/> validate config value names internally and use `AsBStrOpt` for value pushes.
+   This makes using the APIs much more convenient.
+
+### Chore (BREAKING)
+
+ - <csr-id-6aa934a3f7734902b6c3c7baaff84b51b3cf0226/> adapt to changes in `gix-config`
+   Marked as breaking explicitly to as we know paramter types were
+   changed to use convenience traits.
+
+### New Features (BREAKING)
+
+ - <csr-id-0e3b35bd461ec64867068a548a85d50944abd870/> make parsed configuration files lifetime-free
+   Store parsed configuration data in a self-contained backing buffer, with
+   event payloads represented as compact spans into it. This removes the
+   input lifetime from `File` and `Events`, making parsed configurations
+   easier to return, store, move, and combine.
+   
+   Expose data through lightweight `EventRef`, `SectionRef`, `HeaderRef`,
+   and `BodyRef` views. This retains efficient borrowed access while keeping
+   ownership details out of the primary API.
+   
+   - Unify parsing under `Events::from_bytes()` and remove
+     `from_bytes_owned()`.
+   - Add `Events::iter()`, `frontmatter()`, and `sections()` for
+     non-consuming traversal.
+   - Return owned `BString` values from lookups, avoiding `Cow` handling.
+   - Simplify optional typed lookups from `Option<Result<T, E>>` to
+     `Result<Option<T>, E>`.
+   - Accept common string and byte-string inputs through `AsBStr` and
+     `IntoBStringOpt`.
+   - Allow concise calls such as `new_section("remote", "origin")` without
+     constructing `Option<Cow<...>>`.
+   - Reduce mutable value and section handles to the lifetime of their
+     active file borrow.
+   
+   Introduce explicit section ownership: `Section` is self-contained and
+   can be removed, edited, and inserted into another file, while
+   `SectionRef` and `SectionMut` provide borrowed access.
+   
+   Preserve original subsection spelling for serialization while retaining
+   decoded names for lookup. Configuration equality now also compares
+   section and value names case-insensitively, matching Git semantics.
+   
+   Add benchmarks covering section, value, subsection, and multi-value
+   lookups across configurations of varying sizes.
+
+### Bug Fixes (BREAKING)
+
+ - <csr-id-784323a088a7d98d08c17ddfc1e078b98431d2bf/> simplify gix-config section lookup acceleration
+   breaking change for safety, as parameter types were changed.
+   
+   --- agent
+   
+   Replace the terminal/non-terminal enum vector with a direct boxed lookup
+   record, use a Vec for section order, and centralize ordered insertion and
+   removal. Empty lookup buckets are removed instead of becoming special cases.
+   
+   This removes 137 production lines, including 108 lines from the lookup
+   utility, while adding targeted ordering and cleanup coverage.
+   
+   Back-to-back lookup benchmarks against the previous revision show:
+   
+   - section-name lookup: +0.4% at 10 and 100 sections, +4.2% at 1,000
+   - subsection lookup: 5.7% to 9.1% faster
+   - all-sections lookup: between 5.5% faster and 4.7% slower
+   - isolated complete-value lookup: +0.8%, with no significant change
+   
+   Thus all lookup groups remain within the 5% parity target, with subsection
+   lookup becoming consistently faster.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 20 commits contributed to the release.
+ - 31 days passed between releases.
+ - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2594](https://github.com/GitoxideLabs/gitoxide/issues/2594)
+
+### Thanks Clippy
+
+<csr-read-only-do-not-edit/>
+
+[Clippy](https://github.com/rust-lang/rust-clippy) helped 1 time to make code idiomatic. 
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2594](https://github.com/GitoxideLabs/gitoxide/issues/2594)**
+    - Add `parse::format` to normalize git-config whitespace. ([`d125a59`](https://github.com/GitoxideLabs/gitoxide/commit/d125a59a25540f5945ce235a897b8ef6709624bb))
+ * **Uncategorized**
+    - Release gix-trace v0.1.21, gix-validate v0.11.3, gix-path v0.12.3, gix-utils v0.3.5, gix-config-value v0.19.0, gix-prompt v0.16.0, gix-sec v0.14.2, gix-url v0.37.0, gix-credentials v0.39.0, safety bump 18 crates ([`f0ec710`](https://github.com/GitoxideLabs/gitoxide/commit/f0ec71076aa1cef3181b77946ee556a89c651b8e))
+    - Merge pull request #2636 from ameyypawar/gix-config-formatter ([`cfd3899`](https://github.com/GitoxideLabs/gitoxide/commit/cfd389911b33a80576519a228e60d51a789df857))
+    - Review ([`1825e85`](https://github.com/GitoxideLabs/gitoxide/commit/1825e858f5145f536dc7b78f756e65857ae96f2d))
+    - Merge pull request #2725 from GitoxideLabs/gix-config-improvements ([`5982dfe`](https://github.com/GitoxideLabs/gitoxide/commit/5982dfe4fdc1f0375fea540b308f9a248e0c7218))
+    - Adapt to changes in `gix-config` ([`6aa934a`](https://github.com/GitoxideLabs/gitoxide/commit/6aa934a3f7734902b6c3c7baaff84b51b3cf0226))
+    - Return config values with their containing sections via `File::*_with_sections()` methods. ([`ec2895f`](https://github.com/GitoxideLabs/gitoxide/commit/ec2895f89f0f76f95ed84d1bc14ccfa927bce504))
+    - Validate config value names internally and use `AsBStrOpt` for value pushes. ([`0887485`](https://github.com/GitoxideLabs/gitoxide/commit/0887485bbd735ba442138deb58f6a0f858d7915c))
+    - Add `SectionMut::rename()` for precise single-section renames. ([`1ce5b56`](https://github.com/GitoxideLabs/gitoxide/commit/1ce5b56af685e34ccfc564649b51d357b2e24073))
+    - Rename all matching sections in File::rename_section(), instead of just the last matching one. ([`b92d0ff`](https://github.com/GitoxideLabs/gitoxide/commit/b92d0ffe44234894b8f531c2c05406c0eaa30afa))
+    - Simplify gix-config section lookup acceleration ([`784323a`](https://github.com/GitoxideLabs/gitoxide/commit/784323a088a7d98d08c17ddfc1e078b98431d2bf))
+    - Merge pull request #2722 from GitoxideLabs/reasons ([`c16b5a1`](https://github.com/GitoxideLabs/gitoxide/commit/c16b5a1892704b7c72a253bdd74a6848dd61032a))
+    - Replace lint allowances with expectations ([`43ff87a`](https://github.com/GitoxideLabs/gitoxide/commit/43ff87a73897b70313e3a58e7de82231be5b59ad))
+    - Merge pull request #2667 from GitoxideLabs/lifetime-free-config-parser ([`55b5158`](https://github.com/GitoxideLabs/gitoxide/commit/55b51580c2b018f9f35b4b865fe86a28a5c0ff84))
+    - Make parsed configuration files lifetime-free ([`0e3b35b`](https://github.com/GitoxideLabs/gitoxide/commit/0e3b35bd461ec64867068a548a85d50944abd870))
+    - Merge pull request #2714 from GitoxideLabs/fix-credentials-parsing ([`cf3053a`](https://github.com/GitoxideLabs/gitoxide/commit/cf3053a3c18e2de788cdaa9f41b5bd343bdc0091))
+    - Release gix-path v0.12.2, gix-error v0.2.5, gix-utils v0.3.4, gix-date v0.15.6, gix-url v0.36.2, gix-credentials v0.38.2 ([`27aec47`](https://github.com/GitoxideLabs/gitoxide/commit/27aec474c113cc885d44631b329454dc1ad0fed2))
+    - Merge pull request #2702 from ameyypawar/fix/2694-exn-source-chain ([`e9c973d`](https://github.com/GitoxideLabs/gitoxide/commit/e9c973d9476bef293bec89cd683cb60b02a85e52))
+    - Thanks clippy ([`d533f0c`](https://github.com/GitoxideLabs/gitoxide/commit/d533f0c7a6a6b20cbcfe5a755d472b921e38b4a1))
+    - Merge pull request #2646 from GitoxideLabs/report ([`1b1541e`](https://github.com/GitoxideLabs/gitoxide/commit/1b1541ed7a457afd48385c1ee39113949a9f5263))
+</details>
+
 ## 0.58.0 (2026-06-22)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 1 commit contributed to the release over the course of 27 calendar days.
+ - 2 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.15.5, gix-hashtable v0.15.2, gix-object v0.62.0, gix-attributes v0.33.2, gix-filter v0.32.0, gix-revwalk v0.33.0, gix-traverse v0.59.0, gix-worktree-stream v0.34.0, gix-archive v0.34.0, gix-tempfile v23.0.2, gix-index v0.53.0, gix-worktree v0.54.0, gix-imara-diff v0.2.3, gix-diff v0.65.0, gix-blame v0.15.0, gix-ref v0.65.0, gix-config v0.58.0, gix-discover v0.53.0, gix-dir v0.27.0, gix-revision v0.47.0, gix-merge v0.18.0, gix-negotiate v0.33.0, gix-pack v0.72.0, gix-odb v0.82.0, gix-refspec v0.43.0, gix-transport v0.57.2, gix-protocol v0.63.0, gix-status v0.32.0, gix-submodule v0.32.0, gix-worktree-state v0.32.0, gix v0.85.0, gix-fsck v0.23.0, gitoxide-core v0.59.0, gitoxide v0.55.0, safety bump 28 crates ([`6428edc`](https://github.com/GitoxideLabs/gitoxide/commit/6428edc82fc8a16d5ef34ca2d49aa6fdff3645fe))
     - Merge pull request #2618 from GitoxideLabs/report ([`f7d4f33`](https://github.com/GitoxideLabs/gitoxide/commit/f7d4f33b58503996ae90497b69ce4c3a757982ac))
 </details>
 
@@ -87,7 +233,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release over the course of 2 calendar days.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -137,7 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 16 commits contributed to the release over the course of 32 calendar days.
- - 32 days passed between releases.
+ - 33 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -179,6 +325,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release.
+ - 28 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -253,7 +400,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 21 calendar days.
- - 21 days passed between releases.
+ - 22 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2363](https://github.com/GitoxideLabs/gitoxide/issues/2363)
 
@@ -302,7 +449,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release.
- - 29 days passed between releases.
+ - 30 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -327,6 +474,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 2 commits contributed to the release.
+ - 30 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -418,7 +566,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release over the course of 79 calendar days.
- - 79 days passed between releases.
+ - 80 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -459,6 +607,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -487,6 +636,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 18 commits contributed to the release.
+ - 21 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -537,6 +687,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release.
+ - 76 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1826](https://github.com/GitoxideLabs/gitoxide/issues/1826)
 
@@ -609,6 +760,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 12 commits contributed to the release.
+ - 33 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -663,7 +815,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 22 commits contributed to the release over the course of 60 calendar days.
- - 60 days passed between releases.
+ - 61 days passed between releases.
  - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -850,7 +1002,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 8 calendar days.
- - 38 days passed between releases.
+ - 39 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -881,6 +1033,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 10 commits contributed to the release over the course of 9 calendar days.
+ - 30 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1026,7 +1179,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 12 commits contributed to the release.
- - 20 days passed between releases.
+ - 21 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1060,6 +1213,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release.
+ - 1 day passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1157,6 +1311,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1181,6 +1336,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 8 commits contributed to the release.
+ - 55 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1210,7 +1366,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release over the course of 6 calendar days.
- - 17 days passed between releases.
+ - 18 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1363,7 +1519,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 3 calendar days.
- - 4 days passed between releases.
+ - 5 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1391,7 +1547,7 @@ The parsing switches from `nom` to `winnow`, which eases maintenance and improve
 <csr-read-only-do-not-edit/>
 
  - 28 commits contributed to the release.
- - 10 days passed between releases.
+ - 11 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1465,7 +1621,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release over the course of 4 calendar days.
- - 19 days passed between releases.
+ - 20 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1521,7 +1677,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release over the course of 6 calendar days.
- - 6 days passed between releases.
+ - 7 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1546,7 +1702,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 10 calendar days.
- - 15 days passed between releases.
+ - 16 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1606,6 +1762,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1735,6 +1892,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 8 commits contributed to the release.
+ - 16 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#790](https://github.com/GitoxideLabs/gitoxide/issues/790)
 
@@ -1842,6 +2000,7 @@ A maintenance release to restore MSRV (1.64) support.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -4541,6 +4700,7 @@ This is a maintenance release without functional changes.
 <csr-unknown>
 <csr-unknown>
 <csr-unknown>
+<csr-unknown>
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown>
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown>
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown>
@@ -4559,6 +4719,7 @@ lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfr
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown>
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown>
 lenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopenlenfrom_envopen<csr-unknown/>
+<csr-unknown/>
 <csr-unknown/>
 <csr-unknown/>
 <csr-unknown/>

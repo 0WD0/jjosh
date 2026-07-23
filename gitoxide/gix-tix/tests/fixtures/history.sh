@@ -5,6 +5,7 @@ set -eu
 git init -q -b main .
 git config user.name author
 git config user.email author@example.com
+printf '%s\n' 'Mailmapped Author <mapped@example.com> Codex <Codex@OpenAI.com>' >.mailmap
 
 commit () {
   echo "$1" >"$1"

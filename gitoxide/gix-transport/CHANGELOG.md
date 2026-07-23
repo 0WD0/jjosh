@@ -5,13 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### New Features
+
+ - <csr-id-41e1bd7eab6ba68a13fce128c1c9a630c1c14595/> use `gix_path::env::core_dir_program()` for git-upload-pack
+   This way it can be found even if not in path, or through Git.
+
+### Bug Fixes
+
+ - <csr-id-ac264913e55fa10b2237820ef5ee61aeb50467c7/> re-authenticate smart HTTP redirects
+ - <csr-id-1228b872bd6f8d9c057db3c7250c28843e8b05cf/> preserve the underlying error when a reqwest request fails without a status
+   When the blocking `reqwest` HTTP backend failed without an HTTP status --
+   e.g. a connection or TLS failure, as when `http-client-reqwest` is used
+   without a TLS feature against an `https://` URL -- it stringified the
+   `reqwest::Error` before wrapping it in an `io::Error`. That dead-ended
+   `source()`, so callers only saw "An IO error occurred when talking to the
+   server" with no way to reach the real cause.
+   
+   Keep the `reqwest::Error` as the `io::Error`'s source (via
+   `io::Error::other`) so the underlying cause is preserved. The HTTP-status
+   branch is unchanged.
+   
+   Adds a `reqwest`-only regression test that drives a refused connection and
+   asserts the error source is retained; it runs under the
+   `http-client-reqwest` test configuration, which also adds http test
+   coverage for that backend.
+
+### Changed (BREAKING)
+
+ - <csr-id-c3f2244541f0b6419d30782fbae825d33bd5fe16/> replace `maybe-async` with `bisync`.
+   Replace the globally feature-selected maybe-async dependency with bisync 0.3 and
+   re-export the locally selected macro mode from gix-protocol.
+   
+   Also use it to deduplicate portions which previously couldn't be handled.
+
+### Commit Statistics
+
+<csr-read-only-do-not-edit/>
+
+ - 20 commits contributed to the release.
+ - 31 days passed between releases.
+ - 4 commits were understood as [conventional](https://www.conventionalcommits.org).
+ - 1 unique issue was worked on: [#2685](https://github.com/GitoxideLabs/gitoxide/issues/2685)
+
+### Commit Details
+
+<csr-read-only-do-not-edit/>
+
+<details><summary>view details</summary>
+
+ * **[#2685](https://github.com/GitoxideLabs/gitoxide/issues/2685)**
+    - Re-authenticate smart HTTP redirects ([`ac26491`](https://github.com/GitoxideLabs/gitoxide/commit/ac264913e55fa10b2237820ef5ee61aeb50467c7))
+ * **Uncategorized**
+    - Release gix-trace v0.1.21, gix-validate v0.11.3, gix-path v0.12.3, gix-utils v0.3.5, gix-config-value v0.19.0, gix-prompt v0.16.0, gix-sec v0.14.2, gix-url v0.37.0, gix-credentials v0.39.0, safety bump 18 crates ([`f0ec710`](https://github.com/GitoxideLabs/gitoxide/commit/f0ec71076aa1cef3181b77946ee556a89c651b8e))
+    - Merge pull request #2734 from GitoxideLabs/url-parse-convenience ([`e7af50e`](https://github.com/GitoxideLabs/gitoxide/commit/e7af50ea6c686593ba627fcf79fdb228a1f29193))
+    - Adapt to changes in gix-url ([`271454b`](https://github.com/GitoxideLabs/gitoxide/commit/271454b5d544e2af2d17db454e72800dbc87acfe))
+    - Merge pull request #2728 from GitoxideLabs/try-bisync ([`adf4b7a`](https://github.com/GitoxideLabs/gitoxide/commit/adf4b7af7eed083c871a6572cb41316dcf6e568e))
+    - Deduplicate fetch I/O across async and blocking modes ([`2619919`](https://github.com/GitoxideLabs/gitoxide/commit/2619919a2e70b0690f4af2f47f28ad26bf619b7c))
+    - Replace `maybe-async` with `bisync`. ([`c3f2244`](https://github.com/GitoxideLabs/gitoxide/commit/c3f2244541f0b6419d30782fbae825d33bd5fe16))
+    - Merge pull request #2722 from GitoxideLabs/reasons ([`c16b5a1`](https://github.com/GitoxideLabs/gitoxide/commit/c16b5a1892704b7c72a253bdd74a6848dd61032a))
+    - Replace lint allowances with expectations ([`43ff87a`](https://github.com/GitoxideLabs/gitoxide/commit/43ff87a73897b70313e3a58e7de82231be5b59ad))
+    - Merge pull request #2714 from GitoxideLabs/fix-credentials-parsing ([`cf3053a`](https://github.com/GitoxideLabs/gitoxide/commit/cf3053a3c18e2de788cdaa9f41b5bd343bdc0091))
+    - Release gix-path v0.12.2, gix-error v0.2.5, gix-utils v0.3.4, gix-date v0.15.6, gix-url v0.36.2, gix-credentials v0.38.2 ([`27aec47`](https://github.com/GitoxideLabs/gitoxide/commit/27aec474c113cc885d44631b329454dc1ad0fed2))
+    - Merge pull request #2700 from ameyypawar/fix/2313-upload-pack-fallback ([`9884f48`](https://github.com/GitoxideLabs/gitoxide/commit/9884f48a957b9817b72d962224c80f22c5d0de49))
+    - Review ([`151a0af`](https://github.com/GitoxideLabs/gitoxide/commit/151a0af0468f0cf832b4f7e029041bfacf0b03f8))
+    - Use `gix_path::env::core_dir_program()` for git-upload-pack ([`41e1bd7`](https://github.com/GitoxideLabs/gitoxide/commit/41e1bd7eab6ba68a13fce128c1c9a630c1c14595))
+    - Merge pull request #2686 from GitoxideLabs/try-redirect-re-auth ([`d8aeaac`](https://github.com/GitoxideLabs/gitoxide/commit/d8aeaac02e9e95315bc8b5bd2380e3465826e960))
+    - Merge pull request #2681 from GitoxideLabs/lossy-url-conversion ([`b893e01`](https://github.com/GitoxideLabs/gitoxide/commit/b893e014d1c94152d60970caa4b699b2a5dceb11))
+    - Pin SSH upload-pack paths for SCP-like URLs ([`e94565e`](https://github.com/GitoxideLabs/gitoxide/commit/e94565e848637dc288e6e9a5fb5c49b89f45e481))
+    - Merge pull request #2669 from ameyypawar/fix/2140-reqwest-error-source ([`c8fbf29`](https://github.com/GitoxideLabs/gitoxide/commit/c8fbf295d960fc61b0bd112a6dc2c6a256024ae2))
+    - Preserve the underlying error when a reqwest request fails without a status ([`1228b87`](https://github.com/GitoxideLabs/gitoxide/commit/1228b872bd6f8d9c057db3c7250c28843e8b05cf))
+    - Merge pull request #2646 from GitoxideLabs/report ([`1b1541e`](https://github.com/GitoxideLabs/gitoxide/commit/1b1541ed7a457afd48385c1ee39113949a9f5263))
+</details>
+
 ## 0.57.2 (2026-06-22)
 
 ### Commit Statistics
 
 <csr-read-only-do-not-edit/>
 
- - 11 commits contributed to the release over the course of 27 calendar days.
+ - 12 commits contributed to the release over the course of 27 calendar days.
  - 27 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
@@ -23,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <details><summary>view details</summary>
 
  * **Uncategorized**
+    - Release gix-date v0.15.5, gix-hashtable v0.15.2, gix-object v0.62.0, gix-attributes v0.33.2, gix-filter v0.32.0, gix-revwalk v0.33.0, gix-traverse v0.59.0, gix-worktree-stream v0.34.0, gix-archive v0.34.0, gix-tempfile v23.0.2, gix-index v0.53.0, gix-worktree v0.54.0, gix-imara-diff v0.2.3, gix-diff v0.65.0, gix-blame v0.15.0, gix-ref v0.65.0, gix-config v0.58.0, gix-discover v0.53.0, gix-dir v0.27.0, gix-revision v0.47.0, gix-merge v0.18.0, gix-negotiate v0.33.0, gix-pack v0.72.0, gix-odb v0.82.0, gix-refspec v0.43.0, gix-transport v0.57.2, gix-protocol v0.63.0, gix-status v0.32.0, gix-submodule v0.32.0, gix-worktree-state v0.32.0, gix v0.85.0, gix-fsck v0.23.0, gitoxide-core v0.59.0, gitoxide v0.55.0, safety bump 28 crates ([`6428edc`](https://github.com/GitoxideLabs/gitoxide/commit/6428edc82fc8a16d5ef34ca2d49aa6fdff3645fe))
     - Merge pull request #2656 from GitoxideLabs/dev/aratiu/sha256-transport-fixtures ([`1ad9639`](https://github.com/GitoxideLabs/gitoxide/commit/1ad963935be3cbc01f0abc99e7f50078e0d20433))
     - Review ([`d056a3f`](https://github.com/GitoxideLabs/gitoxide/commit/d056a3f90e05930e433cd3fe921e2b48d93ef2ba))
     - Pin protocol fixtures as binary to preserve line endings ([`00a11c7`](https://github.com/GitoxideLabs/gitoxide/commit/00a11c788c27d3b91e88a556e18e7bdeb8064869))
@@ -71,7 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 2 commits contributed to the release over the course of 2 calendar days.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -105,7 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 10 commits contributed to the release over the course of 32 calendar days.
- - 32 days passed between releases.
+ - 33 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -142,6 +217,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 8 commits contributed to the release.
+ - 28 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -225,7 +301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <csr-read-only-do-not-edit/>
 
  - 9 commits contributed to the release over the course of 19 calendar days.
- - 19 days passed between releases.
+ - 20 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2363](https://github.com/GitoxideLabs/gitoxide/issues/2363)
 
@@ -257,7 +333,7 @@ Update to the latest version of `reqwest` for improved dependencies.
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release over the course of 1 calendar day.
- - 1 day passed between releases.
+ - 2 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#2328](https://github.com/GitoxideLabs/gitoxide/issues/2328)
 
@@ -305,7 +381,7 @@ Update to the latest version of `reqwest` for improved dependencies.
 <csr-read-only-do-not-edit/>
 
  - 1 commit contributed to the release.
- - 29 days passed between releases.
+ - 30 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -344,6 +420,7 @@ Update to the latest version of `reqwest` for improved dependencies.
 <csr-read-only-do-not-edit/>
 
  - 20 commits contributed to the release.
+ - 30 days passed between releases.
  - 8 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -442,7 +519,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release over the course of 79 calendar days.
- - 79 days passed between releases.
+ - 80 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -483,6 +560,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -507,6 +585,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 15 commits contributed to the release.
+ - 21 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -576,6 +655,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 21 commits contributed to the release.
+ - 76 days passed between releases.
  - 2 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -683,6 +763,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release.
+ - 33 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -829,7 +910,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 30 calendar days.
- - 38 days passed between releases.
+ - 39 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -885,6 +966,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 21 commits contributed to the release.
+ - 22 days passed between releases.
  - 3 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#1328](https://github.com/GitoxideLabs/gitoxide/issues/1328)
 
@@ -933,7 +1015,7 @@ into its dependency tree.
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release.
- - 7 days passed between releases.
+ - 8 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1013,7 +1095,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release over the course of 4 calendar days.
- - 20 days passed between releases.
+ - 21 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1038,6 +1120,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1062,7 +1145,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release over the course of 21 calendar days.
- - 22 days passed between releases.
+ - 23 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1122,6 +1205,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 24 commits contributed to the release.
+ - 54 days passed between releases.
  - 6 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 3 unique issues were worked on: [#1061](https://github.com/GitoxideLabs/gitoxide/issues/1061), [#1075](https://github.com/GitoxideLabs/gitoxide/issues/1075), [#1103](https://github.com/GitoxideLabs/gitoxide/issues/1103)
 
@@ -1177,6 +1261,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1201,7 +1286,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
- - 17 days passed between releases.
+ - 18 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1230,7 +1315,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
- - 15 days passed between releases.
+ - 16 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1289,7 +1374,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 8 commits contributed to the release.
- - 19 days passed between releases.
+ - 20 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1319,7 +1404,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 5 commits contributed to the release over the course of 2 calendar days.
- - 10 days passed between releases.
+ - 11 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 1 unique issue was worked on: [#923](https://github.com/GitoxideLabs/gitoxide/issues/923)
 
@@ -1376,7 +1461,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 4 calendar days.
- - 19 days passed between releases.
+ - 20 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1410,7 +1495,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
- - 6 days passed between releases.
+ - 7 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1435,7 +1520,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 6 commits contributed to the release over the course of 10 calendar days.
- - 15 days passed between releases.
+ - 16 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1513,6 +1598,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 1 day passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1584,6 +1670,7 @@ A maintenance release without any user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 3 commits contributed to the release.
+ - 12 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1608,7 +1695,7 @@ A maintenance release without any user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 7 commits contributed to the release over the course of 3 calendar days.
- - 3 days passed between releases.
+ - 4 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1713,7 +1800,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 4 commits contributed to the release.
- - 8 days passed between releases.
+ - 9 days passed between releases.
  - 0 commits were understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 
@@ -1744,7 +1831,7 @@ A maintenance release without user-facing changes.
 <csr-read-only-do-not-edit/>
 
  - 2 commits contributed to the release.
- - 2 days passed between releases.
+ - 3 days passed between releases.
  - 1 commit was understood as [conventional](https://www.conventionalcommits.org).
  - 0 issues like '(#ID)' were seen in commit messages
 

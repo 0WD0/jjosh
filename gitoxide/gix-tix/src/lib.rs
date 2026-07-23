@@ -20,14 +20,18 @@ use anyhow::{Context, Result};
 use app::{Action, App, Effect, State};
 use crossterm::{
     clipboard::CopyToClipboard,
+    cursor,
     event::{self, Event as TerminalEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
+    style::Print,
+    terminal,
 };
-use history::{AuthorNames, Decorations, Event};
+use history::{Authors, Decorations, Event};
+use ratatui::{TerminalOptions, Viewport};
 
 const EVENT_BATCH_SIZE: usize = 256;
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
-type SharedAuthorNames = gix::features::threading::OwnShared<gix::features::threading::Mutable<AuthorNames>>;
+type SharedAuthors = gix::features::threading::OwnShared<gix::features::threading::Mutable<Authors>>;
 
 /// Options for [`run()`].
 #[derive(Clone, Debug, Default)]
@@ -36,18 +40,95 @@ pub struct Options {
     pub quit_on_finish: bool,
     /// Revisions whose reachable commits should initially be hidden.
     pub hide: Vec<OsString>,
+    /// How much of the terminal to use.
+    pub screen: Screen,
+}
+
+/// How `gix-tix` occupies the terminal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Screen {
+    /// Use the main screen for short histories, otherwise the alternate screen.
+    #[default]
+    Auto,
+    /// Always use the alternate screen.
+    Always,
+    /// Use half of the main screen.
+    Half,
 }
 
 /// Run the interactive commit graph for `repository`.
 pub fn run(repository: gix::ThreadSafeRepository, revisions: Vec<OsString>, options: Options) -> Result<()> {
-    let mut terminal = ratatui::try_init().context("could not initialize terminal")?;
+    let terminal_height = match options.screen {
+        Screen::Always => 0,
+        Screen::Auto | Screen::Half => terminal::size().context("could not determine terminal size")?.1,
+    };
+    let visible_commits = match options.screen {
+        Screen::Auto | Screen::Half => history::count_up_to(
+            &repository.to_thread_local(),
+            &revisions,
+            &options.hide,
+            half_height(terminal_height) as usize,
+        )?,
+        Screen::Always => 0,
+    };
+    let inline_height = inline_height(options.screen, terminal_height, visible_commits);
+    let mut terminal = match inline_height {
+        Some(height) => ratatui::try_init_with_options(TerminalOptions {
+            viewport: Viewport::Inline(height),
+        }),
+        None => ratatui::try_init(),
+    }
+    .context("could not initialize terminal")?;
     let result = event_loop(&mut terminal, repository, revisions, options);
-    let restore = ratatui::try_restore().context("could not restore terminal");
+    let restore = restore_terminal(&mut terminal, inline_height.is_some());
     let lane_time = result?;
     restore?;
     if let Some(lane_time) = lane_time {
         eprintln!("lane computation: {:.3}s", lane_time.as_secs_f64());
     }
+    Ok(())
+}
+
+fn half_height(terminal_height: u16) -> u16 {
+    (terminal_height / 2).max(1)
+}
+
+fn inline_height(screen: Screen, terminal_height: u16, visible_commits: usize) -> Option<u16> {
+    let half = half_height(terminal_height);
+    let compact = u16::try_from(visible_commits)
+        .unwrap_or(u16::MAX)
+        .saturating_add(1)
+        .min(half);
+    match screen {
+        Screen::Always => None,
+        Screen::Half => Some(compact),
+        Screen::Auto if visible_commits < half as usize => Some(compact),
+        Screen::Auto => None,
+    }
+}
+
+fn restore_terminal(terminal: &mut ratatui::DefaultTerminal, inline: bool) -> Result<()> {
+    if !inline {
+        return ratatui::try_restore().context("could not restore terminal");
+    }
+
+    let cursor = (|| {
+        let area = terminal.get_frame().area();
+        let terminal_height = terminal.size()?.height;
+        if area.bottom() < terminal_height {
+            execute!(terminal.backend_mut(), cursor::MoveTo(0, area.bottom()))
+        } else {
+            execute!(
+                terminal.backend_mut(),
+                cursor::MoveTo(0, terminal_height.saturating_sub(1)),
+                Print("\r\n")
+            )
+        }
+        .and_then(|()| terminal.show_cursor())
+    })();
+    let raw_mode = terminal::disable_raw_mode();
+    cursor.context("could not restore terminal cursor")?;
+    raw_mode.context("could not disable terminal raw mode")?;
     Ok(())
 }
 
@@ -57,26 +138,30 @@ fn event_loop(
     revisions: Vec<OsString>,
     options: Options,
 ) -> Result<Option<Duration>> {
-    let Options { quit_on_finish, hide } = options;
-    let author_names =
-        gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(AuthorNames::new()));
+    let Options {
+        quit_on_finish,
+        hide,
+        screen: _,
+    } = options;
+    let mailmap = repository.to_thread_local().open_mailmap();
+    let authors = gix::features::threading::OwnShared::new(gix::features::threading::Mutable::new(Authors::default()));
     let (mut cancelled, mut receiver) = start_history(
         &repository,
         &revisions,
         &hide,
-        gix::features::threading::OwnShared::clone(&author_names),
+        gix::features::threading::OwnShared::clone(&authors),
     );
 
     let mut app = App::new(1);
     app.has_hidden_filter = !hide.is_empty();
     let mut decorations = Decorations::new();
-    draw(terminal, &mut app, &decorations)?;
+    draw(terminal, &mut app, &decorations, &mailmap)?;
     let mut last_draw = Instant::now();
     let mut dirty = false;
     let mut urgent = false;
     loop {
         if urgent {
-            draw(terminal, &mut app, &decorations)?;
+            draw(terminal, &mut app, &decorations, &mailmap)?;
             last_draw = Instant::now();
             dirty = false;
             urgent = false;
@@ -110,7 +195,7 @@ fn event_loop(
         }
         let streaming = matches!(app.state, State::Loading | State::Cancelling);
         if should_draw(dirty, streaming, last_draw.elapsed()) {
-            draw(terminal, &mut app, &decorations)?;
+            draw(terminal, &mut app, &decorations, &mailmap)?;
             last_draw = Instant::now();
             dirty = false;
         }
@@ -153,7 +238,7 @@ fn event_loop(
                         &repository,
                         &revisions,
                         hidden,
-                        gix::features::threading::OwnShared::clone(&author_names),
+                        gix::features::threading::OwnShared::clone(&authors),
                     );
                 }
                 Effect::Quit => return Ok(None),
@@ -166,7 +251,7 @@ fn start_history(
     repository: &gix::ThreadSafeRepository,
     revisions: &[OsString],
     hidden_revisions: &[OsString],
-    author_names: SharedAuthorNames,
+    authors: SharedAuthors,
 ) -> (Arc<AtomicBool>, mpsc::Receiver<Result<Event>>) {
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_cancelled = Arc::clone(&cancelled);
@@ -176,12 +261,12 @@ fn start_history(
     let hidden_revisions = hidden_revisions.to_vec();
     std::thread::spawn(move || {
         let repository = repository.to_thread_local();
-        let mut author_names = gix::features::threading::lock(&author_names);
+        let mut authors = gix::features::threading::lock(&authors);
         let result = history::load(
             &repository,
             &revisions,
             &hidden_revisions,
-            &mut author_names,
+            &mut authors,
             &worker_cancelled,
             |event| sender.send(Ok(event)).is_ok(),
         );
@@ -192,8 +277,13 @@ fn start_history(
     (cancelled, receiver)
 }
 
-fn draw(terminal: &mut ratatui::DefaultTerminal, app: &mut App, decorations: &Decorations) -> Result<()> {
-    terminal.draw(|frame| ui::draw(frame, app, decorations))?;
+fn draw(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut App,
+    decorations: &Decorations,
+    mailmap: &gix::mailmap::Snapshot,
+) -> Result<()> {
+    terminal.draw(|frame| ui::draw(frame, app, decorations, mailmap))?;
     Ok(())
 }
 
@@ -233,6 +323,7 @@ fn action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('d') => Some(Action::ToggleDate),
         KeyCode::Char('n') => Some(Action::ToggleName),
         KeyCode::Char('t') => Some(Action::ToggleTrailers),
+        KeyCode::Char('m') => Some(Action::ToggleMailmap),
         KeyCode::Char('r') => Some(Action::ToggleSpecialRefs),
         KeyCode::Char('v') => Some(Action::ToggleHidden),
         KeyCode::Char('[') => Some(Action::PinMetadata),
@@ -245,6 +336,40 @@ fn action(key: KeyEvent) -> Option<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chooses_screen_from_terminal_and_history_height() {
+        assert_eq!(
+            inline_height(Screen::Auto, 20, 9),
+            Some(10),
+            "short histories occupy only their rows and footer"
+        );
+        assert_eq!(
+            inline_height(Screen::Auto, 20, 10),
+            None,
+            "the auto cutoff is strictly less than half the terminal"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 3),
+            Some(4),
+            "half mode shrinks to the rows and footer needed by short histories"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 10),
+            Some(10),
+            "half mode is capped at half the terminal, rounded down"
+        );
+        assert_eq!(
+            inline_height(Screen::Half, 21, 0),
+            Some(1),
+            "an empty history only needs its footer"
+        );
+        assert_eq!(
+            inline_height(Screen::Always, 20, 0),
+            None,
+            "always mode uses the alternate screen"
+        );
+    }
 
     #[test]
     fn maps_navigation_and_control_c() {
@@ -287,6 +412,10 @@ mod tests {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
             Some(Action::ToggleTrailers)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)),
+            Some(Action::ToggleMailmap)
         );
         assert_eq!(
             action(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
