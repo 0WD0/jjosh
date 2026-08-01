@@ -111,6 +111,9 @@ None
   splitting it. Any hunks that are not selected or cannot be absorbed remain in
   the source commit.
 
+* `jj bisect` will now mention when it cannot unambiguously find the first bad revision
+  due to skips in evaluation.
+
 ### Fixed bugs
 
 * Recursive alias definitions are detected more precisely. jj can now expand
