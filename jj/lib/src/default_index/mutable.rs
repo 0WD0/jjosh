@@ -565,8 +565,8 @@ impl Index for DefaultMutableIndex {
         self.0.resolve_commit_id_prefix(prefix).await
     }
 
-    fn has_id(&self, commit_id: &CommitId) -> IndexResult<bool> {
-        self.0.has_id(commit_id)
+    async fn has_id(&self, commit_id: &CommitId) -> IndexResult<bool> {
+        self.0.has_id(commit_id).await
     }
 
     async fn is_ancestor(
