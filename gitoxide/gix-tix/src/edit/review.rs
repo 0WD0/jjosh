@@ -429,7 +429,7 @@ mod tests {
 
         for stderr in [b"".as_slice(), b"fatal: first line\nsecond line\xff\n"] {
             let failure = git_failure(
-                Command::new("git").args(["checkout", "--quiet", "main"]),
+                gix_testtools::git_command(Path::new(".")).args(["checkout", "--quiet", "main"]),
                 std::process::Output {
                     status: std::process::ExitStatus::from_raw(1 << 8),
                     stdout: Vec::new(),
