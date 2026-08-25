@@ -3162,7 +3162,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reset_index_errors_keep_stderr_in_metadata() -> gix::error::TestResult {
+    fn reset_index_errors_keep_stderr_in_metadata() -> gix_testtools::Result {
         if gix_testtools::run_in_isolated_process()? {
             return Ok(());
         }
