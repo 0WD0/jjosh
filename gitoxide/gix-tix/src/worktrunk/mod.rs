@@ -633,11 +633,12 @@ fn diffstat(repository: &gix::Repository, base_id: gix::ObjectId, head_id: gix::
     Ok((stats.lines_added, stats.lines_removed))
 }
 
-/// Resolve an existing worktree path or local branch, creating a worktree for an unclaimed branch.
+/// Resolve a worktree or local branch, optionally creating the branch, then its worktree.
 pub(crate) fn resolve_or_create<P>(
     repository: &gix::Repository,
     target: &OsStr,
     path_override: Option<&Path>,
+    create_branch_if_missing: bool,
     progress: P,
     interrupt: &AtomicBool,
 ) -> Result<PathBuf>
@@ -646,9 +647,11 @@ where
     P::SubProgress: gix::progress::NestedProgress + 'static,
 {
     let rows = inventory(repository)?;
-    let target_path = absolute(Path::new(target)).or_error()?;
-    if let Some(row) = rows.iter().find(|row| row.path == target_path) {
-        return Ok(row.path.clone());
+    if !create_branch_if_missing {
+        let target_path = absolute(Path::new(target)).or_error()?;
+        if let Some(row) = rows.iter().find(|row| row.path == target_path) {
+            return Ok(row.path.clone());
+        }
     }
 
     let target = gix::path::os_str_into_bstr(target)
@@ -661,13 +664,29 @@ where
             .to_full_name(target_bytes)
             .or_raise(|| message("target is not a valid local branch name"))?
     };
-    gix::error::ensure!(
+    gix::validate::reference::branch_name(branch.as_bstr())
+        .or_raise(|| message("target is not a valid local branch name"))?;
+    let branch_exists = repository
+        .try_find_reference(branch.as_bstr())
+        .or_raise(|| message!("could not read local branch {branch}"))?
+        .is_some();
+    if !branch_exists {
+        gix::error::ensure!(
+            create_branch_if_missing,
+            "target is neither an existing worktree path nor a local branch: {target}"
+        );
+        let head_id = logical_head(repository)?
+            .commit_id
+            .ok_or_raise(|| message("cannot create a branch from an unborn logical HEAD"))?;
         repository
-            .try_find_reference(branch.as_bstr())
-            .or_raise(|| message!("could not read local branch {branch}"))?
-            .is_some(),
-        "target is neither an existing worktree path nor a local branch: {target}"
-    );
+            .reference(
+                branch.clone(),
+                head_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "tix worktrunk: create branch",
+            )
+            .or_raise(|| message!("could not create local branch {branch}"))?;
+    }
     for row in &rows {
         let Ok(worktree) = gix::open(&row.path) else {
             continue;
@@ -723,6 +742,7 @@ pub(crate) fn run(
     repository: gix::ThreadSafeRepository,
     target: Option<OsString>,
     path: Option<PathBuf>,
+    create_branch_if_missing: bool,
 ) -> Result<()> {
     let repository = repository.to_thread_local();
     if let Some(target) = target {
@@ -730,6 +750,7 @@ pub(crate) fn run(
             &repository,
             &target,
             path.as_deref(),
+            create_branch_if_missing,
             gix::progress::Discard,
             &AtomicBool::default(),
         )?;
@@ -1078,6 +1099,7 @@ mod tests {
             &repository,
             OsStr::new("zeta"),
             None,
+            false,
             gix::progress::Discard,
             &interrupt,
         )?;
@@ -1085,6 +1107,7 @@ mod tests {
             &repository,
             OsStr::new("topic"),
             None,
+            false,
             gix::progress::Discard,
             &interrupt,
         )?;
@@ -1092,6 +1115,7 @@ mod tests {
             &repository,
             OsStr::new("alpha"),
             None,
+            false,
             gix::progress::Discard,
             &interrupt,
         )?;
@@ -1099,6 +1123,7 @@ mod tests {
             &repository,
             OsStr::new("gone"),
             None,
+            false,
             gix::progress::Discard,
             &interrupt,
         )?;
@@ -1120,6 +1145,7 @@ mod tests {
                 &repository,
                 OsStr::new("topic"),
                 Some(&unused),
+                false,
                 gix::progress::Discard,
                 &interrupt,
             )?,
@@ -1127,9 +1153,28 @@ mod tests {
             "a logically claimed branch reuses its worktree"
         );
         assert_eq!(
-            resolve_or_create(&repository, topic.as_os_str(), None, gix::progress::Discard, &interrupt,)?,
+            resolve_or_create(
+                &repository,
+                topic.as_os_str(),
+                None,
+                false,
+                gix::progress::Discard,
+                &interrupt,
+            )?,
             topic,
             "an exact worktree path takes precedence over branch resolution"
+        );
+        assert!(
+            resolve_or_create(
+                &repository,
+                topic.as_os_str(),
+                None,
+                true,
+                gix::progress::Discard,
+                &interrupt,
+            )
+            .is_err(),
+            "new-branch values are never interpreted as worktree paths"
         );
         assert!(!unused.exists(), "reusing a branch ignores the creation override");
 
@@ -1162,6 +1207,7 @@ mod tests {
                 &repository,
                 OsStr::new("symlinked"),
                 Some(&requested),
+                false,
                 gix::progress::Discard,
                 &interrupt,
             )?;
@@ -1184,6 +1230,7 @@ mod tests {
             &repository,
             OsStr::new("topic"),
             None,
+            false,
             gix::progress::Discard,
             &interrupt,
         )?;
@@ -1197,13 +1244,13 @@ mod tests {
         git(&path, &["config", "branch.topic.merge", "refs/heads/main"])?;
         std::fs::write(path.join("tracked"), "base\ntopic\n")?;
         git(&path, &["commit", "-am", "topic"])?;
-        git(&path, &["switch", "--detach"])?;
+        git(&path, &["switch", "--detach", "main"])?;
         git(
             &path,
             &["symbolic-ref", "refs/worktree/tix/pins/HEAD", "refs/heads/topic"],
         )?;
 
-        let worktree = crate::test_repository::open(path)?;
+        let worktree = crate::test_repository::open(&path)?;
         let topic_id = worktree.rev_parse_single("refs/heads/topic")?.detach();
         let head = logical_head(&worktree)?;
         assert!(head.is_detached, "the physical HEAD remains detached");
@@ -1213,7 +1260,7 @@ mod tests {
             "the worktree-private pin supplies the logical branch"
         );
         assert_eq!(head.commit_id, Some(topic_id));
-        let loaded = load(worktree, &Arc::new(AtomicBool::default()))?;
+        let loaded = load(crate::test_repository::open(&path)?, &Arc::new(AtomicBool::default()))?;
         assert_eq!(
             loaded.relation,
             Some(Relation { ahead: 1, behind: 0 }),
@@ -1223,6 +1270,34 @@ mod tests {
             loaded.diffstat,
             Some((1, 0)),
             "the hidden base supplies the detached worktree diffstat"
+        );
+
+        let switch_new = |name| {
+            resolve_or_create(
+                &worktree,
+                OsStr::new(name),
+                None,
+                true,
+                gix::progress::Discard,
+                &interrupt,
+            )
+        };
+        assert!(switch_new("child")?.is_dir(), "the new branch gets a worktree");
+        assert_eq!(
+            worktree.find_reference("refs/heads/child")?.id().detach(),
+            topic_id,
+            "new branches start at the logical Tix HEAD, not the detached physical HEAD"
+        );
+        let main_id = worktree.find_reference("refs/heads/main")?.id().detach();
+        assert_eq!(
+            switch_new("main")?,
+            gix::path::realpath(repository.workdir().expect("fixture has a main worktree"))?,
+            "new-branch mode switches to an existing branch"
+        );
+        assert_eq!(
+            worktree.find_reference("refs/heads/main")?.id().detach(),
+            main_id,
+            "an existing branch is never reset"
         );
         Ok(())
     }
