@@ -28,7 +28,7 @@ sha256 = ["gix/sha256"]
 clap = { version = "4.5.42", features = ["derive"] }
 crossterm = { version = "0.29.0", features = ["osc52"] }
 directories = "6.0.0"
-gix = { version = "^0.88.0", path = "../gix", default-features = false, features = ["blob-diff", "mailmap", "merge", "notes", "parallel", "revision", "command", "status", "tracing"] }
+gix = { version = "^0.88.0", path = "../gix", default-features = false, features = ["blob-diff", "mailmap", "merge", "notes", "parallel", "revision", "command", "status", "tracing", "worktree-mutation"] }
 
 notify = "8.2.0"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
