@@ -947,16 +947,13 @@ fn review_tree(
     roots: &[ObjectId],
     commit: ObjectId,
 ) -> Result<Option<ReviewTree>> {
-    let mut nearest = None;
-    for root in roots.iter().copied().filter(|root| graph.is_ancestor(*root, commit)) {
-        nearest = match nearest {
-            None => Some(root),
-            Some(current) if graph.is_ancestor(current, root) => Some(root),
-            Some(current) if graph.is_ancestor(root, current) => Some(current),
-            Some(_) => bail!("commit belongs to multiple unrelated review trees"),
-        };
-    }
-    let Some(root) = nearest else { return Ok(None) };
+    let Some(root) = history::nearest_review_root(roots, commit, |ancestor, descendant| {
+        graph.is_ancestor(ancestor, descendant)
+    })
+    .map_err(|()| message("commit belongs to multiple unrelated review trees").raise())?
+    else {
+        return Ok(None);
+    };
     let commit = repo.find_commit(root)?.decode()?.into_owned()?;
     let reference =
         super::review::reference(&commit)?.ok_or_raise(|| message("review root lost its review identity"))?;
