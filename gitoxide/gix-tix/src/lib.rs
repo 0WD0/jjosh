@@ -934,6 +934,15 @@ fn shade_terminal_background((red, green, blue): (u8, u8, u8), dark: bool) -> (u
 
 /// Run the interactive commit graph for `repository`.
 pub fn run(repository: gix::ThreadSafeRepository, revisions: Vec<OsString>, options: Options) -> Result<()> {
+    let _log_guard = logging::init(0)?;
+    run_without_logging(repository, revisions, options)
+}
+
+pub(crate) fn run_without_logging(
+    repository: gix::ThreadSafeRepository,
+    revisions: Vec<OsString>,
+    options: Options,
+) -> Result<()> {
     let UiExit::Quit(lane_time) = run_ui(repository, revisions, options, None)? else {
         unreachable!("only worktrunk can promote a selected worktree")
     };
@@ -985,7 +994,6 @@ fn run_ui(
     mut options: Options,
     picker: Option<&mut worktrunk::Worktrees>,
 ) -> Result<UiExit> {
-    let _log_guard = logging::init();
     let mut repository_path = repository.git_dir().to_owned();
     let common_dir = normalize_common_dir(repository.common_dir.clone().unwrap_or_else(|| repository_path.clone()))?;
     let (hide, unavailable) = validate_hidden_revisions(&mut repository_path, &common_dir, &options.hide)?;
@@ -4856,10 +4864,10 @@ fn start_lane_worker(rows: app::LaneInput) -> mpsc::Receiver<(Vec<SharedCommitRo
 
 fn start_push_worker(repository_path: PathBuf, remote: BString, branch: BString) -> BackgroundWorker {
     let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let _ = sender
             .send(push_branch(&repository_path, remote.as_bstr(), branch.as_bstr()).map(BackgroundCompletion::Success));
-    });
+    }));
     BackgroundWorker {
         receiver,
         progress: None,
@@ -4874,11 +4882,11 @@ fn start_fetch_worker(repository_path: PathBuf, bare: bool, remote: BString) -> 
     let tree = gix::progress::tree::Root::new();
     let worker_tree = Arc::clone(&tree);
     let label = format!("fetching {remote}");
-    std::thread::spawn(move || {
+    std::thread::spawn(gix::trace::in_thread(move || {
         let _ = sender.send(
             fetch_remote(&repository_path, bare, remote.as_bstr(), worker_tree).map(BackgroundCompletion::Success),
         );
-    });
+    }));
     BackgroundWorker {
         receiver,
         progress: Some(BackgroundProgressSource {
@@ -4901,9 +4909,9 @@ fn start_remove_worktree_worker(
     let tree = gix::progress::tree::Root::new();
     let worker_tree = Arc::clone(&tree);
     let progress_label = format!("removing {label}");
-    let join = std::thread::spawn(move || {
+    let join = std::thread::spawn(gix::trace::in_thread(move || {
         let _ = sender.send(remove_worktree(&common_dir, &target, &label, force, worker_tree));
-    });
+    }));
     BackgroundWorker {
         receiver,
         progress: Some(BackgroundProgressSource {

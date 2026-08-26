@@ -423,7 +423,7 @@ impl Worktrees {
                 .collect::<Vec<_>>();
             let sender = sender.clone();
             let cancel = Arc::clone(&self.cancel);
-            self.workers.push(thread::spawn(move || {
+            self.workers.push(thread::spawn(gix::trace::in_thread(move || {
                 for (index, path) in rows {
                     if cancel.load(Ordering::Relaxed) {
                         break;
@@ -436,7 +436,7 @@ impl Worktrees {
                         break;
                     }
                 }
-            }));
+            })));
         }
     }
 
@@ -837,7 +837,7 @@ pub(crate) fn run(
     }
     drop(worktrees);
     std::env::set_current_dir(&selected).or_raise(|| message!("could not enter worktree {}", selected.display()))?;
-    crate::run(
+    crate::run_without_logging(
         gix::open(&selected)
             .or_raise(|| message!("could not open worktree {}", selected.display()))?
             .into_sync(),
