@@ -1474,6 +1474,7 @@ dependencies = [
 name = "gitoxide"
 version = "0.59.0"
 dependencies = [
+ "anstream",
  "anyhow",
  "clap",
  "clap_complete",
@@ -1485,13 +1486,11 @@ dependencies = [
  "gix",
  "gix-features",
  "gix-tix",
- "gix-trace",
  "is-terminal",
  "prodash",
  "serde_derive",
  "terminal_size",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

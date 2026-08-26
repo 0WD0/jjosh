@@ -17,9 +17,9 @@ pub fn init_env_logger() {
 }
 
 #[cfg(feature = "prodash-render-line")]
-pub fn progress_tree(trace: bool) -> std::sync::Arc<prodash::tree::Root> {
+pub fn progress_tree() -> std::sync::Arc<prodash::tree::Root> {
     prodash::tree::root::Options {
-        message_buffer_capacity: if trace { 10_000 } else { 200 },
+        message_buffer_capacity: 200,
         ..Default::default()
     }
     .into()
@@ -52,7 +52,7 @@ pub mod pretty {
     #[cfg(feature = "small")]
     pub fn prepare_and_run<T>(
         name: &str,
-        trace: bool,
+        _trace: u8,
         verbose: bool,
         progress: bool,
         #[cfg_attr(not(feature = "prodash-render-tui"), allow(unused_variables))] progress_keep_open: bool,
@@ -71,17 +71,19 @@ pub mod pretty {
                 let mut stdout_lock = stdout.lock();
                 let stderr = stderr();
                 let mut stderr_lock = stderr.lock();
-                run(progress::DoOrDiscard::from(None), &mut stdout_lock, &mut stderr_lock)
+                gix::trace::coarse!("run")
+                    .into_scope(|| run(progress::DoOrDiscard::from(None), &mut stdout_lock, &mut stderr_lock))
             }
             (true, false) => {
-                let progress = crate::shared::progress_tree(trace);
+                let progress = crate::shared::progress_tree();
                 let sub_progress = progress.add_child(name);
 
                 use crate::shared::{self, STANDARD_RANGE};
                 let handle = shared::setup_line_renderer_range(&progress, range.into().unwrap_or(STANDARD_RANGE));
 
                 let mut out = Vec::<u8>::new();
-                let res = run(progress::DoOrDiscard::from(Some(sub_progress)), &mut out, &mut stderr());
+                let res = gix::trace::coarse!("run")
+                    .into_scope(|| run(progress::DoOrDiscard::from(Some(sub_progress)), &mut out, &mut stderr()));
                 handle.shutdown_and_wait();
                 std::io::Write::write_all(&mut stdout(), &out)?;
                 res
@@ -93,45 +95,56 @@ pub mod pretty {
         }
     }
 
-    #[cfg(feature = "tracing")]
-    fn init_tracing(
-        enable: bool,
-        reverse_lines: bool,
-        progress: &gix::progress::prodash::tree::Root,
-    ) -> anyhow::Result<()> {
-        if enable {
-            let processor = gix_trace::forest::Printer::new().formatter({
-                let progress = std::sync::Mutex::new(progress.add_child("tracing"));
-                move |tree: &gix_trace::forest::Tree| -> Result<String, std::fmt::Error> {
-                    use gix::Progress;
-                    use gix_trace::forest::Formatter;
-                    let progress = &mut progress.lock().unwrap();
-                    let tree = gix_trace::forest::printer::Pretty.fmt(tree)?;
-                    if reverse_lines {
-                        for line in tree.lines().rev() {
-                            progress.info(line.into());
-                        }
-                    } else {
-                        for line in tree.lines() {
-                            progress.info(line.into());
-                        }
-                    }
-                    Ok(String::new())
-                }
-            });
-            use tracing_subscriber::layer::SubscriberExt;
-            let subscriber = tracing_subscriber::Registry::default().with(gix_trace::ForestLayer::from(processor));
-            tracing::subscriber::set_global_default(subscriber)?;
-        } else {
-            tracing::subscriber::set_global_default(tracing_subscriber::Registry::default())?;
+    pub(crate) type TraceOutput = std::sync::Arc<std::sync::Mutex<Vec<u8>>>;
+
+    pub(crate) struct TraceGuard(
+        #[cfg_attr(
+            not(any(feature = "tracing", feature = "gitoxide-core-tools-corpus")),
+            allow(dead_code)
+        )]
+        Option<TraceOutput>,
+    );
+
+    #[cfg(feature = "gitoxide-core-tools-corpus")]
+    impl TraceGuard {
+        pub(crate) fn output(&self) -> Option<TraceOutput> {
+            self.0.clone()
         }
-        Ok(())
+    }
+
+    #[cfg(feature = "tracing")]
+    impl Drop for TraceGuard {
+        fn drop(&mut self) {
+            use std::io::Write;
+
+            let Some(output) = self.0.as_ref() else {
+                return;
+            };
+            let output = output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = anstream::stderr().write_all(&output);
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    pub(crate) fn init_tracing(trace: u8) -> anyhow::Result<TraceGuard> {
+        if trace == 0 {
+            return Ok(TraceGuard(None));
+        }
+        let output = TraceOutput::default();
+        tracing::dispatcher::set_global_default(gitoxide_core::trace::subscriber(trace, output.clone(), None)?)?;
+        Ok(TraceGuard(Some(output)))
+    }
+
+    #[cfg(not(feature = "tracing"))]
+    pub(crate) fn init_tracing(trace: u8) -> anyhow::Result<TraceGuard> {
+        anyhow::ensure!(trace == 0, "tracing support is not compiled in");
+        Ok(TraceGuard(None))
     }
 
     #[cfg(not(feature = "small"))]
     pub fn prepare_and_run<T: Send + 'static>(
         name: &str,
-        trace: bool,
+        _trace: u8,
         verbose: bool,
         progress: bool,
         #[cfg_attr(not(feature = "prodash-render-tui"), allow(unused_variables))] progress_keep_open: bool,
@@ -150,13 +163,13 @@ pub mod pretty {
             (false, false) => {
                 let stdout = stdout();
                 let mut stdout_lock = stdout.lock();
-                run(progress::DoOrDiscard::from(None), &mut stdout_lock, &mut stderr())
+                gix::trace::coarse!("run")
+                    .into_scope(|| run(progress::DoOrDiscard::from(None), &mut stdout_lock, &mut stderr()))
             }
             (true, false) => {
                 use crate::shared::{self, STANDARD_RANGE};
-                let progress = shared::progress_tree(trace);
+                let progress = shared::progress_tree();
                 let sub_progress = progress.add_child(name);
-                init_tracing(trace, false, &progress)?;
 
                 let handle = shared::setup_line_renderer_range(&progress, range.into().unwrap_or(STANDARD_RANGE));
 
@@ -211,7 +224,6 @@ pub mod pretty {
                 let thread = std::thread::spawn({
                     let name = name.to_owned();
                     move || {
-                        let _trace = init_tracing(trace, true, &progress).ok();
                         // We might have something interesting to show, which would be hidden by the alternate screen if there is a progress TUI
                         // We know that the printing happens at the end, so this is fine.
                         let mut out = Vec::new();
@@ -241,6 +253,38 @@ pub mod pretty {
                     }
                 }
             }
+        }
+    }
+
+    #[cfg(all(test, feature = "tracing"))]
+    mod tests {
+        use std::io::Write;
+
+        use anstream::{AutoStream, ColorChoice};
+
+        use super::TraceOutput;
+
+        #[test]
+        fn terminal_adaptation_preserves_or_strips_forest_colors() -> anyhow::Result<()> {
+            let output = TraceOutput::default();
+            let dispatch = gitoxide_core::trace::subscriber(1, output.clone(), None)?;
+            tracing::dispatcher::with_default(&dispatch, || tracing::info!("visible event"));
+            let output = output.lock().expect("trace output lock is not poisoned");
+            assert!(
+                output.windows(2).any(|bytes| bytes == b"\x1b["),
+                "forest terminal traces contain ANSI styling"
+            );
+
+            for (choice, colored) in [(ColorChoice::AlwaysAnsi, true), (ColorChoice::Never, false)] {
+                let mut stream = AutoStream::new(Vec::new(), choice);
+                stream.write_all(&output)?;
+                assert_eq!(
+                    stream.into_inner().windows(2).any(|bytes| bytes == b"\x1b["),
+                    colored,
+                    "terminal adaptation follows its color choice"
+                );
+            }
+            Ok(())
         }
     }
 }

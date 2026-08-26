@@ -81,6 +81,8 @@ pub mod query;
 #[cfg(feature = "blocking-client")]
 pub mod remote;
 pub mod repository;
+#[cfg(feature = "tracing")]
+pub mod trace;
 
 mod output;
 

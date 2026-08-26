@@ -53,7 +53,7 @@ function step () {
 }
 
 function stepn () {
-  step "$*" $'\n'
+  step "$*"
 }
 
 function with () {
@@ -68,7 +68,7 @@ function _note () {
   local name="${1:?}"
   local color="${2:-}"
   shift 2
-  echo 1>&2 -n "${OFFSET[*]:-}${color}[$name] ${*//  /}"
+  echo 1>&2 "${OFFSET[*]:-}${color}[$name] ${*//  /}"
 }
 
 function it () {
@@ -88,7 +88,7 @@ function step () {
 }
 
 function stepn () {
-  step "$*" $'\n'
+  step "$*"
 }
 
 function fail () {
@@ -165,7 +165,6 @@ function expect_run () {
         exit 1
       fi
     fi
-    echo 1>&2
   else
     echo 1>&2 "${RED} - FAIL"
     echo 1>&2 "${WHITE}\$ $*"

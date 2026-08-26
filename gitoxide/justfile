@@ -141,6 +141,8 @@ unit-tests:
     env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix --no-fail-fast
     cargo nextest run -p gix --no-default-features --features sha256 --lib --no-fail-fast
     cargo nextest run -p gitoxide-core --lib --no-tests=warn --no-fail-fast
+    cargo nextest run -p gitoxide-core --features tracing --lib --no-fail-fast
+    cargo nextest run -p gitoxide-core --features corpus --lib --no-fail-fast
 
 # Run all doctests
 [group('Tests')]

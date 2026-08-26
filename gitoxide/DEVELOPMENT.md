@@ -272,6 +272,8 @@ From there, we can derive a few rules to adhere to unless there are good reasons
 
 * does not show any progress or logging output by default
 * if supported and logging is enabled, it will show timestamps in UTC
+* tracing is buffered independently of progress and written to stderr with terminal-aware colors after the command finishes
+* `corpus` uses the same trace display while persisting full per-run trees independently of the display level
 * it does not need a git repository, but instead takes all required information via the command-line
 
 #### Porcelain

@@ -21,8 +21,8 @@ pub type ProgressItem = gix::progress::DoOrDiscard<gix::progress::prodash::tree:
 pub struct State {
     pub progress: ProgressItem,
     pub gitoxide_version: String,
-    pub trace_to_progress: bool,
-    pub reverse_trace_lines: bool,
+    pub trace: u8,
+    pub trace_output: crate::trace::Output,
 }
 
 impl Engine {
@@ -78,39 +78,39 @@ impl Engine {
         dry_run: bool,
     ) -> anyhow::Result<()> {
         let start = Instant::now();
-        let repo_progress = &mut self.state.progress;
         let threads = gix::parallel::num_threads(threads);
         let db_path = self.con.path().expect("opened from path on disk").to_owned();
-        'tasks_loop: for (task_id, task) in tasks {
+        let subscriber = (!dry_run)
+            .then(|| corpus::trace::subscriber(db_path.as_str(), self.state.trace, self.state.trace_output.clone()))
+            .transpose()?;
+        let repo_progress = &mut self.state.progress;
+        for (task_id, task) in tasks {
             let task_start = Instant::now();
             let task_info = format!("run '{}'", task.short_name);
             repo_progress.set_name(task_info.clone());
             repo_progress.init(Some(repos.len()), gix::progress::count("repos"));
-            if task.execute_exclusive || threads == 1 || dry_run {
-                if dry_run {
-                    repo_progress.set_name("WOULD run".into());
-                    for repo in &repos {
-                        repo_progress.info(format!(
-                            "{}",
-                            repo.path
-                                .strip_prefix(corpus_path)
-                                .expect("corpus contains repo")
-                                .display()
-                        ));
-                        repo_progress.inc();
-                    }
-                    repo_progress.info(format!("with {} tasks", tasks.len()));
-                    for (_, task) in tasks {
-                        repo_progress.info(format!("task '{}' ({})", task.description, task.short_name));
-                    }
-                    break 'tasks_loop;
+            if dry_run {
+                repo_progress.set_name("WOULD run".into());
+                for repo in &repos {
+                    repo_progress.info(format!(
+                        "{}",
+                        repo.path
+                            .strip_prefix(corpus_path)
+                            .expect("corpus contains repo")
+                            .display()
+                    ));
+                    repo_progress.inc();
                 }
+                repo_progress.info(format!("with {} tasks", tasks.len()));
+                for (_, task) in tasks {
+                    repo_progress.info(format!("task '{}' ({})", task.description, task.short_name));
+                }
+                break;
+            }
+            let subscriber = subscriber.as_ref().expect("dry runs do not execute tasks");
+            if task.execute_exclusive || threads == 1 {
                 let mut run_progress = repo_progress.add_child("set later");
-                let _guard = corpus::trace::override_thread_subscriber(
-                    db_path.as_str(),
-                    self.state.trace_to_progress.then(|| repo_progress.add_child("trace")),
-                    self.state.reverse_trace_lines,
-                )?;
+                let _guard = tracing::dispatcher::set_default(subscriber);
 
                 let mut num_errors = 0;
                 for repo in &repos {
@@ -126,7 +126,7 @@ impl Engine {
                     ));
 
                     let mut run = Self::insert_run(&self.con, gitoxide_id, runner_id, *task_id, repo.id)?;
-                    tracing::info_span!("run", run_id = run.id).in_scope(|| {
+                    tracing::info_span!(parent: None, "run", run_id = run.id).in_scope(|| {
                         task.perform(
                             &mut run,
                             &repo.path,
@@ -163,15 +163,12 @@ impl Engine {
                         let db_path = db_path.clone();
                         move |tid| {
                             let mut progress = gix::threading::lock(&shared_repo_progress);
-                            (
-                                // threaded printing is usually spammy, and lines interleave so it's useless.
-                                corpus::trace::override_thread_subscriber(db_path.as_str(), None, false),
-                                progress.add_child(format!("{tid}")),
-                                rusqlite::Connection::open(&db_path),
-                            )
+                            let lane_progress = progress.add_child(format!("{tid}"));
+                            let guard = tracing::dispatcher::set_default(subscriber);
+                            (guard, lane_progress, rusqlite::Connection::open(&db_path))
                         }
                     },
-                    |repo, (subscriber, progress, con), _threads_left, should_interrupt| -> anyhow::Result<()> {
+                    |repo, (_guard, progress, con), _threads_left, should_interrupt| -> anyhow::Result<()> {
                         progress.set_name(format!(
                             "{}",
                             repo.path
@@ -179,11 +176,6 @@ impl Engine {
                                 .expect("corpus contains repo")
                                 .display()
                         ));
-                        if let Err(err) = subscriber {
-                            progress.fail(format!("{err:#?}"));
-                            should_interrupt.store(true, Ordering::SeqCst);
-                            return Ok(());
-                        }
                         let con = match con {
                             Ok(con) => con,
                             Err(err) => {
@@ -193,7 +185,7 @@ impl Engine {
                             }
                         };
                         let mut run = Self::insert_run(con, gitoxide_id, runner_id, *task_id, repo.id)?;
-                        tracing::info_span!("run", run_id = run.id).in_scope(|| {
+                        tracing::info_span!(parent: None, "run", run_id = run.id).in_scope(|| {
                             task.perform(&mut run, &repo.path, progress, Some(1), should_interrupt);
                         });
                         if let Some(err) = run.error.as_deref() {
@@ -205,7 +197,7 @@ impl Engine {
                         Ok(())
                     },
                     || (!gix::interrupt::is_triggered()).then(|| Duration::from_millis(100)),
-                    std::convert::identity,
+                    drop,
                 )?;
                 let repo_progress = gix::threading::lock(&repo_progress);
                 repo_progress.show_throughput(task_start);
