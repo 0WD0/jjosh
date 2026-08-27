@@ -2087,7 +2087,7 @@ fn event_loop(
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    gix::error::bail!("worktree metadata worker stopped unexpectedly")
+                    bail!("worktree metadata worker stopped unexpectedly")
                 }
             }
         }
@@ -3209,11 +3209,23 @@ fn event_loop(
                             .ok_or_raise(|| message("copy-insert paste requires an editable history selection"))?;
                         let repository = open_repository(&repository_path, repository_is_bare, false)
                             .or_raise(|| message("could not open repository for pasted commit"))?;
-                        let source = resolve_pasted_commit(&repository, &pasted)?;
-                        Ok::<_, Error>(Action::PasteInsert { source, target })
+                        let source =
+                            match resolve_pasted_commit(&repository, &pasted, app.rows.iter().map(|row| row.id))? {
+                                PastedCommit::Unique(source) => source,
+                                PastedCommit::Ambiguous { change_id, candidates } => {
+                                    app.show_ambiguous_pasted_change_id(change_id, candidates);
+                                    return Ok(None);
+                                }
+                            };
+                        Ok::<_, Error>(Some(Action::PasteInsert { source, target }))
                     })();
                     match action {
-                        Ok(action) => (Some(action), false, false, false),
+                        Ok(Some(action)) => (Some(action), false, false, false),
+                        Ok(None) => {
+                            dirty = true;
+                            urgent = true;
+                            continue;
+                        }
                         Err(err) => {
                             app.leave_attention(format!("paste: {err:#}"));
                             dirty = true;
@@ -8724,24 +8736,53 @@ fn command_menu_input(event: &TerminalEvent, menu: &mut Menu<CommandId>, command
     }
 }
 
-fn resolve_pasted_commit(repository: &gix::Repository, pasted: &str) -> Result<gix::ObjectId> {
-    let hash = pasted.trim();
+#[derive(Debug, Eq, PartialEq)]
+enum PastedCommit {
+    Unique(gix::ObjectId),
+    Ambiguous {
+        change_id: gix::hash::ChangeId,
+        candidates: Vec<gix::ObjectId>,
+    },
+}
+
+fn resolve_pasted_commit(
+    repository: &gix::Repository,
+    pasted: &str,
+    change_id_candidates: impl IntoIterator<Item = gix::ObjectId>,
+) -> Result<PastedCommit> {
+    let id = pasted.trim();
     gix::error::ensure!(
-        !hash.is_empty() && hash.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        message("expected exactly one hexadecimal commit ID")
+        !id.is_empty(),
+        message("expected exactly one hexadecimal commit ID or reverse-hex change ID")
     );
-    let object = repository
-        .rev_parse(hash.as_bytes().as_bstr())
-        .or_raise(|| message("could not resolve pasted commit ID"))?
-        .single()
-        .ok_or_raise(|| message("pasted commit ID is ambiguous"))?
-        .object()
-        .or_raise(|| message("could not read pasted object"))?;
-    gix::error::ensure!(
-        object.kind == gix::object::Kind::Commit,
-        message("pasted object is not a commit")
-    );
-    Ok(object.id)
+    if id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        let object = repository
+            .rev_parse(id.as_bytes().as_bstr())
+            .or_raise(|| message("could not resolve pasted commit ID"))?
+            .single()
+            .ok_or_raise(|| message("pasted commit ID is ambiguous"))?
+            .object()
+            .or_raise(|| message("could not read pasted object"))?;
+        gix::error::ensure!(
+            object.kind == gix::object::Kind::Commit,
+            message("pasted object is not a commit")
+        );
+        return Ok(PastedCommit::Unique(object.id));
+    }
+
+    let change_id = gix::hash::ChangeId::from_reverse_hex(id.as_bytes())
+        .or_raise(|| message("expected exactly one hexadecimal commit ID or reverse-hex change ID"))?;
+    let mut candidates = Vec::new();
+    for commit_id in change_id_candidates {
+        if change_id::for_commit(repository, commit_id)? == change_id {
+            candidates.push(commit_id);
+        }
+    }
+    match candidates.len() {
+        0 => bail!("pasted change ID is not present in the Tix view"),
+        1 => Ok(PastedCommit::Unique(candidates[0])),
+        _ => Ok(PastedCommit::Ambiguous { change_id, candidates }),
+    }
 }
 
 fn diagnostic_key(character: char) -> KeyEvent {
@@ -9321,26 +9362,50 @@ mod tests {
     }
 
     #[test]
-    fn pasted_commit_ids_are_hex_only_and_must_name_commit_objects() -> gix_testtools::Result {
+    fn pasted_ids_must_uniquely_name_commit_objects() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("history.sh")?;
         let repository = test_repository::open(fixture.path())?;
         let commit = repository.rev_parse_single("topic")?.detach();
         let abbreviated = commit.to_hex_with_len(8).to_string();
 
         assert_eq!(
-            resolve_pasted_commit(&repository, &format!("\n{abbreviated}\n"))?,
-            commit
+            resolve_pasted_commit(&repository, &format!("\n{abbreviated}\n"), [])?,
+            PastedCommit::Unique(commit)
         );
-        assert_eq!(resolve_pasted_commit(&repository, &commit.to_string())?, commit);
+        assert_eq!(
+            resolve_pasted_commit(&repository, &commit.to_string(), [])?,
+            PastedCommit::Unique(commit)
+        );
+
+        let change_id = change_id::for_commit(&repository, commit)?;
+        assert_eq!(
+            resolve_pasted_commit(&repository, &change_id.to_string(), [commit])?,
+            PastedCommit::Unique(commit),
+            "a unique copied change ID resolves in the Tix view"
+        );
+        let mut sibling = repository.find_commit(commit)?.decode()?.into_owned()?;
+        sibling
+            .extra_headers
+            .push((change_id::HEADER.into(), change_id.to_string().into()));
+        let sibling = repository.write_object(&sibling)?.detach();
+        assert_eq!(
+            resolve_pasted_commit(&repository, &change_id.to_string(), [commit, sibling])?,
+            PastedCommit::Ambiguous {
+                change_id,
+                candidates: vec![commit, sibling]
+            },
+            "all siblings are returned when a copied change ID is ambiguous"
+        );
+
         for invalid in ["topic", "dead beef", ""] {
             assert!(
-                resolve_pasted_commit(&repository, invalid).is_err(),
-                "{invalid:?} is not exactly one hexadecimal object ID"
+                resolve_pasted_commit(&repository, invalid, []).is_err(),
+                "{invalid:?} is not exactly one object or change ID"
             );
         }
         let blob = repository.write_blob(b"not a commit")?.detach();
         assert!(
-            resolve_pasted_commit(&repository, &blob.to_string()).is_err(),
+            resolve_pasted_commit(&repository, &blob.to_string(), []).is_err(),
             "an existing non-commit object is rejected"
         );
         Ok(())
