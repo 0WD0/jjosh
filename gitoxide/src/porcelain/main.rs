@@ -23,21 +23,15 @@ pub fn main() -> Result<()> {
             move || should_interrupt.store(true, Ordering::SeqCst)
         })?;
     }
-    let trace = 0;
     let verbose = !args.quiet;
-    let progress = args.progress;
     #[cfg(feature = "gitoxide-core-tools")]
     let threads = args.threads;
-    let progress_keep_open = args.progress_keep_open;
 
     match args.cmd {
         #[cfg(debug_assertions)]
         Subcommands::Panic => prepare_and_run(
             "panic-behaviour",
-            trace,
             verbose,
-            progress,
-            progress_keep_open,
             crate::shared::STANDARD_RANGE,
             move |_progress, _out, _err| panic!("something went very wrong"),
         ),
@@ -54,10 +48,7 @@ pub fn main() -> Result<()> {
                 use gitoxide_core::query;
                 prepare_and_run(
                     "query",
-                    trace,
                     verbose,
-                    progress,
-                    progress_keep_open,
                     crate::shared::STANDARD_RANGE,
                     move |mut progress, out, err| {
                         let engine = query::prepare(
@@ -100,10 +91,7 @@ pub fn main() -> Result<()> {
                 use gitoxide_core::hours;
                 prepare_and_run(
                     "estimate-hours",
-                    trace,
                     verbose,
-                    progress,
-                    progress_keep_open,
                     crate::shared::STANDARD_RANGE,
                     move |progress, out, _err| {
                         hours::estimate(
@@ -127,10 +115,7 @@ pub fn main() -> Result<()> {
                 use gitoxide_core::organize;
                 prepare_and_run(
                     "find",
-                    trace,
                     verbose,
-                    progress,
-                    progress_keep_open,
                     crate::shared::STANDARD_RANGE,
                     move |progress, out, _err| {
                         organize::discover(
@@ -151,10 +136,7 @@ pub fn main() -> Result<()> {
                 use gitoxide_core::organize;
                 prepare_and_run(
                     "organize",
-                    trace,
                     verbose,
-                    progress,
-                    progress_keep_open,
                     crate::shared::STANDARD_RANGE,
                     move |progress, _out, _err| {
                         organize::run(

@@ -331,6 +331,16 @@ title "gix (with repository)"
               WITH_SNAPSHOT="$snapshot/file-v-any" \
               expect_run $SUCCESSFULLY "$exe_plumbing" --no-verbose -c protocol.version=2 remote -n "$git_daemon_url" refs
             }
+            if [[ "$kind" == "async" ]]; then
+            it "keeps async progress alive while tracing" && {
+              expect_run $SUCCESSFULLY bash -c \
+                '"$1" -t -c protocol.version=2 remote -n "$2" refs >remote-out 2>remote-err' \
+                -- "$exe_plumbing" "$git_daemon_url"
+              expect_run $SUCCESSFULLY test -s remote-out
+              expect_run $SUCCESSFULLY grep -Fq 'Connecting to' remote-err
+              expect_run $SUCCESSFULLY grep -Fq 'run [' remote-err
+            }
+            fi
           )
         )
         if [[ "$kind" == "small" ]]; then
