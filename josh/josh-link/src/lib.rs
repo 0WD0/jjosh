@@ -29,6 +29,11 @@ impl PreparedLinkAdd {
         .context("Failed to create commit")
     }
 
+    /// Get the prepared tree OID without consuming the addition.
+    pub fn tree_oid(&self) -> gix_hash::ObjectId {
+        self.tree_oid
+    }
+
     /// Get tree OID for custom commit creation
     ///
     /// This is used by josh-cq to add additional files before creating a commit
@@ -131,8 +136,10 @@ pub fn prepare_link_add(
     transaction: &josh_core::cache::Transaction,
     path: &std::path::Path,
     url: &str,
+    push_url: Option<&str>,
     filter: Option<&str>,
     target: &str,
+    push_target: Option<&str>,
     fetched_commit: gix_hash::ObjectId,
     head_tree: gix_hash::ObjectId,
     mode: josh_core::filter::LinkMode,
@@ -150,11 +157,17 @@ pub fn prepare_link_add(
     let filter_obj = filter_obj.prefix(&path);
 
     // Create a filter with metadata
-    let link_filter = filter_obj
+    let mut link_filter = filter_obj
         .with_meta("remote", url.to_string())
         .with_meta("target", target.to_string())
         .with_meta("commit", fetched_commit.to_string())
         .with_meta("mode", mode.to_string());
+    if let Some(push_url) = push_url {
+        link_filter = link_filter.with_meta("push", push_url.to_string());
+    }
+    if let Some(push_target) = push_target {
+        link_filter = link_filter.with_meta("push-target", push_target.to_string());
+    }
     let link_content = josh_core::filter::as_file(link_filter, 0);
 
     let link_blob = josh_core::objects::write_blob(odb, link_content.as_bytes())?;
@@ -315,7 +328,9 @@ pub fn export_link_source(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedLinkPush {
     pub remote: String,
+    pub push_remote: Option<String>,
     pub configured_target: String,
+    pub configured_push_target: Option<String>,
     pub exported_commit: gix_hash::ObjectId,
 }
 
@@ -348,22 +363,44 @@ pub fn prepare_link_push(
     let configured_target = link_file
         .get_meta("target")
         .unwrap_or_else(|| "HEAD".to_string());
-    let exported_commit = josh_core::filter_commit(
-        transaction,
-        josh_core::filter::invert(*link_file)?,
-        head_commit,
-    )
-    .context("Failed to export link contents")?;
-    if exported_commit == gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
+    let push_remote = link_file.get_meta("push");
+    let configured_push_target = link_file.get_meta("push-target");
+    let original_target = link_file
+        .get_meta("commit")
+        .ok_or_else(|| anyhow!("Link file missing 'commit' metadata"))?
+        .parse::<gix_hash::ObjectId>()
+        .context("Link file contains an invalid commit ID")?;
+    let source_filter = link_file.peel();
+    let old_filtered_commit = josh_core::filter_commit(transaction, source_filter, original_target)
+        .context("Failed to filter the pinned link commit")?;
+    let local_filter = josh_core::filter::Filter::new()
+        .subdir(normalized_path)
+        .exclude(josh_core::filter::Filter::new().file(".link.josh"))
+        .prefix(normalized_path);
+    let local_commit = josh_core::filter_commit(transaction, local_filter, head_commit)
+        .context("Failed to isolate the local link history")?;
+    if local_commit == gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
         return Err(anyhow!(
             "No content found at path '{}' to push",
             path.display()
         ));
     }
+    let exported_commit = josh_core::history::unapply_filter(
+        transaction,
+        source_filter,
+        original_target,
+        old_filtered_commit,
+        local_commit,
+        josh_core::history::OrphansMode::Keep,
+        None,
+    )
+    .context("Failed to reverse the linked history")?;
 
     Ok(PreparedLinkPush {
         remote,
+        push_remote,
         configured_target,
+        configured_push_target,
         exported_commit,
     })
 }

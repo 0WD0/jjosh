@@ -45,6 +45,10 @@ pub(crate) fn commit_as_josh_oid(commit: &Commit) -> Result<gix_hash::ObjectId, 
     })
 }
 
+pub(crate) fn commit_id_from_josh_oid(oid: gix_hash::ObjectId) -> jj_lib::backend::CommitId {
+    jj_lib::backend::CommitId::from_bytes(oid.as_bytes())
+}
+
 pub(crate) fn tree_from_josh_oid(store: Arc<Store>, tree_oid: gix_hash::ObjectId) -> MergedTree {
     MergedTree::resolved(
         store,
