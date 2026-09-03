@@ -4,6 +4,129 @@ use josh_core::filter::{self, Filter, flatten_chain};
 
 use crate::porcelain::RefUpdate;
 
+/// Convert a filesystem remote URL relative to the caller's working directory.
+pub fn to_absolute_remote_url(url: &str) -> anyhow::Result<String> {
+    if url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("ssh://")
+        || url.starts_with("file://")
+    {
+        Ok(url.to_owned())
+    } else {
+        // Git rejects Windows extended-length paths inside file:// URLs.
+        #[cfg(windows)]
+        let canonical = dunce::canonicalize(url);
+        #[cfg(not(windows))]
+        let canonical = std::fs::canonicalize(url);
+        let canonical = canonical.with_context(|| format!("Failed to resolve path {}", url))?;
+
+        let url = url::Url::from_file_path(&canonical).map_err(|_| {
+            anyhow::anyhow!(
+                "Path {} is not absolute or not convertible to a file URL",
+                canonical.display()
+            )
+        })?;
+        Ok(url.to_string())
+    }
+}
+
+fn validate_remote_name(name: &str) -> anyhow::Result<()> {
+    // The name is both a single config-file component and an unquoted shell
+    // argument in uploadpack. Git ref validation alone does not make it safe.
+    anyhow::ensure!(
+        !name.is_empty()
+            && !name.starts_with('-')
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)),
+        "Invalid Josh remote name '{}': expected a single shell-safe name",
+        name
+    );
+    for reference in [
+        format!("refs/josh/remotes/{name}/HEAD"),
+        format!("refs/namespaces/josh-{name}/refs/heads/HEAD"),
+        format!("refs/remotes/{name}/HEAD"),
+    ] {
+        gix::validate::reference::name(reference.as_str().into())
+            .with_context(|| format!("Invalid Josh remote name '{}'", name))?;
+    }
+    Ok(())
+}
+
+/// Add or update a Josh remote and its local, read-only namespace transport.
+///
+/// Source and push filesystem paths are resolved against the caller's working
+/// directory. The Git remote exposes projected refs only; source publication
+/// must go through Josh's reverse filtering rather than ordinary `git push`.
+pub fn configure_remote(
+    repo_path: &std::path::Path,
+    name: &str,
+    url: &str,
+    filter: &str,
+    forge: Option<crate::config::Forge>,
+    push_url: Option<&str>,
+    gerrit_mode: Option<crate::config::GerritMode>,
+) -> anyhow::Result<()> {
+    validate_remote_name(name)?;
+    // The writer validates these too, but creates its directory first. Reject
+    // invalid semantic input here before making any filesystem/config changes.
+    let parsed_filter = josh_core::filter::parse(filter)
+        .with_context(|| format!("Failed to parse filter '{}'", filter))?;
+    for key in josh_changes::remote_config::TRANSPORT_META_KEYS {
+        anyhow::ensure!(
+            parsed_filter.get_meta(key).is_none(),
+            "Filter must not set reserved meta key '{}': it is owned by the remote config",
+            key
+        );
+    }
+    let remote_url = to_absolute_remote_url(url)?;
+    let push_url = push_url.map(to_absolute_remote_url).transpose()?;
+    let repo = gix::open(repo_path).context("Failed to open repository")?;
+    let workdir = repo.workdir().unwrap_or_else(|| repo.git_dir());
+    let repo_remote = to_absolute_remote_url(
+        workdir
+            .to_str()
+            .context("Repository path is not valid UTF-8")?,
+    )?;
+    let source_refspec = format!("+refs/heads/*:refs/josh/remotes/{name}/*");
+    crate::config::write_remote_config(
+        repo_path,
+        name,
+        &remote_url,
+        filter,
+        &source_refspec,
+        forge,
+        push_url.as_deref(),
+        gerrit_mode,
+    )
+    .context("Failed to write remote config file")?;
+
+    let fetch_refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
+    let uploadpack = format!("env GIT_NAMESPACE=josh-{name} git upload-pack");
+    for (key, value) in [
+        ("receivepack", "false"),
+        ("pushurl", repo_remote.as_str()),
+        ("url", repo_remote.as_str()),
+        ("fetch", fetch_refspec.as_str()),
+        ("uploadpack", uploadpack.as_str()),
+    ] {
+        josh_core::git::GitCommand::new(
+            repo.git_dir(),
+            [
+                "config",
+                "--local",
+                "--replace-all",
+                &format!("remote.{name}.{key}"),
+                value,
+            ],
+            std::iter::empty::<(&str, &str)>(),
+        )
+        .spawn()
+        .with_context(|| format!("Failed to set remote {key}"))?;
+    }
+    Ok(())
+}
+
 /// Parse the symref output from `git ls-remote --symref` to extract the default branch.
 /// Returns `(branch_name, full_ref)` e.g. `("master", "refs/remotes/origin/master")`.
 pub fn try_parse_symref(remote: &str, output: &str) -> Option<(String, String)> {

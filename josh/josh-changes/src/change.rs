@@ -2,7 +2,7 @@ use crate::refs::ChangesRef;
 use crate::store::store_diff_data;
 use anyhow::{Context, anyhow};
 use josh_core::objects;
-use josh_core::trailers::{commit_change_meta, parse_change_meta};
+use josh_core::trailers::commit_change_meta;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -296,23 +296,70 @@ pub fn resolve_change(
         return Ok(Change::from_commit(&commit));
     }
 
-    // Walk from head to find a commit with matching Change-Id.
+    // Walk from head to find matching change metadata. This uses the same precedence as
+    // `Change::from_commit`: jj/gitbutler's `change-id` object header overrides message trailers.
     let mut walk = objects::RevWalk::new(odb);
     walk.simplify_first_parent();
     walk.push(head)?;
     for oid in walk.into_topo_vec(|_| false)? {
-        if let Ok(c) = objects::CommitData::read(odb, oid) {
-            let message = c
-                .message()
-                .ok()
-                .and_then(|m| std::str::from_utf8(m).ok())
-                .unwrap_or("");
-            let (id, _) = parse_change_meta(message);
+        if let Ok(commit) = objects::CommitData::read(odb, oid) {
+            let (id, _) = commit_change_meta(&commit);
             if id.as_deref() == Some(spec) {
-                return Ok(Change::from_commit(&c));
+                return Ok(Change::from_commit(&commit));
             }
         }
     }
 
     Err(anyhow!("could not resolve '{}' to a commit", spec))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use josh_core::cache::{CacheStack, TransactionContext};
+
+    fn write_commit(
+        transaction: &josh_core::cache::Transaction,
+        parents: &[gix_hash::ObjectId],
+        headers: &[(&str, &str)],
+        message: &str,
+    ) -> gix_hash::ObjectId {
+        let mut data = Vec::new();
+        data.extend_from_slice(
+            format!("tree {}\n", josh_core::filter::tree::empty_id()).as_bytes(),
+        );
+        for parent in parents {
+            data.extend_from_slice(format!("parent {parent}\n").as_bytes());
+        }
+        data.extend_from_slice(b"author test <test@example.com> 0 +0000\n");
+        data.extend_from_slice(b"committer test <test@example.com> 0 +0000\n");
+        for (name, value) in headers {
+            data.extend_from_slice(format!("{name} {value}\n").as_bytes());
+        }
+        data.push(b'\n');
+        data.extend_from_slice(message.as_bytes());
+        transaction.odb().write(gix_object::Kind::Commit, &data)
+    }
+
+    #[test]
+    fn resolve_change_finds_jj_header_in_history() {
+        let dir = tempfile::tempdir().unwrap();
+        gix::init_bare(dir.path()).unwrap();
+        let transaction =
+            TransactionContext::new(dir.path(), std::sync::Arc::new(CacheStack::new()))
+                .open()
+                .unwrap();
+        let target = write_commit(
+            &transaction,
+            &[],
+            &[("change-id", "jj-header-id")],
+            "target\n\nChange: stale-trailer-id\n",
+        );
+        let head = write_commit(&transaction, &[target], &[], "head\n");
+
+        let change = resolve_change(&transaction, head, "jj-header-id").unwrap();
+        assert_eq!(change.commit(), target);
+        assert_eq!(change.id(), Some("jj-header-id"));
+        assert!(resolve_change(&transaction, head, "stale-trailer-id").is_err());
+    }
 }
