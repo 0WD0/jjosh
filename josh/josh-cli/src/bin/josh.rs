@@ -10,8 +10,9 @@ use josh_cli::commands::pull::PullArgs;
 use josh_cli::commands::push::{PublishArgs, PushArgs};
 use josh_cli::commands::run::ComposeArgs;
 use josh_cli::commands::sync::SyncArgs;
-use josh_cli::config::{read_remote_config, write_remote_config};
+use josh_cli::config::read_remote_config;
 use josh_cli::forge::{Forge, GerritMode};
+use josh_cli::remote_ops::{configure_remote, to_absolute_remote_url};
 use josh_core::git::{GitCommand, normalize_repo_path};
 
 #[derive(Debug, clap::Parser)]
@@ -318,32 +319,6 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
     }
 }
 
-fn to_absolute_remote_url(url: &str) -> anyhow::Result<String> {
-    if url.starts_with("http://")
-        || url.starts_with("https://")
-        || url.starts_with("ssh://")
-        || url.starts_with("file://")
-    {
-        Ok(url.to_owned())
-    } else {
-        // dunce, not std, on Windows: std::fs::canonicalize returns an extended-length
-        // path (\\?\C:\...), which git rejects inside a file:// URL (issue #2288).
-        #[cfg(windows)]
-        let canonical = dunce::canonicalize(url);
-        #[cfg(not(windows))]
-        let canonical = std::fs::canonicalize(url);
-        let canonical = canonical.with_context(|| format!("Failed to resolve path {}", url))?;
-
-        let url = url::Url::from_file_path(&canonical).map_err(|_| {
-            anyhow::anyhow!(
-                "Path {} is not absolute or not convertible to a file URL",
-                canonical.display()
-            )
-        })?;
-
-        Ok(url.to_string())
-    }
-}
 
 /// Initialize a clone and configure its remote.
 fn clone_repo(args: &CloneArgs) -> anyhow::Result<std::path::PathBuf> {
@@ -355,7 +330,7 @@ fn clone_repo(args: &CloneArgs) -> anyhow::Result<std::path::PathBuf> {
 
     let remote_add_args = RemoteAddArgs {
         name: "origin".to_string(),
-        url: to_absolute_remote_url(&args.url)?,
+        url: args.url.clone(),
         filter: args.filter.clone(),
         push_url: args.push_url.clone(),
         forge_args: args.forge_args.clone(),
@@ -450,18 +425,7 @@ fn handle_remote(
 }
 
 fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> anyhow::Result<()> {
-    let repo = gix::open(repo_path).context("Failed to open repository")?;
-    let workdir = repo.workdir().unwrap_or_else(|| repo.git_dir()).to_owned();
-
-    // Store the remote information in .git/josh/remotes/<name>.josh file
     let remote_url = to_absolute_remote_url(&args.url)?;
-
-    // Store the filter in git config per remote
-    let filter_to_store = args.filter.clone();
-
-    // Store refspec (for unfiltered refs)
-    let refspec = format!("+refs/heads/*:refs/josh/remotes/{}/*", args.name);
-
     let forge = if args.forge_args.no_forge {
         None
     } else {
@@ -471,55 +435,19 @@ fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> 
             .or_else(|| josh_cli::forge::guess_forge(&remote_url))
     };
 
-    let push_url = args
-        .push_url
-        .as_deref()
-        .map(to_absolute_remote_url)
-        .transpose()?;
-
-    // Write remote config to .git/josh/remotes/<name>.josh
-    write_remote_config(
+    configure_remote(
         repo_path,
         &args.name,
         &remote_url,
-        &filter_to_store,
-        &refspec,
+        &args.filter,
         forge,
-        push_url.as_deref(),
+        args.push_url.as_deref(),
         args.forge_args.gerrit_mode,
-    )
-    .context("Failed to write remote config file")?;
-
-    // Set up a git remote that points to "." with a refspec to fetch filtered refs
-    // Add remote pointing to current directory
-    let repo_remote = to_absolute_remote_url(&workdir.display().to_string())?;
-    GitCommand::new(
-        repo.git_dir(),
-        ["remote", "add", &args.name, &repo_remote],
-        std::iter::empty::<(&str, &str)>(),
-    )
-    .spawn()
-    .context("Failed to add git remote")?;
-
-    // Set up namespace configuration for the remote
-    let namespace = format!("josh-{}", args.name);
-    let uploadpack_cmd = format!("env GIT_NAMESPACE={} git upload-pack", namespace);
-
-    GitCommand::new(
-        repo.git_dir(),
-        [
-            "config",
-            &format!("remote.{}.uploadpack", args.name),
-            &uploadpack_cmd,
-        ],
-        std::iter::empty::<(&str, &str)>(),
-    )
-    .spawn()
-    .context("Failed to set remote uploadpack")?;
+    )?;
 
     eprintln!(
         "Added remote '{}' with filter '{}'",
-        args.name, filter_to_store
+        args.name, args.filter
     );
 
     Ok(())

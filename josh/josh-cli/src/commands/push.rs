@@ -122,12 +122,17 @@ fn prepare_push(
         .strip_prefix("refs/heads/")
         .unwrap_or(&remote_ref);
 
-    let local_ref_name = transaction
-        .expand_ref_name(&local_ref)?
-        .with_context(|| format!("Failed to resolve local ref '{}'", local_ref))?;
-    let local_commit = transaction
-        .resolve_ref(&local_ref_name)?
-        .context("Failed to get target of local ref")?;
+    let local_commit = if let Ok(oid) = gix_hash::ObjectId::from_hex(local_ref.as_bytes()) {
+        josh_core::objects::peel_to_commit(transaction.odb(), oid)
+            .with_context(|| format!("Failed to resolve local commit '{}'", local_ref))?
+    } else {
+        let local_ref_name = transaction
+            .expand_ref_name(&local_ref)?
+            .with_context(|| format!("Failed to resolve local ref '{}'", local_ref))?;
+        transaction
+            .resolve_ref(&local_ref_name)?
+            .context("Failed to get target of local ref")?
+    };
 
     let dest_remote_ref = format!("refs/josh/remotes/{}/{}", remote_name, remote_ref);
     let (dest_oid, old_filtered_oid) =

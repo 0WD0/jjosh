@@ -23,5 +23,6 @@ josh-git-serde.workspace = true
 
 [dev-dependencies]
 gix.workspace = true
+gix-object.workspace = true
 josh-gix-ext.workspace = true
 tempfile.workspace = true

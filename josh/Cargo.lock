@@ -3289,6 +3289,7 @@ dependencies = [
  "gix",
  "gix-actor",
  "gix-hash",
+ "gix-object",
  "josh-core",
  "josh-git-serde",
  "josh-gix-ext",
