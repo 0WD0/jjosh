@@ -1320,7 +1320,7 @@ impl WorkspaceCommandHelper {
     /// colocated with Git. Returns a token that can be passed to functions
     /// that need to import from or export to Git. For non-colocated repos,
     /// returns a token with no lock inside.
-    fn lock_git_import_export(&self) -> Result<GitImportExportLock, CommandError> {
+    pub fn lock_git_import_export(&self) -> Result<GitImportExportLock, CommandError> {
         self.env.lock_git_import_export(&self.workspace)
     }
 
@@ -2844,6 +2844,24 @@ impl WorkspaceCommandTransaction<'_> {
     }
 
     pub async fn finish(self, ui: &Ui, description: impl Into<String>) -> Result<(), CommandError> {
+        let git_import_export_lock = self.helper.lock_git_import_export()?;
+        self.finish_with_git_import_export_lock(ui, description, &git_import_export_lock)
+            .await
+    }
+
+    /// Finishes the transaction while reusing a Git import/export lock acquired before an
+    /// external Git mutation.
+    ///
+    /// Callers integrating another Git object/ref producer must hold this lock from before that
+    /// producer starts writing until this method returns. This prevents another colocated command
+    /// from observing refs without their corresponding Jujutsu operation, and avoids reacquiring
+    /// the non-reentrant file lock in [`Self::finish`].
+    pub async fn finish_with_git_import_export_lock(
+        self,
+        ui: &Ui,
+        description: impl Into<String>,
+        git_import_export_lock: &GitImportExportLock,
+    ) -> Result<(), CommandError> {
         let Self { helper, mut tx, .. } = self;
         if !tx.repo().has_changes() {
             writeln!(ui.status(), "Nothing changed.")?;
@@ -2853,11 +2871,8 @@ impl WorkspaceCommandTransaction<'_> {
         if num_rebased > 0 {
             writeln!(ui.status(), "Rebased {num_rebased} descendant commits.")?;
         }
-        // Acquire git import/export lock before finishing the transaction to ensure
-        // Git HEAD export happens atomically with the transaction commit.
-        let git_import_export_lock = helper.lock_git_import_export()?;
         helper
-            .finish_transaction(ui, tx, description, &git_import_export_lock)
+            .finish_transaction(ui, tx, description, git_import_export_lock)
             .await
     }
 
