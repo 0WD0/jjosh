@@ -1,0 +1,271 @@
+name: rust-windows
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  merge_group:
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+  # The runner's Git for Windows defaults to core.autocrlf=true, which rewrites
+  # LF to CRLF on checkout; tests assert byte-exact worktree content, so pin it
+  # off via env config (takes precedence over the system/global gitconfig).
+  GIT_CONFIG_COUNT: 1
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: "false"
+  # Wrap rustc in sccache. When the R2 backend is configured below it caches
+  # remotely; otherwise (fork and dependabot PRs, which get no secrets) it
+  # falls back to a local disk cache.
+  RUSTC_WRAPPER: sccache
+
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86-64, os: windows-latest }
+          - { arch: arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    name: Windows ${{ matrix.arch }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      # Fork PRs and dependabot PRs run with a restricted token and no repository
+      # secrets, so they can't reach R2; they skip the backend setup and the
+      # remote-cache check below.
+      SECRETLESS: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # Keep the toolchain version in sync with rust-toolchain.toml.
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+      with:
+        toolchain: "1.95.0"
+    # josh compose (and with it the sccache-proxy sidecar the Linux jobs use)
+    # needs podman and does not run on Windows, so point a plain sccache at the
+    # same R2 bucket instead. Version pinned as in images/rust-dev/Dockerfile.
+    - name: Install sccache
+      shell: pwsh
+      run: |
+        $version = "0.14.0"
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
+        $name = "sccache-v$version-$arch-pc-windows-msvc"
+        $base = "https://github.com/mozilla/sccache/releases/download/v$version"
+        Invoke-WebRequest -OutFile "$env:TEMP\sccache.zip" "$base/$name.zip"
+        Invoke-WebRequest -OutFile "$env:TEMP\sccache.zip.sha256" "$base/$name.zip.sha256"
+        $expected = ((Get-Content "$env:TEMP\sccache.zip.sha256" -Raw) -split '\s')[0]
+        $actual = (Get-FileHash "$env:TEMP\sccache.zip" -Algorithm SHA256).Hash.ToLower()
+        if ($actual -ne $expected) { throw "sccache.zip checksum mismatch" }
+        Expand-Archive "$env:TEMP\sccache.zip" -DestinationPath "$env:TEMP\sccache"
+        Add-Content $env:GITHUB_PATH "$env:TEMP\sccache\$name"
+    # The same backend the Linux jobs reach through the sccache-proxy sidecar
+    # (ws/sccache-proxy.josh); the proxy exists only to hold the credentials,
+    # which this step supplies directly.
+    - name: Configure sccache R2 backend
+      if: env.SECRETLESS != 'true'
+      shell: pwsh
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        Add-Content $env:GITHUB_ENV "SCCACHE_BUCKET=josh-project-cache"
+        Add-Content $env:GITHUB_ENV "SCCACHE_ENDPOINT=https://19f2dfdd7c93980184be5e5809e8b252.r2.cloudflarestorage.com"
+        Add-Content $env:GITHUB_ENV "SCCACHE_REGION=auto"
+        Add-Content $env:GITHUB_ENV "SCCACHE_S3_USE_SSL=true"
+        Add-Content $env:GITHUB_ENV "AWS_ACCESS_KEY_ID=$env:AWS_ACCESS_KEY_ID"
+        Add-Content $env:GITHUB_ENV "AWS_SECRET_ACCESS_KEY=$env:AWS_SECRET_ACCESS_KEY"
+    # aws-lc-sys' ARM assembly is GNU-syntax, which MSVC cannot assemble: the
+    # build then fails late in lib.exe, archiving objects that were never
+    # written. clang-cl assembles it and stays ABI-compatible with the MSVC
+    # toolchain the Rust side links with. An exact pinned LLVM is installed on
+    # both architectures, so the job never depends on what the image ships.
+    - name: Install LLVM (clang-cl) for C dependencies
+      shell: pwsh
+      run: |
+        # woa64 is the Windows-on-ARM64 installer.
+        $version = "22.1.8"
+        $suffix = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "woa64" } else { "win64" }
+        $installer = "$env:TEMP\LLVM-$version-$suffix.exe"
+        Invoke-WebRequest -OutFile $installer `
+          "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/LLVM-$version-$suffix.exe"
+        Start-Process $installer -ArgumentList "/S" -Wait
+        Add-Content $env:GITHUB_PATH "$env:ProgramFiles\LLVM\bin"
+        # cc-rs splits these on whitespace, so the bare name has to resolve on PATH.
+        Add-Content $env:GITHUB_ENV "CC=clang-cl"
+        Add-Content $env:GITHUB_ENV "CXX=clang-cl"
+
+    # josh-ssh-shell is unix-only (unix sockets, fifos, raw fds), so the
+    # workspace does not build here.
+    - name: Build
+      run: cargo build --locked -p josh-proxy -p josh-cli
+    # josh compose needs podman and does not run on Windows, so the .t suites
+    # are out of reach; these are the crates whose unit tests run here.
+    - name: Unit tests
+      run: cargo test --locked -p josh-core -p josh-filter -p josh-gix-ext -p josh-git-serde -p josh-search -p josh-memodb
+    # sccache silently falls back to the local disk cache when the remote
+    # backend can't be reached; expected for secretless runs, a failure
+    # otherwise. Mirrors ws/check-sccache.sh from the Linux jobs.
+    - name: Check sccache stats
+      shell: pwsh
+      run: |
+        sccache --show-stats
+        $stats = sccache --show-stats --stats-format json | ConvertFrom-Json
+        if ($stats.cache_location -like 's3*') {
+          Write-Host "sccache: confirmed S3-backed cache"
+        } else {
+          Write-Host "::warning::SCCACHE_REMOTE_CACHE_MISSING: sccache is not using the S3 remote cache (cache_location: $($stats.cache_location))"
+          if ($env:SECRETLESS -ne 'true') { exit 1 }
+        }
+    # Drives the built binaries, since the .t suites cannot run here: the CLI
+    # against a local repository, and josh-proxy against a git server hosted by
+    # HttpListener, so the job needs nothing that Windows does not ship.
+    - name: Functional tests
+      run: pwsh tests/windows/run.ps1 target/debug -PathForms
+    # WinGet packaging, mirroring build-release-container in release.yml:
+    # release publications and PRs gated on the build-release-winget label.
+    # Label runs are validation-only; release runs additionally get their zips
+    # uploaded to the release by the winget-release job below.
+    - name: Fetch full history
+      if: >-
+        github.event_name == 'release' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'labeled' &&
+          contains(github.event.pull_request.labels.*.name, 'build-release-winget')
+        )
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # The checkout above is shallow: the release build bakes in
+        # `git describe --tags` output and package.ps1 derives the version
+        # from the last release tag, both of which need history and tags.
+        # Keep the default workspace cleaning off — it would wipe the
+        # untracked target/ tree the debug build and tests just produced.
+        clean: false
+        fetch-depth: 0
+    - name: Build release josh.exe
+      if: >-
+        github.event_name == 'release' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'labeled' &&
+          contains(github.event.pull_request.labels.*.name, 'build-release-winget')
+        )
+      run: cargo build --locked --release -p josh-cli --bin josh
+    - name: Package for WinGet
+      if: >-
+        github.event_name == 'release' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'labeled' &&
+          contains(github.event.pull_request.labels.*.name, 'build-release-winget')
+        )
+      shell: pwsh
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        # Label runs have no release tag: fall back to the last one in the repo.
+        $tag = if ($env:RELEASE_TAG) { $env:RELEASE_TAG } else { git describe --tags --abbrev=0 }
+        packaging/winget/package.ps1 -Tag $tag
+    - name: Upload WinGet package
+      if: >-
+        github.event_name == 'release' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'labeled' &&
+          contains(github.event.pull_request.labels.*.name, 'build-release-winget')
+        )
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: winget-package-${{ matrix.arch }}
+        path: winget-out/*
+        if-no-files-found: error
+
+  # Assembles the winget-pkgs manifest set (version / installer / defaultLocale)
+  # from the windows job's zips and validates it offline
+  winget-manifest:
+    runs-on: windows-latest
+    name: WinGet manifests
+    needs: windows
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'labeled' &&
+      contains(github.event.pull_request.labels.*.name, 'build-release-winget')
+    steps:
+    # Only the manifest generator is needed here; the package artifacts arrive
+    # via the download step below.
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Download package artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: winget-package-*
+        merge-multiple: true
+        path: winget-package
+    - name: Generate manifests
+      shell: pwsh
+      run: packaging/winget/generate-manifests.ps1
+    # Update winget on the github runner so that we don't
+    # rely on the version that is baked into the image
+    - name: Install pinned winget
+      shell: pwsh
+      run: |
+        $version = "1.29.290"
+        $release = "https://github.com/microsoft/winget-cli/releases/download/v$version"
+        $bundle = "$env:TEMP\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+
+        Invoke-WebRequest -OutFile "$env:TEMP\deps.zip" "$release/DesktopAppInstaller_Dependencies.zip"
+        Invoke-WebRequest -OutFile "$env:TEMP\deps.zip.sha256" "$release/DesktopAppInstaller_Dependencies.txt"
+        $expected = ((Get-Content "$env:TEMP\deps.zip.sha256" -Raw) -split '\s')[0]
+        if ((Get-FileHash "$env:TEMP\deps.zip" -Algorithm SHA256).Hash -cne $expected) { throw "dependencies zip checksum mismatch" }
+
+        Invoke-WebRequest -OutFile $bundle "$release/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+        $bundleHash = "6824b6e9484ab24687d99a0c829d2bcbcc7849a70a4d0f596fc43c89d20dff15"
+        if ((Get-FileHash $bundle -Algorithm SHA256).Hash.ToLower() -cne $bundleHash) { throw "winget msixbundle checksum mismatch" }
+
+        Expand-Archive "$env:TEMP\deps.zip" -DestinationPath "$env:TEMP\winget-deps"
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+        Get-ChildItem "$env:TEMP\winget-deps\$arch\Microsoft.WindowsAppRuntime.*.appx" | ForEach-Object { Add-AppxPackage $_.FullName }
+        Add-AppxPackage $bundle
+    - name: Validate manifests
+      shell: pwsh
+      run: |
+        winget --version
+        $version = (Get-Content winget-package/version.txt -Raw).Trim()
+        winget validate --manifest "manifests/j/JoshProject/Josh/$version"
+    - name: Upload manifests
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: winget-manifests
+        path: manifests/
+        if-no-files-found: error
+
+  # Uploads the packaged zips and SHA256 sidecars to the GitHub release that
+  # triggered the run, so the winget-pkgs submission can reference them as
+  # installer URLs
+  winget-release:
+    runs-on: ubuntu-latest
+    name: WinGet release upload
+    needs: windows
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+    - name: Download package artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: winget-package-*
+        merge-multiple: true
+        path: winget-package
+    - name: Upload zips to the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        gh release upload "$RELEASE_TAG" winget-package/*.zip winget-package/*.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+        gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
