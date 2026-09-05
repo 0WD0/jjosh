@@ -1,0 +1,6 @@
+:[
+    :+ws/test
+    inputs = :[
+        :#devtools-tests[:+devtools/devtools-tests]
+    ]
+]

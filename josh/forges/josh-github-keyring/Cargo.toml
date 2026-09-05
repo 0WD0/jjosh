@@ -1,0 +1,25 @@
+[package]
+name = "josh-github-keyring"
+version = "26.8.28"
+edition = "2024"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+description = "Credential storage for Josh GitHub integration"
+license-file = "../../LICENSE"
+repository = "https://github.com/josh-project/josh"
+keywords = ["git", "github", "monorepo", "credential"]
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+dirs.workspace = true
+keyring-core = "^1"
+
+josh-github-auth.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "^1", features = ["keychain"] }
+
+[features]
+codesign = []

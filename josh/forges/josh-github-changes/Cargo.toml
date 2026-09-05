@@ -1,0 +1,24 @@
+[package]
+name = "josh-github-changes"
+version = "26.8.28"
+edition = "2021"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+description = "GitHub change tracking for Josh"
+license-file = "../../LICENSE"
+repository = "https://github.com/josh-project/josh"
+keywords = ["git", "github", "monorepo", "workflow"]
+
+[dependencies]
+gix-hash.workspace = true
+anyhow.workspace = true
+url.workspace = true
+serde.workspace = true
+josh-changes.workspace = true
+josh-core.workspace = true
+josh-git-serde.workspace = true
+josh-github-graphql.workspace = true
+josh-github-webhooks.workspace = true
+
+[dev-dependencies]
+gix.workspace = true
+tempfile.workspace = true
