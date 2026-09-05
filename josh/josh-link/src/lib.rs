@@ -385,6 +385,9 @@ pub fn prepare_link_push(
             path.display()
         ));
     }
+    // Snapshot history can have an unrelated root even after it is embedded.
+    // Attach such roots to the pinned source so publication preserves upstream
+    // ancestry and content outside the link's filter.
     let exported_commit = josh_core::history::unapply_filter(
         transaction,
         source_filter,
@@ -392,7 +395,7 @@ pub fn prepare_link_push(
         old_filtered_commit,
         local_commit,
         josh_core::history::OrphansMode::Keep,
-        None,
+        Some(original_target),
     )
     .context("Failed to reverse the linked history")?;
 
