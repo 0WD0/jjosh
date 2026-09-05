@@ -29,7 +29,16 @@ enum LinkCommand {
     Add(AddArgs),
     /// Fetch and materialize newer commits for one or all links.
     Update(UpdateArgs),
-    /// Export one linked path and push it back to its remote.
+    /// Export a linked path, safely rewriting a previously pushed destination.
+    ///
+    /// After a successful push, history rewrites are allowed only while the remote
+    /// still matches that push (force-with-lease). State is kept locally for each
+    /// remote URL and destination branch, independently of jj's rewritten history.
+    ///
+    /// Without a recorded push (including pushes made by older jjosh versions),
+    /// only branch creation or fast-forward updates are allowed. Use --force only
+    /// after checking that replacing the destination will not discard remote work.
+    /// Dry runs and failed pushes never change the recorded remote position.
     Push(PushArgs),
 }
 
@@ -83,10 +92,11 @@ struct PushArgs {
     /// Destination branch. Required when the link target is not a branch.
     #[arg(long)]
     to: Option<String>,
-    /// Allow a non-fast-forward update of the linked repository.
+    /// Overwrite the destination even if it changed since the last successful push.
     #[arg(long, short)]
     force: bool,
     /// Validate the inverse export and remote update without changing the remote.
+    /// Does not update the remembered remote position.
     #[arg(long)]
     dry_run: bool,
 }
@@ -892,11 +902,27 @@ fn destination_ref(
     }
 }
 
+// Keep publication state outside the rewritten commit graph. A destination shared by
+// multiple links must have one lease, while different remotes/branches stay independent.
+fn push_tracking_ref(
+    transaction: &josh_core::cache::Transaction,
+    remote: &str,
+    destination: &str,
+) -> Result<String, CommandError> {
+    let key = format!("{remote}\0{destination}");
+    let id = josh_core::objects::write_blob(transaction.odb(), key.as_bytes()).map_err(|err| {
+        user_error_with_message("Failed to identify the link push destination", err)
+    })?;
+    Ok(format!("refs/jjosh/link-push/{id}"))
+}
+
 async fn run_push(
     ui: &mut Ui,
     command_helper: &CommandHelper,
     args: PushArgs,
 ) -> Result<(), CommandError> {
+    // Only a successful push establishes the lease. In particular, querying the
+    // remote immediately before pushing would silently authorize unseen changes.
     let workspace_command = command_helper.workspace_helper(ui).await?;
     let commit = workspace_command
         .resolve_single_rev(ui, &args.revision)
@@ -926,17 +952,27 @@ async fn run_push(
         push_remote,
         &normalized_repo_path,
     )?;
+    let tracking_ref = push_tracking_ref(&transaction, push_remote, &destination)?;
+    let last_pushed = transaction.resolve_ref(&tracking_ref).map_err(|err| {
+        user_error_with_message("Failed to read the last successful link push", err)
+    })?;
     let refspec = format!(
         "{}{}:{}",
         if args.force { "+" } else { "" },
         prepared.exported_commit,
         destination
     );
+    let lease = last_pushed
+        .filter(|_| !args.force)
+        .map(|expected| format!("--force-with-lease={destination}:{expected}"));
     let mut push_args = vec!["push"];
+    if let Some(lease) = &lease {
+        push_args.push(lease);
+    }
     if args.dry_run {
         push_args.push("--dry-run");
     }
-    push_args.extend([push_remote, &refspec]);
+    push_args.extend(["--", push_remote, &refspec]);
     let failure_context = if args.dry_run {
         "Failed to preflight the Josh link push"
     } else {
@@ -955,6 +991,23 @@ async fn run_push(
             prepared.exported_commit
         )?;
     } else {
+        transaction
+            .update_ref(
+                &tracking_ref,
+                last_pushed.map_or(
+                    josh_core::cache::Expected::Absent,
+                    josh_core::cache::Expected::At,
+                ),
+                prepared.exported_commit,
+                "jjosh link push",
+            )
+            .and_then(|()| transaction.flush_mem_odb())
+            .map_err(|err| {
+                user_error_with_message(
+                    "Link was pushed, but its new remote position could not be saved",
+                    err,
+                )
+            })?;
         writeln!(
             ui.status(),
             "Pushed link {} to {}:{}",

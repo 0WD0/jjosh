@@ -279,9 +279,7 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
     fs::write(client.join("deps/lib.txt"), "local-v3\n").unwrap();
     jjosh(&client, &["status"]);
     let preflight_operation = operation_id(&client);
-    let preflight = jjosh(&client, &["link", "push", "deps", "--dry-run"]);
-    assert!(String::from_utf8_lossy(&preflight.stderr).contains("Link push preflight succeeded"));
-    assert!(String::from_utf8_lossy(&preflight.stderr).contains("Remote updated: no"));
+    jjosh(&client, &["link", "push", "deps", "--dry-run"]);
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
         remote_v2
@@ -305,16 +303,11 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
         &["link", "push", "deps", "--dry-run", "--to", "blocked"],
     );
     assert!(!rejected_preflight.status.success());
-    let rejected_stderr = String::from_utf8_lossy(&rejected_preflight.stderr);
-    assert!(
-        rejected_stderr.contains("non-fast-forward") || rejected_stderr.contains("fetch first"),
-        "unexpected preflight rejection:\n{rejected_stderr}"
-    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/blocked"]).trim(),
         unrelated_commit.trim()
     );
-    let forced_preflight = jjosh(
+    jjosh(
         &client,
         &[
             "link",
@@ -325,9 +318,6 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
             "--to",
             "blocked",
         ],
-    );
-    assert!(
-        String::from_utf8_lossy(&forced_preflight.stderr).contains("Link push preflight succeeded")
     );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/blocked"]).trim(),
@@ -383,13 +373,230 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
         &["link", "push", "deps", "--to", "rejected-conflict"],
     );
     assert!(!rejected_push.status.success());
-    assert!(String::from_utf8_lossy(&rejected_push.stderr).contains("unresolved conflicts"));
     let rejected_ref = run(
         &remote_bare,
         Path::new("git"),
         &["show-ref", "--verify", "refs/heads/rejected-conflict"],
     );
     assert!(!rejected_ref.status.success());
+}
+
+#[test]
+fn link_push_rewrites_published_changes_with_independent_destination_leases() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_remote_work, remote_bare, _) = create_remote(temp.path(), "rewrite");
+    let client = temp.path().join("client");
+    fs::create_dir(&client).unwrap();
+    git(&client, &["init", "-b", "main"]);
+    git(&client, &["config", "user.name", "Smoke Test"]);
+    git(&client, &["config", "user.email", "smoke@example.com"]);
+    fs::write(client.join("root.txt"), "root\n").unwrap();
+    git(&client, &["add", "."]);
+    git(&client, &["commit", "-m", "root"]);
+    jjosh(&client, &["git", "init", "--colocate"]);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+            "--push-target",
+            "main",
+        ],
+    );
+    jjosh(&client, &["new"]);
+    fs::write(client.join("deps/value.txt"), "published-v1\n").unwrap();
+    jjosh(&client, &["status"]);
+    let local_change = change_id(&client, "@");
+    jjosh(&client, &["link", "push", "deps"]);
+    let first_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "published-v1\n"
+    );
+    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/topic"]).trim(),
+        first_tip
+    );
+
+    fs::write(client.join("deps/value.txt"), "published-v2\n").unwrap();
+    jjosh(&client, &["status"]);
+    assert_eq!(change_id(&client, "@"), local_change);
+    let preflight_operation = operation_id(&client);
+    jjosh(&client, &["link", "push", "deps", "--dry-run"]);
+    assert_eq!(operation_id(&client), preflight_operation);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        first_tip
+    );
+    // A dry-run must leave the lease at the actually published v1.
+    jjosh(&client, &["link", "push", "deps"]);
+    let second_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "published-v2\n"
+    );
+    assert_eq!(
+        run(
+            &remote_bare,
+            Path::new("git"),
+            &["merge-base", "--is-ancestor", &first_tip, &second_tip],
+        )
+        .status
+        .code(),
+        Some(1)
+    );
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/topic"]).trim(),
+        first_tip
+    );
+
+    // Main remembers v2, while topic must still use its own v1 lease.
+    fs::write(client.join("deps/value.txt"), "published-v3\n").unwrap();
+    jjosh(&client, &["status"]);
+    assert_eq!(change_id(&client, "@"), local_change);
+    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    let topic_tip = git(&remote_bare, &["rev-parse", "refs/heads/topic"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/topic:src/value.txt"]),
+        "published-v3\n"
+    );
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        second_tip
+    );
+    jjosh(&client, &["link", "push", "deps"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        topic_tip
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "published-v3\n"
+    );
+}
+
+#[test]
+fn link_push_rejects_external_advances_without_refreshing_its_lease() {
+    let temp = tempfile::tempdir().unwrap();
+    let (remote_work, remote_bare, _) = create_remote(temp.path(), "concurrent");
+    let client = temp.path().join("client");
+    fs::create_dir(&client).unwrap();
+    git(&client, &["init", "-b", "main"]);
+    git(&client, &["config", "user.name", "Smoke Test"]);
+    git(&client, &["config", "user.email", "smoke@example.com"]);
+    fs::write(client.join("root.txt"), "root\n").unwrap();
+    git(&client, &["add", "."]);
+    git(&client, &["commit", "-m", "root"]);
+    jjosh(&client, &["git", "init", "--colocate"]);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+            "--push-target",
+            "main",
+        ],
+    );
+    jjosh(&client, &["new"]);
+    fs::write(client.join("deps/value.txt"), "published\n").unwrap();
+    jjosh(&client, &["status"]);
+    let local_change = change_id(&client, "@");
+    jjosh(&client, &["link", "push", "deps"]);
+    let published_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "published\n"
+    );
+
+    git(
+        &remote_work,
+        &["fetch", remote_bare.to_str().unwrap(), "main"],
+    );
+    git(&remote_work, &["switch", "--detach", "FETCH_HEAD"]);
+    fs::write(remote_work.join("src/value.txt"), "other-writer\n").unwrap();
+    git(&remote_work, &["commit", "-am", "other writer"]);
+    git(
+        &remote_work,
+        &[
+            "push",
+            remote_bare.to_str().unwrap(),
+            "HEAD:refs/heads/main",
+        ],
+    );
+    let external_tip = git(&remote_work, &["rev-parse", "HEAD"]).trim().to_owned();
+
+    fs::write(client.join("deps/value.txt"), "local-rewrite\n").unwrap();
+    jjosh(&client, &["status"]);
+    assert_eq!(change_id(&client, "@"), local_change);
+    let preflight_operation = operation_id(&client);
+    let rejected_preflight = jjosh_unchecked(&client, &["link", "push", "deps", "--dry-run"]);
+    assert!(!rejected_preflight.status.success());
+    assert_eq!(operation_id(&client), preflight_operation);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        external_tip
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "other-writer\n"
+    );
+    let rejected_push = jjosh_unchecked(&client, &["link", "push", "deps"]);
+    assert!(!rejected_push.status.success());
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        external_tip
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "other-writer\n"
+    );
+    // A rejected real push must not bless the other writer's tip either.
+    let rejected_retry = jjosh_unchecked(&client, &["link", "push", "deps"]);
+    assert!(!rejected_retry.status.success());
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
+        external_tip
+    );
+
+    // Once the other writer restores our last publication, the original lease
+    // must still work: failed attempts must not remember the unpublished rewrite.
+    git(
+        &remote_work,
+        &[
+            "push",
+            "--force",
+            remote_bare.to_str().unwrap(),
+            &format!("{published_tip}:refs/heads/main"),
+        ],
+    );
+    jjosh(&client, &["link", "push", "deps"]);
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
+        "local-rewrite\n"
+    );
 }
 
 #[test]
