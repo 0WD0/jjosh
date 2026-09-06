@@ -340,6 +340,15 @@ pub enum OrphansMode {
     Fail,
 }
 
+#[derive(Clone, Debug)]
+pub struct UnapplyOptions {
+    pub orphans: OrphansMode,
+    pub reparent_orphans: Option<gix_hash::ObjectId>,
+    /// Drop new commits with no exported tree changes, regardless of their
+    /// original contents or message. Existing upstream history is untouched.
+    pub prune_empty: bool,
+}
+
 #[tracing::instrument(skip(transaction))]
 pub fn unapply_filter(
     transaction: &cache::Transaction,
@@ -347,8 +356,7 @@ pub fn unapply_filter(
     original_target: gix_hash::ObjectId,
     old_filtered_oid: gix_hash::ObjectId,
     new_filtered_oid: gix_hash::ObjectId,
-    orphans_mode: OrphansMode,
-    reparent_orphans: Option<gix_hash::ObjectId>,
+    options: UnapplyOptions,
 ) -> anyhow::Result<gix_hash::ObjectId> {
     let mut filtered_to_original = HashMap::new();
     let mut ret = original_target;
@@ -438,7 +446,7 @@ pub fn unapply_filter(
             && objects::merge_base_octopus(odb, &filtered_parent_ids)?.is_none();
 
         if has_new_orphan {
-            match orphans_mode {
+            match options.orphans {
                 OrphansMode::Keep => {}
                 OrphansMode::Remove => {
                     filtered_parent_ids.pop();
@@ -485,7 +493,7 @@ pub fn unapply_filter(
 
         // If there are no parents and "reparent" option is given, use the given OID as a parent
         let mut original_parents = original_parents?;
-        if let (0, Some(reparent)) = (original_parents.len(), reparent_orphans) {
+        if let (0, Some(reparent)) = (original_parents.len(), options.reparent_orphans) {
             original_parents = vec![objects::CommitData::read(odb, reparent)?];
         }
 
@@ -653,28 +661,48 @@ pub fn unapply_filter(
             }
         };
 
-        let apply = filter::Rewrite::from_tree(new_tree);
-
-        let original_parent_oids: Vec<gix_hash::ObjectId> =
+        let mut original_parent_oids: Vec<gix_hash::ObjectId> =
             original_parents.iter().map(|c| c.id()).collect();
-        ret = rewrite_commit(
-            odb,
-            &module_commit,
-            &original_parent_oids,
-            apply,
-            GpgsigMode::Preserve,
-        )?;
+        if options.prune_empty {
+            // Pruned branches can map to the same parent, or to an ancestor of
+            // another parent. Remove only redundant edges, not distinct heads.
+            for i in (0..original_parent_oids.len()).rev() {
+                let parent = original_parent_oids[i];
+                let mut redundant = false;
+                for (j, &other) in original_parent_oids.iter().enumerate() {
+                    if (i > j && parent == other)
+                        || (parent != other && objects::is_descendant_of(odb, other, parent)?)
+                    {
+                        redundant = true;
+                        break;
+                    }
+                }
+                if redundant {
+                    original_parent_oids.remove(i);
+                }
+            }
+        }
 
-        ret = if original_parents.len() == 1
-            && new_tree == original_parents[0].tree_id()?
-            && Some(module_commit.tree_id()?)
-                != module_commit
-                    .first_parent_id()
-                    .and_then(|p| git::read_tree_id(odb, p).ok())
-        {
-            original_parents[0].id()
+        let drop_empty = if let [parent] = original_parent_oids.as_slice() {
+            new_tree == git::read_tree_id(odb, *parent)?
+                && (options.prune_empty
+                    || Some(module_commit.tree_id()?)
+                        != module_commit
+                            .first_parent_id()
+                            .and_then(|p| git::read_tree_id(odb, p).ok()))
         } else {
-            ret
+            false
+        };
+        ret = if drop_empty {
+            original_parent_oids[0]
+        } else {
+            rewrite_commit(
+                odb,
+                &module_commit,
+                &original_parent_oids,
+                filter::Rewrite::from_tree(new_tree),
+                GpgsigMode::Preserve,
+            )?
         };
 
         filtered_to_original.insert(module_commit.id(), ret);

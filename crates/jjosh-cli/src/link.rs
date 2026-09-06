@@ -97,6 +97,8 @@ struct PushArgs {
     /// Linked path to export and push.
     path: String,
     /// Jujutsu revision whose linked contents should be exported.
+    /// Commits with no exported file changes are pruned regardless of their
+    /// description or whether the revision was explicitly selected.
     #[arg(short = 'r', long, default_value = "@")]
     revision: RevisionArg,
     /// Destination branch. Required when the link target is not a branch.
