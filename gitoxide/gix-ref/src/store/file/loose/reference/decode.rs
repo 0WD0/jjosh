@@ -12,6 +12,9 @@ enum MaybeUnsafeState {
 #[derive(Debug, thiserror::Error)]
 #[expect(missing_docs)]
 pub enum Error {
+    /// Git's placeholder for an unsupported backend, such as reftable, was encountered.
+    #[error("This reference uses an unsupported storage backend, such as reftable")]
+    UnsupportedStorage,
     #[error("{content:?} could not be parsed")]
     Parse { content: BString },
     #[error("The path {path:?} to a symbolic reference within a ref file is invalid")]
@@ -30,6 +33,7 @@ impl TryFrom<MaybeUnsafeState> for Target {
             MaybeUnsafeState::UnvalidatedPath(name) => {
                 Target::Symbolic(match gix_validate::reference::name(name.as_ref()) {
                     Ok(_) => FullName(name),
+                    Err(_) if name == "refs/heads/.invalid" => return Err(Error::UnsupportedStorage),
                     Err(err) => {
                         return Err(Error::RefnameValidation {
                             source: err,

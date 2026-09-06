@@ -115,9 +115,11 @@ fn non_bare_reftable() -> crate::Result {
         return Ok(());
     };
     let repo = gix::open_opts(root.join("reftable-clone"), gix::open::Options::isolated())?;
-    assert!(
-        repo.head_id().is_err(),
-        "Trying to do anything with head will fail as we don't support reftables yet"
+    let err = repo.head_id().expect_err("reftable references are not supported");
+    assert_eq!(
+        err.source().expect("reference decoding error").to_string(),
+        "This reference uses an unsupported storage backend, such as reftable",
+        "accessing HEAD explains that the reference storage backend is unsupported"
     );
     assert!(!repo.is_bare());
     assert_eq!(repo.kind(), gix::repository::Kind::Common);
