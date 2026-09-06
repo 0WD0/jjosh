@@ -220,14 +220,28 @@ mod parse {
                         $input,
                         gix_hash::Kind::Sha1,
                     )
-                    .unwrap_err();
-                    assert_eq!(err.to_string(), $err);
+                    .expect_err("the loose reference content is invalid or unsupported");
+                    assert_eq!(
+                        err.to_string(),
+                        $err,
+                        "the error identifies why decoding failed"
+                    );
                 }
             };
         }
 
         mktest!(hex_id, b"foobar", "\"foobar\" could not be parsed");
         mktest!(ref_tag, b"reff: hello", "\"reff: hello\" could not be parsed");
+        mktest!(
+            reftable_placeholder,
+            b"ref: refs/heads/.invalid\n",
+            "This reference uses an unsupported storage backend, such as reftable"
+        );
+        mktest!(
+            other_invalid_symbolic_target,
+            b"ref: refs/heads/.invalid-other\n",
+            "The path \"refs/heads/.invalid-other\" to a symbolic reference within a ref file is invalid"
+        );
         mktest!(
             sha256_sized_id_for_sha1,
             b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
