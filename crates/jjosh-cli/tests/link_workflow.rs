@@ -735,6 +735,197 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
 }
 
 #[test]
+fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description() {
+    let temp = tempfile::tempdir().unwrap();
+    let (remote_work, remote_bare, _) = create_remote(temp.path(), "empty-tip");
+    git(
+        &remote_work,
+        &["commit", "--allow-empty", "--allow-empty-message", "-m", ""],
+    );
+    git(
+        &remote_work,
+        &["push", remote_bare.to_str().unwrap(), "main"],
+    );
+    let source_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"]);
+    let client = temp.path().join("client");
+    fs::create_dir(&client).unwrap();
+    jjosh(
+        &client,
+        &["git", "init", "--no-colocate", "--object-hash", "sha1"],
+    );
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+        ],
+    );
+    // Prune only new publication history, never rewrite the pinned upstream.
+    jjosh(&client, &["link", "push", "deps", "--to", "unchanged"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/unchanged"]),
+        source_tip
+    );
+    fs::write(client.join("deps/value.txt"), "local change\n").unwrap();
+    jjosh(&client, &["describe", "-m", "Actual change"]);
+    jjosh(
+        &client,
+        &["link", "push", "deps", "-r", "@", "--to", "expected"],
+    );
+    let expected_tip = git(&remote_bare, &["rev-parse", "refs/heads/expected"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/expected^"]),
+        source_tip
+    );
+
+    jjosh(&client, &["new"]);
+    jjosh(&client, &["new"]);
+    let empty_tip = commit_id(&client, "@");
+    let before_operation = operation_id(&client);
+    let before_refs = git(&remote_bare, &["show-ref"]);
+    jjosh(
+        &client,
+        &["link", "push", "deps", "--to", "topic", "--dry-run"],
+    );
+    assert_eq!(git(&remote_bare, &["show-ref"]), before_refs);
+    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/topic"]).trim(),
+        expected_tip
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "refs/heads/topic:src/value.txt"]),
+        "local change\n"
+    );
+    assert_eq!(commit_id(&client, "@"), empty_tip);
+    assert_eq!(operation_id(&client), before_operation);
+
+    // Explicit selection applies the same content-based pruning.
+    jjosh(
+        &client,
+        &["link", "push", "deps", "-r", "@", "--to", "explicit"],
+    );
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/explicit"]).trim(),
+        expected_tip
+    );
+
+    // A description cannot make an empty exported change meaningful.
+    jjosh(&client, &["describe", "-m", "Release checkpoint"]);
+    jjosh(&client, &["link", "push", "deps", "--to", "checkpoint"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/checkpoint"]).trim(),
+        expected_tip
+    );
+
+    // Out-of-scope changes and originally empty commits are equivalent:
+    // neither contributes a commit to this link's published history.
+    jjosh(&client, &["new", "-m", "Only change another project"]);
+    fs::write(client.join("outside.txt"), "unrelated local content\n").unwrap();
+    jjosh(&client, &["link", "push", "deps", "--to", "outside"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/outside"]).trim(),
+        expected_tip
+    );
+    jjosh(&client, &["new", "-m", "Next actual change"]);
+    fs::write(client.join("deps/value.txt"), "next local change\n").unwrap();
+    jjosh(&client, &["new"]);
+    let local_tip = commit_id(&client, "@");
+    let local_operation = operation_id(&client);
+    jjosh(
+        &client,
+        &["link", "push", "deps", "-r", "@", "--to", "continued"],
+    );
+    assert_eq!(
+        git(
+            &remote_bare,
+            &["rev-list", "--count", "expected..continued"]
+        )
+        .trim(),
+        "1"
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "continued:src/value.txt"]),
+        "next local change\n"
+    );
+    assert_eq!(commit_id(&client, "@"), local_tip);
+    assert_eq!(operation_id(&client), local_operation);
+}
+
+#[test]
+fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_remote_work, remote_bare, _) = create_remote(temp.path(), "merge-tip");
+    let client = temp.path().join("client");
+    fs::create_dir(&client).unwrap();
+    jjosh(
+        &client,
+        &["git", "init", "--no-colocate", "--object-hash", "sha1"],
+    );
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+        ],
+    );
+    fs::write(client.join("deps/left.txt"), "left\n").unwrap();
+    jjosh(&client, &["link", "push", "deps", "--to", "left"]);
+    assert_eq!(git(&remote_bare, &["show", "left:src/left.txt"]), "left\n");
+    assert_eq!(
+        git(&remote_bare, &["show", "-s", "--format=%B", "left"]).trim(),
+        ""
+    );
+    let left = commit_id(&client, "@");
+    jjosh(&client, &["new", "trunk@jjosh", "-m", "Right change"]);
+    fs::write(client.join("deps/right.txt"), "right\n").unwrap();
+    let right = commit_id(&client, "@");
+    jjosh(&client, &["new", &left, &right]);
+    jjosh(&client, &["link", "push", "deps", "--to", "merged"]);
+    assert_eq!(
+        git(&remote_bare, &["show", "merged:src/left.txt"]),
+        "left\n"
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "merged:src/right.txt"]),
+        "right\n"
+    );
+    assert_eq!(
+        git(&remote_bare, &["show", "-s", "--format=%P", "merged"])
+            .split_whitespace()
+            .count(),
+        2
+    );
+
+    // An empty side branch collapses to the source, so its merge with a
+    // content-bearing branch must not create an empty merge commit either.
+    jjosh(&client, &["new", "trunk@jjosh", "-m", "Empty side branch"]);
+    let empty_branch = commit_id(&client, "@");
+    jjosh(&client, &["new", &left, &empty_branch]);
+    jjosh(&client, &["link", "push", "deps", "--to", "collapsed"]);
+    assert_eq!(
+        git(&remote_bare, &["rev-parse", "refs/heads/collapsed"]),
+        git(&remote_bare, &["rev-parse", "refs/heads/left"])
+    );
+}
+
+#[test]
 fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     let temp = tempfile::tempdir().unwrap();
     let (_remote_work, remote_bare, _) = create_remote(temp.path(), "rewrite");

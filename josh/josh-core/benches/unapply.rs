@@ -278,8 +278,11 @@ fn unapply_extend(c: &mut Criterion) {
             case.head,
             case.filtered_head,
             tip,
-            OrphansMode::Fail,
-            None,
+            josh_core::history::UnapplyOptions {
+                orphans: OrphansMode::Fail,
+                reparent_orphans: None,
+                prune_empty: false,
+            },
         )
         .expect("unapply");
         let refiltered =
@@ -318,8 +321,11 @@ fn unapply_extend(c: &mut Criterion) {
                         case.head,
                         case.filtered_head,
                         tip,
-                        OrphansMode::Fail,
-                        None,
+                        josh_core::history::UnapplyOptions {
+                            orphans: OrphansMode::Fail,
+                            reparent_orphans: None,
+                            prune_empty: false,
+                        },
                     )
                     .expect("unapply filter");
                     (transaction, iter_span)
@@ -349,8 +355,11 @@ fn unapply_new_branch(c: &mut Criterion) {
             case.head,
             gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
             case.filtered_mid,
-            OrphansMode::Fail,
-            None,
+            josh_core::history::UnapplyOptions {
+                orphans: OrphansMode::Fail,
+                reparent_orphans: None,
+                prune_empty: false,
+            },
         )
         .expect("unapply");
         let refiltered =
@@ -379,8 +388,11 @@ fn unapply_new_branch(c: &mut Criterion) {
                         case.head,
                         gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
                         case.filtered_mid,
-                        OrphansMode::Fail,
-                        None,
+                        josh_core::history::UnapplyOptions {
+                            orphans: OrphansMode::Fail,
+                            reparent_orphans: None,
+                            prune_empty: false,
+                        },
                     )
                     .expect("unapply filter");
                     (transaction, iter_span)

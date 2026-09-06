@@ -422,14 +422,17 @@ pub fn process_repo_update(repo_update: RepoUpdate) -> anyhow::Result<String> {
                 original_target,
                 old,
                 new_oid,
-                if push_options.merge || push_options.allow_orphans {
-                    josh_core::history::OrphansMode::Keep
-                } else if push_options.edit {
-                    josh_core::history::OrphansMode::Remove
-                } else {
-                    josh_core::history::OrphansMode::Fail
+                josh_core::history::UnapplyOptions {
+                    orphans: if push_options.merge || push_options.allow_orphans {
+                        josh_core::history::OrphansMode::Keep
+                    } else if push_options.edit {
+                        josh_core::history::OrphansMode::Remove
+                    } else {
+                        josh_core::history::OrphansMode::Fail
+                    },
+                    reparent_orphans,
+                    prune_empty: false,
                 },
-                reparent_orphans,
             )?;
 
             tracing::debug!(

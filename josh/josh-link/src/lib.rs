@@ -335,6 +335,10 @@ pub struct PreparedLinkPush {
 }
 
 /// Resolve a link at `path` and export its visible contents into the linked repository's layout.
+///
+/// Prune new commits that contribute no exported tree changes, regardless of
+/// their message or whether they were already empty before filtering. Preserve
+/// the pinned source ancestry and merges between distinct surviving branches.
 pub fn prepare_link_push(
     transaction: &josh_core::cache::Transaction,
     head_commit: gix_hash::ObjectId,
@@ -394,8 +398,11 @@ pub fn prepare_link_push(
         original_target,
         old_filtered_commit,
         local_commit,
-        josh_core::history::OrphansMode::Keep,
-        Some(original_target),
+        josh_core::history::UnapplyOptions {
+            orphans: josh_core::history::OrphansMode::Keep,
+            reparent_orphans: Some(original_target),
+            prune_empty: true,
+        },
     )
     .context("Failed to reverse the linked history")?;
 
