@@ -399,9 +399,9 @@ pub fn prepare_link_push(
         old_filtered_commit,
         local_commit,
         josh_core::history::UnapplyOptions {
-            orphans: josh_core::history::OrphansMode::Keep,
             reparent_orphans: Some(original_target),
             prune_empty: true,
+            ..Default::default()
         },
     )
     .context("Failed to reverse the linked history")?;

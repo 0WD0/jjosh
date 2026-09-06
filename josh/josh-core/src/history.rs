@@ -333,20 +333,55 @@ fn find_new_branch_base(
     Ok(gix_hash::ObjectId::null(gix_hash::Kind::Sha1))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum OrphansMode {
+    #[default]
     Keep,
     Remove,
     Fail,
 }
 
-#[derive(Clone, Debug)]
+/// Reverse-history policies. Defaults preserve originally empty commits and
+/// leave orphan roots attached to no additional parent.
+#[derive(Clone, Debug, Default)]
 pub struct UnapplyOptions {
     pub orphans: OrphansMode,
     pub reparent_orphans: Option<gix_hash::ObjectId>,
     /// Drop new commits with no exported tree changes, regardless of their
     /// original contents or message. Existing upstream history is untouched.
     pub prune_empty: bool,
+}
+
+/// Keep distinct parent heads in their original order.
+fn simplify_parents(
+    odb: &josh_memodb::Odb,
+    parents: &mut Vec<objects::CommitData>,
+) -> anyhow::Result<()> {
+    let mut i = 0;
+    'candidate: while i < parents.len() {
+        let mut j = i + 1;
+        while j < parents.len() {
+            let left = parents[i].id();
+            let right = parents[j].id();
+            let base = if left == right {
+                Some(left)
+            } else {
+                objects::merge_base_octopus(odb, &[left, right])?
+            };
+            match base {
+                Some(base) if base == right => {
+                    parents.remove(j);
+                }
+                Some(base) if base == left => {
+                    parents.remove(i);
+                    continue 'candidate;
+                }
+                _ => j += 1,
+            }
+        }
+        i += 1;
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip(transaction))]
@@ -661,41 +696,23 @@ pub fn unapply_filter(
             }
         };
 
-        let mut original_parent_oids: Vec<gix_hash::ObjectId> =
-            original_parents.iter().map(|c| c.id()).collect();
         if options.prune_empty {
-            // Pruned branches can map to the same parent, or to an ancestor of
-            // another parent. Remove only redundant edges, not distinct heads.
-            for i in (0..original_parent_oids.len()).rev() {
-                let parent = original_parent_oids[i];
-                let mut redundant = false;
-                for (j, &other) in original_parent_oids.iter().enumerate() {
-                    if (i > j && parent == other)
-                        || (parent != other && objects::is_descendant_of(odb, other, parent)?)
-                    {
-                        redundant = true;
-                        break;
-                    }
-                }
-                if redundant {
-                    original_parent_oids.remove(i);
-                }
-            }
+            simplify_parents(odb, &mut original_parents)?;
         }
-
-        let drop_empty = if let [parent] = original_parent_oids.as_slice() {
-            new_tree == git::read_tree_id(odb, *parent)?
-                && (options.prune_empty
-                    || Some(module_commit.tree_id()?)
-                        != module_commit
-                            .first_parent_id()
-                            .and_then(|p| git::read_tree_id(odb, p).ok()))
-        } else {
-            false
+        let drop_empty = match original_parents.as_slice() {
+            [parent] if parent.tree_id()? == new_tree => {
+                options.prune_empty
+                    || match module_commit.first_parent_id() {
+                        Some(parent) => module_commit.tree_id()? != git::read_tree_id(odb, parent)?,
+                        None => true,
+                    }
+            }
+            _ => false,
         };
         ret = if drop_empty {
-            original_parent_oids[0]
+            original_parents[0].id()
         } else {
+            let original_parent_oids: Vec<_> = original_parents.iter().map(|c| c.id()).collect();
             rewrite_commit(
                 odb,
                 &module_commit,

@@ -280,8 +280,7 @@ fn unapply_extend(c: &mut Criterion) {
             tip,
             josh_core::history::UnapplyOptions {
                 orphans: OrphansMode::Fail,
-                reparent_orphans: None,
-                prune_empty: false,
+                ..Default::default()
             },
         )
         .expect("unapply");
@@ -323,8 +322,7 @@ fn unapply_extend(c: &mut Criterion) {
                         tip,
                         josh_core::history::UnapplyOptions {
                             orphans: OrphansMode::Fail,
-                            reparent_orphans: None,
-                            prune_empty: false,
+                            ..Default::default()
                         },
                     )
                     .expect("unapply filter");
@@ -357,8 +355,7 @@ fn unapply_new_branch(c: &mut Criterion) {
             case.filtered_mid,
             josh_core::history::UnapplyOptions {
                 orphans: OrphansMode::Fail,
-                reparent_orphans: None,
-                prune_empty: false,
+                ..Default::default()
             },
         )
         .expect("unapply");
@@ -390,8 +387,7 @@ fn unapply_new_branch(c: &mut Criterion) {
                         case.filtered_mid,
                         josh_core::history::UnapplyOptions {
                             orphans: OrphansMode::Fail,
-                            reparent_orphans: None,
-                            prune_empty: false,
+                            ..Default::default()
                         },
                     )
                     .expect("unapply filter");
