@@ -103,6 +103,7 @@ fn perform_inner(
         .or_raise(|| message("editing requires an existing HEAD commit"))?
         .detach();
     let mut commit = repo.find_commit(head)?.decode()?.into_owned()?;
+    super::auto_merge::ensure_editable(&commit)?;
     repo.workdir()
         .ok_or_raise(|| message("editing HEAD requires a worktree"))?;
     repo.commit_signing_options_if_enabled()

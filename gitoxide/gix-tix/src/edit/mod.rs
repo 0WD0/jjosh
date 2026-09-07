@@ -79,6 +79,7 @@ fn load_graph(
     graph.ok_or_raise(|| message("history traversal did not produce a graph"))
 }
 
+pub(crate) mod auto_merge;
 pub(crate) mod create;
 pub(crate) mod forget;
 pub(crate) mod head;
