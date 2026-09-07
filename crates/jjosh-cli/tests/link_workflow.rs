@@ -1403,6 +1403,107 @@ fn link_commands_reject_sha256_git_repositories() {
 }
 
 #[test]
+fn legacy_embed_graph_requires_migration_before_adding_link() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_alpha_work, alpha_bare, _) = create_remote(temp.path(), "legacy-alpha");
+    let (_beta_work, beta_bare, _) = create_remote(temp.path(), "legacy-beta");
+    let client = temp.path().join("client");
+    fs::create_dir(&client).unwrap();
+    git(&client, &["init", "-b", "main"]);
+    git(&client, &["config", "user.name", "Smoke Test"]);
+    git(&client, &["config", "user.email", "smoke@example.com"]);
+    fs::write(client.join("root.txt"), "root\n").unwrap();
+    git(&client, &["add", "."]);
+    git(&client, &["commit", "-m", "root"]);
+    jjosh(&client, &["git", "init", "--colocate"]);
+    let root = commit_id(&client, "@");
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "alpha",
+            alpha_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    );
+
+    // Recreate the old Embed commit shape: the materialized tree is unchanged,
+    // but the clean commit has the scaffold and source as ordinary parents and
+    // no native baseline marker.
+    let native = commit_id(&client, "trunk@jjosh");
+    let source = commit_id(&client, "main@link-alpha");
+    let tree = git(&client, &["rev-parse", &format!("{native}^{{tree}}")])
+        .trim()
+        .to_owned();
+    let legacy = git_with_input(
+        &client,
+        &["commit-tree", &tree, "-p", &root, "-p", &source],
+        b"Add embedded Josh link alpha\n",
+    )
+    .trim()
+    .to_owned();
+    git(&client, &["update-ref", "refs/heads/legacy", &legacy]);
+    jjosh(&client, &["git", "import"]);
+    jjosh(&client, &["edit", &legacy]);
+    jjosh(
+        &client,
+        &["bookmark", "forget", "--include-remotes", "trunk", "main"],
+    );
+
+    jjosh(&client, &["new", "-m", "legacy local patch"]);
+    fs::write(client.join("alpha/local.txt"), "keep this patch\n").unwrap();
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "link",
+            "add",
+            "beta",
+            beta_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .contains("run `jjosh link migrate` before changing them"),
+        "unexpected link-add error:\n{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+
+    jjosh(&client, &["link", "migrate"]);
+    let trunk = commit_id(&client, "trunk@jjosh");
+    assert_eq!(
+        fs::read_to_string(client.join("alpha/local.txt")).unwrap(),
+        "keep this patch\n"
+    );
+    assert!(
+        !git(&client, &["ls-tree", "-r", "--name-only", &trunk])
+            .lines()
+            .any(|path| path == "alpha/local.txt")
+    );
+
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "beta",
+            beta_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    );
+    assert!(!commit_id(&client, "trunk@jjosh").is_empty());
+    assert!(!commit_id(&client, "main@link-beta").is_empty());
+}
+
+#[test]
 fn snapshot_link_migrates_to_embedded_history_without_losing_local_changes() {
     let temp = tempfile::tempdir().unwrap();
     let (_remote_work, remote_bare, remote_v1) = create_remote(temp.path(), "migration");

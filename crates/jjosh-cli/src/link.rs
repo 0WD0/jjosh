@@ -32,6 +32,11 @@ enum LinkCommand {
     /// Source bookmarks use <branch>@link-<encoded-path>. Their synthetic
     /// remotes reject direct Git transport; use link update and link push.
     Add(AddArgs),
+    /// Rebuild a legacy Embed link graph as a native Josh link baseline.
+    ///
+    /// This is an explicit, one-time migration for link histories created
+    /// before native jjosh link baselines were introduced.
+    Migrate(MigrateArgs),
     /// Fetch and materialize newer commits for one or all links.
     ///
     /// Advances the clean trunk and rebases local patches without freezing them.
@@ -84,6 +89,13 @@ struct AddArgs {
 }
 
 #[derive(clap::Args, Clone, Debug)]
+struct MigrateArgs {
+    /// Revision containing the legacy links to migrate.
+    #[arg(short = 'r', long, default_value = "@")]
+    revision: RevisionArg,
+}
+
+#[derive(clap::Args, Clone, Debug)]
 struct UpdateArgs {
     /// Linked path to update. Omit to update every link in the revision.
     path: Option<String>,
@@ -121,6 +133,10 @@ pub(crate) async fn run(
     match args.command {
         LinkCommand::Add(args) => {
             run_add(ui, command_helper, args).await?;
+            crate::link_refs::install_config(ui, command_helper).await
+        }
+        LinkCommand::Migrate(args) => {
+            run_migrate(ui, command_helper, args).await?;
             crate::link_refs::install_config(ui, command_helper).await
         }
         LinkCommand::Update(args) => {
@@ -344,7 +360,44 @@ async fn existing_baseline(
         cursor = repo.store().get_commit_async(parent).await?;
     }
     Err(user_error(
-        "Existing Josh links have no verified native baseline; explicit legacy link migration is required",
+        "Existing Josh links have no verified native baseline; run `jjosh link migrate` before changing them",
+    ))
+}
+
+async fn legacy_baseline(
+    workspace_command: &WorkspaceCommandHelper,
+    transaction: &josh_core::cache::Transaction,
+    commit: &Commit,
+) -> Result<(Commit, gix_hash::ObjectId, Vec<gix_hash::ObjectId>), CommandError> {
+    let repo = workspace_command.repo();
+    let mut cursor = commit.clone();
+    loop {
+        let oid = commit_as_josh_oid(&cursor)?;
+        let tree = josh_core::git::read_tree_id(transaction.odb(), oid)
+            .map_err(|err| user_error_with_message("Failed to inspect legacy link history", err))?;
+        let links = josh_core::link::find_link_files(transaction.odb(), tree)
+            .map_err(|err| user_error_with_message("Failed to inspect legacy Josh links", err))?;
+        if !links.is_empty()
+            && !cursor
+                .description()
+                .lines()
+                .any(|line| line == NATIVE_BASELINE)
+        {
+            let (clean_tree, parents) = clean_composition(transaction, oid, &links)?;
+            if clean_tree == tree {
+                return Ok((cursor, clean_tree, parents));
+            }
+        }
+        let Some(parent) = cursor.parent_ids().first() else {
+            break;
+        };
+        if parent == repo.store().root_commit_id() {
+            break;
+        }
+        cursor = repo.store().get_commit_async(parent).await?;
+    }
+    Err(user_error(
+        "Could not find a clean legacy Josh link baseline to migrate",
     ))
 }
 
@@ -590,6 +643,52 @@ async fn insert_link_commit(
     }
     tx.finish_with_git_import_export_lock(ui, operation_description, git_lock)
         .await
+}
+
+async fn run_migrate(
+    ui: &mut Ui,
+    command_helper: &CommandHelper,
+    args: MigrateArgs,
+) -> Result<(), CommandError> {
+    let mut workspace_command = command_helper.workspace_helper(ui).await?;
+    let commit = workspace_command
+        .resolve_single_rev(ui, &args.revision)
+        .await?;
+    check_link_commit(&workspace_command, &commit)?;
+    let git_repo_path = sha1_git_repo_path(&workspace_command)?;
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let transaction = open_josh_transaction(&git_repo_path, false)?;
+    let source_commit = commit_as_josh_oid(&commit)?;
+    let source_tree = josh_core::git::read_tree_id(transaction.odb(), source_commit)
+        .map_err(|err| user_error_with_message("Failed to read the selected revision tree", err))?;
+    let links = josh_core::link::find_link_files(transaction.odb(), source_tree)
+        .map_err(|err| user_error_with_message("Failed to find Josh links", err))?;
+    if links.is_empty() {
+        return Err(user_error("No Josh links found in the selected revision"));
+    }
+    if crate::link_refs::trunk_id(workspace_command.repo().as_ref()).is_some() {
+        return Err(user_error(
+            "The selected workspace already has a native Josh link baseline; migration is not needed",
+        ));
+    }
+    let (baseline, clean_tree, parent_oids) =
+        legacy_baseline(&workspace_command, &transaction, &commit).await?;
+    let sources = source_bookmarks(&transaction, &links, &git_repo_path)?;
+    let linked_tree = tree_from_josh_oid(workspace_command.repo().store().clone(), clean_tree);
+    insert_link_commit(
+        ui,
+        &mut workspace_command,
+        &baseline,
+        linked_tree,
+        None,
+        parent_oids,
+        &sources,
+        &transaction,
+        &git_lock,
+        "Migrate legacy Josh links to native history".to_owned(),
+        "migrate legacy Josh links".to_owned(),
+    )
+    .await
 }
 
 async fn run_add(
