@@ -109,7 +109,7 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
         } => {
             let repository = crate::open_repository(&repository_path, bare, false)
                 .or_raise(|| message("could not reopen repository after time-travel"))?;
-            println!(
+            eprintln!(
                 "{}",
                 super::notice_with_change_id(
                     &repository,
