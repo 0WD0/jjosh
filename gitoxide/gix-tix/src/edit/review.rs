@@ -221,7 +221,14 @@ pub(crate) fn finish(
     review: ObjectId,
     fallback: Option<ObjectId>,
 ) -> Result<Finish> {
-    finish_with_progress(repo, graph, review, fallback, |_| {})
+    finish_with_progress(
+        repo,
+        graph,
+        review,
+        fallback,
+        super::rebase::CheckoutOptions::default(),
+        |_| {},
+    )
 }
 
 pub(crate) fn finish_with_progress(
@@ -229,6 +236,7 @@ pub(crate) fn finish_with_progress(
     graph: &history::HistoryGraph,
     review: ObjectId,
     fallback: Option<ObjectId>,
+    checkout_options: super::rebase::CheckoutOptions<'_>,
     report: impl FnMut(super::rebase::Progress),
 ) -> Result<Finish> {
     let workdir = repo
@@ -311,6 +319,7 @@ pub(crate) fn finish_with_progress(
         review_ref,
         delete_refs,
         checkout,
+        checkout_options,
         report,
     )? {
         super::rebase::Perform::Complete(outcome) => {
@@ -605,20 +614,11 @@ mod tests {
             panic!("the selected descendant completes the review")
         };
         assert_eq!(
-            finished
-                .outcome
-                .checkout_reference
-                .as_ref()
-                .map(gix::refs::FullName::as_bstr),
-            None,
-            "a selected replacement commit is checked out detached"
-        );
-        assert_eq!(
             finished.outcome.selected,
             Some(finished.commit),
             "the reviewed tip maps to the newly finished review commit"
         );
-        super::super::time_travel::checkout_plan(fixture.path(), false, &finished.outcome, &[], false)?;
+
         let finished = finished.commit;
         let repo = crate::test_repository::open(fixture.path())?;
         assert_eq!(repo.head_id()?, finished);
@@ -791,7 +791,7 @@ mod tests {
         let Finish::Complete(finished) = finish(repo, &graph, review, None)? else {
             panic!("the recorded return pin exists")
         };
-        super::super::time_travel::checkout_plan(fixture.path(), false, &finished.outcome, &[], false)?;
+
         let finished = finished.commit;
         let repo = open()?;
         let successor = repo.find_reference("refs/heads/main")?.id().detach();
@@ -958,7 +958,7 @@ mod tests {
         let outcome = super::super::rebase::perform_plan(&repo, &graph, plan)?.complete()?;
         let combined = outcome.map(middle).expect("the squash retains its target");
         drop(repo);
-        super::super::time_travel::checkout_plan(fixture.path(), false, &outcome, &[], false)?;
+
         run(
             fixture.path(),
             &["checkout", "--quiet", "--detach", &started.commit.to_string()],
@@ -1000,7 +1000,6 @@ mod tests {
         let Finish::Complete(finished) = finish(repo, &graph, review, None)? else {
             panic!("the owned return pin finishes the review without fallback selection")
         };
-        super::super::time_travel::checkout_plan(fixture.path(), false, &finished.outcome, &[], false)?;
 
         let repo = open()?;
         assert_eq!(

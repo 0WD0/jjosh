@@ -688,7 +688,6 @@ pub(crate) enum Change {
 
 pub(crate) struct Operation {
     pub result: Option<rebase::Perform>,
-    pub checkout: bool,
     pub notice: String,
 }
 
@@ -697,6 +696,7 @@ pub(crate) fn perform(
     graph: &crate::history::HistoryGraph,
     selected_commit_id: ObjectId,
     change: Change,
+    checkout: rebase::CheckoutOptions<'_>,
     report: impl FnMut(rebase::Progress),
 ) -> Result<Operation> {
     repo.workdir()
@@ -744,7 +744,6 @@ pub(crate) fn perform(
             if contains(repo, commit_id, head_commit_id)? {
                 return Ok(Operation {
                     result: None,
-                    checkout: false,
                     notice: format!("{} is already an ancestor of HEAD; no input added", reference.shorten()),
                 });
             }
@@ -816,6 +815,7 @@ pub(crate) fn perform(
         } else {
             rebase::Tree::LeaveAsIsAndMark
         },
+        created.then_some(checkout),
         report,
     )?;
     let notice = match &result {
@@ -834,10 +834,16 @@ pub(crate) fn perform(
         }
         _ => notice,
     };
+    let notice = match &result {
+        rebase::Perform::Complete(outcome) => outcome
+            .notice
+            .as_ref()
+            .map_or_else(|| notice.into(), |checkout| format!("{notice}; {checkout}")),
+        _ => notice.into(),
+    };
     Ok(Operation {
         result: Some(result),
-        checkout: created,
-        notice: notice.into(),
+        notice,
     })
 }
 
