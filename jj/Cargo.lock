@@ -2683,6 +2683,7 @@ dependencies = [
  "toml_edit",
  "tracing",
  "watchman_client",
+ "windows-sys",
 ]
 
 [[package]]
