@@ -1,5 +1,45 @@
-use josh_compose::{CleanMode, RunOptions};
+use josh_compose::{ArgumentBinding, CleanMode, RunOptions};
+use josh_compose_backend::Runtime;
+use josh_compose_docker::DockerRuntime;
 use josh_compose_podman::PodmanRuntime;
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum Backend {
+    Podman,
+    Docker,
+}
+
+impl Backend {
+    fn runtime(&self) -> Box<dyn Runtime> {
+        match self {
+            Backend::Podman => Box::new(PodmanRuntime::new()),
+            Backend::Docker => Box::new(DockerRuntime::new()),
+        }
+    }
+}
+
+/// Backend used when `--backend`/`JOSH_COMPOSE_BACKEND` is not given: podman,
+/// except on macOS with OrbStack running, where docker is preferred.
+fn default_backend() -> Backend {
+    #[cfg(target_os = "macos")]
+    if orbstack_running() {
+        return Backend::Docker;
+    }
+    Backend::Podman
+}
+
+#[cfg(target_os = "macos")]
+fn orbstack_running() -> bool {
+    std::process::Command::new("orbctl")
+        .arg("status")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|output| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "Running"
+        })
+        .unwrap_or(false)
+}
 
 #[derive(Debug, clap::Parser)]
 pub struct ComposeArgs {
@@ -45,6 +85,13 @@ pub struct RunArgs {
     #[arg(long = "clean-all")]
     pub clean_all: bool,
 
+    /// Container backend to run the workspace in [default: podman, or docker on macOS when OrbStack is running]
+    #[arg(long, value_enum, env = "JOSH_COMPOSE_BACKEND")]
+    pub backend: Option<Backend>,
+    /// Bind a named compose argument (currently a Git revision)
+    #[arg(long = "arg", value_name = "NAME=VALUE")]
+    pub arguments: Vec<ArgumentBinding>,
+
     /// Git revision to use as input: "." (working tree), "+" (index), or any rev (e.g. "HEAD", "HEAD~1", "main")
     #[arg(default_value = ".")]
     pub reference: String,
@@ -66,15 +113,16 @@ pub fn handle_run(
         CleanMode::None
     };
 
-    let runtime = PodmanRuntime::new();
+    let runtime = args.backend.unwrap_or_else(default_backend).runtime();
     josh_compose::run(
         transaction,
         RunOptions {
             filter_spec: args.filter.clone(),
             input_ref: args.reference.clone(),
+            arguments: args.arguments.clone(),
             clean,
         },
-        &runtime,
+        runtime.as_ref(),
     )
 }
 
@@ -83,6 +131,13 @@ pub struct ListImagesArgs {
     /// Ignore the local job cache and list every image a fresh run would build
     #[arg(long = "all")]
     pub all: bool,
+
+    /// Container backend to check for prepared images [default: podman, or docker on macOS when OrbStack is running]
+    #[arg(long, value_enum, env = "JOSH_COMPOSE_BACKEND")]
+    pub backend: Option<Backend>,
+    /// Bind a named compose argument (currently a Git revision)
+    #[arg(long = "arg", value_name = "NAME=VALUE")]
+    pub arguments: Vec<ArgumentBinding>,
 
     /// Git revision to use as input: "." (working tree), "+" (index), or any rev (e.g. "HEAD", "HEAD~1", "main")
     #[arg(default_value = ".")]
@@ -97,16 +152,18 @@ pub fn handle_list_images(
     args: &ListImagesArgs,
     transaction: &josh_core::cache::Transaction,
 ) -> anyhow::Result<()> {
-    let runtime = PodmanRuntime::new();
+    let runtime = args.backend.unwrap_or_else(default_backend).runtime();
+    let artifacts: &dyn josh_compose_backend::ArtifactBackend = runtime.as_ref();
     let oids = josh_compose::plan_images(
         transaction,
         RunOptions {
             filter_spec: args.filter.clone(),
             input_ref: args.reference.clone(),
+            arguments: args.arguments.clone(),
             clean: CleanMode::None,
         },
         args.all,
-        &runtime,
+        artifacts,
     )?;
 
     for oid in oids {
@@ -121,6 +178,13 @@ pub struct ListJobsArgs {
     #[arg(long = "all")]
     pub all: bool,
 
+    /// Container backend to check for existing outputs [default: podman, or docker on macOS when OrbStack is running]
+    #[arg(long, value_enum, env = "JOSH_COMPOSE_BACKEND")]
+    pub backend: Option<Backend>,
+    /// Bind a named compose argument (currently a Git revision)
+    #[arg(long = "arg", value_name = "NAME=VALUE")]
+    pub arguments: Vec<ArgumentBinding>,
+
     /// Git revision to use as input: "." (working tree), "+" (index), or any rev (e.g. "HEAD", "HEAD~1", "main")
     #[arg(default_value = ".")]
     pub reference: String,
@@ -134,16 +198,18 @@ pub fn handle_list_jobs(
     args: &ListJobsArgs,
     transaction: &josh_core::cache::Transaction,
 ) -> anyhow::Result<()> {
-    let runtime = PodmanRuntime::new();
+    let runtime = args.backend.unwrap_or_else(default_backend).runtime();
+    let artifacts: &dyn josh_compose_backend::ArtifactBackend = runtime.as_ref();
     let oids = josh_compose::plan_jobs(
         transaction,
         RunOptions {
             filter_spec: args.filter.clone(),
             input_ref: args.reference.clone(),
+            arguments: args.arguments.clone(),
             clean: CleanMode::None,
         },
         args.all,
-        &runtime,
+        artifacts,
     )?;
 
     for oid in oids {

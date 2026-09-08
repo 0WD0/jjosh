@@ -443,16 +443,26 @@ impl Revision {
     fn search(&self, string: String, context: &Context) -> FieldResult<Option<Vec<SearchResult>>> {
         let transaction = context.transaction.lock().unwrap();
         let odb = transaction.odb();
-        let tree = CommitData::read(odb, self.commit_id)?.tree_id()?;
-
-        let x = filter::apply(&transaction, self.filter, Rewrite::from_tree(tree))?;
+        // Resolve the filtered tree through the commit-level cache (persistent, and already
+        // warm in a history+search query: the history resolver just filtered this commit).
+        let filtered_id = filter::apply_to_commit(self.filter, self.commit_id, &transaction)?;
+        if filtered_id == gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
+            return Ok(Some(vec![]));
+        }
+        let x = Rewrite::from_tree(CommitData::read(odb, filtered_id)?.tree_id()?);
 
         // The trigram index is experimental; without it every file is a candidate and
         // search_matches does all the filtering, so results are identical, just slower.
         let candidates = if filter::experimental_features_enabled() {
-            let ifilterobj = filter::parse(":SQUASH:INDEX")?;
+            let ifilterobj = filter::parse(":INDEX")?;
             let index_tree = filter::apply(&transaction, ifilterobj, x.clone())?;
-            josh_search::search_candidates(odb, index_tree.tree_id(), x.tree_id(), &string)?
+            josh_search::search_candidates(
+                odb,
+                &mut transaction.search_cache(),
+                index_tree.tree_id(),
+                x.tree_id(),
+                &string,
+            )?
         } else {
             let mut scan = vec![];
             objects::walk_tree_preorder(odb, x.tree_id(), &mut |parent, entry| {
@@ -461,13 +471,21 @@ impl Revision {
                     && let Ok(name) = std::str::from_utf8(entry.filename)
                 {
                     let separator = if parent.is_empty() { "" } else { "/" };
-                    scan.push(format!("{}{}{}", parent, separator, name));
+                    scan.push((
+                        format!("{}{}{}", parent, separator, name),
+                        entry.oid.to_owned(),
+                    ));
                 }
                 Ok(())
             })?;
             scan
         };
-        let results = josh_search::search_matches(odb, x.tree_id(), &string, &candidates)?;
+        let results = josh_search::search_matches(
+            odb,
+            &mut transaction.search_cache(),
+            &string,
+            &candidates,
+        )?;
 
         let mut r = vec![];
         for m in results {

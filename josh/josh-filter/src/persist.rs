@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, OnceLock};
 
 use crate::filter::Filter;
-use crate::op::{InsertContent, LazyRef, Op, Regex, RevMatch};
+use crate::op::{InsertContent, Op, Regex, RevMatch};
 
 /// An interned, immutable `Op` together with its lazily-computed content OID.
 /// Nodes are leaked (`&'static`) and live for the process lifetime. A `Filter` is just a
@@ -63,8 +63,7 @@ fn child_filters(op: &Op) -> Vec<Filter> {
         | Op::Unapply(_, f) => vec![*f],
         Op::Subtract(a, b) => vec![*a, *b],
         Op::Compose(v) | Op::Chain(v) => v.clone(),
-        Op::Rev(v) => v.iter().map(|(_, _, f)| *f).collect(),
-        Op::Squash(Some(m)) => m.values().copied().collect(),
+        Op::Rev(v) => v.iter().map(|(_, f)| *f).collect(),
         _ => vec![],
     }
 }
@@ -189,15 +188,15 @@ impl<'a> InMemoryBuilder<'a> {
 
     fn build_rev_params(
         &mut self,
-        params: &[(RevMatch, LazyRef, Filter)],
+        params: &[(RevMatch, Filter)],
     ) -> anyhow::Result<gix_hash::ObjectId> {
         let mut outer_entries = Vec::new();
-        for (i, (match_op, lazy_ref, filter)) in params.iter().enumerate() {
+        for (i, (match_op, filter)) in params.iter().enumerate() {
             // Encode match operator as prefix
             let key = match match_op {
-                RevMatch::AncestorStrict => format!("<{}", lazy_ref),
-                RevMatch::AncestorInclusive => format!("<={}", lazy_ref),
-                RevMatch::Equal => format!("=={}", lazy_ref),
+                RevMatch::AncestorStrict(oid) => format!("<{}", oid),
+                RevMatch::AncestorInclusive(oid) => format!("<={}", oid),
+                RevMatch::Equal(oid) => format!("=={}", oid),
                 RevMatch::Default => {
                     // Default filter uses "_" as key (no SHA)
                     "_".to_string()
@@ -235,12 +234,12 @@ impl<'a> InMemoryBuilder<'a> {
         Ok(self.write_tree(outer_tree))
     }
 
-    fn build_lazyref_filter_params(
+    fn build_oid_filter_params(
         &mut self,
-        lazy_ref: &LazyRef,
+        oid: &gix_hash::ObjectId,
         filter: Filter,
     ) -> anyhow::Result<gix_hash::ObjectId> {
-        let key_blob = self.write_blob(lazy_ref.to_string().as_bytes());
+        let key_blob = self.write_blob(oid.to_string().as_bytes());
         let filter_tree = self.node_oid(filter);
 
         let inner_entries = vec![
@@ -265,44 +264,6 @@ impl<'a> InMemoryBuilder<'a> {
             filename: BString::from("0"),
             oid: inner_oid,
         }];
-        let outer_tree = gix_object::Tree {
-            entries: outer_entries,
-        };
-        Ok(self.write_tree(outer_tree))
-    }
-
-    fn build_squash_params(
-        &mut self,
-        params: &std::collections::BTreeMap<LazyRef, Filter>,
-    ) -> anyhow::Result<gix_hash::ObjectId> {
-        let mut outer_entries = Vec::new();
-        for (i, (lazy_ref, filter)) in params.iter().enumerate() {
-            let key_blob = self.write_blob(lazy_ref.to_string().as_bytes());
-            let filter_tree = self.node_oid(*filter);
-
-            let inner_entries = vec![
-                gix_object::tree::Entry {
-                    mode: gix_object::tree::EntryKind::Blob.into(),
-                    filename: BString::from("o"),
-                    oid: key_blob,
-                },
-                gix_object::tree::Entry {
-                    mode: gix_object::tree::EntryKind::Tree.into(),
-                    filename: BString::from("f"),
-                    oid: filter_tree,
-                },
-            ];
-            let inner_tree = gix_object::Tree {
-                entries: inner_entries,
-            };
-            let inner_oid = self.write_tree(inner_tree);
-
-            outer_entries.push(gix_object::tree::Entry {
-                mode: gix_object::tree::EntryKind::Tree.into(),
-                filename: BString::from(i.to_string()),
-                oid: inner_oid,
-            });
-        }
         let outer_tree = gix_object::Tree {
             entries: outer_entries,
         };
@@ -445,10 +406,6 @@ impl<'a> InMemoryBuilder<'a> {
                 ]);
                 push_tree_entries(&mut entries, [("file", params_tree)]);
             }
-            Op::Embed(path) => {
-                let params_tree = self.build_str_params(&[path.to_string_lossy().as_ref()]);
-                push_tree_entries(&mut entries, [("embed", params_tree)]);
-            }
             Op::Pattern(glob) => {
                 let params_tree = self.build_str_params(&[glob.as_str()]);
                 push_tree_entries(&mut entries, [("pattern", params_tree)]);
@@ -493,19 +450,6 @@ impl<'a> InMemoryBuilder<'a> {
                 let blob = self.write_blob(b"");
                 push_blob_entries(&mut entries, [("paths", blob)]);
             }
-            Op::Link(mode) => {
-                let mode_str = mode.as_ref().map(|m| m.to_string()).unwrap_or_default();
-                let params_tree = self.build_str_params(&[&mode_str]);
-                push_tree_entries(&mut entries, [("link", params_tree)]);
-            }
-            Op::Adapt(mode) => {
-                let params_tree = self.build_str_params(&[mode.as_ref()]);
-                push_tree_entries(&mut entries, [("adapt", params_tree)]);
-            }
-            Op::Unlink => {
-                let blob = self.write_blob(b"");
-                push_blob_entries(&mut entries, [("unlink", blob)]);
-            }
             Op::Invert => {
                 let blob = self.write_blob(b"");
                 push_blob_entries(&mut entries, [("invert", blob)]);
@@ -518,7 +462,7 @@ impl<'a> InMemoryBuilder<'a> {
                 let blob = self.write_blob(b"");
                 push_blob_entries(&mut entries, [("fold", blob)]);
             }
-            Op::Squash(None) => {
+            Op::Squash => {
                 let blob = self.write_blob(b"");
                 push_blob_entries(&mut entries, [("squash", blob)]);
             }
@@ -531,13 +475,9 @@ impl<'a> InMemoryBuilder<'a> {
                 let params_tree = self.build_rev_params(filters)?;
                 push_tree_entries(&mut entries, [("rev", params_tree)]);
             }
-            Op::Unapply(lr, f) => {
-                let params_tree = self.build_lazyref_filter_params(lr, *f)?;
+            Op::Unapply(oid, f) => {
+                let params_tree = self.build_oid_filter_params(oid, *f)?;
                 push_tree_entries(&mut entries, [("unapply", params_tree)]);
-            }
-            Op::Squash(Some(ids)) => {
-                let params_tree = self.build_squash_params(ids)?;
-                push_tree_entries(&mut entries, [("squash", params_tree)]);
             }
             Op::RegexReplace(replacements) => {
                 let params_tree = self.build_regex_replace_params(replacements);
@@ -547,8 +487,8 @@ impl<'a> InMemoryBuilder<'a> {
                 let params_tree = self.build_str_params(&[hook.as_ref()]);
                 push_tree_entries(&mut entries, [("hook", params_tree)]);
             }
-            Op::Downstack(lazy_ref) => {
-                let params_tree = self.build_str_params(&[lazy_ref.to_string().as_str()]);
+            Op::Downstack(base) => {
+                let params_tree = self.build_str_params(&[base.to_string().as_str()]);
                 push_tree_entries(&mut entries, [("downstack", params_tree)]);
             }
             Op::Meta(meta, filter) => {
@@ -665,7 +605,6 @@ pub fn as_tree(
 struct PersistedEntry {
     name: BString,
     oid: gix_hash::ObjectId,
-    is_tree: bool,
 }
 
 impl PersistedEntry {
@@ -704,7 +643,6 @@ impl PersistedTree {
                 .map(|e| PersistedEntry {
                     name: e.filename.into(),
                     oid: e.oid.to_owned(),
-                    is_tree: e.mode.is_tree(),
                 })
                 .collect(),
         })
@@ -783,32 +721,6 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
         "export" => {
             let _ = Blob::read(src, entry.id())?;
             Ok(Op::Export)
-        }
-        "link" => {
-            let inner = PersistedTree::read(src, entry.id())?;
-            let mode_blob =
-                Blob::read(src, inner.get_name("0").context("link: missing mode")?.id())?;
-            let mode_str = std::str::from_utf8(mode_blob.content())?;
-            let mode = if mode_str.is_empty() {
-                None
-            } else {
-                Some(crate::op::LinkMode::parse(mode_str)?)
-            };
-            Ok(Op::Link(mode))
-        }
-        "adapt" => {
-            let inner = PersistedTree::read(src, entry.id())?;
-            let mode_blob = Blob::read(
-                src,
-                inner.get_name("0").context("adapt: missing mode")?.id(),
-            )?;
-            Ok(Op::Adapt(
-                std::str::from_utf8(mode_blob.content())?.to_string(),
-            ))
-        }
-        "unlink" => {
-            let _ = Blob::read(src, entry.id())?;
-            Ok(Op::Unlink)
         }
         "invert" => {
             let _ = Blob::read(src, entry.id())?;
@@ -960,15 +872,6 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
                 std::path::PathBuf::from(dest_path_str),
                 std::path::PathBuf::from(source_path_str),
             ))
-        }
-        "embed" => {
-            let inner = PersistedTree::read(src, entry.id())?;
-            let path_blob = Blob::read(
-                src,
-                inner.get_name("0").context("embed: missing path")?.id(),
-            )?;
-            let path = std::str::from_utf8(path_blob.content())?;
-            Ok(Op::Embed(std::path::PathBuf::from(path)))
         }
         "pattern" => {
             let inner = PersistedTree::read(src, entry.id())?;
@@ -1181,18 +1084,14 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
                 let key = std::str::from_utf8(key_blob.content())?;
 
                 // Parse match operator from key
-                let (match_op, lazy_ref) = if key == "_" {
-                    // Default filter - no SHA needed
-                    (
-                        RevMatch::Default,
-                        LazyRef::Resolved(gix_hash::ObjectId::null(gix_hash::Kind::Sha1)),
-                    )
+                let match_op = if key == "_" {
+                    RevMatch::Default
                 } else if let Some(ref_str) = key.strip_prefix("<=") {
-                    (RevMatch::AncestorInclusive, LazyRef::parse(ref_str)?)
+                    RevMatch::AncestorInclusive(ref_str.parse()?)
                 } else if let Some(ref_str) = key.strip_prefix('<') {
-                    (RevMatch::AncestorStrict, LazyRef::parse(ref_str)?)
+                    RevMatch::AncestorStrict(ref_str.parse()?)
                 } else if let Some(ref_str) = key.strip_prefix("==") {
-                    (RevMatch::Equal, LazyRef::parse(ref_str)?)
+                    RevMatch::Equal(ref_str.parse()?)
                 } else {
                     return Err(anyhow!(
                         "rev: invalid key format, must start with '<', '<=', '==', or be '_': {}",
@@ -1201,7 +1100,7 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
                 };
 
                 let filter = from_tree2(src, filter_tree.id())?;
-                filters.push((match_op, lazy_ref, to_filter(filter)));
+                filters.push((match_op, to_filter(filter)));
             }
             Ok(Op::Rev(filters))
         }
@@ -1225,38 +1124,11 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
             )?;
             let key = std::str::from_utf8(key_blob.content())?;
             let filter = from_tree2(src, filter_tree.id())?;
-            Ok(Op::Unapply(LazyRef::parse(&key)?, to_filter(filter)))
+            Ok(Op::Unapply(key.parse()?, to_filter(filter)))
         }
         "squash" => {
-            // blob -> Squash(None), tree -> Squash(Some(...))
-            if !entry.is_tree {
-                let _ = Blob::read(src, entry.id())?;
-                return Ok(Op::Squash(None));
-            }
-            let squash_tree = PersistedTree::read(src, entry.id())?;
-            let mut filters = std::collections::BTreeMap::new();
-            for i in 0..squash_tree.len() {
-                let squash_entry = squash_tree.get(i).context("squash: missing entry")?;
-                let inner_tree = PersistedTree::read(src, squash_entry.id())?;
-                let key_blob = Blob::read(
-                    src,
-                    inner_tree
-                        .get_name("o")
-                        .context("squash: missing key")?
-                        .id(),
-                )?;
-                let filter_tree = PersistedTree::read(
-                    src,
-                    inner_tree
-                        .get_name("f")
-                        .context("squash: missing filter")?
-                        .id(),
-                )?;
-                let key = std::str::from_utf8(key_blob.content())?;
-                let filter = from_tree2(src, filter_tree.id())?;
-                filters.insert(LazyRef::parse(&key)?, to_filter(filter));
-            }
-            Ok(Op::Squash(Some(filters)))
+            let _ = Blob::read(src, entry.id())?;
+            Ok(Op::Squash)
         }
         "regex_replace" => {
             let regex_replace_tree = PersistedTree::read(src, entry.id())?;
@@ -1297,7 +1169,7 @@ fn from_tree2(src: &impl gix_object::Find, tree_oid: gix_hash::ObjectId) -> anyh
                     .id(),
             )?;
             let key = std::str::from_utf8(key_blob.content())?;
-            Ok(Op::Downstack(LazyRef::parse(key)?))
+            Ok(Op::Downstack(key.parse()?))
         }
         "meta" => {
             let meta_tree = PersistedTree::read(src, entry.id())?;
