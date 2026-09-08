@@ -10,26 +10,9 @@ use pretty_assertions::StrComparison;
 
 #[test]
 fn baseline() -> gix_testtools::Result {
-    let selected_case = match std::env::var("GIX_DIFF_SLIDER_CASE") {
-        Ok(value) => Some(value),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(err) => return Err(err.into()),
-    };
     let should_assert_strictly = std::env::var_os("GIX_DIFF_SLIDER_STRICT").is_some();
-    validate_selection(selected_case.as_deref(), should_assert_strictly)?;
-
-    if let Some(selected_file_name) = selected_case.as_deref() {
-        let case = case_from_fixture("make_diff_for_sliders_repo.sh", selected_file_name)?;
-        if let Some(case) = case {
-            eprintln!("{}", selected_case_report(&case)?);
-        } else {
-            return Err(format!(
-                "No primary slider baseline matched {selected_file_name:?}. \
-                 Use an exact '<old>-<new>.<algorithm>.baseline' filename \
-                 and ensure the external fixture has been generated."
-            )
-            .into());
-        }
+    if let Some(case) = try_single_case(should_assert_strictly)? {
+        eprintln!("{}", selected_case_report(&case)?);
         return Ok(());
     }
 
@@ -60,32 +43,44 @@ fn baseline() -> gix_testtools::Result {
     Ok(())
 }
 
-fn validate_selection(selector: Option<&str>, should_assert_strictly: bool) -> gix_testtools::Result {
-    if let Some(selector) = selector {
-        if selector.is_empty() {
-            return Err("GIX_DIFF_SLIDER_CASE must not be empty".into());
+fn try_single_case(should_assert_strictly: bool) -> gix_testtools::Result<Option<Case>> {
+    fn case_from_fixture(fixture: &str, selected_file_name: &str) -> gix_testtools::Result<Option<Case>> {
+        let worktree_path = crate::scripted_fixture_read_only(fixture)?;
+        let asset_dir = worktree_path.join("assets");
+
+        let dir = std::fs::read_dir(&worktree_path)?;
+
+        for entry in dir {
+            let entry = entry?;
+            if entry.file_name() == selected_file_name {
+                return read_fixture(&worktree_path, &asset_dir, entry, false);
+            }
         }
-        if should_assert_strictly {
-            return Err("GIX_DIFF_SLIDER_CASE and GIX_DIFF_SLIDER_STRICT cannot be used together".into());
-        }
+
+        Ok(None)
     }
-    Ok(())
-}
-
-fn case_from_fixture(fixture: &str, selected_file_name: &str) -> gix_testtools::Result<Option<Case>> {
-    let worktree_path = crate::scripted_fixture_read_only(fixture)?;
-    let asset_dir = worktree_path.join("assets");
-
-    let dir = std::fs::read_dir(&worktree_path)?;
-
-    for entry in dir {
-        let entry = entry?;
-        if entry.file_name() == selected_file_name {
-            return read_fixture(&worktree_path, &asset_dir, entry, false);
-        }
+    let selected_file_name = match std::env::var("GIX_DIFF_SLIDER_CASE") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    if selected_file_name.is_empty() {
+        return Err("GIX_DIFF_SLIDER_CASE must not be empty".into());
+    }
+    if should_assert_strictly {
+        return Err("GIX_DIFF_SLIDER_CASE and GIX_DIFF_SLIDER_STRICT cannot be used together".into());
     }
 
-    Ok(None)
+    let case = case_from_fixture("make_diff_for_sliders_repo.sh", &selected_file_name)?;
+    if case.is_none() {
+        return Err(format!(
+            "No primary slider baseline matched {selected_file_name:?}. \
+             Use an exact '<old>-<new>.<algorithm>.baseline' filename \
+             and ensure the external fixture has been generated."
+        )
+        .into());
+    }
+    Ok(case)
 }
 
 fn read_fixture(
@@ -277,8 +272,12 @@ fn render_unidiff<T: AsRef<[u8]> + Hash + Eq>(diff: &blob::Diff, input: &Interne
 /// Format one explicitly selected case without treating a diff mismatch as a test failure.
 fn selected_case_report(case: &Case) -> gix_testtools::Result<String> {
     let mut report = format!(
-        "Selected baseline: {}\nAlgorithm: {:?}\n\
-         Left: gix with slider heuristics\nRight: Git with indent heuristic\n\n",
+        "Selected baseline: {}
+Algorithm: {:?}
+Left: gix with slider heuristics
+Right: Git with indent heuristic
+
+",
         case.baseline_path.display(),
         case.algorithm,
     );

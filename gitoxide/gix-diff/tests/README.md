@@ -60,10 +60,11 @@ GIX_DIFF_SLIDER_CASE='<old>-<new>.myers.baseline' \
   cargo test -p gix-diff --test diff blob::slider::baseline -- --exact --nocapture
 ```
 
-The selector must match the complete filename, including the algorithm and `.baseline` suffix, not a path, substring,
-or `*.no-indent.baseline` filename. Inspection replaces the aggregate report with a `StrComparison` between the two
-unified diffs: gix with slider heuristics on the left and Git with the indent heuristic on the right. Matching output
-is reported explicitly. A mismatch doesn't fail inspection; an empty, missing, or ambiguous selection does.
+The selector must match the complete filename, including the algorithm and `.baseline` suffix.
+Inspection replaces the aggregate report with a `StrComparison` between the two
+unified diffs: Gitoxide with slider heuristics on the left and Git with the indent heuristic on the right.
+Matching output is reported explicitly. A mismatch doesn't fail inspection; an empty, missing,
+or ambiguous selection does.
 
 `GIX_DIFF_SLIDER_CASE` cannot be combined with `GIX_DIFF_SLIDER_STRICT`. Only the selected external case is loaded and
 diffed when `GIX_DIFF_SLIDER_CASE` is given.
