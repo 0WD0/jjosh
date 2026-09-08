@@ -11,13 +11,14 @@ license = "Apache-2.0"
 repository = "https://github.com/jj-vcs/jj"
 
 [workspace.dependencies]
+anyhow = "1.0"
 clap = { version = "4.6.5", features = ["derive"] }
 gix-hash = { version = "0.26", features = ["sha1"] }
+gix-object = "0.63.0"
 jj-cli = { path = "jj/cli", default-features = false, features = ["git"] }
 jj-lib = { path = "jj/lib", default-features = false, features = ["git"] }
 josh-core = { path = "josh/josh-core" }
 josh-cli = { path = "josh/josh-cli" }
-josh-link = { path = "josh/josh-link" }
 
 [patch.crates-io]
 glob = { path = "josh/vendor/rust-lang/glob" }

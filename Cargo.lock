@@ -481,11 +481,11 @@ dependencies = [
 
 [[package]]
 name = "blake2"
-version = "0.10.6"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+checksum = "5b5d4d889834ee8ecfc0f8426ad30faf7cdcb10f741a8e6d7224d95325479f6f"
 dependencies = [
- "digest 0.10.7",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -1922,7 +1922,7 @@ dependencies = [
  "gix-revwalk 0.35.0",
  "gix-sec",
  "gix-shallow",
- "gix-submodule 0.34.0",
+ "gix-submodule",
  "gix-tempfile",
  "gix-trace",
  "gix-traverse 0.61.0",
@@ -2903,21 +2903,6 @@ dependencies = [
 
 [[package]]
 name = "gix-submodule"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd98077a56d08886112e6b08dc94076d03539f4bc0b9d7880e4be2b8a640d8c"
-dependencies = [
- "bstr",
- "gix-config 0.59.0",
- "gix-path",
- "gix-pathspec 0.19.0",
- "gix-refspec 0.44.0",
- "gix-url 0.37.0",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "gix-submodule"
 version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da85564d6725c483b8d95d7b31d1db0b78c29e462a2b481949e2f18e1ed55a6a"
@@ -3829,7 +3814,7 @@ version = "0.45.1"
 dependencies = [
  "blake2",
  "bstr",
- "digest 0.10.7",
+ "digest 0.11.3",
  "either",
  "etcetera",
  "futures",
@@ -3867,7 +3852,7 @@ dependencies = [
  "bstr",
  "chrono",
  "clru",
- "digest 0.10.7",
+ "digest 0.11.3",
  "dunce",
  "either",
  "etcetera",
@@ -3905,13 +3890,14 @@ dependencies = [
 name = "jjosh-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "gix-hash",
+ "gix-object 0.63.0",
  "jj-cli",
  "jj-lib",
  "josh-cli",
  "josh-core",
- "josh-link",
  "tempfile",
 ]
 
@@ -3980,10 +3966,13 @@ version = "26.8.28"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
+ "gix 0.86.0",
  "gix-actor 0.41.2",
  "gix-hash",
  "josh-core",
  "josh-git-serde",
+ "log",
  "serde",
 ]
 
@@ -4004,6 +3993,8 @@ dependencies = [
  "glob",
  "josh-changes",
  "josh-compose",
+ "josh-compose-backend",
+ "josh-compose-docker",
  "josh-compose-podman",
  "josh-core",
  "josh-gerrit-changes",
@@ -4012,7 +4003,6 @@ dependencies = [
  "josh-github-graphql",
  "josh-github-keyring",
  "josh-graphql",
- "josh-link",
  "josh-search",
  "josh-templates",
  "juniper",
@@ -4043,6 +4033,7 @@ dependencies = [
  "defer",
  "gix-hash",
  "josh-compose-backend",
+ "josh-compose-graph",
  "josh-core",
  "josh-filter",
  "tar",
@@ -4053,6 +4044,32 @@ name = "josh-compose-backend"
 version = "26.8.28"
 dependencies = [
  "anyhow",
+ "josh-compose-graph",
+ "josh-core",
+]
+
+[[package]]
+name = "josh-compose-docker"
+version = "26.8.28"
+dependencies = [
+ "anyhow",
+ "backon",
+ "hex",
+ "josh-compose-backend",
+ "josh-compose-graph",
+ "libc",
+ "log",
+ "rand 0.10.2",
+ "tar",
+]
+
+[[package]]
+name = "josh-compose-graph"
+version = "26.8.28"
+dependencies = [
+ "anyhow",
+ "gix-hash",
+ "josh-core",
 ]
 
 [[package]]
@@ -4063,6 +4080,7 @@ dependencies = [
  "backon",
  "hex",
  "josh-compose-backend",
+ "josh-compose-graph",
  "libc",
  "log",
  "rand 0.10.2",
@@ -4083,7 +4101,6 @@ dependencies = [
  "gix-config 0.59.0",
  "gix-hash",
  "gix-object 0.63.0",
- "gix-submodule 0.33.0",
  "glob",
  "hex",
  "indoc",
@@ -4182,9 +4199,15 @@ dependencies = [
  "josh-changes",
  "josh-core",
  "josh-git-serde",
+ "josh-github-auth",
  "josh-github-graphql",
+ "josh-github-keyring",
  "josh-github-webhooks",
+ "reqwest",
+ "reqwest-middleware",
  "serde",
+ "serde_json",
+ "tokio",
  "url",
 ]
 
@@ -4290,16 +4313,6 @@ dependencies = [
  "strfmt",
  "toml",
  "tracing",
-]
-
-[[package]]
-name = "josh-link"
-version = "26.8.28"
-dependencies = [
- "anyhow",
- "gix-actor 0.41.2",
- "gix-hash",
- "josh-core",
 ]
 
 [[package]]

@@ -28,14 +28,12 @@ enum LinkCommand {
     /// Compose a linked repository at a path.
     ///
     /// Embedded source history contains only the mounted path. The clean
-    /// composition is marked by trunk@jjosh; local patches stay above it.
-    /// Source bookmarks use <branch>@link-<encoded-path>. Their synthetic
-    /// remotes reject direct Git transport; use link update and link push.
+    /// composition is marked by jjosh/trunk; local patches stay above it.
+    /// Source projections use local jjosh/source/<encoded-path> bookmarks.
     Add(AddArgs),
-    /// Rebuild a legacy Embed link graph as a native Josh link baseline.
+    /// Migrate legacy link history or remote markers to native local link state.
     ///
-    /// This is an explicit, one-time migration for link histories created
-    /// before native jjosh link baselines were introduced.
+    /// Existing clean native history is preserved; older Embed graphs are rebuilt.
     Migrate(MigrateArgs),
     /// Fetch and materialize newer commits for one or all links.
     ///
@@ -265,17 +263,16 @@ fn clean_composition(
 
 async fn existing_baseline(
     workspace_command: &WorkspaceCommandHelper,
-    transaction: &josh_core::cache::Transaction,
     commit: &Commit,
     has_links: bool,
 ) -> Result<Option<Commit>, CommandError> {
     let repo = workspace_command.repo();
-    if let Some(id) = crate::link_refs::trunk_id(repo.as_ref()) {
+    if let Some(id) = crate::link_refs::trunk_id(repo.as_ref())? {
         if !repo.index().is_ancestor(&id, commit.id()).await?
             && !repo.index().is_ancestor(commit.id(), &id).await?
         {
             return Err(user_error(
-                "The selected revision is not based on trunk@jjosh",
+                "The selected revision is not based on jjosh/trunk",
             ));
         }
         return Ok(Some(repo.store().get_commit_async(&id).await?));
@@ -283,8 +280,18 @@ async fn existing_baseline(
     if !has_links {
         return Ok(None);
     }
-    // Recover missing native refs only from our explicitly identified, verifiably
-    // clean graph. Legacy Embed histories require migration, even on a no-op.
+    Err(user_error(
+        "Existing Josh links have no local baseline; run `jjosh link migrate` before changing them",
+    ))
+}
+
+async fn verified_native_baseline(
+    workspace_command: &WorkspaceCommandHelper,
+    transaction: &josh_core::cache::Transaction,
+    commit: &Commit,
+) -> Result<Option<Commit>, CommandError> {
+    let repo = workspace_command.repo();
+    // Migration accepts only a verifiably clean native graph, not an external marker.
     let mut cursor = commit.clone();
     loop {
         if cursor
@@ -303,8 +310,8 @@ async fn existing_baseline(
                 let tree = josh_core::git::read_tree_id(transaction.odb(), oid).map_err(|err| {
                     user_error_with_message("Failed to inspect native baseline", err)
                 })?;
-                let links =
-                    josh_core::link::find_link_files(transaction.odb(), tree).map_err(|err| {
+                let links = crate::link_metadata::find_link_files(transaction.odb(), tree)
+                    .map_err(|err| {
                         user_error_with_message("Failed to inspect native links", err)
                     })?;
                 let (clean_tree, expected_parents) = clean_composition(transaction, oid, &links)?;
@@ -359,9 +366,7 @@ async fn existing_baseline(
         }
         cursor = repo.store().get_commit_async(parent).await?;
     }
-    Err(user_error(
-        "Existing Josh links have no verified native baseline; run `jjosh link migrate` before changing them",
-    ))
+    Ok(None)
 }
 
 async fn legacy_baseline(
@@ -375,7 +380,7 @@ async fn legacy_baseline(
         let oid = commit_as_josh_oid(&cursor)?;
         let tree = josh_core::git::read_tree_id(transaction.odb(), oid)
             .map_err(|err| user_error_with_message("Failed to inspect legacy link history", err))?;
-        let links = josh_core::link::find_link_files(transaction.odb(), tree)
+        let links = crate::link_metadata::find_link_files(transaction.odb(), tree)
             .map_err(|err| user_error_with_message("Failed to inspect legacy Josh links", err))?;
         if !links.is_empty()
             && !cursor
@@ -425,38 +430,18 @@ fn fetched_source_branch(
 fn source_bookmarks(
     transaction: &josh_core::cache::Transaction,
     links: &[(PathBuf, josh_core::filter::Filter)],
-    repo_path: &Path,
 ) -> Result<Vec<crate::link_refs::SourceBookmark>, CommandError> {
-    links
-        .iter()
-        .map(|(path, link)| {
-            let target = link.get_meta("target").unwrap_or_else(|| "HEAD".to_owned());
-            let remote = link
-                .get_meta("remote")
-                .ok_or_else(|| user_error("Josh link has no remote"))?;
-            let branch = if let Some(branch) = link.get_meta("source-branch") {
-                branch
-            } else if target.starts_with("refs/") && !target.starts_with("refs/heads/")
-                || target.bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
-                "pinned".to_owned()
-            } else {
-                destination_ref(&target, None, &remote, repo_path)?
-                    .trim_start_matches("refs/heads/")
-                    .to_owned()
-            };
-            let source =
-                josh_core::filter_commit(transaction, link.peel(), pinned_commit(path, *link)?)
-                    .map_err(|err| {
-                        user_error_with_message("Failed to project source bookmark", err)
-                    })?;
-            Ok(crate::link_refs::SourceBookmark {
-                path: path.clone(),
-                branch,
-                commit: source,
-            })
-        })
-        .collect()
+    let mut sources = Vec::with_capacity(links.len());
+    for (path, link) in links {
+        let source =
+            josh_core::filter_commit(transaction, link.peel(), pinned_commit(path, *link)?)
+                .map_err(|err| user_error_with_message("Failed to project source bookmark", err))?;
+        sources.push(crate::link_refs::SourceBookmark {
+            path: path.clone(),
+            commit: source,
+        });
+    }
+    Ok(sources)
 }
 
 fn explicit_change_ids(
@@ -549,6 +534,7 @@ async fn insert_link_commit(
     sources: &[crate::link_refs::SourceBookmark],
     transaction: &josh_core::cache::Transaction,
     git_lock: &jj_cli::cli_util::GitImportExportLock,
+    migrate: bool,
     commit_description: String,
     operation_description: String,
 ) -> Result<(), CommandError> {
@@ -625,7 +611,12 @@ async fn insert_link_commit(
             tx.edit(&insertion_tip)?;
         }
     }
-    crate::link_refs::publish(tx.repo_mut(), transaction, sources, link_commit.id()).await?;
+    if migrate {
+        crate::link_refs::migrate_markers(tx.repo_mut(), transaction, sources, link_commit.id())
+            .await?;
+    } else {
+        crate::link_refs::publish(tx.repo_mut(), transaction, sources, link_commit.id()).await?;
+    }
     writeln!(
         ui.status(),
         "Created link composition revision {}",
@@ -661,19 +652,34 @@ async fn run_migrate(
     let source_commit = commit_as_josh_oid(&commit)?;
     let source_tree = josh_core::git::read_tree_id(transaction.odb(), source_commit)
         .map_err(|err| user_error_with_message("Failed to read the selected revision tree", err))?;
-    let links = josh_core::link::find_link_files(transaction.odb(), source_tree)
+    let links = crate::link_metadata::find_link_files(transaction.odb(), source_tree)
         .map_err(|err| user_error_with_message("Failed to find Josh links", err))?;
     if links.is_empty() {
         return Err(user_error("No Josh links found in the selected revision"));
     }
-    if crate::link_refs::trunk_id(workspace_command.repo().as_ref()).is_some() {
+    if crate::link_refs::trunk_id(workspace_command.repo().as_ref())?.is_some() {
         return Err(user_error(
             "The selected workspace already has a native Josh link baseline; migration is not needed",
         ));
     }
+    if let Some(baseline) =
+        verified_native_baseline(&workspace_command, &transaction, &commit).await?
+    {
+        let tree = josh_core::git::read_tree_id(transaction.odb(), commit_as_josh_oid(&baseline)?)
+            .map_err(|err| user_error_with_message("Failed to read the native baseline", err))?;
+        let baseline_links = crate::link_metadata::find_link_files(transaction.odb(), tree)
+            .map_err(|err| user_error_with_message("Failed to inspect native links", err))?;
+        let sources = source_bookmarks(&transaction, &baseline_links)?;
+        let mut tx = workspace_command.start_transaction();
+        crate::link_refs::migrate_markers(tx.repo_mut(), &transaction, &sources, baseline.id())
+            .await?;
+        return tx
+            .finish_with_git_import_export_lock(ui, "migrate native link state", &git_lock)
+            .await;
+    }
     let (baseline, clean_tree, parent_oids) =
         legacy_baseline(&workspace_command, &transaction, &commit).await?;
-    let sources = source_bookmarks(&transaction, &links, &git_repo_path)?;
+    let sources = source_bookmarks(&transaction, &links)?;
     let linked_tree = tree_from_josh_oid(workspace_command.repo().store().clone(), clean_tree);
     insert_link_commit(
         ui,
@@ -685,6 +691,7 @@ async fn run_migrate(
         &sources,
         &transaction,
         &git_lock,
+        true,
         "Migrate legacy Josh links to native history".to_owned(),
         "migrate legacy Josh links".to_owned(),
     )
@@ -702,14 +709,9 @@ async fn run_add(
         .await?;
     check_link_commit(&workspace_command, &commit)?;
     let path = normalized_link_path(&args.path)?;
-    let mode = josh_core::filter::LinkMode::parse(&args.mode)
+    let mode = crate::link_metadata::LinkMode::parse(&args.mode)
         .map_err(|err| user_error_with_message("Invalid Josh link mode", err))?;
-    if mode == josh_core::filter::LinkMode::Pointer {
-        return Err(user_error(
-            "Native jjosh links support embedded and snapshot modes, not pointer mode",
-        ));
-    }
-    let embedded = mode == josh_core::filter::LinkMode::Embedded;
+    let embedded = mode == crate::link_metadata::LinkMode::Embedded;
     if args.push_target.is_some() && args.push_url.is_none() {
         return Err(user_error("--push-target requires --push-url"));
     }
@@ -719,22 +721,20 @@ async fn run_add(
     let source_commit = commit_as_josh_oid(&commit)?;
     let source_tree = josh_core::git::read_tree_id(transaction.odb(), source_commit)
         .map_err(|err| user_error_with_message("Failed to read the jj revision tree", err))?;
-    let existing_links = josh_core::link::find_link_files(transaction.odb(), source_tree)
+    let existing_links = crate::link_metadata::find_link_files(transaction.odb(), source_tree)
         .map_err(|err| user_error_with_message("Failed to inspect existing links", err))?;
-    let baseline = existing_baseline(
-        &workspace_command,
-        &transaction,
-        &commit,
-        !existing_links.is_empty(),
-    )
-    .await?;
+    let baseline =
+        existing_baseline(&workspace_command, &commit, !existing_links.is_empty()).await?;
     let rebase_base = baseline.as_ref().unwrap_or(&commit);
     let base_oid = commit_as_josh_oid(rebase_base)?;
     let base_tree = josh_core::git::read_tree_id(transaction.odb(), base_oid)
         .map_err(|err| user_error_with_message("Failed to read the clean baseline tree", err))?;
     let filter = args.filter.as_deref().unwrap_or(":/");
-    let existing_source = josh_link::export_link_source(&transaction, source_commit, &path, filter)
-        .map_err(|err| user_error_with_message("Failed to export existing link contents", err))?;
+    let existing_source =
+        crate::link_metadata::export_link_source(&transaction, source_commit, &path, filter)
+            .map_err(|err| {
+                user_error_with_message("Failed to export existing link contents", err)
+            })?;
     let fetched = embedded || existing_source.is_none();
     let fetch_url = args.fetch_url.as_deref().unwrap_or(&args.url);
     let fetch_target = args.at.as_deref().unwrap_or(&args.target);
@@ -753,7 +753,7 @@ async fn run_add(
     } else {
         "pinned".to_owned()
     };
-    let prepared = josh_link::prepare_link_add(
+    let prepared = crate::link_metadata::prepare_link_add(
         &transaction,
         &path,
         &args.url,
@@ -766,7 +766,7 @@ async fn run_add(
         mode,
     )
     .map_err(|err| user_error_with_message("Failed to prepare the Josh link", err))?;
-    let mut links = josh_core::link::find_link_files(transaction.odb(), prepared.tree_oid())
+    let mut links = crate::link_metadata::find_link_files(transaction.odb(), prepared)
         .map_err(|err| user_error_with_message("Failed to inspect prepared links", err))?;
     for (link_path, link) in &mut links {
         if link_path == &path {
@@ -777,8 +777,8 @@ async fn run_add(
     if baseline.is_some() {
         parents[0] = base_oid;
     }
-    let sources = source_bookmarks(&transaction, &links, &git_repo_path)?;
-    let existing_link = josh_core::link::find_link_files(transaction.odb(), base_tree)
+    let sources = source_bookmarks(&transaction, &links)?;
+    let existing_link = crate::link_metadata::find_link_files(transaction.odb(), base_tree)
         .map_err(|err| user_error_with_message("Failed to inspect the baseline mount", err))?
         .iter()
         .any(|(existing_path, _)| existing_path == &path);
@@ -836,6 +836,7 @@ async fn run_add(
         &sources,
         &transaction,
         &git_lock,
+        false,
         format!("Add {mode_name} Josh link {}", path.display()),
         format!("add {mode_name} Josh link {}", path.display()),
     )
@@ -868,21 +869,17 @@ async fn run_update(
     let source_commit = commit_as_josh_oid(&commit)?;
     let source_tree = josh_core::git::read_tree_id(transaction.odb(), source_commit)
         .map_err(|err| user_error_with_message("Failed to read the jj revision tree", err))?;
-    let link_files = josh_core::link::find_link_files(transaction.odb(), source_tree)
+    let link_files = crate::link_metadata::find_link_files(transaction.odb(), source_tree)
         .map_err(|err| user_error_with_message("Failed to find Josh links", err))?;
-    let baseline = existing_baseline(
-        &workspace_command,
-        &transaction,
-        &commit,
-        !link_files.is_empty(),
-    )
-    .await?
-    .ok_or_else(|| user_error("No Josh links found in the selected revision"))?;
+    let baseline = existing_baseline(&workspace_command, &commit, !link_files.is_empty())
+        .await?
+        .ok_or_else(|| user_error("No Josh links found in the selected revision"))?;
     let baseline_oid = commit_as_josh_oid(&baseline)?;
     let baseline_tree = josh_core::git::read_tree_id(transaction.odb(), baseline_oid)
         .map_err(|err| user_error_with_message("Failed to read the native baseline", err))?;
-    let mut baseline_links = josh_core::link::find_link_files(transaction.odb(), baseline_tree)
-        .map_err(|err| user_error_with_message("Failed to inspect baseline links", err))?;
+    let mut baseline_links =
+        crate::link_metadata::find_link_files(transaction.odb(), baseline_tree)
+            .map_err(|err| user_error_with_message("Failed to inspect baseline links", err))?;
     let selected_links: Vec<_> = link_files
         .iter()
         .cloned()
@@ -1015,16 +1012,21 @@ async fn run_update(
         links_to_update.push((path.clone(), new_commit, source_branch));
     }
 
+    let mut updated_links = 0;
     for (path, new_commit, source_branch) in links_to_update {
         let (_, link) = baseline_links.iter_mut().find(|(base_path, _)| base_path == &path)
             .ok_or_else(|| user_error("Local link metadata is not present in the native baseline; explicit migration is required"))?;
-        *link = link
+        let updated = link
             .with_meta("commit", new_commit.to_string())
             .with_meta("source-branch", source_branch);
+        if updated != *link {
+            *link = updated;
+            updated_links += 1;
+        }
     }
     let (tree_oid, mut parents) = clean_composition(&transaction, baseline_oid, &baseline_links)?;
     parents[0] = baseline_oid;
-    let sources = source_bookmarks(&transaction, &baseline_links, &git_repo_path)?;
+    let sources = source_bookmarks(&transaction, &baseline_links)?;
     if tree_oid == baseline_tree {
         transaction
             .flush_mem_odb()
@@ -1036,6 +1038,7 @@ async fn run_update(
         writeln!(ui.status(), "Selected Josh links are already up to date")?;
     } else {
         let linked_tree = tree_from_josh_oid(workspace_command.repo().store().clone(), tree_oid);
+        let noun = if updated_links == 1 { "link" } else { "links" };
         insert_link_commit(
             ui,
             &mut workspace_command,
@@ -1046,8 +1049,9 @@ async fn run_update(
             &sources,
             &transaction,
             &git_lock,
-            format!("Update {} Josh link(s)", selected_links.len()),
-            format!("update {} Josh link(s)", selected_links.len()),
+            false,
+            format!("Update {updated_links} Josh {noun}"),
+            format!("update {updated_links} Josh {noun}"),
         )
         .await?;
     }
@@ -1100,7 +1104,7 @@ async fn run_push(
     let _git_lock = workspace_command.lock_git_import_export()?;
     let transaction = open_josh_transaction(&git_repo_path, args.dry_run)?;
     let source_commit = commit_as_josh_oid(&commit)?;
-    let prepared = josh_link::prepare_link_push(&transaction, source_commit, &path)
+    let prepared = crate::link_metadata::prepare_link_push(&transaction, source_commit, &path)
         .map_err(|err| user_error_with_message("Failed to export the Josh link", err))?;
     let push_remote = prepared.push_remote.as_deref().ok_or_else(|| {
         user_error(format!(
