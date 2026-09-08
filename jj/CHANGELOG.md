@@ -26,6 +26,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   config is `true`. `jj workspace forget` removes the corresponding Git
   worktree when one exists.
 
+* `jj git colocation status`/`enable`/`disable` now work on child
+  workspaces. `status` correctly reports colocation state and includes
+  the workspace name. `enable` creates a Git worktree and `disable`
+  removes it, allowing colocation to be toggled after workspace
+  creation.
+
 ### Fixed bugs
 
 ## [0.45.1] - 2026-09-03
@@ -84,6 +90,11 @@ None
   target a specific configuration file (such as files inside a `conf.d/`
   directory or loaded via `--config-file`). This allows precise file targeting
   and avoids interactive prompts when multiple config files exist.
+
+* `jj git push` now supports pushing to multiple remotes at the same time.
+  This can be configured via `git.push` set to a string pattern
+  or array of string patterns, or with the repeatable `--remote` flag,
+  which also accepts string patterns.
 
 ### Fixed bugs
 
