@@ -93,11 +93,11 @@ impl Plan {
 fn apply_with_worktrees(repo: &gix::Repository, changes: &[RefChange], edits: Vec<RefEdit>) -> Result<()> {
     let transitions = worktree_transitions(repo, changes)?;
     for transition in &transitions {
-        super::forget::preflight_tree_transition(&transition.repo, &transition.workdir, transition.old, transition.new)
+        super::delete::preflight_tree_transition(&transition.repo, &transition.workdir, transition.old, transition.new)
             .or_raise(|| message("local changes prevent undo/redo; stash them manually and retry"))?;
     }
     for (applied, transition) in transitions.iter().enumerate() {
-        if let Err(err) = super::forget::apply_tree_transition(&transition.workdir, transition.old, transition.new) {
+        if let Err(err) = super::delete::apply_tree_transition(&transition.workdir, transition.old, transition.new) {
             return Err(rollback_transitions(
                 &transitions[..=applied],
                 err.and_raise(message("could not align a worktree with the undo queue")),
@@ -527,7 +527,7 @@ fn tree_id(repo: &gix::Repository, commit: Option<ObjectId>) -> Result<ObjectId>
 
 fn rollback_transitions(transitions: &[WorktreeTransition], mut cause: Error) -> Error {
     for transition in transitions.iter().rev() {
-        if let Err(err) = super::forget::apply_tree_transition(&transition.workdir, transition.new, transition.old) {
+        if let Err(err) = super::delete::apply_tree_transition(&transition.workdir, transition.new, transition.old) {
             cause = cause.and_raise(message!("worktree rollback failed: {err:#}"));
         }
     }

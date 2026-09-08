@@ -882,8 +882,8 @@ mod tests {
         let started = start(fixture.path(), false, &graph, reviewed, base)?;
         let repo = crate::test_repository::open(fixture.path())?;
         let graph = super::super::loaded_graph(&repo)?;
-        let forgotten = super::super::forget::perform(repo, &graph, started.commit)?;
-        let return_to = forgotten
+        let deleted = super::super::delete::perform(repo, &graph, started.commit)?;
+        let return_to = deleted
             .review_return
             .ok_or_raise(|| message("review deletion has a return checkout"))?;
         let (returned, _) =
@@ -915,8 +915,8 @@ mod tests {
         let started = start(fixture.path(), false, &graph, reviewed, base)?;
         let repo = crate::test_repository::open(fixture.path())?;
         let graph = super::super::loaded_graph(&repo)?;
-        let forgotten = super::super::forget::perform(repo, &graph, started.commit)?;
-        let return_to = forgotten
+        let deleted = super::super::delete::perform(repo, &graph, started.commit)?;
+        let return_to = deleted
             .review_return
             .ok_or_raise(|| message("detached review deletion has a return checkout"))?;
         super::super::time_travel::checkout_review_return(fixture.path(), false, &return_to, &[], false)?;
