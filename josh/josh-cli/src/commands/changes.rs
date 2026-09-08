@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use anyhow::anyhow;
 
@@ -49,10 +49,11 @@ pub fn handle_list(
         return Ok(());
     }
 
-    let oid_to_change_id = build_oid_to_change_id(&changes);
+    let known = known_change_ids(&changes);
 
     struct Row {
         id: String,
+        commit_sha: String,
         subject: String,
         deps_count: usize,
         comments_count: usize,
@@ -62,16 +63,14 @@ pub fn handle_list(
     let mut rows: Vec<Row> = Vec::with_capacity(changes.len());
     for change in &changes {
         let id = change.id().unwrap_or("<no-change-id>").to_string();
+        let commit_sha = change.commit().to_string();
         let commit = josh_core::objects::CommitData::read(odb, change.commit())?;
         let subject = commit.summary().unwrap_or_default();
 
         let deps_count = change
-            .contributing(transaction)
+            .dependency_ids(transaction, &known)
             .unwrap_or_default()
-            .into_iter()
-            .filter_map(|oid| oid_to_change_id.get(&oid.to_string()).cloned())
-            .filter(|dep_id| dep_id != &id)
-            .count();
+            .len();
 
         let comments_count = change
             .id()
@@ -94,6 +93,7 @@ pub fn handle_list(
 
         rows.push(Row {
             id,
+            commit_sha,
             subject,
             deps_count,
             comments_count,
@@ -114,7 +114,8 @@ pub fn handle_list(
     println!("Changes on {}:\n", scope_label);
     for r in &rows {
         println!(
-            "{:<id_w$}  D={:>3}  C={:>3}  V={:<vote_w$}  {}",
+            "{:<7}  {:<id_w$}  D={:>3}  C={:>3}  V={:<vote_w$}  {}",
+            &r.commit_sha[..7],
             r.id,
             r.deps_count,
             r.comments_count,
@@ -211,7 +212,7 @@ pub fn handle_deps(
     let odb = transaction.odb();
     let scope = args.scope.resolve(transaction)?;
     let changes = josh_changes::list_changes(transaction, &scope)?;
-    let oid_to_change_id = build_oid_to_change_id(&changes);
+    let known = known_change_ids(&changes);
 
     let change = changes
         .iter()
@@ -225,14 +226,11 @@ pub fn handle_deps(
         })?;
 
     let mut deps: Vec<(String, String)> = Vec::new();
-    for oid in change.contributing(transaction)? {
-        let oid_str = oid.to_string();
-        let dep_id = match oid_to_change_id.get(&oid_str) {
-            Some(d) if d != &args.change_id => d.clone(),
-            _ => continue,
-        };
-        let subject = josh_core::objects::CommitData::read(odb, oid)
-            .ok()
+    for dep_id in change.dependency_ids(transaction, &known)? {
+        let subject = changes
+            .iter()
+            .find(|c| c.id() == Some(dep_id.as_str()))
+            .and_then(|c| josh_core::objects::CommitData::read(odb, c.commit()).ok())
             .and_then(|c| c.summary())
             .unwrap_or_default();
         deps.push((dep_id, subject));
@@ -260,12 +258,11 @@ fn scope_label(scope: &josh_changes::ChangesRef) -> String {
     }
 }
 
-fn build_oid_to_change_id(changes: &[josh_changes::Change]) -> HashMap<String, String> {
-    let mut map = HashMap::with_capacity(changes.len());
-    for c in changes {
-        map.insert(c.commit().to_string(), c.id().unwrap_or("").to_string());
-    }
-    map
+fn known_change_ids(changes: &[josh_changes::Change]) -> HashSet<String> {
+    changes
+        .iter()
+        .filter_map(|c| c.id().map(|s| s.to_string()))
+        .collect()
 }
 
 fn resolve_change_by_id(

@@ -2424,21 +2424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gix-submodule"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd98077a56d08886112e6b08dc94076d03539f4bc0b9d7880e4be2b8a640d8c"
-dependencies = [
- "bstr",
- "gix-config",
- "gix-path",
- "gix-pathspec",
- "gix-refspec",
- "gix-url",
- "thiserror 2.0.19",
-]
-
-[[package]]
 name = "gix-tempfile"
 version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3300,12 +3285,14 @@ version = "26.8.28"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
  "gix",
  "gix-actor",
  "gix-hash",
  "josh-core",
  "josh-git-serde",
  "josh-gix-ext",
+ "log",
  "serde",
  "tempfile",
 ]
@@ -3328,6 +3315,8 @@ dependencies = [
  "glob",
  "josh-changes",
  "josh-compose",
+ "josh-compose-backend",
+ "josh-compose-docker",
  "josh-compose-podman",
  "josh-core",
  "josh-gerrit-changes",
@@ -3336,7 +3325,6 @@ dependencies = [
  "josh-github-graphql",
  "josh-github-keyring",
  "josh-graphql",
- "josh-link",
  "josh-search",
  "josh-templates",
  "juniper",
@@ -3369,6 +3357,7 @@ dependencies = [
  "gix",
  "gix-hash",
  "josh-compose-backend",
+ "josh-compose-graph",
  "josh-core",
  "josh-filter",
  "tar",
@@ -3380,6 +3369,34 @@ name = "josh-compose-backend"
 version = "26.8.28"
 dependencies = [
  "anyhow",
+ "josh-compose-graph",
+ "josh-core",
+]
+
+[[package]]
+name = "josh-compose-docker"
+version = "26.8.28"
+dependencies = [
+ "anyhow",
+ "backon",
+ "hex",
+ "josh-compose-backend",
+ "josh-compose-graph",
+ "libc",
+ "log",
+ "rand 0.10.2",
+ "tar",
+]
+
+[[package]]
+name = "josh-compose-graph"
+version = "26.8.28"
+dependencies = [
+ "anyhow",
+ "gix",
+ "gix-hash",
+ "josh-core",
+ "tempfile",
 ]
 
 [[package]]
@@ -3390,6 +3407,7 @@ dependencies = [
  "backon",
  "hex",
  "josh-compose-backend",
+ "josh-compose-graph",
  "libc",
  "log",
  "rand 0.10.2",
@@ -3411,7 +3429,6 @@ dependencies = [
  "gix-config",
  "gix-hash",
  "gix-object",
- "gix-submodule",
  "glob",
  "hex",
  "indoc",
@@ -3447,13 +3464,9 @@ dependencies = [
  "axum",
  "clap",
  "gix",
- "gix-hash",
  "josh-core",
  "josh-github-webhooks",
- "josh-link",
  "josh-test-webhook-client",
- "serde",
- "serde_json",
  "tokio",
  "tracing",
 ]
@@ -3550,10 +3563,16 @@ dependencies = [
  "josh-changes",
  "josh-core",
  "josh-git-serde",
+ "josh-github-auth",
  "josh-github-graphql",
+ "josh-github-keyring",
  "josh-github-webhooks",
+ "reqwest",
+ "reqwest-middleware",
  "serde",
+ "serde_json",
  "tempfile",
+ "tokio",
  "url",
 ]
 
@@ -3662,16 +3681,6 @@ dependencies = [
  "strfmt",
  "toml",
  "tracing",
-]
-
-[[package]]
-name = "josh-link"
-version = "26.8.28"
-dependencies = [
- "anyhow",
- "gix-actor",
- "gix-hash",
- "josh-core",
 ]
 
 [[package]]

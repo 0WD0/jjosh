@@ -1,26 +1,28 @@
 use super::*;
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use gix_object::bstr::BString;
 pub use josh_filter::check_experimental_features_enabled;
 pub use josh_filter::experimental_features_enabled;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
 // Re-export from josh-filter
-pub use josh_filter::LinkMode;
 pub use josh_filter::filter::MESSAGE_MATCH_ALL_REGEX;
 pub use josh_filter::filter::index;
 pub use josh_filter::filter::reachable_roots;
 pub use josh_filter::filter::sequence_number;
+pub use josh_filter::filter::squash_to_rev;
 pub use josh_filter::flang::parse::{get_comments, parse};
 pub use josh_filter::opt;
 pub use josh_filter::opt::invert;
 pub use josh_filter::persist::{peel_filter, peel_op, to_filter, to_op, to_ops};
-pub use josh_filter::{Filter, InsertContent, LazyRef, Op, RevMatch};
+pub use josh_filter::{Filter, InsertContent, Op, RevMatch};
 pub use josh_filter::{as_file, pretty, spec};
 
+mod object_deref;
 pub mod text;
 pub mod tree;
 
@@ -160,131 +162,6 @@ impl Rewrite {
 }
 
 pub use josh_filter::compose;
-
-pub fn lazy_refs(filter: Filter) -> Vec<String> {
-    lazy_refs2(&peel_op(filter))
-}
-
-fn lazy_refs2(op: &Op) -> Vec<String> {
-    let mut lr = match op {
-        Op::Compose(filters) => {
-            filters
-                .iter()
-                .map(|f| lazy_refs(*f))
-                .fold(vec![], |mut acc, mut v| {
-                    acc.append(&mut v);
-                    acc
-                })
-        }
-        Op::Exclude(filter) | Op::Select(filter) | Op::Pin(filter) => lazy_refs(*filter),
-        Op::Chain(filters) => {
-            let mut av = vec![];
-            for filter in filters {
-                av.append(&mut lazy_refs(*filter));
-            }
-            av
-        }
-        Op::Subtract(a, b) => {
-            let mut av = lazy_refs(*a);
-            av.append(&mut lazy_refs(*b));
-            av
-        }
-        Op::Rev(filters) => {
-            let mut lr = lazy_refs2(&Op::Compose(filters.iter().map(|(_, _, f)| *f).collect()));
-            lr.extend(filters.iter().filter_map(|(_, nested, _)| {
-                if let LazyRef::Lazy(s) = nested {
-                    Some(s.to_owned())
-                } else {
-                    None
-                }
-            }));
-            lr.sort();
-            lr.dedup();
-            lr
-        }
-        Op::Squash(Some(revs)) => {
-            let mut lr = vec![];
-            lr.extend(revs.keys().filter_map(|nested| {
-                if let LazyRef::Lazy(s) = nested {
-                    Some(s.to_owned())
-                } else {
-                    None
-                }
-            }));
-            lr
-        }
-        Op::Downstack(LazyRef::Lazy(s)) => vec![s.to_owned()],
-        Op::Downstack(_) => vec![],
-        _ => vec![],
-    };
-    lr.sort();
-    lr.dedup();
-    lr
-}
-
-pub fn resolve_refs(
-    refs: &std::collections::HashMap<String, gix_hash::ObjectId>,
-    filter: Filter,
-) -> Filter {
-    to_filter(resolve_refs2(refs, &to_op(filter)))
-}
-
-fn resolve_refs2(refs: &std::collections::HashMap<String, gix_hash::ObjectId>, op: &Op) -> Op {
-    match op {
-        Op::Compose(filters) => {
-            Op::Compose(filters.iter().map(|f| resolve_refs(refs, *f)).collect())
-        }
-        Op::Exclude(filter) => Op::Exclude(resolve_refs(refs, *filter)),
-        Op::Select(filter) => Op::Select(resolve_refs(refs, *filter)),
-        Op::Pin(filter) => Op::Pin(resolve_refs(refs, *filter)),
-        Op::Chain(filters) => Op::Chain(filters.iter().map(|f| resolve_refs(refs, *f)).collect()),
-        Op::Subtract(a, b) => Op::Subtract(resolve_refs(refs, *a), resolve_refs(refs, *b)),
-        Op::Rev(filters) => {
-            let lr = filters
-                .iter()
-                .map(|(match_op, r, f)| {
-                    let f = resolve_refs(refs, *f);
-                    let resolved_r = if let LazyRef::Lazy(s) = r {
-                        if let Some(res) = refs.get(s) {
-                            LazyRef::Resolved(*res)
-                        } else {
-                            r.clone()
-                        }
-                    } else {
-                        r.clone()
-                    };
-                    (*match_op, resolved_r, f)
-                })
-                .collect();
-            Op::Rev(lr)
-        }
-        Op::Squash(Some(filters)) => {
-            let lr = filters
-                .iter()
-                .map(|(r, m)| {
-                    if let LazyRef::Lazy(s) = r {
-                        if let Some(res) = refs.get(s) {
-                            (LazyRef::Resolved(*res), *m)
-                        } else {
-                            (r.clone(), *m)
-                        }
-                    } else {
-                        (r.clone(), *m)
-                    }
-                })
-                .collect();
-            Op::Squash(Some(lr))
-        }
-        Op::Downstack(LazyRef::Lazy(s)) => {
-            if let Some(res) = refs.get(s) {
-                Op::Downstack(LazyRef::Resolved(*res))
-            } else {
-                op.clone()
-            }
-        }
-        _ => op.clone(),
-    }
-}
 
 pub fn src_path(filter: Filter) -> std::path::PathBuf {
     src_path2(&peel_op(filter))
@@ -521,72 +398,301 @@ fn get_filter(
     }
 }
 
-fn read_josh_link(
-    transaction: &cache::Transaction,
-    odb: &josh_memodb::Odb,
-    reader: &tree::TreeReader,
-    root: &std::path::Path,
-    filename: &str,
-) -> Option<Filter> {
-    use anyhow::Context;
+fn needs_repository_resolution(filter: Filter) -> bool {
+    match to_op(filter) {
+        Op::Workspace(_) | Op::Stored(_) | Op::Starlark(_, _) => true,
+        Op::Compose(filters) | Op::Chain(filters) => {
+            filters.into_iter().any(needs_repository_resolution)
+        }
+        Op::Rev(filters) => filters
+            .into_iter()
+            .any(|(_, filter)| needs_repository_resolution(filter)),
+        Op::Subtract(a, b) => needs_repository_resolution(a) || needs_repository_resolution(b),
+        Op::Exclude(filter)
+        | Op::Select(filter)
+        | Op::Pin(filter)
+        | Op::TreeId(_, filter)
+        | Op::Meta(_, filter)
+        | Op::Unapply(_, filter) => needs_repository_resolution(filter),
+        _ => false,
+    }
+}
 
-    let link_path = root.join(filename);
-    let link_entry = tree::get_path_entry_at(transaction, odb, reader, &link_path)
-        .ok()
-        .flatten()?;
-    let link_blob = tree::blob_bytes(odb, link_entry.oid)?;
-    let b = std::str::from_utf8(&link_blob)
-        .with_context(|| format!("invalid utf8 in {}", filename))
-        .ok()?;
+struct RepositoryFilterResolver<'a> {
+    transaction: &'a cache::Transaction,
+    odb: &'a josh_memodb::Odb,
+    parser: &'a dyn Fn(&str) -> anyhow::Result<Filter>,
+    parsed_blobs: HashMap<gix_hash::ObjectId, Filter>,
+    resolved: HashMap<(Filter, gix_hash::ObjectId), Option<Filter>>,
+}
 
-    // Parse the filter string
-    let filter = parse(b.trim())
-        .with_context(|| format!("invalid filter in {}", filename))
-        .ok()?;
-
-    // Validate that it has required metadata for a link file
-    if filter.get_meta("remote").is_none() || filter.get_meta("commit").is_none() {
-        return None;
+impl RepositoryFilterResolver<'_> {
+    fn parsed_definition(
+        &mut self,
+        reader: &tree::TreeReader,
+        path: &Path,
+    ) -> anyhow::Result<Filter> {
+        let path = normalize_path(path);
+        let Some(entry) = tree::get_path_entry_at(self.transaction, self.odb, reader, &path)?
+        else {
+            return Ok(Filter::new().empty());
+        };
+        let parsed = if let Some(filter) = self.parsed_blobs.get(&entry.oid) {
+            *filter
+        } else {
+            let bytes = tree::blob_bytes(self.odb, entry.oid)
+                .ok_or_else(|| anyhow!("definition `{}` is not a readable blob", path.display()))?;
+            anyhow::ensure!(
+                !bytes.contains(&0),
+                "definition `{}` contains NUL bytes",
+                path.display()
+            );
+            let text = std::str::from_utf8(&bytes)
+                .with_context(|| format!("definition `{}` is not UTF-8", path.display()))?;
+            let filter = (self.parser)(text)
+                .with_context(|| format!("failed to parse definition `{}`", path.display()))?;
+            self.parsed_blobs.insert(entry.oid, filter);
+            filter
+        };
+        Ok(parsed)
     }
 
-    Some(filter)
+    fn definition(
+        &mut self,
+        tree_id: gix_hash::ObjectId,
+        reader: &tree::TreeReader,
+        path: &Path,
+    ) -> anyhow::Result<Filter> {
+        let parsed = self.parsed_definition(reader, path)?;
+        let filter = self.resolve(parsed, tree_id, reader).with_context(|| {
+            format!(
+                "failed to resolve definition `{}` in tree {tree_id}",
+                path.display()
+            )
+        })?;
+        invert(filter).with_context(|| {
+            format!(
+                "definition `{}` in tree {tree_id} is not invertible",
+                path.display()
+            )
+        })?;
+        Ok(filter)
+    }
+
+    fn script(&self, reader: &tree::TreeReader, path: &Path) -> anyhow::Result<String> {
+        let path = normalize_path(path);
+        let entry = tree::get_path_entry_at(self.transaction, self.odb, reader, &path)?
+            .ok_or_else(|| anyhow!("definition `{}` does not exist", path.display()))?;
+        let bytes = tree::blob_bytes(self.odb, entry.oid)
+            .ok_or_else(|| anyhow!("definition `{}` is not a readable blob", path.display()))?;
+        anyhow::ensure!(
+            !bytes.contains(&0),
+            "definition `{}` contains NUL bytes",
+            path.display()
+        );
+        Ok(std::str::from_utf8(&bytes)
+            .with_context(|| format!("definition `{}` is not UTF-8", path.display()))?
+            .to_owned())
+    }
+
+    fn resolve(
+        &mut self,
+        filter: Filter,
+        tree_id: gix_hash::ObjectId,
+        reader: &tree::TreeReader,
+    ) -> anyhow::Result<Filter> {
+        if !needs_repository_resolution(filter) {
+            return Ok(filter);
+        }
+        if let Some(cached) = self.resolved.get(&(filter, tree_id)) {
+            return Ok(cached.unwrap_or_else(|| Filter::new().empty()));
+        }
+        self.resolved.insert((filter, tree_id), None);
+
+        let resolved = match to_op(filter) {
+            Op::Compose(filters) => {
+                let filters = filters
+                    .into_iter()
+                    .map(|filter| self.resolve(filter, tree_id, reader))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                to_filter(Op::Compose(filters))
+            }
+            Op::Chain(filters) => {
+                let mut result = Vec::with_capacity(filters.len());
+                let mut current_tree = tree_id;
+                for (index, filter) in filters.iter().copied().enumerate() {
+                    let current_reader;
+                    let reader = if current_tree == tree_id {
+                        reader
+                    } else {
+                        current_reader = tree::read_tree(self.transaction, self.odb, current_tree)?;
+                        &current_reader
+                    };
+                    let filter = self.resolve(filter, current_tree, reader)?;
+                    result.push(filter);
+                    if filters[index + 1..]
+                        .iter()
+                        .copied()
+                        .any(needs_repository_resolution)
+                    {
+                        current_tree =
+                            apply(self.transaction, filter, Rewrite::from_tree(current_tree))
+                                .context("failed to apply repository-filter chain prefix")?
+                                .tree_id();
+                    }
+                }
+                to_filter(Op::Chain(result))
+            }
+            Op::Rev(filters) => to_filter(Op::Rev(
+                filters
+                    .into_iter()
+                    .map(|(matcher, filter)| {
+                        self.resolve(filter, tree_id, reader)
+                            .map(|filter| (matcher, filter))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            )),
+            Op::Subtract(a, b) => to_filter(Op::Subtract(
+                self.resolve(a, tree_id, reader)?,
+                self.resolve(b, tree_id, reader)?,
+            )),
+            Op::Exclude(filter) => to_filter(Op::Exclude(self.resolve(filter, tree_id, reader)?)),
+            Op::Select(filter) => to_filter(Op::Select(self.resolve(filter, tree_id, reader)?)),
+            Op::Meta(meta, filter) => {
+                to_filter(Op::Meta(meta, self.resolve(filter, tree_id, reader)?))
+            }
+            Op::Pin(filter) => to_filter(Op::Pin(self.resolve(filter, tree_id, reader)?)),
+            Op::TreeId(path, filter) => {
+                to_filter(Op::TreeId(path, self.resolve(filter, tree_id, reader)?))
+            }
+            Op::Unapply(commit, filter) => {
+                to_filter(Op::Unapply(commit, self.resolve(filter, tree_id, reader)?))
+            }
+            Op::Stored(path) => {
+                let definition_path = path.with_added_extension("josh");
+                let definition = self.definition(tree_id, reader, &definition_path)?;
+                compose(&[Filter::new().file(definition_path), definition])
+            }
+            Op::Workspace(path) => {
+                let definition_path = path.join("workspace.josh");
+                let parsed = self.parsed_definition(reader, &definition_path)?;
+                if let Op::Workspace(redirect_path) = peel_op(parsed) {
+                    let redirect =
+                        to_filter(Op::Exclude(Filter::new().file(&path))).chain(parsed.peel());
+                    self.resolve(
+                        propagate_meta(redirect, &parsed.into_meta()),
+                        tree_id,
+                        reader,
+                    )
+                    .with_context(|| {
+                        format!(
+                            "failed to resolve workspace redirect `{}` to `{}` in tree {tree_id}",
+                            path.display(),
+                            redirect_path.display()
+                        )
+                    })?
+                } else {
+                    let parsed = self.definition(tree_id, reader, &definition_path)?;
+                    let base = to_filter(Op::Subdir(path));
+                    compose(&[
+                        base.chain(Filter::new().file("workspace.josh")),
+                        compose(&[parsed, base]),
+                    ])
+                }
+            }
+            Op::Starlark(path, subfilter) => {
+                check_experimental_features_enabled("Starlark filter")?;
+                let subfilter = self.resolve(subfilter, tree_id, reader)?;
+                let filtered_tree = apply(self.transaction, subfilter, Rewrite::from_tree(tree_id))
+                    .with_context(|| {
+                        format!(
+                            "failed to apply Starlark input filter `{}` in tree {tree_id}",
+                            path.display()
+                        )
+                    })?
+                    .tree_id();
+                let script_path = path.with_added_extension("star");
+                let script = self.script(reader, &script_path)?;
+                let generated = josh_starlark::evaluate(&script, filtered_tree, self.odb)
+                    .with_context(|| {
+                        format!(
+                            "failed to evaluate Starlark definition `{}` in tree {tree_id}",
+                            script_path.display()
+                        )
+                    })?;
+                let generated = self.resolve(generated, tree_id, reader)?;
+                let resolved = compose(&[
+                    Filter::new().file(script_path.clone()),
+                    subfilter,
+                    generated,
+                ]);
+                invert(resolved).with_context(|| {
+                    format!(
+                        "Starlark definition `{}` in tree {tree_id} is not invertible",
+                        script_path.display()
+                    )
+                })?;
+                resolved
+            }
+            _ => filter,
+        };
+
+        self.resolved.insert((filter, tree_id), Some(resolved));
+        Ok(resolved)
+    }
+}
+
+/// Resolve repository-backed filters using a caller-supplied parser.
+///
+/// The returned filter contains no `Stored`, `Workspace`, or `Starlark`
+/// operations. Parsing, repository lookup, evaluation, invertibility, and
+/// intermediate-chain application errors are propagated with definition
+/// context. Caches are local to this call.
+pub fn resolve_repository_filters(
+    transaction: &cache::Transaction,
+    filter: Filter,
+    tree_id: gix_hash::ObjectId,
+    parser: &dyn Fn(&str) -> anyhow::Result<Filter>,
+) -> anyhow::Result<Filter> {
+    let odb = transaction.odb();
+    let reader = tree::read_tree(transaction, odb, tree_id)?;
+    RepositoryFilterResolver {
+        transaction,
+        odb,
+        parser,
+        parsed_blobs: HashMap::new(),
+        resolved: HashMap::new(),
+    }
+    .resolve(filter, tree_id, &reader)
 }
 
 fn get_rev_filter(
     transaction: &cache::Transaction,
     commit_id: gix_hash::ObjectId,
-    filters: &[(RevMatch, LazyRef, Filter)],
+    filters: &[(RevMatch, Filter)],
 ) -> anyhow::Result<Filter> {
     // First match wins - iterate in order
-    for (match_op, filter_tip_ref, startfilter) in filters.iter() {
-        let filter_tip = if let LazyRef::Resolved(filter_tip) = filter_tip_ref {
-            filter_tip.to_owned()
-        } else {
-            return Err(anyhow!("unresolved lazy ref"));
+    for (match_op, startfilter) in filters {
+        let filter_tip = match *match_op {
+            RevMatch::AncestorStrict(oid)
+            | RevMatch::AncestorInclusive(oid)
+            | RevMatch::Equal(oid) => Some(oid),
+            RevMatch::Default => None,
         };
-        if match_op != &RevMatch::Default && !transaction.odb().contains(filter_tip) {
+        if let Some(filter_tip) = filter_tip
+            && !transaction.odb().contains(filter_tip)
+        {
             return Err(anyhow!("`:rev(...)` with nonexistent OID: {}", filter_tip));
         }
-        let matches = match match_op {
-            RevMatch::AncestorStrict => {
-                // `<` - matches if commit is ancestor of tip AND commit != tip (strict)
-
+        let matches = match *match_op {
+            RevMatch::AncestorStrict(filter_tip) => {
                 is_ancestor_of(transaction, commit_id, filter_tip)? && commit_id != filter_tip
             }
-            RevMatch::AncestorInclusive => {
-                // `<=` - matches if commit is ancestor of tip OR commit == tip (inclusive)
-
+            RevMatch::AncestorInclusive(filter_tip) => {
                 is_ancestor_of(transaction, commit_id, filter_tip)?
             }
-            RevMatch::Equal => {
-                // `==` - matches if commit == tip
-
-                commit_id == filter_tip
-            }
-            RevMatch::Default => {
-                // `_` - always matches (makes filters after it unreachable)
-                true
-            }
+            RevMatch::Equal(filter_tip) => commit_id == filter_tip,
+            RevMatch::Default => true,
         };
 
         if matches {
@@ -627,7 +733,7 @@ pub fn apply_to_commit2(
             }
             return Ok(Some(current_oid));
         }
-        Op::Squash(None) => {
+        Op::Squash => {
             let odb = transaction.odb();
             let commit = objects::CommitData::read(odb, commit_id)?;
             odb.read_header(commit.tree_id()?)?;
@@ -640,16 +746,13 @@ pub fn apply_to_commit2(
             ))
             .transpose();
         }
-        Op::Downstack(LazyRef::Resolved(base)) => {
+        Op::Downstack(base) => {
             if let Some(oid) = transaction.get(filter, commit_id)? {
                 return Ok(Some(oid));
             }
             let new_oid = downstack(transaction, commit_id, base.to_owned())?;
             transaction.insert(filter, commit_id, new_oid, false)?;
             return Ok(Some(new_oid));
-        }
-        Op::Downstack(LazyRef::Lazy(_)) => {
-            return Err(anyhow!("`:_=...` with unresolved base ref"));
         }
         _ => {
             if let Some(oid) = transaction.get(filter, commit_id)? {
@@ -668,50 +771,6 @@ pub fn apply_to_commit2(
     odb.read_header(commit.tree_id()?)?;
 
     let rewrite_data = match &op {
-        Op::Squash(Some(ids)) => {
-            if let Some(sq) = ids.get(&LazyRef::Resolved(commit.id())) {
-                let oid = if let Some(oid) = apply_to_commit2(
-                    filter::Filter::new().squash(None).chain(*sq),
-                    commit_id,
-                    transaction,
-                )? {
-                    oid
-                } else {
-                    return Ok(None);
-                };
-
-                // Transplant the squash result's metadata verbatim onto the rewrite of the
-                // original commit (which must stay the base: memoization keys on its id).
-                // Timestamps are the base's own anyway -- no filter alters them.
-                let rc = objects::CommitData::read(odb, oid)?;
-                let rcr = rc.parsed()?;
-                Rewrite::from_tree_with_metadata(
-                    rc.tree_id()?,
-                    Some(SigRewrite::Raw(rcr.author.to_owned())),
-                    Some(SigRewrite::Raw(rcr.committer.to_owned())),
-                    Some(rcr.message.to_owned()),
-                )
-            } else {
-                if let Some(parent) = commit.first_parent_id() {
-                    return Ok(if let Some(fparent) = transaction.get(filter, parent)? {
-                        Some(history::drop_commit(
-                            commit.id(),
-                            vec![fparent],
-                            transaction,
-                            filter,
-                        )?)
-                    } else {
-                        None
-                    });
-                }
-                return Ok(Some(history::drop_commit(
-                    commit.id(),
-                    vec![],
-                    transaction,
-                    filter,
-                )?));
-            }
-        }
         Op::Prune => {
             let p: Vec<_> = commit.parent_ids().collect();
 
@@ -743,195 +802,47 @@ pub fn apply_to_commit2(
                     .collect::<anyhow::Result<Option<_>>>()?
             };
 
-            let mut filtered_parent_ids: Vec<gix_hash::ObjectId> =
+            let filtered_parent_ids: Vec<gix_hash::ObjectId> =
                 some_or!(filtered_parent_ids, { return Ok(None) });
 
-            // TODO: remove all parents that don't have a .link.josh
-
-            //     let mut ok = true;
-            //     filtered_parent_ids.retain(|c| {
-            //         if let Ok(c) = repo.find_commit(*c) {
-            //             c.tree_id() != new_tree.id()
-            //         } else {
-            //             ok = false;
-            //             false
-            //         }
-            //     });
-
-            //     if !ok {
-            //         return Err(anyhow!("missing commit"));
-            //     }
-
-            let tree = commit.tree_id()?;
-            // The link probe below folds every failure into "no link", so an unreadable
-            // or unparseable commit tree must error here.
-            let tree_reader = tree::read_tree(transaction, odb, tree)?;
-            if let Some(link_file) = read_josh_link(
-                transaction,
-                odb,
-                &tree_reader,
-                &std::path::PathBuf::new(),
-                ".link.josh",
-            ) {
-                if let Some(commit_str) = link_file.get_meta("commit") {
-                    if let Ok(commit_oid) = gix_hash::ObjectId::from_str(&commit_str) {
-                        if filtered_parent_ids.contains(&commit_oid) {
-                            while filtered_parent_ids[0] != commit_oid {
-                                filtered_parent_ids.rotate_right(1);
-                            }
-                        }
+            let rewrite_data = apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?;
+            // A pointer-update splice has a referenced-history parent with the
+            // exported tree that descends from the normal first parent. Drop
+            // that splice here instead of pruning every trivial merge.
+            let inferred_parent = if let Some(first_parent) = filtered_parent_ids.first() {
+                let mut inferred_parent = None;
+                for parent in filtered_parent_ids.iter().skip(1) {
+                    if history::filtered_parent_tree_id(transaction, *parent)?
+                        == rewrite_data.tree_id()
+                        && objects::is_descendant_of(transaction.odb(), *parent, *first_parent)?
+                    {
+                        inferred_parent = Some(*parent);
+                        break;
                     }
                 }
-            }
-
-            return Some(history::create_filtered_commit(
-                &commit,
-                filtered_parent_ids,
-                apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?,
-                transaction,
-                filter,
-            ))
-            .transpose();
-        }
-        Op::Unlink => {
-            check_experimental_features_enabled("unlink filter")?;
-            use crate::link::find_link_files;
-
-            let filtered_parent_ids = {
-                commit
-                    .parent_ids()
-                    .map(|x| transaction.get(filter, x))
-                    .collect::<anyhow::Result<Option<_>>>()?
+                inferred_parent
+            } else {
+                None
             };
 
-            let mut filtered_parent_ids: Vec<gix_hash::ObjectId> =
-                some_or!(filtered_parent_ids, { return Ok(None) });
-
-            let mut link_parents = vec![];
-            for (link_path, link_file) in find_link_files(odb, commit.tree_id()?)?.into_iter() {
-                if let Some(commit_str) = link_file.get_meta("commit") {
-                    if let Ok(commit_oid) = gix_hash::ObjectId::from_str(&commit_str) {
-                        if let Some(cmt) =
-                            transaction.get(to_filter(Op::Prefix(link_path)), commit_oid)?
-                        {
-                            link_parents.push(cmt);
-                        } else {
-                            return Ok(None);
-                        }
-                    } else {
-                        return Ok(None);
-                    }
-                } else {
-                    return Ok(None);
-                }
-            }
-
-            let new_tree = apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?;
-
-            filtered_parent_ids.retain(|c| !link_parents.contains(c));
-
-            return Some(history::create_filtered_commit(
-                &commit,
-                filtered_parent_ids,
-                new_tree,
-                transaction,
-                filter,
-            ))
-            .transpose();
-        }
-        Op::Link(mode) => {
-            check_experimental_features_enabled("link filter")?;
-            let tree = commit.tree_id()?;
-            // An unreadable commit tree is a hard error -- the retain probes and link
-            // reads below fold their failures -- and they all share this one parse.
-            let tree_reader = tree::read_tree(transaction, odb, tree)?;
-            let mut roots = get_link_roots(transaction, odb, tree)?;
-
-            // A root commit (no first parent) keeps every root; when a first
-            // parent is present its tree must be readable (the retain closure below cannot
-            // error).
-            if let Some(parent) = commit.first_parent_id() {
-                let parent_tree = git::read_tree_id(odb, parent)?;
-                let parent_reader = tree::read_tree(transaction, odb, parent_tree)?;
-                roots.retain(|root| {
-                    match (
-                        tree::get_path_entry_at(transaction, odb, &tree_reader, root),
-                        tree::get_path_entry_at(transaction, odb, &parent_reader, root),
-                    ) {
-                        (Ok(Some(a)), Ok(Some(b))) if a.oid == b.oid => false,
-                        _ => true,
-                    }
-                });
-            }
-
-            let all_links = links_from_roots(transaction, odb, &tree_reader, roots)?;
-
-            // Only embedded-mode links get extra parent commits spliced in
-            let embedded_links: Vec<_> = all_links
-                .into_iter()
-                .filter(|(_, link_file)| {
-                    let effective_mode = mode.clone().unwrap_or_else(|| {
-                        link_file
-                            .get_meta("mode")
-                            .and_then(|s| josh_filter::LinkMode::parse(&s).ok())
-                            .unwrap_or(josh_filter::LinkMode::Pointer)
-                    });
-                    effective_mode == josh_filter::LinkMode::Embedded
-                })
-                .collect();
-
-            if embedded_links.is_empty() {
-                apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?
-            } else {
-                let normal_parents = commit
-                    .parent_ids()
-                    .map(|parent| transaction.get(filter, parent))
-                    .collect::<anyhow::Result<Option<Vec<gix_hash::ObjectId>>>>()?;
-
-                let normal_parents = some_or!(normal_parents, { return Ok(None) });
-
-                let extra_parents = {
-                    let mut extra_parents = vec![];
-                    for (root, _link_file) in embedded_links {
-                        let embeding = some_or!(
-                            apply_to_commit2(
-                                Filter::new().message("{@}").file(root.join(".link.josh")),
-                                commit_id,
-                                transaction
-                            )?,
-                            {
-                                return Ok(None);
-                            }
-                        );
-
-                        let f = to_filter(Op::Embed(root));
-
-                        let r = some_or!(apply_to_commit2(f, embeding, transaction)?, {
-                            return Ok(None);
-                        });
-
-                        extra_parents.push(r);
-                    }
-
-                    extra_parents
-                };
-
-                let filtered_tree =
-                    apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?;
-                let filtered_parent_ids = normal_parents
-                    .into_iter()
-                    .chain(extra_parents)
-                    .collect::<Vec<_>>();
-
-                return Some(history::create_filtered_commit(
-                    &commit,
-                    filtered_parent_ids,
-                    filtered_tree,
+            if let Some(parent) = inferred_parent {
+                return Some(history::drop_commit(
+                    commit.id(),
+                    vec![parent],
                     transaction,
                     filter,
                 ))
                 .transpose();
             }
+
+            return Some(history::create_filtered_commit(
+                &commit,
+                filtered_parent_ids,
+                rewrite_data,
+                transaction,
+                filter,
+            ))
+            .transpose();
         }
         Op::Workspace(ws_path) => {
             // The get_* helpers return a bare Filter and would fold an unreadable tree to
@@ -1047,74 +958,7 @@ pub fn apply_to_commit2(
 
             return per_rev_filter(transaction, &commit, filter, commit_filter, parent_filters);
         }
-        Op::Unapply(target, uf) => {
-            check_experimental_features_enabled("unapply filter")?;
-            if let LazyRef::Resolved(target) = target {
-                /* dbg!(target); */
-                let target = objects::CommitData::read(odb, target.to_owned())?;
-                // Only a root commit (no first parent) skips link detection; a
-                // first parent that is present must be readable.
-                if let Some(parent_id) = target.first_parent_id() {
-                    let parent = objects::CommitData::read(odb, parent_id)?;
-                    let ptree = apply(transaction, *uf, Rewrite::from_commit_data(&parent)?)?;
-                    // The link probe folds every failure into "no link", so an unreadable
-                    // filtered tree must error here.
-                    let ptree_id = ptree.tree_id();
-                    let ptree_reader = tree::read_tree(transaction, odb, ptree_id)?;
-                    if let Some(link) = read_josh_link(
-                        transaction,
-                        odb,
-                        &ptree_reader,
-                        &std::path::PathBuf::new(),
-                        ".link.josh",
-                    ) {
-                        if let Some(commit_str) = link.get_meta("commit") {
-                            if let Ok(link_commit) = gix_hash::ObjectId::from_str(&commit_str) {
-                                if commit.id() == link_commit {
-                                    let unapply =
-                                        to_filter(Op::Unapply(LazyRef::Resolved(parent.id()), *uf));
-                                    let r = some_or!(transaction.get(unapply, link_commit)?, {
-                                        return Ok(None);
-                                    });
-                                    transaction.insert(filter, commit.id(), r, true)?;
-                                    return Ok(Some(r));
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                return Err(anyhow!("unresolved lazy ref"));
-            }
-            /* dbg!("FALLTHROUGH"); */
-            apply(
-                transaction,
-                filter,
-                Rewrite::from_commit_data(&commit)?, /* Rewrite::from_commit_data(&commit)?.with_parents(filtered_parent_ids), */
-            )?
-        }
-        Op::Embed(path) => {
-            check_experimental_features_enabled("embed filter")?;
-
-            let tree = commit.tree_id()?;
-            // The link probe below folds every failure into "no link", so an unreadable
-            // or unparseable commit tree must error here.
-            let tree_reader = tree::read_tree(transaction, odb, tree)?;
-            if let Some(link) = read_josh_link(transaction, odb, &tree_reader, path, ".link.josh") {
-                let subdir = filter::invert(link.peel())?;
-                let unapply = to_filter(Op::Unapply(LazyRef::Resolved(commit.id()), subdir));
-                if let Some(commit_str) = link.get_meta("commit") {
-                    if let Ok(commit_oid) = gix_hash::ObjectId::from_str(&commit_str) {
-                        let r = some_or!(transaction.get(unapply, commit_oid)?, {
-                            return Ok(None);
-                        });
-                        transaction.insert(filter, commit.id(), r, true)?;
-                        return Ok(Some(r));
-                    }
-                }
-            }
-            return Ok(Some(gix_hash::ObjectId::null(gix_hash::Kind::Sha1)));
-        }
+        Op::Unapply(..) => apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?,
 
         _ => apply(transaction, filter, Rewrite::from_commit_data(&commit)?)?,
     };
@@ -1125,112 +969,46 @@ pub fn apply_to_commit2(
         commit
             .parent_ids()
             .map(|x| transaction.get(filter, x))
-            .collect::<anyhow::Result<Option<_>>>()?
+            .collect::<anyhow::Result<Option<Vec<gix_hash::ObjectId>>>>()?
     };
 
-    let filtered_parent_ids = some_or!(filtered_parent_ids, { return Ok(None) });
-
-    Some(history::create_filtered_commit(
+    let mut filtered_parent_ids = some_or!(filtered_parent_ids, { return Ok(None) });
+    let normal_parent_count = filtered_parent_ids.len();
+    let original_target = filtered_parent_ids
+        .first()
+        .copied()
+        .unwrap_or_else(|| gix_hash::ObjectId::null(gix_hash::Kind::Sha1));
+    if !object_deref::append_parents(
+        transaction,
         &commit,
-        filtered_parent_ids,
-        tree_data,
-        transaction,
         filter,
-    ))
-    .transpose()
-}
-
-fn extract_submodule_commits(
-    transaction: &cache::Transaction,
-    odb: &josh_memodb::Odb,
-    tree: gix_hash::ObjectId,
-) -> anyhow::Result<
-    std::collections::BTreeMap<
-        std::path::PathBuf,
-        (gix_hash::ObjectId, crate::submodules::ParsedSubmoduleEntry),
-    >,
-> {
-    use crate::submodules::{ParsedSubmoduleEntry, parse_gitmodules};
-    // One hoisted parse for the .gitmodules probe and every per-submodule probe; an
-    // unreadable tree is a hard error (the probes below fold their failures).
-    let tree_reader = tree::read_tree(transaction, odb, tree)?;
-
-    let gitmodules_content = tree::get_blob_at(
-        transaction,
-        odb,
-        &tree_reader,
-        std::path::Path::new(".gitmodules"),
-    );
-
-    if gitmodules_content.is_empty() {
-        // No .gitmodules file, return empty map
-        return Ok(std::collections::BTreeMap::new());
+        commit.first_parent_id().map(|_| filter),
+        tree_data.tree_id(),
+        original_target,
+        &mut filtered_parent_ids,
+    )? {
+        return Ok(None);
     }
 
-    // Parse submodule entries using parse_gitmodules
-    let submodule_entries = match parse_gitmodules(&gitmodules_content) {
-        Ok(entries) => entries,
-        Err(_) => {
-            // If parsing fails, return empty map
-            return Ok(std::collections::BTreeMap::new());
-        }
+    let filtered_commit = if filtered_parent_ids.len() > normal_parent_count {
+        history::create_filtered_commit_with_forced_parents(
+            &commit,
+            filtered_parent_ids,
+            tree_data,
+            transaction,
+            filter,
+            filter.into_meta(),
+        )
+    } else {
+        history::create_filtered_commit(
+            &commit,
+            filtered_parent_ids,
+            tree_data,
+            transaction,
+            filter,
+        )
     };
-
-    let mut submodule_commits: std::collections::BTreeMap<
-        std::path::PathBuf,
-        (gix_hash::ObjectId, ParsedSubmoduleEntry),
-    > = std::collections::BTreeMap::new();
-
-    for parsed in submodule_entries {
-        let submodule_path = parsed.path.clone();
-        if let Ok(Some(entry)) =
-            tree::get_path_entry_at(transaction, odb, &tree_reader, &submodule_path)
-        {
-            if entry.mode.is_commit() {
-                let commit_oid = entry.oid;
-                submodule_commits.insert(submodule_path, (commit_oid, parsed));
-            }
-        }
-    }
-
-    Ok(submodule_commits)
-}
-
-fn get_link_roots(
-    transaction: &cache::Transaction,
-    odb: &josh_memodb::Odb,
-    tree: gix_hash::ObjectId,
-) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    let link_filter = to_filter(Op::pattern("**/.link.josh")?);
-    let link_tree = apply_impl(transaction, odb, link_filter, Rewrite::from_tree(tree))?;
-
-    // Stored-order preorder is load-bearing: the roots order feeds the extra-parents
-    // order of created merge commits.
-    let mut roots = vec![];
-    objects::walk_tree_preorder(odb, link_tree.tree_id(), &mut |root, entry| {
-        let root = std::path::PathBuf::from(root);
-        if &entry.filename[..] == b".link.josh" {
-            roots.push(root);
-        }
-        Ok(())
-    })?;
-
-    Ok(roots)
-}
-
-fn links_from_roots(
-    transaction: &cache::Transaction,
-    odb: &josh_memodb::Odb,
-    reader: &tree::TreeReader,
-    roots: Vec<std::path::PathBuf>,
-) -> anyhow::Result<Vec<(std::path::PathBuf, Filter)>> {
-    let mut v = vec![];
-    for root in roots {
-        if let Some(link_filter) = read_josh_link(transaction, odb, reader, &root, ".link.josh") {
-            v.push((root, link_filter));
-        }
-    }
-    Ok(v)
+    Some(filtered_commit).transpose()
 }
 
 /// Filter a single tree. This does not involve walking history and is thus fast in most cases.
@@ -1256,14 +1034,13 @@ fn apply_impl(
         Op::Nop => Ok(x),
         Op::Empty => Ok(x.with_tree(tree::empty_id())),
         Op::Fold => Ok(x),
-        Op::Squash(None) => Ok(x),
+        Op::Squash => Ok(x),
         Op::Author(author, email) => {
             Ok(x.with_author((author.clone().into(), email.clone().into())))
         }
         Op::Committer(author, email) => {
             Ok(x.with_committer((author.clone().into(), email.clone().into())))
         }
-        Op::Squash(Some(_)) => Err(anyhow!("not applicable to tree: squash")),
         Op::Message(m, r) => {
             // Rewriting a message leaves the tree alone, so with neither a commit nor a
             // message to transform this is identity, like the other history-only filters.
@@ -1335,133 +1112,7 @@ fn apply_impl(
                 .into(),
             ))
         }
-        Op::Prune => Ok(x),
-        Op::Adapt(adapter) => {
-            let mut result_tree = x.tree_id();
-            match adapter.as_ref() {
-                "submodules" => {
-                    // Extract submodule commits
-                    let submodule_commits =
-                        extract_submodule_commits(transaction, odb, result_tree)?;
-
-                    // Process each submodule commit
-                    for (submodule_path, (commit_oid, meta)) in submodule_commits {
-                        let prefix_filter = Filter::new().prefix(&submodule_path);
-
-                        // Create a filter with metadata
-                        let link_filter = prefix_filter
-                            .with_meta("remote", meta.url.clone())
-                            .with_meta("target", "HEAD")
-                            .with_meta("commit", commit_oid.to_string())
-                            .with_meta("mode", josh_filter::LinkMode::Pointer.to_string());
-                        let link_content = as_file(link_filter, 0);
-
-                        result_tree = tree::insert_oid(
-                            odb,
-                            result_tree,
-                            &submodule_path.join(".link.josh"),
-                            odb.write(gix_object::Kind::Blob, link_content.as_bytes()),
-                            0o0100644,
-                        )?;
-                    }
-
-                    // Remove .gitmodules file by setting it to zero OID
-                    result_tree = tree::insert_oid(
-                        odb,
-                        result_tree,
-                        std::path::Path::new(".gitmodules"),
-                        gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
-                        0o0100644,
-                    )?;
-                }
-                _ => return Err(anyhow!("unknown adapter {:?}", adapter)),
-            }
-
-            Ok(x.with_tree(result_tree))
-        }
-        Op::Export => {
-            let tree = x.tree_id();
-            Ok(x.with_tree(tree::insert_oid(
-                odb,
-                tree,
-                std::path::Path::new(".link.josh"),
-                gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
-                0o0100644,
-            )?))
-        }
-        Op::Unlink => {
-            check_experimental_features_enabled("unlink filter")?;
-            use crate::link::find_link_files;
-            let mut result_tree = x.tree;
-            for (link_path, link_file) in find_link_files(odb, result_tree)?.iter() {
-                result_tree = tree::insert_oid(
-                    odb,
-                    result_tree,
-                    link_path,
-                    gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
-                    0o0100644,
-                )?;
-
-                // The link_file is already a filter with metadata, just serialize it
-                let link_content = as_file(*link_file, 0);
-
-                result_tree = tree::insert_oid(
-                    odb,
-                    result_tree,
-                    &link_path.join(".link.josh"),
-                    odb.write(gix_object::Kind::Blob, link_content.as_bytes()),
-                    0o0100644,
-                )?;
-            }
-            Ok(x.with_tree(result_tree))
-        }
-        Op::Link(mode) => {
-            let tree = x.tree_id();
-            // An unreadable input tree is a hard error; the hoisted parse serves the
-            // link reads below.
-            let tree_reader = tree::read_tree(transaction, odb, tree)?;
-            let roots = get_link_roots(transaction, odb, tree)?;
-            let v = links_from_roots(transaction, odb, &tree_reader, roots)?;
-            let mut result_tree = tree;
-
-            for (root, link_file) in v {
-                // Get commit from metadata
-                let commit_oid = link_file
-                    .get_meta("commit")
-                    .and_then(|s| gix_hash::ObjectId::from_str(&s).ok())
-                    .ok_or_else(|| anyhow!("Link file missing commit metadata"))?;
-
-                let submodule_tree = git::read_tree_id(odb, commit_oid)?;
-                let inner_filter = link_file.peel();
-                let submodule_tree = apply_impl(
-                    transaction,
-                    odb,
-                    inner_filter,
-                    Rewrite::from_tree(submodule_tree),
-                )
-                .unwrap();
-
-                result_tree = tree::overlay(transaction, result_tree, submodule_tree.tree_id())?;
-                let effective_mode = mode.clone().unwrap_or_else(|| {
-                    link_file
-                        .get_meta("mode")
-                        .and_then(|s| josh_filter::LinkMode::parse(&s).ok())
-                        .unwrap_or(josh_filter::LinkMode::Pointer)
-                });
-                let link_content =
-                    as_file(link_file.with_meta("mode", effective_mode.to_string()), 0);
-
-                result_tree = tree::insert_oid(
-                    odb,
-                    result_tree,
-                    &root.join(".link.josh"),
-                    odb.write(gix_object::Kind::Blob, link_content.as_bytes()),
-                    0o0100644,
-                )?;
-            }
-
-            Ok(x.with_tree(result_tree))
-        }
+        Op::Prune | Op::Export => Ok(x),
         Op::Rev(_) => Err(anyhow!("not applicable to tree: rev")),
         Op::RegexReplace(replacements) => {
             let mut t = x.tree_id();
@@ -1631,25 +1282,23 @@ fn apply_impl(
             apply_impl(transaction, odb, f, x)
         }
         Op::TreeId(path, subfilter) => {
-            let applied = apply_impl(transaction, odb, *subfilter, x.clone())?;
-            let oid_str = applied.tree_id().to_string();
-            apply_impl(
-                transaction,
+            let tree_oid = apply_impl(transaction, odb, *subfilter, x.clone())?.tree_id();
+            Ok(x.with_tree(tree::insert_oid(
                 odb,
-                to_filter(Op::Insert(path.clone(), InsertContent::Inline(oid_str))),
-                x,
-            )
+                tree::empty_id(),
+                path,
+                tree_oid,
+                0o160000,
+            )?))
         }
         Op::ObjectRef(path) => {
             if let Ok(Some(entry)) = tree::get_path_entry(transaction, odb, x.tree_id(), path) {
-                let oid_str = entry.oid.to_string();
-                let blob_oid = odb.write(gix_object::Kind::Blob, oid_str.as_bytes());
                 Ok(x.with_tree(tree::insert_oid(
                     odb,
                     tree::empty_id(),
                     path,
-                    blob_oid,
-                    0o100644,
+                    entry.oid,
+                    0o160000,
                 )?))
             } else {
                 Ok(x)
@@ -1661,39 +1310,23 @@ fn apply_impl(
                 Ok(Some(e)) => e,
                 _ => return Ok(x),
             };
-            // Path exists: read OID string from blob content.
-            let oid_str = if let Some(blob) = tree::blob_bytes(odb, entry.oid) {
-                std::str::from_utf8(&blob)?
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
-            } else {
-                String::new()
-            };
-            if let Ok(oid) = gix_hash::ObjectId::from_str(&oid_str) {
-                // Kind by header, never by `contains`: `read_header`'s disk fallback
-                // virtualizes the empty tree, `exists` does not.
-                let (oid, mode) = match odb.try_kind(oid) {
-                    Ok(Some(gix_object::Kind::Tree)) => (oid, 0o040000),
-                    Ok(Some(gix_object::Kind::Blob)) => (oid, 0o100644),
-                    _ => {
-                        return Err(anyhow::anyhow!(":#: object not found in repo: {}", oid));
-                    }
-                };
-                Ok(x.with_tree(tree::insert_oid(odb, tree::empty_id(), path, oid, mode)?))
-            } else {
-                // Content is not a valid OID: insert empty blob at path.
-                let empty_blob = odb.write(gix_object::Kind::Blob, b"");
-                Ok(x.with_tree(tree::insert_oid(
-                    odb,
-                    tree::empty_id(),
-                    path,
-                    empty_blob,
-                    0o100644,
-                )?))
+            if !entry.mode.is_commit() {
+                return Err(anyhow::anyhow!(
+                    ":#: expected gitlink at path: {}",
+                    path.display()
+                ));
             }
+            let oid = entry.oid;
+            // Header lookup can resolve the virtual empty tree; existence checks cannot.
+            let (oid, mode) = match odb.try_kind(oid) {
+                Ok(Some(gix_object::Kind::Commit)) => (git::read_tree_id(odb, oid)?, 0o040000),
+                Ok(Some(gix_object::Kind::Tree)) => (oid, 0o040000),
+                Ok(Some(gix_object::Kind::Blob)) => (oid, 0o100644),
+                _ => {
+                    return Err(anyhow::anyhow!(":#: object not found in repo: {}", oid));
+                }
+            };
+            Ok(x.with_tree(tree::insert_oid(odb, tree::empty_id(), path, oid, mode)?))
         }
 
         Op::Compose(filters) => {
@@ -1717,26 +1350,21 @@ fn apply_impl(
         }
         Op::Hook(_) => Err(anyhow!("not applicable to tree: hook")),
 
-        Op::Embed(..) => Err(anyhow!("not applicable to tree: embed")),
         Op::Unapply(target, uf) => {
             check_experimental_features_enabled("unapply filter")?;
-            if let LazyRef::Resolved(target) = target {
-                let target = objects::CommitData::read(odb, target.to_owned())?;
-                // The message must parse as an oid, so non-UTF-8 is an error.
-                let target_msg = target.message()?;
-                let target = gix_hash::ObjectId::from_str(std::str::from_utf8(target_msg)?)?;
-                let target_tree = git::read_tree_id(odb, target)?;
-                /* dbg!(&uf); */
-                Ok(Rewrite::from_tree(filter::unapply(
-                    transaction,
-                    *uf,
-                    x.tree_id(),
-                    target_tree,
-                    None,
-                )?))
-            } else {
-                return Err(anyhow!("unresolved lazy ref"));
-            }
+            let target = objects::CommitData::read(odb, target.to_owned())?;
+            // The message must parse as an oid, so non-UTF-8 is an error.
+            let target_msg = target.message()?;
+            let target = gix_hash::ObjectId::from_str(std::str::from_utf8(target_msg)?)?;
+            let target_tree = git::read_tree_id(odb, target)?;
+            /* dbg!(&uf); */
+            Ok(Rewrite::from_tree(filter::unapply(
+                transaction,
+                *uf,
+                x.tree_id(),
+                target_tree,
+                None,
+            )?))
         }
         Op::Pin(_) => Ok(x),
         Op::Downstack(_) => Err(anyhow!("not applicable to tree: downstack")),
@@ -2305,6 +1933,9 @@ fn per_rev_filter(
         ));
     }
 
+    let parent_object_filter = parent_filters
+        .first()
+        .map(|(_, parent_filter)| propagate_meta(*parent_filter, &meta));
     let splice_parents = if no_splice {
         vec![]
     } else {
@@ -2345,9 +1976,14 @@ fn per_rev_filter(
         None
     };
 
-    let filtered_parent_ids: Vec<_> = normal_parents.into_iter().chain(splice_parents).collect();
+    let original_target = normal_parents
+        .first()
+        .copied()
+        .unwrap_or_else(|| gix_hash::ObjectId::null(gix_hash::Kind::Sha1));
+    let mut filtered_parent_ids: Vec<_> =
+        normal_parents.into_iter().chain(splice_parents).collect();
 
-    if let Op::Squash(None) = to_op(commit_filter.peel()) {
+    if let Op::Squash = to_op(commit_filter.peel()) {
         // `:SQUASH` as a per-commit filter squashes the commit away, mapping it
         // to the surviving filtered parent with the largest sequence number.
         // Ancestors have strictly smaller sequence numbers, so a parent that
@@ -2405,15 +2041,39 @@ fn per_rev_filter(
         tree_data = tree_data.with_tree(with_overlay);
     }
 
-    return Some(history::create_filtered_commit_with_meta(
-        commit,
-        filtered_parent_ids,
-        tree_data,
+    let parent_count_before_object_derefs = filtered_parent_ids.len();
+    if !object_deref::append_parents(
         transaction,
-        filter,
-        commit_filter.into_meta(),
-    ))
-    .transpose();
+        commit,
+        commit_filter,
+        parent_object_filter,
+        tree_data.tree_id(),
+        original_target,
+        &mut filtered_parent_ids,
+    )? {
+        return Ok(None);
+    }
+
+    let filtered_commit = if filtered_parent_ids.len() > parent_count_before_object_derefs {
+        history::create_filtered_commit_with_forced_parents(
+            commit,
+            filtered_parent_ids,
+            tree_data,
+            transaction,
+            filter,
+            commit_filter.into_meta(),
+        )
+    } else {
+        history::create_filtered_commit_with_meta(
+            commit,
+            filtered_parent_ids,
+            tree_data,
+            transaction,
+            filter,
+            commit_filter.into_meta(),
+        )
+    };
+    Some(filtered_commit).transpose()
 }
 
 /// Rebuild the stack from `base_oid` to `change_oid`, dropping intermediate commits
@@ -3134,5 +2794,254 @@ mod tests {
             build_tree(&repo, &[("ns/keep/f.txt", "keep")]),
             "sibling subtree must survive"
         );
+    }
+    struct FixedResolver(gix_hash::ObjectId);
+
+    impl josh_filter::ObjectResolver for FixedResolver {
+        fn resolve(
+            &self,
+            _kind: josh_filter::ObjectKind,
+            revision: &str,
+        ) -> anyhow::Result<Option<gix_hash::ObjectId>> {
+            Ok(match revision {
+                "baseline" | "" => Some(self.0),
+                _ => None,
+            })
+        }
+    }
+
+    fn test_transaction(repo: &gix::Repository) -> cache::Transaction {
+        cache::TransactionContext::new(repo.path(), std::sync::Arc::new(cache::CacheStack::new()))
+            .open()
+            .unwrap()
+    }
+
+    #[test]
+    fn missing_stored_definition_resolves_to_empty() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let source_tree = build_tree(&repo, &[("kept", "content")]);
+        let transaction = test_transaction(&repo);
+
+        let resolved = resolve_repository_filters(
+            &transaction,
+            Filter::new().stored("optional"),
+            source_tree,
+            &parse,
+        )
+        .unwrap();
+        let rewritten = apply(&transaction, resolved, Rewrite::from_tree(source_tree)).unwrap();
+
+        assert_eq!(rewritten.tree_id(), tree::empty_id());
+    }
+
+    #[test]
+    fn contextual_resolution_handles_stored_workspace_and_nested_definitions() {
+        if !experimental_features_enabled() {
+            return;
+        }
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let baseline_tree = build_tree(&repo, &[("selected", "baseline")]);
+        let source_tree = build_tree(
+            &repo,
+            &[
+                ("defs/base.josh", ":$.={#baseline}\n"),
+                ("defs/nested.josh", ":+defs/base\n"),
+                ("ws/workspace.josh", ":+defs/nested\n"),
+            ],
+        );
+        let transaction = test_transaction(&repo);
+        let resolver = FixedResolver(baseline_tree);
+        let parser = |spec: &str| josh_filter::parse_with_resolver(spec, &resolver);
+        let filter = compose(&[
+            Filter::new().stored("defs/nested"),
+            Filter::new().workspace("ws"),
+        ]);
+
+        let resolved =
+            resolve_repository_filters(&transaction, filter, source_tree, &parser).unwrap();
+        assert!(!needs_repository_resolution(resolved));
+        let rendered = pretty(resolved, 0);
+        assert!(rendered.contains(&baseline_tree.to_string()));
+        assert!(rendered.contains("base.josh"), "{rendered}");
+        assert!(rendered.contains("workspace.josh"));
+    }
+
+    #[test]
+    fn contextual_chain_loads_definitions_from_intermediate_tree() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let source_tree = build_tree(
+            &repo,
+            &[
+                ("defs/pick.josh", ":/old\n"),
+                ("old/value", "old"),
+                ("new/value", "new"),
+            ],
+        );
+        let replacement_tree = build_tree(
+            &repo,
+            &[
+                ("defs/pick.josh", ":/new\n"),
+                ("old/value", "old"),
+                ("new/value", "new"),
+            ],
+        );
+        let transaction = test_transaction(&repo);
+        let filter = parse(&format!(":$.={replacement_tree}:+defs/pick")).unwrap();
+
+        let resolved =
+            resolve_repository_filters(&transaction, filter, source_tree, &parse).unwrap();
+        let rendered = pretty(resolved, 0);
+        assert!(rendered.contains(":/new"));
+        assert!(!rendered.contains(":/old"));
+    }
+
+    #[test]
+    fn contextual_definition_errors_are_strict_and_cache_local() {
+        if !experimental_features_enabled() {
+            return;
+        }
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let source_tree = build_tree(
+            &repo,
+            &[(
+                "defs/context-only.josh",
+                "# unique contextual cache test\n:$.={#missing}\n",
+            )],
+        );
+        let transaction = test_transaction(&repo);
+        let reader = tree::read_tree(&transaction, transaction.odb(), source_tree).unwrap();
+        let blob = tree::get_path_entry_at(
+            &transaction,
+            transaction.odb(),
+            &reader,
+            Path::new("defs/context-only.josh"),
+        )
+        .unwrap()
+        .unwrap()
+        .oid;
+        assert!(!WORKSPACES.lock().unwrap().contains_key(&blob));
+
+        let resolver = FixedResolver(build_tree(&repo, &[("selected", "baseline")]));
+        let parser = |spec: &str| josh_filter::parse_with_resolver(spec, &resolver);
+        let error = resolve_repository_filters(
+            &transaction,
+            Filter::new().stored("defs/context-only"),
+            source_tree,
+            &parser,
+        )
+        .unwrap_err();
+        let error = format!("{error:#}");
+        assert!(error.contains("defs/context-only.josh"));
+        assert!(error.contains("undefined revision variable `missing`"));
+        assert!(!WORKSPACES.lock().unwrap().contains_key(&blob));
+    }
+
+    #[test]
+    fn contextual_bindings_change_filters_without_changing_static_behavior() {
+        if !experimental_features_enabled() {
+            return;
+        }
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let source_tree = build_tree(
+            &repo,
+            &[
+                ("defs/context.josh", ":$.={#baseline}\n"),
+                ("defs/static.josh", ":/source\n"),
+                ("source/value", "source"),
+            ],
+        );
+        let first_tree = build_tree(&repo, &[("selected", "first")]);
+        let second_tree = build_tree(&repo, &[("selected", "second")]);
+        let transaction = test_transaction(&repo);
+        let outer = Filter::new().stored("defs/context");
+
+        let first_resolver = FixedResolver(first_tree);
+        let first_parser = |spec: &str| josh_filter::parse_with_resolver(spec, &first_resolver);
+        let first =
+            resolve_repository_filters(&transaction, outer, source_tree, &first_parser).unwrap();
+        let second_resolver = FixedResolver(second_tree);
+        let second_parser = |spec: &str| josh_filter::parse_with_resolver(spec, &second_resolver);
+        let second =
+            resolve_repository_filters(&transaction, outer, source_tree, &second_parser).unwrap();
+        assert_ne!(first, second);
+
+        let static_filter = Filter::new().stored("defs/static");
+        let strict =
+            resolve_repository_filters(&transaction, static_filter, source_tree, &parse).unwrap();
+        let reader = tree::read_tree(&transaction, transaction.odb(), source_tree).unwrap();
+        let existing = get_stored(
+            &transaction,
+            transaction.odb(),
+            source_tree,
+            &reader,
+            Path::new("defs/static"),
+        );
+        assert_eq!(strict, existing);
+    }
+    #[test]
+    fn contextual_resolution_preserves_workspace_redirects() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let source_tree = build_tree(
+            &repo,
+            &[
+                ("old/workspace.josh", ":workspace=new\n"),
+                ("new/workspace.josh", ":/data\n"),
+                ("data/value", "selected"),
+            ],
+        );
+        let transaction = test_transaction(&repo);
+
+        let resolved = resolve_repository_filters(
+            &transaction,
+            Filter::new().workspace("old"),
+            source_tree,
+            &parse,
+        )
+        .unwrap();
+        assert!(!needs_repository_resolution(resolved));
+        let rendered = pretty(resolved, 0);
+        assert!(rendered.contains("new"), "{rendered}");
+        assert!(rendered.contains("workspace.josh"), "{rendered}");
+    }
+
+    #[test]
+    fn contextual_resolution_recurses_into_starlark_output() {
+        if !experimental_features_enabled() {
+            return;
+        }
+        let td = tempfile::tempdir().unwrap();
+        let repo = gix::init_bare(td.path()).unwrap();
+        let baseline_tree = build_tree(&repo, &[("selected", "baseline")]);
+        let source_tree = build_tree(
+            &repo,
+            &[
+                ("defs/generated.josh", ":$.={#baseline}\n"),
+                (
+                    "scripts/generated.star",
+                    "filter = filter.stored(\"defs/generated\")\n",
+                ),
+            ],
+        );
+        let transaction = test_transaction(&repo);
+        let resolver = FixedResolver(baseline_tree);
+        let parser = |spec: &str| josh_filter::parse_with_resolver(spec, &resolver);
+        let filter = to_filter(Op::Starlark(
+            PathBuf::from("scripts/generated"),
+            Filter::new(),
+        ));
+
+        let resolved =
+            resolve_repository_filters(&transaction, filter, source_tree, &parser).unwrap();
+        assert!(!needs_repository_resolution(resolved));
+        let rendered = pretty(resolved, 0);
+        assert!(rendered.contains(&baseline_tree.to_string()), "{rendered}");
+        assert!(rendered.contains("generated.star"), "{rendered}");
+        assert!(rendered.contains("generated.josh"), "{rendered}");
     }
 }

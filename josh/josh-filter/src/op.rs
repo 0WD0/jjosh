@@ -1,12 +1,4 @@
 use crate::filter::Filter;
-use anyhow::anyhow;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum LinkMode {
-    Embedded,
-    Snapshot,
-    Pointer,
-}
 
 /// Newtype around `regex::Regex` adding structural `PartialEq`/`Eq`/`Hash` (by pattern
 /// string) so `Op` can derive them for use as an interning key. Derefs to the inner regex.
@@ -34,33 +26,6 @@ impl std::hash::Hash for Regex {
     }
 }
 
-impl std::fmt::Display for LinkMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LinkMode::Embedded => write!(f, "embedded"),
-            LinkMode::Snapshot => write!(f, "snapshot"),
-            LinkMode::Pointer => write!(f, "pointer"),
-        }
-    }
-}
-
-impl LinkMode {
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
-        match s {
-            "embedded" => Ok(LinkMode::Embedded),
-            "snapshot" => Ok(LinkMode::Snapshot),
-            "pointer" => Ok(LinkMode::Pointer),
-            _ => Err(anyhow!("Unknown link mode: {:?}", s)),
-        }
-    }
-}
-
-#[derive(Hash, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-pub enum LazyRef {
-    Resolved(gix_hash::ObjectId),
-    Lazy(String),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum InsertContent {
     Inline(String),
@@ -72,38 +37,14 @@ pub enum InsertContent {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RevMatch {
-    /// `<` - matches if is_ancestor_of(commit, tip) && commit != tip (strict)
-    AncestorStrict,
-    /// `<=` - matches if is_ancestor_of(commit, tip) || commit == tip (inclusive)
-    AncestorInclusive,
-    /// `==` - matches if commit == tip
-    Equal,
-    /// `_` - default filter when no other matches (no SHA needed)
+    /// `<` - matches strict ancestors of the tip.
+    AncestorStrict(gix_hash::ObjectId),
+    /// `<=` - matches the tip and its ancestors.
+    AncestorInclusive(gix_hash::ObjectId),
+    /// `==` - matches only the tip.
+    Equal(gix_hash::ObjectId),
+    /// `_` - matches when no previous arm did.
     Default,
-}
-
-impl std::fmt::Display for LazyRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LazyRef::Resolved(id) => write!(f, "{}", id),
-            LazyRef::Lazy(lazy) => write!(f, "\"{}\"", lazy),
-        }
-    }
-}
-
-impl LazyRef {
-    pub fn parse(s: &str) -> anyhow::Result<LazyRef> {
-        let s = s.replace("'", "\"");
-        if let Ok(serde_json::Value::String(s)) = serde_json::from_str(&s) {
-            return Ok(LazyRef::Lazy(s));
-        }
-
-        if let Ok(oid) = s.parse() {
-            Ok(LazyRef::Resolved(oid))
-        } else {
-            Err(anyhow!("invalid ref: {:?}", s))
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -114,20 +55,14 @@ pub enum Op {
     Empty,
     Fold,
     Paths,
-    Adapt(String),
-    Link(Option<LinkMode>),
-    Unlink,
     Export,
-    Embed(std::path::PathBuf),
 
-    // We use BTreeMap rather than HashMap to guarantee deterministic results when
-    // converting to Filter
-    Squash(Option<std::collections::BTreeMap<LazyRef, Filter>>),
+    Squash,
     Author(String, String),
     Committer(String, String),
 
     // Vec instead of BTreeMap to preserve order - first match wins
-    Rev(Vec<(RevMatch, LazyRef, Filter)>),
+    Rev(Vec<(RevMatch, Filter)>),
     Prune,
     RegexReplace(Vec<(Regex, String)>),
 
@@ -152,7 +87,7 @@ pub enum Op {
     Pattern(std::sync::Arc<crate::pattern::CompiledPattern>),
     Message(String, Regex),
 
-    Unapply(LazyRef, Filter),
+    Unapply(gix_hash::ObjectId, Filter),
 
     Compose(Vec<Filter>),
     Chain(Vec<Filter>),
@@ -161,7 +96,7 @@ pub enum Op {
     Select(Filter),
     Pin(Filter),
 
-    Downstack(LazyRef),
+    Downstack(gix_hash::ObjectId),
 }
 
 impl Op {

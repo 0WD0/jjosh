@@ -16,6 +16,7 @@ gix-hash.workspace = true
 josh-core.workspace = true
 josh-filter.workspace = true
 josh-compose-backend.workspace = true
+josh-compose-graph.workspace = true
 
 tar = "0.4"
 

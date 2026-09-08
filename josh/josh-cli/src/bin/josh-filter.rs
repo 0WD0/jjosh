@@ -21,10 +21,33 @@ fn resolve_input_ref(
     Ok((ref_string, oid))
 }
 
+fn squash_ids_filter(
+    ids: &[(gix_hash::ObjectId, josh_core::filter::Filter)],
+) -> josh_core::filter::Filter {
+    josh_core::filter::to_filter(josh_core::filter::squash_to_rev(ids.iter().cloned()))
+}
+
 fn make_app() -> clap::Command {
     let app = clap::Command::new("josh-filter");
 
     let app = { app.arg(clap::Arg::new("search").long("search")) };
+    let app = {
+        app.arg(
+            clap::Arg::new("search-history")
+                .long("search-history")
+                .action(clap::ArgAction::SetTrue)
+                .help("With --search: search every commit of the filtered history"),
+        )
+        .arg(
+            clap::Arg::new("search-changes")
+                .long("search-changes")
+                .action(clap::ArgAction::SetTrue)
+                .help(
+                    "With --search: report commits that change the query's matches, like \
+                     git log -S at line granularity",
+                ),
+        )
+    };
 
     app
         .arg(
@@ -158,6 +181,44 @@ impl josh_core::cache::FilterHook for GitNotesFilterHook {
     }
 }
 
+/// Pickaxe-style history search: report every commit of the filtered history whose set of
+/// matching lines for the query differs from its (first) parent's, at line granularity.
+/// The change detection lives in josh_search::ChangeSweep; this walks the filtered graph
+/// parents-first and prints one line per change event.
+fn search_changes(
+    transaction: &josh_core::cache::Transaction,
+    filterobj: josh_core::filter::Filter,
+    input_ref: &str,
+    searchstring: &str,
+) -> anyhow::Result<()> {
+    let commit = transaction
+        .rev_parse(input_ref)?
+        .ok_or_else(|| anyhow!("no such revision: {}", input_ref))?;
+    let filtered_id = josh_core::filter_commit(transaction, filterobj, commit)?;
+    let ifilterobj = josh_core::filter::parse(":INDEX")?;
+    let odb = transaction.odb();
+
+    let mut sweep = josh_search::ChangeSweep::new(searchstring);
+    let mut scache = transaction.search_cache();
+
+    // Parents before children, so a commit can always reuse its parent's state.
+    let mut walk = josh_core::objects::RevWalk::new(odb);
+    walk.push(filtered_id)?;
+    for id in walk.into_topo_vec(|_| false)?.into_iter().rev() {
+        let tree = josh_core::objects::CommitData::read(odb, id)?.tree_id()?;
+        let index_tree = josh_core::filter::apply(
+            transaction,
+            ifilterobj,
+            josh_core::filter::Rewrite::from_tree(tree),
+        )?
+        .tree_id();
+        let parents = josh_core::git::read_parent_ids(odb, id)?;
+        for event in sweep.process(odb, &mut scache, id, &parents, tree, index_tree)? {
+            println!("{} {} {} -> {}", id, event.path, event.before, event.after);
+        }
+    }
+    Ok(())
+}
 fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
     let args = make_app().get_matches_from(args);
 
@@ -217,9 +278,7 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
     refs.push((input_ref.clone(), oid));
 
     if args.get_flag("single") {
-        filterobj = josh_core::filter::Filter::new()
-            .squash(None)
-            .chain(filterobj);
+        filterobj = josh_core::filter::Filter::new().squash().chain(filterobj);
     }
 
     if let Some(pattern) = args.get_one::<String>("squash-pattern") {
@@ -236,9 +295,7 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
             refs.push((name.to_string(), target));
             Ok(())
         })?;
-        filterobj = josh_core::filter::Filter::new()
-            .squash(Some(&ids))
-            .chain(filterobj);
+        filterobj = squash_ids_filter(&ids).chain(filterobj);
     };
 
     if let Some(filename) = args.get_one::<String>("squash-file") {
@@ -255,9 +312,7 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
                 eprintln!("Warning: malformed line: {:?}", line);
             }
         }
-        filterobj = josh_core::filter::Filter::new()
-            .squash(Some(&ids))
-            .chain(filterobj);
+        filterobj = squash_ids_filter(&ids).chain(filterobj);
     };
 
     if args.get_flag("print-filter") {
@@ -337,6 +392,59 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
     josh_core::update_refs(&transaction, updated_refs.clone());
 
     if let Some(searchstring) = args.get_one::<String>("search") {
+        if args.get_flag("search-changes") {
+            if !josh_core::filter::experimental_features_enabled() {
+                anyhow::bail!("--search-changes requires JOSH_EXPERIMENTAL_FEATURES=1");
+            }
+            search_changes(&transaction, filterobj, &input_ref, searchstring)?;
+            return Ok(0);
+        }
+        if args.get_flag("search-history") {
+            if !josh_core::filter::experimental_features_enabled() {
+                anyhow::bail!("--search-history requires JOSH_EXPERIMENTAL_FEATURES=1");
+            }
+            // Search every reachable commit of the filtered history (like `git log -S`, the
+            // whole graph, not just first-parent). Walking the filtered graph directly gives
+            // exactly the trees being searched — no mapping back and forth between original
+            // and filtered commits.
+            let commit = transaction
+                .rev_parse(&input_ref)?
+                .ok_or_else(|| anyhow!("no such revision: {}", input_ref))?;
+            let filtered_id = josh_core::filter_commit(&transaction, filterobj, commit)?;
+            let ifilterobj = josh_core::filter::parse(":INDEX")?;
+            let odb = transaction.odb();
+
+            let mut walk = josh_core::objects::RevWalk::new(odb);
+            walk.push(filtered_id)?;
+            for id in walk.into_topo_vec(|_| false)? {
+                let tree = josh_core::objects::CommitData::read(odb, id)?.tree_id()?;
+                let index_tree = josh_core::filter::apply(
+                    &transaction,
+                    ifilterobj,
+                    josh_core::filter::Rewrite::from_tree(tree),
+                )?
+                .tree_id();
+                let candidates = josh_search::search_candidates(
+                    odb,
+                    &mut transaction.search_cache(),
+                    index_tree,
+                    tree,
+                    searchstring,
+                )?;
+                let matches = josh_search::search_matches(
+                    odb,
+                    &mut transaction.search_cache(),
+                    searchstring,
+                    &candidates,
+                )?;
+                for r in matches {
+                    for l in r.1 {
+                        println!("{}:{}:{}: {}", id, r.0, l.0, l.1);
+                    }
+                }
+            }
+            return Ok(0);
+        }
         let commit = transaction
             .rev_parse(&input_ref)?
             .ok_or_else(|| anyhow!("no such revision: {}", input_ref))?;
@@ -351,10 +459,22 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
         // The trigram index is experimental; without it every file is a candidate and
         // search_matches does all the filtering, so results are identical, just slower.
         let candidates = if josh_core::filter::experimental_features_enabled() {
-            let ifilterobj = filterobj.chain(josh_core::filter::parse(":SQUASH:INDEX")?);
-            let index_commit = josh_core::filter_commit(&transaction, ifilterobj, commit)?;
-            let index_tree = josh_core::objects::CommitData::read(odb, index_commit)?.tree_id()?;
-            josh_search::search_candidates(odb, index_tree, tree, searchstring)?
+            // Index just the tip tree: no history walk needed for a one-shot search, and the
+            // per-tree memoization shares everything with any other indexing of the same
+            // trees.
+            let index_tree = josh_core::filter::apply(
+                &transaction,
+                josh_core::filter::parse(":INDEX")?,
+                josh_core::filter::Rewrite::from_tree(tree),
+            )?
+            .tree_id();
+            josh_search::search_candidates(
+                odb,
+                &mut transaction.search_cache(),
+                index_tree,
+                tree,
+                searchstring,
+            )?
         } else {
             let mut scan = vec![];
             josh_core::objects::walk_tree_preorder(odb, tree, &mut |parent, entry| {
@@ -363,13 +483,21 @@ fn run_filter(args: Vec<String>) -> anyhow::Result<i32> {
                     && let Ok(name) = std::str::from_utf8(entry.filename)
                 {
                     let separator = if parent.is_empty() { "" } else { "/" };
-                    scan.push(format!("{}{}{}", parent, separator, name));
+                    scan.push((
+                        format!("{}{}{}", parent, separator, name),
+                        entry.oid.to_owned(),
+                    ));
                 }
                 Ok(())
             })?;
             scan
         };
-        let matches = josh_search::search_matches(odb, tree, searchstring, &candidates)?;
+        let matches = josh_search::search_matches(
+            odb,
+            &mut transaction.search_cache(),
+            searchstring,
+            &candidates,
+        )?;
 
         for r in matches {
             for l in r.1 {

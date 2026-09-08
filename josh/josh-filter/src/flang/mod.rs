@@ -1,4 +1,5 @@
 pub mod parse;
+pub use parse::{ObjectKind, ObjectResolver, parse_with_resolver};
 
 use crate::filter::MESSAGE_MATCH_ALL_REGEX;
 use crate::filter::{reachable_roots, sequence_number};
@@ -116,14 +117,6 @@ fn pretty2(op: &Op, indent: usize, compose: bool) -> String {
                 .collect::<Vec<_>>();
             format!(":replace(\n{}\n)", v.join("\n"))
         }
-        Op::Squash(Some(ids)) => {
-            let mut v = ids
-                .iter()
-                .map(|(oid, f)| format!("{}{}{}", " ".repeat(indent), &oid.to_string(), spec(*f)))
-                .collect::<Vec<_>>();
-            v.sort();
-            format!(":squash(\n{}\n)", v.join("\n"))
-        }
         Op::Meta(meta, filter) => {
             let ind2 = std::cmp::max(indent, 4);
             let mut meta_parts: Vec<_> = meta
@@ -184,14 +177,14 @@ pub(crate) fn spec2(op: &Op) -> String {
             // No sorting - preserve order for first-match semantics
             let v = filters
                 .iter()
-                .map(|(match_op, k, v)| {
+                .map(|(match_op, filter)| {
                     let match_str = match match_op {
-                        RevMatch::AncestorStrict => format!("<{}", k),
-                        RevMatch::AncestorInclusive => format!("<={}", k),
-                        RevMatch::Equal => format!("=={}", k),
+                        RevMatch::AncestorStrict(oid) => format!("<{}", oid),
+                        RevMatch::AncestorInclusive(oid) => format!("<={}", oid),
+                        RevMatch::Equal(oid) => format!("=={}", oid),
                         RevMatch::Default => "_".to_string(),
                     };
-                    format!("{}{}", match_str, spec(*v))
+                    format!("{}{}", match_str, spec(*filter))
                 })
                 .collect::<Vec<_>>();
             format!(":rev({})", v.join(","))
@@ -253,20 +246,8 @@ pub(crate) fn spec2(op: &Op) -> String {
         Op::Invert => ":INVERT".to_string(),
         Op::Index => ":INDEX".to_string(),
         Op::Fold => ":FOLD".to_string(),
-        Op::Squash(None) => ":SQUASH".to_string(),
-        Op::Squash(Some(ids)) => {
-            let mut v = ids
-                .iter()
-                .map(|(oid, f)| format!("{}{}", oid, spec(*f)))
-                .collect::<Vec<_>>();
-            v.sort();
-            format!(":squash({})", v.join(","))
-        }
-        Op::Adapt(adapter) => format!(":adapt={}", adapter),
-        Op::Link(None) => ":link".to_string(),
-        Op::Link(Some(mode)) => format!(":link={}", mode),
+        Op::Squash => ":SQUASH".to_string(),
         Op::Export => ":export".to_string(),
-        Op::Unlink => ":unlink".to_string(),
         Op::Subdir(path) => format!(":/{}", parse::quote_if(&path.to_string_lossy())),
         Op::Insert(path, content) => {
             let p = parse::quote_if(&path.to_string_lossy());
@@ -289,9 +270,6 @@ pub(crate) fn spec2(op: &Op) -> String {
         Op::Prune => ":prune=trivial-merge".to_string(),
         Op::Prefix(path) => format!(":prefix={}", parse::quote_if(&path.to_string_lossy())),
         Op::Pattern(glob) => format!("::{}", parse::quote_if(glob.as_str())),
-        Op::Embed(path) => {
-            format!(":embed={}", parse::quote_if(&path.to_string_lossy()),)
-        }
         Op::Author(author, email) => {
             format!(":author={};{}", parse::quote(author), parse::quote(email))
         }

@@ -1,22 +1,22 @@
 //! Trigram based code search index for git repositories.
 //!
-//! The index of a tree is itself a git tree: an exact inverted index mapping every trigram
-//! (3-byte window of file content, case-folded and with punctuation classes normalized, see
-//! [`fold_byte`]) to the set of files containing it. For a trigram with bytes
-//! `(b1, b2, b3)`, the index contains
+//! The index of a tree is itself a git tree: an inverted index mapping every trigram
+//! (3-character window of file content, normalized by [`fold_char`]) to the set of files
+//! containing it. Each trigram hashes to a fixed "spine" path of one tree level per
+//! [`SPINE_BITS`] entry (see [`spine_path`]), below which a mirror of the source tree's
+//! structure, restricted to the files containing that trigram, hangs:
 //!
 //! ```text
-//! <hex(b1)>/<hex(b2)>/<hex(b3)>/path/to/file
+//! <hex(s1)>/<hex(s2)>/<bucket>/<bucket>...
 //! ```
 //!
-//! with the empty blob as the leaf marker. The subtree below a trigram's three "spine" levels
-//! mirrors the source tree's structure restricted to files containing that trigram.
-//!
-//! Mirror granularity is adaptive: small directories (see [`COARSE_MAX_FILES`] /
-//! [`COARSE_MAX_BYTES`]) appear as a single blob leaf — "some file under this directory
-//! contains the trigram" — instead of per-file structure, collapsing the per-trigram file
-//! subset variety where it is cheapest to re-verify. Search expands such a coarse hit to every
-//! file under the directory, so candidates stay a superset and verification stays exact.
+//! with the empty blob as the leaf marker. Four lossy steps keep that structure small: the
+//! fold merges trigram classes, hashing lets trigrams share a spine leaf, mirror entries are
+//! named by a one-byte hash of the source name ([`bucket_name`]) so colliding siblings share
+//! a bucket, and small directories are recorded at directory granularity
+//! ([`COARSE_MAX_FILES`]). None of them can drop a file from a trigram's set, only add one,
+//! so candidates are a superset of the true matches and [`search_matches`] verifies byte for
+//! byte.
 //!
 //! Indexes are built compositionally: each file gets a small trigram tree of its own, child
 //! directory indexes are lifted into the parent's namespace, and a directory's children are
@@ -26,9 +26,9 @@
 //! [`gix_object`], and only the objects a finished index references are written to the
 //! object database.
 //!
-//! Searching extracts the query's trigrams, resolves each with a single three-level lookup, and
-//! intersects the mirror subtrees; the resulting candidate files are exact (files containing all
-//! query trigrams), leaving only string-level verification to [`search_matches`].
+//! Searching extracts the query's trigrams, resolves each with a single spine lookup, and
+//! intersects the mirror subtrees; [`SearchCache`] memoizes that work by content, so
+//! searching a history reuses whatever its commits share.
 //!
 //! This crate is independent of the josh filter machinery: it operates on plain Git objects and
 //! memoizes tree-to-index mappings through the [`IndexCache`] trait the caller provides.
@@ -54,32 +54,69 @@ fn empty_blob() -> gix_hash::ObjectId {
     gix_hash::ObjectId::empty_blob(gix_hash::Kind::Sha1)
 }
 
-/// Fold a byte for trigram extraction: ASCII letters lowercase, and every ASCII byte that is
-/// not alphanumeric or `_` (whitespace, punctuation, brackets, operators) becomes one class
-/// glyph. Folding collapses the combinatorial variety of near-content-free trigrams — on
-/// typical source trees it shrinks the index by more than a third — while folded trigrams keep
-/// their positional filtering power (a query like `foo(` still requires a non-word byte after
-/// `foo`). Non-ASCII bytes pass through untouched, so UTF-8 validity of a window is unaffected.
-fn fold_byte(b: u8) -> u8 {
-    match b {
-        b'A'..=b'Z' => b + 32,
-        b if b < 128 && !(b.is_ascii_alphanumeric() || b == b'_') => b' ',
-        _ => b,
+/// ASCII punctuation kept distinct by [`fold_char`] instead of collapsing into the class
+/// glyph: brackets, operators and common punctuation carry real structure in code, and
+/// keeping them distinct is what makes queries like `->foo(` or `a[i]` selective. Changing
+/// this set changes the index format.
+const KEEP_DISTINCT: &[u8] = br#"()[]{}<>+-*/=&|!~^%.,;:#@"'\"#;
+
+/// The fold class of every non-ASCII character. Distinct from the whitespace glyph so
+/// non-ASCII runs keep their boundary signal (`naïve` stays distinguishable from `na ve`),
+/// and free for that purpose because a literal DEL folds to the whitespace glyph. Collapsing
+/// per character (not per byte) keeps the folded alphabet pure ASCII, bounding the trigram
+/// key space regardless of how much non-ASCII text a corpus contains; the cost is that
+/// non-ASCII query text carries no per-character selectivity (verification stays exact).
+const NON_ASCII_GLYPH: u8 = 0x7f;
+
+const fn keeps_distinct(b: u8) -> bool {
+    let mut i = 0;
+    while i < KEEP_DISTINCT.len() {
+        if KEEP_DISTINCT[i] == b {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Fold a character for trigram extraction: ASCII letters lowercase; alphanumerics, `_` and
+/// the [`KEEP_DISTINCT`] punctuation stay themselves; every other ASCII character (whitespace
+/// and the remaining punctuation) becomes one class glyph, and every non-ASCII character
+/// becomes [`NON_ASCII_GLYPH`]. Folding collapses the combinatorial variety of
+/// near-content-free trigrams — indentation and line-break variants of the same code —
+/// while folded trigrams keep their positional filtering power (a query like `foo(` still
+/// requires the exact `(` after `foo`).
+const FOLD_TABLE: [u8; 128] = {
+    let mut table = [0u8; 128];
+    let mut i = 0;
+    while i < 128 {
+        let b = i as u8;
+        table[i] = if b.is_ascii_uppercase() {
+            b + 32
+        } else if b.is_ascii_alphanumeric() || b == b'_' || keeps_distinct(b) {
+            b
+        } else {
+            b' '
+        };
+        i += 1;
+    }
+    table
+};
+
+fn fold_char(c: char) -> u8 {
+    if c.is_ascii() {
+        FOLD_TABLE[c as usize]
+    } else {
+        NON_ASCII_GLYPH
     }
 }
 
-/// All distinct trigrams of `content`: 3-byte windows of the [`fold_byte`]-normalized bytes
-/// that are valid UTF-8. Used identically on the index side and the query side, which is what
-/// keeps the index exact: folding only merges trigram classes, so a query trigram is found in
-/// every file containing the query string, candidates are a superset of the true matches, and
-/// [`search_matches`] still verifies the original string byte for byte.
+/// All distinct trigrams of `content`: 3-character windows of the [`fold_char`]-normalized
+/// text. Index side and query side must fold identically — that is what makes every trigram
+/// of a query present in every file containing the query string.
 fn distinct_trigrams(content: &str) -> BTreeSet<[u8; 3]> {
-    let folded: Vec<u8> = content.bytes().map(fold_byte).collect();
-    folded
-        .windows(3)
-        .filter(|w| std::str::from_utf8(w).is_ok())
-        .map(|w| [w[0], w[1], w[2]])
-        .collect()
+    let folded: Vec<u8> = content.chars().map(fold_char).collect();
+    folded.windows(3).map(|w| [w[0], w[1], w[2]]).collect()
 }
 
 /// Read the blob `oid` as text, or "" if it is absent, contains a NUL byte, or is not UTF-8.
@@ -106,6 +143,106 @@ fn hex_name(b: u8) -> BString {
     format!("{:02x}", b).into()
 }
 
+/// Spine geometry: every trigram maps to a path of `SPINE_BITS.len()` tree levels, level
+/// `i`'s name being a `SPINE_BITS[i]`-bit slice of [`trigram_hash`], giving a spine of
+/// `2^(sum)` buckets with content-independent fan-out. The widths may differ per level to
+/// trade node size against node count. The constant is format-defining: changing it changes
+/// every index.
+const SPINE_BITS: &[u32] = &[6, 6];
+const SPINE_LEVELS: usize = SPINE_BITS.len();
+const _: () = {
+    let mut total = 0;
+    let mut i = 0;
+    while i < SPINE_BITS.len() {
+        assert!(1 <= SPINE_BITS[i] && SPINE_BITS[i] <= 8);
+        total += SPINE_BITS[i];
+        i += 1;
+    }
+    assert!(SPINE_LEVELS >= 1 && total <= 64);
+};
+
+/// FNV-1a over the folded trigram, finished with one murmur fmix64 step: FNV alone passes
+/// its last input byte through a single multiply, too little mixing for the small bit
+/// slices [`spine_path`] takes. Format-defining like the geometry constants.
+fn trigram_hash(t: [u8; 3]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    let mut i = 0;
+    while i < 3 {
+        h = (h ^ t[i] as u64).wrapping_mul(0x00000100000001b3);
+        i += 1;
+    }
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xff51afd7ed558ccd);
+    h ^ (h >> 33)
+}
+
+/// The spine path of a trigram: one byte of [`SPINE_BITS`]`[i]` bits per level, sliced
+/// consecutively from [`trigram_hash`]. Trigrams whose paths collide share a spine leaf,
+/// whose mirror is then the union of their file sets.
+fn spine_path(t: [u8; 3]) -> [u8; SPINE_LEVELS] {
+    let h = trigram_hash(t);
+    let mut path = [0u8; SPINE_LEVELS];
+    let mut shift = 0;
+    for (i, &bits) in SPINE_BITS.iter().enumerate() {
+        path[i] = ((h >> shift) & ((1u64 << bits) - 1)) as u8;
+        shift += bits;
+    }
+    path
+}
+
+/// The mirror entry name of a source entry: a one-byte FNV-1a hash of its name, as two hex
+/// chars. Depending only on the entry's own name keeps mirrors stable when siblings come and
+/// go (a dense scheme like positions would rename neighbours on every insertion), while
+/// cutting entry names to two bytes and capping mirror fan-out at 256. Colliding names share
+/// a bucket, which then means "some member contains the trigram".
+fn bucket_byte(name: &[u8]) -> u8 {
+    let mut h: u32 = 0x811c9dc5;
+    for &b in name {
+        h = (h ^ b as u32).wrapping_mul(0x01000193);
+    }
+    (h ^ (h >> 8) ^ (h >> 16) ^ (h >> 24)) as u8
+}
+
+fn bucket_name(name: &[u8]) -> String {
+    format!("{:02x}", bucket_byte(name))
+}
+
+/// A byte as two lowercase hex chars — the fixed-width entry-name form used by both the spine
+/// and the mirror bucket levels.
+fn hex_pair(b: u8) -> [u8; 2] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    [HEX[(b >> 4) as usize], HEX[(b & 15) as usize]]
+}
+
+/// Parse a mirror entry name (two lowercase hex chars) back into its bucket byte.
+fn parse_bucket(name: &[u8]) -> Option<u8> {
+    fn hex_val(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            _ => None,
+        }
+    }
+    match name {
+        [hi, lo] => Some(hex_val(*hi)? * 16 + hex_val(*lo)?),
+        _ => None,
+    }
+}
+
+/// A source directory's indexable entries with their mirror bucket names: blobs and trees in
+/// git tree order; other kinds (submodules etc.) are not indexed. Bucket names repeat on
+/// collision. The index side and the search side must both enumerate exactly this way — it is
+/// the bucket -> entries mapping, derived from the source tree instead of stored in the index.
+fn bucketed_entries(
+    entries: &[gix_object::tree::Entry],
+) -> Vec<(String, &gix_object::tree::Entry)> {
+    entries
+        .iter()
+        .filter(|e| !e.mode.is_commit())
+        .map(|e| (bucket_name(&e.filename), e))
+        .collect()
+}
+
 fn tree_entry(filename: BString, oid: gix_hash::ObjectId) -> gix_object::tree::Entry {
     gix_object::tree::Entry {
         mode: gix_object::tree::EntryKind::Tree.into(),
@@ -130,7 +267,7 @@ pub struct Indexer {
     trees: HashMap<gix_hash::ObjectId, std::sync::Arc<gix_object::Tree>>,
     /// Source tree -> index, for trees indexed or cache-resolved with this state.
     tree_memo: HashMap<gix_hash::ObjectId, gix_hash::ObjectId>,
-    /// Source blob and entry name -> the file's wrapped trigram tree. The name is part of the
+    /// Source blob and bucket -> the file's wrapped trigram tree. The bucket is part of the
     /// key because the mirror entries inside carry it.
     blob_memo: HashMap<(gix_hash::ObjectId, String), gix_hash::ObjectId>,
     /// Source blob -> its nameless trigram spine (empty-blob leaves), the building block of
@@ -221,64 +358,76 @@ impl Run<'_> {
     }
 
     /// Build the spine of `content`'s trigrams with `(leaf_mode, leaf_oid)` at every
-    /// `hex(b1)/hex(b2)/hex(b3)` leaf, or the empty tree when there are no trigrams.
+    /// [`spine_path`] leaf, or the empty tree when there are no trigrams.
     fn content_spine(
         &mut self,
         content: &str,
         leaf_mode: gix_object::tree::EntryMode,
         leaf_oid: gix_hash::ObjectId,
     ) -> gix_hash::ObjectId {
-        // b1 -> b2 -> [b3]; already sorted, write_tree's canonical sort is a no-op here.
-        let mut spine: BTreeMap<u8, BTreeMap<u8, Vec<u8>>> = BTreeMap::new();
-        for t in distinct_trigrams(content) {
-            spine
-                .entry(t[0])
-                .or_default()
-                .entry(t[1])
-                .or_default()
-                .push(t[2]);
-        }
-        if spine.is_empty() {
+        // The set dedups colliding trigrams (same path, identical leaf here) and keeps the
+        // paths in hex order, so write_tree's canonical sort is a no-op below.
+        let paths: BTreeSet<[u8; SPINE_LEVELS]> = distinct_trigrams(content)
+            .iter()
+            .map(|t| spine_path(*t))
+            .collect();
+        if paths.is_empty() {
             return empty_tree();
         }
+        let paths: Vec<_> = paths.into_iter().collect();
+        self.spine_subtree(&paths, 0, leaf_mode, leaf_oid)
+    }
 
-        let mut l1 = Vec::new();
-        for (b1, l2s) in spine {
-            let mut l2 = Vec::new();
-            for (b2, b3s) in l2s {
-                let l3 = b3s
-                    .into_iter()
-                    .map(|b3| gix_object::tree::Entry {
-                        mode: leaf_mode,
-                        filename: hex_name(b3),
-                        oid: leaf_oid,
-                    })
-                    .collect();
-                l2.push(tree_entry(hex_name(b2), self.write_tree(l3)));
+    /// One spine level: group the sorted, deduplicated `paths` by their byte at `depth`,
+    /// recursing per group and emitting the leaf entries at the last level.
+    fn spine_subtree(
+        &mut self,
+        paths: &[[u8; SPINE_LEVELS]],
+        depth: usize,
+        leaf_mode: gix_object::tree::EntryMode,
+        leaf_oid: gix_hash::ObjectId,
+    ) -> gix_hash::ObjectId {
+        let mut entries = Vec::new();
+        let mut i = 0;
+        while i < paths.len() {
+            let byte = paths[i][depth];
+            let mut j = i + 1;
+            while j < paths.len() && paths[j][depth] == byte {
+                j += 1;
             }
-            l1.push(tree_entry(hex_name(b1), self.write_tree(l2)));
+            if depth + 1 == SPINE_LEVELS {
+                entries.push(gix_object::tree::Entry {
+                    mode: leaf_mode,
+                    filename: hex_name(byte),
+                    oid: leaf_oid,
+                });
+            } else {
+                let child = self.spine_subtree(&paths[i..j], depth + 1, leaf_mode, leaf_oid);
+                entries.push(tree_entry(hex_name(byte), child));
+            }
+            i = j;
         }
-        self.write_tree(l1)
+        self.write_tree(entries)
     }
 
     /// The wrapped trigram tree of one file: its trigram spine with the one-entry mirror
-    /// `{name: empty blob}` at every leaf. Building the wrapped form directly (rather than
+    /// `{bucket: empty blob}` at every leaf. Building the wrapped form directly (rather than
     /// wrapping afterwards via [`wrap`](Run::wrap)) avoids an intermediate tree that would
     /// be rewritten anyway.
     fn index_blob(
         &mut self,
         oid: gix_hash::ObjectId,
-        name: &str,
+        bucket: &str,
         content: &str,
     ) -> gix_hash::ObjectId {
-        let key = (oid, name.to_owned());
+        let key = (oid, bucket.to_owned());
         if let Some(id) = self.ix.blob_memo.get(&key) {
             return *id;
         }
 
         let mirror = self.write_tree(vec![gix_object::tree::Entry {
             mode: gix_object::tree::EntryKind::Blob.into(),
-            filename: name.into(),
+            filename: bucket.into(),
             oid: empty_blob(),
         }]);
         let id = self.content_spine(content, gix_object::tree::EntryKind::Tree.into(), mirror);
@@ -361,53 +510,56 @@ impl Run<'_> {
     }
 
     /// Lift a child directory's index into its parent's namespace by nesting each mirror `M`
-    /// as the single-entry tree `{name: M}`. Only directories go through here:
+    /// as the single-entry tree `{bucket: M}`. Only directories go through here:
     /// [`index_blob`](Run::index_blob) builds the wrapped form of file entries directly.
     fn wrap(
         &mut self,
-        name: &str,
+        bucket: &str,
         index: gix_hash::ObjectId,
     ) -> anyhow::Result<gix_hash::ObjectId> {
         if index == empty_tree() {
             return Ok(index);
         }
-        let key = (index, name.to_owned());
+        let key = (index, bucket.to_owned());
         if let Some(id) = self.ix.wrap_memo.get(&key) {
             return Ok(*id);
         }
 
-        let l1 = self.read_tree(index)?;
-        let mut e1 = Vec::with_capacity(l1.entries.len());
-        for c1 in l1.entries.iter() {
-            let l2 = self.read_tree(c1.oid)?;
-            let mut e2 = Vec::with_capacity(l2.entries.len());
-            for c2 in l2.entries.iter() {
-                let l3 = self.read_tree(c2.oid)?;
-                let mut e3 = Vec::with_capacity(l3.entries.len());
-                for leaf in l3.entries.iter() {
-                    let mirror = vec![gix_object::tree::Entry {
-                        mode: leaf.mode,
-                        filename: name.into(),
-                        oid: leaf.oid,
-                    }];
-                    e3.push(tree_entry(leaf.filename.clone(), self.write_tree(mirror)));
-                }
-                e2.push(tree_entry(c2.filename.clone(), self.write_tree(e3)));
-            }
-            e1.push(tree_entry(c1.filename.clone(), self.write_tree(e2)));
-        }
-
-        let id = self.write_tree(e1);
+        let id = self.wrap_level(bucket, index, SPINE_LEVELS)?;
         self.ix.wrap_memo.insert(key, id);
         Ok(id)
     }
 
-    /// Merge index trees, all inputs at once: entries are grouped by name across every input
-    /// and each group merges recursively, so every result node is written exactly once (a
+    /// Rewrite one spine level for [`wrap`](Run::wrap): with `remaining` levels left the
+    /// entries are spine nodes to recurse into; at the last level they are the mirrors (or
+    /// coarse leaves) to nest under `bucket`.
+    fn wrap_level(
+        &mut self,
+        bucket: &str,
+        node: gix_hash::ObjectId,
+        remaining: usize,
+    ) -> anyhow::Result<gix_hash::ObjectId> {
+        let tree = self.read_tree(node)?;
+        let mut entries = Vec::with_capacity(tree.entries.len());
+        for e in tree.entries.iter() {
+            let child = if remaining == 1 {
+                self.write_tree(vec![gix_object::tree::Entry {
+                    mode: e.mode,
+                    filename: bucket.into(),
+                    oid: e.oid,
+                }])
+            } else {
+                self.wrap_level(bucket, e.oid, remaining - 1)?
+            };
+            entries.push(tree_entry(e.filename.clone(), child));
+        }
+        Ok(self.write_tree(entries))
+    }
+
+    /// Merge index trees, all inputs at once, so every result node is written exactly once (a
     /// pairwise fold would rewrite the accumulated spine once per input). Same-name entries
-    /// are either trees (spine levels merge recursively; below the spine the wrapped mirrors
-    /// of a directory's children have disjoint names) or identical coarse leaves (the empty
-    /// blob at the same spine position of several coarse spines), which collapse.
+    /// are either trees — spine levels, or two children hashing to the same bucket — which
+    /// merge recursively, or identical empty-blob leaves, which collapse.
     fn overlay_many(
         &mut self,
         mut inputs: Vec<gix_hash::ObjectId>,
@@ -484,24 +636,42 @@ impl Run<'_> {
             return Ok(id);
         }
 
-        let mut wrapped = Vec::with_capacity(tree.entries.len());
-        for entry in tree.entries.clone() {
-            let name = std::str::from_utf8(&entry.filename)?.to_owned();
-            let child_oid = entry.oid.to_owned();
+        // Mirror entries are named by bucket (name hash); bucketed_entries is the mapping and
+        // the search side derives the same one from the source tree. First decide what each
+        // entry contributes: files and small directories contribute blob leaves, large
+        // directories mirror subtrees — except in a bucket that mixes both kinds, where the
+        // large directories degrade to coarse leaves so the bucket's entries stay mergeable.
+        let entries = bucketed_entries(&tree.entries);
+        let mut leaf_buckets = HashSet::new();
+        for (bucket, entry) in &entries {
+            let is_leaf = if entry.mode.is_tree() {
+                self.is_small(entry.oid.to_owned())?
+            } else {
+                true
+            };
+            if is_leaf {
+                leaf_buckets.insert(bucket.clone());
+            }
+        }
+
+        let mut wrapped = Vec::with_capacity(entries.len());
+        for (bucket, entry) in &entries {
             if entry.mode.is_tree() {
+                let child_oid = entry.oid.to_owned();
                 // Small directories are recorded at directory granularity: one coarse
-                // leaf for the whole directory instead of per-file mirrors.
-                let child = if self.is_small(child_oid)? {
+                // leaf for the whole directory instead of per-file mirrors. Large ones
+                // too when their bucket also holds leaf contributions.
+                let coarse = self.is_small(child_oid)? || leaf_buckets.contains(bucket);
+                let child = if coarse {
                     self.coarse_index(child_oid)?
                 } else {
                     self.index_tree_oid(child_oid)?
                 };
-                wrapped.push(self.wrap(&name, child)?);
-            } else if !entry.mode.is_commit() {
+                wrapped.push(self.wrap(bucket, child)?);
+            } else {
                 let content = read_blob_text(self.src, entry.oid);
-                wrapped.push(self.index_blob(child_oid, &name, &content));
+                wrapped.push(self.index_blob(entry.oid.to_owned(), bucket, &content));
             }
-            // Submodules etc. are not indexed.
         }
         let index = self.overlay_many(wrapped)?;
 
@@ -582,32 +752,93 @@ pub fn trigram_index(
     Ok(index)
 }
 
+/// Search memoization, meant to be kept alive for many [`search_candidates`] /
+/// [`search_matches`] calls (josh keeps one per transaction). Everything is keyed by content
+/// — object ids and the query string — so entries are valid for any commit of the repository:
+/// searching a history reuses the candidate walks of every shared subtree and verifies every
+/// distinct blob once, no matter how many commits it appears in.
+#[derive(Default)]
+pub struct SearchCache {
+    /// (query, index tree, source tree) -> sorted candidate (path, blob) pairs.
+    candidates: HashMap<
+        (String, gix_hash::ObjectId, gix_hash::ObjectId),
+        std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>,
+    >,
+    /// (mirror roots (normalized), source tree) -> relative candidate (path, blob) pairs.
+    walks: HashMap<
+        (Vec<gix_hash::ObjectId>, gix_hash::ObjectId),
+        std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>,
+    >,
+    /// Mirror tree oid -> its entries in compact parsed form. Mirrors are shared heavily
+    /// across commits and trigrams, and parsing each distinct mirror once avoids repeated
+    /// object decoding.
+    mirrors: HashMap<gix_hash::ObjectId, std::sync::Arc<Vec<MirrorEntry>>>,
+    /// source tree -> all (relative path, blob) pairs under it.
+    all_paths: HashMap<gix_hash::ObjectId, std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>>,
+    /// (query, blob) -> matching (line number, line) pairs.
+    blob_matches: HashMap<(String, gix_hash::ObjectId), std::sync::Arc<Vec<(usize, String)>>>,
+}
+
 /// The candidate files for `searchstring`: those containing every trigram of the query.
 ///
 /// Queries shorter than three characters have no trigrams; every file of `source_tree` is a
 /// candidate then, and [`search_matches`] does the filtering.
 pub fn search_candidates(
     src: &dyn Objects,
+    cache: &mut SearchCache,
     index_tree: gix_hash::ObjectId,
     source_tree: gix_hash::ObjectId,
     searchstring: &str,
-) -> anyhow::Result<Vec<String>> {
-    let trigrams = distinct_trigrams(searchstring);
-
-    let mut results = vec![];
-    if trigrams.is_empty() {
-        collect_paths(src, source_tree, "", &mut results)?;
-        return Ok(results);
+) -> anyhow::Result<Vec<(String, gix_hash::ObjectId)>> {
+    let key = (searchstring.to_owned(), index_tree, source_tree);
+    if let Some(hit) = cache.candidates.get(&key) {
+        return Ok((**hit).clone());
     }
 
+    let results = match query_roots(src, cache, index_tree, searchstring)? {
+        // No usable trigrams: every file is a candidate.
+        None => (*all_paths(src, cache, source_tree)?).clone(),
+        Some(roots) if roots.is_empty() => vec![],
+        Some(roots) => (*walk(src, cache, roots, source_tree)?).clone(),
+    };
+
+    cache
+        .candidates
+        .insert(key, std::sync::Arc::new(results.clone()));
+    Ok(results)
+}
+
+/// The normalized mirror-root vector `searchstring` intersects in `index_tree`: sorted,
+/// deduplicated and capped, exactly the input [`search_candidates`] hands to the intersection.
+/// `None` means the query has no usable trigrams (every file is a candidate); an empty vector
+/// means some trigram is absent (no file can match). Equal vectors for two indexes imply
+/// equal candidate path sets — the basis for change detection across commits.
+pub fn query_roots(
+    src: &dyn Objects,
+    cache: &mut SearchCache,
+    index_tree: gix_hash::ObjectId,
+    searchstring: &str,
+) -> anyhow::Result<Option<Vec<gix_hash::ObjectId>>> {
+    let trigrams = distinct_trigrams(searchstring);
+    if trigrams.is_empty() {
+        return Ok(None);
+    }
+
+    // Resolve each trigram's spine levels through the parsed-mirror cache (spine names
+    // are the same fixed-width hex as bucket names): each distinct spine node is parsed once
+    // per process instead of once per lookup.
     let mut roots = vec![];
     for t in &trigrams {
-        let path = format!("{:02x}/{:02x}/{:02x}", t[0], t[1], t[2]);
-        match path_entry(src, index_tree, std::path::Path::new(&path))? {
-            Some(oid) => roots.push(oid),
-            // A trigram absent from the index cannot occur in any file.
-            None => return Ok(vec![]),
+        let mut node = index_tree;
+        for b in spine_path(*t) {
+            let entries = mirror_entries(src, cache, node)?;
+            match entries.binary_search_by_key(&hex_pair(b), |e| e.name) {
+                Ok(i) => node = entries[i].oid,
+                // A trigram absent from the index cannot occur in any file.
+                Err(_) => return Ok(Some(vec![])),
+            }
         }
+        roots.push(node);
     }
     roots.sort();
     roots.dedup();
@@ -619,7 +850,7 @@ pub fn search_candidates(
     if roots.len() > MAX_INTERSECT {
         let mut sized = roots
             .iter()
-            .map(|&oid| anyhow::Ok((read_tree_entries(src, oid)?.len(), oid)))
+            .map(|&oid| anyhow::Ok((mirror_entries(src, cache, oid)?.len(), oid)))
             .collect::<Result<Vec<_>, _>>()?;
         sized.sort();
         roots = sized
@@ -629,112 +860,153 @@ pub fn search_candidates(
             .collect();
     }
 
-    intersect_walk(src, &roots, source_tree, "", &mut results)?;
-    Ok(results)
+    Ok(Some(roots))
 }
 
-/// Emit every candidate file path present in ALL of the mirror trees `roots`. Mirrors follow
-/// `source`'s structure; a blob entry where the source has a directory is a coarse leaf and
-/// expands to every file under that source directory.
-fn intersect_walk(
+/// One mirror tree entry in compact parsed form: the fixed-width bucket name, the child oid,
+/// and whether it is a subtree (versus a coarse or file leaf).
+struct MirrorEntry {
+    name: [u8; 2],
+    oid: gix_hash::ObjectId,
+    tree: bool,
+}
+
+/// The entries of the mirror tree `oid`, parsed once per process and memoized.
+fn mirror_entries(
     src: &dyn Objects,
-    roots: &[gix_hash::ObjectId],
+    cache: &mut SearchCache,
+    oid: gix_hash::ObjectId,
+) -> anyhow::Result<std::sync::Arc<Vec<MirrorEntry>>> {
+    if let Some(hit) = cache.mirrors.get(&oid) {
+        return Ok(hit.clone());
+    }
+    let mut entries = vec![];
+    for entry in read_tree_entries(src, oid)? {
+        if let [a, b] = entry.filename.as_slice() {
+            entries.push(MirrorEntry {
+                name: [*a, *b],
+                oid: entry.oid.to_owned(),
+                tree: entry.mode.is_tree(),
+            });
+        }
+    }
+    let entries = std::sync::Arc::new(entries);
+    cache.mirrors.insert(oid, entries.clone());
+    Ok(entries)
+}
+
+/// The candidate file paths (relative to `source`) present in ALL of the mirror trees
+/// `roots`. Mirror entries are named by bucket; `source` provides the bucket -> entries
+/// mapping per level. A blob entry expands to every bucket member (each file directly, each
+/// directory — a coarse leaf — to all files under it); a tree entry recurses into every
+/// large-directory member. Results are relative and keyed by content, so a walk is reused
+/// across commits and trigrams wherever the subtrees agree.
+///
+/// The intersection is a k-way merge over the mirrors' entry lists: bucket names are fixed
+/// width, so git's canonical entry order is plain byte order and one linear pass replaces
+/// per-bucket lookups. This loop runs once per commit of a history sweep, so its constant
+/// factor matters.
+fn walk(
+    src: &dyn Objects,
+    cache: &mut SearchCache,
+    mut roots: Vec<gix_hash::ObjectId>,
     source: gix_hash::ObjectId,
-    prefix: &str,
-    out: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    // Content addressing fast path: identical mirrors (trigrams with the same file set)
-    // intersect to themselves.
-    if roots.iter().all(|oid| *oid == roots[0]) {
-        return collect_mirror_paths(src, roots[0], source, prefix, out);
+) -> anyhow::Result<std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>> {
+    // The intersection is a set operation: normalize the key. Identical mirrors (trigrams
+    // with the same file set) intersect to themselves, so duplicates collapse.
+    roots.sort();
+    roots.dedup();
+    let key = (roots.clone(), source);
+    if let Some(hit) = cache.walks.get(&key) {
+        return Ok(hit.clone());
     }
 
-    let trees = roots
+    let entry_lists = roots
         .iter()
-        .map(|oid| read_tree_entries(src, *oid))
+        .map(|oid| mirror_entries(src, cache, *oid))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let smallest = trees
-        .iter()
-        .min_by_key(|t| t.len())
-        .expect("roots is never empty");
 
+    // Source entries by bucket byte; a flat table instead of a hash map keyed by name.
     let source_entries = read_tree_entries(src, source)?;
-    'entry: for entry in smallest {
-        let name = std::str::from_utf8(&entry.filename)?;
+    let mut by_bucket: Vec<Vec<&gix_object::tree::Entry>> = (0..256).map(|_| Vec::new()).collect();
+    for entry in &source_entries {
+        if !entry.mode.is_commit() {
+            by_bucket[bucket_byte(&entry.filename) as usize].push(entry);
+        }
+    }
 
-        let mut child_roots = Vec::with_capacity(trees.len());
-        for tree in &trees {
-            match tree.iter().find(|e| e.filename == entry.filename) {
-                Some(other) if other.mode.is_tree() == entry.mode.is_tree() => {
-                    child_roots.push(other.oid.to_owned())
-                }
-                _ => continue 'entry,
+    let k = entry_lists.len();
+    let mut idx = vec![0usize; k];
+    let mut out = vec![];
+    'merge: loop {
+        // The largest bucket name under the cursors; every list must reach it for the bucket
+        // to be in the intersection.
+        let mut max: [u8; 2] = match entry_lists[0].get(idx[0]) {
+            Some(e) => e.name,
+            None => break,
+        };
+        for i in 1..k {
+            match entry_lists[i].get(idx[i]) {
+                Some(e) if e.name > max => max = e.name,
+                Some(_) => {}
+                None => break 'merge,
             }
         }
+        let mut all_equal = true;
+        for i in 0..k {
+            while entry_lists[i].get(idx[i]).is_some_and(|e| e.name < max) {
+                idx[i] += 1;
+            }
+            match entry_lists[i].get(idx[i]) {
+                Some(e) if e.name == max => {}
+                Some(_) => all_equal = false,
+                None => break 'merge,
+            }
+        }
+        if !all_equal {
+            continue;
+        }
 
-        let path = join_path(prefix, name);
-        if entry.mode.is_tree() {
-            let Some(source_entry) = source_entries.iter().find(|e| e.filename == entry.filename)
-            else {
-                continue;
-            };
-            intersect_walk(src, &child_roots, source_entry.oid.to_owned(), &path, out)?;
-        } else if !entry.mode.is_commit() {
-            emit_leaf(src, &source_entries, name, &path, out)?;
+        let is_tree = entry_lists[0][idx[0]].tree;
+        let kinds_match = (1..k).all(|i| entry_lists[i][idx[i]].tree == is_tree);
+        if kinds_match {
+            let members = parse_bucket(&max)
+                .map(|b| &by_bucket[b as usize][..])
+                .unwrap_or(&[]);
+            if is_tree {
+                let child_roots: Vec<gix_hash::ObjectId> =
+                    (0..k).map(|i| entry_lists[i][idx[i]].oid).collect();
+                for member in members {
+                    if !member.mode.is_tree() {
+                        continue;
+                    }
+                    let name = std::str::from_utf8(&member.filename)?;
+                    let sub = walk(src, cache, child_roots.clone(), member.oid.to_owned())?;
+                    out.extend(sub.iter().map(|(p, b)| (join_path(name, p), *b)));
+                }
+            } else {
+                for member in members {
+                    let name = std::str::from_utf8(&member.filename)?;
+                    if member.mode.is_tree() {
+                        let sub = all_paths(src, cache, member.oid.to_owned())?;
+                        out.extend(sub.iter().map(|(p, b)| (join_path(name, p), *b)));
+                    } else if !member.mode.is_commit() {
+                        out.push((name.to_owned(), member.oid.to_owned()));
+                    }
+                }
+            }
+        }
+        for i in 0..k {
+            idx[i] += 1;
         }
     }
-    Ok(())
-}
 
-/// Emit the candidates of one mirror leaf at `path`: the file itself, or — for a coarse leaf,
-/// where the source has a directory — every file under that source directory.
-fn emit_leaf(
-    src: &dyn Objects,
-    source_entries: &[gix_object::tree::Entry],
-    name: &str,
-    path: &str,
-    out: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    match source_entries
-        .iter()
-        .find(|e| e.filename == name.as_bytes())
-    {
-        Some(e) if e.mode.is_tree() => collect_paths(src, e.oid.to_owned(), path, out)?,
-        Some(e) if !e.mode.is_commit() => out.push(path.to_owned()),
-        _ => {}
-    }
-    Ok(())
-}
-
-/// Emit every candidate of the single mirror `oid`, following `source` for coarse expansion.
-fn collect_mirror_paths(
-    src: &dyn Objects,
-    oid: gix_hash::ObjectId,
-    source: gix_hash::ObjectId,
-    prefix: &str,
-    out: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    let source_entries = read_tree_entries(src, source)?;
-    for entry in read_tree_entries(src, oid)? {
-        let name = std::str::from_utf8(&entry.filename)?;
-        let path = join_path(prefix, name);
-        if entry.mode.is_tree() {
-            let Some(source_entry) = source_entries.iter().find(|e| e.filename == entry.filename)
-            else {
-                continue;
-            };
-            collect_mirror_paths(
-                src,
-                entry.oid.to_owned(),
-                source_entry.oid.to_owned(),
-                &path,
-                out,
-            )?;
-        } else if !entry.mode.is_commit() {
-            emit_leaf(src, &source_entries, name, &path, out)?;
-        }
-    }
-    Ok(())
+    // Mirror iteration follows bucket (hash) order; keep results in path order.
+    out.sort();
+    out.dedup();
+    let out = std::sync::Arc::new(out);
+    cache.walks.insert(key, out.clone());
+    Ok(out)
 }
 
 /// The entries of the tree `oid`, owned so several trees can be walked side by side.
@@ -757,34 +1029,29 @@ fn read_tree_entries(
     )
 }
 
-/// Emit every blob path under `oid` (a tree), prefixed with `prefix`.
-fn collect_paths(
+/// All (relative path, blob) pairs under the tree `oid`, memoized per tree: the expansion of
+/// coarse leaves and the fallback for queries without trigrams.
+fn all_paths(
     src: &dyn Objects,
+    cache: &mut SearchCache,
     oid: gix_hash::ObjectId,
-    prefix: &str,
-    out: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    let mut buffer = Vec::new();
-    let Some(data) = src
-        .try_find(&oid, &mut buffer)
-        .map_err(|e| anyhow::anyhow!("read tree {}: {}", oid, e))?
-    else {
-        return Ok(());
-    };
-    if data.kind != gix_object::Kind::Tree {
-        return Ok(());
+) -> anyhow::Result<std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>> {
+    if let Some(hit) = cache.all_paths.get(&oid) {
+        return Ok(hit.clone());
     }
-    let tree = gix_object::TreeRef::from_bytes(&buffer, gix_hash::Kind::Sha1)?.into_owned();
-    for entry in tree.entries {
+    let mut out = vec![];
+    for entry in read_tree_entries(src, oid)? {
         let name = std::str::from_utf8(&entry.filename)?;
-        let path = join_path(prefix, name);
         if entry.mode.is_tree() {
-            collect_paths(src, entry.oid.to_owned(), &path, out)?;
+            let sub = all_paths(src, cache, entry.oid.to_owned())?;
+            out.extend(sub.iter().map(|(p, b)| (join_path(name, p), *b)));
         } else if !entry.mode.is_commit() {
-            out.push(path);
+            out.push((name.to_owned(), entry.oid.to_owned()));
         }
     }
-    Ok(())
+    let out = std::sync::Arc::new(out);
+    cache.all_paths.insert(oid, out.clone());
+    Ok(out)
 }
 
 fn join_path(prefix: &str, name: &str) -> String {
@@ -797,42 +1064,47 @@ fn join_path(prefix: &str, name: &str) -> String {
 
 type SearchMatchesResult = Vec<(String, Vec<(usize, String)>)>;
 
+/// Verify `candidates` against the query, byte-exact. Per-blob results are memoized on
+/// (query, blob oid): a blob's matching lines do not depend on the commit or path it appears
+/// under, so verifying a history costs one scan per distinct blob. Candidates carry their
+/// blob oids from candidate selection, so no path resolution happens here.
 pub fn search_matches(
     src: &dyn Objects,
-    tree: gix_hash::ObjectId,
+    cache: &mut SearchCache,
     searchstring: &str,
-    candidates: &Vec<String>,
+    candidates: &[(String, gix_hash::ObjectId)],
 ) -> anyhow::Result<SearchMatchesResult> {
     let mut results = vec![];
 
-    for c in candidates {
-        let b = get_blob_path(src, tree, std::path::Path::new(&c));
-
-        let mut bresults = vec![];
-
-        for (linenr, l) in b.lines().enumerate() {
-            if l.contains(searchstring) {
-                bresults.push((linenr + 1, l.to_owned()));
+    for (c, blob) in candidates {
+        let key = (searchstring.to_owned(), *blob);
+        let bresults = if let Some(hit) = cache.blob_matches.get(&key) {
+            hit.clone()
+        } else {
+            let b = read_blob_text(src, *blob);
+            let mut lines = vec![];
+            for (linenr, l) in b.lines().enumerate() {
+                if l.contains(searchstring) {
+                    lines.push((linenr + 1, l.to_owned()));
+                }
             }
-        }
+            let lines = std::sync::Arc::new(lines);
+            cache.blob_matches.insert(key, lines.clone());
+            lines
+        };
 
         if !bresults.is_empty() {
-            results.push((c.to_owned(), bresults));
+            results.push((c.to_owned(), (*bresults).clone()));
         }
     }
 
     Ok(results)
 }
 
-/// Like [`read_blob_text`], but for a path inside `tree`.
-fn get_blob_path(src: &dyn Objects, tree: gix_hash::ObjectId, path: &std::path::Path) -> String {
-    match path_entry(src, tree, path) {
-        Ok(Some(oid)) => read_blob_text(src, oid),
-        _ => "".to_owned(),
-    }
-}
-
 /// The oid at `path` inside `tree`, or `None` when any component is missing or not a tree.
+/// Production code resolves spine and mirror levels through [`mirror_entries`]; this remains
+/// as the tests' direct way to probe index paths.
+#[cfg(test)]
 fn path_entry(
     src: &dyn Objects,
     tree: gix_hash::ObjectId,
@@ -864,6 +1136,421 @@ fn path_entry(
     Ok(Some(current))
 }
 
+/// The number of lines of blob `oid` matching `query`, through the per-blob match memo.
+fn match_count(
+    src: &dyn Objects,
+    cache: &mut SearchCache,
+    query: &str,
+    blob: gix_hash::ObjectId,
+) -> anyhow::Result<usize> {
+    let m = search_matches(src, cache, query, &[(String::new(), blob)])?;
+    Ok(m.first().map(|r| r.1.len()).unwrap_or(0))
+}
+
+/// One match-set change reported by [`ChangeSweep`]: the file's matching-line count went from
+/// `before` (in the commit's first parent) to `after`.
+pub struct ChangeEvent {
+    pub path: String,
+    pub before: usize,
+    pub after: usize,
+}
+
+/// Which parts of the candidate space changed between two indexes, as a trie over bucket
+/// bytes. `changed` marks a whole subtree as needing recomputation.
+#[derive(Default)]
+struct BucketTrie {
+    changed: bool,
+    children: HashMap<u8, BucketTrie>,
+}
+
+/// Union the differences between two mirrors into `node`: entries present on one side only or
+/// changing kind mark their bucket changed; tree pairs recurse.
+fn diff_mirrors(
+    src: &dyn Objects,
+    cache: &mut SearchCache,
+    a: gix_hash::ObjectId,
+    b: gix_hash::ObjectId,
+    node: &mut BucketTrie,
+) -> anyhow::Result<()> {
+    if a == b {
+        return Ok(());
+    }
+    let la = mirror_entries(src, cache, a)?;
+    let lb = mirror_entries(src, cache, b)?;
+    let (mut i, mut j) = (0, 0);
+    while i < la.len() || j < lb.len() {
+        let (name, pair) = if j >= lb.len() || (i < la.len() && la[i].name < lb[j].name) {
+            let e = &la[i];
+            i += 1;
+            (e.name, None)
+        } else if i >= la.len() || lb[j].name < la[i].name {
+            let e = &lb[j];
+            j += 1;
+            (e.name, None)
+        } else {
+            let (ea, eb) = (&la[i], &lb[j]);
+            i += 1;
+            j += 1;
+            if ea.oid == eb.oid && ea.tree == eb.tree {
+                continue;
+            }
+            (ea.name, (ea.tree && eb.tree).then_some((ea.oid, eb.oid)))
+        };
+        let Some(bucket) = parse_bucket(&name) else {
+            continue;
+        };
+        let child = node.children.entry(bucket).or_default();
+        match pair {
+            Some((ea, eb)) => diff_mirrors(src, cache, ea, eb, child)?,
+            None => child.changed = true,
+        }
+    }
+    Ok(())
+}
+
+/// Whether a candidate path lies in the changed part of the trie. Conservative: any trie
+/// presence at the path's final component counts as changed (regeneration is cheap and only
+/// covers trie scope anyway).
+fn path_changed(trie: &BucketTrie, path: &str) -> bool {
+    let mut node = trie;
+    for comp in path.split('/') {
+        if node.changed {
+            return true;
+        }
+        match node.children.get(&bucket_byte(comp.as_bytes())) {
+            None => return false,
+            Some(next) => node = next,
+        }
+    }
+    node.changed || !node.children.is_empty()
+}
+
+/// The candidates within the trie's changed scope: like [`walk`], but visiting only buckets
+/// the trie names, and delegating fully-changed subtrees to the memoized full walk.
+fn walk_restricted(
+    src: &dyn Objects,
+    cache: &mut SearchCache,
+    mut roots: Vec<gix_hash::ObjectId>,
+    source: gix_hash::ObjectId,
+    trie: &BucketTrie,
+    out: &mut Vec<(String, gix_hash::ObjectId)>,
+) -> anyhow::Result<()> {
+    roots.sort();
+    roots.dedup();
+    if trie.changed {
+        out.extend(walk(src, cache, roots, source)?.iter().cloned());
+        return Ok(());
+    }
+
+    let entry_lists = roots
+        .iter()
+        .map(|oid| mirror_entries(src, cache, *oid))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let source_entries = read_tree_entries(src, source)?;
+    let mut by_bucket: Vec<Vec<&gix_object::tree::Entry>> = (0..256).map(|_| Vec::new()).collect();
+    for entry in &source_entries {
+        if !entry.mode.is_commit() {
+            by_bucket[bucket_byte(&entry.filename) as usize].push(entry);
+        }
+    }
+
+    'bucket: for (&bucket, sub) in &trie.children {
+        let name = hex_pair(bucket);
+        let mut child_roots = Vec::with_capacity(entry_lists.len());
+        let mut is_tree = None;
+        for list in &entry_lists {
+            match list.binary_search_by_key(&name, |e| e.name) {
+                // Bucket absent from one mirror: nothing under it can match anymore.
+                Err(_) => continue 'bucket,
+                Ok(i) => {
+                    let e = &list[i];
+                    if *is_tree.get_or_insert(e.tree) != e.tree {
+                        continue 'bucket;
+                    }
+                    child_roots.push(e.oid);
+                }
+            }
+        }
+        let members = &by_bucket[bucket as usize];
+        if is_tree == Some(true) {
+            for member in members {
+                if !member.mode.is_tree() {
+                    continue;
+                }
+                let mname = std::str::from_utf8(&member.filename)?;
+                let mut sub_out = vec![];
+                walk_restricted(
+                    src,
+                    cache,
+                    child_roots.clone(),
+                    member.oid.to_owned(),
+                    sub,
+                    &mut sub_out,
+                )?;
+                out.extend(sub_out.into_iter().map(|(p, b)| (join_path(mname, &p), b)));
+            }
+        } else {
+            for member in members {
+                let mname = std::str::from_utf8(&member.filename)?;
+                if member.mode.is_tree() {
+                    let sub_paths = all_paths(src, cache, member.oid.to_owned())?;
+                    out.extend(sub_paths.iter().map(|(p, b)| (join_path(mname, p), *b)));
+                } else if !member.mode.is_commit() {
+                    out.push((mname.to_owned(), member.oid.to_owned()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Re-resolve `cands`' blob oids in the child tree `c_oid`, descending only where a component
+/// subtree differs from the parent's `p_oid`. Candidates are sorted by path, so paths sharing
+/// a directory are contiguous: each changed directory is parsed once, identical subtrees are
+/// skipped by oid without parsing anything. `false` means a candidate path no longer resolves
+/// (e.g. a rename within one hash bucket); the caller falls back to a full walk.
+fn refresh_group(
+    src: &dyn Objects,
+    c_oid: gix_hash::ObjectId,
+    p_oid: gix_hash::ObjectId,
+    cands: &[(String, gix_hash::ObjectId)],
+    depth: usize,
+    out: &mut Vec<(String, gix_hash::ObjectId)>,
+) -> anyhow::Result<bool> {
+    if c_oid == p_oid {
+        out.extend_from_slice(cands);
+        return Ok(true);
+    }
+    let c_entries = read_tree_entries(src, c_oid)?;
+    let p_entries = read_tree_entries(src, p_oid)?;
+
+    fn component(path: &str, depth: usize) -> &str {
+        path.split('/').nth(depth).unwrap_or("")
+    }
+    let mut i = 0;
+    while i < cands.len() {
+        let comp = component(&cands[i].0, depth);
+        let mut j = i + 1;
+        while j < cands.len() && component(&cands[j].0, depth) == comp {
+            j += 1;
+        }
+
+        let find = |entries: &[gix_object::tree::Entry]| {
+            entries
+                .iter()
+                .find(|e| e.filename == comp.as_bytes())
+                .map(|e| e.oid.to_owned())
+        };
+        let ids = match (find(&c_entries), find(&p_entries)) {
+            (Some(ce), Some(pe)) => (ce, pe),
+            _ => return Ok(false),
+        };
+        let is_leaf = cands[i].0.split('/').count() == depth + 1;
+        if is_leaf {
+            out.push((cands[i].0.clone(), ids.0));
+        } else if !refresh_group(src, ids.0, ids.1, &cands[i..j], depth + 1, out)? {
+            return Ok(false);
+        }
+        i = j;
+    }
+    Ok(true)
+}
+
+/// Per-commit sweep state: the source tree, the query's mirror roots (unsorted, aligned
+/// with the query's spine path list; `None` while any path is absent), and the candidate
+/// pairs.
+struct SweepState {
+    tree: gix_hash::ObjectId,
+    roots: Option<Vec<gix_hash::ObjectId>>,
+    cands: std::sync::Arc<Vec<(String, gix_hash::ObjectId)>>,
+}
+
+/// Pickaxe-style change detection over a history: feed commits parents-first through
+/// [`process`](ChangeSweep::process) and collect, per non-merge commit, the files whose
+/// matching-line count changed against the first parent.
+///
+/// Content addressing keeps the per-commit cost proportional to what changed: equal
+/// per-trigram mirror roots prove the candidate path set unchanged (only blob oids are
+/// re-resolved, skipping identical subtrees); differing roots are diffed mirror-by-mirror
+/// into a bucket trie, and only trie scope is re-walked while the rest of the parent's
+/// candidates are spliced through. False candidates verify to zero matches on both sides, so
+/// events do not depend on how wide the candidate superset is.
+pub struct ChangeSweep {
+    query: String,
+    /// The query's distinct trigram spine paths (colliding trigrams collapse to one path,
+    /// and so would resolve to the same root anyway).
+    spine_paths: BTreeSet<[u8; SPINE_LEVELS]>,
+    store: HashMap<gix_hash::ObjectId, SweepState>,
+}
+
+impl ChangeSweep {
+    pub fn new(query: &str) -> Self {
+        Self {
+            query: query.to_owned(),
+            spine_paths: distinct_trigrams(query)
+                .iter()
+                .map(|t| spine_path(*t))
+                .collect(),
+            store: HashMap::new(),
+        }
+    }
+
+    /// The query's mirror root per spine path, aligned with `self.spine_paths`; `None` if
+    /// any path is absent (no file can match).
+    fn trigram_roots(
+        &self,
+        src: &dyn Objects,
+        cache: &mut SearchCache,
+        index_oid: gix_hash::ObjectId,
+    ) -> anyhow::Result<Option<Vec<gix_hash::ObjectId>>> {
+        let mut roots = Vec::with_capacity(self.spine_paths.len());
+        for path in &self.spine_paths {
+            let mut node = index_oid;
+            for b in path {
+                let entries = mirror_entries(src, cache, node)?;
+                match entries.binary_search_by_key(&hex_pair(*b), |e| e.name) {
+                    Ok(i) => node = entries[i].oid,
+                    Err(_) => return Ok(None),
+                }
+            }
+            roots.push(node);
+        }
+        Ok(Some(roots))
+    }
+
+    pub fn process(
+        &mut self,
+        src: &dyn Objects,
+        cache: &mut SearchCache,
+        commit_id: gix_hash::ObjectId,
+        parent_ids: &[gix_hash::ObjectId],
+        source_tree: gix_hash::ObjectId,
+        index_tree: gix_hash::ObjectId,
+    ) -> anyhow::Result<Vec<ChangeEvent>> {
+        let roots = if self.spine_paths.is_empty() {
+            None
+        } else {
+            self.trigram_roots(src, cache, index_tree)?
+        };
+        let parent = parent_ids.first().and_then(|p| self.store.get(p));
+
+        let cands = 'cands: {
+            if let (Some(rc), Some(sp)) = (&roots, parent) {
+                if sp.tree == source_tree {
+                    break 'cands sp.cands.clone();
+                }
+                if let Some(rp) = &sp.roots {
+                    if rp == rc {
+                        // Identical roots: same candidate paths, only blobs may differ.
+                        let mut out = Vec::with_capacity(sp.cands.len());
+                        if refresh_group(src, source_tree, sp.tree, &sp.cands, 0, &mut out)? {
+                            break 'cands std::sync::Arc::new(out);
+                        }
+                    } else {
+                        // Diff the changed mirrors into a trie, splice: keep and re-resolve
+                        // the parent's candidates outside the trie, re-walk only inside it.
+                        let mut trie = BucketTrie::default();
+                        for (a, b) in rc.iter().zip(rp.iter()) {
+                            diff_mirrors(src, cache, *a, *b, &mut trie)?;
+                        }
+                        let kept: Vec<(String, gix_hash::ObjectId)> = sp
+                            .cands
+                            .iter()
+                            .filter(|(p, _)| !path_changed(&trie, p))
+                            .cloned()
+                            .collect();
+                        let mut out = Vec::with_capacity(kept.len());
+                        if refresh_group(src, source_tree, sp.tree, &kept, 0, &mut out)? {
+                            walk_restricted(src, cache, rc.clone(), source_tree, &trie, &mut out)?;
+                            out.sort();
+                            out.dedup();
+                            break 'cands std::sync::Arc::new(out);
+                        }
+                    }
+                }
+            }
+            // Fallbacks: absent trigrams mean no candidates; otherwise a full walk.
+            if roots.is_none() && !self.spine_paths.is_empty() {
+                break 'cands std::sync::Arc::new(vec![]);
+            }
+            std::sync::Arc::new(search_candidates(
+                src,
+                cache,
+                index_tree,
+                source_tree,
+                &self.query,
+            )?)
+        };
+
+        // Change events only for non-merge commits, like git log -S without diff-merges.
+        let mut events = vec![];
+        if parent_ids.len() <= 1 {
+            let empty = std::sync::Arc::new(vec![]);
+            let pcands = parent_ids
+                .first()
+                .and_then(|p| self.store.get(p))
+                .map(|s| s.cands.clone())
+                .unwrap_or(empty);
+            events = self.diff_events(src, cache, &pcands, &cands)?;
+        }
+
+        self.store.insert(
+            commit_id,
+            SweepState {
+                tree: source_tree,
+                roots,
+                cands,
+            },
+        );
+        Ok(events)
+    }
+
+    fn diff_events(
+        &self,
+        src: &dyn Objects,
+        cache: &mut SearchCache,
+        pcands: &[(String, gix_hash::ObjectId)],
+        cands: &[(String, gix_hash::ObjectId)],
+    ) -> anyhow::Result<Vec<ChangeEvent>> {
+        let mut events = vec![];
+        let (mut i, mut j) = (0, 0);
+        while i < cands.len() || j < pcands.len() {
+            let (path, before, after) =
+                if j >= pcands.len() || (i < cands.len() && cands[i].0 < pcands[j].0) {
+                    let (path, blob) = &cands[i];
+                    i += 1;
+                    (path, 0, match_count(src, cache, &self.query, *blob)?)
+                } else if i >= cands.len() || pcands[j].0 < cands[i].0 {
+                    let (path, blob) = &pcands[j];
+                    j += 1;
+                    (path, match_count(src, cache, &self.query, *blob)?, 0)
+                } else {
+                    let (path, blob) = &cands[i];
+                    let pblob = pcands[j].1;
+                    i += 1;
+                    j += 1;
+                    if *blob == pblob {
+                        continue;
+                    }
+                    (
+                        path,
+                        match_count(src, cache, &self.query, pblob)?,
+                        match_count(src, cache, &self.query, *blob)?,
+                    )
+                };
+            if before != after {
+                events.push(ChangeEvent {
+                    path: path.clone(),
+                    before,
+                    after,
+                });
+            }
+        }
+        Ok(events)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -883,20 +1570,70 @@ mod tests {
         );
         // Repeated windows collapse.
         assert_eq!(distinct_trigrams("aaaa"), BTreeSet::from([[b'a'; 3]]));
-        // Multibyte: only valid UTF-8 windows are kept. "é" is 2 bytes; the windows straddling
-        // its bytes are not valid UTF-8 strings except where they align.
-        let t = distinct_trigrams("aéb");
-        assert!(t.contains(&[b'a', 0xc3, 0xa9]));
-        assert!(t.contains(&[0xc3, 0xa9, b'b']));
-        assert_eq!(t.len(), 2);
-        // Case folds, and all ASCII space/punctuation/bracket bytes are one class glyph;
-        // word bytes ([a-z0-9_]) and non-ASCII stay distinct.
+        // Windows are per character, and every non-ASCII character is one glyph: "aéb" is a
+        // single trigram, and all non-ASCII characters fold together.
+        assert_eq!(
+            distinct_trigrams("aéb"),
+            BTreeSet::from([[b'a', NON_ASCII_GLYPH, b'b']])
+        );
+        assert_eq!(distinct_trigrams("aéb"), distinct_trigrams("a\u{4e2d}b"));
+        // ... but distinct from the whitespace glyph, keeping boundary signal.
+        assert_ne!(distinct_trigrams("aéb"), distinct_trigrams("a b"));
+        // Case folds; whitespace and uncurated punctuation are one class glyph; word bytes
+        // ([a-z0-9_]) and the KEEP_DISTINCT punctuation stay distinct.
         assert_eq!(distinct_trigrams("AbC"), distinct_trigrams("abc"));
-        assert_eq!(distinct_trigrams("a,b"), distinct_trigrams("a;b"));
-        assert_eq!(distinct_trigrams("f(x)"), distinct_trigrams("f[x]"));
         assert_eq!(distinct_trigrams("a b"), distinct_trigrams("a\tb"));
+        assert_eq!(distinct_trigrams("a?b"), distinct_trigrams("a b"));
+        assert_ne!(distinct_trigrams("a,b"), distinct_trigrams("a;b"));
+        assert_ne!(distinct_trigrams("f(x)"), distinct_trigrams("f[x]"));
         assert_ne!(distinct_trigrams("a_b"), distinct_trigrams("a b"));
         assert_ne!(distinct_trigrams("a1b"), distinct_trigrams("a2b"));
+    }
+
+    #[test]
+    fn fold_policy() {
+        // Curated punctuation stays itself, uncurated ASCII collapses to the glyph.
+        for &b in KEEP_DISTINCT {
+            assert_eq!(fold_char(b as char), b);
+        }
+        for c in [' ', '\t', '\n', '\r', '?', '$', '`', '\u{0}', '\u{7f}'] {
+            assert_eq!(fold_char(c), b' ');
+        }
+        assert_eq!(fold_char('A'), b'a');
+        assert_eq!(fold_char('z'), b'z');
+        assert_eq!(fold_char('7'), b'7');
+        assert_eq!(fold_char('_'), b'_');
+        // Every non-ASCII character folds to the one non-ASCII glyph.
+        assert_eq!(fold_char('é'), NON_ASCII_GLYPH);
+        assert_eq!(fold_char('\u{4e2d}'), NON_ASCII_GLYPH);
+        assert_eq!(fold_char('\u{1f600}'), NON_ASCII_GLYPH);
+    }
+
+    #[test]
+    fn spine_path_stability() {
+        // The trigram -> spine path mapping is format-defining: cached indexes survive only
+        // as long as these paths do not move.
+        for path in [
+            spine_path(*b"tes"),
+            spine_path(*b"a b"),
+            spine_path([b'a', NON_ASCII_GLYPH, b'b']),
+        ] {
+            for (b, bits) in path.iter().zip(SPINE_BITS) {
+                assert!(*b < (1u32 << bits) as u8);
+            }
+        }
+        assert_eq!(spine_dir(*b"tes"), "0d/07");
+        assert_eq!(spine_dir(*b"nee"), "23/00");
+        assert_eq!(spine_dir(*b"d07"), "23/29");
+    }
+
+    /// A trigram's spine path as the index tree path string.
+    fn spine_dir(t: [u8; 3]) -> String {
+        spine_path(t)
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     #[derive(Default)]
@@ -955,14 +1692,20 @@ mod tests {
         // long as this oid does not change.
         assert_eq!(
             index.to_string(),
-            "13344d7487ed9e2193bc08847ed14b0656a4d597"
+            "374073a7525dffb346f59e188a01b5f0ab0459d6"
         );
 
-        // "Tes" folds to "tes", which lives at 74/65/73 in the hex spine. sub1 is a small
-        // directory, so the mirror records it as one coarse blob leaf.
-        let leaf = path_entry(objects(&repo), index, std::path::Path::new("74/65/73/sub1"))
-            .unwrap()
-            .unwrap();
+        let mut sc = SearchCache::default();
+
+        // "Tes" folds to "tes", which lives at its hashed spine path. sub1 is a small
+        // directory, so the mirror records it as one coarse blob leaf under its bucket name.
+        let leaf = path_entry(
+            objects(&repo),
+            index,
+            std::path::Path::new(&format!("{}/{}", spine_dir(*b"tes"), bucket_name(b"sub1"))),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             gix_object::FindHeader::try_header(&repo.objects, &leaf)
                 .unwrap()
@@ -972,29 +1715,161 @@ mod tests {
         );
 
         // Coarse hits expand to every file under the directory; verification is exact.
-        let candidates = search_candidates(objects(&repo), index, tree, "document").unwrap();
-        assert_eq!(candidates, vec!["sub1/file1", "sub1/file2"]);
-        let matches = search_matches(objects(&repo), tree, "document", &candidates).unwrap();
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "document").unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["sub1/file1", "sub1/file2"]);
+        let matches = search_matches(objects(&repo), &mut sc, "document", &candidates).unwrap();
         assert_eq!(matches.len(), 2);
 
         // Trigrams are case-folded, so candidates are a case-insensitive superset ("Test" in
         // file1 makes sub1 a candidate for "test") while match verification stays byte-exact.
-        let candidates = search_candidates(objects(&repo), index, tree, "test").unwrap();
-        assert_eq!(candidates, vec!["sub1/file1", "sub1/file2"]);
-        let matches = search_matches(objects(&repo), tree, "test", &candidates).unwrap();
+        let candidates = search_candidates(objects(&repo), &mut sc, index, tree, "test").unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["sub1/file1", "sub1/file2"]);
+        let matches = search_matches(objects(&repo), &mut sc, "test", &candidates).unwrap();
         assert!(matches.is_empty());
 
-        let candidates = search_candidates(objects(&repo), index, tree, "missingword").unwrap();
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "missingword").unwrap();
         assert!(candidates.is_empty());
 
         // Short query: every file is a candidate.
-        let candidates = search_candidates(objects(&repo), index, tree, "e").unwrap();
+        let candidates = search_candidates(objects(&repo), &mut sc, index, tree, "e").unwrap();
         assert_eq!(candidates.len(), 3);
 
         // Indexing is deterministic and memoization-independent.
         let cold = MapCache::default();
         let index2 = trigram_index(objects(&repo), &cold, &mut Indexer::default(), tree).unwrap();
         assert_eq!(index, index2);
+    }
+
+    #[test]
+    fn bucket_name_basics() {
+        for name in ["a", "file.txt", "sub1", "ütf8"] {
+            let b = bucket_name(name.as_bytes());
+            assert_eq!(b.len(), 2);
+            assert!(b.bytes().all(|c| c.is_ascii_hexdigit()));
+            assert_eq!(b, bucket_name(name.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn colliding_names_share_a_bucket() {
+        let (_tmp, repo) = test_repo();
+        let cache = MapCache::default();
+
+        // Find a name whose bucket collides with "target_file".
+        let target_bucket = bucket_name(b"target_file");
+        let collider = (0..100_000)
+            .map(|i| format!("other{}", i))
+            .find(|n| bucket_name(n.as_bytes()) == target_bucket)
+            .expect("collision exists among 100k candidates");
+
+        // Enough filler files to keep the directory fine-grained.
+        let mut files: Vec<(String, String)> = (0..18)
+            .map(|i| (format!("big/filler_{:02}", i), format!("filler {}", i)))
+            .collect();
+        files.push((
+            "big/target_file".to_owned(),
+            "needleword lives here".to_owned(),
+        ));
+        files.push((format!("big/{}", collider), "collider content".to_owned()));
+        let files: Vec<(&str, &str)> = files.iter().map(|(p, c)| (&p[..], &c[..])).collect();
+        let tree = commit_tree(&repo, &files);
+
+        let index = trigram_index(objects(&repo), &cache, &mut Indexer::default(), tree).unwrap();
+
+        // The bucket is a superset: both members are candidates for a needle in one of them;
+        // verification is exact.
+        let mut sc = SearchCache::default();
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "needleword").unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.contains(&"big/target_file"));
+        assert!(paths.contains(&format!("big/{}", collider).as_str()));
+        let matches = search_matches(objects(&repo), &mut sc, "needleword", &candidates).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "big/target_file");
+    }
+
+    #[test]
+    fn colliding_trigrams_share_a_spine_leaf() {
+        // Two distinct word trigrams whose spine paths collide: guaranteed by pigeonhole for
+        // any geometry up to 15 bits (37^3 word trigrams > 2^15 buckets).
+        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789_";
+        let mut seen: HashMap<[u8; SPINE_LEVELS], [u8; 3]> = HashMap::new();
+        let (t1, t2) = 'found: {
+            for a in ALPHABET {
+                for b in ALPHABET {
+                    for c in ALPHABET {
+                        let t = [*a, *b, *c];
+                        if let Some(prev) = seen.insert(spine_path(t), t) {
+                            break 'found (prev, t);
+                        }
+                    }
+                }
+            }
+            panic!("no spine collision among word trigrams");
+        };
+        assert_ne!(t1, t2);
+        assert_eq!(spine_path(t1), spine_path(t2));
+
+        // A file containing only the colliding trigram is a candidate for the other one;
+        // verification is exact.
+        let (_tmp, repo) = test_repo();
+        let cache = MapCache::default();
+        let q1 = std::str::from_utf8(&t1).unwrap().to_owned();
+        let q2 = std::str::from_utf8(&t2).unwrap().to_owned();
+        let tree = commit_tree(
+            &repo,
+            &[
+                ("one", &format!("xx {} yy", q1)),
+                ("two", &format!("xx {} yy", q2)),
+            ],
+        );
+        let index = trigram_index(objects(&repo), &cache, &mut Indexer::default(), tree).unwrap();
+
+        let mut sc = SearchCache::default();
+        let candidates = search_candidates(objects(&repo), &mut sc, index, tree, &q1).unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["one", "two"]);
+        let matches = search_matches(objects(&repo), &mut sc, &q1, &candidates).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "one");
+    }
+
+    #[test]
+    fn curated_punctuation_is_selective() {
+        // The curated fold keeps brackets and operators distinct, so a punctuation-shaped
+        // query does not degrade to its bare word: a file containing `needle` without the
+        // surrounding punctuation is not a candidate for `->needle(`.
+        let (_tmp, repo) = test_repo();
+        let cache = MapCache::default();
+
+        // Files at the root are always indexed per-file; coarse granularity only applies to
+        // subdirectories.
+        let tree = commit_tree(
+            &repo,
+            &[
+                ("hit.c", "ptr->needle(x);"),
+                ("miss.c", "a needle in plain text"),
+            ],
+        );
+        let index = trigram_index(objects(&repo), &cache, &mut Indexer::default(), tree).unwrap();
+
+        let mut sc = SearchCache::default();
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "->needle(").unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["hit.c"]);
+        let matches = search_matches(objects(&repo), &mut sc, "->needle(", &candidates).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "hit.c");
+
+        // The bare word still finds both.
+        let candidates = search_candidates(objects(&repo), &mut sc, index, tree, "needle").unwrap();
+        assert_eq!(candidates.len(), 2);
     }
 
     #[test]
@@ -1019,11 +1894,16 @@ mod tests {
 
         let index = trigram_index(objects(&repo), &cache, &mut Indexer::default(), tree).unwrap();
 
-        // Fine: "d07" (from uniqueword07) mirrors big's structure down to the file.
+        // Fine: "d07" (from uniqueword07) mirrors big's structure down to the file's bucket.
         let leaf = path_entry(
             objects(&repo),
             index,
-            std::path::Path::new("64/30/37/big/file_07"),
+            std::path::Path::new(&format!(
+                "{}/{}/{}",
+                spine_dir(*b"d07"),
+                bucket_name(b"big"),
+                bucket_name(b"file_07")
+            )),
         )
         .unwrap()
         .unwrap();
@@ -1039,7 +1919,7 @@ mod tests {
         let leaf = path_entry(
             objects(&repo),
             index,
-            std::path::Path::new("6e/65/65/small"),
+            std::path::Path::new(&format!("{}/{}", spine_dir(*b"nee"), bucket_name(b"small"))),
         )
         .unwrap()
         .unwrap();
@@ -1051,15 +1931,24 @@ mod tests {
             gix_object::Kind::Blob
         );
 
-        // Fine candidates stay per-file and exact.
-        let candidates = search_candidates(objects(&repo), index, tree, "uniqueword07").unwrap();
-        assert_eq!(candidates, vec!["big/file_07"]);
+        let mut sc = SearchCache::default();
+
+        // Fine candidates stay per-file (modulo bucket collisions) and matches exact.
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "uniqueword07").unwrap();
+        assert!(candidates.iter().any(|(p, _)| p == "big/file_07"));
+        let matches = search_matches(objects(&repo), &mut sc, "uniqueword07", &candidates).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "big/file_07");
 
         // A coarse hit makes every file under the directory a candidate; verification is
         // exact.
-        let candidates = search_candidates(objects(&repo), index, tree, "needleinsmall").unwrap();
-        assert_eq!(candidates, vec!["small/a", "small/b"]);
-        let matches = search_matches(objects(&repo), tree, "needleinsmall", &candidates).unwrap();
+        let candidates =
+            search_candidates(objects(&repo), &mut sc, index, tree, "needleinsmall").unwrap();
+        let paths: Vec<&str> = candidates.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["small/a", "small/b"]);
+        let matches =
+            search_matches(objects(&repo), &mut sc, "needleinsmall", &candidates).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].0, "small/a");
 
@@ -1067,6 +1956,81 @@ mod tests {
         let cold = MapCache::default();
         let index2 = trigram_index(objects(&repo), &cold, &mut Indexer::default(), tree).unwrap();
         assert_eq!(index, index2);
+    }
+
+    #[test]
+    fn change_sweep_matches_brute_force() {
+        let (_tmp, repo) = test_repo();
+        let cache = MapCache::default();
+        let mut indexer = Indexer::default();
+
+        // A history exercising every sweep path: count change in place, rename, removal,
+        // and a fine-grained (>16 files) directory changing alongside.
+        let filler: Vec<(String, String)> = (0..18)
+            .map(|i| (format!("big/f_{:02}", i), format!("filler {}", i)))
+            .collect();
+        let mut trees = vec![];
+        for step in 0..4 {
+            let mut files: Vec<(&str, &str)> =
+                filler.iter().map(|(p, c)| (&p[..], &c[..])).collect();
+            match step {
+                0 => files.push(("dir/a", "needle one")),
+                1 => files.push(("dir/a", "needle one\nneedle two")),
+                2 => files.push(("dir/c", "needle one\nneedle two")),
+                _ => files.push(("dir/c", "nothing here")),
+            }
+            if step >= 1 {
+                files.push(("big/f_00x", "needle in big"));
+            }
+            trees.push(commit_tree(&repo, &files));
+        }
+
+        // Brute force: full per-tree match counts with fresh state.
+        let counts = |tree: &gix_hash::ObjectId| -> std::collections::BTreeMap<String, usize> {
+            let mut sc = SearchCache::default();
+            let index = trigram_index(
+                objects(&repo),
+                &MapCache::default(),
+                &mut Indexer::default(),
+                *tree,
+            )
+            .unwrap();
+            let cands = search_candidates(objects(&repo), &mut sc, index, *tree, "needle").unwrap();
+            search_matches(objects(&repo), &mut sc, "needle", &cands)
+                .unwrap()
+                .into_iter()
+                .map(|(p, m)| (p, m.len()))
+                .collect()
+        };
+
+        let mut sweep = ChangeSweep::new("needle");
+        let mut sc = SearchCache::default();
+        let mut prev: Option<&gix_hash::ObjectId> = None;
+        for tree in &trees {
+            let index = trigram_index(objects(&repo), &cache, &mut indexer, *tree).unwrap();
+            let parents: Vec<gix_hash::ObjectId> = prev.iter().map(|t| **t).collect();
+            let mut events: Vec<(String, usize, usize)> = sweep
+                .process(objects(&repo), &mut sc, *tree, &parents, *tree, index)
+                .unwrap()
+                .into_iter()
+                .map(|e| (e.path, e.before, e.after))
+                .collect();
+            events.sort();
+
+            let before = prev.map(&counts).unwrap_or_default();
+            let after = counts(tree);
+            let mut expected: Vec<(String, usize, usize)> = vec![];
+            for path in before.keys().chain(after.keys()) {
+                let b = before.get(path).copied().unwrap_or(0);
+                let a = after.get(path).copied().unwrap_or(0);
+                if b != a && !expected.iter().any(|(p, _, _)| p == path) {
+                    expected.push((path.clone(), b, a));
+                }
+            }
+            expected.sort();
+            assert_eq!(events, expected, "at step tree {}", tree);
+            prev = Some(tree);
+        }
     }
 
     #[test]
@@ -1086,7 +2050,7 @@ mod tests {
                 ("sub2/mod", "alpha beta gamma"),
             ],
         );
-        trigram_index(objects(&repo), &cache, &mut indexer, tree_a).unwrap();
+        let index_a = trigram_index(objects(&repo), &cache, &mut indexer, tree_a).unwrap();
 
         // One file modified, one removed (its unique trigrams must vanish from the spine), one
         // added in a fresh directory.
@@ -1111,12 +2075,42 @@ mod tests {
             trigram_index(objects(&repo), &cold, &mut Indexer::default(), tree_b).unwrap();
         assert_eq!(index_b, index_b_cold);
 
-        // The incremental index searches correctly.
-        let hits = search_candidates(objects(&repo), index_b, tree_b, "delta").unwrap();
-        assert_eq!(hits, vec!["sub2/mod"]);
-        let hits = search_candidates(objects(&repo), index_b, tree_b, "zebra").unwrap();
+        // The incremental index searches correctly — through a cache warmed on commit A,
+        // like one GraphQL history+search query warms it: memo entries are content-keyed, so
+        // cross-commit reuse must not leak commit A's results into commit B's.
+        let mut sc = SearchCache::default();
+        let hits = search_candidates(objects(&repo), &mut sc, index_a, tree_a, "delta").unwrap();
         assert!(hits.is_empty());
-        let hits = search_candidates(objects(&repo), index_b, tree_b, "addition").unwrap();
-        assert_eq!(hits, vec!["sub3/new"]);
+        let hits = search_candidates(objects(&repo), &mut sc, index_a, tree_a, "zebra").unwrap();
+        let matches = search_matches(objects(&repo), &mut sc, "zebra", &hits).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].0, "sub1/gone");
+
+        let hits = search_candidates(objects(&repo), &mut sc, index_b, tree_b, "delta").unwrap();
+        assert_eq!(
+            hits.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+            vec!["sub2/mod"]
+        );
+        let hits = search_candidates(objects(&repo), &mut sc, index_b, tree_b, "zebra").unwrap();
+        assert!(hits.is_empty());
+        let hits = search_candidates(objects(&repo), &mut sc, index_b, tree_b, "addition").unwrap();
+        assert_eq!(
+            hits.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+            vec!["sub3/new"]
+        );
+
+        // Warm-cache results equal fresh-cache results.
+        let fresh = search_candidates(
+            objects(&repo),
+            &mut SearchCache::default(),
+            index_b,
+            tree_b,
+            "delta",
+        )
+        .unwrap();
+        assert_eq!(
+            fresh.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+            vec!["sub2/mod"]
+        );
     }
 }

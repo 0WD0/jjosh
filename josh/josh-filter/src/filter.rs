@@ -1,5 +1,5 @@
 use crate::check_experimental_features_enabled;
-use crate::op::{InsertContent, LazyRef, Op, Regex, RevMatch};
+use crate::op::{InsertContent, Op, Regex, RevMatch};
 use crate::opt;
 use crate::persist::{self, Node, to_filter, to_op};
 use std::sync::LazyLock;
@@ -86,16 +86,11 @@ impl Filter {
         self.chain(to_filter(Op::Pin(other)))
     }
 
-    /// Chain a `:rev(...)` filter. Each `(match, tip, then)` arm applies `then` to a commit whose
-    /// relationship to `tip` satisfies `match` (e.g. `AncestorInclusive` is `<=tip`); the first
-    /// matching arm wins and a commit matching none passes through unchanged. Tips are resolved
-    /// oids (`RevMatch::Default` ignores its tip); construct `Op::Rev` directly for lazy refs.
-    pub fn rev(self, arms: Vec<(RevMatch, gix_hash::ObjectId, Filter)>) -> Filter {
-        self.chain(to_filter(Op::Rev(
-            arms.into_iter()
-                .map(|(m, tip, then)| (m, LazyRef::Resolved(tip), then))
-                .collect(),
-        )))
+    /// Chain a `:rev(...)` filter. Each `(match, then)` arm applies `then` to a commit
+    /// satisfying `match`; the first matching arm wins and a commit matching none passes
+    /// through unchanged.
+    pub fn rev(self, arms: Vec<(RevMatch, Filter)>) -> Filter {
+        self.chain(to_filter(Op::Rev(arms)))
     }
 
     /// Create a no-op filter that passes everything through unchanged
@@ -164,8 +159,8 @@ impl Filter {
         Ok(self.chain(to_filter(Op::Starlark(path.into(), subfilter))))
     }
 
-    /// Chain a filter that inserts a blob containing the tree OID of the subfilter applied to the input tree.
-    /// Syntax: `:#path[filter]` (e.g. `:#version.txt[:/lib]` inserts a blob at `version.txt` with the OID of `:/lib` applied).
+    /// Chain a filter that stores the subfilter's tree ID as a gitlink at `path`.
+    /// Syntax: `:#path[filter]`, for example `:#version[:/lib]`.
     pub fn treeid(
         self,
         path: impl Into<std::path::PathBuf>,
@@ -201,7 +196,7 @@ impl Filter {
         Ok(self.chain(to_filter(Op::Insert(path.into(), InsertContent::Oid(oid)))))
     }
 
-    /// Chain a filter that removes the `.link.josh` marker to produce a standalone history
+    /// Chain the history-only export filter used to extract spliced history.
     pub fn export(self) -> anyhow::Result<Filter> {
         check_experimental_features_enabled("export filter")?;
         Ok(self.chain(to_filter(Op::Export)))
@@ -242,22 +237,14 @@ impl Filter {
     }
 
     /// Chain a squash filter
-    pub fn squash(self, ids: Option<&[(gix_hash::ObjectId, Filter)]>) -> Filter {
-        self.chain(if let Some(ids) = ids {
-            to_filter(Op::Squash(Some(
-                ids.iter()
-                    .map(|(x, y)| (LazyRef::Resolved(*x), *y))
-                    .collect(),
-            )))
-        } else {
-            to_filter(Op::Squash(None))
-        })
+    pub fn squash(self) -> Filter {
+        self.chain(to_filter(Op::Squash))
     }
 
     /// Chain a downstack filter that rebuilds the stack from `base` to the input commit,
     /// dropping intermediate commits whose paths are disjoint from the tip's changes.
     pub fn downstack(self, base: gix_hash::ObjectId) -> Filter {
-        self.chain(to_filter(Op::Downstack(LazyRef::Resolved(base))))
+        self.chain(to_filter(Op::Downstack(base)))
     }
 
     /// Chain a message filter that transforms commit messages
@@ -368,6 +355,16 @@ pub fn compose(filters: &[Filter]) -> Filter {
 
 pub fn invert(filter: Filter) -> anyhow::Result<Filter> {
     opt::invert(filter)
+}
+
+/// Lower squash-with-ids to a deterministic `:rev(...)` filter.
+pub fn squash_to_rev(ids: impl IntoIterator<Item = (gix_hash::ObjectId, Filter)>) -> Op {
+    let mut entries: Vec<(RevMatch, Filter)> = ids
+        .into_iter()
+        .map(|(oid, filter)| (RevMatch::Equal(oid), filter))
+        .collect();
+    entries.push((RevMatch::Default, to_filter(Op::Squash)));
+    Op::Rev(entries)
 }
 
 /// The sequence_number filter used for tracking commit sequence numbers. A memoized sentinel
