@@ -13,13 +13,14 @@ name = "jjosh"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
 clap.workspace = true
 gix-hash.workspace = true
+gix-object.workspace = true
 jj-cli.workspace = true
 jj-lib.workspace = true
 josh-core.workspace = true
 josh-cli.workspace = true
-josh-link.workspace = true
 
 [dev-dependencies]
 tempfile = "3.27.0"

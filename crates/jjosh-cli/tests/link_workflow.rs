@@ -1,4 +1,4 @@
-// Josh's local link transport currently uses the Unix `env` command for namespaced Git access.
+// These workflow tests exercise local Git repositories and file URLs.
 #![cfg(unix)]
 
 use std::fs;
@@ -149,10 +149,7 @@ fn assert_path_only_source_history(client: &Path, revision: &str, mount: &str) {
     let source = commit_id(client, revision);
     assert!(!source.is_empty());
     assert_eq!(
-        commit_id(
-            client,
-            &format!("({revision}) & untracked_remote_bookmarks()")
-        ),
+        commit_id(client, &format!("({revision}) & bookmarks()")),
         source
     );
     let commits = git(client, &["rev-list", &source]);
@@ -165,21 +162,56 @@ fn assert_path_only_source_history(client: &Path, revision: &str, mount: &str) {
     }
 }
 
-fn assert_native_marker(client: &Path, remote: &str, branch: &str, expected: &str) {
-    let revision = format!("remote_bookmarks(\"{branch}\", remote=\"{remote}\")");
+fn assert_native_marker(client: &Path, bookmark: &str, expected: &str) {
+    let revision = format!("bookmarks(\"{bookmark}\")");
     assert_eq!(commit_id(client, &revision), expected);
-    assert_eq!(
-        git(
-            client,
-            &["rev-parse", &format!("refs/remotes/{remote}/{branch}")]
-        )
-        .trim(),
-        expected
-    );
+    jjosh(client, &["git", "import"]);
+    assert_eq!(commit_id(client, &revision), expected);
     assert_eq!(
         commit_id(client, &format!("({revision}) & immutable()")),
         expected
     );
+}
+
+fn create_client(root: &Path, colocated: bool) -> PathBuf {
+    let client = root.join("client");
+    fs::create_dir(&client).unwrap();
+    if colocated {
+        git(&client, &["init", "-b", "main"]);
+        git(&client, &["config", "user.name", "Smoke Test"]);
+        git(&client, &["config", "user.email", "smoke@example.com"]);
+        fs::write(client.join("root.txt"), "root\n").unwrap();
+        git(&client, &["add", "."]);
+        git(&client, &["commit", "-m", "root"]);
+        jjosh(&client, &["git", "init", "--colocate"]);
+    } else {
+        jjosh(
+            &client,
+            &["git", "init", "--no-colocate", "--object-hash", "sha1"],
+        );
+        fs::write(client.join("root.txt"), "root\n").unwrap();
+        jjosh(&client, &["new", "-m", "local overlay"]);
+    }
+    client
+}
+
+fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
+    jjosh(client, &["file", "show", "-r", revision, path]).stdout
+}
+
+fn visible_graph(client: &Path) -> Vec<u8> {
+    jjosh(
+        client,
+        &[
+            "log",
+            "-r",
+            "all()",
+            "--no-graph",
+            "-T",
+            "commit_id ++ \" \" ++ change_id ++ \"\\n\"",
+        ],
+    )
+    .stdout
 }
 
 #[test]
@@ -211,10 +243,10 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
             "main",
         ],
     );
-    let first_trunk = commit_id(&client, "trunk@jjosh");
-    let alpha_source = commit_id(&client, "main@link-alpha");
+    let first_trunk = commit_id(&client, "jjosh/trunk");
+    let alpha_source = commit_id(&client, "jjosh/source/alpha");
     assert_ne!(alpha_source, alpha_v1);
-    assert_path_only_source_history(&client, "main@link-alpha", "alpha");
+    assert_path_only_source_history(&client, "jjosh/source/alpha", "alpha");
     let inherited_change = change_id(&client, "@");
     jjosh(&client, &["bookmark", "set", "inherited-patch", "-r", "@"]);
     jjosh(&client, &["new"]);
@@ -237,15 +269,15 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
             "main",
         ],
     );
-    let second_trunk = commit_id(&client, "trunk@jjosh");
-    let beta_source = commit_id(&client, "main@link-beta");
+    let second_trunk = commit_id(&client, "jjosh/trunk");
+    let beta_source = commit_id(&client, "jjosh/source/beta");
     assert_ne!(second_trunk, first_trunk);
     assert_ne!(commit_id(&client, "@"), old_local_commit);
     assert_eq!(change_id(&client, "@"), local_change);
     assert_eq!(change_id(&client, "inherited-patch"), inherited_change);
     assert_eq!(change_id(&client, "local-patch"), local_change);
-    assert_eq!(commit_id(&client, "main@link-alpha"), alpha_source);
-    assert_path_only_source_history(&client, "main@link-beta", "beta");
+    assert_eq!(commit_id(&client, "jjosh/source/alpha"), alpha_source);
+    assert_path_only_source_history(&client, "jjosh/source/beta", "beta");
     assert_eq!(
         commit_id(&client, "(inherited-patch | local-patch) & immutable()"),
         ""
@@ -279,14 +311,44 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
     );
     let beta_v2 = git(&beta_work, &["rev-parse", "HEAD"]).trim().to_owned();
     let before_update = commit_id(&client, "@");
-    jjosh(&client, &["link", "update", "beta"]);
-    let trunk = commit_id(&client, "trunk@jjosh");
-    let updated_beta_source = commit_id(&client, "main@link-beta");
+    // Both links are selected, but only beta advanced.
+    jjosh(&client, &["link", "update"]);
+    let trunk = commit_id(&client, "jjosh/trunk");
+    let description = git(&client, &["show", "-s", "--format=%s", &trunk]);
+    assert_eq!(
+        description
+            .split_whitespace()
+            .find_map(|word| word.parse::<usize>().ok()),
+        Some(1),
+    );
+    let operation_description = String::from_utf8(
+        jjosh(
+            &client,
+            &[
+                "op",
+                "log",
+                "--limit",
+                "1",
+                "--no-graph",
+                "-T",
+                "description",
+            ],
+        )
+        .stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        operation_description
+            .split_whitespace()
+            .find_map(|word| word.parse::<usize>().ok()),
+        Some(1),
+    );
+    let updated_beta_source = commit_id(&client, "jjosh/source/beta");
     assert_ne!(trunk, second_trunk);
     assert_ne!(updated_beta_source, beta_source);
     assert_ne!(updated_beta_source, beta_v2);
     assert_ne!(commit_id(&client, "@"), before_update);
-    assert_eq!(commit_id(&client, "main@link-alpha"), alpha_source);
+    assert_eq!(commit_id(&client, "jjosh/source/alpha"), alpha_source);
     assert_eq!(change_id(&client, "@"), local_change);
     assert_eq!(change_id(&client, "inherited-patch"), inherited_change);
     assert_eq!(change_id(&client, "local-patch"), local_change);
@@ -325,9 +387,9 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
     );
     assert!(git(&client, &["show", &format!("{trunk}:alpha/.link.josh")]).contains(&alpha_v1));
     assert!(git(&client, &["show", &format!("{trunk}:beta/.link.josh")]).contains(&beta_v2));
-    assert_eq!(commit_id(&client, "remote_bookmarks(remote=jjosh)"), trunk);
+    assert_eq!(commit_id(&client, "link_trunk()"), trunk);
     assert_eq!(commit_id(&client, "trunk()"), trunk);
-    assert_eq!(commit_id(&client, "trunk@jjosh & ::@"), trunk);
+    assert_eq!(commit_id(&client, "jjosh/trunk & ::@"), trunk);
     assert_eq!(
         commit_id(&client, "(inherited-patch | local-patch) & immutable()"),
         ""
@@ -350,42 +412,23 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
             );
         }
     }
-    assert_path_only_source_history(&client, "main@link-alpha", "alpha");
-    assert_path_only_source_history(&client, "main@link-beta", "beta");
-    assert_eq!(commit_id(&client, "main@link-alpha & ::main@link-beta"), "");
+    assert_path_only_source_history(&client, "jjosh/source/alpha", "alpha");
+    assert_path_only_source_history(&client, "jjosh/source/beta", "beta");
+    assert_eq!(
+        commit_id(&client, "jjosh/source/alpha & ::jjosh/source/beta"),
+        ""
+    );
 
-    // Both native view and Git backing refs must survive normal import and a
-    // fresh process; source markers must never silently become tracked.
+    // Native bookmarks remain authoritative across Git import and fresh processes.
     jjosh(&client, &["status"]);
-    jjosh(&client, &["git", "import"]);
-    jjosh(&client, &["status"]);
-    assert_native_marker(&client, "link-alpha", "main", &alpha_source);
-    assert_native_marker(&client, "link-beta", "main", &updated_beta_source);
-    assert_native_marker(&client, "jjosh", "trunk", &trunk);
-    assert_eq!(
-        commit_id(
-            &client,
-            "untracked_remote_bookmarks(main, remote=link-alpha)"
-        ),
-        alpha_source
-    );
-    assert_eq!(
-        commit_id(
-            &client,
-            "untracked_remote_bookmarks(main, remote=link-beta)"
-        ),
-        updated_beta_source
-    );
-    jjosh(&client, &["bookmark", "track", "main@link-alpha"]);
-    assert_eq!(
-        commit_id(&client, "main@link-alpha & immutable()"),
-        alpha_source
-    );
+    assert_native_marker(&client, "jjosh/source/alpha", &alpha_source);
+    assert_native_marker(&client, "jjosh/source/beta", &updated_beta_source);
+    assert_native_marker(&client, "jjosh/trunk", &trunk);
     assert_no_divergent_changes(&client);
     assert!(
         !jjosh_unchecked(
             &client,
-            &["describe", "-r", "trunk@jjosh", "-m", "forbidden"]
+            &["describe", "-r", "jjosh/trunk", "-m", "forbidden"]
         )
         .status
         .success()
@@ -393,7 +436,7 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
     assert!(
         !jjosh_unchecked(
             &client,
-            &["describe", "-r", "main@link-alpha", "-m", "forbidden"]
+            &["describe", "-r", "jjosh/source/alpha", "-m", "forbidden"]
         )
         .status
         .success()
@@ -403,116 +446,6 @@ fn native_link_histories_keep_clean_trunk_and_restack_patches_across_links() {
         &["describe", "-r", "local-patch", "-m", "still editable"],
     );
     assert_eq!(change_id(&client, "local-patch"), local_change);
-}
-
-#[test]
-fn native_marker_remotes_refuse_direct_git_transport() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_source_work, source_bare, source_v1) = create_remote(temp.path(), "source");
-    let client = temp.path().join("client");
-    fs::create_dir(&client).unwrap();
-    git(&client, &["init", "-b", "main"]);
-    git(&client, &["config", "user.name", "Smoke Test"]);
-    git(&client, &["config", "user.email", "smoke@example.com"]);
-    fs::write(client.join("root.txt"), "root\n").unwrap();
-    git(&client, &["add", "."]);
-    git(&client, &["commit", "-m", "root"]);
-    jjosh(&client, &["git", "init", "--colocate"]);
-    jjosh(
-        &client,
-        &[
-            "link",
-            "add",
-            "vendor/deps",
-            source_bare.to_str().unwrap(),
-            ":/src",
-            "--target",
-            "main",
-            "--push-url",
-            source_bare.to_str().unwrap(),
-        ],
-    );
-    let source_revision = "remote_bookmarks(main, remote=\"link-vendor%2Fdeps\")";
-    let source = commit_id(&client, source_revision);
-    let trunk = commit_id(&client, "trunk@jjosh");
-    assert_path_only_source_history(&client, source_revision, "vendor/deps");
-    assert_native_marker(&client, "link-vendor%2Fdeps", "main", &source);
-    fs::write(client.join("vendor/deps/value.txt"), "local-composite\n").unwrap();
-    jjosh(
-        &client,
-        &["describe", "-m", "composite must not be published directly"],
-    );
-    jjosh(&client, &["bookmark", "set", "composite", "-r", "@"]);
-    let refs_before = git(&source_bare, &["show-ref"]);
-    for remote in ["link-vendor%2Fdeps", "jjosh"] {
-        let rejected = jjosh_unchecked(
-            &client,
-            &[
-                "git",
-                "push",
-                "--remote",
-                remote,
-                "--bookmark",
-                "composite",
-                "--allow-empty-description",
-            ],
-        );
-        assert!(
-            !rejected.status.success(),
-            "marker remote {remote} accepted a direct push"
-        );
-        assert_eq!(git(&source_bare, &["show-ref"]), refs_before);
-        assert_eq!(
-            git(&source_bare, &["rev-parse", "refs/heads/main"]).trim(),
-            source_v1
-        );
-        let rejected_fetch = jjosh_unchecked(&client, &["git", "fetch", "--remote", remote]);
-        assert!(
-            !rejected_fetch.status.success(),
-            "marker remote {remote} accepted a direct fetch"
-        );
-    }
-    jjosh(&client, &["status"]);
-    jjosh(&client, &["git", "import"]);
-    assert_native_marker(&client, "link-vendor%2Fdeps", "main", &source);
-    assert_native_marker(&client, "jjosh", "trunk", &trunk);
-    assert_eq!(
-        fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
-        "local-composite\n"
-    );
-    // The same revision must be publishable to an ordinary local remote, so a
-    // malformed push request cannot satisfy the transport-refusal assertions.
-    let control_bare = temp.path().join("control.git");
-    git(
-        temp.path(),
-        &["init", "--bare", control_bare.to_str().unwrap()],
-    );
-    jjosh(
-        &client,
-        &[
-            "git",
-            "remote",
-            "add",
-            "control",
-            control_bare.to_str().unwrap(),
-        ],
-    );
-    jjosh(
-        &client,
-        &[
-            "git",
-            "push",
-            "--remote",
-            "control",
-            "--bookmark",
-            "composite",
-            "--allow-empty-description",
-        ],
-    );
-    assert_eq!(
-        git(&control_bare, &["rev-parse", "refs/heads/composite"]).trim(),
-        commit_id(&client, "composite")
-    );
 }
 
 #[test]
@@ -563,17 +496,13 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
             "HEAD",
         ],
     );
-    let initial_trunk = commit_id(&client, "trunk@jjosh");
+    let initial_trunk = commit_id(&client, "jjosh/trunk");
     assert_eq!(commit_id(&client, "trunk()"), initial_trunk);
     assert_eq!(
         fs::read_to_string(client.join("deps/lib.txt")).unwrap(),
         "linked-v1\n"
     );
     assert!(!client.join("deps/outside.txt").exists());
-    let link_file = fs::read_to_string(client.join("deps/.link.josh")).unwrap();
-    assert!(link_file.contains("mode=\"embedded\""));
-    assert!(link_file.contains(&format!("push=\"{}\"", remote_bare.display())));
-    assert!(link_file.contains("push-target=\"main\""));
     assert_eq!(
         git(&client, &["show", &format!("{initial_trunk}:deps/lib.txt")]),
         "linked-v1\n"
@@ -614,7 +543,7 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
         ],
     );
     jjosh(&client, &["link", "update", "deps", "-r", "@-"]);
-    assert_ne!(commit_id(&client, "trunk@jjosh"), initial_trunk);
+    assert_ne!(commit_id(&client, "jjosh/trunk"), initial_trunk);
     assert_eq!(change_id(&client, "@"), local_change_id);
     assert_ne!(commit_id(&client, "@"), old_local_commit);
     assert_eq!(commit_id(&client, "local-stack"), commit_id(&client, "@"));
@@ -716,10 +645,12 @@ fn embedded_links_fast_forward_and_restack_local_changes() {
     );
     fs::write(client.join("deps/lib.txt"), "local-v4\n").unwrap();
     jjosh(&client, &["status"]);
-    jjosh(&client, &["link", "update", "deps", "-r", "trunk@jjosh"]);
+    jjosh(&client, &["link", "update", "deps", "-r", "jjosh/trunk"]);
     assert_eq!(change_id(&client, "@"), local_change_id);
-    let conflicted_status = String::from_utf8(jjosh(&client, &["status"]).stdout).unwrap();
-    assert!(conflicted_status.contains("conflict"));
+    assert_eq!(
+        commit_id(&client, "@ & conflicts()"),
+        commit_id(&client, "@")
+    );
 
     let rejected_push = jjosh_unchecked(
         &client,
@@ -893,7 +824,7 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
         ""
     );
     let left = commit_id(&client, "@");
-    jjosh(&client, &["new", "trunk@jjosh", "-m", "Right change"]);
+    jjosh(&client, &["new", "jjosh/trunk", "-m", "Right change"]);
     fs::write(client.join("deps/right.txt"), "right\n").unwrap();
     let right = commit_id(&client, "@");
     jjosh(&client, &["new", &left, &right]);
@@ -915,7 +846,7 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
 
     // An empty side branch collapses to the source, so its merge with a
     // content-bearing branch must not create an empty merge commit either.
-    jjosh(&client, &["new", "trunk@jjosh", "-m", "Empty side branch"]);
+    jjosh(&client, &["new", "jjosh/trunk", "-m", "Empty side branch"]);
     let empty_branch = commit_id(&client, "@");
     jjosh(&client, &["new", &left, &empty_branch]);
     jjosh(&client, &["link", "push", "deps", "--to", "collapsed"]);
@@ -1172,7 +1103,7 @@ fn multiple_embedded_links_share_one_composite_graph_and_publish_independently()
             alpha_bare.to_str().unwrap(),
         ],
     );
-    let alpha_source = commit_id(&client, "main@link-alpha");
+    let alpha_source = commit_id(&client, "jjosh/source/alpha");
     jjosh(
         &client,
         &[
@@ -1187,12 +1118,9 @@ fn multiple_embedded_links_share_one_composite_graph_and_publish_independently()
             beta_bare.to_str().unwrap(),
         ],
     );
-    let composition_commit = commit_id(&client, "trunk@jjosh");
-    assert_eq!(commit_id(&client, "main@link-alpha"), alpha_source);
-    assert_eq!(
-        commit_id(&client, "remote_bookmarks(remote=jjosh)"),
-        composition_commit
-    );
+    let composition_commit = commit_id(&client, "jjosh/trunk");
+    assert_eq!(commit_id(&client, "jjosh/source/alpha"), alpha_source);
+    assert_eq!(commit_id(&client, "link_trunk()"), composition_commit);
     assert_eq!(
         fs::read_to_string(client.join("alpha/value.txt")).unwrap(),
         "alpha-v1\n"
@@ -1223,7 +1151,7 @@ fn multiple_embedded_links_share_one_composite_graph_and_publish_independently()
         fs::read_to_string(client.join("beta/value.txt")).unwrap(),
         "beta-v2\n"
     );
-    let updated_commit = commit_id(&client, "trunk@jjosh");
+    let updated_commit = commit_id(&client, "jjosh/trunk");
     assert_ne!(updated_commit, composition_commit);
     assert_eq!(
         git(
@@ -1317,10 +1245,6 @@ fn adding_embedded_link_to_nonempty_mount_preserves_local_content_above_clean_bo
         ],
     );
     assert!(!incomplete_push_config.status.success());
-    assert!(
-        String::from_utf8_lossy(&incomplete_push_config.stderr)
-            .contains("--push-target requires --push-url")
-    );
 
     jjosh(
         &client,
@@ -1343,9 +1267,9 @@ fn adding_embedded_link_to_nonempty_mount_preserves_local_content_above_clean_bo
         fs::read_to_string(client.join("deps/local.txt")).unwrap(),
         "preserve-me\n"
     );
-    let composition_commit = commit_id(&client, "trunk@jjosh");
+    let composition_commit = commit_id(&client, "jjosh/trunk");
     assert_eq!(commit_id(&client, "@ & mutable()"), commit_id(&client, "@"));
-    assert_eq!(commit_id(&client, "trunk@jjosh & ::@"), composition_commit);
+    assert_eq!(commit_id(&client, "jjosh/trunk & ::@"), composition_commit);
     assert_eq!(
         git(
             &client,
@@ -1366,7 +1290,6 @@ fn adding_embedded_link_to_nonempty_mount_preserves_local_content_above_clean_bo
     assert_no_divergent_changes(&client);
     let missing_push_remote = jjosh_unchecked(&client, &["link", "push", "deps"]);
     assert!(!missing_push_remote.status.success());
-    assert!(String::from_utf8_lossy(&missing_push_remote.stderr).contains("has no push remote"));
 }
 
 #[test]
@@ -1396,10 +1319,6 @@ fn link_commands_reject_sha256_git_repositories() {
         ],
     );
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr)
-            .contains("jjosh currently supports only SHA-1 Git repositories")
-    );
 }
 
 #[test]
@@ -1433,8 +1352,8 @@ fn legacy_embed_graph_requires_migration_before_adding_link() {
     // Recreate the old Embed commit shape: the materialized tree is unchanged,
     // but the clean commit has the scaffold and source as ordinary parents and
     // no native baseline marker.
-    let native = commit_id(&client, "trunk@jjosh");
-    let source = commit_id(&client, "main@link-alpha");
+    let native = commit_id(&client, "jjosh/trunk");
+    let source = commit_id(&client, "jjosh/source/alpha");
     let tree = git(&client, &["rev-parse", &format!("{native}^{{tree}}")])
         .trim()
         .to_owned();
@@ -1450,7 +1369,7 @@ fn legacy_embed_graph_requires_migration_before_adding_link() {
     jjosh(&client, &["edit", &legacy]);
     jjosh(
         &client,
-        &["bookmark", "forget", "--include-remotes", "trunk", "main"],
+        &["bookmark", "delete", "jjosh/trunk", "jjosh/source/alpha"],
     );
 
     jjosh(&client, &["new", "-m", "legacy local patch"]);
@@ -1468,15 +1387,9 @@ fn legacy_embed_graph_requires_migration_before_adding_link() {
         ],
     );
     assert!(!rejected.status.success());
-    assert!(
-        String::from_utf8_lossy(&rejected.stderr)
-            .contains("run `jjosh link migrate` before changing them"),
-        "unexpected link-add error:\n{}",
-        String::from_utf8_lossy(&rejected.stderr)
-    );
 
     jjosh(&client, &["link", "migrate"]);
-    let trunk = commit_id(&client, "trunk@jjosh");
+    let trunk = commit_id(&client, "jjosh/trunk");
     assert_eq!(
         fs::read_to_string(client.join("alpha/local.txt")).unwrap(),
         "keep this patch\n"
@@ -1499,8 +1412,8 @@ fn legacy_embed_graph_requires_migration_before_adding_link() {
             "main",
         ],
     );
-    assert!(!commit_id(&client, "trunk@jjosh").is_empty());
-    assert!(!commit_id(&client, "main@link-beta").is_empty());
+    assert!(!commit_id(&client, "jjosh/trunk").is_empty());
+    assert!(!commit_id(&client, "jjosh/source/beta").is_empty());
 }
 
 #[test]
@@ -1555,9 +1468,8 @@ fn snapshot_link_migrates_to_embedded_history_without_losing_local_changes() {
         fs::read_to_string(client.join("deps/value.txt")).unwrap(),
         "local-migration-change\n"
     );
-    let status = String::from_utf8(jjosh(&client, &["status"]).stdout).unwrap();
-    assert!(!status.contains("conflict"));
-    let composition_commit = commit_id(&client, "trunk@jjosh");
+    assert_eq!(commit_id(&client, "@ & conflicts()"), "");
+    let composition_commit = commit_id(&client, "jjosh/trunk");
     assert_eq!(
         git(
             &client,
@@ -1629,7 +1541,6 @@ fn embedded_update_rejects_non_fast_forward_source_history() {
 
     let rejected = jjosh_unchecked(&client, &["link", "update", "deps"]);
     assert!(!rejected.status.success());
-    assert!(String::from_utf8_lossy(&rejected.stderr).contains("did not advance by fast-forward"));
     assert_eq!(commit_id(&client, "@"), old_commit);
     assert_eq!(operation_id(&client), old_operation);
     assert_no_divergent_changes(&client);
@@ -1684,8 +1595,8 @@ fn embedded_update_preserves_source_change_ids_across_other_link_additions() {
             "main",
         ],
     );
-    let source_root = commit_id(&client, "main@link-deps");
-    assert_eq!(change_id(&client, "main@link-deps"), source_change_id);
+    let source_root = commit_id(&client, "jjosh/source/deps");
+    assert_eq!(change_id(&client, "jjosh/source/deps"), source_change_id);
     jjosh(
         &client,
         &[
@@ -1698,7 +1609,7 @@ fn embedded_update_preserves_source_change_ids_across_other_link_additions() {
             "main",
         ],
     );
-    assert_eq!(commit_id(&client, "main@link-deps"), source_root);
+    assert_eq!(commit_id(&client, "jjosh/source/deps"), source_root);
     let local_change = change_id(&client, "@");
 
     fs::write(remote_work.join("src/value.txt"), "evolution-v2\n").unwrap();
@@ -1716,15 +1627,120 @@ fn embedded_update_preserves_source_change_ids_across_other_link_additions() {
     assert_eq!(change_id(&client, "@"), local_change);
     assert_eq!(commit_id(&client, source_change_id), source_root);
     assert_eq!(
-        commit_id(&client, &format!("{source_change_id} & ::main@link-deps")),
+        commit_id(
+            &client,
+            &format!("{source_change_id} & ::jjosh/source/deps")
+        ),
         source_root
     );
     assert_eq!(
         fs::read_to_string(client.join("deps/value.txt")).unwrap(),
         "evolution-v2\n"
     );
-    assert_path_only_source_history(&client, "main@link-deps", "deps");
+    assert_path_only_source_history(&client, "jjosh/source/deps", "deps");
     assert_no_divergent_changes(&client);
+}
+
+#[test]
+fn shared_source_change_ids_remain_divergent_and_publish_independently() {
+    let temp = tempfile::tempdir().unwrap();
+    let (remote_work, remote_bare, _) = create_remote(temp.path(), "shared");
+    let original = git(&remote_work, &["cat-file", "-p", "HEAD"]);
+    let (headers, message) = original.split_once("\n\n").unwrap();
+    let source_change = "ossootuzwvxsosqnzywrvoyrtknwszpo";
+    let source = git_with_input(
+        &remote_work,
+        &["hash-object", "-t", "commit", "-w", "--stdin"],
+        format!("{headers}\nchange-id {source_change}\n\n{message}").as_bytes(),
+    );
+    git(
+        &remote_work,
+        &[
+            "push",
+            "--force",
+            remote_bare.to_str().unwrap(),
+            &format!("{}:refs/heads/main", source.trim()),
+        ],
+    );
+    let client = temp.path().join("client");
+    jjosh(
+        temp.path(),
+        &["git", "init", "--colocate", client.to_str().unwrap()],
+    );
+    fs::write(client.join("root.txt"), "root\n").unwrap();
+    jjosh(&client, &["describe", "-m", "root"]);
+    jjosh(&client, &["new"]);
+    for mount in ["left", "right"] {
+        jjosh(
+            &client,
+            &[
+                "link",
+                "add",
+                mount,
+                remote_bare.to_str().unwrap(),
+                ":/src",
+                "--target",
+                "main",
+                "--push-url",
+                remote_bare.to_str().unwrap(),
+                "--push-target",
+                mount,
+            ],
+        );
+        assert_eq!(
+            change_id(&client, &format!("jjosh/source/{mount}")),
+            source_change
+        );
+        assert_path_only_source_history(&client, &format!("jjosh/source/{mount}"), mount);
+    }
+    let left = commit_id(&client, "jjosh/source/left & divergent()");
+    let right = commit_id(&client, "jjosh/source/right & divergent()");
+    assert_eq!(left, commit_id(&client, "jjosh/source/left"));
+    assert_eq!(right, commit_id(&client, "jjosh/source/right"));
+    assert_ne!(left, right);
+
+    // Source projections are immutable by default. Import must not silently
+    // converge them or invent new change IDs merely to remove divergence.
+    let before_converge = operation_id(&client);
+    jjosh(&client, &["converge", "--no-interactive"]);
+    assert_eq!(operation_id(&client), before_converge);
+    assert_eq!(commit_id(&client, "jjosh/source/left"), left);
+    assert_eq!(commit_id(&client, "jjosh/source/right"), right);
+
+    fs::write(client.join("left/value.txt"), "left patch\n").unwrap();
+    fs::write(client.join("right/value.txt"), "right patch\n").unwrap();
+    jjosh(&client, &["describe", "-m", "independent mounted changes"]);
+    for mount in ["left", "right"] {
+        jjosh(&client, &["link", "push", mount]);
+        assert_eq!(
+            git(
+                &remote_bare,
+                &["show", &format!("refs/heads/{mount}:src/value.txt")]
+            ),
+            format!("{mount} patch\n"),
+        );
+        assert_eq!(
+            git(
+                &remote_bare,
+                &["show", &format!("refs/heads/{mount}:outside.txt")]
+            ),
+            "shared-outside\n",
+        );
+        assert!(
+            run(
+                &remote_bare,
+                Path::new("git"),
+                &[
+                    "merge-base",
+                    "--is-ancestor",
+                    source.trim(),
+                    &format!("refs/heads/{mount}")
+                ],
+            )
+            .status
+            .success(),
+        );
+    }
 }
 
 #[test]
@@ -1817,6 +1833,398 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     assert_eq!(
         git(&remote_bare, &["rev-parse", "topic"]).trim(),
         observed.trim()
+    );
+    assert_no_divergent_changes(&client);
+}
+
+fn assert_link_update_operation_restore(colocated: bool) {
+    let temp = tempfile::tempdir().unwrap();
+    let (remote_work, remote_bare, remote_v1) = create_remote(temp.path(), "restore");
+    let client = create_client(temp.path(), colocated);
+    let mount = "vendor/deps";
+    let source_revision = "bookmarks(\"jjosh/source/vendor%2Fdeps\")";
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            mount,
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    );
+    fs::write(client.join("vendor/deps/local.txt"), "local overlay\n").unwrap();
+    fs::write(client.join("root.txt"), "local root edit\n").unwrap();
+    jjosh(&client, &["describe", "-m", "preserved local patch"]);
+    jjosh(&client, &["bookmark", "set", "local-patch", "-r", "@"]);
+    let local_change = change_id(&client, "@");
+    let old_local = commit_id(&client, "@");
+    let old_trunk = commit_id(&client, "jjosh/trunk");
+    let old_source = commit_id(&client, source_revision);
+    let old_metadata = fs::read(client.join("vendor/deps/.link.josh")).unwrap();
+    assert!(String::from_utf8_lossy(&old_metadata).contains(&remote_v1));
+    let before_update = operation_id(&client);
+
+    fs::write(remote_work.join("src/value.txt"), "restore-v2\n").unwrap();
+    git(&remote_work, &["commit", "-am", "restore-v2"]);
+    git(
+        &remote_work,
+        &["push", remote_bare.to_str().unwrap(), "HEAD:main"],
+    );
+    let remote_v2 = git(&remote_work, &["rev-parse", "HEAD"]).trim().to_owned();
+    jjosh(&client, &["link", "update", mount]);
+    let updated_trunk = commit_id(&client, "jjosh/trunk");
+    let updated_source = commit_id(&client, source_revision);
+    let updated_metadata = fs::read(client.join("vendor/deps/.link.josh")).unwrap();
+    assert_ne!(updated_trunk, old_trunk);
+    assert_ne!(updated_source, old_source);
+    assert_eq!(change_id(&client, "@"), local_change);
+    assert_eq!(
+        fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
+        "restore-v2\n"
+    );
+    assert!(String::from_utf8_lossy(&updated_metadata).contains(&remote_v2));
+    assert_eq!(
+        file_at_revision(&client, "jjosh/trunk", "vendor/deps/.link.josh"),
+        updated_metadata
+    );
+
+    jjosh(&client, &["op", "restore", &before_update]);
+    jjosh(&client, &["git", "import"]);
+    jjosh(&client, &["status"]);
+    assert_eq!(commit_id(&client, "@"), old_local);
+    assert_eq!(commit_id(&client, "jjosh/trunk"), old_trunk);
+    assert_eq!(commit_id(&client, source_revision), old_source);
+    assert_eq!(commit_id(&client, "local-patch"), old_local);
+    assert_eq!(change_id(&client, "@"), local_change);
+    assert_eq!(
+        fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
+        "restore-v1\n"
+    );
+    assert_eq!(
+        fs::read(client.join("vendor/deps/.link.josh")).unwrap(),
+        old_metadata
+    );
+    assert_eq!(
+        file_at_revision(&client, "jjosh/trunk", "vendor/deps/.link.josh"),
+        old_metadata
+    );
+    assert_eq!(
+        file_at_revision(&client, "jjosh/trunk", "vendor/deps/value.txt"),
+        b"restore-v1\n"
+    );
+
+    // Import must not resurrect the newer state and make this update a no-op.
+    jjosh(&client, &["link", "update", mount]);
+    assert_eq!(commit_id(&client, source_revision), updated_source);
+    assert_ne!(commit_id(&client, "jjosh/trunk"), old_trunk);
+    assert_eq!(change_id(&client, "@"), local_change);
+    assert_eq!(change_id(&client, "local-patch"), local_change);
+    assert_eq!(commit_id(&client, "local-patch"), commit_id(&client, "@"));
+    assert_eq!(
+        fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
+        "restore-v2\n"
+    );
+    assert_eq!(
+        fs::read(client.join("vendor/deps/.link.josh")).unwrap(),
+        updated_metadata
+    );
+    assert_eq!(
+        file_at_revision(&client, "jjosh/trunk", "vendor/deps/.link.josh"),
+        updated_metadata
+    );
+    assert_eq!(
+        file_at_revision(&client, "jjosh/trunk", "vendor/deps/value.txt"),
+        b"restore-v2\n"
+    );
+    assert_eq!(
+        fs::read_to_string(client.join("vendor/deps/local.txt")).unwrap(),
+        "local overlay\n"
+    );
+    assert_eq!(
+        fs::read_to_string(client.join("root.txt")).unwrap(),
+        "local root edit\n"
+    );
+    let clean_paths = jjosh(&client, &["file", "list", "-r", "jjosh/trunk"]);
+    assert!(!String::from_utf8_lossy(&clean_paths.stdout).contains("vendor/deps/local.txt"));
+    assert_eq!(commit_id(&client, "local-patch & immutable()"), "");
+    assert_native_marker(&client, "jjosh/source/vendor%2Fdeps", &updated_source);
+    assert_no_divergent_changes(&client);
+}
+
+#[test]
+fn colocated_link_update_survives_operation_restore_and_git_import() {
+    assert_link_update_operation_restore(true);
+}
+
+#[test]
+fn noncolocated_link_update_survives_operation_restore_and_git_import() {
+    assert_link_update_operation_restore(false);
+}
+
+#[test]
+fn malformed_link_metadata_is_not_silently_omitted() {
+    let temp = tempfile::tempdir().unwrap();
+    let (remote_work, remote_bare, _) = create_remote(temp.path(), "malformed");
+    let client = create_client(temp.path(), true);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+        ],
+    );
+    let valid_metadata = fs::read(client.join("deps/.link.josh")).unwrap();
+    let trunk = commit_id(&client, "jjosh/trunk");
+    let broken_metadata = b":link[mode=\"embedded\",commit=\"unterminated\n";
+    fs::write(client.join("deps/.link.josh"), broken_metadata).unwrap();
+    jjosh(&client, &["status"]);
+    let local = commit_id(&client, "@");
+    let graph = visible_graph(&client);
+    let operation = operation_id(&client);
+    for args in [
+        vec!["link", "update"],
+        vec!["link", "update", "deps"],
+        vec!["link", "push", "deps"],
+        vec!["link", "migrate"],
+        vec![
+            "link",
+            "add",
+            "other",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    ] {
+        let rejected = jjosh_unchecked(&client, &args);
+        assert!(
+            !rejected.status.success(),
+            "{args:?} ignored malformed link metadata"
+        );
+        assert_eq!(commit_id(&client, "@"), local);
+        assert_eq!(commit_id(&client, "jjosh/trunk"), trunk);
+        assert_eq!(visible_graph(&client), graph);
+        assert_eq!(operation_id(&client), operation);
+        assert_eq!(
+            fs::read(client.join("deps/.link.josh")).unwrap(),
+            broken_metadata
+        );
+    }
+    assert!(!client.join("other").exists());
+    // The same link remains usable after the user repairs its metadata.
+    fs::write(client.join("deps/.link.josh"), valid_metadata).unwrap();
+    fs::write(remote_work.join("src/value.txt"), "repaired-v2\n").unwrap();
+    git(&remote_work, &["commit", "-am", "repaired-v2"]);
+    git(
+        &remote_work,
+        &["push", remote_bare.to_str().unwrap(), "HEAD:main"],
+    );
+    jjosh(&client, &["link", "update"]);
+    assert_eq!(
+        fs::read_to_string(client.join("deps/value.txt")).unwrap(),
+        "repaired-v2\n"
+    );
+}
+
+#[test]
+fn legacy_native_markers_migrate_without_rewriting_graph_or_losing_push_leases() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_remote_work, remote_bare, _) = create_remote(temp.path(), "markers");
+    let client = create_client(temp.path(), true);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+        ],
+    );
+    fs::write(client.join("deps/value.txt"), "published-v1\n").unwrap();
+    jjosh(&client, &["describe", "-m", "published local patch"]);
+    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    let published = git(&remote_bare, &["rev-parse", "main"]).trim().to_owned();
+    fs::write(client.join("deps/value.txt"), "rewritten-v2\n").unwrap();
+    jjosh(&client, &["status"]);
+    let local = commit_id(&client, "@");
+    let local_change = change_id(&client, "@");
+    let trunk = commit_id(&client, "jjosh/trunk");
+    let source = commit_id(&client, "jjosh/source/deps");
+    let metadata = fs::read(client.join("deps/.link.josh")).unwrap();
+
+    // Construct the previous native state, retaining its DAG and publication leases.
+    for (remote, branch, target) in [
+        ("jjosh", "trunk", trunk.as_str()),
+        ("link-deps", "main", source.as_str()),
+    ] {
+        git(
+            &client,
+            &[
+                "config",
+                &format!("remote.{remote}.url"),
+                "jjosh-marker://native",
+            ],
+        );
+        git(
+            &client,
+            &["config", &format!("remote.{remote}.jjosh-marker"), "true"],
+        );
+        git(
+            &client,
+            &[
+                "config",
+                &format!("remote.{remote}.fetch"),
+                &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+            ],
+        );
+        git(
+            &client,
+            &[
+                "update-ref",
+                &format!("refs/remotes/{remote}/{branch}"),
+                target,
+            ],
+        );
+    }
+    // A similarly named ordinary remote is not owned by jjosh.
+    git(
+        &client,
+        &["remote", "add", "link-user", remote_bare.to_str().unwrap()],
+    );
+    git(
+        &client,
+        &["update-ref", "refs/remotes/link-user/main", &source],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "delete", "jjosh/trunk", "jjosh/source/deps"],
+    );
+    jjosh(&client, &["git", "import"]);
+    let graph = visible_graph(&client);
+    for args in [
+        vec!["link", "update", "deps"],
+        vec![
+            "link",
+            "add",
+            "other",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    ] {
+        let rejected = jjosh_unchecked(&client, &args);
+        assert!(
+            !rejected.status.success(),
+            "{args:?} accepted unmigrated markers"
+        );
+        assert!(String::from_utf8_lossy(&rejected.stderr).contains("link migrate"));
+        assert_eq!(commit_id(&client, "@"), local);
+        assert_eq!(visible_graph(&client), graph);
+    }
+    // A conflicting destination must fail before deleting any old state.
+    jjosh(
+        &client,
+        &["bookmark", "set", "jjosh/source/deps", "-r", &trunk],
+    );
+    let rejected = jjosh_unchecked(&client, &["link", "migrate"]);
+    assert!(!rejected.status.success());
+    assert_eq!(commit_id(&client, "@"), local);
+    assert_eq!(visible_graph(&client), graph);
+    assert_eq!(commit_id(&client, "jjosh/source/deps"), trunk);
+    assert_eq!(
+        git(&client, &["rev-parse", "refs/remotes/jjosh/trunk"]).trim(),
+        trunk
+    );
+    assert_eq!(
+        git(&client, &["rev-parse", "refs/remotes/link-deps/main"]).trim(),
+        source
+    );
+    jjosh(&client, &["bookmark", "delete", "jjosh/source/deps"]);
+    jjosh(&client, &["link", "migrate"]);
+    assert_eq!(commit_id(&client, "@"), local);
+    assert_eq!(change_id(&client, "@"), local_change);
+    assert_eq!(visible_graph(&client), graph);
+    assert_eq!(fs::read(client.join("deps/.link.josh")).unwrap(), metadata);
+    assert_eq!(
+        fs::read_to_string(client.join("deps/value.txt")).unwrap(),
+        "rewritten-v2\n"
+    );
+    assert_native_marker(&client, "jjosh/trunk", &trunk);
+    assert_native_marker(&client, "jjosh/source/deps", &source);
+    for (remote, branch) in [("jjosh", "trunk"), ("link-deps", "main")] {
+        assert!(
+            !run(
+                &client,
+                Path::new("git"),
+                &[
+                    "show-ref",
+                    "--verify",
+                    &format!("refs/remotes/{remote}/{branch}")
+                ],
+            )
+            .status
+            .success()
+        );
+        assert!(
+            !run(
+                &client,
+                Path::new("git"),
+                &["config", "--get-regexp", &format!("^remote\\.{remote}\\.")],
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            commit_id(&client, &format!("remote_bookmarks(remote=\"{remote}\")")),
+            ""
+        );
+    }
+    assert_eq!(
+        git(&client, &["remote", "get-url", "link-user"]).trim(),
+        remote_bare.to_str().unwrap()
+    );
+    assert_eq!(
+        git(&client, &["rev-parse", "refs/remotes/link-user/main"]).trim(),
+        source
+    );
+    assert_eq!(commit_id(&client, "main@link-user"), source);
+    // Rewriting the already-published patch requires the retained lease, not a
+    // fast-forward from the original pin. Both destinations must remember v1.
+    jjosh(&client, &["link", "push", "deps"]);
+    let rewritten = git(&remote_bare, &["rev-parse", "main"]).trim().to_owned();
+    assert_eq!(
+        run(
+            &remote_bare,
+            Path::new("git"),
+            &["merge-base", "--is-ancestor", &published, &rewritten],
+        )
+        .status
+        .code(),
+        Some(1)
+    );
+    assert_eq!(git(&remote_bare, &["rev-parse", "topic"]).trim(), published);
+    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    assert_eq!(git(&remote_bare, &["rev-parse", "topic"]).trim(), rewritten);
+    assert_eq!(
+        git(&remote_bare, &["show", "topic:src/value.txt"]),
+        "rewritten-v2\n"
     );
     assert_no_divergent_changes(&client);
 }

@@ -160,8 +160,7 @@ pub(super) fn append_parents(
             original_target,
             old_oid,
             new_oid,
-            history::OrphansMode::Keep,
-            None,
+            history::UnapplyOptions::default(),
         )?;
         if referenced_history != gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
             filtered_parents.push(referenced_history);

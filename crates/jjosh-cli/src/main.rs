@@ -1,5 +1,6 @@
 mod interop;
 mod link;
+mod link_metadata;
 mod link_refs;
 mod projection;
 

@@ -39,7 +39,7 @@ jjosh 保留 jj 的常规命令，例如 `status`、`diff`、`log`、`new`、`sp
 
 Josh 可以把一个 Git 仓库转换成另一个视图。例如，把大仓库里的 `services/api/` 提取出来，作为根目录展示，并保留与它相关的历史。
 
-这不是简单复制文件或隐藏目录，而是转换 Git 历史。Josh 的 link 机制还可以将外部仓库的内容和历史组合进指定路径，并将适用的本地修改映射回来源结构。
+这不是简单复制文件或隐藏目录，而是转换 Git 历史。jjosh 的 link 工作流借助这些能力，将外部仓库的内容和历史组合进指定路径，并将适用的本地修改映射回来源结构。
 
 **jj 管“修改怎么组织”，Josh 管“仓库怎么呈现”，jjosh 将两者放进同一个开发流程。**
 
@@ -53,12 +53,29 @@ Josh 可以把一个 Git 仓库转换成另一个视图。例如，把大仓库�
 
 当前 link / projection 集成测试面向 Unix；本地传输使用 `env` 命令，不应据此假定原生 Windows 已受支持。
 
-在本仓库根目录执行：
+开发时，在本仓库根目录执行：
 
 ```sh
-cargo build --locked -p jjosh-cli
-cargo run --locked -p jjosh-cli -- --help
+cargo build -p jjosh-cli
+cargo run -p jjosh-cli -- --help
 ```
+
+普通 `cargo build` / `cargo test` 会优先复用已有锁定版本，在依赖声明变化时自动同步根目录 `Cargo.lock`，无需手改锁文件或额外执行 `cargo update`。`jj/` 和 `josh/` 自己的锁文件不替代根工作区的锁文件；将根锁文件的变化保留在本地集成提交中。
+
+更新内嵌来源后，正常构建即可同时完成依赖同步和二进制更新：
+
+```sh
+jjosh link update
+cargo build --release -p jjosh-cli
+```
+
+`link update` 只更新来源和提交图，不隐式运行项目的构建脚本。CI 或需要验证已提交锁文件的构建再加 `--locked`：
+
+```sh
+cargo test --locked -p jjosh-cli --tests
+```
+
+`--locked` 的含义是禁止调整锁文件，依赖声明与锁文件不一致时失败；不是开发时自动同步依赖的选项。
 
 安装到 Cargo 的可执行文件目录：
 
@@ -96,6 +113,8 @@ jjosh link add library https://github.com/ORG/library.git \
 
 这会将来源仓库放到 `library/`，并在 `library/.link.josh` 中记录来源、固定版本、挂载规则和发布配置。
 
+link 的元数据与提交图由 jjosh 管理，Josh 负责通用过滤与反向历史映射。工作区保留普通目录和 `.link.josh` 文件，不依赖上游已删除的 `josh-link` 或旧 `Embed` 操作，也不要求把目录换成 submodule。
+
 - `--target main`：后续从来源仓库的 `main` 分支获取更新。
 - `--push-url`：单独指定发布仓库；不指定就不能使用 `link push` 发布这个 link。
 - `--push-target jjosh/demo`：将修改发布到独立分支，而不是直接改来源主分支。
@@ -123,17 +142,19 @@ jjosh link update library
 jjosh link update
 ```
 
-jjosh 维护一个名为 `trunk@jjosh` 的书签（指向某个提交的名字），标记不含本地补丁的组合基线。本地修改位于基线上方；更新时，基线前进，本地修改自动迁移到新的基础上。
+jjosh 用本地书签 `jjosh/trunk` 标记不含本地补丁的组合基线，用 `jjosh/source/<encoded-path>` 标记各挂载路径的来源投影。例如 `library/` 对应 `jjosh/source/library`，`vendor/library/` 对应 `jjosh/source/vendor%2Flibrary`。这些书签与提交图一起由 jj operation 管理。本地修改位于基线上方；更新时，基线前进，本地修改自动迁移到新的基础上。
 
 这不意味着自动消除所有冲突。若上游和本地修改冲突，需要先解决冲突，再发布。
 
-如果工作区是在原生 `trunk@jjosh` 基线加入前创建的，先执行一次迁移：
+`jjosh op restore` 可以恢复本地提交、组合基线、来源书签及版本化 pin；colocated 和非 colocated 工作区都支持恢复后继续执行 `git import` 与 `link update`。远端已发布的内容、发布 lease 和 Git 配置不随 operation 回滚。
+
+如果工作区仍使用旧的 `trunk@jjosh` / `<branch>@link-<encoded-path>` 远端标记，或更早的 Embed 历史，先显式迁移：
 
 ```sh
 jjosh link migrate
 ```
 
-迁移会重建当前 links 的干净原生基线，并将其上的本地修改重新接回；完成后再执行 `link add` 或 `link update`。
+已有干净 native 基线时，迁移保留提交图、工作区内容与 `.link.josh`，将标记转成本地书签，并移除 jjosh 拥有的旧合成远端；普通远端和发布 lease 保留。更早的 Embed 图会重建干净原生基线，并将本地修改重新接回。迁移会更新仓库配置，Git 侧清理不属于 operation 的原子回滚范围；完成后再执行 `link add` 或 `link update`。
 
 ### 5. 发布这个目录的修改
 
@@ -179,7 +200,8 @@ jjosh projection status ':/src'
 - **只支持 SHA-1 Git 后端。** link / projection 不支持 SHA-256 Git 仓库。
 - **投影不是权限隔离。** 当前 projection 会先获取原始历史再在本地转换；不能用它保证其他目录的内容不被下载或访问。
 - **来源更新不能任意改写历史。** embedded link 更新要求来源历史及过滤后的历史向前推进；旧式 Embed 图需要先显式执行 `jjosh link migrate`，不会自动迁移。
-- **来源书签不是普通远端。** `<branch>@link-<encoded-path>` 和 `trunk@jjosh` 是组合历史的标记，不要对这些合成远端使用普通 `git fetch/push`，应使用 `link update/push`。
+- **组合书签是本地状态。** `jjosh/trunk` 和 `jjosh/source/*` 是 jjosh 管理的保留命名空间，默认不可改写，不再创建合成远端。更新来源或发布单个挂载目录应使用 `link update/push`；这些投影书签不是来源仓库的原始提交。
+- **同一来源的多个挂载可以有 divergence。** 保留来源的显式 change ID，不因跨挂载重复而拒绝导入，也不自动改写身份或调用 `converge`。可用 commit ID 或 change offset 区分版本。`jj converge` 会替换提交并重放后代，不是单纯消除标记；来源投影默认 immutable，显式改写它们应先评估对隔离历史和后续更新的影响。
 - **发布保护按目标分别记录。** jjosh 按精确的远端 URL 和目标分支，在本地记住最近成功推送或显式获取到的位置。只有远端仍匹配该位置，才允许受保护的历史改写（force-with-lease）。没有记录时，只允许创建分支或快进推送。
 - **`--force` 会绕过上述保护。** 不要把它当成推送被拒绝后的常规重试选项；先确认不会丢弃远端的他人修改。预检和失败的推送都不会刷新记录的位置。
 
