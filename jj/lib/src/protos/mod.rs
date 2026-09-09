@@ -20,3 +20,6 @@ pub mod simple_store {
 pub mod simple_workspace_store {
     include!("simple_workspace_store.rs");
 }
+pub mod working_copy_patterns {
+    include!("working_copy_patterns.rs");
+}

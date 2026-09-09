@@ -33,6 +33,12 @@ impl ContentHash for () {
     fn hash(&self, _: &mut impl DigestUpdate) {}
 }
 
+impl<T: ContentHash + ?Sized> ContentHash for Box<T> {
+    fn hash(&self, state: &mut impl DigestUpdate) {
+        (**self).hash(state);
+    }
+}
+
 macro_rules! tuple_impls {
     ($( ( $($n:tt $T:ident),+ ) )+) => {
         $(

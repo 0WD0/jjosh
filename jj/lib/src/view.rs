@@ -23,12 +23,14 @@ use thiserror::Error;
 use crate::backend::CommitId;
 use crate::index::Index;
 use crate::index::IndexResult;
+use crate::merge::Merge;
 use crate::op_store;
 use crate::op_store::LocalRemoteRefTarget;
 use crate::op_store::RefTarget;
 use crate::op_store::RefTargetOptionExt as _;
 use crate::op_store::RemoteRef;
 use crate::op_store::RemoteView;
+use crate::op_store::WorkingCopyPatternsId;
 use crate::ref_name::GitRefName;
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefName;
@@ -67,6 +69,34 @@ impl View {
 
     pub fn get_wc_commit_id(&self, name: &WorkspaceName) -> Option<&CommitId> {
         self.data.wc_commit_ids.get(name)
+    }
+
+    pub fn wc_sparse_patterns(
+        &self,
+    ) -> &BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>> {
+        &self.data.wc_sparse_patterns
+    }
+
+    pub fn get_wc_sparse_patterns(
+        &self,
+        name: &WorkspaceName,
+    ) -> Option<&Merge<Option<WorkingCopyPatternsId>>> {
+        self.data
+            .wc_sparse_patterns
+            .get(name)
+            .filter(|target| target.is_present())
+    }
+
+    pub fn set_wc_sparse_patterns(
+        &mut self,
+        name: WorkspaceNameBuf,
+        target: Merge<Option<WorkingCopyPatternsId>>,
+    ) {
+        if target.is_absent() {
+            self.data.wc_sparse_patterns.remove(&name);
+        } else {
+            self.data.wc_sparse_patterns.insert(name, target);
+        }
     }
 
     pub fn workspaces_for_wc_commit_id(&self, commit_id: &CommitId) -> Vec<WorkspaceNameBuf> {
@@ -122,6 +152,7 @@ impl View {
     pub fn remove_workspace(&mut self, name: &WorkspaceName) {
         self.data.wc_commit_ids.remove(name);
         self.data.git_heads.remove(name);
+        self.data.wc_sparse_patterns.remove(name);
     }
 
     pub fn rename_workspace(
@@ -143,7 +174,10 @@ impl View {
             .wc_commit_ids
             .insert(new_name.clone(), wc_commit_id);
         if let Some(git_head) = self.data.git_heads.remove(old_name) {
-            self.data.git_heads.insert(new_name, git_head);
+            self.data.git_heads.insert(new_name.clone(), git_head);
+        }
+        if let Some(target) = self.data.wc_sparse_patterns.remove(old_name) {
+            self.data.wc_sparse_patterns.insert(new_name, target);
         }
         Ok(())
     }
@@ -609,6 +643,7 @@ impl View {
             git_refs,
             git_heads,
             wc_commit_ids,
+            wc_sparse_patterns: _,
         } = &self.data;
         itertools::chain!(
             head_ids,

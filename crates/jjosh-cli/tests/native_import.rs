@@ -2,9 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Cursor, Read};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::io::Cursor;
+use std::io::Read;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
+use std::process::Output;
 
 struct NativeRepo {
     temp: tempfile::TempDir,
@@ -192,6 +195,29 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
     a.jj(&["new", "right", "left", "-m", "ordered merge\n\nmerge body"]);
     a.write("merge.txt", "merge delta\n");
     a.bookmark("main");
+    a.jj(&["status"]);
+    // Recorded source workspace selection must travel in the bundle without
+    // becoming the destination workspace's selection after namespacing.
+    a.jj(&["sparse", "set", "file:left.txt"]);
+    assert!(!a.path.join("base.txt").exists());
+    a.jj(&["sparse", "map", "set", "left.txt=visible-left.txt"]);
+    assert!(!a.path.join("left.txt").exists());
+    assert_eq!(
+        fs::read_to_string(a.path.join("visible-left.txt")).unwrap(),
+        "left\n"
+    );
+    // Concurrent layout choices are native view conflicts, not commit-tree
+    // conflicts. Export must retain every referenced configuration object.
+    let layout_base = a.operation_id();
+    a.jj(&["sparse", "map", "set", "left.txt=other-left.txt"]);
+    a.jj(&[
+        "--at-op",
+        &layout_base,
+        "sparse",
+        "map",
+        "set",
+        "left.txt=third-left.txt",
+    ]);
     a.jj(&["status"]);
 
     let b = NativeRepo::new();
@@ -455,6 +481,7 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
     source.write("file.txt", "recorded contents\n");
     source.jj(&["describe", "-m", "bundle validation"]);
     source.bookmark("main");
+    source.jj(&["sparse", "set", "file:file.txt"]);
     source.write("unrecorded.txt", "must remain unrecorded\n");
     let source_before = source.state();
     let packages = tempfile::tempdir().unwrap();
@@ -476,7 +503,18 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
     fs::write(&malformed, b"not a native state package\n").unwrap();
     let unsupported = packages.path().join("unsupported.bundle");
     let truncated = packages.path().join("truncated.bundle");
-    for (path, change_version) in [(&unsupported, true), (&truncated, false)] {
+    let invalid_sparse = packages.path().join("invalid-sparse.bundle");
+    let missing_sparse = packages.path().join("missing-sparse.bundle");
+    let mismatched_sparse = packages.path().join("mismatched-sparse.bundle");
+    let unknown_sparse = packages.path().join("unknown-sparse-field.bundle");
+    for (path, corruption) in [
+        (&unsupported, "version"),
+        (&truncated, "pack"),
+        (&invalid_sparse, "sparse"),
+        (&missing_sparse, "missing-sparse"),
+        (&mismatched_sparse, "mismatched-sparse"),
+        (&unknown_sparse, "unknown-sparse"),
+    ] {
         let mut archive = tar::Archive::new(Cursor::new(&original));
         let mut writer = tar::Builder::new(fs::File::create(path).unwrap());
         for entry in archive.entries().unwrap() {
@@ -484,11 +522,34 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
             let name = entry.path().unwrap().into_owned();
             let mut contents = Vec::new();
             entry.read_to_end(&mut contents).unwrap();
-            if change_version && name == Path::new("manifest.json") {
+            if name == Path::new("manifest.json") && corruption != "pack" {
                 let mut manifest: serde_json::Value = serde_json::from_slice(&contents).unwrap();
-                manifest["version"] = serde_json::json!(1_000_000);
+                match corruption {
+                    "version" => manifest["version"] = serde_json::json!(1_000_000),
+                    "sparse" => {
+                        manifest["view"]["wc_sparse_patterns"] =
+                            serde_json::json!({"default": ["not-an-object-id"]});
+                    }
+                    "missing-sparse" => {
+                        manifest["working_copy_patterns"] = serde_json::json!({});
+                    }
+                    "mismatched-sparse" => {
+                        let objects = manifest["working_copy_patterns"].as_object_mut().unwrap();
+                        let id = objects.keys().next().unwrap().clone();
+                        let object = objects.remove(&id).unwrap();
+                        let wrong_id = "00".repeat(64);
+                        objects.insert(wrong_id.clone(), object);
+                        manifest["view"]["wc_sparse_patterns"] =
+                            serde_json::json!({"default": [wrong_id]});
+                    }
+                    "unknown-sparse" => {
+                        let objects = manifest["working_copy_patterns"].as_object_mut().unwrap();
+                        objects.values_mut().next().unwrap()["unknown"] = serde_json::json!(true);
+                    }
+                    _ => unreachable!(),
+                }
                 contents = serde_json::to_vec(&manifest).unwrap();
-            } else if !change_version && name == Path::new("objects.pack") {
+            } else if corruption == "pack" && name == Path::new("objects.pack") {
                 contents.truncate(contents.len() / 2);
             }
             let mut header = tar::Header::new_gnu();
@@ -507,7 +568,15 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
         let target = NativeRepo::with_colocation(colocated);
         let before = target.state();
         let valid_source = format!("a={}", valid.display());
-        for path in [&malformed, &unsupported, &truncated] {
+        for path in [
+            &malformed,
+            &unsupported,
+            &truncated,
+            &invalid_sparse,
+            &missing_sparse,
+            &mismatched_sparse,
+            &unknown_sparse,
+        ] {
             assert!(
                 !target
                     .unchecked(&["native", "inspect", path.to_str().unwrap()])

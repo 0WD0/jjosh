@@ -4,9 +4,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use jj_cli::cli_util::CommandHelper;
-use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
+use jj_cli::command_error::CommandError;
+use jj_cli::command_error::user_error;
+use jj_cli::command_error::user_error_with_message;
 use jj_cli::ui::Ui;
-use jj_lib::repo::{ReadonlyRepo, Repo as _, RepoLoader};
+use jj_lib::repo::ReadonlyRepo;
+use jj_lib::repo::Repo as _;
+use jj_lib::repo::RepoLoader;
 
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct Args {
@@ -20,7 +24,7 @@ enum Command {
     ///
     /// Sources are read-only: run jj status beforehand to record working files.
     /// The bundle retains native commits, tree conflicts and the current view,
-    /// but not old operation/evolution histories, configuration or credentials.
+    /// but not old operation/evolution histories, user settings or credentials.
     Export(BundleArgs),
     /// Validate a native bundle without needing its source repository.
     Inspect(BundleArgs),
@@ -56,7 +60,8 @@ async fn load_current(loader: &RepoLoader) -> Result<Arc<ReadonlyRepo>, CommandE
             .await?;
     let [operation] = heads.as_slice() else {
         return Err(user_error(
-            "Native export/import requires exactly one operation head; reconcile operations separately",
+            "Native export/import requires exactly one operation head; reconcile operations \
+             separately",
         ));
     };
     let backend = jj_lib::git::get_git_backend(loader.store())?;
@@ -168,7 +173,8 @@ async fn run_import(
             || path.is_empty()
         {
             return Err(user_error(
-                "Source names must contain only ASCII letters, digits, '-' or '_', and bundle paths must not be empty",
+                "Source names must contain only ASCII letters, digits, '-' or '_', and bundle \
+                 paths must not be empty",
             ));
         }
         if !names.insert(name.to_owned()) {
@@ -238,7 +244,8 @@ async fn run_import(
     }
     writeln!(
         ui.status(),
-        "Native states imported in one transaction; working copy unchanged. Compose source workspace bookmarks with jjosh new."
+        "Native states imported in one transaction; working copy unchanged. Compose source \
+         workspace bookmarks with jjosh new."
     )?;
     Ok(())
 }

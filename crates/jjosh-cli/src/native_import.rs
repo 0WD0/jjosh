@@ -1,14 +1,28 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, ensure};
-use jj_lib::backend::{self, Backend, CommitId, FileId, SymlinkId, Tree, TreeId, TreeValue};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::ensure;
+use jj_lib::backend::Backend;
+use jj_lib::backend::CommitId;
+use jj_lib::backend::FileId;
+use jj_lib::backend::SymlinkId;
+use jj_lib::backend::Tree;
+use jj_lib::backend::TreeId;
+use jj_lib::backend::TreeValue;
+use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::op_store::{RefTarget, View};
+use jj_lib::op_store::RefTarget;
+use jj_lib::op_store::View;
 use jj_lib::ref_name::RefName;
-use jj_lib::repo::{ReadonlyRepo, Repo as _};
-use jj_lib::repo_path::{RepoPath, RepoPathBuf, RepoPathComponentBuf};
+use jj_lib::repo::ReadonlyRepo;
+use jj_lib::repo::Repo as _;
+use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::repo_path::RepoPathComponentBuf;
 
 use crate::native_bundle::Bundle;
 
@@ -49,7 +63,8 @@ pub(crate) async fn import_bundle(
             !source_view
                 .local_bookmarks
                 .contains_key(RefName::new(&role)),
-            "source {scope} bookmark {role:?} collides with its workspace role; rename the bookmark before importing"
+            "source {scope} bookmark {role:?} collides with its workspace role; rename the \
+             bookmark before importing"
         );
     }
 
@@ -128,18 +143,23 @@ pub(crate) async fn import_bundle(
                     .with_context(|| format!("writing source {scope} native commit {old_id}"))?;
                 ensure!(
                     mapped.store_commit().as_ref() == &intended,
-                    "destination backend changed native metadata for source {scope} commit {old_id}; import cannot preserve this commit (possible Git identity collision)"
+                    "destination backend changed native metadata for source {scope} commit \
+                     {old_id}; import cannot preserve this commit (possible Git identity \
+                     collision)"
                 );
                 // Some backend normalizations are visible only when reading
                 // again, not in the value returned by write_commit's cache.
                 let persisted = dest_backend.read_commit(mapped.id()).await?;
                 ensure!(
                     persisted == intended,
-                    "destination backend did not retain native metadata for source {scope} commit {old_id}"
+                    "destination backend did not retain native metadata for source {scope} commit \
+                     {old_id}"
                 );
                 if let Some(other) = origins.insert(mapped.id().clone(), old_id.clone()) {
                     anyhow::bail!(
-                        "source {scope} commits {other} and {old_id} collapse to {} after removing signatures/predecessors; import cannot preserve their distinct identities",
+                        "source {scope} commits {other} and {old_id} collapse to {} after \
+                         removing signatures/predecessors; import cannot preserve their distinct \
+                         identities",
                         mapped.id()
                     );
                 }
@@ -205,6 +225,8 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
     // or real destination workspaces. Source @git refs above remain namespaced.
     view.git_refs.clear();
     view.git_heads.clear();
+    // Source workspaces become bookmark roles, not mounted target workspaces.
+    view.wc_sparse_patterns.clear();
     view
 }
 
@@ -278,7 +300,8 @@ impl ObjectImporter<'_> {
                             TreeValue::File { id, copy_id, .. } => {
                                 ensure!(
                                     copy_id.as_bytes().is_empty(),
-                                    "tracked copy metadata at {source_entry:?} is unsupported by the destination Git backend"
+                                    "tracked copy metadata at {source_entry:?} is unsupported by \
+                                     the destination Git backend"
                                 );
                                 if !self.files.contains(id) {
                                     let mut contents = self

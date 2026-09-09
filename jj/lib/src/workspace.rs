@@ -459,6 +459,37 @@ impl Workspace {
         old_tree: Option<&MergedTree>,
         commit: &Commit,
     ) -> Result<CheckoutStats, CheckoutError> {
+        let operation = self
+            .repo_loader
+            .load_operation(&operation_id)
+            .await
+            .map_err(|err| CheckoutError::Other {
+                message: "Failed to load the checkout operation".to_owned(),
+                err: err.into(),
+            })?;
+        let view = operation.view().await.map_err(|err| CheckoutError::Other {
+            message: "Failed to load the checkout view".to_owned(),
+            err: err.into(),
+        })?;
+        let desired_patterns = match view
+            .get_wc_sparse_patterns(self.workspace_name())
+            .and_then(|value| value.as_resolved())
+            .and_then(|value| value.as_ref())
+        {
+            Some(id) => Some(
+                self.repo_loader
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await
+                    .map_err(|err| CheckoutError::Other {
+                        message: "Failed to load the checkout layout".to_owned(),
+                        err: err.into(),
+                    })?,
+            ),
+            // An unregistered workspace or whole-layout conflict preserves its
+            // actual checkout; neither case means an all-files identity layout.
+            None => None,
+        };
         let mut locked_ws = self.start_working_copy_mutation().await?;
         // Check if the current working-copy commit has changed on disk compared to what
         // the caller expected. It's safe to check out another commit
@@ -470,7 +501,15 @@ impl Workspace {
         {
             return Err(CheckoutError::ConcurrentCheckout);
         }
-        let stats = locked_ws.locked_wc().check_out(commit).await?;
+        let stats = match desired_patterns {
+            Some(patterns) => {
+                locked_ws
+                    .locked_wc()
+                    .check_out_with_sparse_patterns(commit, patterns)
+                    .await?
+            }
+            None => locked_ws.locked_wc().check_out(commit).await?,
+        };
         locked_ws
             .finish(operation_id)
             .await

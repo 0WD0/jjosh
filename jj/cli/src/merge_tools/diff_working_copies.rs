@@ -186,7 +186,7 @@ pub(crate) async fn check_out_trees(
             fsmonitor_settings: FsmonitorSettings::None,
         };
         let mut state = TreeState::init(store.clone(), wc_path, state_dir, &tree_state_settings)?;
-        state.set_sparse_patterns(sparse_patterns.clone())?;
+        state.set_sparse_patterns(sparse_patterns.clone().into())?;
         state.check_out(tree)?;
         Ok(state)
     };

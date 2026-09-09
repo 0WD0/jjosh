@@ -29,6 +29,7 @@ use crate::backend::CommitId;
 use crate::backend::MillisSinceEpoch;
 use crate::backend::Timestamp;
 use crate::content_hash::ContentHash;
+use crate::content_hash::DigestUpdate;
 use crate::merge::Merge;
 use crate::object_id::HexPrefix;
 use crate::object_id::ObjectId as _;
@@ -41,9 +42,11 @@ use crate::ref_name::RemoteName;
 use crate::ref_name::RemoteNameBuf;
 use crate::ref_name::RemoteRefSymbol;
 use crate::ref_name::WorkspaceNameBuf;
+use crate::working_copy_patterns::WorkingCopyPatterns;
 
 id_type!(pub ViewId { hex() });
 id_type!(pub OperationId { hex() });
+id_type!(pub WorkingCopyPatternsId { hex() });
 
 #[derive(ContentHash, PartialEq, Eq, Hash, Clone, Debug, serde::Serialize)]
 #[serde(transparent)]
@@ -244,7 +247,7 @@ pub struct LocalRemoteRefTarget<'a> {
 
 /// Represents the way the repo looks at a given time, just like how a Tree
 /// object represents how the file system looks at a given time.
-#[derive(ContentHash, PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct View {
     /// All head commits. There should be at least one head commit.
     pub head_ids: HashSet<CommitId>,
@@ -259,6 +262,25 @@ pub struct View {
     // (.jj/working_copy/) has the source of truth about which commit *is* checked out (to be
     // precise: the commit to which we most recently completed an update to).
     pub wc_commit_ids: BTreeMap<WorkspaceNameBuf, CommitId>,
+    /// Desired canonical sparse selection and layout object IDs.
+    /// Missing entries retain unknown-history, working-copy-local configuration.
+    pub wc_sparse_patterns: BTreeMap<WorkspaceNameBuf, Merge<Option<WorkingCopyPatternsId>>>,
+}
+
+impl ContentHash for View {
+    fn hash(&self, state: &mut impl DigestUpdate) {
+        // Preserve the historical field order and hash of unregistered views.
+        self.head_ids.hash(state);
+        self.local_bookmarks.hash(state);
+        self.local_tags.hash(state);
+        self.remote_views.hash(state);
+        self.git_refs.hash(state);
+        self.git_heads.hash(state);
+        self.wc_commit_ids.hash(state);
+        if !self.wc_sparse_patterns.is_empty() {
+            self.wc_sparse_patterns.hash(state);
+        }
+    }
 }
 
 impl View {
@@ -272,6 +294,7 @@ impl View {
             git_refs: BTreeMap::new(),
             git_heads: BTreeMap::new(),
             wc_commit_ids: BTreeMap::new(),
+            wc_sparse_patterns: BTreeMap::new(),
         }
     }
 }
@@ -467,6 +490,16 @@ pub trait OpStore: Any + Send + Sync + Debug {
     async fn read_view(&self, id: &ViewId) -> OpStoreResult<View>;
 
     async fn write_view(&self, contents: &View) -> OpStoreResult<ViewId>;
+
+    async fn read_working_copy_patterns(
+        &self,
+        id: &WorkingCopyPatternsId,
+    ) -> OpStoreResult<WorkingCopyPatterns>;
+
+    async fn write_working_copy_patterns(
+        &self,
+        contents: &WorkingCopyPatterns,
+    ) -> OpStoreResult<WorkingCopyPatternsId>;
 
     async fn read_operation(&self, id: &OperationId) -> OpStoreResult<Operation>;
 

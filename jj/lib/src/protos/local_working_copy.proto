@@ -58,6 +58,9 @@ message TreeState {
   bool is_file_states_sorted = 6;
   SparsePatterns sparse_patterns = 3;
   WatchmanClock watchman_clock = 4;
+  // Actual on-disk layout, independent of the operation's desired configuration.
+  // Presence distinguishes structured state from legacy sparse patterns.
+  optional bytes working_copy_patterns = 8;
 }
 
 message WatchmanClock {

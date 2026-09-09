@@ -147,6 +147,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_prefix_path(input.as_ref())?;
         let path = path_converter.parse_file_path(input.as_ref())?;
         Ok(Self::PrefixPath(path))
     }
@@ -156,6 +157,11 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        if input.as_ref().contains(is_glob_char) {
+            path_converter.check_glob()?;
+        } else {
+            return Self::cwd_file_path(path_converter, input);
+        }
         let (dir, pattern) = split_glob_path(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::file_glob_at(dir, pattern, false)
@@ -166,6 +172,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_glob()?;
         let (dir, pattern) = split_glob_path_i(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::file_glob_at(dir, pattern, true)
@@ -176,6 +183,11 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        if input.as_ref().contains(is_glob_char) {
+            path_converter.check_glob()?;
+        } else {
+            return Self::cwd_prefix_path(path_converter, input);
+        }
         let (dir, pattern) = split_glob_path(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::prefix_glob_at(dir, pattern, false)
@@ -187,6 +199,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_glob()?;
         let (dir, pattern) = split_glob_path_i(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::prefix_glob_at(dir, pattern, true)
@@ -496,6 +509,7 @@ fn format_pattern_to_buf(output: &mut String, pattern: &FilePattern) {
         FilePattern::FilePath(path) => {
             format_literal_pattern_to_buf(output, "root-file", path.as_internal_file_string());
         }
+        FilePattern::PrefixPath(path) if path.is_root() => output.push_str("all()"),
         FilePattern::PrefixPath(path) => {
             format_literal_pattern_to_buf(output, "root", path.as_internal_file_string());
         }
