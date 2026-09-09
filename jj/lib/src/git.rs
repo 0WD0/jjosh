@@ -589,6 +589,21 @@ struct RefsToImport {
     failed_ref_names: Vec<BString>,
 }
 
+/// Checks for pending ref imports without importing commits or modifying the view.
+///
+/// Uses the same ref selection as `import_refs()`. HEAD is workspace-specific
+/// and must be checked separately by the caller.
+pub fn has_pending_imports(
+    view: &View,
+    git_repo: &gix::Repository,
+) -> Result<bool, GitImportError> {
+    let pending = diff_refs_to_import(view, git_repo, false, |_, _| true)?;
+    Ok(!pending.changed_git_refs.is_empty()
+        || !pending.changed_remote_bookmarks.is_empty()
+        || !pending.changed_remote_tags.is_empty()
+        || !pending.failed_ref_names.is_empty())
+}
+
 /// Reflect changes made in the underlying Git repo in the Jujutsu repo.
 ///
 /// This function detects conflicts (if both Git and JJ modified a bookmark) and

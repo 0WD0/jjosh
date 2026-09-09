@@ -3,6 +3,7 @@ mod link;
 mod link_metadata;
 mod link_refs;
 mod projection;
+mod transplant;
 
 use jj_cli::cli_util::{CliRunner, CommandHelper};
 use jj_cli::command_error::CommandError;
