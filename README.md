@@ -43,6 +43,26 @@ Josh 可以把一个 Git 仓库转换成另一个视图。例如，把大仓库�
 
 **jj 管“修改怎么组织”，Josh 管“仓库怎么呈现”，jjosh 将两者放进同一个开发流程。**
 
+## 原生 sparse：按 fileset 选择工作副本文件
+
+本地 jj 集成接续了 pmandloi28 的 [fileset sparse PR #9760](https://github.com/jj-vcs/jj/pull/9760)，并修正表达式往返、空旧状态迁移和旧二进制误读问题。这不表示该 PR 已在上游合并。
+
+```sh
+jjosh sparse set 'glob:"**/*.rs" ~ src/generated'
+jjosh sparse set --add 'src/generated/needed.rs'
+jjosh sparse list
+jjosh sparse edit
+jjosh sparse reset
+```
+
+位置参数替换当前选择；`--add` 取并集，`--remove` 取差集，同一次调用先加入再排除。输入按当前目录解释；`sparse list` 输出可重新解析的根相对表达式。`sparse edit` 编辑一条可以跨行的表达式，空白表示不选择文件，而不是把每行当成独立路径。
+
+这与旧版 sparse 有行为差异：`--remove` 现在可以排除已选目录的子路径，不再只是删除一个已列出的前缀；旧的工作副本根相对输入需改用 `root:`，或者从仓库根运行。
+
+未检出的内容仍在完整原生提交里，不会被当成删除；`file list`、revision 操作不会因此被限制为可见文件。新 workspace 可继承整个筛选表达式。这里只支持筛选，不包含路径重排、Josh workspace 定义绑定或 sparse 配置的 operation 版本化。
+
+旧前缀状态可读取。首次使用不能表示成旧前缀列表的表达式时，标准本地工作副本会标为 `local-fileset`，旧二进制随后加载时明确拒绝；`sparse reset` 不自动降级这个标记。切换前应退出仍在运行的旧 jj 进程，不要手改类型标记。自定义 working-copy 实现需自行处理兼容性。
+
 ## 从源码构建
 
 需要：
@@ -171,29 +191,123 @@ jjosh link push library
 
 `--dry-run` 会检查导出和远端更新是否可行，但不更新远端，也不预留分支；实际推送仍可能因远端随后发生变化而被拒绝。
 
-## 只需要一个仓库的局部视图？
+## 投影视图：局部开发与双向发布
 
-使用 `projection`，不必将它挂载到组合工作区的子目录。下面在另一个新工作区中，只导入大仓库里的 `services/api/` 视图：
+`projection` 将一个仓库转换成可独立开发的历史视图，不必先将它挂载到组合工作区的子目录。支持 colocated 和非 colocated 的 jj 工作副本：
 
 ```sh
-jjosh git init --object-hash sha1 api-workspace
-cd api-workspace
+jjosh git init --no-colocate api-view
+cd api-view
 jjosh config set --repo user.name "Your Name"
 jjosh config set --repo user.email "you@example.com"
 jjosh projection remote add api https://github.com/ORG/monorepo.git ':/services/api'
 jjosh projection fetch --remote api
-jjosh new 'main@api'
+jjosh new 'main@api' -m "Adjust API behavior"
+# 修改视图根目录中的代码。
+jjosh bookmark set publish -r @
+jjosh projection push --remote api --to main -r publish
 ```
 
-示例假设来源分支叫 `main`。`fetch` 导入转换后的历史，不自动切换工作区；`new 'main@api'` 才会在该版本上开始工作，此时 `services/api/` 的内容出现在工作区根目录。
+`push` 必须显式给出 `-r` 和目标分支 `--to`。`-r` 接受原生 jj revision、bookmark 或 `@`，精确发布所选提交，不猜测空工作提交是否应该被跳过。重复发布同一版本不会因为工作副本后来多了空提交而改变选择；显式选择空提交则仍会发布它。
 
-也可以预览当前版本的某个局部视图，而不切换工作区或更新引用：
+Josh 负责历史过滤与反向写回；jj 负责工作副本快照、引用导入和本地事务。`fetch` 不替你选择开发基线，但正常的 jj 导入可能重写本地后继或创建新的工作提交。`push` 不在发布后自动 fetch、checkout 或 rebase。配置的投影 remote 禁止普通 `git push` 绕过反向过滤。
+
+预览只读取已记录的原生状态，不快照工作文件、不更新引用：
 
 ```sh
-jjosh projection status ':/src'
+jjosh projection status ':/src' -r @
 ```
 
-当前 `projection` 提供 `status`、`remote add`、`fetch` 和本地整图改写 `transplant`，没有 `projection push`。它的远端配置禁止直接通过普通 Git 推送；需要双向开发和发布时，应选择 link 工作流。
+### 版本化视图与共享依赖
+
+jjosh 将这种布局称为“投影视图”（view），通过 `--view` 选择。`jjosh workspace` 仍是 jj 原生的工作副本管理命令。底层继续使用 Josh 的 `workspace.josh` 文件和 `:workspace=...` 过滤语法，便于与独立 Josh 工具互操作；不创建另一套映射格式。
+
+例如，monorepo 只保存一份共享依赖：
+
+```text
+src/
+├── Sunshine/
+├── Artemis/
+├── moonlight-common-c/
+└── msquic/
+```
+
+`src/Sunshine/workspace.josh`：
+
+```text
+third-party/moonlight-common-c = :/src/moonlight-common-c
+third-party/msquic = :/src/msquic
+```
+
+`src/Artemis/workspace.josh`：
+
+```text
+app/src/main/jni/moonlight-core/moonlight-common-c = :/src/moonlight-common-c
+third-party/msquic = :/src/msquic
+```
+
+然后分别取得它们的视图：
+
+```sh
+jjosh git init --no-colocate sunshine-view
+jjosh -R sunshine-view projection remote add mono /path/to/monorepo.git --view src/Sunshine
+jjosh -R sunshine-view projection fetch --remote mono
+jjosh -R sunshine-view new main@mono
+
+jjosh git init --colocate artemis-view
+jjosh -R artemis-view projection remote add mono /path/to/monorepo.git --view src/Artemis
+jjosh -R artemis-view projection fetch --remote mono
+jjosh -R artemis-view new main@mono
+```
+
+`--view` 是源仓库根目录下的相对路径，与位置参数 FILTER 二选一；不是当前磁盘上的工作副本路径，也不要求该目录已经存在。可用 `projection status --view src/Sunshine -r REV` 预览包含该定义的原始版本。
+
+在 Sunshine 视图修改 `third-party/moonlight-common-c/`，反向写回后修改落到 `src/moonlight-common-c/`。Artemis 获取同一 monorepo 版本后，在自己的 JNI 路径看到该修改。两边使用普通文件，不是 gitlink、符号链接或实时共享的工作目录。
+
+映射本身也是版本历史的一部分：
+
+- 添加映射后，push 再 fetch 会补齐新可见的共享内容。Josh 可以为投影增加合成 merge，接入库的既有历史；源历史不必因此产生 merge。
+- 删除映射但保留视图内的文件，会将它们变成应用自己的独立副本；不会删除原来的共享源。
+- 同时删除映射和对应文件，只移除这个视图中的路径，其他视图仍可继续使用共享源。
+- 将已有本地目录映射到新的共享位置，可以发布它的内容；改变视图内的路径时，同时修改映射和移动文件。
+
+不要在原始项目路径保留与映射重叠的 gitlink 或重复依赖文件，再假定映射会自动替换它们。迁移这些内容、调整 submodule 初始化脚本，是独立的显式步骤。依赖嵌套布局出现在投影视图里，不会自动填进原始 monorepo 工作副本；要在视图中构建，或另行配置直接构建时的依赖路径。投影也不替代依赖版本选择、ABI 检查或预编译库重建。
+
+### 接回经过历史转换的已发布版本
+
+改变映射后，Josh 可能规范化 `workspace.josh`、补入文件并改变父关系；返回的提交可以保留 change ID，但拥有不同的 commit ID。这不是“原 DAG 必须不变”的迁移操作。
+
+先检查返回的版本，再用 jj 接续开发：
+
+```sh
+jjosh projection fetch --remote mono
+jjosh diff --from <published-commit-id> --to main@mono
+# 没有尚待迁移的本地后继时，从返回的版本开始下一项修改：
+jjosh new main@mono
+# 若还有未发布后继，则迁移那些后继，而非再次重放已发布的映射提交：
+jjosh rebase -s <first-unpublished-commit> -d main@mono
+```
+
+核对后，可以用 `jj abandon <old-published-commit-id>` 退役旧的本地表示；先处理它的未发布后继。不要盲目把已发布的映射提交本身 rebase 到返回的新版本上：定义文件被规范化后，重复应用它可能产生真实的文本冲突。jjosh 不自动放弃本地提交，也不隐藏 divergence 或冲突。
+
+### 将局部历史迁入另一个已有仓库
+
+在已有投影视图中，为接收仓库配置目标布局并先获取基线：
+
+```sh
+jjosh projection remote add destination /path/to/existing.git ':/vendor/api'
+jjosh projection fetch --remote destination
+jjosh projection push --remote destination --to imported -r publish --base main --merge
+```
+
+`--base` 指定接收仓库用于反向转换的源分支；`--merge` 在该基线上创建合并，保留接收仓库历史。这些操作直接使用 Josh 的反向过滤，不建立 split/rejoin 协议。核对迁入结果后，原仓库删除迁出目录是另一个普通提交，不与远端发布组成原子事务。
+
+### 投影边界
+
+- 当前只投影分支引用，不自动导入 tag；原始获取与公开投影引用隔离。成功 fetch 后，来源删除分支或更换为空视图会移除相应的投影分支，不清理其他 remote 或本地 tag。fetch 要求来源通过 `HEAD` 广告默认分支，尚不支持完全无分支的来源仓库。
+- 原生未解决冲突尚不能通过此 Git 历史投影通道保真转换。预览和发布拒绝包含冲突的所选祖先历史；fetch 在公开投影引用前检查源历史的 `jj:trees`。干净的后继提交不能掩盖仍含原生冲突的祖先。`native` 状态包可以保留这些冲突，但不是冲突投影的替代实现。
+- 这版 jj 默认写入 `change-id` Git header，jjosh 不覆盖用户的设置。它有助于保留投影中的身份，但不能追溯恢复旧 Git 提交的所有原生身份，也不保证任意 Git 工具都保留该 header。
+- `projection push` 使用普通的非快进拒绝；`--force` 可以绕过它。它没有 `link push` 的目标观测/lease 契约，不提供跨远端原子发布。`--dry-run` 不更新远端，但可快照本地工作副本并写入转换所需的对象。
 
 ## 用原生状态包聚合已有 jj 仓库
 
@@ -228,10 +342,10 @@ jjosh -R combined new ebox/workspace/default ekp/workspace/default \
 
 ## 整体迁移本地修改图
 
-`projection transplant` 在当前仓库内改写显式选定的可变提交图，不逐目录导出，也不裁剪空提交。它保留 change ID、作者、描述和有序父边；Git commit ID 会改变。合并提交相对原父树的自身修改会被重放，未解决冲突的每个带符号树项都会映射到新路径。
+`native transplant` 在当前仓库内改写显式选定的可变提交图，不逐目录导出，也不裁剪空提交。它保留 change ID、作者、描述和有序父边；Git commit ID 会改变。合并提交相对原父树的自身修改会被重放，未解决冲突的每个带符号树项都会映射到新路径。这是原生图迁移的契约，不是 Josh 投影必须保持原 DAG 的要求。
 
 ```sh
-jjosh projection transplant \
+jjosh native transplant \
   -r 'old-base..local-tip' \
   --map jj=src/jj --map josh=src/josh --map .=src/jjosh \
   --exclude jj/.link.josh --exclude josh/.link.josh \
@@ -258,8 +372,8 @@ jjosh projection transplant \
 - **来源更新不能任意改写历史。** embedded link 更新要求来源历史及过滤后的历史向前推进；旧式 Embed 图需要先显式执行 `jjosh link migrate`，不会自动迁移。
 - **组合书签是本地状态。** `jjosh/trunk` 和 `jjosh/source/*` 是 jjosh 管理的保留命名空间，默认不可改写，不再创建合成远端。更新来源或发布单个挂载目录应使用 `link update/push`；这些投影书签不是来源仓库的原始提交。
 - **同一来源的多个挂载可以有 divergence。** 保留来源的显式 change ID，不因跨挂载重复而拒绝导入，也不自动改写身份或调用 `converge`。可用 commit ID 或 change offset 区分版本。`jj converge` 会替换提交并重放后代，不是单纯消除标记；来源投影默认 immutable，显式改写它们应先评估对隔离历史和后续更新的影响。
-- **发布保护按目标分别记录。** jjosh 按精确的远端 URL 和目标分支，在本地记住最近成功推送或显式获取到的位置。只有远端仍匹配该位置，才允许受保护的历史改写（force-with-lease）。没有记录时，只允许创建分支或快进推送。
-- **`--force` 会绕过上述保护。** 不要把它当成推送被拒绝后的常规重试选项；先确认不会丢弃远端的他人修改。预检和失败的推送都不会刷新记录的位置。
+- `link push` 的发布保护按目标分别记录。jjosh 按精确的远端 URL 和目标分支，在本地记住最近成功推送或显式获取到的位置。只有远端仍匹配该位置，才允许受保护的历史改写（force-with-lease）。没有记录时，只允许创建分支或快进推送。
+- `link push --force` 会绕过上述保护。不要把它当成推送被拒绝后的常规重试选项；先确认不会丢弃远端的他人修改。预检和失败的推送都不会刷新记录的位置。
 
 ## 本仓库也是一个组合工作区
 
@@ -277,5 +391,5 @@ jjosh/
 - [jj 项目介绍](jj/README.md) 与 [jj 教程](https://docs.jj-vcs.dev/latest/tutorial/)
 - [Josh 项目介绍](josh/README.md) 与 [过滤表达式参考](https://josh-project.github.io/josh/reference/filters.html)
 - [link 命令实现](crates/jjosh-cli/src/link.rs) 与 [工作流测试](crates/jjosh-cli/tests/link_workflow.rs)
-- [projection 命令实现](crates/jjosh-cli/src/projection.rs) 与 [导入测试](crates/jjosh-cli/tests/projection_fetch.rs)
+- [projection 命令实现](crates/jjosh-cli/src/projection.rs)、[导入测试](crates/jjosh-cli/tests/projection_fetch.rs) 与 [投影视图双向回归](crates/jjosh-cli/tests/projection_workflow.rs)
 - [原生状态包](crates/jjosh-cli/src/native_bundle.rs)、[原生导入](crates/jjosh-cli/src/native_import.rs) 与 [状态包回归测试](crates/jjosh-cli/tests/native_import.rs)
