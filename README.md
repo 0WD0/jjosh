@@ -33,7 +33,7 @@ workspace/
 - 可以拆分、合并和重新排列修改；改动较早的提交时，后续提交会自动迁移到新的基础上。
 - 操作日志记录本地版本管理操作，可以用 `undo` 撤销误操作。它不代表能够撤销已经推送到远端的内容。
 
-jjosh 保留 jj 的常规命令，例如 `status`、`diff`、`log`、`new`、`split`、`squash` 和 `rebase`，另外增加 `link` 与 `projection` 命令。
+jjosh 保留 jj 的常规命令，例如 `status`、`diff`、`log`、`new`、`split`、`squash` 和 `rebase`，另外增加 `link`、`projection` 与 `native` 命令。
 
 ### Josh：调整仓库的内容和历史视图
 
@@ -195,6 +195,37 @@ jjosh projection status ':/src'
 
 当前 `projection` 提供 `status`、`remote add`、`fetch` 和本地整图改写 `transplant`，没有 `projection push`。它的远端配置禁止直接通过普通 Git 推送；需要双向开发和发布时，应选择 link 工作流。
 
+## 用原生状态包聚合已有 jj 仓库
+
+已有 jj 仓库的本地状态不能只靠 Git bundle 保真。`native export` 将已记录的当前 jj view、原生提交元数据和所需内容对象封存到一个自包含文件；`native import` 再将各包的历史整体放进不同目录。它不通过 patch 重放，也不要求先选择一个统一上游基线。
+
+```sh
+# 在各来源中显式记录工作文件；export 本身不快照、不修改来源。
+jjosh -R /path/to/ebox status
+jjosh -R /path/to/ebox native export /tmp/ebox.jjbundle
+jjosh -R /path/to/ekp status
+jjosh -R /path/to/ekp native export /tmp/ekp.jjbundle
+
+# 不需要来源仓库，也不需要当前目录有 jj 仓库。
+jjosh native inspect /tmp/ebox.jjbundle
+
+jjosh git init --colocate combined
+# 也支持 --no-colocate；包的格式不依赖目标工作区模式。
+jjosh -R combined native import \
+  --source ebox=/tmp/ebox.jjbundle \
+  --source ekp=/tmp/ekp.jjbundle
+jjosh -R combined new ebox/workspace/default ekp/workspace/default \
+  -m "Aggregate native sources"
+```
+
+- 状态包是版本化 TAR，只有 `manifest.json` 与完整、非 thin 的 `objects.pack`。manifest 保存原生身份和 view；Git pack 只承担对象传输，包含原生冲突树的所有项，不能代替原生元数据。`inspect` 检查格式、图闭包及对象完整性；它不认证发布者身份。导出原子发布新文件，拒绝覆盖已有文件。
+- 范围是当前 view 的所有提交引用及父祖先闭包，包括冲突引用的删除项。保留 change ID、作者和提交者的时间、描述、有序父边、空提交、合并、独立根、当前可见 divergence，以及带符号树项和冲突标签。不会扫描旧 operation/evolution 历史作为额外导出根，也不导出配置、凭据或未记录的工作文件。
+- `--source NAME=FILE` 中的 NAME 同时是顶层目录和引用命名空间，只允许 ASCII 字母、数字、`-`、`_`。本地书签和 tag 变为 `NAME/原名`，远端观测别名变为 `NAME-原远端`，外来工作区选择变为 `NAME/workspace/工作区名` 书签；不创建虚假的已附加工作区。重名会报错，不覆盖引用。
+- 导入要求新建的 SHA-1 Git 后端 jj 仓库，支持 colocated 和非 colocated。在一个 jj 事务中发布导入 view，但不改变 checkout、Git HEAD 或 index；随后使用普通 `new` 聚合。源 Git refs/HEAD 不会被安装成目标后端的缓存。失败可能留下未发布的内容对象及私有 keep refs，但不发布部分来源的 view。
+- 目录和父提交变换会改变 Git commit ID，原始提交签名因此失效。包内保留原始签名，导入时移除并报告数量。不会承诺保留未建模的任意 Git 扩展头；目标后端若不能保留指定原生字段，会拒绝导入而非静默改写。
+- gitlink 保留外部仓库的 commit ID，不递归打包子模块仓库，也不自动展开文件。浅克隆或缺失对象必须先补全。需要从旧 Git 数据生成兼容性 jj 元数据的来源，须先单独完成导入。
+- `native` 不建立 `.link.josh`、`jjosh/trunk` 或发布绑定，也不把本地工作头认作上游 pin。目录聚合后的构建接线、共享依赖处理及来源同步策略仍是显式操作。
+
 ## 整体迁移本地修改图
 
 `projection transplant` 在当前仓库内改写显式选定的可变提交图，不逐目录导出，也不裁剪空提交。它保留 change ID、作者、描述和有序父边；Git commit ID 会改变。合并提交相对原父树的自身修改会被重放，未解决冲突的每个带符号树项都会映射到新路径。
@@ -222,7 +253,7 @@ jjosh projection transplant \
 
 ## 当前边界与发布安全
 
-- **只支持 SHA-1 Git 后端。** link / projection 不支持 SHA-256 Git 仓库。
+- **只支持 SHA-1 Git 后端。** link / projection / native 不支持 SHA-256 Git 仓库。
 - **投影不是权限隔离。** 当前 projection 会先获取原始历史再在本地转换；不能用它保证其他目录的内容不被下载或访问。
 - **来源更新不能任意改写历史。** embedded link 更新要求来源历史及过滤后的历史向前推进；旧式 Embed 图需要先显式执行 `jjosh link migrate`，不会自动迁移。
 - **组合书签是本地状态。** `jjosh/trunk` 和 `jjosh/source/*` 是 jjosh 管理的保留命名空间，默认不可改写，不再创建合成远端。更新来源或发布单个挂载目录应使用 `link update/push`；这些投影书签不是来源仓库的原始提交。
@@ -247,3 +278,4 @@ jjosh/
 - [Josh 项目介绍](josh/README.md) 与 [过滤表达式参考](https://josh-project.github.io/josh/reference/filters.html)
 - [link 命令实现](crates/jjosh-cli/src/link.rs) 与 [工作流测试](crates/jjosh-cli/tests/link_workflow.rs)
 - [projection 命令实现](crates/jjosh-cli/src/projection.rs) 与 [导入测试](crates/jjosh-cli/tests/projection_fetch.rs)
+- [原生状态包](crates/jjosh-cli/src/native_bundle.rs)、[原生导入](crates/jjosh-cli/src/native_import.rs) 与 [状态包回归测试](crates/jjosh-cli/tests/native_import.rs)

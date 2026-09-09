@@ -15,7 +15,7 @@ use jj_lib::rewrite::{RewriteRefsOptions, merge_commit_trees};
 use jj_lib::working_copy::WorkingCopyFreshness;
 use josh_core::filter::{Filter, Op, Rewrite};
 
-use crate::interop::{open_josh_transaction, sha1_git_repo_path};
+use crate::interop::{check_git_state, open_josh_transaction, sha1_git_repo_path};
 
 /// Transplant a complete mutable commit graph with explicit path and parent mappings.
 #[derive(clap::Args, Clone, Debug)]
@@ -325,44 +325,6 @@ impl Projection {
             tree.labels().clone(),
         ))
     }
-}
-
-fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), CommandError> {
-    let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
-    let repo = backend.git_repo();
-    if jj_lib::git::has_pending_imports(workspace.repo().view(), &repo)
-        .map_err(|err| user_error_with_message("Failed to inspect pending Git imports", err))?
-    {
-        return Err(user_error(
-            "Git refs have unimported changes; run jjosh git import separately before transplanting",
-        ));
-    }
-    if workspace.working_copy_shared_with_git() {
-        let repo = backend
-            .open_git_repo_at_workdir(workspace.workspace_root())
-            .map_err(|err| {
-                user_error_with_message("Failed to inspect the colocated Git repository", err)
-            })?;
-        if repo.state().is_some() {
-            return Err(user_error(
-                "Finish or abort the ongoing Git operation before transplanting",
-            ));
-        }
-        let mut head = repo
-            .head()
-            .map_err(|err| user_error_with_message("Failed to inspect Git HEAD", err))?;
-        let actual = head
-            .try_peel_to_id_in_place()
-            .map_err(|err| user_error_with_message("Failed to resolve Git HEAD", err))?
-            .map(|id| CommitId::from_bytes(id.as_bytes()));
-        let recorded = workspace.repo().view().git_head(workspace.workspace_name());
-        if recorded.as_normal() != actual.as_ref() || recorded.has_conflict() {
-            return Err(user_error(
-                "Git HEAD has unimported changes; reconcile the Git checkout with jj separately before transplanting",
-            ));
-        }
-    }
-    Ok(())
 }
 
 /// Inspect without saving the snapshot. Otherwise an unsnapshotted edit could be
