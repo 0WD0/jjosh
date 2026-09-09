@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use jj_lib::fileset::FilesetExpression;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use tracing::instrument;
 
-use super::update_sparse_patterns_with;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 
-/// Reset the patterns to include all files in the working copy
+/// Reset selection and mappings to include all files at their canonical paths
 #[derive(clap::Args, Clone, Debug)]
 pub struct SparseResetArgs {}
 
@@ -31,8 +30,7 @@ pub async fn cmd_sparse_reset(
     _args: &SparseResetArgs,
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
-    update_sparse_patterns_with(ui, &mut workspace_command, |_ui, _old_patterns| {
-        Ok(FilesetExpression::all())
-    })
-    .await
+    workspace_command
+        .update_sparse_patterns_with(ui, |_ui, _old_patterns| Ok(WorkingCopyPatterns::all()))
+        .await
 }

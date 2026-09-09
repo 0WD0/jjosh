@@ -50,6 +50,10 @@ pub struct TreeState {
     pub sparse_patterns: ::core::option::Option<SparsePatterns>,
     #[prost(message, optional, tag = "4")]
     pub watchman_clock: ::core::option::Option<WatchmanClock>,
+    /// Actual on-disk layout, independent of the operation's desired configuration.
+    /// Presence distinguishes structured state from legacy sparse patterns.
+    #[prost(bytes = "vec", optional, tag = "8")]
+    pub working_copy_patterns: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct WatchmanClock {

@@ -24,7 +24,6 @@ use jj_cli::command_error::CommandError;
 use jj_cli::ui::Ui;
 use jj_lib::backend::Backend;
 use jj_lib::commit::Commit;
-use jj_lib::fileset::FilesetExpression;
 use jj_lib::git_backend::GitBackend;
 use jj_lib::local_working_copy::LocalWorkingCopy;
 use jj_lib::merged_tree::MergedTree;
@@ -46,13 +45,14 @@ use jj_lib::working_copy::SnapshotStats;
 use jj_lib::working_copy::WorkingCopy;
 use jj_lib::working_copy::WorkingCopyFactory;
 use jj_lib::working_copy::WorkingCopyStateError;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use jj_lib::workspace::WorkingCopyFactories;
 use jj_lib::workspace::Workspace;
 use jj_lib::workspace::WorkspaceInitError;
 
 #[derive(clap::Parser, Clone, Debug)]
 enum CustomCommand {
-    /// Initialize a workspace using the "conflicts" working copy
+    /// Initialize a workspace using the conflict-reporting working copy
     InitConflicts,
 }
 
@@ -118,7 +118,9 @@ struct ConflictsWorkingCopy {
 
 impl ConflictsWorkingCopy {
     fn name() -> &'static str {
-        "conflicts"
+        // Wrappers must fence old readers themselves; the inner local backend
+        // deliberately does not overwrite a custom working-copy type marker.
+        "conflicts-working-copy-patterns"
     }
 
     fn init(
@@ -176,7 +178,7 @@ impl WorkingCopy for ConflictsWorkingCopy {
         self.inner.tree()
     }
 
-    fn sparse_patterns(&self) -> Result<&FilesetExpression, WorkingCopyStateError> {
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
         self.inner.sparse_patterns()
     }
 
@@ -258,13 +260,24 @@ impl LockedWorkingCopy for LockedConflictsWorkingCopy {
     }
 
     async fn check_out(&mut self, commit: &Commit) -> Result<CheckoutStats, CheckoutError> {
+        self.check_out_with_sparse_patterns(commit, self.sparse_patterns()?.clone())
+            .await
+    }
+
+    async fn check_out_with_sparse_patterns(
+        &mut self,
+        commit: &Commit,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
         let conflicts = commit
             .tree()
             .conflicts()
             .map(|(path, _value)| format!("{}\n", path.as_internal_file_string()))
             .join("");
         std::fs::write(self.wc_path.join(".conflicts"), conflicts).unwrap();
-        self.inner.check_out(commit).await
+        self.inner
+            .check_out_with_sparse_patterns(commit, patterns)
+            .await
     }
 
     fn rename_workspace(&mut self, new_name: WorkspaceNameBuf) {
@@ -279,13 +292,13 @@ impl LockedWorkingCopy for LockedConflictsWorkingCopy {
         self.inner.recover(commit).await
     }
 
-    fn sparse_patterns(&self) -> Result<&FilesetExpression, WorkingCopyStateError> {
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
         self.inner.sparse_patterns()
     }
 
     async fn set_sparse_patterns(
         &mut self,
-        new_sparse_patterns: FilesetExpression,
+        new_sparse_patterns: WorkingCopyPatterns,
     ) -> Result<CheckoutStats, CheckoutError> {
         self.inner.set_sparse_patterns(new_sparse_patterns).await
     }

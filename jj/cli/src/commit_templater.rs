@@ -213,8 +213,7 @@ impl<'repo> TemplateLanguage<'repo> for CommitTemplateLanguage<'repo> {
     }
 
     fn current_dir(&self) -> &Path {
-        let RepoPathUiConverter::Fs { cwd, base: _ } = self.path_converter;
-        cwd
+        self.path_converter.cwd()
     }
 
     fn build_function(
@@ -1766,7 +1765,7 @@ impl WorkspaceRef {
         &self,
         path_converter: &RepoPathUiConverter,
     ) -> Result<Option<PathBuf>, TemplatePropertyError> {
-        let RepoPathUiConverter::Fs { cwd: _, base } = path_converter;
+        let base = path_converter.base();
         // TODO: Stop reconstructing the workspace loader here once we've
         // decided which object should own the workspace store.
         let workspace_loader = DefaultWorkspaceLoaderFactory.create(base)?;
@@ -2078,6 +2077,21 @@ fn builtin_repo_path_methods<'repo>() -> CommitTemplateBuildMethodFnMap<'repo, R
             // filesystem paths. Other cases should fail here.
             let out_property = self_property.and_then(move |path| match path_converter {
                 RepoPathUiConverter::Fs { cwd: _, base } => Ok(path.to_fs_path(base)?),
+                RepoPathUiConverter::MappedFs {
+                    base,
+                    patterns,
+                    matcher,
+                    ..
+                } => {
+                    let physical = patterns
+                        .repo_to_wc_with_matcher(&path, matcher.as_ref())?
+                        .ok_or_else(|| {
+                            std::io::Error::other(
+                                "Canonical path is outside the mapped working copy",
+                            )
+                        })?;
+                    Ok(physical.as_repo_path().to_fs_path(base)?)
+                }
             });
             Ok(out_property.into_dyn_wrapped())
         },

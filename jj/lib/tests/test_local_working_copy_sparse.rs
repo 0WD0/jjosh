@@ -27,6 +27,11 @@ use jj_lib::repo_path::RepoPath;
 use jj_lib::ui_path::RepoPathUiConverter;
 use jj_lib::working_copy::CheckoutStats;
 use jj_lib::working_copy::WorkingCopy as _;
+use jj_lib::working_copy_patterns::SparseExpression;
+use jj_lib::working_copy_patterns::SparseRule;
+use jj_lib::working_copy_patterns::WorkingCopyMapping;
+use jj_lib::working_copy_patterns::WorkingCopyPathBuf;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use pollster::FutureExt as _;
 use prost::Message as _;
 use testutils::TestResult;
@@ -35,13 +40,14 @@ use testutils::commit_with_tree;
 use testutils::create_tree;
 use testutils::repo_path;
 
-fn paths_to_fileset(paths: &[&RepoPath]) -> FilesetExpression {
+fn paths_to_fileset(paths: &[&RepoPath]) -> WorkingCopyPatterns {
     FilesetExpression::union_all(
         paths
             .iter()
             .map(|&path| FilesetExpression::prefix_path(path.to_owned()))
             .collect(),
     )
+    .into()
 }
 
 #[test]
@@ -461,6 +467,7 @@ fn test_sparse_legacy_state_distinguishes_empty_from_missing() -> TestResult {
     ] {
         let mut proto = original.clone();
         proto.sparse_patterns = patterns;
+        proto.working_copy_patterns = None;
         std::fs::write(&proto_path, proto.encode_to_vec())?;
         let loaded = LocalWorkingCopy::load(
             test_workspace.repo.store().clone(),
@@ -476,6 +483,7 @@ fn test_sparse_legacy_state_distinguishes_empty_from_missing() -> TestResult {
         assert_eq!(actual, included);
     }
     let mut proto = original;
+    proto.working_copy_patterns = None;
     proto.sparse_patterns = Some(SparsePatterns {
         prefixes: vec![String::new()],
         fileset_expression: "all() ~ (".to_owned(),
@@ -488,5 +496,393 @@ fn test_sparse_legacy_state_distinguishes_empty_from_missing() -> TestResult {
         test_workspace.repo.settings(),
     )?;
     assert!(loaded.sparse_patterns().is_err());
+    Ok(())
+}
+
+#[test]
+fn test_invalid_sparse_destination_is_rejected_before_materialization() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = &test_workspace.repo;
+    let op_id = repo.op_id().clone();
+    let tree = create_tree(
+        repo,
+        &[
+            (repo_path("safe"), "safe"),
+            (repo_path("blocked/.jj/file"), "reserved path"),
+        ],
+    );
+    let commit = commit_with_tree(repo.store(), tree);
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .set_sparse_patterns(FilesetExpression::prefix_path(repo_path("safe").to_owned()).into())
+        .block_on()?;
+    locked_ws.locked_wc().check_out(&commit).block_on()?;
+    locked_ws.finish(op_id).block_on()?;
+
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    assert!(
+        locked_ws
+            .locked_wc()
+            .set_sparse_patterns(WorkingCopyPatterns::all())
+            .block_on()
+            .is_err()
+    );
+    drop(locked_ws);
+    // Preflight rejected the reserved path before changing files or recording
+    // an interruption. Subsequent commands can still use the original layout.
+    drop(
+        test_workspace
+            .workspace
+            .start_working_copy_mutation()
+            .block_on()?,
+    );
+    assert_eq!(
+        std::fs::read_to_string(test_workspace.workspace.workspace_root().join("safe"))?,
+        "safe",
+    );
+    Ok(())
+}
+
+fn mapping(source: &str, destination: &str) -> WorkingCopyMapping {
+    WorkingCopyMapping {
+        source: repo_path(source).to_owned(),
+        destination: WorkingCopyPathBuf::from_repo_path(repo_path(destination).to_owned()),
+        recursive: true,
+    }
+}
+
+#[test]
+fn test_mapped_snapshot_preserves_hidden_signed_conflicts_and_file_types() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let mut builder = testutils::TestThreeWayMergeTreeBuilder::new(repo.store().clone());
+    builder.base().file(repo_path("hidden/conflict"), "base");
+    builder.parent1().file(repo_path("hidden/conflict"), "left");
+    builder
+        .parent2()
+        .file(repo_path("hidden/conflict"), "right");
+    fn populate(tree: &mut testutils::TestTreeBuilder) {
+        tree.file(repo_path("app/edit"), "old");
+        tree.file(repo_path("app/delete"), "delete");
+        tree.file(repo_path("app/script"), "script")
+            .executable(true);
+        tree.symlink(repo_path("app/link"), "edit");
+        tree.file(repo_path("shared/lib"), "library");
+    }
+    populate(builder.base());
+    populate(builder.parent1());
+    populate(builder.parent2());
+    let tree = builder.write_merged_tree();
+    let commit = commit_with_tree(repo.store(), tree.clone());
+    let patterns = WorkingCopyPatterns {
+        rules: vec![
+            SparseRule {
+                include: true,
+                expression: SparseExpression::All,
+            },
+            SparseRule {
+                include: false,
+                expression: SparseExpression::PrefixPath(repo_path("app/deps").to_owned()),
+            },
+        ],
+        mappings: vec![mapping("app", ""), mapping("shared", "deps")],
+    };
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&commit, patterns.clone())
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().to_owned();
+    assert_eq!(std::fs::read_to_string(root.join("deps/lib"))?, "library");
+    assert!(!root.join("hidden").exists());
+    assert!(!root.join("app").exists());
+    assert_eq!(
+        test_workspace.snapshot()?.tree_ids_and_labels(),
+        tree.tree_ids_and_labels()
+    );
+
+    std::fs::write(root.join("edit"), "edited")?;
+    std::fs::remove_file(root.join("delete"))?;
+    std::fs::write(root.join("new"), "new application file")?;
+    std::fs::write(root.join("deps/new"), "new dependency file")?;
+    let snapshot = test_workspace.snapshot()?;
+    let expected = create_tree(
+        &repo,
+        &[
+            (repo_path("app/edit"), "edited"),
+            (repo_path("app/new"), "new application file"),
+            (repo_path("shared/new"), "new dependency file"),
+        ],
+    );
+    for path in ["app/edit", "app/new", "shared/new"] {
+        assert_eq!(
+            snapshot.path_value(repo_path(path)).block_on()?,
+            expected.path_value(repo_path(path)).block_on()?
+        );
+    }
+    assert!(
+        snapshot
+            .path_value(repo_path("app/delete"))
+            .block_on()?
+            .is_absent()
+    );
+    for path in ["hidden/conflict", "app/script", "app/link", "shared/lib"] {
+        assert_eq!(
+            snapshot.path_value(repo_path(path)).block_on()?,
+            tree.path_value(repo_path(path)).block_on()?
+        );
+    }
+    assert_eq!(snapshot.labels(), tree.labels());
+    assert_eq!(snapshot.tree_ids().num_sides(), tree.tree_ids().num_sides());
+    assert_eq!(
+        test_workspace.workspace.working_copy().sparse_patterns()?,
+        &patterns
+    );
+    assert_eq!(
+        test_workspace.snapshot()?.tree_ids_and_labels(),
+        snapshot.tree_ids_and_labels()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_layout_swap_preserves_snapshotted_edits_and_preflights_untracked_files() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let tree = create_tree(
+        &repo,
+        &[(repo_path("a/file"), "A"), (repo_path("b/file"), "B")],
+    );
+    let commit = commit_with_tree(repo.store(), tree);
+    let mut patterns = WorkingCopyPatterns::all();
+    patterns.mappings = vec![mapping("a", "left"), mapping("b", "right")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&commit, patterns.clone())
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().to_owned();
+    std::fs::write(root.join("left/file"), "dirty A")?;
+    let dirty_tree = test_workspace.snapshot()?;
+    let dirty_commit = commit_with_tree(repo.store(), dirty_tree.clone());
+    std::fs::create_dir(root.join("blocked"))?;
+    std::fs::write(root.join("blocked/file"), "untracked")?;
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    let mut blocked = patterns.clone();
+    blocked.mappings[0] = mapping("a", "blocked");
+    assert!(
+        locked_ws
+            .locked_wc()
+            .check_out_with_sparse_patterns(&dirty_commit, blocked)
+            .block_on()
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(root.join("left/file"))?, "dirty A");
+    assert_eq!(
+        std::fs::read_to_string(root.join("blocked/file"))?,
+        "untracked"
+    );
+    patterns.mappings = vec![mapping("a", "right"), mapping("b", "left")];
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&dirty_commit, patterns)
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    assert_eq!(std::fs::read_to_string(root.join("right/file"))?, "dirty A");
+    assert_eq!(std::fs::read_to_string(root.join("left/file"))?, "B");
+    assert_eq!(
+        std::fs::read_to_string(root.join("blocked/file"))?,
+        "untracked"
+    );
+    assert_eq!(
+        test_workspace.snapshot()?.tree_ids_and_labels(),
+        dirty_tree.tree_ids_and_labels()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_partial_layout_failure_keeps_interruption_guard() -> TestResult {
+    use jj_lib::backend::CopyId;
+    use jj_lib::backend::FileId;
+    use jj_lib::backend::TreeValue;
+    use jj_lib::merge::Merge;
+    use jj_lib::merged_tree_builder::MergedTreeBuilder;
+
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let tree = create_tree(&repo, &[(repo_path("safe"), "safe")]);
+    let mut builder = MergedTreeBuilder::new(tree);
+    builder.set_or_remove(
+        repo_path("missing").to_owned(),
+        Merge::normal(TreeValue::File {
+            id: FileId::new(vec![0xab; 20]),
+            executable: false,
+            copy_id: CopyId::placeholder(),
+        }),
+    );
+    let tree = builder.write_tree().block_on()?;
+    let commit = commit_with_tree(repo.store(), tree);
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&commit, paths_to_fileset(&[repo_path("safe")]))
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().to_owned();
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    assert!(
+        locked_ws
+            .locked_wc()
+            .set_sparse_patterns(paths_to_fileset(&[repo_path("missing")]),)
+            .block_on()
+            .is_err()
+    );
+    assert!(!root.join("safe").exists());
+    assert!(
+        locked_ws
+            .locked_wc()
+            .snapshot(&testutils::empty_snapshot_options())
+            .block_on()
+            .is_err()
+    );
+    assert!(locked_ws.finish(repo.op_id().clone()).block_on().is_err());
+    assert!(
+        test_workspace
+            .workspace
+            .start_working_copy_mutation()
+            .block_on()
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_commit_and_layout_transition_never_materializes_old_coordinates() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let old_tree = create_tree(
+        &repo,
+        &[
+            (repo_path("app/old"), "old application"),
+            (repo_path("dep/file"), "old dependency"),
+        ],
+    );
+    let old_commit = commit_with_tree(repo.store(), old_tree);
+    let mut patterns = WorkingCopyPatterns::all();
+    patterns.mappings = vec![mapping("app", "")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&old_commit, patterns.clone())
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().to_owned();
+    std::fs::write(root.join("old"), "dirty application")?;
+    test_workspace.snapshot()?;
+    // This tree cannot safely be materialized under the old layout. Its
+    // metadata-looking path is canonical hidden content under the new layout.
+    let new_tree = create_tree(
+        &repo,
+        &[
+            (repo_path("app/old"), "dirty application"),
+            (
+                repo_path("app/.jj/should-stay-hidden"),
+                "canonical hidden content",
+            ),
+            (repo_path("dep/file"), "new dependency"),
+        ],
+    );
+    let new_commit = commit_with_tree(repo.store(), new_tree.clone());
+    patterns.mappings = vec![mapping("dep", "")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&new_commit, patterns)
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    assert!(!root.join("old").exists());
+    assert!(!root.join(".jj/should-stay-hidden").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("file"))?,
+        "new dependency"
+    );
+    assert_eq!(
+        test_workspace.snapshot()?.tree_ids_and_labels(),
+        new_tree.tree_ids_and_labels()
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn test_mapping_rejects_symlink_parent_before_removing_old_files() -> TestResult {
+    let mut test_workspace = TestWorkspace::init();
+    let repo = test_workspace.repo.clone();
+    let tree = create_tree(&repo, &[(repo_path("src/tracked"), "tracked")]);
+    let commit = commit_with_tree(repo.store(), tree);
+    let mut patterns = WorkingCopyPatterns::all();
+    patterns.mappings = vec![mapping("src", "")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(&commit, patterns.clone())
+        .block_on()?;
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
+    let root = test_workspace.workspace.workspace_root().to_owned();
+    let outside = tempfile::tempdir()?;
+    std::fs::write(outside.path().join("tracked"), "outside")?;
+    std::os::unix::fs::symlink(outside.path(), root.join("escape"))?;
+    patterns.mappings = vec![mapping("src", "escape")];
+    let mut locked_ws = test_workspace
+        .workspace
+        .start_working_copy_mutation()
+        .block_on()?;
+    assert!(
+        locked_ws
+            .locked_wc()
+            .set_sparse_patterns(patterns)
+            .block_on()
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(root.join("tracked"))?, "tracked");
+    assert_eq!(
+        std::fs::read_to_string(outside.path().join("tracked"))?,
+        "outside"
+    );
+    locked_ws.finish(repo.op_id().clone()).block_on()?;
     Ok(())
 }

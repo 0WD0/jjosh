@@ -1,23 +1,47 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::{Read, Seek, Write};
+use std::io::Read;
+use std::io::Seek;
+use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::process::Stdio;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail, ensure};
-use jj_lib::backend::{self, Backend, ChangeId, CommitId, TreeId, TreeValue};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
+use anyhow::ensure;
+use jj_lib::backend::Backend;
+use jj_lib::backend::ChangeId;
+use jj_lib::backend::CommitId;
+use jj_lib::backend::TreeId;
+use jj_lib::backend::TreeValue;
+use jj_lib::backend::{self};
 use jj_lib::git_backend::GitBackend;
 use jj_lib::merge::Merge;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::op_store::{RefTarget, RemoteRef, RemoteRefState, RemoteView, View};
+use jj_lib::op_store::RefTarget;
+use jj_lib::op_store::RemoteRef;
+use jj_lib::op_store::RemoteRefState;
+use jj_lib::op_store::RemoteView;
+use jj_lib::op_store::View;
+use jj_lib::op_store::WorkingCopyPatternsId;
 use jj_lib::ref_name::RefNameBuf;
-use jj_lib::repo::{ReadonlyRepo, Repo as _};
-use jj_lib::repo_path::{RepoPathBuf, RepoPathComponentBuf};
+use jj_lib::repo::ReadonlyRepo;
+use jj_lib::repo::Repo as _;
+use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::repo_path::RepoPathComponentBuf;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing::Signer;
-use serde::{Deserialize, Serialize};
-use tempfile::{NamedTempFile, TempDir};
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
+use serde::Deserialize;
+use serde::Serialize;
+use tempfile::NamedTempFile;
+use tempfile::TempDir;
 
 const FORMAT: &str = "jjosh-native";
 const VERSION: u32 = 1;
@@ -43,6 +67,12 @@ struct Manifest {
     #[serde(deserialize_with = "unique_map")]
     commits: BTreeMap<String, CommitData>,
     view: ViewData,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "unique_map"
+    )]
+    working_copy_patterns: BTreeMap<String, WorkingCopyPatterns>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,6 +123,12 @@ struct ViewData {
     git_heads: BTreeMap<String, RefData>,
     #[serde(deserialize_with = "unique_map")]
     wc_commit_ids: BTreeMap<String, String>,
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "unique_map"
+    )]
+    wc_sparse_patterns: BTreeMap<String, Vec<Option<String>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -361,6 +397,19 @@ impl From<&View> for ViewData {
                 .iter()
                 .map(|(name, id)| (name.as_str().to_owned(), id.hex()))
                 .collect(),
+            wc_sparse_patterns: value
+                .wc_sparse_patterns
+                .iter()
+                .map(|(name, target)| {
+                    (
+                        name.as_str().to_owned(),
+                        target
+                            .iter()
+                            .map(|term| term.as_ref().map(|id| id.hex()))
+                            .collect(),
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -375,6 +424,28 @@ impl ViewData {
             );
         }
         ensure!(!head_ids.is_empty(), "native view has no heads");
+        let wc_sparse_patterns = self
+            .wc_sparse_patterns
+            .into_iter()
+            .map(|(name, terms)| {
+                ensure!(
+                    self.wc_commit_ids.contains_key(&name),
+                    "sparse selection references unknown workspace {name}"
+                );
+                let terms = terms
+                    .into_iter()
+                    .map(|term| {
+                        term.map(|id| {
+                            validate_hex(&id, 64, "working-copy patterns ID")?;
+                            WorkingCopyPatternsId::try_from_hex(&id)
+                                .context("invalid working-copy patterns ID")
+                        })
+                        .transpose()
+                    })
+                    .collect::<Result<_>>()?;
+                Ok((name.into(), merge(terms, "sparse configuration")?))
+            })
+            .collect::<Result<_>>()?;
         Ok(View {
             head_ids,
             local_bookmarks: decode_refs(self.local_bookmarks)?,
@@ -391,6 +462,7 @@ impl ViewData {
                 .into_iter()
                 .map(|(name, id)| Ok((name.into(), commit_id(&id)?)))
                 .collect::<Result<_>>()?,
+            wc_sparse_patterns,
         })
     }
 }
@@ -533,6 +605,20 @@ pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usiz
     let root = backend.read_commit(repo.store().root_commit_id()).await?;
     validate_graph(view, &commits, &root)?;
     validate_trees(repo, &commits).await?;
+    let mut working_copy_patterns = BTreeMap::new();
+    for target in view.wc_sparse_patterns.values() {
+        for id in target.iter().flatten() {
+            if !working_copy_patterns.contains_key(&id.hex()) {
+                let patterns = repo.op_store().read_working_copy_patterns(id).await?;
+                patterns.validate()?;
+                ensure!(
+                    patterns.id() == *id,
+                    "working-copy patterns ID does not match its contents"
+                );
+                working_copy_patterns.insert(id.hex(), patterns);
+            }
+        }
+    }
     let manifest = Manifest {
         format: FORMAT.to_owned(),
         version: VERSION,
@@ -543,6 +629,7 @@ pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usiz
             .map(|(id, commit)| (id.hex(), commit.into()))
             .collect(),
         view: view.into(),
+        working_copy_patterns,
     };
     let mut roots = tempfile::tempfile()?;
     for id in object_roots(&commits).keys() {
@@ -712,7 +799,29 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<Bundle>
         })
         .collect::<Result<HashMap<_, _>>>()?;
     let view = manifest.view.decode()?;
+    let referenced_patterns: BTreeSet<_> = view
+        .wc_sparse_patterns
+        .values()
+        .flat_map(|target| target.iter().flatten())
+        .map(|id| id.hex())
+        .collect();
+    ensure!(
+        referenced_patterns == manifest.working_copy_patterns.keys().cloned().collect(),
+        "native bundle sparse configuration objects do not match the view references"
+    );
+    for (id, patterns) in &manifest.working_copy_patterns {
+        patterns.validate()?;
+        ensure!(
+            patterns.id().hex() == *id,
+            "working-copy patterns ID {id} does not match its contents"
+        );
+    }
     let repo = empty_repo(temp.path(), settings).await?;
+    for patterns in manifest.working_copy_patterns.values() {
+        repo.op_store()
+            .write_working_copy_patterns(patterns)
+            .await?;
+    }
     let backend = git_backend(&repo)?;
     backend.disable_lazy_commit_imports();
     let root = backend.read_commit(repo.store().root_commit_id()).await?;

@@ -102,6 +102,10 @@ This document contains the help content for the `jj` command-line program.
 * [`jj sparse`↴](#jj-sparse)
 * [`jj sparse edit`↴](#jj-sparse-edit)
 * [`jj sparse list`↴](#jj-sparse-list)
+* [`jj sparse map`↴](#jj-sparse-map)
+* [`jj sparse map set`↴](#jj-sparse-map-set)
+* [`jj sparse map list`↴](#jj-sparse-map-list)
+* [`jj sparse map reset`↴](#jj-sparse-map-reset)
 * [`jj sparse reset`↴](#jj-sparse-reset)
 * [`jj sparse set`↴](#jj-sparse-set)
 * [`jj split`↴](#jj-split)
@@ -3245,18 +3249,19 @@ Manage which paths from the working-copy commit are present in the working copy
 
 ###### **Subcommands:**
 
-* `edit` — Start an editor to update the fileset expression selecting working-copy paths
-* `list` — Show the fileset expression selecting paths present in the working copy
-* `reset` — Reset the patterns to include all files in the working copy
-* `set` — Update the fileset expression selecting paths present in the working copy
+* `edit` — Edit the ordered selection rules and path mappings
+* `list` — Show ordered selection rules and mappings recorded at this operation
+* `map` — Map canonical source paths to physical working-copy destinations
+* `reset` — Reset selection and mappings to include all files at their canonical paths
+* `set` — Update ordered fileset rules selecting paths present in the working copy
 
 
 
 ## `jj sparse edit`
 
-Start an editor to update the fileset expression selecting working-copy paths
+Edit the ordered selection rules and path mappings
 
-The entire edited text is one expression, which may span multiple lines. Input paths are relative to the current directory. Empty text includes no files. Lines starting with `JJ:` are ignored.
+Each selection line starts with + (include) or - (exclude), followed by a fileset expression. Rules are applied in order, starting with no files. Paths are canonical workspace-root coordinates. Mapping lines have the form `map ["source","destination"]`; use `map-file` for a non-recursive mapping. Empty text selects no files with identity mapping. Lines starting with JJ: are ignored.
 
 **Usage:** `jj sparse edit`
 
@@ -3264,17 +3269,59 @@ The entire edited text is one expression, which may span multiple lines. Input p
 
 ## `jj sparse list`
 
-Show the fileset expression selecting paths present in the working copy
+Show ordered selection rules and mappings recorded at this operation
 
-Paths in the expression are relative to the workspace root. Newly cloned or initialized repositories include all files, represented by `all()`.
+Rule paths are relative to the canonical repository root; mapping destinations are relative to the physical working-copy root.
 
 **Usage:** `jj sparse list`
 
 
 
+## `jj sparse map`
+
+Map canonical source paths to physical working-copy destinations
+
+**Usage:** `jj sparse map <COMMAND>`
+
+###### **Subcommands:**
+
+* `set` — Replace all mappings atomically; paths are workspace-root coordinates
+* `list` — Show mappings recorded at this operation
+* `reset` — Restore identity mapping without changing selection rules
+
+
+
+## `jj sparse map set`
+
+Replace all mappings atomically; paths are workspace-root coordinates
+
+**Usage:** `jj sparse map set <SOURCE=DEST>...`
+
+###### **Arguments:**
+
+* `<SOURCE=DEST>` — SOURCE=DEST mappings ('.' denotes root); directories map recursively
+
+
+
+## `jj sparse map list`
+
+Show mappings recorded at this operation
+
+**Usage:** `jj sparse map list`
+
+
+
+## `jj sparse map reset`
+
+Restore identity mapping without changing selection rules
+
+**Usage:** `jj sparse map reset`
+
+
+
 ## `jj sparse reset`
 
-Reset the patterns to include all files in the working copy
+Reset selection and mappings to include all files at their canonical paths
 
 **Usage:** `jj sparse reset`
 
@@ -3282,11 +3329,11 @@ Reset the patterns to include all files in the working copy
 
 ## `jj sparse set`
 
-Update the fileset expression selecting paths present in the working copy
+Update ordered fileset rules selecting paths present in the working copy
 
 Positional filesets replace the current selection. For example, to include only `README.md` and the `lib/` directory, use `jj sparse set README.md lib`. To exclude the `lib` directory, use `jj sparse set --remove lib`.
 
-All input filesets are relative to the current directory. After replacing or clearing the selection, `--add` filesets are included, then `--remove` filesets are excluded, regardless of argument order.
+Ordinary input paths are physical paths relative to the current directory; use root: filesets for canonical paths, including paths outside the mapping. Selection changes preserve existing mappings. After replacing or clearing the selection, `--add` filesets are included, then `--remove` filesets are excluded, regardless of argument order.
 
 **Usage:** `jj sparse set [OPTIONS] [FILESETS]...`
 

@@ -14,17 +14,17 @@
 
 use std::io::Write as _;
 
-use jj_lib::fileset;
+use jj_lib::repo::Repo as _;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 
-/// Show the fileset expression selecting paths present in the working copy
+/// Show ordered selection rules and mappings recorded at this operation
 ///
-/// Paths in the expression are relative to the workspace root. Newly cloned or
-/// initialized repositories include all files, represented by `all()`.
+/// Rule paths are relative to the canonical repository root; mapping
+/// destinations are relative to the physical working-copy root.
 #[derive(clap::Args, Clone, Debug)]
 pub struct SparseListArgs {}
 
@@ -35,10 +35,44 @@ pub async fn cmd_sparse_list(
     _args: &SparseListArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
-    writeln!(
-        ui.stdout(),
-        "{}",
-        fileset::format_expression(workspace_command.working_copy().sparse_patterns()?)
-    )?;
+    let desired = workspace_command
+        .repo()
+        .view()
+        .get_wc_sparse_patterns(workspace_command.workspace_name());
+    if let Some(desired) = desired.filter(|value| !value.is_resolved()) {
+        writeln!(ui.stdout(), "Conflicted sparse selection:")?;
+        for (label, side) in desired
+            .removes()
+            .map(|side| ("base", side))
+            .chain(desired.adds().map(|side| ("side", side)))
+        {
+            writeln!(ui.stdout(), "  {label}:")?;
+            if let Some(id) = side {
+                let patterns = workspace_command
+                    .repo()
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await?;
+                write!(ui.stdout(), "{}", super::format_patterns(&patterns))?;
+            } else {
+                writeln!(ui.stdout(), "(not recorded)")?;
+            }
+        }
+        if command.is_working_copy_writable() {
+            writeln!(ui.stdout(), "Actual working-copy selection:")?;
+            write!(
+                ui.stdout(),
+                "{}",
+                super::format_patterns(workspace_command.working_copy().sparse_patterns()?)
+            )?;
+        }
+    } else if let Some(patterns) = workspace_command.sparse_patterns()? {
+        write!(ui.stdout(), "{}", super::format_patterns(&patterns))?;
+    } else {
+        writeln!(
+            ui.stdout(),
+            "Sparse selection is not recorded at this operation."
+        )?;
+    }
     Ok(())
 }
