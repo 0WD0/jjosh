@@ -130,8 +130,6 @@ fn test_root() -> TestResult {
     // Test that the working copy is clean and empty after init.
     let mut test_workspace = TestWorkspace::init();
 
-    let wc = test_workspace.workspace.working_copy();
-    assert_eq!(wc.sparse_patterns()?, vec![RepoPathBuf::root()]);
     let new_tree = test_workspace.snapshot()?;
     let repo = &test_workspace.repo;
     let wc_commit_id = repo

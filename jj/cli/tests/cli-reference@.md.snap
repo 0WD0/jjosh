@@ -3245,16 +3245,18 @@ Manage which paths from the working-copy commit are present in the working copy
 
 ###### **Subcommands:**
 
-* `edit` — Start an editor to update the patterns that are present in the working copy
-* `list` — List the patterns that are currently present in the working copy
+* `edit` — Start an editor to update the fileset expression selecting working-copy paths
+* `list` — Show the fileset expression selecting paths present in the working copy
 * `reset` — Reset the patterns to include all files in the working copy
-* `set` — Update the patterns that are present in the working copy
+* `set` — Update the fileset expression selecting paths present in the working copy
 
 
 
 ## `jj sparse edit`
 
-Start an editor to update the patterns that are present in the working copy
+Start an editor to update the fileset expression selecting working-copy paths
+
+The entire edited text is one expression, which may span multiple lines. Input paths are relative to the current directory. Empty text includes no files. Lines starting with `JJ:` are ignored.
 
 **Usage:** `jj sparse edit`
 
@@ -3262,9 +3264,9 @@ Start an editor to update the patterns that are present in the working copy
 
 ## `jj sparse list`
 
-List the patterns that are currently present in the working copy
+Show the fileset expression selecting paths present in the working copy
 
-By default, a newly cloned or initialized repo will have have a pattern matching all files from the repo root. That pattern is rendered as `.` (a single period).
+Paths in the expression are relative to the workspace root. Newly cloned or initialized repositories include all files, represented by `all()`.
 
 **Usage:** `jj sparse list`
 
@@ -3280,17 +3282,23 @@ Reset the patterns to include all files in the working copy
 
 ## `jj sparse set`
 
-Update the patterns that are present in the working copy
+Update the fileset expression selecting paths present in the working copy
 
-For example, if all you need is the `README.md` and the `lib/` directory, use `jj sparse set --clear --add README.md --add lib`. If you no longer need the `lib` directory, use `jj sparse set --remove lib`.
+Positional filesets replace the current selection. For example, to include only `README.md` and the `lib/` directory, use `jj sparse set README.md lib`. To exclude the `lib` directory, use `jj sparse set --remove lib`.
 
-**Usage:** `jj sparse set [OPTIONS]`
+All input filesets are relative to the current directory. After replacing or clearing the selection, `--add` filesets are included, then `--remove` filesets are excluded, regardless of argument order.
+
+**Usage:** `jj sparse set [OPTIONS] [FILESETS]...`
+
+###### **Arguments:**
+
+* `<FILESETS>` — Filesets to replace the current selection with
 
 ###### **Options:**
 
-* `--add <ADD>` — Patterns to add to the working copy
-* `--remove <REMOVE>` — Patterns to remove from the working copy
-* `--clear` — Include no files in the working copy (combine with --add)
+* `--add <FILESETS>` — Filesets to include in the working copy
+* `--remove <FILESETS>` — Filesets to exclude after applying --add
+* `--clear` — Include no files before applying --add and --remove
 
 
 

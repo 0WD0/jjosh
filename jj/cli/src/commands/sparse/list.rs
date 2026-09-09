@@ -13,19 +13,18 @@
 // limitations under the License.
 
 use std::io::Write as _;
-use std::path::Path;
 
+use jj_lib::fileset;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 
-/// List the patterns that are currently present in the working copy
+/// Show the fileset expression selecting paths present in the working copy
 ///
-/// By default, a newly cloned or initialized repo will have have a pattern
-/// matching all files from the repo root. That pattern is rendered as `.` (a
-/// single period).
+/// Paths in the expression are relative to the workspace root. Newly cloned or
+/// initialized repositories include all files, represented by `all()`.
 #[derive(clap::Args, Clone, Debug)]
 pub struct SparseListArgs {}
 
@@ -36,12 +35,10 @@ pub async fn cmd_sparse_list(
     _args: &SparseListArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
-    for path in workspace_command.working_copy().sparse_patterns()? {
-        writeln!(
-            ui.stdout(),
-            "{}",
-            path.to_fs_path_unchecked(Path::new("")).display()
-        )?;
-    }
+    writeln!(
+        ui.stdout(),
+        "{}",
+        fileset::format_expression(workspace_command.working_copy().sparse_patterns()?)
+    )?;
     Ok(())
 }

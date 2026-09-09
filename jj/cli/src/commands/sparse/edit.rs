@@ -12,22 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Write as _;
-use std::path::Path;
-
 use itertools::Itertools as _;
-use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::fileset;
+use jj_lib::fileset::FilesetDiagnostics;
+use jj_lib::fileset::FilesetExpression;
 use tracing::instrument;
 
 use super::update_sparse_patterns_with;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
-use crate::command_error::internal_error;
-use crate::command_error::user_error_with_message;
+use crate::command_error::print_parse_diagnostics;
 use crate::description_util::TextEditor;
 use crate::ui::Ui;
 
-/// Start an editor to update the patterns that are present in the working copy
+/// Start an editor to update the fileset expression selecting working-copy paths
+///
+/// The entire edited text is one expression, which may span multiple lines.
+/// Input paths are relative to the current directory. Empty text includes no
+/// files. Lines starting with `JJ:` are ignored.
 #[derive(clap::Args, Clone, Debug)]
 pub struct SparseEditArgs {}
 
@@ -39,45 +41,29 @@ pub async fn cmd_sparse_edit(
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
     let editor = workspace_command.text_editor()?;
-    update_sparse_patterns_with(ui, &mut workspace_command, |_ui, old_patterns| {
-        let mut new_patterns = edit_sparse(&editor, old_patterns)?;
-        new_patterns.sort_unstable();
-        new_patterns.dedup();
+    let content = edit_sparse(&editor, workspace_command.working_copy().sparse_patterns()?)?;
+    let new_patterns = if content.trim().is_empty() {
+        FilesetExpression::none()
+    } else {
+        let mut diagnostics = FilesetDiagnostics::new();
+        let context = workspace_command.env().fileset_parse_context();
+        let expression = fileset::parse(&mut diagnostics, &content, &context)?;
+        print_parse_diagnostics(ui, "In fileset expression", &diagnostics)?;
+        expression
+    };
+    update_sparse_patterns_with(ui, &mut workspace_command, |_ui, _old_patterns| {
         Ok(new_patterns)
     })
     .await
 }
 
-fn edit_sparse(
-    editor: &TextEditor,
-    sparse: &[RepoPathBuf],
-) -> Result<Vec<RepoPathBuf>, CommandError> {
-    let mut content = String::new();
-    for sparse_path in sparse {
-        // Invalid path shouldn't block editing. Edited paths will be validated.
-        let workspace_relative_sparse_path = sparse_path.to_fs_path_unchecked(Path::new(""));
-        let path_string = workspace_relative_sparse_path.to_str().ok_or_else(|| {
-            internal_error(format!(
-                "Stored sparse path is not valid utf-8: {}",
-                workspace_relative_sparse_path.display()
-            ))
-        })?;
-        writeln!(&mut content, "{path_string}").unwrap();
-    }
-
+fn edit_sparse(editor: &TextEditor, sparse: &FilesetExpression) -> Result<String, CommandError> {
+    let content = format!("{}\n", fileset::format_expression(sparse));
     let content = editor
         .edit_str(content, Some(".jjsparse"))
         .map_err(|err| err.with_name("sparse patterns"))?;
-
-    content
+    Ok(content
         .lines()
         .filter(|line| !line.starts_with("JJ:"))
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            RepoPathBuf::from_relative_path(line).map_err(|err| {
-                user_error_with_message(format!("Failed to parse sparse pattern: {line}"), err)
-            })
-        })
-        .try_collect()
+        .join("\n"))
 }

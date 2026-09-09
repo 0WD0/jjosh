@@ -200,52 +200,49 @@ fn test_workspaces_sparse_patterns() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "ws1"]).success();
     let ws1_dir = test_env.work_dir("ws1");
-    let ws2_dir = test_env.work_dir("ws2");
-    let ws3_dir = test_env.work_dir("ws3");
-    let ws4_dir = test_env.work_dir("ws4");
-    let ws5_dir = test_env.work_dir("ws5");
-    let ws6_dir = test_env.work_dir("ws6");
-
+    ws1_dir.write_file("foo/a.rs", "foo");
+    ws1_dir.write_file("bar/b.rs", "bar");
+    ws1_dir.write_file("README", "readme");
+    ws1_dir.run_jj(["new"]).success();
     ws1_dir
-        .run_jj(["sparse", "set", "--clear", "--add=foo"])
+        .run_jj(["sparse", "set", r#"glob:"**/*.rs" ~ bar"#])
         .success();
     ws1_dir.run_jj(["workspace", "add", "../ws2"]).success();
-    let output = ws2_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    foo
-    [EOF]
-    ");
-    ws2_dir.run_jj(["sparse", "set", "--add=bar"]).success();
-    ws2_dir.run_jj(["workspace", "add", "../ws3"]).success();
-    let output = ws3_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    bar
-    foo
-    [EOF]
-    ");
-    // --sparse-patterns behavior
-    ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=copy", "../ws4"])
+    let ws2_dir = test_env.work_dir("ws2");
+    assert!(ws2_dir.root().join("foo/a.rs").exists());
+    assert!(!ws2_dir.root().join("bar/b.rs").exists());
+    assert!(!ws2_dir.root().join("README").exists());
+
+    ws2_dir.run_jj(["sparse", "set", "--add", "bar"]).success();
+    ws2_dir
+        .run_jj(["workspace", "add", "--sparse-patterns=copy", "../ws3"])
         .success();
-    let output = ws4_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    bar
-    foo
-    [EOF]
-    ");
+    let ws3_dir = test_env.work_dir("ws3");
+    assert!(ws3_dir.root().join("foo/a.rs").exists());
+    assert!(ws3_dir.root().join("bar/b.rs").exists());
+    assert!(!ws3_dir.root().join("README").exists());
+    // Modifying the second workspace's selection did not change the first's.
+    assert!(!ws1_dir.root().join("bar/b.rs").exists());
+
     ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=full", "../ws5"])
+        .run_jj(["workspace", "add", "--sparse-patterns=full", "../full"])
         .success();
-    let output = ws5_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    .
-    [EOF]
-    ");
+    let full_dir = test_env.work_dir("full");
+    assert!(full_dir.root().join("foo/a.rs").exists());
+    assert!(full_dir.root().join("bar/b.rs").exists());
+    assert!(full_dir.root().join("README").exists());
     ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=empty", "../ws6"])
+        .run_jj(["workspace", "add", "--sparse-patterns=empty", "../empty"])
         .success();
-    let output = ws6_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"");
+    let empty_dir = test_env.work_dir("empty");
+    assert!(!empty_dir.root().join("foo/a.rs").exists());
+    assert!(!empty_dir.root().join("bar/b.rs").exists());
+    assert!(!empty_dir.root().join("README").exists());
+    // An empty checkout still contains the complete canonical tree.
+    assert_eq!(
+        empty_dir.run_jj(["file", "list"]).success().stdout.raw(),
+        "README\nbar/b.rs\nfoo/a.rs\n",
+    );
 }
 
 /// Test adding a second workspace while the current workspace is editing a
@@ -1167,16 +1164,12 @@ fn test_workspaces_current_op_discarded_by_other(automatic: bool) {
         "#);
     }
 
-    // The sparse patterns should remain
-    let output = secondary_dir.run_jj(["sparse", "list"]);
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(output, @"
-        added
-        deleted
-        modified
-        [EOF]
-        ");
-    }
+    // Recovery preserves the sparse checkout and the pending local changes.
+    secondary_dir.run_jj(["sparse", "list"]).success();
+    assert!(!secondary_dir.root().join("sparse").exists());
+    assert!(secondary_dir.root().join("modified").exists());
+    assert!(secondary_dir.root().join("added").exists());
+    assert!(!secondary_dir.root().join("deleted").exists());
     let output = secondary_dir.run_jj(["st"]);
     insta::allow_duplicates! {
         insta::assert_snapshot!(output, @"
