@@ -14,11 +14,11 @@ use jj_cli::ui::Ui;
 
 #[derive(clap::Parser, Clone, Debug)]
 enum JjoshCommand {
-    /// Inspect and synchronize history through Josh projections.
+    /// Work with bidirectional Josh history projections.
     Projection(projection::Args),
     /// Compose and publish external repositories through native Josh links.
     Link(link::Args),
-    /// Import and compose recorded native Jujutsu repository states.
+    /// Transport and relocate recorded native Jujutsu states.
     Native(native::Args),
 }
 

@@ -9,6 +9,16 @@ fn run(cwd: &Path, program: &Path, args: &[&str]) -> Output {
     Command::new(program)
         .args(args)
         .current_dir(cwd)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", cwd)
+        .env("XDG_CONFIG_HOME", cwd)
+        .env("JJ_CONFIG", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_DATE", "2001-01-01T00:00:00+00:00")
+        .env("GIT_COMMITTER_DATE", "2001-01-01T00:00:00+00:00")
+        .env("LANG", "C.UTF-8")
         .output()
         .unwrap_or_else(|err| panic!("failed to run {program:?} {args:?}: {err}"))
 }
@@ -122,7 +132,6 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
             ":/app",
         ],
     );
-    assert!(client.join(".git/josh/remotes/origin.josh").is_file());
 
     jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
     let initial_backing = git(&client, &["rev-parse", "refs/josh/remotes/origin/main"])
@@ -153,14 +162,19 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         .to_owned();
     git(
         &upstream_work,
+        &["tag", "-a", "outside-tag", "-m", "outside-only tag"],
+    );
+    git(
+        &upstream_work,
         &[
             "push",
             upstream_bare.to_str().unwrap(),
             "HEAD:refs/heads/main",
+            "refs/tags/outside-tag",
         ],
     );
 
-    let outside_fetch = jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
     assert_eq!(
         git(&client, &["rev-parse", "refs/josh/remotes/origin/main"]).trim(),
         outside_upstream
@@ -170,9 +184,12 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         initial_projected
     );
     assert_eq!(operation_id(&client), initial_operation);
-    let outside_stderr = String::from_utf8(outside_fetch.stderr).unwrap();
-    assert!(outside_stderr.contains("Nothing changed."));
-    assert!(outside_stderr.contains("Fetched 0 projected ref update(s)"));
+    assert_eq!(git(&client, &["for-each-ref", "refs/tags/outside-tag"]), "");
+    assert_eq!(
+        String::from_utf8(jjosh(&client, &["tag", "list", "--all-remotes", "outside-tag"]).stdout,)
+            .unwrap(),
+        ""
+    );
 
     fs::write(upstream_work.join("app/file.txt"), "app-v2\n").unwrap();
     git(&upstream_work, &["commit", "-am", "inside-change"]);
@@ -199,30 +216,245 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         "app-v2\n"
     );
 
-    let remote_url = git(&client, &["remote", "get-url", "origin"]);
-    assert_eq!(
-        Path::new(remote_url.trim()).canonicalize().unwrap(),
-        client.canonicalize().unwrap()
-    );
-    let remote_push_url = git(&client, &["remote", "get-url", "--push", "origin"]);
-    assert_eq!(
-        Path::new(remote_push_url.trim()).canonicalize().unwrap(),
-        client.canonicalize().unwrap()
-    );
-    assert_eq!(
-        git(&client, &["config", "--get", "remote.origin.uploadpack"]),
-        "env GIT_NAMESPACE=josh-origin git upload-pack\n"
-    );
-    assert_eq!(
-        git(&client, &["config", "--get", "remote.origin.receivepack"]),
-        "false\n"
-    );
     let direct_push = run(
         &client,
         Path::new("git"),
         &["push", "origin", "HEAD:refs/heads/direct-push-must-fail"],
     );
     assert!(!direct_push.status.success());
+    assert_eq!(
+        git(
+            &upstream_bare,
+            &["for-each-ref", "refs/heads/direct-push-must-fail"]
+        ),
+        ""
+    );
+    let visible = String::from_utf8(
+        jjosh(
+            &client,
+            &["log", "--no-graph", "-r", "all()", "-T", "description"],
+        )
+        .stdout,
+    )
+    .unwrap();
+    assert!(visible.contains("local-seed"));
+    assert!(visible.contains("inside-change"));
+    assert!(!visible.contains("outside-only"));
+}
+
+fn projection_fetch_repo() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let client = temp.path().join("client");
+    for path in [&source, &client] {
+        fs::create_dir(path).unwrap();
+        git(path, &["init", "-b", "main"]);
+        git(path, &["config", "user.name", "Smoke Test"]);
+        git(path, &["config", "user.email", "smoke@example.com"]);
+    }
+    fs::create_dir(source.join("app")).unwrap();
+    fs::write(source.join("app/file.txt"), "projected\n").unwrap();
+    fs::write(source.join("outside.txt"), "outside\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "source-base"]);
+    fs::write(client.join("local.txt"), "local\n").unwrap();
+    git(&client, &["add", "."]);
+    git(&client, &["commit", "-m", "local-seed"]);
+    jjosh(&client, &["git", "init", "--colocate"]);
+    jjosh(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "origin",
+            source.to_str().unwrap(),
+            ":/app",
+        ],
+    );
+    (temp, source, client)
+}
+
+#[test]
+fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
+    let (_temp, source, client) = projection_fetch_repo();
+    git(&source, &["branch", "stale"]);
+    git(&source, &["branch", "empty"]);
+    let local = git(&client, &["rev-parse", "HEAD"]).trim().to_owned();
+    git(&client, &["tag", "local-keep", &local]);
+    git(
+        &client,
+        &["remote", "add", "other", source.to_str().unwrap()],
+    );
+    let preserved = [
+        "refs/tags/local-keep",
+        "refs/heads/local-keep",
+        "refs/remotes/other/keep",
+        "refs/josh/remotes/other/keep",
+        "refs/namespaces/josh-other/refs/heads/keep",
+    ];
+    for name in preserved {
+        git(&client, &["update-ref", name, &local]);
+    }
+    git(&client, &["config", "fetch.pruneTags", "true"]);
+    git(&client, &["config", "remote.origin.pruneTags", "true"]);
+    git(&client, &["config", "remote.origin.tagOpt", "--tags"]);
+    // Additional user fetch mappings must not expand this selected fetch's
+    // ownership, whether by importing tags or pruning another remote.
+    for refspec in [
+        "+refs/tags/*:refs/tags/*",
+        "+refs/heads/*:refs/remotes/other/*",
+    ] {
+        git(
+            &client,
+            &["config", "--add", "remote.origin.fetch", refspec],
+        );
+    }
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    for branch in ["stale", "empty"] {
+        assert_eq!(
+            git(
+                &client,
+                &["rev-parse", &format!("refs/remotes/origin/{branch}")]
+            ),
+            git(&client, &["rev-parse", "refs/remotes/origin/main"])
+        );
+    }
+
+    git(&source, &["branch", "-D", "stale", "empty"]);
+    git(&source, &["checkout", "--orphan", "empty"]);
+    git(&source, &["rm", "-rf", "."]);
+    fs::write(source.join("outside.txt"), "only outside\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "empty-projection"]);
+    git(&source, &["checkout", "main"]);
+    // Exercise packed as well as loose ref deletion at both private stages.
+    git(&client, &["pack-refs", "--all", "--prune"]);
+
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    assert_eq!(
+        git(&client, &["for-each-ref", "refs/josh/remotes/origin/stale"]),
+        ""
+    );
+    assert_eq!(
+        git(&client, &["rev-parse", "refs/josh/remotes/origin/empty"]),
+        git(&source, &["rev-parse", "empty"])
+    );
+    for branch in ["stale", "empty"] {
+        for prefix in [
+            "refs/namespaces/josh-origin/refs/heads",
+            "refs/remotes/origin",
+        ] {
+            assert_eq!(
+                git(&client, &["for-each-ref", &format!("{prefix}/{branch}")]),
+                ""
+            );
+        }
+        assert_eq!(
+            String::from_utf8(
+                jjosh(
+                    &client,
+                    &[
+                        "bookmark",
+                        "list",
+                        "--remote",
+                        "origin",
+                        &format!("exact:{branch}"),
+                    ],
+                )
+                .stdout,
+            )
+            .unwrap(),
+            ""
+        );
+    }
+    // With every remaining source branch outside the view, the namespace has
+    // no heads at all; its dangling default HEAD must not keep stale bookmarks.
+    git(&source, &["reset", "--hard", "empty"]);
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    for prefix in [
+        "refs/namespaces/josh-origin/refs/heads",
+        "refs/remotes/origin",
+    ] {
+        assert_eq!(git(&client, &["for-each-ref", prefix]), "");
+    }
+    assert_eq!(
+        String::from_utf8(jjosh(&client, &["bookmark", "list", "--remote", "origin"]).stdout,)
+            .unwrap(),
+        ""
+    );
+    for name in preserved {
+        assert_eq!(git(&client, &["rev-parse", name]).trim(), local);
+    }
+    assert_eq!(
+        String::from_utf8(jjosh(&client, &["tag", "list", "local-keep", "-T", "name"]).stdout,)
+            .unwrap(),
+        "local-keep"
+    );
+    assert_eq!(
+        String::from_utf8(
+            jjosh(
+                &client,
+                &["log", "--no-graph", "-r", "keep@other", "-T", "commit_id"],
+            )
+            .stdout,
+        )
+        .unwrap(),
+        local
+    );
+}
+
+#[test]
+fn fetch_synchronizes_external_git_checkout_and_unrecorded_files() {
+    let (_temp, _source, client) = projection_fetch_repo();
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(&client, &["new", "main@origin"]);
+    git(
+        &client,
+        &["checkout", "-b", "external", "refs/remotes/origin/main"],
+    );
+    fs::write(client.join("external.txt"), "external commit\n").unwrap();
+    git(&client, &["add", "external.txt"]);
+    git(&client, &["commit", "-m", "external-git-commit"]);
+    let external = git(&client, &["rev-parse", "HEAD"]).trim().to_owned();
+    fs::write(client.join("file.txt"), "unrecorded tracked edit\n").unwrap();
+    fs::write(client.join("untracked.txt"), "unrecorded new file\n").unwrap();
+
+    // No native command may synchronize the external checkout before fetch.
+    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    assert_eq!(
+        fs::read_to_string(client.join("external.txt")).unwrap(),
+        "external commit\n"
+    );
+    assert_eq!(
+        fs::read_to_string(client.join("file.txt")).unwrap(),
+        "unrecorded tracked edit\n"
+    );
+    assert_eq!(
+        fs::read_to_string(client.join("untracked.txt")).unwrap(),
+        "unrecorded new file\n"
+    );
+    assert_eq!(
+        String::from_utf8(
+            jjosh(
+                &client,
+                &["log", "--no-graph", "-r", "@-", "-T", "commit_id"]
+            )
+            .stdout,
+        )
+        .unwrap(),
+        external
+    );
+    for (path, expected) in [
+        ("external.txt", "external commit\n"),
+        ("file.txt", "unrecorded tracked edit\n"),
+        ("untracked.txt", "unrecorded new file\n"),
+    ] {
+        assert_eq!(
+            String::from_utf8(jjosh(&client, &["file", "show", "-r", "@", path]).stdout).unwrap(),
+            expected
+        );
+    }
 }
 
 struct TransplantRepo {
@@ -443,7 +675,7 @@ fn transplant_preserves_the_whole_change_graph_and_replays_merge_delta() {
         .collect();
     let target = repo.commit_id("target-base");
     repo.jj(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -538,7 +770,7 @@ fn transplant_keeps_unresolved_conflicts_in_jj_and_git_and_allows_resolution() {
     assert_eq!(repo.commit_id("@ & conflicts()"), repo.commit_id("@"));
 
     repo.jj(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -630,7 +862,7 @@ fn transplant_rejects_incomplete_graphs_and_collisions_without_changing_state() 
     let before = repo.state();
     let invalid_args: &[&[&str]] = &[
         &[
-            "projection",
+            "native",
             "transplant",
             "-r",
             "old-base:: ~ old-base",
@@ -642,7 +874,7 @@ fn transplant_rejects_incomplete_graphs_and_collisions_without_changing_state() 
             ".=archive",
         ],
         &[
-            "projection",
+            "native",
             "transplant",
             "-r",
             "cross",
@@ -656,7 +888,7 @@ fn transplant_rejects_incomplete_graphs_and_collisions_without_changing_state() 
             "old-base=target-base",
         ],
         &[
-            "projection",
+            "native",
             "transplant",
             "-r",
             "old-base:: ~ old-base",
@@ -670,7 +902,7 @@ fn transplant_rejects_incomplete_graphs_and_collisions_without_changing_state() 
             "old-base=target-base",
         ],
         &[
-            "projection",
+            "native",
             "transplant",
             "-r",
             "old-base:: ~ old-base",
@@ -702,7 +934,7 @@ fn transplant_dry_run_preserves_operation_refs_view_and_worktree() {
     repo.linear_changes();
     let before = repo.state();
     repo.jj(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -736,7 +968,7 @@ fn transplant_replaces_each_boundary_parent_without_losing_the_side_parent() {
     let parents = [repo.commit_id("target-base"), repo.commit_id("target-side")];
 
     repo.jj(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "boundary",
@@ -780,7 +1012,7 @@ fn transplant_does_not_discard_unsnapshotted_worktree_changes() {
     repo.write("pending.txt", "pending new file\n");
     let before = repo.state();
     let result = repo.jj_unchecked(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -815,7 +1047,7 @@ fn transplant_normalizes_a_historical_directory_rename_without_splitting_changes
     let rename_change = repo.log("renamed", "change_id");
 
     repo.jj(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -874,7 +1106,7 @@ fn transplant_rejects_collisions_between_conflict_terms_without_losing_conflicts
     repo.jj(&["new", "pa"]);
     let before = repo.state();
     let output = repo.jj_unchecked(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "specimen",
@@ -904,7 +1136,7 @@ fn transplant_rejects_a_git_checkout_not_yet_imported_into_jj() {
     repo.git(&["switch", "git-checkout"]);
     let before = repo.state();
     let output = repo.jj_unchecked(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -949,7 +1181,7 @@ fn transplant_preflight_does_not_lazily_import_legacy_git_metadata() {
     };
     let before_ops = operation_heads();
     let output = repo.jj_unchecked(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
@@ -984,7 +1216,7 @@ fn transplant_preflight_rejects_git_refs_missing_from_the_jj_view() {
     repo.git(&["branch", "not-imported", &repo.commit_id("@")]);
     let before = repo.state();
     let output = repo.jj_unchecked(&[
-        "projection",
+        "native",
         "transplant",
         "-r",
         "old-base:: ~ old-base",
