@@ -6,10 +6,11 @@ use crate::porcelain::RefUpdate;
 
 /// Convert a filesystem remote URL relative to the caller's working directory.
 pub fn to_absolute_remote_url(url: &str) -> anyhow::Result<String> {
-    if url.starts_with("http://")
-        || url.starts_with("https://")
-        || url.starts_with("ssh://")
-        || url.starts_with("file://")
+    let parsed = gix::url::parse(url).context("Invalid Git remote URL")?;
+    if parsed.scheme != gix::url::Scheme::File
+        || url
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file://"))
     {
         Ok(url.to_owned())
     } else {
@@ -42,14 +43,10 @@ fn validate_remote_name(name: &str) -> anyhow::Result<()> {
         "Invalid Josh remote name '{}': expected a single shell-safe name",
         name
     );
-    for reference in [
-        format!("refs/josh/remotes/{name}/HEAD"),
-        format!("refs/namespaces/josh-{name}/refs/heads/HEAD"),
-        format!("refs/remotes/{name}/HEAD"),
-    ] {
-        gix::validate::reference::name(reference.as_str().into())
-            .with_context(|| format!("Invalid Josh remote name '{}'", name))?;
-    }
+    // This validates the variable component shared by all generated ref paths.
+    let reference = format!("refs/remotes/{name}/HEAD");
+    gix::validate::reference::name(reference.as_str().into())
+        .with_context(|| format!("Invalid Josh remote name '{}'", name))?;
     Ok(())
 }
 
@@ -300,12 +297,27 @@ pub fn apply_josh_filtering(
         current_commits = next_commits;
     }
 
-    // Write namespace refs from the final step results (existing behavior)
+    // A namespace is the current projection, not an append-only cache. Remove
+    // branches that disappeared from the source or now project to no history.
+    let namespace = format!("refs/namespaces/josh-{remote_name}/refs/heads/");
+    let wanted: std::collections::HashSet<_> = current_commits
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let mut stale = Vec::new();
+    transaction.for_each_ref_prefixed(&namespace, |name, id| {
+        if let Some(branch) = name.strip_prefix(&namespace)
+            && !wanted.contains(branch)
+        {
+            stale.push((name.to_owned(), id));
+        }
+        Ok(())
+    })?;
+    for (name, id) in stale {
+        transaction.delete_ref(&name, josh_core::cache::Expected::At(id))?;
+    }
     for (branch_name, filtered_oid) in &current_commits {
-        let ns_ref = format!(
-            "refs/namespaces/josh-{}/refs/heads/{}",
-            remote_name, branch_name
-        );
+        let ns_ref = format!("{namespace}{branch_name}");
         transaction
             .update_ref(
                 &ns_ref,
@@ -316,13 +328,43 @@ pub fn apply_josh_filtering(
             .context("failed to create filtered reference")?;
     }
 
+    // Ignore configured ref mappings and tag pruning: this fetch owns only the
+    // selected remote's branch refs, even when global or remote pruneTags is set.
+    let refspec = format!("+refs/heads/*:refs/remotes/{remote_name}/*");
     // Stdout is piped for parsing; stderr keeps the default handling
     // (inherited on a TTY, forwarded otherwise) so progress/errors reach the user.
+    // git_command flushes staged namespace deletions and updates before upload-pack
+    // reads them, so pruning observes the complete current projection.
     let output = transaction
-        .git_command(&["fetch", "--porcelain", remote_name], &[])?
+        .git_command(
+            &[
+                "fetch",
+                "--prune",
+                "--no-prune-tags",
+                "--no-tags",
+                "--refmap=",
+                "--porcelain",
+                remote_name,
+                &refspec,
+            ],
+            &[],
+        )?
         .with_stdout(std::process::Stdio::piped())
         .spawn()
         .context("failed to fetch filtered refs")?;
 
     crate::porcelain::parse_fetch_porcelain(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn network_remotes_are_not_resolved_as_local_paths() {
+        for remote in [
+            "git@example.invalid:org/repo.git",
+            "git://example.invalid/repo.git",
+        ] {
+            assert_eq!(super::to_absolute_remote_url(remote).unwrap(), remote);
+        }
+    }
 }
