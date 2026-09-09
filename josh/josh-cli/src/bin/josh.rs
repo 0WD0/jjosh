@@ -13,7 +13,7 @@ use josh_cli::commands::sync::SyncArgs;
 use josh_cli::config::read_remote_config;
 use josh_cli::forge::{Forge, GerritMode};
 use josh_cli::remote_ops::{configure_remote, to_absolute_remote_url};
-use josh_core::git::{GitCommand, normalize_repo_path};
+use josh_core::git::normalize_repo_path;
 
 #[derive(Debug, clap::Parser)]
 #[command(
@@ -319,7 +319,6 @@ fn run_repo(cmd: &RepoCommand, distributed_cache: bool) -> anyhow::Result<()> {
     }
 }
 
-
 /// Initialize a clone and configure its remote.
 fn clone_repo(args: &CloneArgs) -> anyhow::Result<std::path::PathBuf> {
     let output_dir = args.out.clone();
@@ -445,10 +444,7 @@ fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> 
         args.forge_args.gerrit_mode,
     )?;
 
-    eprintln!(
-        "Added remote '{}' with filter '{}'",
-        args.name, args.filter
-    );
+    eprintln!("Added remote '{}' with filter '{}'", args.name, args.filter);
 
     Ok(())
 }

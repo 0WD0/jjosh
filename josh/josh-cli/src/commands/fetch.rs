@@ -17,6 +17,14 @@ pub struct FetchArgs {
     pub rref: String,
 }
 
+/// A completed backing fetch whose objects can be inspected before exposing
+/// their filtered history through the namespace remote.
+pub struct FetchedRemote {
+    pub remote: String,
+    pub filter: josh_core::filter::Filter,
+    pub default_branch: String,
+}
+
 /// Fetch unfiltered refs, apply projection filtering, and fetch the filtered
 /// refs through the namespace remote. Returns the ref updates reported by the
 /// final (namespaced) fetch; does not integrate anything into local branches.
@@ -25,6 +33,16 @@ pub fn handle_fetch(
     transaction: &josh_core::cache::Transaction,
     distributed_cache: bool,
 ) -> anyhow::Result<Vec<RefUpdate>> {
+    let fetched = fetch_unfiltered(args, transaction, distributed_cache)?;
+    filter_fetched(&fetched, transaction)
+}
+
+/// Transfer the unfiltered history without publishing projected refs.
+pub fn fetch_unfiltered(
+    args: &FetchArgs,
+    transaction: &josh_core::cache::Transaction,
+    distributed_cache: bool,
+) -> anyhow::Result<FetchedRemote> {
     let repo_path = normalize_repo_path(transaction.path());
 
     let config = read_remote_config(&repo_path, &args.remote)
@@ -36,8 +54,22 @@ pub fn handle_fetch(
     // remote: --porcelain sends the internal ref-update listing to stdout
     // (captured and discarded) while transfer progress stays on stderr,
     // which is forwarded to the user.
+    // Backing history belongs only to the configured private refspec. In
+    // particular, auto-followed tags would expose unfiltered commits publicly.
     transaction
-        .git_command(&["fetch", "--porcelain", &url, &ref_spec], &[])?
+        .git_command(
+            &[
+                "fetch",
+                "--prune",
+                "--no-prune-tags",
+                "--no-tags",
+                "--refmap=",
+                "--porcelain",
+                &url,
+                &ref_spec,
+            ],
+            &[],
+        )?
         .with_stdout(std::process::Stdio::piped())
         .spawn()
         .context("git fetch to josh/remotes failed")?;
@@ -49,7 +81,6 @@ pub fn handle_fetch(
     }
 
     // Resolve the default branch from the remote's HEAD symref.
-    let head_ref = format!("refs/remotes/{}/HEAD", args.remote);
 
     // ls-remote --symref output format: "ref: refs/heads/main\t<commit-hash>"
     let output = std::process::Command::new("git")
@@ -65,7 +96,7 @@ pub fn handle_fetch(
     }
 
     let ls_output = String::from_utf8(output.stdout)?;
-    let (default_branch, default_branch_ref) =
+    let (default_branch, _) =
         remote_ops::try_parse_symref(&args.remote, &ls_output).ok_or_else(|| {
             anyhow::anyhow!(
                 "Could not determine default branch from remote '{}': \
@@ -74,13 +105,33 @@ pub fn handle_fetch(
             )
         })?;
 
-    transaction.create_symref(&head_ref, &default_branch_ref, "josh remote HEAD")?;
+    Ok(FetchedRemote {
+        remote: args.remote.clone(),
+        filter,
+        default_branch,
+    })
+}
+
+/// Publish projections from a completed, optionally inspected backing fetch.
+/// Local branch integration and checkout remain the caller's responsibility.
+pub fn filter_fetched(
+    fetched: &FetchedRemote,
+    transaction: &josh_core::cache::Transaction,
+) -> anyhow::Result<Vec<RefUpdate>> {
     transaction.create_symref(
-        &format!("refs/namespaces/josh-{}/{}", args.remote, "HEAD"),
-        &format!("refs/heads/{}", default_branch),
+        &format!("refs/remotes/{}/HEAD", fetched.remote),
+        &format!("refs/remotes/{}/{}", fetched.remote, fetched.default_branch),
         "josh remote HEAD",
     )?;
-
-    // Updates refs only; checkout is left to the caller.
-    remote_ops::apply_josh_filtering(transaction, filter, &args.remote, &default_branch)
+    transaction.create_symref(
+        &format!("refs/namespaces/josh-{}/HEAD", fetched.remote),
+        &format!("refs/heads/{}", fetched.default_branch),
+        "josh remote HEAD",
+    )?;
+    remote_ops::apply_josh_filtering(
+        transaction,
+        fetched.filter,
+        &fetched.remote,
+        &fetched.default_branch,
+    )
 }

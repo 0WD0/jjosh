@@ -1546,12 +1546,48 @@ fn unapply_per_rev_filter(
             let wsj_file = root.chain(wsj_file);
             let filter = compose(&[wsj_file, compose(&[workspace, root])]);
             let original_filter = compose(&[wsj_file, compose(&[original_workspace, root])]);
-            Ok(Some(reverse_strip_overlay(
+            if filter == original_filter {
+                return Ok(Some(reverse_strip_overlay(
+                    transaction,
+                    filter,
+                    original_filter,
+                    tree,
+                    parent_tree,
+                )?));
+            }
+
+            // A mapping change is not a deletion of its external sources.
+            // Interpret the old view through both mappings: only source paths
+            // represented in both can be removed by the edited view. Newly
+            // exposed sources stay intact until the next forward projection.
+            let filtered = apply(
                 transaction,
-                filter,
                 original_filter,
-                tree,
-                parent_tree,
+                Rewrite::from_tree(parent_tree),
+            )?
+            .tree_id();
+            let original = apply(
+                transaction,
+                invert(original_filter)?,
+                Rewrite::from_tree(filtered),
+            )?;
+            let inverse = invert(filter)?;
+            let reinterpreted = apply(transaction, inverse, Rewrite::from_tree(filtered))?;
+            let common = tree::intersect(transaction, original.tree_id(), reinterpreted.tree_id())?;
+            // Old view-local files are still owned by this edit, including
+            // files being moved out to a newly declared shared source.
+            let original_local = apply(
+                transaction,
+                root.chain(Filter::new().prefix(path)),
+                original,
+            )?;
+            let replaced = tree::overlay(transaction, original_local.tree_id(), common)?;
+            let stripped = tree::subtract(transaction, parent_tree, replaced)?;
+            let reconstructed = apply(transaction, inverse, Rewrite::from_tree(tree))?;
+            Ok(Some(tree::overlay(
+                transaction,
+                reconstructed.tree_id(),
+                stripped,
             )?))
         }
         Op::Stored(path) => {
