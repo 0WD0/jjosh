@@ -41,11 +41,13 @@ Josh 可以把一个 Git 仓库转换成另一个视图。例如，把大仓库�
 
 这不是简单复制文件或隐藏目录，而是转换 Git 历史。jjosh 的 link 工作流借助这些能力，将外部仓库的内容和历史组合进指定路径，并将适用的本地修改映射回来源结构。
 
-**jj 管“修改怎么组织”，Josh 管“仓库怎么呈现”，jjosh 将两者放进同一个开发流程。**
+jj 管原生历史与工作副本，包括本地路径布局；Josh 管跨仓库的历史投影。jjosh 将两者放进同一个开发流程，但原生 sparse 不依赖 Josh。
 
-## 原生 sparse：按 fileset 选择工作副本文件
+## 原生 sparse：选择与映射工作副本
 
-本地 jj 集成接续了 pmandloi28 的 [fileset sparse PR #9760](https://github.com/jj-vcs/jj/pull/9760)，并修正表达式往返、空旧状态迁移和旧二进制误读问题。这不表示该 PR 已在上游合并。
+本地 jj 集成接续了 pmandloi28 的 [fileset sparse PR #9760](https://github.com/jj-vcs/jj/pull/9760)，
+并参考 [Sparse Patterns V2](https://github.com/jj-vcs/jj/blob/main/docs/design/sparse-v2.md) 的配置对象与双坐标模型、[PR #9996](https://github.com/jj-vcs/jj/pull/9996) 的有序规则设计。
+这不表示这些提案已在上游实现或合并。
 
 ```sh
 jjosh sparse set 'glob:"**/*.rs" ~ src/generated'
@@ -55,13 +57,43 @@ jjosh sparse edit
 jjosh sparse reset
 ```
 
-位置参数替换当前选择；`--add` 取并集，`--remove` 取差集，同一次调用先加入再排除。输入按当前目录解释；`sparse list` 输出可重新解析的根相对表达式。`sparse edit` 编辑一条可以跨行的表达式，空白表示不选择文件，而不是把每行当成独立路径。
+选择规则按顺序保存，包含取并集、排除取差集；每条规则仍可使用复合 fileset。位置参数替换选择规则，保留映射；同一次调用先应用 `--add`，再应用 `--remove`。持久化的是结构化规则和映射，不是 DSL 字符串；别名在输入时展开。`sparse list` 和 `sparse edit` 使用根相对的 `+ FILESET` / `- FILESET` 行，以及 `map ["源路径","目标路径"]` 行。编辑器内容始终使用 canonical repository 坐标；空内容表示空选择和 identity 映射。
 
-这与旧版 sparse 有行为差异：`--remove` 现在可以排除已选目录的子路径，不再只是删除一个已列出的前缀；旧的工作副本根相对输入需改用 `root:`，或者从仓库根运行。
+### 应用布局与共享源
 
-未检出的内容仍在完整原生提交里，不会被当成删除；`file list`、revision 操作不会因此被限制为可见文件。新 workspace 可继承整个筛选表达式。这里只支持筛选，不包含路径重排、Josh workspace 定义绑定或 sparse 配置的 operation 版本化。
+假设仓库已经包含下列 canonical 源目录，可以让 Sunshine 在工作副本根构建，同时使用共享依赖：
 
-旧前缀状态可读取。首次使用不能表示成旧前缀列表的表达式时，标准本地工作副本会标为 `local-fileset`，旧二进制随后加载时明确拒绝；`sparse reset` 不自动降级这个标记。切换前应退出仍在运行的旧 jj 进程，不要手改类型标记。自定义 working-copy 实现需自行处理兼容性。
+```sh
+jjosh sparse set root:src/Sunshine root:src/moonlight-common-c root:src/msquic
+jjosh sparse set \
+  --remove root:src/Sunshine/third-party/moonlight-common-c \
+  --remove root:src/Sunshine/third-party/msquic \
+  --remove root-file:src/Sunshine/third-party
+jjosh sparse map set \
+  src/Sunshine=. \
+  src/moonlight-common-c=third-party/moonlight-common-c \
+  src/msquic=third-party/msquic
+```
+
+源路径相对 canonical repository 根，目标路径相对物理工作副本根。`map set` 一次替换全部映射；没有显式映射时才使用 identity 映射，显式映射之外的源不会检出。`map reset` 只恢复 identity 映射；`sparse reset` 同时恢复全部选择和 identity 映射。这些命令不导入或迁移现有源仓库。
+
+在 `third-party/msquic/` 修改或新建文件，普通 snapshot 就写回 `src/msquic/`。只有一份完整的 canonical 原生树，不生成投影提交，也不经过 Josh 或 projection push/unapply。未检出的内容和原生冲突仍在完整提交中；revision 操作不会被限制为可见文件。
+
+映射必须有唯一写入归属，包括尚未创建的文件。重复可写别名、目标覆盖以及文件占用另一映射的父目录都会被拒绝。上例最后一条排除只排除 canonical 路径 `src/Sunshine/third-party` 本身作为文件的可能性，不排除它的整个子树。无法证明安全的重叠 glob 域也会拒绝，而不是按当前树猜测。编辑器中的 `map-file ["源","目标"]` 可表达精确文件映射。
+
+普通路径参数按物理工作副本和当前目录解释；`root:`、`root-file:`、`root-glob:` 始终指向 canonical repository 路径。跨多个映射边界的物理前缀和物理 glob 不会被近似转换：命令会要求使用明确的 canonical fileset。`--remove` 是排除匹配路径，不是删除一个旧前缀条目。
+
+### 操作历史、工作副本与兼容性
+
+选择与映射作为一个不可变配置对象由 operation View 引用，可以一起 undo/redo/restore。首次实际更改会先记录本地旧配置的基线；更早没有记录的历史保持未知，不拿今天的配置补造历史。并发配置冲突保留全部备选并维持实际布局，使用 `sparse edit` 或 `sparse reset` 明确解决。
+
+`--ignore-working-copy` 可修改已登记的期望配置而不改磁盘；下一次正常命令先按实际旧布局记录本地修改，再应用新配置。`--at-op=@` 仍然可写。各 workspace 共享仓库，但有各自的提交指针、配置和磁盘文件；`workspace add --sparse-patterns=copy` 复制完整配置，`full` / `empty` 使用 identity 映射。其他 workspace 不会实时同步磁盘。
+
+非 identity 映射不能用于 colocated Git 工作树；普通 identity sparse 仍可 colocate，也可与同仓库中的映射工作副本并存。
+
+旧前缀和 `local-fileset` 本地状态可迁移。新建工作副本以及本版本首次写入本地状态后的工作副本使用 `local-working-copy-mapped`；首次记录版本化配置时，标准 operation store 升级为 `simple_op_store_working_copy_patterns`。旧二进制加载时会拒绝，reset 不会降级。切换前退出旧 jj 进程，不要手改类型标记；已运行的旧进程不受加载时检查保护。前一实验版的 `simple_op_store_sparse` 字符串操作库会被明确拒绝，不作为新对象 ID 格式读取。
+
+实际布局更新中断后，`sparse-update-in-progress` 会阻止继续 snapshot，避免把未完成检出误当成用户删除。它不是自动回滚机制：保留现有文件，从健康 workspace 创建替代工作副本，再核对未记录的本地修改；不要删除标记后强行 snapshot。恢复步骤见 [filesets 文档](jj/docs/filesets.md#interrupted-materialization)。
 
 ## 从源码构建
 
