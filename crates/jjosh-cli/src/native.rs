@@ -32,6 +32,8 @@ enum Command {
     /// which are removed. Import does not check out or merge the imported heads.
     /// Use jj new with NAME/workspace/WORKSPACE bookmarks to compose them.
     Import(ImportArgs),
+    /// Relocate a native change graph with explicit path and parent mappings.
+    Transplant(crate::transplant::Args),
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -102,6 +104,7 @@ pub(crate) async fn run(
     args: Args,
 ) -> Result<(), CommandError> {
     match args.command {
+        Command::Transplant(args) => crate::transplant::run(ui, command_helper, args).await,
         Command::Inspect(args) => {
             let bundle = crate::native_bundle::load(
                 &command_helper.cwd().join(args.file),

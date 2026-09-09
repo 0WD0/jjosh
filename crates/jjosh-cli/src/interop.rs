@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -81,7 +82,7 @@ pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), 
             .head()
             .map_err(|err| user_error_with_message("Failed to inspect Git HEAD", err))?;
         let actual = head
-            .try_peel_to_id_in_place()
+            .try_peel_to_id()
             .map_err(|err| user_error_with_message("Failed to resolve Git HEAD", err))?
             .map(|id| jj_lib::backend::CommitId::from_bytes(id.as_bytes()));
         let recorded = workspace.repo().view().git_head(workspace.workspace_name());
@@ -90,6 +91,67 @@ pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), 
                 "Git HEAD has unimported changes; reconcile the Git checkout with jj separately before continuing",
             ));
         }
+    }
+    Ok(())
+}
+
+/// Josh operates on Git histories. A native conflict's Git representation is
+/// transport data, not a resolved tree that can safely be filtered or pushed.
+pub(crate) async fn check_projectable_history(
+    workspace: &WorkspaceCommandHelper,
+    commit: &Commit,
+) -> Result<(), CommandError> {
+    let store = workspace.repo().store();
+    if commit.id() == store.root_commit_id() {
+        return Err(user_error("The root commit cannot be projected"));
+    }
+    let mut pending = vec![commit.id().clone()];
+    let mut visited = HashSet::new();
+    while let Some(id) = pending.pop() {
+        if id == *store.root_commit_id() || !visited.insert(id.clone()) {
+            continue;
+        }
+        let ancestor = store.get_commit_async(&id).await?;
+        if ancestor.has_conflict() {
+            return Err(user_error(format!(
+                "Revision {} contains a native conflict; resolve it before projecting this history. Native bundles can transport unresolved conflicts without projecting them.",
+                id.hex()
+            )));
+        }
+        pending.extend(ancestor.parent_ids().iter().cloned());
+    }
+    Ok(())
+}
+
+/// Inspect received Git objects before Josh writes any projected refs. Native
+/// metadata must not be lazily synthesized merely to perform this check.
+pub(crate) fn check_projectable_remote(
+    transaction: &josh_core::cache::Transaction,
+    remote: &str,
+) -> Result<(), CommandError> {
+    let mut pending = Vec::new();
+    transaction
+        .for_each_ref_prefixed(&format!("refs/josh/remotes/{remote}/"), |_, id| {
+            pending.push(id);
+            Ok(())
+        })
+        .map_err(|err| user_error_with_message("Failed to inspect fetched source refs", err))?;
+    let mut visited = HashSet::new();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let commit = josh_core::objects::CommitData::read(transaction.odb(), id)
+            .map_err(|err| user_error_with_message("Failed to read fetched source history", err))?;
+        let parsed = commit
+            .parsed()
+            .map_err(|err| user_error_with_message("Failed to parse fetched source commit", err))?;
+        if parsed.extra_headers().find("jj:trees").is_some() {
+            return Err(user_error(format!(
+                "Source revision {id} carries native conflict trees; resolve them before projecting this history, or use a native bundle to transport them unchanged"
+            )));
+        }
+        pending.extend(commit.parent_ids());
     }
     Ok(())
 }
