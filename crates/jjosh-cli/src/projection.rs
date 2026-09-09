@@ -17,6 +17,8 @@ pub(crate) struct Args {
 enum Command {
     /// Preview a projected commit without changing refs or the working copy.
     Status(StatusArgs),
+    /// Relocate a local change graph while preserving jj identities and conflict trees.
+    Transplant(crate::transplant::Args),
     /// Configure projection remotes.
     Remote(RemoteArgs),
     /// Fetch, project, and import remote history into Jujutsu.
@@ -69,6 +71,7 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         Command::Status(args) => run_status(ui, command_helper, args).await,
+        Command::Transplant(args) => crate::transplant::run(ui, command_helper, args).await,
         Command::Remote(args) => run_remote(ui, command_helper, args).await,
         Command::Fetch(args) => run_fetch(ui, command_helper, args).await,
     }

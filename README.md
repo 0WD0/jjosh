@@ -193,7 +193,32 @@ jjosh new 'main@api'
 jjosh projection status ':/src'
 ```
 
-当前 `projection` 提供 `status`、`remote add` 和 `fetch`，**没有 `projection push`**。它的远端配置禁止直接通过普通 Git 推送；需要双向开发和发布时，应选择 link 工作流。
+当前 `projection` 提供 `status`、`remote add`、`fetch` 和本地整图改写 `transplant`，没有 `projection push`。它的远端配置禁止直接通过普通 Git 推送；需要双向开发和发布时，应选择 link 工作流。
+
+## 整体迁移本地修改图
+
+`projection transplant` 在当前仓库内改写显式选定的可变提交图，不逐目录导出，也不裁剪空提交。它保留 change ID、作者、描述和有序父边；Git commit ID 会改变。合并提交相对原父树的自身修改会被重放，未解决冲突的每个带符号树项都会映射到新路径。
+
+```sh
+jjosh projection transplant \
+  -r 'old-base..local-tip' \
+  --map jj=src/jj --map josh=src/josh --map .=src/jjosh \
+  --exclude jj/.link.josh --exclude josh/.link.josh \
+  --parent old-base=new-base --dry-run
+```
+
+确认计划后去掉 `--dry-run` 才会应用。示例中的提交和基线必须已经存在于当前仓库；命令不负责跨仓库获取对象，也不自动建立或重定位 `.link.josh`、来源书签和组合基线。不能把当前 fork tip 或带本地修改的快照当作已核实的上游基线。
+
+- `.` 是未被其他映射接管的根目录回退。每个保留路径必须有唯一归属；碰撞检查覆盖同一个冲突树的所有项，防止不同源路径映射后相互抵消。不同历史版本之间的目录重命名可以归一化。
+- 选集必须包含所有受影响的可见后代，也必须自行包括希望迁移的侧支历史。`old-base..local-tip` 可以包含从独立根合入的侧支，`old-base::` 不一定包含它。
+- 每条离开选集的父边都要显式映射；`--parent OLD=OLD` 表示保留该父边。Git 的无父提交在 jj 中仍有 `root()` 父边。把它替换成已有内容的基线，会以空树为原基础重放整棵源树，可能产生真实的 add/add 冲突；显式映射不是基线正确性的证明。
+- gitlink 必须用其完整路径显式 `--exclude`；命令不会自动把子模块展开为文件。不要排除需要保留的源码。
+- 预检拒绝不完整选集、选集中同一 change ID 的多个版本、路径碰撞、父边合并或循环、不可变提交、历史操作和多个操作头。不会用 `--ignore-immutable` 或 `converge` 隐藏问题。
+- 未导入 jj 的 Git 引用或 checkout、进行中的 Git 操作，以及需要兼容性元数据导入的旧提交，都必须先单独处理。选中的当前工作区还必须是新鲜且已快照的；不要在执行期间并发切换或编辑工作区。
+
+`--dry-run` 检查图映射和源树项，不写新提交，不修改操作头、Git refs、jj view 或工作区内容；底层读取、合并及快照检查可能留下可回收的对象或缓存。它不计算重放后的最终冲突，不能当作迁移结果已经保真的证明。
+
+应用通过一次 jj 事务发布图和引用改写，但不是整个文件系统的原子回滚：底层提交写入会保留 keep refs，Git 导出、操作发布和工作区 checkout 发生在不同阶段，I/O 失败可能留下部分这些状态。真实迁移应先在独立目录演练，核对每个 change ID、父边以及需要保留的树内容，再决定采用结果；原操作日志不会随 Git DAG 自动迁入。
 
 ## 当前边界与发布安全
 

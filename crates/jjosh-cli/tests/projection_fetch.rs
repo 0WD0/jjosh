@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(cwd: &Path, program: &Path, args: &[&str]) -> Output {
@@ -222,4 +223,784 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         &["push", "origin", "HEAD:refs/heads/direct-push-must-fail"],
     );
     assert!(!direct_push.status.success());
+}
+
+struct TransplantRepo {
+    temp: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl TransplantRepo {
+    fn new() -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("repo");
+        fs::create_dir(&path).unwrap();
+        fs::create_dir(temp.path().join("home")).unwrap();
+        fs::write(
+            temp.path().join("config.toml"),
+            "[revset-aliases]\n'immutable_heads()' = 'root()'\n",
+        )
+        .unwrap();
+        let repo = Self { temp, path };
+        repo.jj(&["git", "init", "--colocate"]);
+        repo
+    }
+
+    fn run(&self, program: &Path, args: &[&str]) -> Output {
+        Command::new(program)
+            .args(args)
+            .current_dir(&self.path)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("HOME", self.temp.path().join("home"))
+            .env("XDG_CONFIG_HOME", self.temp.path().join("home"))
+            .env("JJ_CONFIG", self.temp.path().join("config.toml"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("LANG", "C.UTF-8")
+            .output()
+            .unwrap_or_else(|err| panic!("failed to run {program:?} {args:?}: {err}"))
+    }
+
+    fn jj_unchecked(&self, args: &[&str]) -> Output {
+        let mut full_args = vec![
+            "--no-pager",
+            "--color=never",
+            "--config",
+            "user.name=Transplant Test",
+            "--config",
+            "user.email=transplant@example.com",
+        ];
+        full_args.extend_from_slice(args);
+        self.run(Path::new(env!("CARGO_BIN_EXE_jjosh")), &full_args)
+    }
+
+    fn jj(&self, args: &[&str]) -> String {
+        let output = self.jj_unchecked(args);
+        assert_success(&output, Path::new(env!("CARGO_BIN_EXE_jjosh")), args);
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let output = self.run(Path::new("git"), args);
+        assert_success(&output, Path::new("git"), args);
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    fn log(&self, revision: &str, template: &str) -> String {
+        self.jj(&[
+            "--ignore-working-copy",
+            "log",
+            "--no-graph",
+            "-r",
+            revision,
+            "-T",
+            template,
+        ])
+    }
+
+    fn commit_id(&self, revision: &str) -> String {
+        self.log(revision, "commit_id")
+    }
+
+    fn write(&self, path: &str, contents: &str) {
+        let path = self.path.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    fn bookmark(&self, name: &str) {
+        self.jj(&["bookmark", "set", name]);
+    }
+
+    fn bases(&self) {
+        self.write("a/file.txt", "a-base\n");
+        self.write("b/file.txt", "b-base\n");
+        self.write("README", "base readme\n");
+        self.jj(&["describe", "-m", "source base"]);
+        self.bookmark("old-base");
+        self.jj(&["new", "root()", "-m", "destination base"]);
+        self.write("pkg/a/file.txt", "a-base\n");
+        self.write("pkg/b/file.txt", "b-base\n");
+        self.write("archive/README", "base readme\n");
+        self.write("target-only.txt", "keep destination content\n");
+        self.bookmark("target-base");
+    }
+
+    fn linear_changes(&self) {
+        self.bases();
+        self.jj(&["new", "old-base", "-m", "cross directory"]);
+        self.write("a/file.txt", "a-cross\n");
+        self.write("b/file.txt", "b-cross\n");
+        self.bookmark("cross");
+        self.jj(&["new", "cross", "-m", "descendant"]);
+        self.write("a/child.txt", "child\n");
+        self.bookmark("child");
+    }
+
+    fn state(&self) -> TransplantState {
+        fn collect(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in fs::read_dir(path).unwrap() {
+                let entry = entry.unwrap();
+                if path == root && (entry.file_name() == ".git" || entry.file_name() == ".jj") {
+                    continue;
+                }
+                let path = entry.path();
+                if entry.file_type().unwrap().is_dir() {
+                    collect(root, &path, files);
+                } else {
+                    files.insert(
+                        path.strip_prefix(root).unwrap().to_owned(),
+                        fs::read(path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut worktree = BTreeMap::new();
+        collect(&self.path, &self.path, &mut worktree);
+        TransplantState {
+            operation: self.jj(&[
+                "--ignore-working-copy",
+                "op",
+                "log",
+                "--no-graph",
+                "--limit",
+                "1",
+                "-T",
+                "id",
+            ]),
+            refs: self.git(&["for-each-ref", "--format=%(refname) %(objectname)"]),
+            head: self.git(&["rev-parse", "HEAD", "HEAD^{tree}"]),
+            workspace: self.commit_id("@"),
+            view: self.log(
+                "all()",
+                "commit_id ++ \" \" ++ change_id ++ \" \" ++ bookmarks ++ \"\\n\"",
+            ),
+            worktree,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct TransplantState {
+    operation: String,
+    refs: String,
+    head: String,
+    workspace: String,
+    view: String,
+    worktree: BTreeMap<PathBuf, Vec<u8>>,
+}
+
+#[test]
+fn transplant_preserves_the_whole_change_graph_and_replays_merge_delta() {
+    let repo = TransplantRepo::new();
+    repo.bases();
+    repo.jj(&["new", "old-base", "-m", "cross directory"]);
+    repo.write("a/file.txt", "a-cross\n");
+    repo.write("b/file.txt", "b-cross\n");
+    repo.write("README", "cross readme\n");
+    repo.bookmark("cross");
+    repo.jj(&["new", "cross", "-m", "left branch"]);
+    repo.write("a/left.txt", "left\n");
+    repo.bookmark("left");
+    repo.jj(&["new", "cross", "-m", "right branch"]);
+    repo.write("b/right.txt", "right\n");
+    repo.bookmark("right");
+    repo.jj(&["new", "left", "right", "-m", "merge with its own delta"]);
+    repo.write("a/merge-only.txt", "merge delta\n");
+    repo.bookmark("merged");
+    repo.jj(&["new", "merged", "-m", "intentional empty change"]);
+    repo.bookmark("empty");
+    repo.jj(&["new", "old-base", "-m", "independent side branch"]);
+    repo.write("b/side.txt", "side\n");
+    repo.bookmark("side");
+    repo.jj(&["edit", "empty"]);
+
+    let names = ["cross", "left", "right", "merged", "empty", "side"];
+    let before: Vec<_> = names
+        .iter()
+        .map(|name| {
+            let id = repo.commit_id(name);
+            let identity = repo.log(name, "change_id");
+            let author_and_description =
+                repo.git(&["show", "-s", "--format=%an%n%ae%n%aI%n%B", &id]);
+            let files: BTreeMap<_, _> = repo
+                .git(&["ls-tree", "-r", "--name-only", &id])
+                .lines()
+                .map(|path| {
+                    let destination = if let Some(suffix) = path.strip_prefix("a/") {
+                        format!("pkg/a/{suffix}")
+                    } else if let Some(suffix) = path.strip_prefix("b/") {
+                        format!("pkg/b/{suffix}")
+                    } else {
+                        format!("archive/{path}")
+                    };
+                    (destination, repo.git(&["show", &format!("{id}:{path}")]))
+                })
+                .collect();
+            (id, identity, author_and_description, files)
+        })
+        .collect();
+    let target = repo.commit_id("target-base");
+    repo.jj(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+    ]);
+
+    let after: Vec<_> = names.iter().map(|name| repo.commit_id(name)).collect();
+    let parents = [
+        vec![target.as_str()],
+        vec![after[0].as_str()],
+        vec![after[0].as_str()],
+        vec![after[1].as_str(), after[2].as_str()],
+        vec![after[3].as_str()],
+        vec![target.as_str()],
+    ];
+    for (index, name) in names.iter().enumerate() {
+        let (old_id, identity, author_and_description, old_files) = &before[index];
+        assert_ne!(&after[index], old_id);
+        assert_eq!(repo.log(name, "change_id"), *identity);
+        assert_eq!(
+            repo.git(&["show", "-s", "--format=%an%n%ae%n%aI%n%B", &after[index]]),
+            *author_and_description
+        );
+        assert_eq!(
+            repo.git(&["show", "-s", "--format=%P", &after[index]])
+                .trim(),
+            parents[index].join(" ")
+        );
+        let mut expected_files = old_files.clone();
+        expected_files.insert(
+            "target-only.txt".to_owned(),
+            "keep destination content\n".to_owned(),
+        );
+        let actual_paths = repo.jj(&["file", "list", "-r", name]);
+        assert_eq!(
+            actual_paths.lines().collect::<Vec<_>>(),
+            expected_files
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            repo.git(&["ls-tree", "-r", "--name-only", &after[index]]),
+            actual_paths
+        );
+        for (path, contents) in expected_files {
+            assert_eq!(repo.jj(&["file", "show", "-r", name, &path]), contents);
+            assert_eq!(
+                repo.git(&["show", &format!("{}:{path}", after[index])]),
+                contents
+            );
+        }
+    }
+    assert_eq!(repo.commit_id("@"), after[4]);
+    assert_eq!(
+        repo.git(&["rev-parse", &format!("{}^{{tree}}", after[3])]),
+        repo.git(&["rev-parse", &format!("{}^{{tree}}", after[4])])
+    );
+    assert_eq!(
+        repo.log("target-base:: ~ target-base", "change_id ++ \"\\n\"")
+            .lines()
+            .count(),
+        names.len()
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path.join("pkg/a/merge-only.txt")).unwrap(),
+        "merge delta\n"
+    );
+    assert!(!repo.path.join("a").exists());
+}
+
+#[test]
+fn transplant_keeps_unresolved_conflicts_in_jj_and_git_and_allows_resolution() {
+    let repo = TransplantRepo::new();
+    repo.bases();
+    repo.jj(&["new", "old-base", "-m", "left conflict"]);
+    repo.write("a/file.txt", "left version\n");
+    repo.bookmark("left");
+    repo.jj(&["new", "old-base", "-m", "right conflict"]);
+    repo.write("a/file.txt", "right version\n");
+    repo.bookmark("right");
+    repo.jj(&["new", "left", "right", "-m", "unresolved merge"]);
+    repo.bookmark("conflicted");
+    let change = repo.log("@", "change_id");
+    assert_eq!(repo.commit_id("@ & conflicts()"), repo.commit_id("@"));
+
+    repo.jj(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+    ]);
+
+    let conflicted = repo.commit_id("conflicted");
+    assert_eq!(repo.commit_id("@"), conflicted);
+    assert_eq!(repo.log("@", "change_id"), change);
+    assert_eq!(repo.commit_id("@ & conflicts()"), conflicted);
+    let paths = repo.jj(&["file", "list", "-r", "@"]);
+    assert_eq!(
+        paths,
+        "archive/README\npkg/a/file.txt\npkg/b/file.txt\ntarget-only.txt\n"
+    );
+    let materialized = repo.jj(&["file", "show", "-r", "@", "pkg/a/file.txt"]);
+    assert!(materialized.contains("left version"));
+    assert!(materialized.contains("right version"));
+    assert_eq!(
+        fs::read_to_string(repo.path.join("pkg/a/file.txt")).unwrap(),
+        materialized
+    );
+    assert!(!repo.path.join("a/file.txt").exists());
+
+    // Git exposes the first conflict side at the ordinary path, and all sides
+    // through jj:trees. Neither representation may retain the old source paths.
+    let header = repo.git(&["cat-file", "commit", &conflicted]);
+    let trees = header
+        .split("\n\n")
+        .next()
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("jj:trees "))
+        .expect("an unresolved commit must expose its conflict terms to Git");
+    let mut versions = Vec::new();
+    for tree in trees.split_whitespace() {
+        assert_eq!(repo.git(&["ls-tree", "-r", "--name-only", tree]), paths);
+        versions.push(repo.git(&["show", &format!("{tree}:pkg/a/file.txt")]));
+    }
+    versions.sort();
+    versions.dedup();
+    assert_eq!(
+        versions,
+        vec!["a-base\n", "left version\n", "right version\n"]
+    );
+    assert!(versions.contains(&repo.git(&["show", &format!("{conflicted}:pkg/a/file.txt")])));
+    let git_paths = repo.git(&["ls-tree", "-r", "--name-only", &conflicted]);
+    assert!(!git_paths.lines().any(|path| path == "a/file.txt"
+        || path.ends_with("/a/file.txt")
+            && path != "pkg/a/file.txt"
+            && !path.ends_with("/pkg/a/file.txt")));
+
+    repo.write("pkg/a/file.txt", "resolved version\n");
+    repo.jj(&["status"]);
+    assert_eq!(repo.log("@", "change_id"), change);
+    assert_eq!(repo.commit_id("@ & conflicts()"), "");
+    assert_eq!(
+        repo.jj(&["file", "show", "-r", "@", "pkg/a/file.txt"]),
+        "resolved version\n"
+    );
+    let resolved = repo.commit_id("@");
+    assert_eq!(
+        repo.git(&["show", &format!("{resolved}:pkg/a/file.txt")]),
+        "resolved version\n"
+    );
+    assert_eq!(
+        repo.git(&["ls-tree", "-r", "--name-only", &resolved]),
+        paths
+    );
+    repo.jj(&["new", "-m", "continue after resolving"]);
+    assert_eq!(repo.commit_id("@-"), resolved);
+    assert_eq!(
+        repo.jj(&["file", "show", "-r", "@", "pkg/a/file.txt"]),
+        "resolved version\n"
+    );
+}
+
+#[test]
+fn transplant_rejects_incomplete_graphs_and_collisions_without_changing_state() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    let before = repo.state();
+    let invalid_args: &[&[&str]] = &[
+        &[
+            "projection",
+            "transplant",
+            "-r",
+            "old-base:: ~ old-base",
+            "--map",
+            "a=pkg/a",
+            "--map",
+            "b=pkg/b",
+            "--map",
+            ".=archive",
+        ],
+        &[
+            "projection",
+            "transplant",
+            "-r",
+            "cross",
+            "--map",
+            "a=pkg/a",
+            "--map",
+            "b=pkg/b",
+            "--map",
+            ".=archive",
+            "--parent",
+            "old-base=target-base",
+        ],
+        &[
+            "projection",
+            "transplant",
+            "-r",
+            "old-base:: ~ old-base",
+            "--map",
+            "a=pkg",
+            "--map",
+            "b=pkg",
+            "--map",
+            ".=archive",
+            "--parent",
+            "old-base=target-base",
+        ],
+        &[
+            "projection",
+            "transplant",
+            "-r",
+            "old-base:: ~ old-base",
+            "--map",
+            "a=pkg/b",
+            "--map",
+            ".=pkg",
+            "--parent",
+            "old-base=target-base",
+        ],
+    ];
+    for args in invalid_args {
+        let output = repo.jj_unchecked(args);
+        assert!(
+            !output.status.success(),
+            "invalid transplant succeeded: {args:?}"
+        );
+        assert_eq!(
+            repo.state(),
+            before,
+            "rejected transplant changed state: {args:?}"
+        );
+    }
+}
+
+#[test]
+fn transplant_dry_run_preserves_operation_refs_view_and_worktree() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    let before = repo.state();
+    repo.jj(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+        "--dry-run",
+    ]);
+    assert_eq!(repo.state(), before);
+}
+
+#[test]
+fn transplant_replaces_each_boundary_parent_without_losing_the_side_parent() {
+    let repo = TransplantRepo::new();
+    repo.bases();
+    repo.jj(&["new", "root()", "-m", "source side parent"]);
+    repo.write("outside.txt", "side parent content\n");
+    repo.bookmark("old-side");
+    repo.jj(&["new", "root()", "-m", "target side parent"]);
+    repo.write("archive/outside.txt", "side parent content\n");
+    repo.bookmark("target-side");
+    repo.jj(&["new", "old-base", "old-side", "-m", "boundary merge"]);
+    repo.write("a/local.txt", "merge-local content\n");
+    repo.bookmark("boundary");
+    let change = repo.log("boundary", "change_id");
+    let parents = [repo.commit_id("target-base"), repo.commit_id("target-side")];
+
+    repo.jj(&[
+        "projection",
+        "transplant",
+        "-r",
+        "boundary",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+        "--parent",
+        "old-side=target-side",
+    ]);
+
+    let result = repo.commit_id("boundary");
+    assert_eq!(repo.log("boundary", "change_id"), change);
+    assert_eq!(
+        repo.git(&["show", "-s", "--format=%P", &result]).trim(),
+        parents.join(" ")
+    );
+    assert_eq!(
+        repo.jj(&["file", "show", "archive/outside.txt"]),
+        "side parent content\n"
+    );
+    assert_eq!(
+        repo.jj(&["file", "show", "pkg/a/local.txt"]),
+        "merge-local content\n"
+    );
+    assert_eq!(
+        repo.jj(&["file", "show", "target-only.txt"]),
+        "keep destination content\n"
+    );
+}
+
+#[test]
+fn transplant_does_not_discard_unsnapshotted_worktree_changes() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    repo.write("a/file.txt", "pending tracked edit\n");
+    repo.write("pending.txt", "pending new file\n");
+    let before = repo.state();
+    let result = repo.jj_unchecked(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+    ]);
+    assert!(!result.status.success());
+    assert_eq!(repo.state(), before);
+}
+
+#[test]
+fn transplant_normalizes_a_historical_directory_rename_without_splitting_changes() {
+    let repo = TransplantRepo::new();
+    repo.write("old-name/file.txt", "base\n");
+    repo.bookmark("old-base");
+    repo.jj(&["new", "root()", "-m", "destination base"]);
+    repo.write("pkg/new-name/file.txt", "base\n");
+    repo.bookmark("target-base");
+    repo.jj(&["new", "old-base", "-m", "edit before directory rename"]);
+    repo.write("old-name/file.txt", "local edit\n");
+    repo.bookmark("edited");
+    repo.jj(&["new", "edited", "-m", "rename source directory"]);
+    fs::rename(repo.path.join("old-name"), repo.path.join("new-name")).unwrap();
+    repo.bookmark("renamed");
+    let edit_change = repo.log("edited", "change_id");
+    let rename_change = repo.log("renamed", "change_id");
+
+    repo.jj(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "old-name=pkg/new-name",
+        "--map",
+        ".=pkg",
+        "--parent",
+        "old-base=target-base",
+    ]);
+
+    assert_eq!(repo.log("edited", "change_id"), edit_change);
+    assert_eq!(repo.log("renamed", "change_id"), rename_change);
+    assert_eq!(repo.commit_id("renamed-"), repo.commit_id("edited"));
+    assert_eq!(repo.jj(&["file", "list"]), "pkg/new-name/file.txt\n");
+    assert_eq!(
+        repo.jj(&["file", "show", "pkg/new-name/file.txt"]),
+        "local edit\n"
+    );
+    assert_eq!(
+        repo.git(&[
+            "rev-parse",
+            &format!("{}^{{tree}}", repo.commit_id("edited"))
+        ]),
+        repo.git(&[
+            "rev-parse",
+            &format!("{}^{{tree}}", repo.commit_id("renamed"))
+        ])
+    );
+}
+
+#[test]
+fn transplant_rejects_collisions_between_conflict_terms_without_losing_conflicts() {
+    let repo = TransplantRepo::new();
+    repo.write("b/f", "A\n");
+    repo.bookmark("pa");
+    repo.jj(&["new", "root()"]);
+    repo.write("b/f", "B\n");
+    repo.bookmark("pb");
+    repo.jj(&["new", "pa", "pb"]);
+    repo.bookmark("p");
+    for (name, value) in [("left", "A\n"), ("right", "B\n")] {
+        repo.jj(&["new", "p"]);
+        fs::remove_file(repo.path.join("b/f")).unwrap();
+        repo.write("a/f", value);
+        repo.bookmark(name);
+    }
+    repo.jj(&["new", "left", "right"]);
+    repo.bookmark("conflict");
+    repo.jj(&["new", "root()"]);
+    repo.jj(&["restore", "--from", "conflict"]);
+    repo.bookmark("specimen");
+    assert_eq!(repo.jj(&["file", "list"]), "a/f\nb/f\n");
+    assert_eq!(repo.commit_id("@ & conflicts()"), repo.commit_id("@"));
+    // Move the checkout away so state inspection has an ordinary Git HEAD.
+    repo.jj(&["new", "pa"]);
+    let before = repo.state();
+    let output = repo.jj_unchecked(&[
+        "projection",
+        "transplant",
+        "-r",
+        "specimen",
+        "--map",
+        "a=pkg/b",
+        "--map",
+        ".=pkg",
+        "--parent",
+        "root()=root()",
+    ]);
+    assert!(
+        !output.status.success(),
+        "cross-term collision silently removed conflicts"
+    );
+    assert_eq!(repo.state(), before);
+}
+
+#[test]
+fn transplant_rejects_a_git_checkout_not_yet_imported_into_jj() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    repo.jj(&["new"]);
+    let current = repo.commit_id("@");
+    repo.git(&["branch", "git-checkout", &current]);
+    repo.jj(&["git", "import"]);
+    // Same files, different HEAD: a tree-only check cannot detect this checkout.
+    repo.git(&["switch", "git-checkout"]);
+    let before = repo.state();
+    let output = repo.jj_unchecked(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+    ]);
+    assert!(
+        !output.status.success(),
+        "transplant overwrote the pending Git checkout"
+    );
+    assert_eq!(repo.state(), before);
+    assert_eq!(
+        repo.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "git-checkout"
+    );
+}
+
+#[test]
+fn transplant_preflight_does_not_lazily_import_legacy_git_metadata() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    let current = repo.commit_id("@");
+    // Exercise jj's supported compatibility path: indexed commits whose
+    // supplemental metadata is absent, and whose keep ref may have been GC'd.
+    jj_lib::stacked_table::TableStore::load(repo.path.join(".jj/repo/store/extra"), 20).reinit();
+    let keep = format!("refs/jj/keep/{current}");
+    repo.git(&["update-ref", "-d", &keep]);
+    let before_refs = repo.git(&["for-each-ref", "--format=%(refname) %(objectname)"]);
+    let operation_heads = || {
+        let mut names: Vec<_> = fs::read_dir(repo.path.join(".jj/repo/op_heads"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let before_ops = operation_heads();
+    let output = repo.jj_unchecked(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+        "--dry-run",
+    ]);
+    assert!(
+        !output.status.success(),
+        "legacy metadata must be reconciled separately"
+    );
+    assert_eq!(
+        repo.git(&["for-each-ref", "--format=%(refname) %(objectname)"]),
+        before_refs
+    );
+    assert_eq!(operation_heads(), before_ops);
+    // The ordinary compatibility path remains available outside transplant.
+    repo.log(&current, "commit_id");
+    assert_eq!(repo.git(&["rev-parse", &keep]).trim(), current);
+}
+
+#[test]
+fn transplant_preflight_rejects_git_refs_missing_from_the_jj_view() {
+    let repo = TransplantRepo::new();
+    repo.linear_changes();
+    repo.git(&["branch", "not-imported", &repo.commit_id("@")]);
+    let before = repo.state();
+    let output = repo.jj_unchecked(&[
+        "projection",
+        "transplant",
+        "-r",
+        "old-base:: ~ old-base",
+        "--map",
+        "a=pkg/a",
+        "--map",
+        "b=pkg/b",
+        "--map",
+        ".=archive",
+        "--parent",
+        "old-base=target-base",
+        "--dry-run",
+    ]);
+    assert!(
+        !output.status.success(),
+        "preflight used a stale Git ref view"
+    );
+    assert_eq!(repo.state(), before);
 }

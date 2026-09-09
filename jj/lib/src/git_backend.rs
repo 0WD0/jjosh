@@ -30,6 +30,8 @@ use std::str::Utf8Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
@@ -150,6 +152,8 @@ pub enum GitBackendError {
     ReadMetadata(#[source] TableStoreError),
     #[error("Failed to write non-git metadata")]
     WriteMetadata(#[source] TableStoreError),
+    #[error("Commit {0} needs a Git metadata import; import it separately before retrying")]
+    LazyImportDisabled(CommitId),
 }
 
 impl From<GitBackendError> for BackendError {
@@ -194,6 +198,7 @@ pub struct GitBackend {
     cached_extra_metadata: Mutex<Option<Arc<ReadonlyTable>>>,
     git_executable: PathBuf,
     write_change_id_header: bool,
+    lazy_commit_imports_allowed: AtomicBool,
 }
 
 impl GitBackend {
@@ -222,6 +227,7 @@ impl GitBackend {
             cached_extra_metadata: Mutex::new(None),
             git_executable: git_settings.executable_path,
             write_change_id_header: git_settings.write_change_id_header,
+            lazy_commit_imports_allowed: AtomicBool::new(true),
         }
     }
 
@@ -471,6 +477,14 @@ impl GitBackend {
         // If it's not, cache will be reloaded when entry can't be found.
         *self.cached_extra_metadata.lock().unwrap() = Some(table);
         Ok(())
+    }
+
+    /// Rejects legacy commits missing extras metadata instead of importing them
+    /// during reads. This affects this backend instance, not repository config.
+    /// Explicit imports and writes remain available.
+    pub fn disable_lazy_commit_imports(&self) {
+        self.lazy_commit_imports_allowed
+            .store(false, Ordering::Relaxed);
     }
 
     /// Imports the given commits and ancestors from the backing Git repo.
@@ -1304,6 +1318,9 @@ impl Backend for GitBackend {
         if let Some(extras) = table.get_value(id.as_bytes()) {
             deserialize_extras(&mut commit, extras);
         } else {
+            if !self.lazy_commit_imports_allowed.load(Ordering::Relaxed) {
+                return Err(GitBackendError::LazyImportDisabled(id.clone()).into());
+            }
             // TODO: Remove this hack and map to ObjectNotFound error if we're sure that
             // there are no reachable ancestor commits without extras metadata. Git commits
             // imported by jj < 0.8.0 might not have extras (#924).
