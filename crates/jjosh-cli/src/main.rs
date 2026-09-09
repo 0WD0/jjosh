@@ -2,6 +2,9 @@ mod interop;
 mod link;
 mod link_metadata;
 mod link_refs;
+mod native;
+mod native_bundle;
+mod native_import;
 mod projection;
 mod transplant;
 
@@ -15,6 +18,8 @@ enum JjoshCommand {
     Projection(projection::Args),
     /// Compose and publish external repositories through native Josh links.
     Link(link::Args),
+    /// Import and compose recorded native Jujutsu repository states.
+    Native(native::Args),
 }
 
 async fn run_jjosh_command(
@@ -25,6 +30,7 @@ async fn run_jjosh_command(
     match command {
         JjoshCommand::Projection(args) => projection::run(ui, command_helper, args).await,
         JjoshCommand::Link(args) => link::run(ui, command_helper, args).await,
+        JjoshCommand::Native(args) => native::run(ui, command_helper, args).await,
     }
 }
 

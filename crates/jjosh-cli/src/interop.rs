@@ -55,3 +55,41 @@ pub(crate) fn tree_from_josh_oid(store: Arc<Store>, tree_oid: gix_hash::ObjectId
         jj_lib::backend::TreeId::from_bytes(tree_oid.as_bytes()),
     )
 }
+
+pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), CommandError> {
+    let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;
+    let repo = backend.git_repo();
+    if jj_lib::git::has_pending_imports(workspace.repo().view(), &repo)
+        .map_err(|err| user_error_with_message("Failed to inspect pending Git imports", err))?
+    {
+        return Err(user_error(
+            "Git refs have unimported changes; run jjosh git import separately before continuing",
+        ));
+    }
+    if workspace.working_copy_shared_with_git() {
+        let repo = backend
+            .open_git_repo_at_workdir(workspace.workspace_root())
+            .map_err(|err| {
+                user_error_with_message("Failed to inspect the colocated Git repository", err)
+            })?;
+        if repo.state().is_some() {
+            return Err(user_error(
+                "Finish or abort the ongoing Git operation before continuing",
+            ));
+        }
+        let mut head = repo
+            .head()
+            .map_err(|err| user_error_with_message("Failed to inspect Git HEAD", err))?;
+        let actual = head
+            .try_peel_to_id_in_place()
+            .map_err(|err| user_error_with_message("Failed to resolve Git HEAD", err))?
+            .map(|id| jj_lib::backend::CommitId::from_bytes(id.as_bytes()));
+        let recorded = workspace.repo().view().git_head(workspace.workspace_name());
+        if recorded.as_normal() != actual.as_ref() || recorded.has_conflict() {
+            return Err(user_error(
+                "Git HEAD has unimported changes; reconcile the Git checkout with jj separately before continuing",
+            ));
+        }
+    }
+    Ok(())
+}
