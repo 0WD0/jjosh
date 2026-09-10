@@ -192,6 +192,6 @@ third-party/msquic = :/src/msquic
 
 * 接下来改什么
 
-当前引用归属仍编码在字符串前缀中。下一步是把 scope 做成真正的引用身份，让根 =main= 与项目 =main#jj= 可以独立存在，并把 tracking、Git 同步和发布边界一起理顺。=#= 语法尚未实现。
+当前引用归属仍编码在字符串前缀中。下一步是让根 =main= 与项目 =main#jj= 成为不同身份，并让一个 scope 内的 upstream、origin 等对等 remote 共用 =git remote/fetch/push=；link 只保留项目接入描述。提交仍遵循 jj 的多版本与 divergence 语义，不按 scope 强制归并。=#= 与 =--scope= 尚未实现。
 
 设计放在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]。README 只保留日常入口；具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。
