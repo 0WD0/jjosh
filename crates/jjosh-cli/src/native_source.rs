@@ -48,14 +48,6 @@ impl NativeSource {
         );
         backend.disable_lazy_commit_imports();
         let mut view = operation.view().await?.store_view().clone();
-        ensure!(
-            !backend.git_repo().remote_names().iter().any(|name| {
-                name.windows(b"jjosh-native-".len())
-                    .any(|part| part == b"jjosh-native-")
-            }),
-            "A configured Git remote uses the reserved jjosh-native- namespace; rename it before \
-             capture"
-        );
         if let Some(name) = bookmark {
             let target = view
                 .local_bookmarks
@@ -129,7 +121,7 @@ impl NativeSource {
         if source.git_repo_path() == destination.git_repo_path() {
             return Ok(());
         }
-        let roots = crate::native_bundle::object_roots(&self.view, &self.commits)?;
+        let roots = crate::native_bundle::object_roots(&self.commits);
         if roots.is_empty() {
             return Ok(());
         }

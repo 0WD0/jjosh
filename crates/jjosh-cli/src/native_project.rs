@@ -28,7 +28,6 @@ use jj_lib::op_store::View;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
-use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathComponent;
@@ -83,8 +82,8 @@ pub(crate) fn validate_project(project: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn anchor_remote(project: &str) -> RemoteNameBuf {
-    format!("jjosh-native-{project}").into()
+pub(crate) fn project_ref_prefix(project: &str) -> String {
+    format!("refs/jjosh/native/{project}/")
 }
 
 fn oid(id: &CommitId) -> Result<gix_hash::ObjectId> {
@@ -95,8 +94,8 @@ fn retain_original(transaction: &Transaction, project: &str, raw: &CommitId) -> 
     if raw.as_bytes().iter().all(|byte| *byte == 0) {
         return Ok(());
     }
-    // Keep source objects available for ancestry reconstruction. Correspondence
-    // bookmarks use jj's ordinary remote-ref import/export and operation semantics.
+    // A ref in the private namespace keeps raw ancestry alive without exposing
+    // it as a branch or importing it into jj's visible graph.
     let name = format!("refs/jjosh/native/{project}/{}", raw.hex());
     let value = oid(raw)?;
     let previous = transaction.resolve_ref(&name)?;
@@ -114,41 +113,29 @@ fn retain_original(transaction: &Transaction, project: &str, raw: &CommitId) -> 
 }
 
 pub(crate) fn record_anchor(
-    repo: &mut MutableRepo,
     transaction: &Transaction,
     project: &str,
     kind: &str,
     raw: &CommitId,
     canonical: &CommitId,
 ) -> Result<()> {
-    if raw == repo.store().root_commit_id() {
+    if raw.as_bytes().iter().all(|byte| *byte == 0) {
         return Ok(());
     }
-    let remote = anchor_remote(project);
-    let name = format!("{kind}/{}", raw.hex());
-    let symbol = RemoteRefSymbol {
-        name: RefName::new(&name),
-        remote: &remote,
-    };
-    let old = repo.view().get_remote_bookmark(symbol);
+    let name = format!("{}{kind}/{}", project_ref_prefix(project), raw.hex());
+    let value = oid(canonical)?;
+    let previous = transaction.resolve_ref(&name)?;
     ensure!(
-        !old.target.has_conflict(),
-        "Native correspondence {name} is conflicted; resolve the repository operation first"
+        previous.is_none_or(|old| old == value),
+        "Native correspondence {name} already identifies another monorepo revision"
     );
-    if let Some(previous) = old.target.as_normal() {
-        ensure!(
-            previous == canonical,
-            "Native correspondence {name} already identifies another monorepo revision"
-        );
-    }
     retain_original(transaction, project, raw)?;
-    repo.set_remote_bookmark(
-        symbol,
-        RemoteRef {
-            target: RefTarget::normal(canonical.clone()),
-            state: RemoteRefState::New,
-        },
-    );
+    transaction.update_ref(
+        &name,
+        previous.map_or(Expected::Absent, Expected::At),
+        value,
+        "record native history boundary",
+    )?;
     Ok(())
 }
 
@@ -160,42 +147,31 @@ pub(crate) async fn anchors(
     transaction: &Transaction,
     project: &str,
 ) -> Result<HashMap<CommitId, CommitId>> {
-    let remote_name = anchor_remote(project);
-    let remote = repo
-        .view()
-        .store_view()
-        .remote_views
-        .get(&remote_name)
-        .with_context(|| format!("Project {project:?} has not been imported"))?;
     ensure!(
-        !jj_lib::git::get_git_repo(repo.store())?
-            .remote_names()
-            .iter()
-            .any(|name| &name[..] == remote_name.as_str().as_bytes()),
-        "Configured Git remote collides with native correspondence namespace: {}",
-        remote_name.as_str()
+        !repo
+            .view()
+            .store_view()
+            .remote_views
+            .keys()
+            .any(|name| { name.as_str() == format!("jjosh-native-{project}") }),
+        "Run `jjosh native migrate` to move legacy correspondence bookmarks to private refs"
     );
+    let prefix = project_ref_prefix(project);
     let mut ids = HashMap::from([(
         repo.store().root_commit_id().clone(),
         repo.store().root_commit_id().clone(),
     )]);
     let mut pending = Vec::new();
-    for (name, reference) in &remote.bookmarks {
-        let canonical = reference.target.as_normal().with_context(|| {
-            format!(
-                "Native correspondence {} is conflicted or absent",
-                name.as_str()
-            )
-        })?;
-        let (kind, raw) = name
-            .as_str()
-            .split_once('/')
-            .context("Invalid native correspondence name")?;
+    transaction.for_each_ref_prefixed(&prefix, |name, canonical| {
+        let Some((kind, raw)) = name[prefix.len()..].split_once('/') else {
+            return Ok(()); // Raw-object retention ref, not a correspondence.
+        };
         let raw = CommitId::try_from_hex(raw).context("Invalid native correspondence commit ID")?;
         ensure!(
             raw.as_bytes().len() == 20,
             "Invalid native correspondence commit ID"
         );
+        let canonical = CommitId::from_bytes(canonical.as_bytes());
         match kind {
             "origin" => pending.push((raw, canonical.clone())),
             "published" => {
@@ -203,7 +179,17 @@ pub(crate) async fn anchors(
             }
             _ => anyhow::bail!("Unknown native correspondence kind: {kind}"),
         }
-    }
+        Ok(())
+    })?;
+    ensure!(
+        !pending.is_empty()
+            || ids.len() > 1
+            || repo
+                .view()
+                .local_bookmarks()
+                .any(|(name, _)| name.as_str().starts_with(&format!("{project}/"))),
+        "Project {project:?} has no native history boundaries; import it first"
+    );
     while let Some((raw, canonical)) = pending.pop() {
         if let Some(previous) = ids.get(&raw) {
             ensure!(
@@ -553,11 +539,6 @@ pub(crate) async fn fetch(
             .map(|term| term.as_ref().map(|id| imported.ids[id].clone())),
     );
     let remote: RemoteNameBuf = format!("{}-{}", args.project, args.remote).into();
-    if remote.as_str().starts_with("jjosh-native-") {
-        return Err(user_error(
-            "Observation remote collides with native correspondence storage",
-        ));
-    }
     if jj_lib::git::get_git_repo(tx.repo().store())?
         .remote_names()
         .iter()
@@ -587,7 +568,6 @@ pub(crate) async fn fetch(
     );
     for raw in target.as_merge().iter().flatten() {
         record_anchor(
-            tx.repo_mut(),
             &transaction,
             &args.project,
             "origin",
@@ -603,10 +583,7 @@ pub(crate) async fn fetch(
         tx.repo_mut().add_head(&commit).await?;
     }
     transaction.flush_mem_odb().map_err(user_error)?;
-    let anchor = anchor_remote(&args.project);
-    let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |_, candidate| {
-        candidate == symbol || candidate.remote == anchor
-    })?;
+    let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |_, candidate| candidate == symbol)?;
     jj_cli::git_util::print_git_export_stats(ui, &stats)?;
     tx.into_inner()
         .commit(format!(
@@ -637,7 +614,7 @@ pub(crate) async fn push(
     if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
         return Err(user_error("Native push requires the current operation"));
     }
-    let mut workspace = command.workspace_helper(ui).await?;
+    let workspace = command.workspace_helper(ui).await?;
     let head = workspace.resolve_single_rev(ui, &args.revision).await?;
     let git_lock = workspace.lock_git_import_export()?;
     let transaction = crate::interop::open_josh_transaction(
@@ -683,7 +660,6 @@ pub(crate) async fn push(
     // Save correspondence only after successful publication. A returned partial
     // change then refers to the canonical cross-project change, not a second
     // same-change-ID commit that could incorrectly absorb its remaining work.
-    let mut tx = workspace.start_transaction();
     let save_error = |err| {
         user_error_with_message(
             "Remote was updated, but native publication state could not be saved",
@@ -691,15 +667,8 @@ pub(crate) async fn push(
         )
     };
     for (raw, canonical) in &publications {
-        record_anchor(
-            tx.repo_mut(),
-            &transaction,
-            &args.project,
-            "published",
-            raw,
-            canonical,
-        )
-        .map_err(&save_error)?;
+        record_anchor(&transaction, &args.project, "published", raw, canonical)
+            .map_err(&save_error)?;
     }
     retain_original(&transaction, &args.project, &exported).map_err(&save_error)?;
     transaction
@@ -711,27 +680,6 @@ pub(crate) async fn push(
         )
         .map_err(&save_error)?;
     transaction.flush_mem_odb().map_err(&save_error)?;
-    let anchor = anchor_remote(&args.project);
-    let stats = jj_lib::git::export_some_refs(tx.repo_mut(), |_, symbol| symbol.remote == anchor)
-        .map_err(|err| {
-        user_error_with_message(
-            "Remote was updated, but local references could not be exported",
-            err,
-        )
-    })?;
-    jj_cli::git_util::print_git_export_stats(ui, &stats)?;
-    tx.into_inner()
-        .commit(format!(
-            "publish native project {} to {}:{branch}",
-            args.project, args.remote
-        ))
-        .await
-        .map_err(|err| {
-            user_error_with_message(
-                "Remote was updated, but native publication correspondence could not be committed",
-                err,
-            )
-        })?;
     drop(git_lock);
     writeln!(
         ui.status(),

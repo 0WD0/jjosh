@@ -52,6 +52,15 @@ pub(crate) async fn import_source(
             "native import requires Git SHA-1 source and destination backends"
         );
     }
+    ensure!(
+        !source
+            .view
+            .remote_views
+            .keys()
+            .any(|name| name.as_str().contains("jjosh-native-")),
+        "Source contains legacy native correspondence bookmarks; run `jjosh native migrate` in \
+         the source and re-export any bundle"
+    );
     source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
     let source_view = &source.view;
     for workspace in source_view.wc_commit_ids.keys() {
@@ -191,6 +200,19 @@ fn map_reference(target: &RefTarget, ids: &HashMap<CommitId, CommitId>) -> RefTa
 }
 
 fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> View {
+    // @git observes the source's local Git backend, not a second upstream.
+    // Preserve only observations that carry information absent from local refs.
+    if let Some(git) = view
+        .remote_views
+        .get_mut(jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO)
+    {
+        git.bookmarks
+            .retain(|name, reference| view.local_bookmarks.get(name) != Some(&reference.target));
+        git.tags
+            .retain(|name, reference| view.local_tags.get(name) != Some(&reference.target));
+    }
+    view.remote_views
+        .retain(|_, remote| !remote.bookmarks.is_empty() || !remote.tags.is_empty());
     view.head_ids = view.head_ids.iter().map(|id| ids[id].clone()).collect();
     for refs in [&mut view.local_bookmarks, &mut view.local_tags] {
         *refs = std::mem::take(refs)

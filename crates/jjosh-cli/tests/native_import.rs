@@ -975,3 +975,122 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         "--dry-run",
     ]);
 }
+
+#[test]
+fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
+    for colocated in [false, true] {
+        let source = NativeRepo::with_colocation(colocated);
+        source.write("value.txt", "original\n");
+        source.jj(&["describe", "-m", "original"]);
+        source.bookmark("main");
+        source.jj(&["git", "export"]);
+        let raw = source.log("@", "commit_id");
+        let mono = NativeRepo::with_colocation(colocated);
+        mono.jj(&[
+            "native",
+            "import",
+            "--source",
+            &format!("app={}", source.path.display()),
+        ]);
+        let original = mono.log("app/main", "commit_id");
+        let git_dir = mono.path.join(if colocated {
+            ".git"
+        } else {
+            ".jj/repo/store/git"
+        });
+        let git = |args: &[&str]| {
+            let mut command = vec!["--git-dir", git_dir.to_str().unwrap()];
+            command.extend_from_slice(args);
+            native_git(&mono.path, &command)
+        };
+        // Recreate the old on-disk representation, including its duplicated
+        // source-local Git observation. Migration must not change user branches.
+        git(&[
+            "update-ref",
+            &format!("refs/remotes/jjosh-native-app/origin/{raw}"),
+            &original,
+        ]);
+        git(&["update-ref", "refs/remotes/app-git/app/main", &original]);
+        git(&[
+            "update-ref",
+            "-d",
+            &format!("refs/jjosh/native/app/origin/{raw}"),
+        ]);
+        mono.jj(&["git", "import"]);
+        let graph = mono.graph("all()");
+        mono.jj(&["native", "migrate"]);
+        assert_eq!(mono.graph("all()"), graph);
+        let remote_names = || {
+            mono.jj(&[
+                "bookmark",
+                "list",
+                "--all-remotes",
+                "-T",
+                r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+            ])
+        };
+        assert_eq!(remote_names(), "");
+        mono.jj(&["git", "import"]);
+        assert_eq!(remote_names(), "");
+        mono.jj(&["edit", "app/main"]);
+        mono.write("app/value.txt", "rewritten locally\n");
+        mono.jj(&["status"]);
+        let rewritten = mono.log("@", "commit_id");
+        assert_ne!(rewritten, original);
+        assert_eq!(mono.log("app/main", "commit_id"), rewritten);
+        mono.jj(&[
+            "native",
+            "fetch",
+            "app",
+            source.path.to_str().unwrap(),
+            "--branch",
+            "main",
+            "--remote",
+            "upstream",
+        ]);
+        assert_eq!(mono.log("app/main@app-upstream", "commit_id"), original);
+        assert_eq!(mono.log("app/main", "commit_id"), rewritten);
+        assert_eq!(
+            fs::read_to_string(mono.path.join("app/value.txt")).unwrap(),
+            "rewritten locally\n"
+        );
+        let remote = mono.temp.path().join("publication.git");
+        native_git(&mono.path, &["init", "--bare", remote.to_str().unwrap()]);
+        mono.jj(&[
+            "native",
+            "push",
+            "app",
+            "--remote",
+            remote.to_str().unwrap(),
+            "--branch",
+            "topic",
+            "-r",
+            "@",
+        ]);
+        mono.jj(&["util", "gc", "--expire", "now"]);
+        mono.jj(&[
+            "native",
+            "fetch",
+            "app",
+            remote.to_str().unwrap(),
+            "--branch",
+            "topic",
+            "--remote",
+            "review",
+        ]);
+        assert_eq!(
+            mono.jj(&[
+                "file",
+                "show",
+                "-r",
+                "app/topic@app-review",
+                "app/value.txt"
+            ]),
+            "rewritten locally\n"
+        );
+        assert_eq!(
+            remote_names(),
+            "app/main@app-upstream\napp/topic@app-review\n"
+        );
+    }
+}

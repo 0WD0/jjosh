@@ -505,9 +505,8 @@ pub(crate) fn run_git(command: &mut Command, action: &str) -> Result<()> {
 }
 
 pub(crate) fn object_roots(
-    view: &View,
     commits: &HashMap<CommitId, backend::Commit>,
-) -> Result<BTreeMap<String, &'static str>> {
+) -> BTreeMap<String, &'static str> {
     let mut roots = BTreeMap::new();
     for (id, commit) in commits {
         if id.hex() == ROOT {
@@ -520,22 +519,7 @@ pub(crate) fn object_roots(
             roots.insert(tree.hex(), "tree");
         }
     }
-    for (name, remote) in &view.remote_views {
-        if name.as_str().contains("jjosh-native-") {
-            for name in remote.bookmarks.keys() {
-                let (prefix, raw) = name
-                    .as_str()
-                    .rsplit_once('/')
-                    .context("Invalid native anchor")?;
-                ensure!(
-                    matches!(prefix.rsplit('/').next(), Some("origin" | "published")),
-                    "Invalid native anchor kind"
-                );
-                roots.insert(commit_id(raw)?.hex(), "commit");
-            }
-        }
-    }
-    Ok(roots)
+    roots
 }
 
 /// Validate the entire current parent closure, including hidden ref terms and
@@ -629,7 +613,7 @@ pub(crate) async fn export(
         working_copy_patterns,
     };
     let mut roots = tempfile::tempfile()?;
-    for id in object_roots(view, commits)?.keys() {
+    for id in object_roots(commits).keys() {
         writeln!(roots, "{id}")?;
     }
     roots.rewind()?;
@@ -646,7 +630,7 @@ pub(crate) async fn export(
     // self-contained pack whose raw commit parents are actually unavailable.
     let verification_dir = tempfile::tempdir()?;
     let verification_repo = empty_repo(verification_dir.path(), settings).await?;
-    install_pack(&verification_repo, &mut pack, view, commits)?;
+    install_pack(&verification_repo, &mut pack, commits)?;
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -823,7 +807,7 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeS
     backend.disable_lazy_commit_imports();
     let root = backend.read_commit(repo.store().root_commit_id()).await?;
     validate_graph(&view, &commits, &root)?;
-    install_pack(&repo, &mut pack, &view, &commits)?;
+    install_pack(&repo, &mut pack, &commits)?;
     validate_trees(repo.store(), &commits).await?;
     Ok(NativeSource {
         store: repo.store().clone(),
@@ -838,7 +822,6 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeS
 fn install_pack(
     repo: &ReadonlyRepo,
     pack: &mut File,
-    view: &View,
     commits: &HashMap<CommitId, backend::Commit>,
 ) -> Result<()> {
     let backend = git_backend(repo)?;
@@ -850,17 +833,13 @@ fn install_pack(
             .stdout(Stdio::null()),
         "validating native object pack",
     )?;
-    validate_object_roots(backend.git_repo_path(), view, commits)?;
+    validate_object_roots(backend.git_repo_path(), commits)?;
     pack.rewind()?;
     Ok(())
 }
 
-fn validate_object_roots(
-    path: &Path,
-    view: &View,
-    commits: &HashMap<CommitId, backend::Commit>,
-) -> Result<()> {
-    let roots = object_roots(view, commits)?;
+fn validate_object_roots(path: &Path, commits: &HashMap<CommitId, backend::Commit>) -> Result<()> {
+    let roots = object_roots(commits);
     let mut input = tempfile::tempfile()?;
     for id in roots.keys() {
         writeln!(input, "{id}")?;

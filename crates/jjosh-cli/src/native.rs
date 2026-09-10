@@ -41,6 +41,8 @@ enum Command {
     Fetch(crate::native_project::FetchArgs),
     /// Publish a project revision to an explicitly chosen remote and branch.
     Push(crate::native_project::PushArgs),
+    /// Move legacy native correspondence bookmarks into private Git refs.
+    Migrate,
     /// Relocate a native change graph with explicit path and parent mappings.
     Transplant(crate::transplant::Args),
 }
@@ -76,6 +78,7 @@ pub(crate) async fn run(
         Command::Transplant(args) => crate::transplant::run(ui, command, args).await,
         Command::Fetch(args) => crate::native_project::fetch(ui, command, args).await,
         Command::Push(args) => crate::native_project::push(ui, command, args).await,
+        Command::Migrate => run_migrate(ui, command).await,
         Command::Inspect(args) => {
             let source =
                 crate::native_bundle::load(&command.cwd().join(args.file), command.settings())
@@ -143,14 +146,19 @@ async fn run_import(
     for (name, path) in specifications {
         let prefix = format!("{name}/");
         let view = workspace.repo().view().store_view();
+        let mut has_history = false;
+        transaction
+            .for_each_ref_prefixed(&crate::native_project::project_ref_prefix(&name), |_, _| {
+                has_history = true;
+                Ok(())
+            })
+            .map_err(user_error)?;
         if view
             .local_bookmarks
             .keys()
             .chain(view.local_tags.keys())
             .any(|key| key.as_str().starts_with(&prefix))
-            || view
-                .remote_views
-                .contains_key(&crate::native_project::anchor_remote(&name))
+            || has_history
         {
             return Err(user_error(format!(
                 "Project namespace {name:?} already exists; receive updates with native fetch"
@@ -194,10 +202,7 @@ async fn run_import(
     let mut view = tx.repo().view().store_view().clone();
     let mut summaries = Vec::new();
     let mut roots = Vec::new();
-    let mut remotes: HashSet<_> = sources
-        .iter()
-        .map(|(name, _)| crate::native_project::anchor_remote(name))
-        .collect();
+    let mut remotes = HashSet::new();
     for (name, source) in &sources {
         let imported =
             crate::native_import::import_source(source, tx.repo_mut(), name, HashMap::new())
@@ -214,8 +219,12 @@ async fn run_import(
             }
             remotes.insert(remote.clone());
         }
-        let source_view = jj_lib::view::View::new(source.view.clone(), false);
-        for raw in source_view.all_referenced_commit_ids() {
+        let parents: HashSet<_> = source
+            .commits
+            .values()
+            .flat_map(|commit| commit.parents.iter())
+            .collect();
+        for raw in source.commits.keys().filter(|id| !parents.contains(id)) {
             roots.push((name.clone(), raw.clone(), imported.ids[raw].clone()));
         }
         view.head_ids.extend(imported.view.head_ids);
@@ -237,17 +246,10 @@ async fn run_import(
     }
     tx.repo_mut().set_view(view);
     for (name, raw, mapped) in roots {
-        crate::native_project::record_anchor(
-            tx.repo_mut(),
-            &transaction,
-            &name,
-            "origin",
-            &raw,
-            &mapped,
-        )
-        .map_err(|err| {
-            user_error_with_message("Cannot record native source correspondence", err)
-        })?;
+        crate::native_project::record_anchor(&transaction, &name, "origin", &raw, &mapped)
+            .map_err(|err| {
+                user_error_with_message("Cannot record native source correspondence", err)
+            })?;
     }
     transaction
         .flush_mem_odb()
@@ -269,6 +271,111 @@ async fn run_import(
         ui.status(),
         "Native states imported in one transaction; working copy unchanged. Compose source \
          workspace bookmarks with jjosh new."
+    )?;
+    Ok(())
+}
+
+async fn run_migrate(ui: &mut Ui, command: &CommandHelper) -> Result<(), CommandError> {
+    require_current_operation(command)?;
+    let mut workspace = command.workspace_helper(ui).await?;
+    let _git_lock = workspace.lock_git_import_export()?;
+    let transaction = crate::interop::open_josh_transaction(
+        &crate::interop::sha1_git_repo_path(&workspace)?,
+        false,
+    )?;
+    let mut view = workspace.repo().view().store_view().clone();
+    let legacy: Vec<_> = view
+        .remote_views
+        .keys()
+        .filter(|name| name.as_str().starts_with("jjosh-native-"))
+        .cloned()
+        .collect();
+    let mut changed = HashSet::new();
+    for remote in &legacy {
+        let project = remote.as_str().strip_prefix("jjosh-native-").unwrap();
+        crate::native_project::validate_project(project).map_err(user_error)?;
+        let git = jj_lib::git::get_git_repo(workspace.repo().store())?;
+        if git
+            .remote_names()
+            .iter()
+            .any(|name| &name[..] == remote.as_str().as_bytes())
+        {
+            return Err(user_error(
+                "Legacy correspondence name is a configured Git remote; rename that remote first",
+            ));
+        }
+        let refs = &view.remote_views[remote];
+        if !refs.tags.is_empty() {
+            return Err(user_error(
+                "Legacy correspondence remote contains tags; resolve it before migration",
+            ));
+        }
+        for (name, reference) in &refs.bookmarks {
+            if reference.state == jj_lib::op_store::RemoteRefState::Tracked {
+                return Err(user_error(
+                    "Untrack legacy correspondence bookmarks before migration",
+                ));
+            }
+            let canonical = reference.target.as_normal().ok_or_else(|| {
+                user_error("Resolve conflicted legacy correspondences before migration")
+            })?;
+            let (kind, raw) = name
+                .as_str()
+                .split_once('/')
+                .ok_or_else(|| user_error("Invalid legacy native correspondence"))?;
+            if !matches!(kind, "origin" | "published") {
+                return Err(user_error("Invalid legacy native correspondence kind"));
+            }
+            let raw = jj_lib::backend::CommitId::try_from_hex(raw)
+                .filter(|id| jj_lib::object_id::ObjectId::as_bytes(id).len() == 20)
+                .ok_or_else(|| user_error("Invalid legacy native commit ID"))?;
+            crate::native_project::record_anchor(&transaction, project, kind, &raw, canonical)
+                .map_err(user_error)?;
+        }
+        let git_remote: jj_lib::ref_name::RemoteNameBuf = format!("{project}-git").into();
+        if let Some(git) = view.remote_views.get_mut(&git_remote) {
+            git.bookmarks.retain(|name, reference| {
+                view.local_bookmarks.get(name) != Some(&reference.target)
+            });
+            git.tags
+                .retain(|name, reference| view.local_tags.get(name) != Some(&reference.target));
+            if git.bookmarks.is_empty() && git.tags.is_empty() {
+                view.remote_views.remove(&git_remote);
+            }
+            changed.insert(git_remote);
+        }
+        view.remote_views.remove(remote);
+        changed.insert(remote.clone());
+    }
+    if legacy.is_empty() {
+        writeln!(
+            ui.status(),
+            "No legacy native correspondence bookmarks to migrate."
+        )?;
+        return Ok(());
+    }
+    let mut tx = workspace.start_transaction();
+    tx.repo_mut().set_view(view);
+    for remote in &legacy {
+        crate::native_project::anchors(
+            tx.repo(),
+            &transaction,
+            remote.as_str().strip_prefix("jjosh-native-").unwrap(),
+        )
+        .await
+        .map_err(user_error)?;
+    }
+    transaction.flush_mem_odb().map_err(user_error)?;
+    let stats =
+        jj_lib::git::export_some_refs(tx.repo_mut(), |_, symbol| changed.contains(symbol.remote))?;
+    jj_cli::git_util::print_git_export_stats(ui, &stats)?;
+    tx.into_inner()
+        .commit("migrate native correspondence bookmarks to private refs")
+        .await?;
+    writeln!(
+        ui.status(),
+        "Migrated {} native projects; history and working files unchanged.",
+        legacy.len()
     )?;
     Ok(())
 }
