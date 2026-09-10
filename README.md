@@ -114,14 +114,15 @@ cargo run -p jjosh-cli -- --help
 
 普通 `cargo build` / `cargo test` 会优先复用已有锁定版本，在依赖声明变化时自动同步根目录 `Cargo.lock`，无需手改锁文件或额外执行 `cargo update`。`jj/` 和 `josh/` 自己的锁文件不替代根工作区的锁文件；将根锁文件的变化保留在本地集成提交中。
 
-更新内嵌来源后，正常构建即可同时完成依赖同步和二进制更新：
+获取内嵌来源后，先用普通 jj 操作整合所需观测，再构建：
 
 ```sh
 jjosh link update
+jjosh new @ jj/main@jj-upstream josh/main@josh-upstream
 cargo build --release -p jjosh-cli
 ```
 
-`link update` 只更新来源和提交图，不隐式运行项目的构建脚本。CI 或需要验证已提交锁文件的构建再加 `--locked`：
+`link update` 只获取和导入来源引用，不自动整合工作图，也不运行构建脚本；上面的分支名应替换为各 link 实际配置的目标。CI 或需要验证已提交锁文件的构建再加 `--locked`：
 
 ```sh
 cargo test --locked -p jjosh-cli --tests
@@ -171,6 +172,7 @@ link 的元数据与提交图由 jjosh 管理，Josh 负责通用过滤与反向
 - `--push-url`：单独指定发布仓库；不指定就不能使用 `link push` 发布这个 link。
 - `--push-target jjosh/demo`：将修改发布到独立分支，而不是直接改来源主分支。
 - 默认 `--mode embedded`：引入挂载路径下的来源历史，适合持续开发。也支持面向源码快照引入的 `--mode snapshot`。
+- `--remote-name upstream`：来源观测的名称，默认 `upstream`，例如 `library/main@library-upstream`；可以指定 `origin` 以沿用原生导入已有的来源命名。
 
 重复 `link add`，选择不同目录，即可引入其他仓库。若只需要来源的一部分，可以在 URL 后添加 Josh 过滤表达式，例如 `':/src'`：来源的 `src/file.rs` 将映射到挂载目录中的 `file.rs`。
 
@@ -194,19 +196,32 @@ jjosh link update library
 jjosh link update
 ```
 
-jjosh 用本地书签 `jjosh/trunk` 标记不含本地补丁的组合基线，用 `jjosh/source/<encoded-path>` 标记各挂载路径的来源投影。例如 `library/` 对应 `jjosh/source/library`，`vendor/library/` 对应 `jjosh/source/vendor%2Flibrary`。这些书签与提交图一起由 jj operation 管理。本地修改位于基线上方；更新时，基线前进，本地修改自动迁移到新的基础上。
-
-这不意味着自动消除所有冲突。若上游和本地修改冲突，需要先解决冲突，再发布。
-
-`jjosh op restore` 可以恢复本地提交、组合基线、来源书签及版本化 pin；colocated 和非 colocated 工作区都支持恢复后继续执行 `git import` 与 `link update`。远端已发布的内容、发布 lease 和 Git 配置不随 operation 回滚。
-
-如果工作区仍使用旧的 `trunk@jjosh` / `<branch>@link-<encoded-path>` 远端标记，或更早的 Embed 历史，先显式迁移：
+`link update` 是带路径／filter 转换的 fetch。引用选择沿用 jj 的字符串模式，支持重复的 `--branch` / `--tag`、通配符以及 jj 支持的并集／排除表达式：
 
 ```sh
-jjosh link migrate
+jjosh link update library --branch main --branch 'release/*'
+jjosh link update library --tag 'v*'
+jjosh link update library --branch main --tag v1.0
+jjosh new @ library/main@library-upstream -m "Integrate upstream"
 ```
 
-已有干净 native 基线时，迁移保留提交图、工作区内容与 `.link.josh`，将标记转成本地书签，并移除 jjosh 拥有的旧合成远端；普通远端和发布 lease 保留。更早的 Embed 图会重建干净原生基线，并将本地修改重新接回。迁移会更新仓库配置，Git 侧清理不属于 operation 的原子回滚范围；完成后再执行 `link add` 或 `link update`。
+只指定 branch 时不获取 tags，只指定 tag 时不获取 branches；不指定时获取 link 的目标分支和全部 tags。只更新所选引用，包括来源删除的匹配引用；未选择的分支／tags 保持原观测。远端观测使用 `PATH/BRANCH@ENCODED_PATH-REMOTE`，如 `library/main@library-upstream`，嵌套路径的 remote 编码为 `vendor%2Flibrary-upstream`。Tag 使用 jj 原有的远端 tag 和跟踪规则；不引入 tag 发布策略。
+
+fetch 不修改 `.link.josh` 的 pin，不要求快进，不创建组合基线，也不主动 merge/rebase；跟踪引用、放弃不可达提交等行为遵循 jj 的 Git 导入设置。上游重写可以产生普通 jj divergence。整合和解决冲突使用 `new`、`rebase`、`squash` 等普通命令。
+
+`op restore` 遵循 jj 的引用恢复语义。非 colocated 仓库恢复后，需要 `git export` 同步回 Git refs，随后 `git import` 才不会重新导入未回退的引用。远端发布与 lease 不回滚。
+
+不再创建或依赖 `jjosh/trunk`、`jjosh/source/*`，也不安装相应 immutable 配置。旧 `.link.josh` 可直接用于 fetch/push，无须 `link migrate`；该自动重建基线命令已移除。旧仓库留下的书签和用户／仓库配置不会被擅自删除，整合策略由普通 jj 命令和配置决定。
+
+已导入的本地软 fork 可以直接关联来源：
+
+```sh
+jjosh link add ebox https://example.org/upstream/ebox.git --target main
+jjosh link update ebox --branch main
+jjosh new @ ebox/main@ebox-upstream
+```
+
+这种关联保持已导入的修改图和本地分支，只添加配置提交；验证来源具有已知共同历史，后续 fetch 复用导入边界。它不把本地 fork 顶端当作干净上游，也不把现有文件重做成 overlay。整仓导入项目继续使用原挂载布局，不通过关联 link 隐式改变 filter。
 
 ### 5. 发布这个目录的修改
 
@@ -447,9 +462,9 @@ jjosh native transplant \
 
 - **只支持 SHA-1 Git 后端。** link / projection / native 不支持 SHA-256 Git 仓库。
 - **投影不是权限隔离。** 当前 projection 会先获取原始历史再在本地转换；不能用它保证其他目录的内容不被下载或访问。
-- **来源更新不能任意改写历史。** embedded link 更新要求来源历史及过滤后的历史向前推进；旧式 Embed 图需要先显式执行 `jjosh link migrate`，不会自动迁移。
-- **组合书签是本地状态。** `jjosh/trunk` 和 `jjosh/source/*` 是 jjosh 管理的保留命名空间，默认不可改写，不再创建合成远端。更新来源或发布单个挂载目录应使用 `link update/push`；这些投影书签不是来源仓库的原始提交。
-- **同一来源的多个挂载可以有 divergence。** 保留来源的显式 change ID，不因跨挂载重复而拒绝导入，也不自动改写身份或调用 `converge`。可用 commit ID 或 change offset 区分版本。`jj converge` 会替换提交并重放后代，不是单纯消除标记；来源投影默认 immutable，显式改写它们应先评估对隔离历史和后续更新的影响。
+- **获取不等于整合。** `link update` 接收上游分支改写和 tags，按 jj 语义更新引用；它不强制快进，也不建立独立的组合主干。
+- **来源观测是普通引用。** 使用 `PATH/BRANCH@ENCODED_PATH-REMOTE`，不创建管理用的 trunk/source 书签，不覆盖用户的 immutable 策略。
+- **同一来源的多个挂载可以有 divergence。** 不因显式 change ID 重复而拒绝获取，也不自动调用 `converge`。该命令会改写提交及后继，不是单纯隐藏标记。
 - `link push` 的发布保护按目标分别记录。jjosh 按精确的远端 URL 和目标分支，在本地记住最近成功推送或显式获取到的位置。只有远端仍匹配该位置，才允许受保护的历史改写（force-with-lease）。没有记录时，只允许创建分支或快进推送。
 - `link push --force` 会绕过上述保护。不要把它当成推送被拒绝后的常规重试选项；先确认不会丢弃远端的他人修改。预检和失败的推送都不会刷新记录的位置。
 
