@@ -53,8 +53,8 @@ use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::working_copy::SnapshotOptions;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -168,9 +168,8 @@ struct WorkspacePool {
     /// When true, wipe each slot's working copy on acquisition so every commit
     /// starts from a freshly checked-out tree (no artifact reuse).
     clean: bool,
-    /// Sparse patterns that influence what parts of the tree are materialized
-    /// when running the command. If None, whole tree is materialized.
-    sparsity: Option<Vec<RepoPathBuf>>,
+    /// Sparse rules and path mappings used to materialize the command's workspace.
+    sparsity: WorkingCopyPatterns,
 }
 
 impl WorkspacePool {
@@ -179,7 +178,7 @@ impl WorkspacePool {
         size: NonZeroUsize,
         auto_tracking_matcher: Box<dyn Matcher>,
         clean: bool,
-        sparsity: Option<Vec<RepoPathBuf>>,
+        sparsity: WorkingCopyPatterns,
     ) -> Result<Self, RunError> {
         // The parent() call is needed to not write under `.jj/repo/`.
         let base_path = repo_path.parent().unwrap().join("run").join("default");
@@ -264,17 +263,9 @@ impl WorkspacePool {
             )
         };
 
-        if let Some(sparse_patterns) = &self.sparsity {
-            tree_state
-                .set_sparse_patterns(sparse_patterns.clone())
-                .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
-        } else {
-            // Users can specify `--sparse-args full` to materialize whole tree,
-            // without having to clear the run "workspace" first with `--clean`.
-            tree_state
-                .set_sparse_patterns(vec![RepoPathBuf::root()])
-                .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
-        }
+        tree_state
+            .set_sparse_patterns(self.sparsity.clone())
+            .map_err(|_| RunError::FailedCheckout(commit.id().clone()))?;
 
         tree_state
             .check_out(&commit.tree())
@@ -784,12 +775,9 @@ pub async fn cmd_run(
     let auto_tracking_matcher = workspace_command.auto_tracking_matcher(ui)?;
 
     let sparsity = match args.sparse_patterns {
-        SparseInheritance::Full => None,
-        SparseInheritance::Empty => Some(vec![]),
-        SparseInheritance::Copy => {
-            let sparse_patterns = workspace_command.working_copy().sparse_patterns()?.to_vec();
-            Some(sparse_patterns)
-        }
+        SparseInheritance::Full => WorkingCopyPatterns::all(),
+        SparseInheritance::Empty => WorkingCopyPatterns::none(),
+        SparseInheritance::Copy => workspace_command.working_copy().sparse_patterns()?.clone(),
     };
 
     let mut tx = workspace_command.start_transaction();

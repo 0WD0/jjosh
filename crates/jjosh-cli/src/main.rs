@@ -5,10 +5,13 @@ mod link_refs;
 mod native;
 mod native_bundle;
 mod native_import;
+mod native_project;
+mod native_source;
 mod projection;
 mod transplant;
 
-use jj_cli::cli_util::{CliRunner, CommandHelper};
+use jj_cli::cli_util::CliRunner;
+use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::ui::Ui;
 

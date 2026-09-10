@@ -446,10 +446,12 @@ impl GitBackend {
         match locked_head.as_ref() {
             Some(head) => Ok(head.clone()),
             None => {
-                let table = self
-                    .extra_metadata_store
-                    .get_head()
-                    .map_err(GitBackendError::ReadMetadata)?;
+                let table = if self.lazy_commit_imports_allowed.load(Ordering::Relaxed) {
+                    self.extra_metadata_store.get_head()
+                } else {
+                    self.extra_metadata_store.get_head_readonly()
+                }
+                .map_err(GitBackendError::ReadMetadata)?;
                 *locked_head = Some(table.clone());
                 Ok(table)
             }
@@ -1587,8 +1589,11 @@ impl GitBackend {
             .filter(|id| *id != self.root_commit_id);
         recreate_no_gc_refs(&git_repo, new_heads, keep_newer)?;
 
-        // No locking is needed since we aren't going to add new "commits".
-        let table = self.cached_extra_metadata_table()?;
+        // GC needs an actual persisted head, not an ephemeral readonly merge.
+        let table = self
+            .extra_metadata_store
+            .get_head()
+            .map_err(GitBackendError::ReadMetadata)?;
         // TODO: remove unreachable entries from extras table if segment file
         // mtime <= keep_newer? (it won't be consistent with no-gc refs
         // preserved by the keep_newer timestamp though)
