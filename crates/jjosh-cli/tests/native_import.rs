@@ -63,6 +63,7 @@ impl NativeRepo {
             .unwrap_or_else(|err| panic!("failed to run jjosh {args:?}: {err}"))
     }
 
+    #[track_caller]
     fn jj(&self, args: &[&str]) -> String {
         let output = self.unchecked(args);
         assert!(
@@ -254,6 +255,19 @@ fn imports_self_contained_native_graphs_without_checkout_or_source_snapshot() {
         let target_checkout = target.log("@", "commit_id");
 
         target.import(&a_bundle, &b_bundle);
+        let remote_names = || {
+            target.jj(&[
+                "bookmark",
+                "list",
+                "--all-remotes",
+                "-T",
+                r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+            ])
+        };
+        let before_sync = remote_names();
+        target.jj(&["git", "export"]);
+        target.jj(&["git", "import"]);
+        assert_eq!(remote_names(), before_sync);
 
         assert_eq!(target.log("@", "commit_id"), target_checkout);
         assert!(!target.path.join("a").exists());
@@ -602,4 +616,362 @@ fn rejects_invalid_bundles_atomically_and_never_overwrites_an_export() {
             assert_eq!(target.state(), before);
         }
     }
+}
+
+fn native_git(cwd: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args([
+            "-c",
+            "user.name=Native Workflow Test",
+            "-c",
+            "user.email=native@example.invalid",
+        ])
+        .args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index() {
+    let source = NativeRepo::new();
+    source.jj(&[
+        "config",
+        "set",
+        "--repo",
+        "git.write-change-id-header",
+        "false",
+    ]);
+    source.write("value.txt", "recorded\n");
+    source.jj(&["describe", "-m", "native identity without a Git header"]);
+    source.bookmark("main");
+    let graph = source.graph("root()..@");
+    let operation = source.operation_id();
+    let association = source.path.join(".jj/repo/index/op_links").join(&operation);
+    fs::remove_file(&association).unwrap();
+    source.write("value.txt", "unsnapshotted\n");
+    let target = NativeRepo::new();
+    target.write("existing.txt", "existing monorepo\n");
+    target.jj(&["describe", "-m", "existing monorepo"]);
+    target.jj(&[
+        "native",
+        "import",
+        "--source",
+        &format!("app={}", source.path.display()),
+    ]);
+    assert!(!association.exists(), "source index was rebuilt");
+    assert_eq!(
+        fs::read_to_string(source.path.join("value.txt")).unwrap(),
+        "unsnapshotted\n"
+    );
+    assert_eq!(target.graph("root()..app/main"), graph);
+    assert_eq!(target.jj(&["file", "list"]), "existing.txt\n");
+    assert_eq!(
+        target.jj(&["file", "show", "-r", "app/main", "app/value.txt"]),
+        "recorded\n"
+    );
+    let imported = target.log("app/main", "commit_id");
+    target.jj(&["git", "export"]);
+    target.jj(&["git", "import"]);
+    assert_eq!(target.log("app/main", "commit_id"), imported);
+    assert!(
+        !target
+            .unchecked(&[
+                "native",
+                "import",
+                "--source",
+                &format!("app={}", source.path.display())
+            ])
+            .status
+            .success()
+    );
+    assert!(!association.exists());
+}
+
+#[test]
+fn native_partial_publication_returns_to_canonical_change_and_accepts_contributions() {
+    let alpha = NativeRepo::new();
+    alpha.jj(&[
+        "config",
+        "set",
+        "--repo",
+        "git.write-change-id-header",
+        "false",
+    ]);
+    alpha.write("value.txt", "alpha base\n");
+    alpha.jj(&["describe", "-m", "alpha"]);
+    alpha.bookmark("main");
+    let beta = NativeRepo::new();
+    beta.write("value.txt", "beta base\n");
+    beta.jj(&["describe", "-m", "beta"]);
+    beta.bookmark("main");
+    let mono = NativeRepo::new();
+    mono.write("root.txt", "monorepo root\n");
+    mono.jj(&["describe", "-m", "monorepo root"]);
+    mono.jj(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", alpha.path.display()),
+        "--source",
+        &format!("beta={}", beta.path.display()),
+    ]);
+    mono.jj(&["new", "@", "alpha/main", "beta/main", "-m", "composition"]);
+    mono.jj(&["new", "-m", "one change across projects"]);
+    mono.write("alpha/value.txt", "alpha local\n");
+    mono.write("beta/value.txt", "beta local\n");
+    mono.jj(&["status"]);
+    let canonical = mono.log("@", "commit_id");
+    let change = mono.change_id("@");
+    let remotes = tempfile::tempdir().unwrap();
+    let upstream = remotes.path().join("upstream.git");
+    let fork = remotes.path().join("fork.git");
+    let beta_remote = remotes.path().join("beta.git");
+    for remote in [&upstream, &fork, &beta_remote] {
+        native_git(
+            remotes.path(),
+            &["init", "--bare", remote.to_str().unwrap()],
+        );
+    }
+    let push_alpha = |remote: &Path, branch: &str| {
+        mono.jj(&[
+            "native",
+            "push",
+            "alpha",
+            "--remote",
+            remote.to_str().unwrap(),
+            "--branch",
+            branch,
+            "-r",
+            "@",
+        ]);
+    };
+    push_alpha(&upstream, "topic");
+    push_alpha(&fork, "review");
+    assert_eq!(
+        native_git(
+            remotes.path(),
+            &[
+                "--git-dir",
+                upstream.to_str().unwrap(),
+                "rev-parse",
+                "topic"
+            ]
+        ),
+        native_git(
+            remotes.path(),
+            &["--git-dir", fork.to_str().unwrap(), "rev-parse", "review"]
+        ),
+    );
+    mono.jj(&[
+        "native",
+        "fetch",
+        "alpha",
+        upstream.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "upstream",
+    ]);
+    assert_eq!(
+        mono.log("alpha/topic@alpha-upstream", "commit_id"),
+        canonical
+    );
+    assert_eq!(mono.change_id("@"), change);
+    assert!(mono.log("divergent()", "commit_id").is_empty());
+    mono.jj(&["git", "export"]);
+    mono.jj(&["git", "import"]);
+    assert_eq!(
+        mono.log("alpha/topic@alpha-upstream", "commit_id"),
+        canonical
+    );
+
+    let contributor = remotes.path().join("contributor");
+    native_git(
+        remotes.path(),
+        &[
+            "clone",
+            "--branch",
+            "topic",
+            upstream.to_str().unwrap(),
+            contributor.to_str().unwrap(),
+        ],
+    );
+    fs::write(
+        contributor.join("contribution.txt"),
+        "external contribution\n",
+    )
+    .unwrap();
+    native_git(&contributor, &["add", "."]);
+    native_git(&contributor, &["commit", "-m", "external contribution"]);
+    native_git(&contributor, &["push", "origin", "HEAD:topic"]);
+    let before_fetch = mono.operation_id();
+    mono.jj(&[
+        "native",
+        "fetch",
+        "alpha",
+        upstream.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "upstream",
+    ]);
+    let received = mono.log("alpha/topic@alpha-upstream", "commit_id");
+    assert_eq!(
+        mono.log(
+            "alpha/topic@alpha-upstream",
+            "parents.map(|p| p.commit_id()).join(\",\")"
+        ),
+        canonical
+    );
+    assert_eq!(
+        mono.jj(&["file", "show", "-r", &received, "beta/value.txt"]),
+        "beta local\n"
+    );
+    assert_eq!(
+        mono.jj(&["file", "show", "-r", &received, "root.txt"]),
+        "monorepo root\n"
+    );
+    assert_eq!(
+        mono.log("@", "commit_id"),
+        canonical,
+        "fetch must not choose an integration policy"
+    );
+    mono.jj(&["op", "restore", &before_fetch]);
+    // In a non-colocated workspace, export the restored jj state before
+    // importing Git refs again, just as with ordinary jj remote bookmarks.
+    mono.jj(&["git", "export"]);
+    mono.jj(&["git", "import"]);
+    assert_eq!(
+        mono.log("alpha/topic@alpha-upstream", "commit_id"),
+        canonical
+    );
+    mono.jj(&[
+        "native",
+        "fetch",
+        "alpha",
+        upstream.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "upstream",
+    ]);
+    assert_eq!(
+        mono.log("alpha/topic@alpha-upstream", "commit_id"),
+        received
+    );
+    mono.jj(&["new", "alpha/topic@alpha-upstream", "-m", "local followup"]);
+    mono.write("alpha/value.txt", "local conflicting edit\n");
+    mono.jj(&["status"]);
+    fs::write(contributor.join("value.txt"), "external conflicting edit\n").unwrap();
+    native_git(
+        &contributor,
+        &["commit", "-am", "external conflicting edit"],
+    );
+    native_git(&contributor, &["push", "origin", "HEAD:topic"]);
+    mono.jj(&[
+        "native",
+        "fetch",
+        "alpha",
+        upstream.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "upstream",
+    ]);
+    mono.jj(&[
+        "new",
+        "@",
+        "alpha/topic@alpha-upstream",
+        "-m",
+        "native integration",
+    ]);
+    assert_eq!(mono.log("@", "conflict"), "true");
+    assert_eq!(
+        fs::read_to_string(mono.path.join("beta/value.txt")).unwrap(),
+        "beta local\n"
+    );
+    // An unrelated project's conflict must not prevent publication of Beta.
+    mono.jj(&[
+        "native",
+        "push",
+        "beta",
+        "--remote",
+        beta_remote.to_str().unwrap(),
+        "--branch",
+        "feature/cross",
+        "-r",
+        "@",
+    ]);
+    assert_eq!(
+        native_git(
+            remotes.path(),
+            &[
+                "--git-dir",
+                beta_remote.to_str().unwrap(),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "feature/cross"
+            ]
+        ),
+        "value.txt\n"
+    );
+    assert_eq!(
+        native_git(
+            remotes.path(),
+            &[
+                "--git-dir",
+                beta_remote.to_str().unwrap(),
+                "show",
+                "feature/cross:value.txt"
+            ]
+        ),
+        "beta local\n"
+    );
+    assert!(
+        !mono
+            .unchecked(&[
+                "native",
+                "push",
+                "alpha",
+                "--remote",
+                fork.to_str().unwrap(),
+                "--branch",
+                "conflicted",
+                "-r",
+                "@"
+            ])
+            .status
+            .success()
+    );
+    let integration_change = mono.change_id("@");
+    mono.write("alpha/value.txt", "resolved with jj\n");
+    mono.jj(&["status"]);
+    assert_eq!(mono.change_id("@"), integration_change);
+    assert_eq!(mono.log("@", "conflict"), "false");
+    push_alpha(&fork, "resolved");
+    mono.jj(&["util", "gc", "--expire", "now"]);
+    mono.jj(&[
+        "native",
+        "push",
+        "alpha",
+        "--remote",
+        fork.to_str().unwrap(),
+        "--branch",
+        "resolved",
+        "-r",
+        "@",
+        "--dry-run",
+    ]);
 }

@@ -37,25 +37,17 @@ use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::repo_path::RepoPathComponentBuf;
 use jj_lib::settings::UserSettings;
 use jj_lib::signing::Signer;
+use jj_lib::store::Store;
 use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use serde::Deserialize;
 use serde::Serialize;
 use tempfile::NamedTempFile;
-use tempfile::TempDir;
+
+use crate::native_source::NativeSource;
 
 const FORMAT: &str = "jjosh-native";
 const VERSION: u32 = 1;
 const ROOT: &str = "0000000000000000000000000000000000000000";
-
-/// The manifest is authoritative for native identities; the temporary backend
-/// supplies only immutable Git tree/blob contents, never synthesized metadata.
-pub(crate) struct Bundle {
-    pub repo: Arc<ReadonlyRepo>,
-    pub view: View,
-    pub commits: HashMap<CommitId, backend::Commit>,
-    pub source_operation: String,
-    _temp: TempDir,
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -481,7 +473,7 @@ fn git_backend(repo: &ReadonlyRepo) -> Result<&GitBackend> {
 /// No inherited Git environment, global config, replace refs, lazy network
 /// fetches, or hooks may influence transport. The explicit source Git directory
 /// is read only; load commands use a newly initialized private Git directory.
-fn git_command(path: &Path) -> Command {
+pub(crate) fn git_command(path: &Path) -> Command {
     let mut command = Command::new("git");
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
@@ -499,7 +491,7 @@ fn git_command(path: &Path) -> Command {
     command
 }
 
-fn run_git(command: &mut Command, action: &str) -> Result<()> {
+pub(crate) fn run_git(command: &mut Command, action: &str) -> Result<()> {
     let output = command
         .stderr(Stdio::piped())
         .output()
@@ -512,7 +504,10 @@ fn run_git(command: &mut Command, action: &str) -> Result<()> {
     Ok(())
 }
 
-fn object_roots(commits: &HashMap<CommitId, backend::Commit>) -> BTreeMap<String, &'static str> {
+pub(crate) fn object_roots(
+    view: &View,
+    commits: &HashMap<CommitId, backend::Commit>,
+) -> Result<BTreeMap<String, &'static str>> {
     let mut roots = BTreeMap::new();
     for (id, commit) in commits {
         if id.hex() == ROOT {
@@ -525,12 +520,27 @@ fn object_roots(commits: &HashMap<CommitId, backend::Commit>) -> BTreeMap<String
             roots.insert(tree.hex(), "tree");
         }
     }
-    roots
+    for (name, remote) in &view.remote_views {
+        if name.as_str().contains("jjosh-native-") {
+            for name in remote.bookmarks.keys() {
+                let (prefix, raw) = name
+                    .as_str()
+                    .rsplit_once('/')
+                    .context("Invalid native anchor")?;
+                ensure!(
+                    matches!(prefix.rsplit('/').next(), Some("origin" | "published")),
+                    "Invalid native anchor kind"
+                );
+                roots.insert(commit_id(raw)?.hex(), "commit");
+            }
+        }
+    }
+    Ok(roots)
 }
 
 /// Validate the entire current parent closure, including hidden ref terms and
 /// Git observations. Neither dangling extras nor cycles are legitimate bundles.
-fn validate_graph(
+pub(crate) fn validate_graph(
     view: &View,
     commits: &HashMap<CommitId, backend::Commit>,
     root: &backend::Commit,
@@ -584,32 +594,19 @@ fn validate_graph(
     Ok(())
 }
 
-pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usize> {
-    let backend = git_backend(repo)?;
-    let view = repo.view().store_view();
-    let mut pending: Vec<_> = repo.view().all_referenced_commit_ids().cloned().collect();
-    pending.push(repo.store().root_commit_id().clone());
-    let mut commits = HashMap::new();
-    while let Some(id) = pending.pop() {
-        if commits.contains_key(&id) {
-            continue;
-        }
-        let mut commit = backend
-            .read_commit(&id)
-            .await
-            .with_context(|| format!("reading recorded native commit {id}"))?;
-        commit.predecessors.clear();
-        pending.extend(commit.parents.iter().cloned());
-        commits.insert(id, commit);
-    }
-    let root = backend.read_commit(repo.store().root_commit_id()).await?;
-    validate_graph(view, &commits, &root)?;
-    validate_trees(repo, &commits).await?;
+pub(crate) async fn export(
+    source: &NativeSource,
+    path: &Path,
+    settings: &UserSettings,
+) -> Result<usize> {
+    let backend = jj_lib::git::get_git_backend(&source.store)?;
+    let view = &source.view;
+    let commits = &source.commits;
     let mut working_copy_patterns = BTreeMap::new();
     for target in view.wc_sparse_patterns.values() {
         for id in target.iter().flatten() {
             if !working_copy_patterns.contains_key(&id.hex()) {
-                let patterns = repo.op_store().read_working_copy_patterns(id).await?;
+                let patterns = source.op_store.read_working_copy_patterns(id).await?;
                 patterns.validate()?;
                 ensure!(
                     patterns.id() == *id,
@@ -622,7 +619,7 @@ pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usiz
     let manifest = Manifest {
         format: FORMAT.to_owned(),
         version: VERSION,
-        source_operation: repo.operation().id().hex(),
+        source_operation: source.source_operation.clone(),
         root_commit: ROOT.to_owned(),
         commits: commits
             .iter()
@@ -632,7 +629,7 @@ pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usiz
         working_copy_patterns,
     };
     let mut roots = tempfile::tempfile()?;
-    for id in object_roots(&commits).keys() {
+    for id in object_roots(view, commits)?.keys() {
         writeln!(roots, "{id}")?;
     }
     roots.rewind()?;
@@ -648,8 +645,8 @@ pub(crate) async fn export(repo: &Arc<ReadonlyRepo>, path: &Path) -> Result<usiz
     // In particular, shallow repositories must not publish an apparently
     // self-contained pack whose raw commit parents are actually unavailable.
     let verification_dir = tempfile::tempdir()?;
-    let verification_repo = empty_repo(verification_dir.path(), repo.settings()).await?;
-    install_pack(&verification_repo, &mut pack, &commits)?;
+    let verification_repo = empty_repo(verification_dir.path(), settings).await?;
+    install_pack(&verification_repo, &mut pack, view, commits)?;
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -715,7 +712,7 @@ async fn empty_repo(path: &Path, settings: &UserSettings) -> Result<Arc<Readonly
     .map_err(Into::into)
 }
 
-pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<Bundle> {
+pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<NativeSource> {
     let temp = tempfile::tempdir()?;
     let mut pack = tempfile::tempfile()?;
     let mut manifest = None;
@@ -826,20 +823,22 @@ pub(crate) async fn load(path: &Path, settings: &UserSettings) -> Result<Bundle>
     backend.disable_lazy_commit_imports();
     let root = backend.read_commit(repo.store().root_commit_id()).await?;
     validate_graph(&view, &commits, &root)?;
-    install_pack(&repo, &mut pack, &commits)?;
-    validate_trees(&repo, &commits).await?;
-    Ok(Bundle {
-        repo,
+    install_pack(&repo, &mut pack, &view, &commits)?;
+    validate_trees(repo.store(), &commits).await?;
+    Ok(NativeSource {
+        store: repo.store().clone(),
+        op_store: repo.op_store().clone(),
         view,
         commits,
         source_operation: manifest.source_operation,
-        _temp: temp,
+        _temp: Some(temp),
     })
 }
 
 fn install_pack(
     repo: &ReadonlyRepo,
     pack: &mut File,
+    view: &View,
     commits: &HashMap<CommitId, backend::Commit>,
 ) -> Result<()> {
     let backend = git_backend(repo)?;
@@ -851,13 +850,17 @@ fn install_pack(
             .stdout(Stdio::null()),
         "validating native object pack",
     )?;
-    validate_object_roots(backend.git_repo_path(), commits)?;
+    validate_object_roots(backend.git_repo_path(), view, commits)?;
     pack.rewind()?;
     Ok(())
 }
 
-fn validate_object_roots(path: &Path, commits: &HashMap<CommitId, backend::Commit>) -> Result<()> {
-    let roots = object_roots(commits);
+fn validate_object_roots(
+    path: &Path,
+    view: &View,
+    commits: &HashMap<CommitId, backend::Commit>,
+) -> Result<()> {
+    let roots = object_roots(view, commits)?;
     let mut input = tempfile::tempfile()?;
     for id in roots.keys() {
         writeln!(input, "{id}")?;
@@ -889,11 +892,11 @@ fn validate_object_roots(path: &Path, commits: &HashMap<CommitId, backend::Commi
     Ok(())
 }
 
-async fn validate_trees(
-    repo: &ReadonlyRepo,
+pub(crate) async fn validate_trees(
+    store: &Arc<Store>,
     commits: &HashMap<CommitId, backend::Commit>,
 ) -> Result<()> {
-    let backend = git_backend(repo)?;
+    let backend = jj_lib::git::get_git_backend(store)?;
     let raw_repo = backend.git_repo();
     let mut pending: Vec<_> = commits
         .values()

@@ -156,13 +156,8 @@ impl SimpleOpStore {
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
             Err(err) => return Err(err).context(&type_path),
         };
-        if current_type == Self::name().as_bytes() {
-            let mut temp_file = NamedTempFile::new_in(&self.path).context(&self.path)?;
-            temp_file
-                .write_all(Self::sparse_name().as_bytes())
-                .context(temp_file.path())?;
-            persist_temp_file(temp_file, &type_path).context(&type_path)?;
-        } else if current_type != Self::sparse_name().as_bytes() {
+        if current_type != Self::name().as_bytes() && current_type != Self::sparse_name().as_bytes()
+        {
             return Err(io::Error::new(
                 ErrorKind::InvalidData,
                 "unsupported operation store type; experimental sparse expression stores cannot \
@@ -170,8 +165,19 @@ impl SimpleOpStore {
             ))
             .context(&type_path);
         }
-        // Retry the directory sync even if a previous upgrade renamed the
-        // marker successfully but failed to make the rename durable.
+        if current_type == Self::name().as_bytes() {
+            let lock_path = self.path.join("type.lock");
+            let _lock = crate::lock::FileLock::lock(lock_path.clone())
+                .map_err(io::Error::other)
+                .context(&lock_path)?;
+            if fs::read(&type_path).context(&type_path)? == Self::name().as_bytes() {
+                let mut temp_file = NamedTempFile::new_in(&self.path).context(&self.path)?;
+                temp_file
+                    .write_all(Self::sparse_name().as_bytes())
+                    .context(temp_file.path())?;
+                persist_temp_file(temp_file, &type_path).context(&type_path)?;
+            }
+        }
         #[cfg(unix)]
         fs::File::open(&self.path)
             .and_then(|directory| directory.sync_all())
@@ -209,6 +215,8 @@ impl OpStore for SimpleOpStore {
         if !view.wc_sparse_patterns.is_empty() {
             self.ensure_sparse_store_type()
                 .map_err(|err| io_to_write_error(err, "view"))?;
+        }
+        if !view.wc_sparse_patterns.is_empty() {
             // Renew referenced objects before publishing a new view, just as
             // view writes renew the reachability fence used by concurrent GC.
             let ids = view

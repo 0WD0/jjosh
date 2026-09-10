@@ -1,16 +1,18 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
 use jj_cli::command_error::user_error_with_message;
 use jj_cli::ui::Ui;
-use jj_lib::repo::ReadonlyRepo;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo::RepoLoader;
+use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::RepoPathComponent;
+
+use crate::native_source::NativeSource;
 
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct Args {
@@ -20,22 +22,25 @@ pub(crate) struct Args {
 
 #[derive(clap::Subcommand, Clone, Debug)]
 enum Command {
-    /// Export the recorded current native state to a self-contained bundle.
+    /// Export recorded native state to an optional self-contained transport file.
     ///
-    /// Sources are read-only: run jj status beforehand to record working files.
-    /// The bundle retains native commits, tree conflicts and the current view,
-    /// but not old operation/evolution histories, user settings or credentials.
+    /// Does not snapshot or write the source repository. Old operation/evolution
+    /// histories, user settings and credentials are not exported.
     Export(BundleArgs),
     /// Validate a native bundle without needing its source repository.
     Inspect(BundleArgs),
-    /// Import native bundles under separate directory and ref namespaces.
+    /// Import recorded jj repositories into an existing or new monorepo.
     ///
-    /// The destination must be a fresh Git-backed jj repository, either
-    /// colocated or non-colocated. Current heads, refs, change identities and
-    /// parent histories are retained. Path relocation invalidates signatures,
-    /// which are removed. Import does not check out or merge the imported heads.
-    /// Use jj new with NAME/workspace/WORKSPACE bookmarks to compose them.
+    /// Each source retains its native graph and references under NAME/. Sources
+    /// are read without snapshotting; record working files in the source first.
+    /// Bundles remain accepted as an optional offline source. Import records
+    /// ancestry correspondences for subsequent native fetch/push. It does not
+    /// merge or check out the imported heads: use normal jj new/rebase commands.
     Import(ImportArgs),
+    /// Receive an upstream or contribution branch in native monorepo coordinates.
+    Fetch(crate::native_project::FetchArgs),
+    /// Publish a project revision to an explicitly chosen remote and branch.
+    Push(crate::native_project::PushArgs),
     /// Relocate a native change graph with explicit path and parent mappings.
     Transplant(crate::transplant::Args),
 }
@@ -48,91 +53,56 @@ struct BundleArgs {
 
 #[derive(clap::Args, Clone, Debug)]
 struct ImportArgs {
-    /// Bundle and destination directory/ref namespace (repeatable).
-    #[arg(long, value_name = "NAME=FILE", required = true)]
+    /// Native jj workspace or bundle and its directory/ref namespace (repeatable).
+    #[arg(long, value_name = "NAME=PATH", required = true)]
     source: Vec<String>,
 }
 
-async fn load_current(loader: &RepoLoader) -> Result<Arc<ReadonlyRepo>, CommandError> {
-    // load_at_head() can reconcile operations and write to the repository.
-    let heads =
-        jj_lib::op_walk::get_current_head_ops(loader.op_store(), loader.op_heads_store().as_ref())
-            .await?;
-    let [operation] = heads.as_slice() else {
+fn require_current_operation(command: &CommandHelper) -> Result<(), CommandError> {
+    if !command.is_at_head_operation() || command.global_args().no_integrate_operation {
         return Err(user_error(
-            "Native export/import requires exactly one operation head; reconcile operations \
-             separately",
+            "Native state changes require the current integrated operation",
         ));
-    };
-    let backend = jj_lib::git::get_git_backend(loader.store())?;
-    if backend.git_repo().object_hash().len_in_bytes() != 20 {
-        return Err(user_error(
-            "Native bundles currently require a SHA-1 Git backend",
-        ));
-    }
-    // Never infer a missing native change identity from raw Git objects.
-    backend.disable_lazy_commit_imports();
-    Ok(loader.load_at(operation).await?)
-}
-
-async fn require_fresh_destination(repo: &ReadonlyRepo) -> Result<(), CommandError> {
-    let view = repo.view().store_view();
-    let fresh_error = || {
-        user_error("Native import requires a fresh destination; initialize one with jjosh git init")
-    };
-    if view.wc_commit_ids.len() != 1 {
-        return Err(fresh_error());
-    }
-    let wc = view.wc_commit_ids.values().next().unwrap();
-    if view.head_ids.len() != 1
-        || !view.head_ids.contains(wc)
-        || !view.local_bookmarks.is_empty()
-        || !view.local_tags.is_empty()
-        || !view.remote_views.is_empty()
-        || !view.git_refs.is_empty()
-        || view.git_heads.values().any(|head| head.is_present())
-    {
-        return Err(fresh_error());
-    }
-    let commit = repo.store().get_commit_async(wc).await?;
-    if commit.parent_ids() != std::slice::from_ref(repo.store().root_commit_id())
-        || commit.store_commit().root_tree.as_resolved() != Some(repo.store().empty_tree_id())
-    {
-        return Err(fresh_error());
     }
     Ok(())
 }
 
 pub(crate) async fn run(
     ui: &mut Ui,
-    command_helper: &CommandHelper,
+    command: &CommandHelper,
     args: Args,
 ) -> Result<(), CommandError> {
     match args.command {
-        Command::Transplant(args) => crate::transplant::run(ui, command_helper, args).await,
+        Command::Transplant(args) => crate::transplant::run(ui, command, args).await,
+        Command::Fetch(args) => crate::native_project::fetch(ui, command, args).await,
+        Command::Push(args) => crate::native_project::push(ui, command, args).await,
         Command::Inspect(args) => {
-            let bundle = crate::native_bundle::load(
-                &command_helper.cwd().join(args.file),
-                command_helper.settings(),
-            )
-            .await
-            .map_err(|err| user_error_with_message("Cannot inspect native bundle", err))?;
+            let source =
+                crate::native_bundle::load(&command.cwd().join(args.file), command.settings())
+                    .await
+                    .map_err(|err| user_error_with_message("Cannot inspect native bundle", err))?;
             writeln!(
                 ui.stdout(),
                 "Valid native bundle: {} commits, {} heads, source operation {}",
-                bundle.commits.len() - 1,
-                bundle.view.head_ids.len(),
-                bundle.source_operation
+                source.commits.len() - 1,
+                source.view.head_ids.len(),
+                source.source_operation
             )?;
             Ok(())
         }
         Command::Export(args) => {
-            require_current_operation(command_helper)?;
-            let workspace = command_helper.load_workspace()?;
-            let repo = load_current(workspace.repo_loader()).await?;
-            let count = crate::native_bundle::export(&repo, &command_helper.cwd().join(&args.file))
+            require_current_operation(command)?;
+            let workspace = command.load_workspace()?;
+            let source = NativeSource::read(workspace.repo_loader(), None)
                 .await
-                .map_err(|err| user_error_with_message("Cannot export native bundle", err))?;
+                .map_err(|err| user_error_with_message("Cannot read native source", err))?;
+            let count = crate::native_bundle::export(
+                &source,
+                &command.cwd().join(&args.file),
+                command.settings(),
+            )
+            .await
+            .map_err(|err| user_error_with_message("Cannot export native bundle", err))?;
             writeln!(
                 ui.status(),
                 "Exported {count} native commits to {}. Source state unchanged.",
@@ -140,101 +110,154 @@ pub(crate) async fn run(
             )?;
             Ok(())
         }
-        Command::Import(args) => run_import(ui, command_helper, args).await,
+        Command::Import(args) => run_import(ui, command, args).await,
     }
-}
-
-fn require_current_operation(command_helper: &CommandHelper) -> Result<(), CommandError> {
-    if !command_helper.is_at_head_operation() || command_helper.global_args().no_integrate_operation
-    {
-        return Err(user_error(
-            "Native export/import requires the current integrated operation",
-        ));
-    }
-    Ok(())
 }
 
 async fn run_import(
     ui: &mut Ui,
-    command_helper: &CommandHelper,
+    command: &CommandHelper,
     args: ImportArgs,
 ) -> Result<(), CommandError> {
-    require_current_operation(command_helper)?;
+    require_current_operation(command)?;
     let mut names = HashSet::new();
     let mut specifications = Vec::with_capacity(args.source.len());
     for value in args.source {
-        let Some((name, path)) = value.split_once('=') else {
-            return Err(user_error("Expected --source NAME=FILE"));
-        };
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-            || path.is_empty()
-        {
+        let (name, path) = value
+            .split_once('=')
+            .ok_or_else(|| user_error("Expected --source NAME=PATH"))?;
+        crate::native_project::validate_project(name)
+            .map_err(|err| user_error_with_message("Invalid native project name", err))?;
+        if path.is_empty() || !names.insert(name.to_owned()) {
             return Err(user_error(
-                "Source names must contain only ASCII letters, digits, '-' or '_', and bundle \
-                 paths must not be empty",
+                "Source paths must not be empty and project names must be unique",
             ));
         }
-        if !names.insert(name.to_owned()) {
-            return Err(user_error(format!("Duplicate source namespace: {name}")));
-        }
-        specifications.push((name.to_owned(), command_helper.cwd().join(path)));
+        specifications.push((name.to_owned(), command.cwd().join(path)));
     }
-
-    let loaded_workspace = command_helper.load_workspace()?;
-    let destination = load_current(loaded_workspace.repo_loader()).await?;
-    let mut workspace = command_helper.for_workable_repo(ui, loaded_workspace, destination)?;
+    let mut workspace = command.workspace_helper(ui).await?;
     let git_lock = workspace.lock_git_import_export()?;
-    crate::interop::check_git_state(&workspace)?;
-    require_fresh_destination(workspace.repo()).await?;
-
+    let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
+    let transaction = crate::interop::open_josh_transaction(&git_path, false)?;
     let mut sources = Vec::with_capacity(specifications.len());
     for (name, path) in specifications {
-        let bundle = crate::native_bundle::load(&path, workspace.settings())
-            .await
-            .map_err(|err| user_error_with_message(format!("Cannot load bundle {name}"), err))?;
-        sources.push((name, bundle));
+        let prefix = format!("{name}/");
+        let view = workspace.repo().view().store_view();
+        if view
+            .local_bookmarks
+            .keys()
+            .chain(view.local_tags.keys())
+            .any(|key| key.as_str().starts_with(&prefix))
+            || view
+                .remote_views
+                .contains_key(&crate::native_project::anchor_remote(&name))
+        {
+            return Err(user_error(format!(
+                "Project namespace {name:?} already exists; receive updates with native fetch"
+            )));
+        }
+        let component = RepoPathComponent::new(&name)
+            .map_err(|err| user_error_with_message("Invalid project path", err))?;
+        for head in &view.head_ids {
+            let commit = workspace.repo().store().get_commit_async(head).await?;
+            for term in commit.tree_ids().iter() {
+                let tree = workspace
+                    .repo()
+                    .store()
+                    .backend()
+                    .read_tree(RepoPath::root(), term)
+                    .await?;
+                if tree.value(component).is_some() {
+                    return Err(user_error(format!(
+                        "Destination path {name:?} is already occupied in visible history"
+                    )));
+                }
+            }
+        }
+        let source = if path.is_dir() {
+            let source_workspace = command.load_workspace_at(&path, workspace.settings())?;
+            if std::fs::canonicalize(source_workspace.repo_path())?
+                == std::fs::canonicalize(workspace.repo_path())?
+            {
+                return Err(user_error(
+                    "Cannot import a workspace from the destination's own repository",
+                ));
+            }
+            NativeSource::read(source_workspace.repo_loader(), None).await
+        } else {
+            crate::native_bundle::load(&path, workspace.settings()).await
+        }
+        .map_err(|err| user_error_with_message(format!("Cannot read native source {name}"), err))?;
+        sources.push((name, source));
     }
-    let mut view = workspace.repo().view().store_view().clone();
-    let mut commits = Vec::new();
+    let mut tx = workspace.start_transaction();
+    let mut view = tx.repo().view().store_view().clone();
     let mut summaries = Vec::new();
-    for (name, bundle) in &sources {
-        let imported = crate::native_import::import_bundle(bundle, workspace.repo(), name)
-            .await
-            .map_err(|err| user_error_with_message(format!("Cannot import bundle {name}"), err))?;
-        // NAME-REMOTE can collide for distinct namespace/remote pairs.
+    let mut roots = Vec::new();
+    let mut remotes: HashSet<_> = sources
+        .iter()
+        .map(|(name, _)| crate::native_project::anchor_remote(name))
+        .collect();
+    for (name, source) in &sources {
+        let imported =
+            crate::native_import::import_source(source, tx.repo_mut(), name, HashMap::new())
+                .await
+                .map_err(|err| {
+                    user_error_with_message(format!("Cannot import native source {name}"), err)
+                })?;
         for remote in imported.view.remote_views.keys() {
-            if view.remote_views.contains_key(remote) {
+            if view.remote_views.contains_key(remote) || remotes.contains(remote) {
                 return Err(user_error(format!(
-                    "Imported remote namespace collision: {}; choose different source names",
+                    "Imported remote namespace collision: {}",
                     remote.as_str()
                 )));
             }
+            remotes.insert(remote.clone());
+        }
+        let source_view = jj_lib::view::View::new(source.view.clone(), false);
+        for raw in source_view.all_referenced_commit_ids() {
+            roots.push((name.clone(), raw.clone(), imported.ids[raw].clone()));
         }
         view.head_ids.extend(imported.view.head_ids);
         view.local_bookmarks.extend(imported.view.local_bookmarks);
         view.local_tags.extend(imported.view.local_tags);
         view.remote_views.extend(imported.view.remote_views);
         summaries.push((name, imported.commits.len(), imported.stripped_signatures));
-        commits.extend(imported.commits);
     }
-    let current = load_current(workspace.repo().loader()).await?;
-    if current.op_id() != workspace.repo().op_id() {
-        return Err(user_error(
-            "Destination changed during import; retry in a fresh repository",
-        ));
+    let git = jj_lib::git::get_git_repo(tx.repo().store())?;
+    for configured in git.remote_names() {
+        if remotes
+            .iter()
+            .any(|remote| remote.as_str().as_bytes() == &configured[..])
+        {
+            return Err(user_error(
+                "Imported reference namespace collides with a configured Git remote",
+            ));
+        }
     }
-    crate::interop::check_git_state(&workspace)?;
-
-    // Publish only the native view. In colocated mode, leave HEAD/index and
-    // Git-ref observations unchanged. A subsequent normal jj command handles
-    // checkout/export under the usual native synchronization rules.
-    let mut tx = workspace.start_transaction().into_inner();
-    tx.repo_mut().index_commits(&commits).await?;
     tx.repo_mut().set_view(view);
-    tx.commit("import native state bundles").await?;
+    for (name, raw, mapped) in roots {
+        crate::native_project::record_anchor(
+            tx.repo_mut(),
+            &transaction,
+            &name,
+            "origin",
+            &raw,
+            &mapped,
+        )
+        .map_err(|err| {
+            user_error_with_message("Cannot record native source correspondence", err)
+        })?;
+    }
+    transaction
+        .flush_mem_odb()
+        .map_err(|err| user_error_with_message("Cannot retain native source objects", err))?;
+    let stats =
+        jj_lib::git::export_some_refs(tx.repo_mut(), |_, symbol| remotes.contains(symbol.remote))?;
+    jj_cli::git_util::print_git_export_stats(ui, &stats)?;
+    tx.into_inner()
+        .commit("import native project states")
+        .await?;
     drop(git_lock);
     for (name, count, signatures) in summaries {
         writeln!(

@@ -337,40 +337,85 @@ jjosh projection push --remote destination --to imported -r publish --base main 
 ### 投影边界
 
 - 当前只投影分支引用，不自动导入 tag；原始获取与公开投影引用隔离。成功 fetch 后，来源删除分支或更换为空视图会移除相应的投影分支，不清理其他 remote 或本地 tag。fetch 要求来源通过 `HEAD` 广告默认分支，尚不支持完全无分支的来源仓库。
-- 原生未解决冲突尚不能通过此 Git 历史投影通道保真转换。预览和发布拒绝包含冲突的所选祖先历史；fetch 在公开投影引用前检查源历史的 `jj:trees`。干净的后继提交不能掩盖仍含原生冲突的祖先。`native` 状态包可以保留这些冲突，但不是冲突投影的替代实现。
+- 原生未解决冲突尚不能通过此 Git 历史投影通道保真转换。预览和发布拒绝包含冲突的所选祖先历史；fetch 在公开投影引用前检查源历史的 `jj:trees`。干净的后继提交不能掩盖仍含原生冲突的祖先。下面的 `native` 工作流直接处理 jj 原生提交和树项，不代表任意 Josh 历史 filter 都获得了冲突语义。
 - 这版 jj 默认写入 `change-id` Git header，jjosh 不覆盖用户的设置。它有助于保留投影中的身份，但不能追溯恢复旧 Git 提交的所有原生身份，也不保证任意 Git 工具都保留该 header。
 - `projection push` 使用普通的非快进拒绝；`--force` 可以绕过它。它没有 `link push` 的目标观测/lease 契约，不提供跨远端原子发布。`--dry-run` 不更新远端，但可快照本地工作副本并写入转换所需的对象。
 
-## 用原生状态包聚合已有 jj 仓库
+## 将已有 jj 项目纳入 monorepo
 
-已有 jj 仓库的本地状态不能只靠 Git bundle 保真。`native export` 将已记录的当前 jj view、原生提交元数据和所需内容对象封存到一个自包含文件；`native import` 再将各包的历史整体放进不同目录。它不通过 patch 重放，也不要求先选择一个统一上游基线。
+`native import` 直接读取已有 jj 仓库，将原生修改图放入 monorepo；不要求先导出 bundle，也不要求来源有上游。目标可以是新仓库，也可以是已有 monorepo。每个导入项对应一个完整来源仓库，NAME 是 canonical 顶层目录和引用命名空间。
 
 ```sh
-# 在各来源中显式记录工作文件；export 本身不快照、不修改来源。
+# 在来源中显式记录要迁入的工作文件。导入本身不快照或写入来源。
 jjosh -R /path/to/ebox status
-jjosh -R /path/to/ebox native export /tmp/ebox.jjbundle
 jjosh -R /path/to/ekp status
-jjosh -R /path/to/ekp native export /tmp/ekp.jjbundle
 
-# 不需要来源仓库，也不需要当前目录有 jj 仓库。
-jjosh native inspect /tmp/ebox.jjbundle
-
-jjosh git init --colocate combined
-# 也支持 --no-colocate；包的格式不依赖目标工作区模式。
+# 已有 monorepo 可以跳过 init。
+jjosh git init --no-colocate combined
 jjosh -R combined native import \
-  --source ebox=/tmp/ebox.jjbundle \
-  --source ekp=/tmp/ekp.jjbundle
-jjosh -R combined new ebox/workspace/default ekp/workspace/default \
-  -m "Aggregate native sources"
+  --source ebox=/path/to/ebox \
+  --source ekp=/path/to/ekp
+
+# 保留已有 monorepo 的 @，用普通 jj 操作选择组合入口。
+jjosh -R combined new @ ebox/workspace/default ekp/workspace/default \
+  -m "Integrate native projects"
 ```
 
-- 状态包是版本化 TAR，只有 `manifest.json` 与完整、非 thin 的 `objects.pack`。manifest 保存原生身份和 view；Git pack 只承担对象传输，包含原生冲突树的所有项，不能代替原生元数据。`inspect` 检查格式、图闭包及对象完整性；它不认证发布者身份。导出原子发布新文件，拒绝覆盖已有文件。
-- 范围是当前 view 的所有提交引用及父祖先闭包，包括冲突引用的删除项。保留 change ID、作者和提交者的时间、描述、有序父边、空提交、合并、独立根、当前可见 divergence，以及带符号树项和冲突标签。不会扫描旧 operation/evolution 历史作为额外导出根，也不导出配置、凭据或未记录的工作文件。
-- `--source NAME=FILE` 中的 NAME 同时是顶层目录和引用命名空间，只允许 ASCII 字母、数字、`-`、`_`。本地书签和 tag 变为 `NAME/原名`，远端观测别名变为 `NAME-原远端`，外来工作区选择变为 `NAME/workspace/工作区名` 书签；不创建虚假的已附加工作区。重名会报错，不覆盖引用。
-- 导入要求新建的 SHA-1 Git 后端 jj 仓库，支持 colocated 和非 colocated。在一个 jj 事务中发布导入 view，但不改变 checkout、Git HEAD 或 index；随后使用普通 `new` 聚合。源 Git refs/HEAD 不会被安装成目标后端的缓存。失败可能留下未发布的内容对象及私有 keep refs，但不发布部分来源的 view。
-- 目录和父提交变换会改变 Git commit ID，原始提交签名因此失效。包内保留原始签名，导入时移除并报告数量。不会承诺保留未建模的任意 Git 扩展头；目标后端若不能保留指定原生字段，会拒绝导入而非静默改写。
-- gitlink 保留外部仓库的 commit ID，不递归打包子模块仓库，也不自动展开文件。浅克隆或缺失对象必须先补全。需要从旧 Git 数据生成兼容性 jj 元数据的来源，须先单独完成导入。
-- `native` 不建立 `.link.josh`、`jjosh/trunk` 或发布绑定，也不把本地工作头认作上游 pin。目录聚合后的构建接线、共享依赖处理及来源同步策略仍是显式操作。
+导入读取固定 operation 的当前 view 和所需父历史，包括未发布的 change、空提交、有序 merge 父边、当前 divergence、冲突引用的正负项，以及原生冲突树和标签。不导入旧 operation/evolution 历史；来源须先协调多个 operation heads。未记录的磁盘修改不包含在输入中。只读捕获不依赖源索引，也不会为读取而补造旧 Git commit 的 jj 身份。
+
+NAME 只允许 ASCII 字母、数字、`-`、`_`。本地书签和现有 tag 变为 `NAME/原名`，远端观测变为 `NAME-原远端`，来源 workspace 的选择成为 `NAME/workspace/工作区名` 书签，不伪装成已挂载的目标 workspace。已占用的目录和命名空间会被拒绝。多个输入在一个 jj 事务中发布，不自动选择 checkout 或 rebase 策略；目标自身的工作文件按正常 jj 命令先快照。
+
+### 获取上游更新和外部贡献
+
+来源和发布目标不绑定。可以从上游、贡献者的 fork，或另一个本地 jj workspace 获取指定分支：
+
+```sh
+jjosh -R combined native fetch ebox https://example.org/upstream/ebox.git \
+  --branch main --remote upstream
+jjosh -R combined native fetch ebox /path/to/contributor-jj-workspace \
+  --branch topic --remote contributor
+
+jjosh -R combined log -r 'ebox/topic@ebox-contributor'
+jjosh -R combined new @ 'ebox/topic@ebox-contributor' -m 'Integrate contribution'
+# 冲突保留为普通 jj 冲突；编辑解决后执行 status，或使用 jj resolve。
+```
+
+`fetch` 将观察结果记录为 `PROJECT/BRANCH@PROJECT-REMOTE`。未跟踪的观察不会改动本地书签；显式 `bookmark track` 后按 jj 的引用合并规则更新对应书签。它不替你 checkout、合并工作头或重排后继。可以使用普通 `new`、`rebase`、`squash` 选择整合方式，不要求所有已导入历史都建立在一个全局 `jjosh/trunk` 上。
+
+本地 jj 来源保留其原生元数据和冲突引用；只读取选定书签的闭包。Git 来源按 jj 的 Git 编码读取新提交，已知源祖先复用导入对应关系，因此不会把原先只存于 extras 的 change ID 重新猜成另一个身份。来源重写可以产生真正的 divergence，不自动 converge 或丢弃旧修改。
+
+### 向任意 remote / branch 发布子项目
+
+```sh
+jjosh -R combined native push ebox \
+  --remote https://example.org/my-fork/ebox.git --branch feature -r @ --dry-run
+jjosh -R combined native push ebox \
+  --remote https://example.org/my-fork/ebox.git --branch feature -r @
+
+# 可换成另一个 URL 或已配置的 Git remote，不需要改项目历史中的 marker。
+jjosh -R combined native push ebox --remote review --branch alternate -r my-change
+```
+
+发布只投影所选项目。没有该项目变化的本地提交被裁剪，其他项目的内容不导出，canonical 修改图不因发布而被拆分或重写。所选项目在发布 revision 中有未解决冲突时拒绝发布；其他项目的冲突不阻止它。保留下来的冲突祖先使用 jj 原生 Git 编码，不把其传输树冒充已解决源码。
+
+已导入的原始提交作为历史边界复用；新增发布提交记录到 canonical change 的对应关系。例如一个 change 同时修改 Ebox 和 Ekp，只发布 Ebox 后再次收到相同提交，会回到对应的 canonical change，而不是制造另一个只含 Ebox 的同 change-ID 版本。基于这次发布的外部贡献接在已知 canonical 边界上，保留其中的 Ekp 内容；真正不同的外部改写仍须按 jj 语义整合。
+
+发布保护复用 `link` 的按目标记录的 lease，但配置 remote 会先解析为实际 URL，避免 remote 改名或改 URL 后误用旧记录。首次发布只允许创建分支或快进；已有观测时使用 force-with-lease；`--force` 显式绕过保护。多个发布 URL 的 remote 须选择一个明确 URL。没有跨远端原子发布；远端已更新而本地记录失败时，需要核对远端后恢复记录。
+
+### 原生状态、兼容性与边界
+
+- 远端观测和对应记录使用普通 jj remote bookmarks。native 命令通过 jj 原有的 Git export 同步本次更新的远端引用；不自动导出其他本地书签，也不替非 colocated 仓库导入无关的 Git 变化。
+- `jjosh-native-NAME` 是导入／发布对应记录的保留 remote 名称，不配置外部 URL，也不要把它的内部书签跟踪为本地书签。名称遵循 jj 与 Git 的正常引用映射；原始内容由私有 Git 保留引用保持可读。
+- `op restore` 遵循普通 jj 行为：colocated 仓库自动同步；非 colocated 仓库只恢复 jj view，可用 `git export` 将恢复结果写回本地 Git refs。直接运行 `git import` 会重新导入尚未回退的 Git refs。没有 native 专属的回滚规则。
+- native 操作不再新增 operation-store 格式。早先使用 `simple_op_store_native_remotes` 的实验仓库不自动转换，应保留原仓库并从来源重新导入；不要手改格式标记。已有 sparse 格式要求不受影响。
+- 当前只支持 SHA-1 Git backend 和完整来源仓库的顶层重定位。目录／父 ID 变换会使旧签名失效；映射提交移除并报告签名，原始边界对象保留。后端不能保留原生字段时拒绝导入。
+- gitlink 保留外部 commit ID，不递归导入子模块，也不自动展开文件。浅克隆、缺失对象和旧提交缺失原生身份需先在来源中明确处理。
+- 不自动重写来源内部的 `.link.josh`、构建配置或共享依赖布局。工作区的物理布局继续由 native sparse 管理。
+- 现有 tag 的来源名称和原生引用目标按命名空间保留；tag 的跨项目语义、注释／签名及发布管理仍是未决问题，这里不提供新的 tag 发布策略。
+
+### 可选的离线状态包
+
+无法直接访问来源时，仍可使用 `native export FILE`、`native inspect FILE`，以及 `native import --source NAME=FILE`。包是包含 `manifest.json` 和自包含 Git pack 的版本化 TAR，保留当前原生状态及对应记录需要的原始对象。导出不覆盖已有文件，inspect 验证格式和闭包但不认证发布者。Bundle 是运输选项，不是直接导入或持续同步的前置步骤。
 
 ## 整体迁移本地修改图
 

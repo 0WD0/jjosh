@@ -1,36 +1,30 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
-use jj_lib::backend::Backend;
 use jj_lib::backend::CommitId;
-use jj_lib::backend::FileId;
-use jj_lib::backend::SymlinkId;
 use jj_lib::backend::Tree;
-use jj_lib::backend::TreeId;
 use jj_lib::backend::TreeValue;
 use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
-use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::View;
 use jj_lib::ref_name::RefName;
-use jj_lib::repo::ReadonlyRepo;
+use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::repo_path::RepoPathComponentBuf;
 
-use crate::native_bundle::Bundle;
+use crate::native_source::NativeSource;
 
 pub(crate) struct Imported {
     pub view: View,
     /// The complete parent closure, parent-first, not just visible commits.
     pub commits: Vec<Commit>,
     pub stripped_signatures: usize,
+    pub ids: HashMap<CommitId, CommitId>,
 }
 
 enum CommitVisit {
@@ -40,14 +34,16 @@ enum CommitVisit {
 
 /// Copy a recorded native view without publishing it or selecting a workspace.
 /// The caller owns destination validation and the single publishing transaction.
-pub(crate) async fn import_bundle(
-    source: &Bundle,
-    dest: &Arc<ReadonlyRepo>,
+pub(crate) async fn import_source(
+    source: &NativeSource,
+    dest: &mut MutableRepo,
     scope: &str,
+    mut ids: HashMap<CommitId, CommitId>,
 ) -> Result<Imported> {
     let component = RepoPathComponentBuf::new(scope.to_owned())?;
-    let source_backend = source.repo.store().backend();
-    let dest_backend = dest.store().backend();
+    let source_backend = source.store.backend();
+    let dest_store = dest.store().clone();
+    let dest_backend = dest_store.backend();
     // Object deduplication below is by ID, independent of path. That is valid
     // for Git objects, but not necessarily for other native backends.
     for backend in [source_backend, dest_backend] {
@@ -56,6 +52,7 @@ pub(crate) async fn import_bundle(
             "native import requires Git SHA-1 source and destination backends"
         );
     }
+    source.copy_objects_to(jj_lib::git::get_git_backend(&dest_store)?)?;
     let source_view = &source.view;
     for workspace in source_view.wc_commit_ids.keys() {
         let role = format!("workspace/{}", workspace.as_str());
@@ -77,20 +74,13 @@ pub(crate) async fn import_bundle(
     roots.dedup();
     let mut pending: Vec<_> = roots.into_iter().rev().map(CommitVisit::Read).collect();
     let mut active = HashSet::new();
-    let mut ids = HashMap::from([(
-        source.repo.store().root_commit_id().clone(),
-        dest.store().root_commit_id().clone(),
-    )]);
+    let lift = !ids.is_empty();
+    ids.insert(
+        source.store.root_commit_id().clone(),
+        dest_store.root_commit_id().clone(),
+    );
     let mut origins = HashMap::new();
-    let mut objects = ObjectImporter {
-        source: source_backend,
-        dest: dest_backend,
-        component,
-        trees: HashSet::new(),
-        files: HashSet::new(),
-        symlinks: HashSet::new(),
-        prefixed_trees: HashMap::new(),
-    };
+    let mut trees = HashMap::new();
     let mut commits = Vec::new();
     let mut stripped_signatures = 0;
     // Enter/exit DFS visits each commit and parent edge once. It is iterative
@@ -127,17 +117,30 @@ pub(crate) async fn import_bundle(
                     stripped_signatures += 1;
                 }
                 for tree_id in intended.root_tree.iter() {
-                    objects.prefix_tree(tree_id).await.with_context(|| {
-                        format!("copying source {scope} tree for commit {old_id}")
-                    })?;
+                    if !trees.contains_key(tree_id) {
+                        let prefixed = if tree_id == source_backend.empty_tree_id() {
+                            dest_backend.empty_tree_id().clone()
+                        } else {
+                            let tree = Tree::from_sorted_entries(vec![(
+                                component.clone(),
+                                TreeValue::Tree(tree_id.clone()),
+                            )]);
+                            dest_backend.write_tree(RepoPath::root(), &tree).await?
+                        };
+                        trees.insert(tree_id.clone(), prefixed);
+                    }
                 }
                 // Mapping each term, rather than merging trees, retains the
                 // signed terms, their order, and the separate conflict labels.
-                intended.root_tree = intended
-                    .root_tree
-                    .map(|id| objects.prefixed_trees[id].clone());
-                let mapped = dest
-                    .store()
+                intended.root_tree = intended.root_tree.map(|id| trees[id].clone());
+                if lift {
+                    let tree =
+                        crate::native_project::inherit_other_projects(dest, scope, &intended)
+                            .await?;
+                    intended.root_tree = tree.tree_ids().clone();
+                    intended.conflict_labels = tree.labels().as_merge().clone();
+                }
+                let mapped = dest_store
                     .write_commit(intended.clone(), None)
                     .await
                     .with_context(|| format!("writing source {scope} native commit {old_id}"))?;
@@ -165,6 +168,7 @@ pub(crate) async fn import_bundle(
                 }
                 ids.insert(old_id.clone(), mapped.id().clone());
                 active.remove(&old_id);
+                dest.index_commits(std::slice::from_ref(&mapped)).await?;
                 commits.push(mapped);
             }
         }
@@ -174,6 +178,7 @@ pub(crate) async fn import_bundle(
         view: map_view(source_view.clone(), scope, &ids),
         commits,
         stripped_signatures,
+        ids,
     })
 }
 
@@ -228,132 +233,4 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
     // Source workspaces become bookmark roles, not mounted target workspaces.
     view.wc_sparse_patterns.clear();
     view
-}
-
-struct ObjectImporter<'a> {
-    source: &'a dyn Backend,
-    dest: &'a dyn Backend,
-    component: RepoPathComponentBuf,
-    trees: HashSet<TreeId>,
-    files: HashSet<FileId>,
-    symlinks: HashSet<SymlinkId>,
-    prefixed_trees: HashMap<TreeId, TreeId>,
-}
-
-enum TreeVisit {
-    Read(RepoPathBuf, RepoPathBuf, TreeId),
-    Write(RepoPathBuf, TreeId, Tree),
-}
-
-impl ObjectImporter<'_> {
-    async fn prefix_tree(&mut self, id: &TreeId) -> Result<()> {
-        if self.prefixed_trees.contains_key(id) {
-            return Ok(());
-        }
-        self.copy_tree(id).await?;
-        let prefixed = if id == self.source.empty_tree_id() {
-            // An empty source commit must not acquire an empty scope directory.
-            self.dest.empty_tree_id().clone()
-        } else {
-            let tree = Tree::from_sorted_entries(vec![(
-                self.component.clone(),
-                TreeValue::Tree(id.clone()),
-            )]);
-            self.dest.write_tree(RepoPath::root(), &tree).await?
-        };
-        self.prefixed_trees.insert(id.clone(), prefixed);
-        Ok(())
-    }
-
-    async fn copy_tree(&mut self, id: &TreeId) -> Result<()> {
-        let mut pending = vec![TreeVisit::Read(
-            RepoPathBuf::root(),
-            RepoPath::root().join(&self.component),
-            id.clone(),
-        )];
-        let mut active = HashSet::new();
-        while let Some(visit) = pending.pop() {
-            match visit {
-                TreeVisit::Read(source_path, dest_path, id) => {
-                    if self.trees.contains(&id) {
-                        continue;
-                    }
-                    ensure!(
-                        active.insert(id.clone()),
-                        "cyclic native tree at {source_path:?} ({id})"
-                    );
-                    let tree = self
-                        .source
-                        .read_tree(&source_path, &id)
-                        .await
-                        .with_context(|| format!("reading tree {id} at {source_path:?}"))?;
-                    let mut children = Vec::new();
-                    for entry in tree.entries() {
-                        let source_entry = source_path.join(entry.name());
-                        let dest_entry = dest_path.join(entry.name());
-                        match entry.value() {
-                            TreeValue::Tree(child) => children.push(TreeVisit::Read(
-                                source_entry,
-                                dest_entry,
-                                child.clone(),
-                            )),
-                            TreeValue::File { id, copy_id, .. } => {
-                                ensure!(
-                                    copy_id.as_bytes().is_empty(),
-                                    "tracked copy metadata at {source_entry:?} is unsupported by \
-                                     the destination Git backend"
-                                );
-                                if !self.files.contains(id) {
-                                    let mut contents = self
-                                        .source
-                                        .read_file(&source_entry, id)
-                                        .await
-                                        .with_context(|| {
-                                            format!("reading file {id} at {source_entry:?}")
-                                        })?;
-                                    let copied =
-                                        self.dest.write_file(&dest_entry, &mut contents).await?;
-                                    ensure!(
-                                        copied == *id,
-                                        "Git file identity changed at {source_entry:?}"
-                                    );
-                                    self.files.insert(id.clone());
-                                }
-                            }
-                            TreeValue::Symlink(id) => {
-                                if !self.symlinks.contains(id) {
-                                    let target = self
-                                        .source
-                                        .read_symlink(&source_entry, id)
-                                        .await
-                                        .with_context(|| {
-                                            format!("reading symlink {id} at {source_entry:?}")
-                                        })?;
-                                    let copied =
-                                        self.dest.write_symlink(&dest_entry, &target).await?;
-                                    ensure!(
-                                        copied == *id,
-                                        "Git symlink identity changed at {source_entry:?}"
-                                    );
-                                    self.symlinks.insert(id.clone());
-                                }
-                            }
-                            // A gitlink refers to a commit in a different Git
-                            // repository, not this native commit parent graph.
-                            TreeValue::GitSubmodule(_) => {}
-                        }
-                    }
-                    pending.push(TreeVisit::Write(dest_path, id, tree));
-                    pending.extend(children.into_iter().rev());
-                }
-                TreeVisit::Write(path, id, tree) => {
-                    let copied = self.dest.write_tree(&path, &tree).await?;
-                    ensure!(copied == id, "Git tree identity changed at {path:?}");
-                    active.remove(&id);
-                    self.trees.insert(id);
-                }
-            }
-        }
-        Ok(())
-    }
 }
