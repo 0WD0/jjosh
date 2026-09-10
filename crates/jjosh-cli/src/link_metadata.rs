@@ -1,7 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
 
-use anyhow::{Context, anyhow};
-use josh_core::filter::{Filter, tree};
+use anyhow::Context;
+use anyhow::anyhow;
+use jj_lib::object_id::ObjectId as _;
+use josh_core::filter::Filter;
+use josh_core::filter::tree;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LinkMode {
@@ -70,6 +77,45 @@ pub(crate) fn find_link_files(
     Ok(links)
 }
 
+/// Resolve link configuration independently of conflicts in ordinary project files.
+pub(crate) fn find_native_link_files(
+    odb: &impl gix_object::Find,
+    commit: &jj_lib::commit::Commit,
+) -> anyhow::Result<Vec<(PathBuf, Filter)>> {
+    if let Some(id) = commit.tree_ids().as_resolved() {
+        return find_link_files(odb, gix_hash::ObjectId::try_from(id.as_bytes())?);
+    }
+    let mut terms = HashMap::new();
+    let mut paths = BTreeSet::new();
+    for id in commit.tree_ids().iter() {
+        if terms.contains_key(id) {
+            continue;
+        }
+        let links: BTreeMap<_, _> =
+            find_link_files(odb, gix_hash::ObjectId::try_from(id.as_bytes())?)?
+                .into_iter()
+                .collect();
+        paths.extend(links.keys().cloned());
+        terms.insert(id.clone(), links);
+    }
+    let mut links = Vec::new();
+    for path in paths {
+        let value = commit.tree_ids().map(|id| terms[id].get(&path).copied());
+        let resolved = value
+            .resolve_trivial(jj_lib::merge::SameChange::Accept)
+            .ok_or_else(|| {
+                anyhow!(
+                    "Resolve conflicted link configuration at '{}'",
+                    path.display()
+                )
+            })?;
+        if let Some(filter) = resolved {
+            links.push((path, *filter));
+        }
+    }
+    Ok(links)
+}
+
 /// Write a compatible `.link.josh` marker without creating a commit or materializing contents.
 pub(crate) fn prepare_link_add(
     transaction: &josh_core::cache::Transaction,
@@ -107,39 +153,6 @@ pub(crate) fn prepare_link_add(
         .with_context(|| format!("Failed to insert link metadata '{}'", marker.display()))
 }
 
-/// Export existing contents through the inverse source filter, or return `None` if absent.
-pub(crate) fn export_link_source(
-    transaction: &josh_core::cache::Transaction,
-    head_commit: gix_hash::ObjectId,
-    path: &Path,
-    filter: &str,
-) -> anyhow::Result<Option<gix_hash::ObjectId>> {
-    let normalized_path = path
-        .to_str()
-        .ok_or_else(|| anyhow!("Link path is not valid UTF-8: '{}'", path.display()))?
-        .trim_matches('/');
-    if normalized_path.is_empty() {
-        return Err(anyhow!("Path cannot be empty"));
-    }
-
-    let path_filter = Filter::new().subdir(normalized_path);
-    let filter_obj = josh_core::filter::parse(filter)
-        .with_context(|| format!("Failed to parse filter '{filter}'"))?;
-    let combined_filter = path_filter
-        .export()?
-        .exclude(Filter::new().file(".link.josh"))
-        .chain(
-            josh_core::filter::invert(filter_obj)
-                .with_context(|| format!("Filter '{filter}' has no inverse"))?,
-        );
-    let exported_commit = josh_core::filter_commit(transaction, combined_filter, head_commit)
-        .context("Failed to export existing link contents")?;
-    Ok(
-        (exported_commit != gix_hash::ObjectId::null(gix_hash::Kind::Sha1))
-            .then_some(exported_commit),
-    )
-}
-
 /// A link export ready to push to its configured destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PreparedLinkPush {
@@ -170,7 +183,7 @@ pub(crate) fn prepare_link_push(
         .iter()
         .find(|(candidate, _)| candidate == Path::new(normalized_path))
         .ok_or_else(|| anyhow!("No link found at path '{}'", path.display()))?;
-    link_file
+    let source_remote = link_file
         .get_meta("remote")
         .ok_or_else(|| anyhow!("Link file missing 'remote' metadata"))?;
     let configured_target = link_file
@@ -183,6 +196,25 @@ pub(crate) fn prepare_link_push(
         .ok_or_else(|| anyhow!("Link file missing 'commit' metadata"))?
         .parse::<gix_hash::ObjectId>()
         .context("Link file contains an invalid commit ID")?;
+    // Fetch does not rewrite the versioned marker. Reverse filtering still
+    // needs the latest explicitly observed source context to retain content
+    // outside the projection, without querying the network during push.
+    let original_target = if let Some(branch) = link_file
+        .get_meta("source-branch")
+        .filter(|branch| branch != "pinned")
+    {
+        let reference = crate::link_refs::push_tracking_ref(
+            transaction,
+            &source_remote,
+            &format!("refs/heads/{branch}"),
+        )
+        .map_err(|err| anyhow!("Cannot identify source observation: {err:?}"))?;
+        transaction
+            .resolve_ref(&reference)?
+            .unwrap_or(original_target)
+    } else {
+        original_target
+    };
     let source_filter = link_file.peel();
     let old_filtered_commit = josh_core::filter_commit(transaction, source_filter, original_target)
         .context("Failed to filter the pinned link commit")?;

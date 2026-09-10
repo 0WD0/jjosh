@@ -1,5 +1,6 @@
 mod interop;
 mod link;
+mod link_fetch;
 mod link_metadata;
 mod link_refs;
 mod native;
@@ -39,7 +40,6 @@ async fn run_jjosh_command(
 
 fn main() -> std::process::ExitCode {
     CliRunner::init()
-        .add_extra_config(link_refs::default_config())
         .name("jjosh")
         .version(env!("CARGO_PKG_VERSION"))
         .add_subcommand(run_jjosh_command)
