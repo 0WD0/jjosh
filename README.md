@@ -363,7 +363,7 @@ jjosh -R combined new @ ebox/workspace/default ekp/workspace/default \
 
 导入读取固定 operation 的当前 view 和所需父历史，包括未发布的 change、空提交、有序 merge 父边、当前 divergence、冲突引用的正负项，以及原生冲突树和标签。不导入旧 operation/evolution 历史；来源须先协调多个 operation heads。未记录的磁盘修改不包含在输入中。只读捕获不依赖源索引，也不会为读取而补造旧 Git commit 的 jj 身份。
 
-NAME 只允许 ASCII 字母、数字、`-`、`_`。本地书签和现有 tag 变为 `NAME/原名`，远端观测变为 `NAME-原远端`，来源 workspace 的选择成为 `NAME/workspace/工作区名` 书签，不伪装成已挂载的目标 workspace。已占用的目录和命名空间会被拒绝。多个输入在一个 jj 事务中发布，不自动选择 checkout 或 rebase 策略；目标自身的工作文件按正常 jj 命令先快照。
+NAME 只允许 ASCII 字母、数字、`-`、`_`。本地书签和现有 tag 变为 `NAME/原名`，远端观测变为 `NAME-原远端`。来源 `@git` 只是其本地 Git backend 的观测：与本地引用相同的项不重复导入，不同的项仍保留。来源 workspace 的选择成为 `NAME/workspace/工作区名` 书签；它们是选择组合入口的普通书签，不是已挂载的 workspace，组合后可按需删除。已占用的目录和命名空间会被拒绝。多个输入在一个 jj 事务中发布，不自动选择 checkout 或 rebase 策略；目标自身的工作文件按正常 jj 命令先快照。
 
 ### 获取上游更新和外部贡献
 
@@ -404,10 +404,11 @@ jjosh -R combined native push ebox --remote review --branch alternate -r my-chan
 
 ### 原生状态、兼容性与边界
 
-- 远端观测和对应记录使用普通 jj remote bookmarks。native 命令通过 jj 原有的 Git export 同步本次更新的远端引用；不自动导出其他本地书签，也不替非 colocated 仓库导入无关的 Git 变化。
-- `jjosh-native-NAME` 是导入／发布对应记录的保留 remote 名称，不配置外部 URL，也不要把它的内部书签跟踪为本地书签。名称遵循 jj 与 Git 的正常引用映射；原始内容由私有 Git 保留引用保持可读。
-- `op restore` 遵循普通 jj 行为：colocated 仓库自动同步；非 colocated 仓库只恢复 jj view，可用 `git export` 将恢复结果写回本地 Git refs。直接运行 `git import` 会重新导入尚未回退的 Git refs。没有 native 专属的回滚规则。
-- native 操作不再新增 operation-store 格式。早先使用 `simple_op_store_native_remotes` 的实验仓库不自动转换，应保留原仓库并从来源重新导入；不要手改格式标记。已有 sparse 格式要求不受影响。
+- 只有来源分支观测使用普通 jj remote bookmarks。native fetch 通过 jj 原有的 Git export 同步本次更新的观测；不自动导出其他本地书签，也不替非 colocated 仓库导入无关的 Git 变化。
+- 导入／发布的提交对应关系存于 `refs/jjosh/native/NAME/` 私有 Git refs，不注册 remote，不生成 `origin/<hash>` 书签，不参与书签跟踪。初次导入只记录覆盖源图的边界，沿父边恢复其余对应关系；部分发布会裁剪父历史，仍须记录新输出与原提交的对应关系。私有 refs 同时保活两边的 Git 对象，不是可任意清除的 Josh 缓存。
+- `op restore` 对书签和工作区遵循普通 jj 行为：colocated 仓库自动同步；非 colocated 仓库可用 `git export` 将恢复结果写回 Git refs。不可变提交的转换记录和已发生的远端发布不随 `op restore` 撤销；它们不自动恢复任何工作头或分支观测。重写本地书签不会把旧版本的转换记录改指向新版本。
+- 旧版 `jjosh-native-NAME` 伪远端使用 `jjosh native migrate` 显式迁移：先写私有对应关系，再通过普通 jj Git export 删除旧引用，不改写提交图或工作文件，并移除与本地引用相同的 `NAME-git` 观测。冲突记录或被跟踪的内部书签须先解决／取消跟踪。恢复到迁移前的 operation 后，可再次运行迁移。来源或旧 bundle 含这类记录时，先迁移来源并重新导出。
+- native 操作不新增 operation-store 格式。更早使用 `simple_op_store_native_remotes` 的实验仓库仍需保留原仓库并从来源重新导入；不要手改格式标记。已有 sparse 格式要求不受影响。
 - 当前只支持 SHA-1 Git backend 和完整来源仓库的顶层重定位。目录／父 ID 变换会使旧签名失效；映射提交移除并报告签名，原始边界对象保留。后端不能保留原生字段时拒绝导入。
 - gitlink 保留外部 commit ID，不递归导入子模块，也不自动展开文件。浅克隆、缺失对象和旧提交缺失原生身份需先在来源中明确处理。
 - 不自动重写来源内部的 `.link.josh`、构建配置或共享依赖布局。工作区的物理布局继续由 native sparse 管理。
@@ -415,7 +416,7 @@ jjosh -R combined native push ebox --remote review --branch alternate -r my-chan
 
 ### 可选的离线状态包
 
-无法直接访问来源时，仍可使用 `native export FILE`、`native inspect FILE`，以及 `native import --source NAME=FILE`。包是包含 `manifest.json` 和自包含 Git pack 的版本化 TAR，保留当前原生状态及对应记录需要的原始对象。导出不覆盖已有文件，inspect 验证格式和闭包但不认证发布者。Bundle 是运输选项，不是直接导入或持续同步的前置步骤。
+无法直接访问来源时，仍可使用 `native export FILE`、`native inspect FILE`，以及 `native import --source NAME=FILE`。包是包含 `manifest.json` 和自包含 Git pack 的版本化 TAR，保留当前原生修改图、引用和树对象。将一个 monorepo 整体作为 NAME 导入时，会建立 NAME 的新对应关系；不会复制来源内部项目的私有转换记录或发布 lease，也不会自动启用其内部项目的 native 命令。导出不覆盖已有文件，inspect 验证格式和闭包但不认证发布者。Bundle 是原生图的运输选项，不是整个仓库运行状态的备份；完整备份须保留 jj metadata 和 Git backend。
 
 ## 整体迁移本地修改图
 
