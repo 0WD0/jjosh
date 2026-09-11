@@ -738,22 +738,22 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
         "--source",
         &format!("alpha={}", source.path.display()),
     ]);
-    let scoped = "\"main#alpha\"";
+    let scoped = "main#alpha";
     assert_eq!(mono.change_id(scoped), source.change_id("main"));
     assert_eq!(
-        mono.log("\"v1#alpha\"", "commit_id"),
+        mono.log("v1#alpha", "commit_id"),
         mono.log(scoped, "commit_id")
     );
     assert_eq!(
-        mono.log("\"workspace/default#alpha\"", "commit_id"),
+        mono.log("workspace/default#alpha", "commit_id"),
         mono.log(scoped, "commit_id")
     );
     assert_eq!(
-        mono.log("\"main#alpha\"@alpha-origin", "commit_id"),
+        mono.log("main#alpha@alpha-origin", "commit_id"),
         mono.log(scoped, "commit_id")
     );
     assert_eq!(
-        mono.log("\"v1#alpha\"@alpha-origin", "commit_id"),
+        mono.log("v1#alpha@alpha-origin", "commit_id"),
         mono.log(scoped, "commit_id")
     );
     assert_eq!(mono.log("main", "commit_id"), root_main);
