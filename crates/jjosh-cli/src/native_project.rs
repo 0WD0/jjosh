@@ -74,15 +74,25 @@ pub(crate) struct PushArgs {
     force: bool,
 }
 
-pub(crate) fn validate_project(project: &str) -> Result<()> {
+pub(crate) fn parse_project(name: &str) -> Result<String> {
+    let name = jj_lib::revset::parse_symbol(name)
+        .map_err(|err| anyhow::anyhow!("Invalid project name: {}", err.kind()))?;
     ensure!(
-        !project.is_empty()
-            && project
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'),
-        "Project names must contain only ASCII letters, digits, '-' or '_'"
+        !name.contains('#'),
+        "Project names cannot contain '#'; it separates NAME#PROJECT"
     );
-    Ok(())
+    ensure!(
+        !name.contains('/'),
+        "Project names cannot contain '/'; use --mount for the dest path"
+    );
+    gix_validate::reference::name_partial(name.as_bytes().into()).map_err(|err| {
+        anyhow::anyhow!("Project name {name:?} is not a valid Git ref component: {err}")
+    })?;
+    Ok(name)
+}
+
+pub(crate) fn validate_project(name: &str) -> Result<()> {
+    parse_project(name).map(|_| ())
 }
 
 pub(crate) fn project_ref_prefix(project: &str) -> String {

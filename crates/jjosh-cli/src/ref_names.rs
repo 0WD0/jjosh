@@ -21,8 +21,8 @@ pub(crate) fn belongs_to_project(project: &str, name: &str) -> bool {
 }
 
 pub(crate) fn observation_remote(project: &str, label: &str) -> anyhow::Result<String> {
-    crate::native_project::validate_project(project)?;
-    crate::native_project::validate_project(label)?;
+    let project = crate::native_project::parse_project(project)?;
+    let label = crate::native_project::parse_project(label)?;
     Ok(format!("{project}-{label}"))
 }
 
@@ -32,9 +32,8 @@ pub(crate) fn project_from_path(path: &Path) -> anyhow::Result<String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("Link path must end with a project name"))?;
-    crate::native_project::validate_project(name)
-        .with_context(|| format!("Link path {} is not a valid project name", path.display()))?;
-    Ok(name.to_owned())
+    crate::native_project::parse_project(name)
+        .with_context(|| format!("Link path {} is not a valid project name", path.display()))
 }
 
 pub(crate) fn project_from_link(
@@ -42,9 +41,8 @@ pub(crate) fn project_from_link(
     link: &josh_core::filter::Filter,
 ) -> anyhow::Result<String> {
     if let Some(name) = link.get_meta("name") {
-        crate::native_project::validate_project(&name)
-            .with_context(|| format!("Link {} has an invalid name", path.display()))?;
-        return Ok(name);
+        return crate::native_project::parse_project(&name)
+            .with_context(|| format!("Link {} has an invalid name", path.display()));
     }
     project_from_path(path)
 }

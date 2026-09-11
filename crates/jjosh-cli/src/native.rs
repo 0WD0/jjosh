@@ -131,21 +131,23 @@ async fn run_import(
         let (name, path) = value
             .split_once('=')
             .ok_or_else(|| user_error("Expected --source NAME=PATH"))?;
-        crate::native_project::validate_project(name)
+        let name = crate::native_project::parse_project(name)
             .map_err(|err| user_error_with_message("Invalid native project name", err))?;
-        if path.is_empty() || !names.insert(name.to_owned()) {
+        if path.is_empty() || !names.insert(name.clone()) {
             return Err(user_error(
                 "Source paths must not be empty and project names must be unique",
             ));
         }
-        specifications.push((name.to_owned(), command.cwd().join(path)));
+        specifications.push((name, command.cwd().join(path)));
     }
     let mut mounts = HashMap::new();
     for value in args.mount {
         let (name, path) = value
             .split_once('=')
             .ok_or_else(|| user_error("Expected --mount NAME=DEST"))?;
-        if !names.contains(name) {
+        let name = crate::native_project::parse_project(name)
+            .map_err(|err| user_error_with_message("Invalid native project name", err))?;
+        if !names.contains(&name) {
             return Err(user_error(format!(
                 "Mount {name:?} does not match a --source project"
             )));
@@ -153,7 +155,7 @@ async fn run_import(
         let mount = crate::native_project::parse_mount(path).map_err(|err| {
             user_error_with_message(format!("Invalid mount for native project {name}"), err)
         })?;
-        if mounts.insert(name.to_owned(), mount).is_some() {
+        if mounts.insert(name.clone(), mount).is_some() {
             return Err(user_error(format!("Duplicate mount for project {name:?}")));
         }
     }
