@@ -59,6 +59,7 @@ impl NativeRepo {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("LANG", "C.UTF-8")
+            .env("JOSH_EXPERIMENTAL_FEATURES", "1")
             .output()
             .unwrap_or_else(|err| panic!("failed to run jjosh {args:?}: {err}"))
     }
@@ -1250,4 +1251,157 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
             "app/main@app-upstream\napp/topic@app-review\n"
         );
     }
+}
+
+#[test]
+fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
+    let source = NativeRepo::new();
+    source.write("value.txt", "base\n");
+    source.jj(&["describe", "-m", "base"]);
+    source.bookmark("main");
+    source.jj(&["new", "-m", "topic"]);
+    source.write("value.txt", "topic\n");
+    source.jj(&["describe", "-m", "topic"]);
+    source.bookmark("topic");
+    source.jj(&["git", "export"]);
+    let git_dir = source.path.join(".jj/repo/store/git");
+
+    let dest = NativeRepo::new();
+    dest.jj(&["config", "set", "--repo", "jjosh.demo-scope-suffix", "true"]);
+    let missing = dest.unchecked(&[
+        "native",
+        "fetch",
+        "jj",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "local",
+    ]);
+    assert!(!missing.status.success());
+    dest.jj(&[
+        "link",
+        "add",
+        "jj",
+        git_dir.to_str().unwrap(),
+        "--target",
+        "main",
+    ]);
+    let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
+    assert_eq!(
+        dest.change_id("main#jj@jj-upstream"),
+        source.change_id("main")
+    );
+
+    dest.jj(&[
+        "native",
+        "fetch",
+        "jj",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "local",
+    ]);
+    let fetched = "topic#jj@jj-local";
+    assert_eq!(dest.change_id(fetched), source.change_id("topic"));
+    assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
+    assert_eq!(
+        dest.jj(&["file", "show", "-r", fetched, "jj/value.txt"]),
+        "topic\n"
+    );
+    assert!(dest.log("divergent()", "commit_id").is_empty());
+
+    let first = dest.log(fetched, "commit_id");
+    dest.jj(&[
+        "native",
+        "fetch",
+        "jj",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "local",
+    ]);
+    assert_eq!(dest.log(fetched, "commit_id"), first);
+
+    source.write("value.txt", "amended\n");
+    source.jj(&["describe", "-m", "amended topic"]);
+    dest.jj(&[
+        "native",
+        "fetch",
+        "jj",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "local",
+    ]);
+    assert_eq!(dest.change_id(fetched), source.change_id("topic"));
+    assert_ne!(dest.log(fetched, "commit_id"), first);
+    assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
+    assert_eq!(
+        dest.jj(&["file", "show", "-r", fetched, "jj/value.txt"]),
+        "amended\n"
+    );
+}
+
+#[test]
+fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
+    let source = NativeRepo::new();
+    source.write("value.txt", "base\n");
+    source.jj(&["describe", "-m", "base"]);
+    source.bookmark("main");
+    source.jj(&["git", "export"]);
+    let git_dir = source.path.join(".jj/repo/store/git");
+
+    let dest = NativeRepo::new();
+    dest.jj(&["config", "set", "--repo", "jjosh.demo-scope-suffix", "true"]);
+    dest.jj(&[
+        "link",
+        "add",
+        "jj",
+        git_dir.to_str().unwrap(),
+        "--target",
+        "main",
+    ]);
+    let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
+    let main_change = source.change_id("main");
+
+    source.jj(&["new", "-r", "main", "-m", "tmp"]);
+    source.write("value.txt", "drifted\n");
+    source.jj(&["squash", "--into", "main", "--use-destination-message"]);
+    source.jj(&["new", "-r", "main", "-m", "topic"]);
+    source.write("value.txt", "topic\n");
+    source.jj(&["describe", "-m", "topic"]);
+    source.bookmark("topic");
+
+    dest.jj(&[
+        "native",
+        "fetch",
+        "jj",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "topic",
+        "--remote",
+        "local",
+    ]);
+    let fetched = "topic#jj@jj-local";
+    assert_eq!(dest.change_id(fetched), source.change_id("topic"));
+    assert_eq!(dest.change_id(&format!("{fetched}-")), main_change);
+    assert_ne!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
+    assert_eq!(dest.log("main#jj@jj-upstream", "commit_id"), linked_main);
+    assert_eq!(
+        dest.jj(&["file", "show", "-r", &format!("{fetched}-"), "jj/value.txt"]),
+        "drifted\n"
+    );
+    assert_eq!(
+        dest.jj(&["file", "show", "-r", fetched, "jj/value.txt"]),
+        "topic\n"
+    );
+    assert!(
+        dest.log("divergent()", "change_id")
+            .contains(main_change.trim()),
+        "source main and linked main are two versions of one change"
+    );
 }

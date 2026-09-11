@@ -25,6 +25,8 @@ pub(crate) struct Imported {
     pub commits: Vec<Commit>,
     pub stripped_signatures: usize,
     pub ids: HashMap<CommitId, CommitId>,
+    /// Source commits reused by change ID instead of rewritten.
+    pub grafts: Vec<(CommitId, CommitId)>,
 }
 
 enum CommitVisit {
@@ -92,6 +94,7 @@ pub(crate) async fn import_source(
     let mut origins = HashMap::new();
     let mut trees = HashMap::new();
     let mut commits = Vec::new();
+    let mut grafts = Vec::new();
     let mut stripped_signatures = 0;
     // Enter/exit DFS visits each commit and parent edge once. It is iterative
     // so a long history does not consume the Rust call stack.
@@ -101,15 +104,23 @@ pub(crate) async fn import_source(
                 if ids.contains_key(&id) {
                     continue;
                 }
-                ensure!(
-                    active.insert(id.clone()),
-                    "cyclic native parent graph at {id}"
-                );
                 let commit = source
                     .commits
                     .get(&id)
                     .with_context(|| format!("missing source {scope} native commit {id}"))?
                     .clone();
+                if let Some(existing) =
+                    crate::native_project::existing_same_project_version(dest, scope, &commit)
+                        .await?
+                {
+                    ids.insert(id.clone(), existing.clone());
+                    grafts.push((id, existing));
+                    continue;
+                }
+                ensure!(
+                    active.insert(id.clone()),
+                    "cyclic native parent graph at {id}"
+                );
                 ensure!(
                     !commit.parents.is_empty(),
                     "non-root native commit {id} has no parents"
@@ -189,6 +200,7 @@ pub(crate) async fn import_source(
         commits,
         stripped_signatures,
         ids,
+        grafts,
     })
 }
 

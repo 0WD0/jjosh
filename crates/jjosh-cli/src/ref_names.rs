@@ -20,11 +20,7 @@ pub(crate) fn local_name(project: &str, name: &str, suffix: bool) -> String {
     }
 }
 
-pub(crate) fn unscoped_name<'a>(
-    project: &str,
-    name: &'a str,
-    suffix: bool,
-) -> Option<&'a str> {
+pub(crate) fn unscoped_name<'a>(project: &str, name: &'a str, suffix: bool) -> Option<&'a str> {
     // Native project names cannot contain '#' or '/'. The name itself is
     // opaque: preserve it, including slashes and any earlier '#' characters.
     if suffix {
