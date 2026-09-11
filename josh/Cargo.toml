@@ -7,6 +7,7 @@ members = [
     "josh-memodb",
     "josh-cli",
     "josh-filter",
+    "josh-view",
     "josh-gix-ext",
     "josh-git-serde",
     "josh-graphql",
@@ -74,6 +75,7 @@ gix-zlib = "0.1"
 gix-config = "0.59.0"
 libc = "0.2.189"
 regex = "1.13.1"
+quick_cache = "0.7.0"
 regex-syntax = "0.8.11"
 serde = { version = "1.0.229", features = ["std", "derive"] }
 serde_json = "1.0.151"
@@ -106,6 +108,7 @@ graphql_client_codegen = { version = "^0.16.0" }
 
 axum-cgi = { path = "axum-cgi", version = "26.8.28" }
 josh-filter = { path = "josh-filter", version = "26.8.28" }
+josh-view = { path = "josh-view", version = "26.8.28" }
 josh-gix-ext = { path = "josh-gix-ext", version = "26.8.28" }
 josh-git-serde = { path = "josh-git-serde", version = "26.8.28" }
 josh-changes = { path = "josh-changes", version = "26.8.28" }
