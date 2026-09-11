@@ -341,8 +341,8 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
             let remote = crate::link_fetch::remote_name(&path, &args.source_remote)?;
             if branch != "pinned" {
                 let scope = crate::link_refs::source_name(&path)?.replace("%2F", "/");
-                let suffix = crate::ref_names::use_scope_suffix(tx.settings())
-                    .map_err(user_error)?;
+                let suffix =
+                    crate::ref_names::use_scope_suffix(tx.settings()).map_err(user_error)?;
                 let name: jj_lib::ref_name::RefNameBuf =
                     crate::ref_names::local_name(&scope, &branch, suffix).into();
                 tx.repo_mut().set_remote_bookmark(

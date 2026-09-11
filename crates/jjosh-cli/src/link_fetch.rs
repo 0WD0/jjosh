@@ -57,8 +57,8 @@ pub(crate) async fn fetch(
     let project = path
         .to_str()
         .ok_or_else(|| user_error("Link path must be UTF-8"))?;
-    let suffix = crate::ref_names::use_scope_suffix(repo.base_repo().settings())
-        .map_err(user_error)?;
+    let suffix =
+        crate::ref_names::use_scope_suffix(repo.base_repo().settings()).map_err(user_error)?;
     let url = link
         .get_meta("remote")
         .ok_or_else(|| user_error("Link has no source URL"))?;
@@ -221,27 +221,23 @@ pub(crate) async fn fetch(
         )
         .await
         .map_err(user_error)?;
-        crate::native_import::import_source(&source, repo, project, known)
+        let imported = crate::native_import::import_source(&source, repo, project, known)
             .await
-            .map_err(user_error)?
-            .ids
+            .map_err(user_error)?;
+        crate::native_project::record_imported_boundaries(
+            transaction,
+            project,
+            &imported,
+            received.iter().map(|(_, _, _, raw, _)| raw),
+        )
+        .map_err(user_error)?;
+        imported.ids
     } else {
         HashMap::new()
     };
-    for (kind, name, _, raw, new_boundary) in &received {
+    for (kind, name, _, raw, _new_boundary) in &received {
         let canonical = if native {
-            let canonical = ids[raw].clone();
-            if *new_boundary {
-                crate::native_project::record_anchor(
-                    transaction,
-                    project,
-                    "origin",
-                    raw,
-                    &canonical,
-                )
-                .map_err(user_error)?;
-            }
-            canonical
+            ids[raw].clone()
         } else {
             let raw = gix_hash::ObjectId::try_from(raw.as_bytes()).map_err(user_error)?;
             let filtered =
@@ -319,8 +315,7 @@ pub(crate) async fn fetch(
         if symbol.remote != remote {
             return false;
         }
-        let source_name =
-            crate::ref_names::unscoped_name(&scope, symbol.name.as_str(), suffix);
+        let source_name = crate::ref_names::unscoped_name(&scope, symbol.name.as_str(), suffix);
         source_name.is_some_and(|name| selected(kind, name))
     })
     .await?;

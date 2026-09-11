@@ -18,6 +18,7 @@ use jj_lib::backend::TreeValue;
 use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
 use jj_lib::conflict_labels::ConflictLabels;
+use jj_lib::index::ResolvedChangeState;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
@@ -139,6 +140,29 @@ pub(crate) fn record_anchor(
     Ok(())
 }
 
+pub(crate) fn record_imported_boundaries<'a>(
+    transaction: &Transaction,
+    project: &str,
+    imported: &crate::native_import::Imported,
+    tips: impl IntoIterator<Item = &'a CommitId>,
+) -> Result<()> {
+    let mut grafted = HashSet::new();
+    for (raw, canonical) in &imported.grafts {
+        record_anchor(transaction, project, "graft", raw, canonical)?;
+        grafted.insert(raw.clone());
+    }
+    for raw in tips {
+        if grafted.contains(raw) {
+            continue;
+        }
+        let Some(canonical) = imported.ids.get(raw) else {
+            continue;
+        };
+        record_anchor(transaction, project, "origin", raw, canonical)?;
+    }
+    Ok(())
+}
+
 /// Lossless imported ancestry can be recovered from pairs of graph roots.
 /// Published projections are explicit boundaries: their parent graphs may have
 /// pruned unrelated changes and must never be zipped with the canonical graph.
@@ -175,25 +199,30 @@ pub(crate) async fn anchors(
         let canonical = CommitId::from_bytes(canonical.as_bytes());
         match kind {
             "origin" => pending.push((raw, canonical.clone())),
-            "published" => {
+            "published" | "graft" => {
                 ids.insert(raw, canonical.clone());
             }
             _ => anyhow::bail!("Unknown native correspondence kind: {kind}"),
         }
         Ok(())
     })?;
+    let named = |name: &str| crate::ref_names::belongs_to_project(project, name, suffix);
     ensure!(
         !pending.is_empty()
             || ids.len() > 1
             || repo
                 .view()
                 .local_bookmarks()
-                .any(|(name, _)| crate::ref_names::belongs_to_project(
-                    project,
-                    name.as_str(),
-                    suffix
-                )),
-        "Project {project:?} has no native history boundaries; import it first"
+                .any(|(name, _)| named(name.as_str()))
+            || repo
+                .view()
+                .local_tags()
+                .any(|(name, _)| named(name.as_str()))
+            || repo
+                .view()
+                .all_remote_bookmarks()
+                .any(|(symbol, _)| named(symbol.name.as_str())),
+        "Project {project:?} is not present; import or link it first"
     );
     while let Some((raw, canonical)) = pending.pop() {
         if let Some(previous) = ids.get(&raw) {
@@ -225,6 +254,65 @@ pub(crate) async fn anchors(
         ids.insert(raw, canonical);
     }
     Ok(ids)
+}
+
+/// After prefix/filter, a dest commit is the same version iff the project tree
+/// and preserved metadata match. Parents are remapped, so they are not compared.
+pub(crate) async fn existing_same_project_version(
+    repo: &dyn Repo,
+    project: &str,
+    source: &backend::Commit,
+) -> Result<Option<CommitId>> {
+    let Some(targets) = repo.resolve_change_id(&source.change_id).await? else {
+        return Ok(None);
+    };
+    let component = RepoPathComponent::new(project)?;
+    let mut matched: Option<CommitId> = None;
+    for (id, state) in &targets.targets {
+        if *state != ResolvedChangeState::Visible {
+            continue;
+        }
+        let commit = repo.store().get_commit_async(id).await?;
+        let mut has_project = false;
+        for tree_id in commit.tree_ids().iter() {
+            let tree = repo
+                .store()
+                .backend()
+                .read_tree(RepoPath::root(), tree_id)
+                .await?;
+            match tree.value(component) {
+                Some(TreeValue::Tree(_)) => has_project = true,
+                Some(_) => {
+                    anyhow::bail!("Project {project:?} is not a directory in {}", commit.id())
+                }
+                None => {}
+            }
+        }
+        if !has_project {
+            continue;
+        }
+        if commit.description() != source.description
+            || commit.author() != &source.author
+            || commit.committer() != &source.committer
+        {
+            continue;
+        }
+        let projected = project_tree(&commit, project).await?;
+        if projected.tree_ids() != &source.root_tree {
+            continue;
+        }
+        if let Some(previous) = &matched {
+            ensure!(
+                previous == id,
+                "Change {} has multiple matching {project} versions {} and {}",
+                source.change_id.hex(),
+                previous.hex(),
+                id.hex()
+            );
+        }
+        matched = Some(id.clone());
+    }
+    Ok(matched)
 }
 
 pub(crate) async fn inherit_other_projects(
@@ -277,7 +365,7 @@ pub(crate) async fn inherit_other_projects(
     .await?)
 }
 
-async fn project_tree(commit: &Commit, project: &str) -> Result<MergedTree> {
+pub(crate) async fn project_tree(commit: &Commit, project: &str) -> Result<MergedTree> {
     let store = commit.store();
     let component = RepoPathComponent::new(project)?;
     let mut terms = HashMap::new();
@@ -575,16 +663,13 @@ pub(crate) async fn fetch(
             state: previous.state,
         },
     );
-    for raw in target.as_merge().iter().flatten() {
-        record_anchor(
-            &transaction,
-            &args.project,
-            "origin",
-            raw,
-            &imported.ids[raw],
-        )
-        .map_err(user_error)?;
-    }
+    record_imported_boundaries(
+        &transaction,
+        &args.project,
+        &imported,
+        target.as_merge().iter().flatten(),
+    )
+    .map_err(user_error)?;
     // Fetch records observations without silently changing local bookmarks,
     // selecting a revision, or imposing a rebase/merge policy.
     for id in target_mapped.as_merge().iter().flatten() {
