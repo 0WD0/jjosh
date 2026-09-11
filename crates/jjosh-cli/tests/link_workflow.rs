@@ -917,6 +917,11 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     jjosh(&work, &["describe", "-m", "local fork"]);
     jjosh(&work, &["bookmark", "set", "main"]);
     let client = create_client(temp.path(), false);
+    git(&upstream, &[
+        "tag",
+        "v1",
+    ]);
+    git(&upstream, &["push", "origin", "refs/tags/v1"]);
     jjosh(
         &client,
         &["config", "set", "--repo", "jjosh.demo-scope-suffix", "true"],
@@ -958,6 +963,12 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
         ],
     );
     assert_eq!(commit_id(&client, "\"main#app\""), fork);
+    jjosh(&client, &["link", "update", "app", "--tag", "v1"]);
+    assert!(!commit_id(
+        &client,
+        "remote_tags(exact:\"v1#app\", exact:\"app-upstream\")"
+    )
+    .is_empty());
     assert_eq!(
         jjosh(
             &client,

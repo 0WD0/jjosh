@@ -269,16 +269,10 @@ pub(crate) async fn fetch(
         (GitRefKind::Tag, jj_lib::git::REMOTE_TAG_REF_NAMESPACE),
     ] {
         let remote_prefix = format!("{prefix}{}/", remote.as_str());
-        let scope_prefix = format!("{scope}/");
-        let scope_suffix = format!("#{scope}");
         transaction
             .for_each_ref_prefixed(&remote_prefix, |name, old| {
                 let relative = &name[remote_prefix.len()..];
-                let source_name = if suffix {
-                    relative.strip_suffix(&scope_suffix)
-                } else {
-                    relative.strip_prefix(&scope_prefix)
-                };
+                let source_name = crate::ref_names::unscoped_name(&scope, relative, suffix);
                 if source_name.is_some_and(|source| selected(kind, source))
                     && !mapped.contains_key(name)
                 {
@@ -321,17 +315,12 @@ pub(crate) async fn fetch(
         })
         .map_err(user_error)?;
     transaction.flush_mem_odb().map_err(user_error)?;
-    let scope_prefix = format!("{scope}/");
-    let scope_suffix = format!("#{scope}");
     jj_lib::git::import_fetched_refs(repo, options, |kind, symbol| {
         if symbol.remote != remote {
             return false;
         }
-        let source_name = if suffix {
-            symbol.name.as_str().strip_suffix(&scope_suffix)
-        } else {
-            symbol.name.as_str().strip_prefix(&scope_prefix)
-        };
+        let source_name =
+            crate::ref_names::unscoped_name(&scope, symbol.name.as_str(), suffix);
         source_name.is_some_and(|name| selected(kind, name))
     })
     .await?;

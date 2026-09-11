@@ -20,14 +20,21 @@ pub(crate) fn local_name(project: &str, name: &str, suffix: bool) -> String {
     }
 }
 
-pub(crate) fn belongs_to_project(project: &str, name: &str, suffix: bool) -> bool {
+pub(crate) fn unscoped_name<'a>(
+    project: &str,
+    name: &'a str,
+    suffix: bool,
+) -> Option<&'a str> {
     // Native project names cannot contain '#' or '/'. The name itself is
     // opaque: preserve it, including slashes and any earlier '#' characters.
     if suffix {
-        name.rsplit_once('#')
-            .is_some_and(|(_, scope)| scope == project)
+        name.strip_suffix(&format!("#{project}"))
     } else {
         name.strip_prefix(project)
-            .is_some_and(|rest| rest.starts_with('/'))
+            .and_then(|rest| rest.strip_prefix('/'))
     }
+}
+
+pub(crate) fn belongs_to_project(project: &str, name: &str, suffix: bool) -> bool {
+    unscoped_name(project, name, suffix).is_some()
 }
