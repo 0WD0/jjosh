@@ -18,14 +18,18 @@
 use std::iter;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use thiserror::Error;
 
 use crate::file_util;
+use crate::matchers::Matcher;
 use crate::merge::Diff;
 use crate::repo_path::RelativePathParseError;
 use crate::repo_path::RepoPath;
 use crate::repo_path::RepoPathBuf;
+use crate::working_copy_patterns::WorkingCopyPathBuf;
+use crate::working_copy_patterns::WorkingCopyPatterns;
 
 /// An error which occurs when we're parsing paths.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -45,6 +49,9 @@ pub enum UiPathParseError {
     /// Failure to parse a path a relative path inside the repo.
     #[error(transparent)]
     Fs(FsPathParseError),
+    /// A physical path has no unambiguous canonical interpretation.
+    #[error("{0}; use a canonical root: fileset instead")]
+    Mapping(String),
 }
 
 /// Converts `RepoPath`s to and from plain strings as displayed to the user
@@ -62,6 +69,17 @@ pub enum RepoPathUiConverter {
         /// The repository root path.
         base: PathBuf,
     },
+    /// Filesystem coordinates translated using the actual checkout layout.
+    MappedFs {
+        /// The current directory.
+        cwd: PathBuf,
+        /// The physical workspace root.
+        base: PathBuf,
+        /// Actual, not desired, working-copy configuration.
+        patterns: Box<WorkingCopyPatterns>,
+        /// Compiled canonical selection, shared by cloned converters.
+        matcher: Arc<dyn Matcher>,
+    },
     // TODO: Add a no-op variant that uses the internal `RepoPath` representation. Can be useful
     // on a server.
 }
@@ -75,6 +93,25 @@ impl RepoPathUiConverter {
                     .display()
                     .to_string()
             }
+            Self::MappedFs {
+                cwd,
+                base,
+                patterns,
+                matcher,
+            } => {
+                if !matcher.matches(file) {
+                    return format!("root:{}", file.as_internal_file_string());
+                }
+                match patterns.repo_to_wc_with_matcher(file, matcher.as_ref()) {
+                    Ok(Some(path)) => file_util::relative_path(
+                        cwd,
+                        &path.as_repo_path().to_fs_path_unchecked(base),
+                    )
+                    .display()
+                    .to_string(),
+                    _ => format!("root:{}", file.as_internal_file_string()),
+                }
+            }
         }
     }
 
@@ -85,7 +122,7 @@ impl RepoPathUiConverter {
     /// If `before == after`, this is equivalent to `format_file_path()`.
     pub fn format_copied_path(&self, paths: Diff<&RepoPath>) -> String {
         match self {
-            Self::Fs { .. } => {
+            Self::Fs { .. } | Self::MappedFs { .. } => {
                 let paths = paths.map(|path| self.format_file_path(path));
                 collapse_copied_path(paths.as_deref(), std::path::MAIN_SEPARATOR)
             }
@@ -99,7 +136,94 @@ impl RepoPathUiConverter {
     pub fn parse_file_path(&self, input: &str) -> Result<RepoPathBuf, UiPathParseError> {
         match self {
             Self::Fs { cwd, base } => parse_fs_path(cwd, base, input).map_err(UiPathParseError::Fs),
+            Self::MappedFs {
+                cwd,
+                base,
+                patterns,
+                matcher,
+            } => {
+                let path = parse_fs_path(cwd, base, input).map_err(UiPathParseError::Fs)?;
+                patterns
+                    .wc_to_repo_with_matcher(
+                        &WorkingCopyPathBuf::from_repo_path(path),
+                        matcher.as_ref(),
+                    )
+                    .map_err(|err| UiPathParseError::Mapping(err.to_string()))?
+                    .ok_or_else(|| {
+                        UiPathParseError::Mapping(format!(
+                            "Path {input:?} is outside the mapped working copy"
+                        ))
+                    })
+            }
         }
+    }
+
+    /// Physical current directory.
+    pub fn cwd(&self) -> &Path {
+        match self {
+            Self::Fs { cwd, .. } | Self::MappedFs { cwd, .. } => cwd,
+        }
+    }
+
+    /// Physical workspace root.
+    pub fn base(&self) -> &Path {
+        match self {
+            Self::Fs { base, .. } | Self::MappedFs { base, .. } => base,
+        }
+    }
+
+    /// Set the actual layout after a checkout or deferred synchronization.
+    pub fn with_patterns(&self, patterns: WorkingCopyPatterns) -> Self {
+        if patterns.is_identity() {
+            Self::Fs {
+                cwd: self.cwd().to_owned(),
+                base: self.base().to_owned(),
+            }
+        } else {
+            let matcher = Arc::from(patterns.to_matcher());
+            Self::MappedFs {
+                cwd: self.cwd().to_owned(),
+                base: self.base().to_owned(),
+                patterns: Box::new(patterns),
+                matcher,
+            }
+        }
+    }
+
+    /// Reject broad physical patterns whose canonical image is not one prefix.
+    /// Callers can always express the same intent using canonical root filesets.
+    pub fn check_prefix_path(&self, input: &str) -> Result<(), UiPathParseError> {
+        let Self::MappedFs {
+            cwd,
+            base,
+            patterns,
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        let physical = parse_fs_path(cwd, base, input).map_err(UiPathParseError::Fs)?;
+        let canonical = self.parse_file_path(input)?;
+        if patterns.mappings.iter().any(|mapping| {
+            (mapping.destination.as_repo_path() != physical.as_ref()
+                && mapping.destination.as_repo_path().starts_with(&physical))
+                || (mapping.source != canonical && mapping.source.starts_with(&canonical))
+        }) {
+            return Err(UiPathParseError::Mapping(format!(
+                "Path {input:?} spans mapping boundaries"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Physical globs need a matcher image, not substitution of a literal prefix.
+    pub fn check_glob(&self) -> Result<(), UiPathParseError> {
+        if matches!(self, Self::MappedFs { .. }) {
+            return Err(UiPathParseError::Mapping(
+                "Working-copy globs are not supported with path mappings".to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 

@@ -1,0 +1,302 @@
+# josh compose run
+
+`josh compose run` is an experimental `josh` CLI subcommand that runs workspaces in isolated,
+automatically-cached containers. It is used to build the josh binaries and run the integration
+test suite.
+
+> **Note:** `josh compose run` is experimental and requires `JOSH_EXPERIMENTAL_FEATURES=1` to be set
+> in the environment.
+
+## Motivation
+
+A common problem with monorepo builds is that the container context contains the entire repository — thousands of files most builds don't need. This has two consequences:
+
+1. **Fragile caching.** Docker and podman derive cache tags from the context contents. Any file touched anywhere in the repo can break the cache even if the build doesn't use that file.
+2. **Hidden dependencies.** If a build silently reads a file that "happens to be there", it works locally but may break in a clean environment or for another team member.
+
+`josh compose run` addresses both problems by filtering the repository to exactly the files a given workspace needs before any container is involved:
+
+- The filtered tree's git SHA becomes the cache key. Only changes to files actually included in the workspace invalidate the cache.
+- The container sees only what the workspace definition explicitly includes — files outside the workspace are structurally impossible to access.
+- The host working tree is never modified. Artifacts produced by the container are stored in a podman volume and exported back when the run completes.
+
+## Prerequisites
+
+- **podman** installed and on `$PATH`
+- **josh** installed and on `$PATH`:
+- `JOSH_EXPERIMENTAL_FEATURES=1` set in your environment
+
+  ```sh
+  cargo install josh-cli --locked --git https://github.com/josh-project/josh.git
+  ```
+
+## Quick start
+
+All commands are run from the root of the josh repository.
+
+### Run all tests
+
+```sh
+josh compose run
+```
+
+With no arguments, `josh compose run` looks for a `compose.josh` file in the repository root and uses it as the filter. In this repo, `compose.josh` points to `ws/test.josh`, so `josh compose run` runs the full test suite.
+
+### Run a specific workspace
+
+```sh
+josh compose run . :+ws/build-rust
+```
+
+### Use the staged index instead of the working tree
+
+```sh
+josh compose run + :+ws/test
+```
+
+### Build from the last commit (ignoring local changes)
+
+```sh
+josh compose run HEAD :+ws/test
+```
+
+## Syntax
+
+```
+josh compose run [OPTIONS] [REFERENCE] [FILTER]
+```
+
+| Argument | Description |
+|---|---|
+| `[REFERENCE]` | Git ref to build from. Defaults to `.` (working tree). |
+| `[FILTER]` | Josh filter selecting the workspace to run. Defaults to `:+compose` (reads `compose.josh`). |
+
+### `[REFERENCE]` values
+
+| Value | Meaning |
+|---|---|
+| `.` (default) | Working tree, including uncommitted changes |
+| `+` | Staged files only (git index). Useful to test exactly what you have `git add`ed. |
+| `HEAD` | Last commit, ignoring any local changes. Useful for clean builds or before/after comparisons. |
+| Any git ref or SHA | Build from that specific commit. |
+
+### Options
+
+| Flag | Description |
+|---|---|
+| `--clean` | Remove cached images and output volumes |
+| `--clean-all` | Remove cached images, output volumes, and persistent cache volumes |
+| `--arg NAME=VALUE` | Bind a named compose argument. Values are currently Git revision expressions; additional value types may be added later. Repeatable on `run`, `graph`, `list-images`, and `list-jobs`. |
+
+### Revision object expressions
+
+> **Experimental:** revision object expression syntax requires `JOSH_EXPERIMENTAL_FEATURES=1`.
+
+Compose filters can select the input commit, a named `--arg` binding, or a
+fallback when an argument is absent:
+
+```sh
+# Use the input commit's first parent
+josh compose run . :+ws/size-delta/s32k148-gcc
+
+# Use an explicit, possibly unrelated baseline
+josh compose run --arg baseline=origin/main . :+ws/size-delta/s32k148-gcc
+```
+
+The workspace can make that selection in an object-valued filter position:
+
+```josh
+:$.={#baseline|#^}
+```
+
+| Expression | Value |
+|---|---|
+| `{#}` | Tree of the selected compose input |
+| `{@}` | Selected compose input commit |
+| `{#^}` | Tree of the input's first parent |
+| `{@~2}` | Input commit after two first-parent steps |
+| `{#baseline}` | Tree of the commit bound as `baseline` |
+| `{@target^2}` | Second parent commit of the `target` binding |
+| `{#baseline\|#^}` | Baseline tree, or the input's first-parent tree when `baseline` is absent |
+
+`#` selects a commit's tree; `@` selects the commit itself. `^`, `^N`, `~`,
+and `~N` follow Git's parent and first-parent conventions and can be combined.
+Both fallback arms must use the same selector. The primary arm must be a named
+binding, so an input-relative fallback such as `{#^\|#baseline}` is rejected.
+
+Each `--arg NAME=VALUE` is resolved and peeled to a commit before the filter
+is parsed; currently `VALUE` must be a Git single-revision expression. Names
+are ordinary bindings; `input` is reserved, and duplicates are rejected.
+Missing, malformed, ranged, ambiguous, and non-commit revision values fail
+command setup even when the filter does not reference that argument. A
+fallback means only that the named argument was not supplied: an invalid
+supplied argument or a missing selected parent is an error.
+
+Object expressions are not text or environment-variable substitution and
+never evaluate shell input. Repository ref names enter committed filters only
+through `--arg`; each revision argument may use Git's full single-revision
+syntax.
+
+Resolution happens once, before compose filtering. The parser lowers every
+expression to the existing concrete object-ID operations, so the canonical
+filter ID and workspace cache key contain the selected OID. Pretty-printing
+therefore prints a hexadecimal OID rather than the original expression, and a
+ref moving after plan construction cannot alter that plan.
+
+Quoted commit-message templates are separate syntax and remain dynamic:
+
+```josh
+:"commit {@}, tree {#}"
+```
+
+Here `{@}` and `{#}` are template text resolved for each filtered commit, not
+compose object expressions.
+
+## Inspecting test results
+
+Near the start of the output, `josh compose run` prints the `WS_TREE` SHA:
+
+```
+WS_TREE: abc123def456...
+```
+
+The scrut-updated `.t` test files (rewritten with the actual output for any failures) are stored in the podman volume `out_<WS_TREE>` under `tests/`, not in the working directory.
+
+```sh
+# List all test result files
+podman volume export out_<WS_TREE> | tar -tvf - tests/
+
+# Print a specific test file to stdout
+podman volume export out_<WS_TREE> | tar -xOf - tests/filter/foo.t
+```
+
+For failing tests the scrut diff format shows: the shell expression that failed, the expected output (preceded by `-`), and the actual output (preceded by `+`).
+
+Each test file prints a result line, and the final lines of output report the overall result:
+
+```
+Result: 1 document(s) with N testcase(s): N succeeded, 0 failed and 0 skipped
+SUCCESS: <safe-name>
+```
+
+or
+
+```
+FAILED: <safe-name>
+```
+
+## Cache behavior
+
+Each run produces a podman volume named `out_<WS_TREE>`. Successful runs are also recorded under `.josh/success/<WS_TREE>`. A cached result is reused only when that success marker is present and, for workspaces that keep output, the matching `out_<WS_TREE>` volume still exists. The cache key is the git SHA of the filtered workspace tree, so:
+
+- Changing any file included in the workspace automatically produces a new SHA and bypasses the cache.
+- Changing unrelated files has no effect on the cache.
+- Two developers with identical workspace contents share the same cache key (useful if volumes are shared via a registry).
+
+### Forcing a re-run
+
+To re-run without changing source files, remove the output volume manually:
+
+```sh
+# Find the relevant volume
+podman volume ls | grep out_
+
+# Remove it
+podman volume rm out_<sha>
+```
+
+Alternatively, use `josh compose run --clean` to remove all cached images and output volumes, or `--clean-all` to also remove persistent cache volumes (e.g. the Cargo registry cache).
+
+### Clearing all output volumes
+
+```sh
+podman volume ls -q | grep '^out_' | xargs podman volume rm
+```
+
+## Workspace definitions
+
+A workspace is defined by a `.josh` file, typically under `ws/`. The file uses josh filter expressions to declare what the workspace needs and how to run it.
+
+### Workspace keys
+
+| Key | Purpose |
+|---|---|
+| `:#image[:+path/to/image]` | Container image workspace to build from |
+| `:$label="..."` | Human-readable label shown in output |
+| `:$cmd="..."` | Command to run inside the container |
+| `:$cache="name"` | Persistent podman volume mounted at `/opt/cache` (e.g. for Cargo's registry) |
+| `:$output="none"` | Disable output volume (run produces no extracted artifacts) |
+| `:$network="host"` | Container network mode |
+| `worktree = :[...]` | Files placed in the container's working directory |
+| `inputs = :[...]` | Dependency workspaces; each named entry is run first and its output is mounted inside the container |
+| `env = :[...]` | Environment variables injected into the container |
+
+The reference-bearing entries created with `:#` (`image`, named `inputs`, image `bases`, and
+`sidecars`) are stored as gitlinks. `josh compose` reads their object IDs directly from the tree
+entries; the referenced objects remain ordinary josh workspace or image trees.
+
+### Example: `ws/fetch.josh`
+
+```
+:$label="cargo fetch"
+:#image[:+images/dev-local]
+:$cache="rust"
+:$network="host"
+
+:$cmd="cargo fetch --locked"
+
+worktree = :[
+    ::**/Cargo.toml
+    ::**/Cargo.lock
+    ::**/rust-toolchain.toml
+    ::**/lib.rs
+    ::**/main.rs
+]
+```
+
+This workspace fetches Cargo dependencies into a persistent cache volume. Only the files needed to resolve the dependency graph are included, so the cache is invalidated only when those files change.
+
+### Example: `ws/build-rust.josh`
+
+```
+:$label="rust build"
+:#image[:+images/dev-local]
+:$cache="rust"
+
+inputs = :[
+    :#fetch[:+ws/fetch]
+]
+
+env = :[
+    ::JOSH_VERSION=VERSION_STRING
+]
+
+worktree = :[
+    ::run.sh=ws/build-rust.sh
+    ::Cargo.toml
+    ::Cargo.lock
+    ::rust-toolchain.toml
+    ::josh-*/
+    ::forges/
+]
+```
+
+This workspace:
+- Declares `ws/fetch` as an input dependency; its output (the populated Cargo cache) is mounted before the build runs.
+- Injects the `JOSH_VERSION` environment variable from the `VERSION_STRING` file.
+- Places `ws/build-rust.sh` into the container as `run.sh` (the entrypoint).
+- Includes only the source trees needed to compile.
+
+## Creating a new workspace
+
+1. **Write a `.josh` file** under `ws/`. Declare at minimum an `:#image[...]` reference and a `worktree` subtree containing the files your build needs.
+
+2. **Write the entrypoint** either as a `run.sh` in the worktree or via `:$cmd="..."`. Place any outputs you want extracted under `/out` inside the container (unless `:$output="none"`).
+
+3. **Run it:**
+
+   ```sh
+   josh compose run . :+ws/my-workspace
+   ```
+
+4. **Add dependencies** via `inputs = :[...]` if your workspace needs the output of another workspace. Each named entry in `inputs` is run first and its output volume is mounted at `/<name>` inside the container.

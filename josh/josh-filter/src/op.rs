@@ -1,0 +1,110 @@
+use crate::filter::Filter;
+
+/// Newtype around `regex::Regex` adding structural `PartialEq`/`Eq`/`Hash` (by pattern
+/// string) so `Op` can derive them for use as an interning key. Derefs to the inner regex.
+#[derive(Clone, Debug)]
+pub struct Regex(pub regex::Regex);
+
+impl std::ops::Deref for Regex {
+    type Target = regex::Regex;
+    fn deref(&self) -> &regex::Regex {
+        &self.0
+    }
+}
+
+impl PartialEq for Regex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for Regex {}
+
+impl std::hash::Hash for Regex {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.as_str().hash(state);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum InsertContent {
+    Inline(String),
+    /// An object referenced by OID. The kind (blob or tree) is resolved against a repository
+    /// when the filter is applied or persisted; `persist::as_tree` references the object as a
+    /// tree entry with the matching mode so it is reachable from the filter tree.
+    Oid(gix_hash::ObjectId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RevMatch {
+    /// `<` - matches strict ancestors of the tip.
+    AncestorStrict(gix_hash::ObjectId),
+    /// `<=` - matches the tip and its ancestors.
+    AncestorInclusive(gix_hash::ObjectId),
+    /// `==` - matches only the tip.
+    Equal(gix_hash::ObjectId),
+    /// `_` - matches when no previous arm did.
+    Default,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Op {
+    Meta(std::collections::BTreeMap<String, String>, Filter),
+
+    Nop,
+    Empty,
+    Fold,
+    Paths,
+    Export,
+
+    Squash,
+    Author(String, String),
+    Committer(String, String),
+
+    // Vec instead of BTreeMap to preserve order - first match wins
+    Rev(Vec<(RevMatch, Filter)>),
+    Prune,
+    RegexReplace(Vec<(Regex, String)>),
+
+    Hook(String),
+
+    Index,
+    Invert,
+
+    Insert(std::path::PathBuf, InsertContent), // Insert(dest_path, content)
+    File(std::path::PathBuf, std::path::PathBuf), // File(dest_path, source_path)
+    Prefix(std::path::PathBuf),
+    Subdir(std::path::PathBuf),
+    Workspace(std::path::PathBuf),
+    Stored(std::path::PathBuf),
+    Starlark(std::path::PathBuf, Filter),
+    TreeId(std::path::PathBuf, Filter),
+    ObjectDeref(std::path::PathBuf),
+    ObjectRef(std::path::PathBuf),
+
+    // Keep the compiled matcher behind a shared pointer: `Op` is cloned and interned throughout
+    // optimization, so storing the matcher inline makes every variant substantially larger.
+    Pattern(std::sync::Arc<crate::pattern::CompiledPattern>),
+    Message(String, Regex),
+
+    Unapply(gix_hash::ObjectId, Filter),
+
+    Compose(Vec<Filter>),
+    Chain(Vec<Filter>),
+    Subtract(Filter, Filter),
+    Exclude(Filter),
+    Select(Filter),
+    Pin(Filter),
+
+    Downstack(gix_hash::ObjectId),
+}
+
+impl Op {
+    /// Construct a `Pattern` op, compiling its glob. A bad glob therefore errors where the
+    /// pattern enters the system (parse, deserialization) instead of on first apply.
+    pub fn pattern(pattern: &str) -> anyhow::Result<Op> {
+        Ok(Op::Pattern(std::sync::Arc::new(
+            crate::pattern::CompiledPattern::compile(pattern)?,
+        )))
+    }
+}

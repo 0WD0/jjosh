@@ -1,0 +1,126 @@
+pub use filter::ArgumentBinding;
+use josh_compose_backend::{ArtifactBackend, ExecOpts, Executor, Runtime};
+
+pub mod archive;
+pub mod clean;
+pub mod executor;
+pub mod filter;
+pub mod image;
+pub mod job_cache;
+pub mod naming;
+pub mod plan;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CleanMode {
+    /// No cleanup.
+    None,
+    /// Remove output artifacts, environment images, and job-cache directories.
+    Clean,
+    /// Like `Clean`, but also remove persistent cache artifacts.
+    CleanAll,
+}
+
+pub struct RunOptions {
+    /// Filter spec, e.g. ":+ws/test"
+    pub filter_spec: String,
+    /// Input ref: "." (working tree), "+" (index), "HEAD", or any git ref
+    pub input_ref: String,
+    /// Named arguments supplied as `--arg NAME=VALUE`.
+    pub arguments: Vec<ArgumentBinding>,
+    pub clean: CleanMode,
+}
+
+/// Main entry point for `josh run`, using the default sequential executor.
+pub fn run(
+    transaction: &josh_core::cache::Transaction,
+    opts: RunOptions,
+    runtime: &dyn Runtime,
+) -> anyhow::Result<()> {
+    run_with_executor(transaction, opts, runtime, &executor::SequentialExecutor)
+}
+
+/// Load the build graph for the given options and hand it to `executor`.
+///
+/// Graph loading (resolving the workspace and image dependency closure from git
+/// trees) happens here, once, before the executor makes any scheduling decision.
+pub fn run_with_executor(
+    transaction: &josh_core::cache::Transaction,
+    opts: RunOptions,
+    runtime: &dyn Runtime,
+    executor: &dyn Executor,
+) -> anyhow::Result<()> {
+    josh_filter::check_experimental_features_enabled("josh run")?;
+
+    if opts.clean != CleanMode::None {
+        return clean::clean(opts.clean, runtime);
+    }
+
+    let (ws_tree, _safe_name) = filter::prepare_workspace(
+        transaction,
+        &opts.filter_spec,
+        &opts.input_ref,
+        &opts.arguments,
+    )?;
+
+    let graph = josh_compose_graph::load_graph(transaction, transaction.odb(), ws_tree)?;
+
+    // Only extract output artifacts into the working tree when running against
+    // uncommitted changes (input_ref == "."). For committed refs there is no
+    // working tree to write back to.
+    let exec_opts = ExecOpts {
+        extract_to_workdir: opts.input_ref == ".",
+    };
+    executor.execute(transaction, &graph, runtime, &exec_opts)
+}
+
+/// Enumerate every image build-tree OID that a `run` with the same options would
+/// require, bases-first and deduplicated.
+///
+/// When `ignore_cache` is false, workspaces whose run is already cached successful and
+/// whose output volume still exists are pruned from the graph (mirroring the
+/// executor's cache check). When `ignore_cache` is true, the full set is reported
+/// regardless of cache state.
+pub fn plan_images(
+    transaction: &josh_core::cache::Transaction,
+    opts: RunOptions,
+    ignore_cache: bool,
+    runtime: &dyn ArtifactBackend,
+) -> anyhow::Result<Vec<gix_hash::ObjectId>> {
+    josh_filter::check_experimental_features_enabled("josh compose images")?;
+
+    let (ws_tree, _safe_name) = filter::prepare_workspace(
+        transaction,
+        &opts.filter_spec,
+        &opts.input_ref,
+        &opts.arguments,
+    )?;
+
+    let odb = transaction.odb();
+    plan::collect_image_oids(transaction, odb, ws_tree, ignore_cache, runtime)
+}
+
+/// Enumerate every job hash (workspace tree OID) that a `run` with the same options
+/// would touch, in dependency order (dependencies first).
+///
+/// When `ignore_cache` is false, workspaces whose run is already cached successful and
+/// whose output volume still exists are pruned from the graph (mirroring the
+/// executor's cache check). When `ignore_cache` is true, the full set is reported
+/// regardless of cache state.
+pub fn plan_jobs(
+    transaction: &josh_core::cache::Transaction,
+    opts: RunOptions,
+    ignore_cache: bool,
+    runtime: &dyn ArtifactBackend,
+) -> anyhow::Result<Vec<gix_hash::ObjectId>> {
+    josh_filter::check_experimental_features_enabled("josh compose jobs")?;
+
+    let (ws_tree, _safe_name) = filter::prepare_workspace(
+        transaction,
+        &opts.filter_spec,
+        &opts.input_ref,
+        &opts.arguments,
+    )?;
+
+    let odb = transaction.odb();
+    plan::collect_job_hashes(transaction, odb, ws_tree, ignore_cache, runtime)
+}

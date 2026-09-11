@@ -1,0 +1,20 @@
+[package]
+name = "josh-cq"
+version = "26.8.28"
+edition = "2024"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+description = "Code quality tooling for the josh git proxy"
+license-file = "../../LICENSE"
+repository = "https://github.com/josh-project/josh"
+
+[dependencies]
+tokio.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+gix.workspace = true
+axum.workspace = true
+tracing.workspace = true
+
+josh-core.workspace = true
+josh-github-webhooks.workspace = true
+josh-test-webhook-client.workspace = true

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::slice;
@@ -136,7 +135,7 @@ fn assert_divergent_changes(
     repo: &Arc<ReadonlyRepo>,
     expected: &[(&ChangeId, &[Commit])],
 ) -> TestResult<CommitsByChangeId> {
-    let expected_divergent_commits: HashMap<ChangeId, Vec<CommitId>> = expected
+    let expected_divergent_commits: HashMap<ChangeId, HashSet<CommitId>> = expected
         .iter()
         .map(|(change_id, commits)| {
             (
@@ -146,10 +145,16 @@ fn assert_divergent_changes(
         })
         .collect();
     let actual = find_divergent_changes(repo, RevsetExpression::all()).block_on()?;
-    let simplified: HashMap<ChangeId, Vec<CommitId>> = actual
-        .clone()
-        .into_iter()
-        .map(|(change_id, commits)| (change_id, commits.iter().map(|c| c.id().clone()).collect()))
+    // Concurrent operations do not imply a creation order in the revset index.
+    // Check the discovered groups, not a particular ordering of sibling commits.
+    let simplified: HashMap<ChangeId, HashSet<CommitId>> = actual
+        .iter()
+        .map(|(change_id, commits)| {
+            (
+                change_id.clone(),
+                commits.iter().map(|c| c.id().clone()).collect(),
+            )
+        })
         .collect();
     assert_eq!(simplified, expected_divergent_commits);
     Ok(actual)
@@ -262,10 +267,7 @@ fn test_find_divergent_changes_exactly_one_found() -> TestResult {
     };
 
     let repo = repo.reload_at_head().block_on()?;
-    assert_eq!(
-        find_divergent_changes(&repo, RevsetExpression::all()).block_on()?,
-        BTreeMap::from([(change_aa.clone(), vec![commit_2.clone(), commit_1.clone()])])
-    );
+    assert_divergent_changes(&repo, &[(&change_aa, &[commit_1, commit_2])])?;
 
     Ok(())
 }
@@ -400,8 +402,8 @@ fn test_build_truncated_evolution_graph() -> TestResult {
             .graph
             .adjacent_nodes(commit1.id())
             .unwrap()
-            .collect::<Vec<_>>(),
-        &[commit2.id(), commit3.id()]
+            .collect::<HashSet<_>>(),
+        HashSet::from([commit2.id(), commit3.id()])
     );
     assert!(
         truncated_evolution_graph
@@ -409,8 +411,8 @@ fn test_build_truncated_evolution_graph() -> TestResult {
             .graph
             .adjacent_nodes(commit2.id())
             .unwrap()
-            .collect::<Vec<_>>()
-            .is_empty(),
+            .next()
+            .is_none(),
     );
     assert!(
         truncated_evolution_graph
@@ -418,8 +420,8 @@ fn test_build_truncated_evolution_graph() -> TestResult {
             .graph
             .adjacent_nodes(commit3.id())
             .unwrap()
-            .collect::<Vec<_>>()
-            .is_empty(),
+            .next()
+            .is_none(),
     );
 
     Ok(())
@@ -538,10 +540,7 @@ fn test_manual_converge_description_concurrent_ops() -> TestResult {
     let repo5 = tx.commit("test").block_on()?;
 
     let change_id = commit1.change_id().clone();
-    assert_eq!(
-        find_divergent_changes(&repo5, RevsetExpression::all()).block_on()?,
-        BTreeMap::from([(change_id.clone(), vec![commit5.clone(), commit4.clone()])])
-    );
+    assert_divergent_changes(&repo5, &[(&change_id, &[commit4.clone(), commit5.clone()])])?;
 
     let divergent_commits = vec![commit4.clone(), commit5.clone()];
     let truncated_evolution_graph =

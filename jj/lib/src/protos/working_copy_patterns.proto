@@ -1,0 +1,38 @@
+// Copyright 2026 The Jujutsu Authors
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+package working_copy_patterns;
+
+message Configuration {
+  uint32 version = 1;
+  repeated Rule rules = 2;
+  repeated Mapping mappings = 3;
+}
+message Rule {
+  bool include = 1;
+  Expression expression = 2;
+}
+// Kind and arity are checked strictly by the domain decoder.
+message Expression {
+  enum Kind {
+    NONE = 0;
+    ALL = 1;
+    FILE_PATH = 2;
+    PREFIX_PATH = 3;
+    FILE_GLOB = 4;
+    PREFIX_GLOB = 5;
+    UNION = 6;
+    INTERSECTION = 7;
+    DIFFERENCE = 8;
+  }
+  Kind kind = 1;
+  string path = 2;
+  string glob = 3;
+  bool case_insensitive = 4;
+  repeated Expression children = 5;
+}
+message Mapping {
+  string source = 1;
+  string destination = 2;
+  bool recursive = 3;
+}

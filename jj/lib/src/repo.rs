@@ -62,6 +62,7 @@ use crate::index::IndexStoreError;
 use crate::index::MutableIndex;
 use crate::index::ReadonlyIndex;
 use crate::index::ResolvedChangeTargets;
+use crate::merge::Merge;
 use crate::merge::MergeBuilder;
 use crate::merge::SameChange;
 use crate::merge::trivial_merge;
@@ -1576,6 +1577,14 @@ impl MutableRepo {
         Ok(())
     }
 
+    pub fn set_wc_sparse_patterns(
+        &mut self,
+        name: WorkspaceNameBuf,
+        target: Merge<Option<crate::op_store::WorkingCopyPatternsId>>,
+    ) {
+        self.view.set_wc_sparse_patterns(name, target);
+    }
+
     pub async fn remove_workspace(&mut self, name: &WorkspaceName) -> Result<(), EditCommitError> {
         self.maybe_abandon_wc_commit(name).await?;
         self.view.remove_workspace(name);
@@ -1976,6 +1985,46 @@ impl MutableRepo {
         let changed_wc_commits = diff_named_commit_ids(base.wc_commit_ids(), other.wc_commit_ids());
         for (name, (base_id, other_id)) in changed_wc_commits {
             self.merge_wc_commit(name, base_id, other_id);
+        }
+
+        let absent = Merge::absent();
+        for name in base
+            .wc_sparse_patterns()
+            .keys()
+            .merge(other.wc_sparse_patterns().keys())
+            .dedup()
+        {
+            // Forgetting a workspace also forgets its sparse selection, even
+            // when the other operation changed that selection concurrently.
+            if base.get_wc_commit_id(name).is_some() && self.view.get_wc_commit_id(name).is_none() {
+                continue;
+            }
+            let base_target = base.get_wc_sparse_patterns(name).unwrap_or(&absent);
+            let other_target = other.get_wc_sparse_patterns(name).unwrap_or(&absent);
+            if base_target == other_target {
+                continue;
+            }
+            let self_target = self.view.get_wc_sparse_patterns(name).unwrap_or(&absent);
+            let target = if let Some(&resolved) = trivial_merge(
+                &[self_target, base_target, other_target],
+                SameChange::Accept,
+            ) {
+                resolved.clone()
+            } else {
+                let merge = Merge::from_vec(vec![
+                    self_target.clone(),
+                    base_target.clone(),
+                    other_target.clone(),
+                ])
+                .flatten()
+                .simplify();
+                if let Some(resolved) = merge.resolve_trivial(SameChange::Accept) {
+                    Merge::resolved(resolved.clone())
+                } else {
+                    merge
+                }
+            };
+            self.set_wc_sparse_patterns(name.clone(), target);
         }
 
         let base_heads = base.heads().iter().cloned().collect_vec();

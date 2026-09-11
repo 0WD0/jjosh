@@ -1,0 +1,28 @@
+[package]
+name = "josh-changes"
+version = "26.8.28"
+edition = "2024"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+description = "Josh change tracking"
+license-file = "../LICENSE"
+repository = "https://github.com/josh-project/josh"
+keywords = ["git", "monorepo", "workflow", "scm"]
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+gix-actor.workspace = true
+gix-hash.workspace = true
+gix.workspace = true
+log.workspace = true
+serde.workspace = true
+
+josh-core.workspace = true
+josh-git-serde.workspace = true
+
+[dev-dependencies]
+gix.workspace = true
+gix-object.workspace = true
+josh-gix-ext.workspace = true
+tempfile.workspace = true

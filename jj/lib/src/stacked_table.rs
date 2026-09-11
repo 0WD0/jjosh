@@ -518,6 +518,24 @@ impl TableStore {
         Ok(tables)
     }
 
+    /// Reads a consistent set of table segments without publishing or merging
+    /// heads on disk. Any necessary merge lives only in this reader.
+    pub fn get_head_readonly(&self) -> TableStoreResult<Arc<ReadonlyTable>> {
+        let tables = self.get_head_tables()?;
+        if tables.len() == 1 {
+            return Ok(tables.into_iter().next().unwrap());
+        }
+        let mut merged = match tables.first() {
+            Some(first) => first.start_mutation(),
+            None => MutableTable::full(self.key_size),
+        };
+        for table in tables.iter().skip(1) {
+            merged.merge_in(table);
+        }
+        let bytes = merged.serialize();
+        ReadonlyTable::load_from(&mut bytes.as_slice(), self, String::new(), self.key_size)
+    }
+
     pub fn get_head(&self) -> TableStoreResult<Arc<ReadonlyTable>> {
         let mut tables = self.get_head_tables()?;
 
@@ -808,6 +826,38 @@ mod tests {
         assert_eq!(merged_table.get_value(b"yyy"), Some(b"val5".as_slice()));
         assert_eq!(merged_table.get_value(b"zzz"), Some(b"val3".as_slice()));
         assert_eq!(merged_table.get_value(b"\xff\xff\xff"), None);
+        Ok(())
+    }
+
+    #[test]
+    fn readonly_heads_do_not_publish_empty_or_merged_tables() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let store = TableStore::init(temp_dir.path().to_path_buf(), 3);
+        let names = || -> std::io::Result<Vec<std::path::PathBuf>> {
+            let mut paths = Vec::new();
+            for directory in [temp_dir.path().to_path_buf(), temp_dir.path().join("heads")] {
+                for entry in std::fs::read_dir(directory)? {
+                    paths.push(entry?.path());
+                }
+            }
+            paths.sort();
+            Ok(paths)
+        };
+        let before = names()?;
+        assert_eq!(store.get_head_readonly()?.get_value(b"abc"), None);
+        assert_eq!(names()?, before);
+        let base = store.get_head()?;
+        let mut left = base.start_mutation();
+        left.add_entry(b"abc".to_vec(), b"left".to_vec());
+        store.save_table(left)?;
+        let mut right = base.start_mutation();
+        right.add_entry(b"xyz".to_vec(), b"right".to_vec());
+        store.save_table(right)?;
+        let before = names()?;
+        let readonly = store.get_head_readonly()?;
+        assert_eq!(readonly.get_value(b"abc"), Some(b"left".as_slice()));
+        assert_eq!(readonly.get_value(b"xyz"), Some(b"right".as_slice()));
+        assert_eq!(names()?, before);
         Ok(())
     }
 

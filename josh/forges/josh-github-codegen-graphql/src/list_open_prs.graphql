@@ -1,0 +1,34 @@
+query ListOpenPRs($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(first: $first, after: $after, states: [OPEN]) {
+      nodes {
+        number
+        title
+        body
+        baseRefName
+        baseRefOid
+        headRefName
+        headRefOid
+        updatedAt
+        comments { totalCount }
+        reviews { totalCount }
+        url
+        author { __typename login }
+        commits(last: 1) {
+          nodes {
+            commit {
+              oid
+              message
+              author { name email }
+              committer { name email }
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

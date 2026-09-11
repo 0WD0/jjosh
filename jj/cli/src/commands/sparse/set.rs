@@ -12,43 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
-
-use itertools::Itertools as _;
-use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::fileset::FilesetExpression;
+use jj_lib::repo::Repo as _;
+use jj_lib::working_copy_patterns::SparseRule;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use tracing::instrument;
 
-use super::update_sparse_patterns_with;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
+use crate::command_error::user_error;
 use crate::ui::Ui;
 
-/// Update the patterns that are present in the working copy
+/// Update ordered fileset rules selecting paths present in the working copy
 ///
-/// For example, if all you need is the `README.md` and the `lib/`
-/// directory, use `jj sparse set --clear --add README.md --add lib`.
-/// If you no longer need the `lib` directory, use `jj sparse set --remove lib`.
+/// Positional filesets replace the current selection. For example, to include
+/// only `README.md` and the `lib/` directory, use `jj sparse set README.md lib`.
+/// To exclude the `lib` directory, use `jj sparse set --remove lib`.
+///
+/// Ordinary input paths are physical paths relative to the current directory;
+/// use root: filesets for canonical paths, including paths outside the mapping.
+/// Selection changes preserve existing mappings. After replacing or
+/// clearing the selection, `--add` filesets are included, then `--remove`
+/// filesets are excluded, regardless of argument order.
 #[derive(clap::Args, Clone, Debug)]
 pub struct SparseSetArgs {
-    /// Patterns to add to the working copy
-    #[arg(
-        long,
-        value_hint = clap::ValueHint::AnyPath,
-        value_parser = |s: &str| RepoPathBuf::from_relative_path(s),
-    )]
-    add: Vec<RepoPathBuf>,
+    /// Filesets to replace the current selection with
+    #[arg(value_name = "FILESETS", value_hint = clap::ValueHint::AnyPath)]
+    paths: Vec<String>,
 
-    /// Patterns to remove from the working copy
-    #[arg(
-        long,
-        conflicts_with = "clear",
-        value_hint = clap::ValueHint::AnyPath,
-        value_parser = |s: &str| RepoPathBuf::from_relative_path(s),
-    )]
-    remove: Vec<RepoPathBuf>,
+    /// Filesets to include in the working copy
+    #[arg(long, value_name = "FILESETS", value_hint = clap::ValueHint::AnyPath)]
+    add: Vec<String>,
 
-    /// Include no files in the working copy (combine with --add)
-    #[arg(long)]
+    /// Filesets to exclude after applying --add
+    #[arg(long, value_name = "FILESETS", value_hint = clap::ValueHint::AnyPath)]
+    remove: Vec<String>,
+
+    /// Include no files before applying --add and --remove
+    #[arg(long, conflicts_with = "paths")]
     clear: bool,
 }
 
@@ -59,18 +60,97 @@ pub async fn cmd_sparse_set(
     args: &SparseSetArgs,
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
-    update_sparse_patterns_with(ui, &mut workspace_command, |_ui, old_patterns| {
-        let mut new_patterns = HashSet::new();
-        if !args.clear {
-            new_patterns.extend(old_patterns.iter().cloned());
-            for path in &args.remove {
-                new_patterns.remove(path);
+    // Parse before starting the mutation, and distinguish omitted arguments from
+    // parse_file_patterns()'s default of matching everything.
+    let replacement = if args.clear {
+        Some(FilesetExpression::none())
+    } else if args.paths.is_empty() {
+        None
+    } else {
+        Some(workspace_command.parse_file_patterns(ui, &args.paths)?)
+    };
+    let added = if args.add.is_empty() {
+        None
+    } else {
+        Some(workspace_command.parse_file_patterns(ui, &args.add)?)
+    };
+    let removed = if args.remove.is_empty() {
+        None
+    } else {
+        Some(workspace_command.parse_file_patterns(ui, &args.remove)?)
+    };
+    if replacement.is_none()
+        && workspace_command
+            .repo()
+            .view()
+            .get_wc_sparse_patterns(workspace_command.workspace_name())
+            .is_some_and(|target| !target.is_resolved())
+    {
+        return Err(user_error(
+            "Sparse selection is conflicted; specify replacement filesets or --clear, or use `jj \
+             sparse edit` or `jj sparse reset`.",
+        ));
+    }
+    let mut conflict_mappings = None;
+    if let Some(desired) = workspace_command
+        .repo()
+        .view()
+        .get_wc_sparse_patterns(workspace_command.workspace_name())
+        .filter(|desired| !desired.is_resolved())
+    {
+        for side in desired.adds() {
+            let Some(id) = side else {
+                return Err(user_error(
+                    "Sparse mapping state is not recorded on one conflict side; use `jj sparse \
+                     edit` or `jj sparse reset` to resolve the whole configuration.",
+                ));
+            };
+            let patterns = workspace_command
+                .repo()
+                .op_store()
+                .read_working_copy_patterns(id)
+                .await?;
+            if conflict_mappings
+                .as_ref()
+                .is_some_and(|mappings| mappings != &patterns.mappings)
+            {
+                return Err(user_error(
+                    "Path mappings are conflicted; use `jj sparse edit` or `jj sparse reset` to \
+                     resolve the whole configuration.",
+                ));
             }
+            conflict_mappings = Some(patterns.mappings);
         }
-        for path in &args.add {
-            new_patterns.insert(path.to_owned());
-        }
-        Ok(new_patterns.into_iter().sorted_unstable().collect())
-    })
-    .await
+    }
+    workspace_command
+        .update_sparse_patterns_with(ui, |_ui, old_patterns| {
+            let mut new_patterns = old_patterns
+                .cloned()
+                .unwrap_or_else(WorkingCopyPatterns::none);
+            if let Some(mappings) = conflict_mappings {
+                new_patterns.mappings = mappings;
+            }
+            if let Some(replacement) = replacement {
+                new_patterns.rules = WorkingCopyPatterns::from(replacement).rules;
+            } else if old_patterns.is_none() {
+                return Err(user_error(
+                    "No resolved sparse selection at this operation; specify replacement filesets \
+                     or --clear.",
+                ));
+            }
+            if let Some(added) = added {
+                new_patterns.rules.push(SparseRule {
+                    include: true,
+                    expression: added.into(),
+                });
+            }
+            if let Some(removed) = removed {
+                new_patterns.rules.push(SparseRule {
+                    include: false,
+                    expression: removed.into(),
+                });
+            }
+            Ok(new_patterns)
+        })
+        .await
 }

@@ -88,6 +88,11 @@ use crate::file_util::check_symlink_support;
 use crate::file_util::copy_async_to_sync;
 use crate::file_util::persist_temp_file;
 use crate::file_util::symlink_file;
+use crate::fileset;
+use crate::fileset::FilesetAliasesMap;
+use crate::fileset::FilesetDiagnostics;
+use crate::fileset::FilesetExpression;
+use crate::fileset::FilesetParseContext;
 use crate::fsmonitor::FsmonitorSettings;
 #[cfg(feature = "watchman")]
 use crate::fsmonitor::WatchmanConfig;
@@ -95,13 +100,15 @@ use crate::fsmonitor::WatchmanConfig;
 use crate::fsmonitor::watchman;
 use crate::gitignore::GitIgnoreFile;
 use crate::lock::FileLock;
-use crate::matchers::DifferenceMatcher;
 use crate::matchers::EverythingMatcher;
 use crate::matchers::FilesMatcher;
 use crate::matchers::IntersectionMatcher;
 use crate::matchers::Matcher;
 use crate::matchers::PrefixMatcher;
 use crate::matchers::UnionMatcher;
+use crate::matchers::Visit;
+use crate::matchers::VisitDirs;
+use crate::matchers::VisitFiles;
 use crate::merge::Merge;
 use crate::merge::MergeBuilder;
 use crate::merge::SameChange;
@@ -117,6 +124,7 @@ use crate::repo_path::RepoPathBuf;
 use crate::repo_path::RepoPathComponent;
 use crate::settings::UserSettings;
 use crate::store::Store;
+use crate::ui_path::RepoPathUiConverter;
 use crate::working_copy::CheckoutError;
 use crate::working_copy::CheckoutStats;
 use crate::working_copy::LockedWorkingCopy;
@@ -129,6 +137,8 @@ use crate::working_copy::UntrackedReason;
 use crate::working_copy::WorkingCopy;
 use crate::working_copy::WorkingCopyFactory;
 use crate::working_copy::WorkingCopyStateError;
+use crate::working_copy_patterns::WorkingCopyPathBuf;
+use crate::working_copy_patterns::WorkingCopyPatterns;
 
 fn symlink_target_convert_to_store(path: &Path) -> Option<Cow<'_, str>> {
     let path = path.to_str()?;
@@ -652,20 +662,189 @@ fn is_file_state_entries_proto_unique_and_sorted(
 
 fn sparse_patterns_from_proto(
     proto: Option<&crate::protos::local_working_copy::SparsePatterns>,
-) -> Vec<RepoPathBuf> {
-    let mut sparse_patterns = vec![];
-    if let Some(proto_sparse_patterns) = proto {
-        for prefix in &proto_sparse_patterns.prefixes {
-            sparse_patterns.push(RepoPathBuf::from_internal_string(prefix).unwrap());
-        }
-    } else {
-        // For compatibility with old working copies.
-        // TODO: Delete this is late 2022 or so.
-        sparse_patterns.push(RepoPathBuf::root());
+    tree_state_path: &Path,
+) -> Result<WorkingCopyPatterns, TreeStateError> {
+    let Some(proto) = proto else {
+        // Working copies predating sparse checkout had no sparse patterns field.
+        return Ok(WorkingCopyPatterns::all());
+    };
+    if !proto.fileset_expression.is_empty() {
+        let context = FilesetParseContext {
+            aliases_map: &FilesetAliasesMap::new(),
+            path_converter: &RepoPathUiConverter::Fs {
+                cwd: PathBuf::new(),
+                base: PathBuf::new(),
+            },
+        };
+        return fileset::parse(
+            &mut FilesetDiagnostics::new(),
+            &proto.fileset_expression,
+            &context,
+        )
+        .map(WorkingCopyPatterns::from)
+        .map_err(|source| TreeStateError::ReadTreeState {
+            path: tree_state_path.to_owned(),
+            source: io::Error::new(io::ErrorKind::InvalidData, source),
+        });
     }
-    sparse_patterns
+    let expressions = proto
+        .prefixes
+        .iter()
+        .map(|prefix| {
+            RepoPathBuf::from_internal_string(prefix)
+                .map(FilesetExpression::prefix_path)
+                .map_err(|source| TreeStateError::ReadTreeState {
+                    path: tree_state_path.to_owned(),
+                    source: io::Error::new(io::ErrorKind::InvalidData, source),
+                })
+        })
+        .try_collect()?;
+    // An explicitly empty legacy prefix list means no files, not all files.
+    Ok(FilesetExpression::union_all(expressions).into())
 }
 
+/// A canonical matcher evaluated against physical working-copy coordinates.
+/// Directory visits are conservative under mappings: a nested destination can
+/// belong to a different source than its parent.
+#[derive(Debug)]
+struct PhysicalMatcher<'a> {
+    patterns: &'a WorkingCopyPatterns,
+    canonical: &'a dyn Matcher,
+    selection: &'a dyn Matcher,
+}
+
+impl Matcher for PhysicalMatcher<'_> {
+    fn matches(&self, path: &RepoPath) -> bool {
+        if self.patterns.is_identity() {
+            return self.canonical.matches(path);
+        }
+        self.patterns
+            .wc_to_repo_with_matcher(
+                &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                self.selection,
+            )
+            .expect("validated working-copy mapping")
+            .is_some_and(|path| self.canonical.matches(&path))
+    }
+
+    fn visit(&self, dir: &RepoPath) -> Visit {
+        if self.patterns.is_identity() {
+            return self.canonical.visit(dir);
+        }
+        if self.patterns.mappings.iter().any(|mapping| {
+            let destination = mapping.destination.as_repo_path();
+            if destination != dir && destination.starts_with(dir) {
+                // The mapped source itself may be a file, not just a directory.
+                (self.selection.matches(&mapping.source) && self.canonical.matches(&mapping.source))
+                    || (mapping.recursive
+                        && !self.selection.visit(&mapping.source).is_nothing()
+                        && !self.canonical.visit(&mapping.source).is_nothing())
+            } else if mapping.recursive {
+                let Some(suffix) = dir.strip_prefix(destination) else {
+                    return false;
+                };
+                let mut source_dir = mapping.source.clone();
+                source_dir.extend(suffix.components());
+                !self.selection.visit(&source_dir).is_nothing()
+                    && !self.canonical.visit(&source_dir).is_nothing()
+            } else {
+                false
+            }
+        }) {
+            Visit::Specific {
+                dirs: VisitDirs::All,
+                files: VisitFiles::All,
+            }
+        } else {
+            Visit::Nothing
+        }
+    }
+}
+
+fn patterns_error(err: impl Error + Send + Sync + 'static) -> WorkingCopyStateError {
+    WorkingCopyStateError {
+        message: "Invalid working-copy selection or path mapping".to_owned(),
+        err: Box::new(err),
+    }
+}
+
+#[derive(Default)]
+struct LayoutTransition {
+    // With unchanged ownership, newly included untracked files retain native
+    // sparse semantics: preserve their bytes and snapshot them on the next scan.
+    preserve_untracked: bool,
+    removed: Vec<RepoPathBuf>,
+    added: Vec<RepoPathBuf>,
+    retained: Vec<RepoPathBuf>,
+    removed_physical: HashSet<RepoPathBuf>,
+    remove_directories: Vec<PathBuf>,
+}
+
+fn layout_error(message: impl Into<String>) -> CheckoutError {
+    CheckoutError::Other {
+        message: message.into(),
+        err: io::Error::other("Unsafe working-copy layout transition").into(),
+    }
+}
+
+fn preflight_directory(
+    disk_path: &Path,
+    physical: &RepoPath,
+    removed: &HashSet<RepoPathBuf>,
+) -> Result<(), CheckoutError> {
+    for entry in
+        fs::read_dir(disk_path).map_err(|err| checkout_error_for_stat_error(err, disk_path))?
+    {
+        let entry = entry.map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .and_then(|name| RepoPathComponent::new(name).ok())
+            .ok_or_else(|| layout_error("An untracked path blocks the new layout"))?;
+        let path = physical.join(name);
+        let metadata = entry
+            .file_type()
+            .map_err(|err| checkout_error_for_stat_error(err, &entry.path()))?;
+        reject_reserved_existing_path(&entry.path())?;
+        if RESERVED_DIR_NAMES.contains(&name.as_internal_str()) {
+            return Err(layout_error("A nested repository blocks the new layout"));
+        }
+        if metadata.is_dir() {
+            preflight_directory(&entry.path(), &path, removed)?;
+        } else if !removed.contains(&path) {
+            return Err(layout_error(format!(
+                "Untracked path {} blocks the new layout",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Remove only directories which are still empty after tracked files have
+/// been removed. Never recursively delete files introduced after preflight.
+fn remove_empty_directories(path: &Path) -> Result<(), CheckoutError> {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(checkout_error_for_stat_error(err, path)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|err| checkout_error_for_stat_error(err, path))?;
+        if !entry
+            .file_type()
+            .map_err(|err| checkout_error_for_stat_error(err, &entry.path()))?
+            .is_dir()
+        {
+            return Err(layout_error(
+                "An untracked file appeared during layout transition",
+            ));
+        }
+        reject_reserved_existing_path(&entry.path())?;
+        remove_empty_directories(&entry.path())?;
+    }
+    fs::remove_dir(path).map_err(|err| checkout_error_for_stat_error(err, path))
+}
 /// Creates intermediate directories from the `working_copy_path` to the
 /// `repo_path` parent. Returns disk path for the `repo_path` file.
 ///
@@ -996,8 +1175,7 @@ pub struct TreeState {
     state_path: PathBuf,
     tree: MergedTree,
     file_states: FileStatesMap,
-    // Currently only path prefixes
-    sparse_patterns: Vec<RepoPathBuf>,
+    sparse_patterns: WorkingCopyPatterns,
     own_mtime: MillisSinceEpoch,
     symlink_support: bool,
 
@@ -1025,6 +1203,8 @@ pub enum TreeStateError {
     WriteTreeState { path: PathBuf, source: io::Error },
     #[error("Persisting tree state to file {path}")]
     PersistTreeState { path: PathBuf, source: io::Error },
+    #[error("Updating working copy type at {path}")]
+    UpdateWorkingCopyType { path: PathBuf, source: io::Error },
     #[error("Filesystem monitor error")]
     Fsmonitor(#[source] Box<dyn Error + Send + Sync>),
 }
@@ -1042,12 +1222,28 @@ impl TreeState {
         self.file_states.all()
     }
 
-    pub fn sparse_patterns(&self) -> &Vec<RepoPathBuf> {
+    pub fn sparse_patterns(&self) -> &WorkingCopyPatterns {
         &self.sparse_patterns
     }
 
     fn sparse_matcher(&self) -> Box<dyn Matcher> {
-        Box::new(PrefixMatcher::new(&self.sparse_patterns))
+        self.sparse_patterns.to_matcher()
+    }
+
+    fn canonical_path<'a>(&self, path: &'a RepoPath, matcher: &dyn Matcher) -> Cow<'a, RepoPath> {
+        if self.sparse_patterns.is_identity() {
+            Cow::Borrowed(path)
+        } else {
+            Cow::Owned(
+                self.sparse_patterns
+                    .wc_to_repo_with_matcher(
+                        &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                        matcher,
+                    )
+                    .expect("validated working-copy mapping")
+                    .expect("tracked physical path has a canonical owner"),
+            )
+        }
     }
 
     pub fn init(
@@ -1092,7 +1288,7 @@ impl TreeState {
             state_path,
             tree: store.empty_merged_tree(),
             file_states: FileStatesMap::new(),
-            sparse_patterns: vec![RepoPathBuf::root()],
+            sparse_patterns: WorkingCopyPatterns::all(),
             own_mtime: MillisSinceEpoch(0),
             symlink_support: check_symlink_support().unwrap_or(false),
             watchman_clock: None,
@@ -1172,7 +1368,44 @@ impl TreeState {
         }
         self.file_states =
             FileStatesMap::from_proto(proto.file_states, proto.is_file_states_sorted);
-        self.sparse_patterns = sparse_patterns_from_proto(proto.sparse_patterns.as_ref());
+        self.sparse_patterns = if let Some(bytes) = proto.working_copy_patterns {
+            WorkingCopyPatterns::decode(&bytes).map_err(|source| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            })?
+        } else {
+            sparse_patterns_from_proto(proto.sparse_patterns.as_ref(), tree_state_path)?
+        };
+        self.sparse_patterns
+            .validate()
+            .map_err(|source| TreeStateError::ReadTreeState {
+                path: tree_state_path.to_owned(),
+                source: io::Error::new(io::ErrorKind::InvalidData, source),
+            })?;
+        if !self.sparse_patterns.is_identity() {
+            let matcher = self.sparse_patterns.to_matcher();
+            for path in self.file_states.all().paths() {
+                let owner = self
+                    .sparse_patterns
+                    .wc_to_repo_with_matcher(
+                        &WorkingCopyPathBuf::from_repo_path(path.to_owned()),
+                        matcher.as_ref(),
+                    )
+                    .map_err(|source| TreeStateError::ReadTreeState {
+                        path: tree_state_path.to_owned(),
+                        source: io::Error::new(io::ErrorKind::InvalidData, source),
+                    })?;
+                if owner.is_none_or(|owner| !matcher.matches(&owner)) {
+                    return Err(TreeStateError::ReadTreeState {
+                        path: tree_state_path.to_owned(),
+                        source: io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "File state has no selected canonical owner",
+                        ),
+                    });
+                }
+            }
+        }
         self.watchman_clock = proto.watchman_clock;
         Ok(())
     }
@@ -1190,13 +1423,8 @@ impl TreeState {
         proto.file_states = self.file_states.data.clone();
         // `FileStatesMap` is guaranteed to be sorted.
         proto.is_file_states_sorted = true;
-        let mut sparse_patterns = crate::protos::local_working_copy::SparsePatterns::default();
-        for path in &self.sparse_patterns {
-            sparse_patterns
-                .prefixes
-                .push(path.as_internal_file_string().to_owned());
-        }
-        proto.sparse_patterns = Some(sparse_patterns);
+        self.ensure_mapped_working_copy_type()?;
+        proto.working_copy_patterns = Some(self.sparse_patterns.encode());
         proto.watchman_clock = self.watchman_clock.clone();
 
         let wrap_write_err = |source| TreeStateError::WriteTreeState {
@@ -1220,6 +1448,40 @@ impl TreeState {
                 source,
             }
         })?;
+        Ok(())
+    }
+
+    /// Fence off older readers before writing structured physical layout state.
+    /// A standalone tree state has no type marker, and custom working-copy
+    /// implementations own their marker even when they wrap LocalWorkingCopy.
+    fn ensure_mapped_working_copy_type(&self) -> Result<(), TreeStateError> {
+        let type_path = self.state_path.join("type");
+        let wrap_err = |source| TreeStateError::UpdateWorkingCopyType {
+            path: type_path.clone(),
+            source,
+        };
+        let current_type = match fs::read(&type_path) {
+            Ok(value) => value,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(wrap_err(err)),
+        };
+        if current_type == LocalWorkingCopy::name().as_bytes()
+            || current_type == LocalWorkingCopy::fileset_name().as_bytes()
+        {
+            let mut temp_file = NamedTempFile::new_in(&self.state_path).map_err(wrap_err)?;
+            temp_file
+                .write_all(LocalWorkingCopy::mapped_name().as_bytes())
+                .map_err(wrap_err)?;
+            persist_temp_file(temp_file, &type_path).map_err(wrap_err)?;
+        } else if current_type != LocalWorkingCopy::mapped_name().as_bytes() {
+            return Ok(());
+        }
+        // Persist the rename before incompatible tree state can reach disk.
+        // Also retry this sync after an earlier upgrade failed at this step.
+        #[cfg(unix)]
+        File::open(&self.state_path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(wrap_err)?;
         Ok(())
     }
 
@@ -1318,9 +1580,24 @@ impl TreeState {
             Some(fsmonitor_matcher) => fsmonitor_matcher.as_ref(),
         };
 
+        let physical_sparse_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: sparse_matcher.as_ref(),
+            selection: sparse_matcher.as_ref(),
+        };
+        let start_tracking_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: *start_tracking_matcher,
+            selection: sparse_matcher.as_ref(),
+        };
+        let force_tracking_matcher = PhysicalMatcher {
+            patterns: &self.sparse_patterns,
+            canonical: *force_tracking_matcher,
+            selection: sparse_matcher.as_ref(),
+        };
         let matcher = IntersectionMatcher::new(
-            sparse_matcher.as_ref(),
-            UnionMatcher::new(fsmonitor_matcher, force_tracking_matcher),
+            &physical_sparse_matcher,
+            UnionMatcher::new(fsmonitor_matcher, &force_tracking_matcher),
         );
         if matcher.visit(RepoPath::root()).is_nothing() {
             // No need to load the current tree, set up channels, etc.
@@ -1341,9 +1618,10 @@ impl TreeState {
             let snapshotter = FileSnapshotter {
                 tree_state: self,
                 current_tree: &self.tree,
+                sparse_matcher: sparse_matcher.as_ref(),
                 matcher: &matcher,
-                start_tracking_matcher,
-                force_tracking_matcher,
+                start_tracking_matcher: &start_tracking_matcher,
+                force_tracking_matcher: &force_tracking_matcher,
                 // Move tx sides so they'll be dropped at the end of the scope.
                 tree_entries_tx,
                 file_states_tx,
@@ -1370,7 +1648,16 @@ impl TreeState {
         })?;
 
         let stats = SnapshotStats {
-            untracked_paths: untracked_paths_rx.into_iter().collect(),
+            untracked_paths: untracked_paths_rx
+                .into_iter()
+                .map(|(path, reason)| {
+                    (
+                        self.canonical_path(&path, sparse_matcher.as_ref())
+                            .into_owned(),
+                        reason,
+                    )
+                })
+                .collect(),
             invalid_utf8_paths: invalid_utf8_paths_rx.into_iter().collect(),
         };
         let mut tree_builder = MergedTreeBuilder::new(self.tree.clone());
@@ -1383,7 +1670,11 @@ impl TreeState {
             let deleted_files = HashSet::from_iter(deleted_files_rx);
             is_dirty |= !deleted_files.is_empty();
             for file in &deleted_files {
-                tree_builder.set_or_remove(file.clone(), Merge::absent());
+                tree_builder.set_or_remove(
+                    self.canonical_path(file, sparse_matcher.as_ref())
+                        .into_owned(),
+                    Merge::absent(),
+                );
             }
             deleted_files
         });
@@ -1409,6 +1700,14 @@ impl TreeState {
                 .tree
                 .entries_matching(sparse_matcher.as_ref())
                 .filter_map(|(path, result)| result.is_ok().then_some(path))
+                .map(|path| {
+                    self.sparse_patterns
+                        .repo_to_wc_with_matcher(&path, sparse_matcher.as_ref())
+                        .expect("validated working-copy mapping")
+                        .expect("selected path has a physical destination")
+                        .as_repo_path()
+                        .to_owned()
+                })
                 .collect();
             let file_states = self.file_states.all();
             let state_paths: HashSet<_> = file_states.paths().map(|path| path.to_owned()).collect();
@@ -1530,6 +1829,7 @@ struct PresentDirEntries {
 struct FileSnapshotter<'a> {
     tree_state: &'a TreeState,
     current_tree: &'a MergedTree,
+    sparse_matcher: &'a dyn Matcher,
     matcher: &'a dyn Matcher,
     start_tracking_matcher: &'a dyn Matcher,
     force_tracking_matcher: &'a dyn Matcher,
@@ -1748,6 +2048,15 @@ impl FileSnapshotter<'_> {
             if !self.matcher.matches(tracked_path) {
                 continue;
             }
+            if !self.tree_state.sparse_patterns.is_identity() {
+                self.tree_state
+                    .preflight_path(tracked_path, &HashSet::new(), false)
+                    .map_err(|err| SnapshotError::Other {
+                        message: "Cannot snapshot through an unsafe physical parent path"
+                            .to_owned(),
+                        err: err.into(),
+                    })?;
+            }
             let disk_path = tracked_path.to_fs_path(&self.tree_state.working_copy_path)?;
             let metadata = match disk_path.symlink_metadata() {
                 Ok(metadata) => Some(metadata),
@@ -1784,8 +2093,14 @@ impl FileSnapshotter<'_> {
         maybe_current_file_state: Option<&FileState>,
         mut new_file_state: FileState,
     ) -> Result<(), SnapshotError> {
+        let canonical_path = self.tree_state.canonical_path(&path, self.sparse_matcher);
         let update = self
-            .get_updated_tree_value(&path, disk_path, maybe_current_file_state, &new_file_state)
+            .get_updated_tree_value(
+                &canonical_path,
+                disk_path,
+                maybe_current_file_state,
+                &new_file_state,
+            )
             .await?;
         // Preserve materialized conflict data for normal, non-resolved files
         if matches!(new_file_state.file_type, FileType::Normal { .. })
@@ -1795,7 +2110,9 @@ impl FileSnapshotter<'_> {
                 maybe_current_file_state.and_then(|state| state.materialized_conflict_data);
         }
         if let Some(tree_value) = update {
-            self.tree_entries_tx.send((path.clone(), tree_value)).ok();
+            self.tree_entries_tx
+                .send((canonical_path.into_owned(), tree_value))
+                .ok();
         }
         if Some(&new_file_state) != maybe_current_file_state {
             self.file_states_tx.send((path, new_file_state)).ok();
@@ -2193,7 +2510,7 @@ impl TreeState {
     pub fn check_out(&mut self, new_tree: &MergedTree) -> Result<CheckoutStats, CheckoutError> {
         let old_tree = self.tree.clone();
         let stats = self
-            .update(&old_tree, new_tree, self.sparse_matcher().as_ref())
+            .update(&old_tree, new_tree, self.sparse_matcher().as_ref(), None)
             .block_on()?;
         self.tree = new_tree.clone();
         Ok(stats)
@@ -2201,29 +2518,220 @@ impl TreeState {
 
     pub fn set_sparse_patterns(
         &mut self,
-        sparse_patterns: Vec<RepoPathBuf>,
+        sparse_patterns: WorkingCopyPatterns,
     ) -> Result<CheckoutStats, CheckoutError> {
-        let tree = self.tree.clone();
-        let old_matcher = PrefixMatcher::new(&self.sparse_patterns);
-        let new_matcher = PrefixMatcher::new(&sparse_patterns);
-        let added_matcher = DifferenceMatcher::new(&new_matcher, &old_matcher);
-        let removed_matcher = DifferenceMatcher::new(&old_matcher, &new_matcher);
+        self.check_out_with_sparse_patterns(&self.tree.clone(), sparse_patterns)
+    }
+
+    fn prepare_layout_transition(
+        &self,
+        new_tree: &MergedTree,
+        patterns: &WorkingCopyPatterns,
+    ) -> Result<LayoutTransition, CheckoutError> {
+        patterns.validate().map_err(patterns_error)?;
+        if !patterns.is_identity()
+            && self
+                .working_copy_path
+                .join(".git")
+                .symlink_metadata()
+                .is_ok()
+        {
+            return Err(layout_error(
+                "Mapped working copies cannot be colocated with Git",
+            ));
+        }
+        let inventory = |tree: &MergedTree, patterns: &WorkingCopyPatterns| {
+            let mut paths = HashMap::new();
+            let matcher = patterns.to_matcher();
+            for (source, value) in tree.entries_matching(matcher.as_ref()) {
+                value?;
+                let destination = patterns
+                    .repo_to_wc_with_matcher(&source, matcher.as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned();
+                if destination.is_root() || paths.insert(destination, source).is_some() {
+                    return Err(layout_error(
+                        "Multiple canonical files map to one physical path",
+                    ));
+                }
+            }
+            Ok::<_, CheckoutError>(paths)
+        };
+        let old_paths = inventory(&self.tree, &self.sparse_patterns)?;
+        let new_paths = inventory(new_tree, patterns)?;
+        let preserve_untracked = self.sparse_patterns.mappings == patterns.mappings
+            || (self.sparse_patterns.is_identity() && patterns.is_identity());
+        let mut transition = LayoutTransition {
+            preserve_untracked,
+            ..Default::default()
+        };
+        for (destination, source) in &old_paths {
+            if new_paths.get(destination) == Some(source) {
+                transition.retained.push(source.clone());
+            } else {
+                transition.removed.push(source.clone());
+                transition.removed_physical.insert(destination.clone());
+            }
+            self.preflight_path(destination, &HashSet::new(), false)?;
+        }
+        for (destination, source) in &new_paths {
+            if old_paths.get(destination) != Some(source) {
+                transition.added.push(source.clone());
+                self.preflight_path(
+                    destination,
+                    &transition.removed_physical,
+                    !preserve_untracked,
+                )?;
+                let disk_path = destination.to_fs_path(&self.working_copy_path)?;
+                if !preserve_untracked
+                    && disk_path
+                        .symlink_metadata()
+                        .is_ok_and(|metadata| metadata.is_dir())
+                {
+                    preflight_directory(&disk_path, destination, &transition.removed_physical)?;
+                    transition.remove_directories.push(disk_path);
+                }
+            }
+        }
+        // Prefix ownership collisions can also arise from files already in the
+        // canonical tree (file-vs-directory), even when domains are invertible.
+        for destination in new_paths.keys() {
+            let mut ancestor = destination.parent();
+            while let Some(path) = ancestor {
+                if new_paths.contains_key(path) {
+                    return Err(layout_error(
+                        "Mapped files collide with a physical parent directory",
+                    ));
+                }
+                ancestor = path.parent();
+            }
+        }
+        Ok(transition)
+    }
+
+    fn preflight_path(
+        &self,
+        path: &RepoPath,
+        removed: &HashSet<RepoPathBuf>,
+        new_file: bool,
+    ) -> Result<(), CheckoutError> {
+        // Validate the whole lexical path even if an earlier parent does not
+        // exist yet. Otherwise a later .jj/.git component escapes preflight.
+        if path.components().any(|component| {
+            RESERVED_DIR_NAMES
+                .iter()
+                .any(|name| component.as_internal_str().eq_ignore_ascii_case(name))
+        }) {
+            return Err(layout_error(
+                "A mapped destination contains reserved metadata",
+            ));
+        }
+        let mut physical = RepoPathBuf::root();
+        for component in path.components() {
+            physical = physical.join(component);
+            let disk_path = physical.to_fs_path(&self.working_copy_path)?;
+            reject_reserved_existing_path(&disk_path)?;
+            match disk_path.symlink_metadata() {
+                Ok(metadata) => {
+                    if &*physical != path && !metadata.is_dir() {
+                        if removed.contains(&physical) {
+                            // This tracked file is removed before descendants
+                            // are created. Never inspect through its symlink.
+                            return Ok(());
+                        }
+                        return Err(layout_error(format!(
+                            "Physical parent {} is not a directory",
+                            disk_path.display()
+                        )));
+                    }
+                    if &*physical == path
+                        && new_file
+                        && !metadata.is_dir()
+                        && !removed.contains(&physical)
+                    {
+                        return Err(layout_error(format!(
+                            "Untracked path {} blocks the new layout",
+                            disk_path.display()
+                        )));
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(err) => return Err(checkout_error_for_stat_error(err, &disk_path)),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn check_out_with_sparse_patterns(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if patterns == self.sparse_patterns
+            && new_tree.tree_ids_and_labels() == self.tree.tree_ids_and_labels()
+        {
+            return Ok(CheckoutStats::default());
+        }
+        let transition = self.prepare_layout_transition(new_tree, &patterns)?;
+        self.apply_layout_transition(new_tree, patterns, transition)
+    }
+
+    fn apply_layout_transition(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+        transition: LayoutTransition,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        self.ensure_mapped_working_copy_type()
+            .map_err(patterns_error)?;
+        let old_tree = self.tree.clone();
         let empty_tree = self.store.empty_merged_tree();
-        let added_stats = self.update(&empty_tree, &tree, &added_matcher).block_on()?;
-        let removed_stats = self
-            .update(&tree, &empty_tree, &removed_matcher)
+        // Crucially remove all old-only physical owners before writing any new
+        // owner, including swaps and file/directory transitions.
+        let removed = self
+            .update(
+                &old_tree,
+                &empty_tree,
+                &FilesMatcher::new(transition.removed),
+                None,
+            )
             .block_on()?;
-        self.sparse_patterns = sparse_patterns;
-        assert_eq!(added_stats.updated_files, 0);
-        assert_eq!(added_stats.removed_files, 0);
-        assert_eq!(removed_stats.updated_files, 0);
-        assert_eq!(removed_stats.added_files, 0);
-        assert_eq!(removed_stats.skipped_files, 0);
+        for directory in transition.remove_directories {
+            remove_empty_directories(&directory)?;
+        }
+        let added = self
+            .update(
+                &empty_tree,
+                new_tree,
+                &FilesMatcher::new(transition.added),
+                Some(&patterns),
+            )
+            .block_on()?;
+        let retained = self
+            .update(
+                &old_tree,
+                new_tree,
+                &FilesMatcher::new(transition.retained),
+                Some(&patterns),
+            )
+            .block_on()?;
+        if removed.skipped_files + retained.skipped_files != 0
+            || (!transition.preserve_untracked && added.skipped_files != 0)
+        {
+            return Err(layout_error(
+                "The physical layout changed during checkout; update remains interrupted",
+            ));
+        }
+        self.tree = new_tree.clone();
+        self.sparse_patterns = patterns;
+        self.watchman_clock = None;
         Ok(CheckoutStats {
-            updated_files: 0,
-            added_files: added_stats.added_files,
-            removed_files: removed_stats.removed_files,
-            skipped_files: added_stats.skipped_files,
+            updated_files: retained.updated_files,
+            added_files: added.added_files,
+            removed_files: removed.removed_files,
+            skipped_files: added.skipped_files,
         })
     }
 
@@ -2232,6 +2740,7 @@ impl TreeState {
         old_tree: &MergedTree,
         new_tree: &MergedTree,
         matcher: &dyn Matcher,
+        patterns: Option<&WorkingCopyPatterns>,
     ) -> Result<CheckoutStats, CheckoutError> {
         // TODO: maybe it's better not include the skipped counts in the "intended"
         // counts
@@ -2244,11 +2753,23 @@ impl TreeState {
         let mut changed_file_states = Vec::new();
         let mut deleted_files = HashSet::new();
         let mut prev_created_path: RepoPathBuf = RepoPathBuf::root();
+        let patterns = patterns.unwrap_or(&self.sparse_patterns);
+        let selection = (!patterns.is_identity()).then(|| patterns.to_matcher());
 
         let mut process_diff_entry = async |path: RepoPathBuf,
                                             before: MergedTreeValue,
                                             after: MaterializedTreeValue|
                -> Result<(), CheckoutError> {
+            let path = if patterns.is_identity() {
+                path
+            } else {
+                patterns
+                    .repo_to_wc_with_matcher(&path, selection.as_ref().unwrap().as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned()
+            };
             if after.is_absent() {
                 stats.removed_files += 1;
             } else if before.is_absent() {
@@ -2367,7 +2888,7 @@ impl TreeState {
                     prev_created_path = RepoPathBuf::root();
 
                     let mut parent_dir = disk_path.parent().unwrap();
-                    loop {
+                    while parent_dir != self.working_copy_path {
                         if fs::remove_dir(parent_dir).is_err() {
                             break;
                         }
@@ -2489,9 +3010,9 @@ impl TreeState {
                         .await?;
                 process_diff_entry(path, conflict, materialized).await?;
             }
-
-            // We need to re-sort the changed file states since we may have inserted a
-            // conflicted file out of order.
+        }
+        // Canonical diff order is not physical path order under mappings.
+        if !patterns.is_identity() || old_tree.labels() != new_tree.labels() {
             changed_file_states.sort_unstable_by(|(path1, _), (path2, _)| path1.cmp(path2));
         }
 
@@ -2508,6 +3029,16 @@ impl TreeState {
             .tree
             .diff_stream_for_file_system(new_tree, matcher.as_ref());
         while let Some(TreeDiffEntry { path, values }) = diff_stream.next().await {
+            let path = if self.sparse_patterns.is_identity() {
+                path
+            } else {
+                self.sparse_patterns
+                    .repo_to_wc_with_matcher(&path, matcher.as_ref())
+                    .map_err(patterns_error)?
+                    .expect("effective matcher only selects mapped sources")
+                    .as_repo_path()
+                    .to_owned()
+            };
             let after = values?.after;
             if after.is_absent() {
                 deleted_files.insert(path);
@@ -2548,6 +3079,9 @@ impl TreeState {
                 };
                 changed_file_states.push((path, file_state));
             }
+        }
+        if !self.sparse_patterns.is_identity() {
+            changed_file_states.sort_unstable_by(|(path1, _), (path2, _)| path1.cmp(path2));
         }
         self.file_states
             .merge_in(changed_file_states, &deleted_files);
@@ -2640,7 +3174,7 @@ pub struct LocalWorkingCopy {
 #[async_trait(?Send)]
 impl WorkingCopy for LocalWorkingCopy {
     fn name(&self) -> &str {
-        Self::name()
+        Self::mapped_name()
     }
 
     fn workspace_name(&self) -> &WorkspaceName {
@@ -2655,7 +3189,7 @@ impl WorkingCopy for LocalWorkingCopy {
         Ok(self.tree_state()?.current_tree())
     }
 
-    fn sparse_patterns(&self) -> Result<&[RepoPathBuf], WorkingCopyStateError> {
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
         Ok(self.tree_state()?.sparse_patterns())
     }
 
@@ -2665,6 +3199,30 @@ impl WorkingCopy for LocalWorkingCopy {
             message: "Failed to lock working copy".to_owned(),
             err: err.into(),
         })?;
+        // This records an interrupted mutation, not a desired sparse selection.
+        // Never snapshot a partially de-materialized working copy: missing files
+        // could otherwise be recorded as canonical deletions.
+        let sparse_guard = self.state_path.join("sparse-update-in-progress");
+        if sparse_guard
+            .try_exists()
+            .map_err(|err| WorkingCopyStateError {
+                message: "Failed to check for an interrupted sparse update".to_owned(),
+                err: err.into(),
+            })?
+        {
+            return Err(WorkingCopyStateError {
+                message: "A sparse working-copy update did not finish; refusing to snapshot or \
+                          modify potentially partially materialized files"
+                    .to_owned(),
+                err: io::Error::other(
+                    "Preserve the remaining working-copy files and use a healthy workspace to \
+                     create a replacement workspace from the repository. Do not remove \
+                     sparse-update-in-progress and snapshot this workspace: absent files may have \
+                     been removed by the interrupted update, not by you.",
+                )
+                .into(),
+            });
+        }
 
         let wc = Self {
             store: self.store.clone(),
@@ -2685,6 +3243,8 @@ impl WorkingCopy for LocalWorkingCopy {
             old_operation_id,
             old_tree,
             tree_state_dirty: false,
+            sparse_update_in_progress: false,
+            sparse_update_completed: false,
             new_workspace_name: None,
             _lock: lock,
         }))
@@ -2694,6 +3254,16 @@ impl WorkingCopy for LocalWorkingCopy {
 impl LocalWorkingCopy {
     pub fn name() -> &'static str {
         "local"
+    }
+
+    /// Type identifier that prevents older binaries from reading sparse filesets.
+    pub fn fileset_name() -> &'static str {
+        "local-fileset"
+    }
+
+    /// Type identifier fencing readers unaware of structured path mappings.
+    pub fn mapped_name() -> &'static str {
+        "local-working-copy-mapped"
     }
 
     /// Initializes a new working copy at `working_copy_path`. The working
@@ -2862,6 +3432,8 @@ pub struct LockedLocalWorkingCopy {
     old_operation_id: OperationId,
     old_tree: MergedTree,
     tree_state_dirty: bool,
+    sparse_update_in_progress: bool,
+    sparse_update_completed: bool,
     new_workspace_name: Option<WorkspaceNameBuf>,
     _lock: FileLock,
 }
@@ -2880,6 +3452,13 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
         &mut self,
         options: &SnapshotOptions,
     ) -> Result<(MergedTree, SnapshotStats), SnapshotError> {
+        if self.sparse_update_in_progress {
+            return Err(WorkingCopyStateError {
+                message: "Finish the sparse update before snapshotting the working copy".to_owned(),
+                err: io::Error::other("Sparse update is still in progress").into(),
+            }
+            .into());
+        }
         let tree_state = self.wc.tree_state_mut()?;
         let (is_dirty, stats) = tree_state.snapshot(options).await?;
         self.tree_state_dirty |= is_dirty;
@@ -2887,8 +3466,15 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
     }
 
     async fn check_out(&mut self, commit: &Commit) -> Result<CheckoutStats, CheckoutError> {
-        // TODO: Write a "pending_checkout" file with the new TreeId so we can
-        // continue an interrupted update if we find such a file.
+        if !self.wc.sparse_patterns()?.is_identity() {
+            return self
+                .check_out_tree_with_patterns(&commit.tree(), self.wc.sparse_patterns()?.clone());
+        }
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(layout_error(
+                "Cannot check out after an interrupted layout update",
+            ));
+        }
         let new_tree = commit.tree();
         let tree_state = self.wc.tree_state_mut()?;
         if tree_state.tree.tree_ids_and_labels() != new_tree.tree_ids_and_labels() {
@@ -2898,6 +3484,17 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
         } else {
             Ok(CheckoutStats::default())
         }
+    }
+
+    async fn check_out_with_sparse_patterns(
+        &mut self,
+        commit: &Commit,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if &patterns == self.wc.sparse_patterns()? && patterns.is_identity() {
+            return self.check_out(commit).await;
+        }
+        self.check_out_tree_with_patterns(&commit.tree(), patterns)
     }
 
     fn rename_workspace(&mut self, new_name: WorkspaceNameBuf) {
@@ -2918,22 +3515,16 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
         Ok(())
     }
 
-    fn sparse_patterns(&self) -> Result<&[RepoPathBuf], WorkingCopyStateError> {
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError> {
         self.wc.sparse_patterns()
     }
 
     async fn set_sparse_patterns(
         &mut self,
-        new_sparse_patterns: Vec<RepoPathBuf>,
+        patterns: WorkingCopyPatterns,
     ) -> Result<CheckoutStats, CheckoutError> {
-        // TODO: Write a "pending_checkout" file with new sparse patterns so we can
-        // continue an interrupted update if we find such a file.
-        let stats = self
-            .wc
-            .tree_state_mut()?
-            .set_sparse_patterns(new_sparse_patterns)?;
-        self.tree_state_dirty = true;
-        Ok(stats)
+        let tree = self.wc.tree()?.clone();
+        self.check_out_tree_with_patterns(&tree, patterns)
     }
 
     #[instrument(skip_all)]
@@ -2941,6 +3532,12 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
         mut self: Box<Self>,
         operation_id: OperationId,
     ) -> Result<Box<dyn WorkingCopy>, WorkingCopyStateError> {
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(WorkingCopyStateError {
+                message: "Cannot finish a failed sparse working-copy update".to_owned(),
+                err: io::Error::other("The interruption guard must remain in place").into(),
+            });
+        }
         assert!(
             self.tree_state_dirty
                 || self.old_tree.tree_ids_and_labels() == self.wc.tree()?.tree_ids_and_labels()
@@ -2961,12 +3558,98 @@ impl LockedWorkingCopy for LockedLocalWorkingCopy {
             }
             self.wc.checkout_state.save(&self.wc.state_path)?;
         }
-        // TODO: Clear the "pending_checkout" file here.
+        if self.sparse_update_in_progress {
+            // The guard must not disappear durably before the matching actual
+            // tree/layout and checkout operation have reached stable storage.
+            for name in ["tree_state", "checkout"] {
+                File::open(self.wc.state_path.join(name))
+                    .and_then(|file| file.sync_all())
+                    .map_err(|err| WorkingCopyStateError {
+                        message: "Failed to persist the completed working-copy layout".to_owned(),
+                        err: err.into(),
+                    })?;
+            }
+            #[cfg(unix)]
+            File::open(&self.wc.state_path)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to persist the working-copy state directory".to_owned(),
+                    err: err.into(),
+                })?;
+            fs::remove_file(self.wc.state_path.join("sparse-update-in-progress")).map_err(
+                |err| WorkingCopyStateError {
+                    message: "Failed to clear the completed sparse working-copy update".to_owned(),
+                    err: err.into(),
+                },
+            )?;
+        }
         Ok(Box::new(self.wc))
     }
 }
 
 impl LockedLocalWorkingCopy {
+    fn check_out_tree_with_patterns(
+        &mut self,
+        new_tree: &MergedTree,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError> {
+        if self.sparse_update_in_progress && !self.sparse_update_completed {
+            return Err(layout_error(
+                "Cannot retry an interrupted working-copy layout update",
+            ));
+        }
+        let tree_state = self.wc.tree_state()?;
+        if &patterns == tree_state.sparse_patterns()
+            && new_tree.tree_ids_and_labels() == tree_state.tree.tree_ids_and_labels()
+        {
+            return Ok(CheckoutStats::default());
+        }
+        // Preflight failures do not create an interruption guard: no files have
+        // changed, so the original working copy remains usable.
+        // Unchanged layouts retain the native incremental tree diff rather
+        // than inventorying every visible file for each revision checkout.
+        let transition = if &patterns == tree_state.sparse_patterns() {
+            None
+        } else {
+            Some(tree_state.prepare_layout_transition(new_tree, &patterns)?)
+        };
+        tree_state
+            .ensure_mapped_working_copy_type()
+            .map_err(patterns_error)?;
+        if !self.sparse_update_in_progress {
+            let guard_path = self.wc.state_path.join("sparse-update-in-progress");
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&guard_path)
+                .and_then(|file| file.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to record the start of a working-copy layout update"
+                        .to_owned(),
+                    err: err.into(),
+                })?;
+            self.sparse_update_in_progress = true;
+            #[cfg(unix)]
+            File::open(&self.wc.state_path)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|err| WorkingCopyStateError {
+                    message: "Failed to persist the working-copy interruption guard".to_owned(),
+                    err: err.into(),
+                })?;
+        }
+        self.sparse_update_completed = false;
+        let stats = match transition {
+            Some(transition) => self
+                .wc
+                .tree_state_mut()?
+                .apply_layout_transition(new_tree, patterns, transition)?,
+            None => self.wc.tree_state_mut()?.check_out(new_tree)?,
+        };
+        self.sparse_update_completed = true;
+        self.tree_state_dirty = true;
+        Ok(stats)
+    }
+
     pub fn reset_watchman(&mut self) -> Result<(), SnapshotError> {
         self.wc.tree_state_mut()?.reset_watchman();
         self.tree_state_dirty = true;

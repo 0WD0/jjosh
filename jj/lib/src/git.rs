@@ -93,7 +93,7 @@ pub const RESERVED_REMOTE_REF_NAMESPACE: &str = "refs/remotes/git/";
 /// Git ref prefix where remote bookmarks are stored.
 const REMOTE_BOOKMARK_REF_NAMESPACE: &str = "refs/remotes/";
 /// Git ref prefix where remote tags will be temporarily fetched.
-const REMOTE_TAG_REF_NAMESPACE: &str = "refs/jj/remote-tags/";
+pub const REMOTE_TAG_REF_NAMESPACE: &str = "refs/jj/remote-tags/";
 /// Ref name used as a placeholder to unset HEAD without a commit.
 ///
 /// This is not a normal branch ref, and is deliberately left unborn: HEAD is
@@ -589,6 +589,21 @@ struct RefsToImport {
     failed_ref_names: Vec<BString>,
 }
 
+/// Checks for pending ref imports without importing commits or modifying the view.
+///
+/// Uses the same ref selection as `import_refs()`. HEAD is workspace-specific
+/// and must be checked separately by the caller.
+pub fn has_pending_imports(
+    view: &View,
+    git_repo: &gix::Repository,
+) -> Result<bool, GitImportError> {
+    let pending = diff_refs_to_import(view, git_repo, false, |_, _| true)?;
+    Ok(!pending.changed_git_refs.is_empty()
+        || !pending.changed_remote_bookmarks.is_empty()
+        || !pending.changed_remote_tags.is_empty()
+        || !pending.failed_ref_names.is_empty())
+}
+
 /// Reflect changes made in the underlying Git repo in the Jujutsu repo.
 ///
 /// This function detects conflicts (if both Git and JJ modified a bookmark) and
@@ -622,6 +637,18 @@ pub async fn import_some_refs(
     let all_remote_tags = false;
     let refs_to_import =
         diff_refs_to_import(mut_repo.view(), &git_repo, all_remote_tags, git_ref_filter)?;
+    import_refs_inner(mut_repo, refs_to_import, options).await
+}
+
+/// Import selected fetched branches and remote tags after transport or projection.
+/// Unlike ordinary Git synchronization, this includes the remote-tag namespace.
+pub async fn import_fetched_refs(
+    mut_repo: &mut MutableRepo,
+    options: &GitImportOptions,
+    git_ref_filter: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
+) -> Result<GitImportStats, GitImportError> {
+    let git_repo = get_git_repo(mut_repo.store())?;
+    let refs_to_import = diff_refs_to_import(mut_repo.view(), &git_repo, true, git_ref_filter)?;
     import_refs_inner(mut_repo, refs_to_import, options).await
 }
 
@@ -3383,11 +3410,9 @@ impl<'a> GitFetch<'a> {
     #[tracing::instrument(skip(self))]
     pub async fn import_refs(&mut self) -> Result<GitImportStats, GitImportError> {
         tracing::debug!("import_refs");
-        let all_remote_tags = true;
-        let refs_to_import = diff_refs_to_import(
-            self.mut_repo.view(),
-            &self.git_repo,
-            all_remote_tags,
+        let import_stats = import_fetched_refs(
+            self.mut_repo,
+            self.import_options,
             |kind, symbol| match kind {
                 GitRefKind::Bookmark => self
                     .fetched
@@ -3400,9 +3425,8 @@ impl<'a> GitFetch<'a> {
                     .filter(|fetched| fetched.remote == symbol.remote)
                     .any(|fetched| fetched.tag_matcher.is_match(symbol.name.as_str())),
             },
-        )?;
-        let import_stats =
-            import_refs_inner(self.mut_repo, refs_to_import, self.import_options).await?;
+        )
+        .await?;
 
         self.fetched.clear();
 

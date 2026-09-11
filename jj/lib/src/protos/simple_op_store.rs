@@ -112,6 +112,23 @@ pub struct Tag {
     #[prost(message, optional, tag = "2")]
     pub target: ::core::option::Option<RefTarget>,
 }
+/// Configuration IDs use the same alternating positive/negative order as
+/// RefTargetTerm. An absent value represents an unregistered configuration.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SparsePatternTerm {
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub value: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WcSparsePatterns {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub terms: ::prost::alloc::vec::Vec<SparsePatternTerm>,
+    /// Required discriminator: experimental expression-string entries used zero.
+    #[prost(uint32, tag = "3")]
+    pub version: u32,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct View {
     #[prost(bytes = "vec", repeated, tag = "1")]
@@ -150,6 +167,9 @@ pub struct View {
     /// Per-workspace Git HEAD targets, keyed by workspace name.
     #[prost(message, repeated, tag = "13")]
     pub git_heads: ::prost::alloc::vec::Vec<GitHead>,
+    /// Desired sparse selections keyed by workspace, including unresolved merges.
+    #[prost(message, repeated, tag = "14")]
+    pub wc_sparse_patterns: ::prost::alloc::vec::Vec<WcSparsePatterns>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteView {

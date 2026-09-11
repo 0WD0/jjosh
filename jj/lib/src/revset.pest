@@ -21,7 +21,8 @@ whitespace = _{ " " | "\t" | "\r" | "\n" | "\x0c" }
 // +, -, .: often included in tag/bookmark name or version number
 // *: glob characters that won't be used as operators
 // /: sometimes used as a tag/bookmark namespace separator
-identifier_part = @{ (XID_CONTINUE | "_" | "*" | "/")+ }
+// '#' is valid in bookmark/tag names. It has no revset operator meaning.
+identifier_part = @{ (XID_CONTINUE | "_" | "*" | "/" | "#")+ }
 // '..' conflicts with the range operator, '++' conflicts with template concatenation,
 // but '--' has no known conflicts.
 identifier = @{

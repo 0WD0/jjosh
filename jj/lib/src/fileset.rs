@@ -48,6 +48,7 @@ use crate::matchers::UnionMatcher;
 use crate::repo_path::RelativePathParseError;
 use crate::repo_path::RepoPath;
 use crate::repo_path::RepoPathBuf;
+use crate::symbol_util::format_string;
 use crate::ui_path::RepoPathUiConverter;
 use crate::ui_path::UiPathParseError;
 
@@ -146,6 +147,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_prefix_path(input.as_ref())?;
         let path = path_converter.parse_file_path(input.as_ref())?;
         Ok(Self::PrefixPath(path))
     }
@@ -155,6 +157,11 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        if input.as_ref().contains(is_glob_char) {
+            path_converter.check_glob()?;
+        } else {
+            return Self::cwd_file_path(path_converter, input);
+        }
         let (dir, pattern) = split_glob_path(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::file_glob_at(dir, pattern, false)
@@ -165,6 +172,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_glob()?;
         let (dir, pattern) = split_glob_path_i(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::file_glob_at(dir, pattern, true)
@@ -175,6 +183,11 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        if input.as_ref().contains(is_glob_char) {
+            path_converter.check_glob()?;
+        } else {
+            return Self::cwd_prefix_path(path_converter, input);
+        }
         let (dir, pattern) = split_glob_path(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::prefix_glob_at(dir, pattern, false)
@@ -186,6 +199,7 @@ impl FilePattern {
         path_converter: &RepoPathUiConverter,
         input: impl AsRef<str>,
     ) -> Result<Self, FilePatternParseError> {
+        path_converter.check_glob()?;
         let (dir, pattern) = split_glob_path_i(input.as_ref());
         let dir = path_converter.parse_file_path(dir)?;
         Self::prefix_glob_at(dir, pattern, true)
@@ -429,6 +443,133 @@ impl FilesetExpression {
     pub fn to_matcher(&self) -> Box<dyn Matcher> {
         build_union_matcher(self.as_union_all())
     }
+}
+
+/// Formats an expression as root-relative fileset syntax.
+///
+/// Parsing the result does not depend on the current directory or aliases and
+/// preserves the expression's matching behavior.
+pub fn format_expression(expression: &FilesetExpression) -> String {
+    let mut output = String::new();
+    format_expression_to_buf(&mut output, expression, 0);
+    output
+}
+
+fn format_expression_to_buf(
+    output: &mut String,
+    expression: &FilesetExpression,
+    min_precedence: u8,
+) {
+    let precedence = match expression {
+        FilesetExpression::UnionAll(expressions) if !expressions.is_empty() => 1,
+        FilesetExpression::Intersection(_, _) | FilesetExpression::Difference(_, _) => 2,
+        _ => 3,
+    };
+    let needs_parens = precedence < min_precedence;
+    if needs_parens {
+        output.push('(');
+    }
+    match expression {
+        FilesetExpression::None => output.push_str("none()"),
+        FilesetExpression::All => output.push_str("all()"),
+        FilesetExpression::Pattern(pattern) => format_pattern_to_buf(output, pattern),
+        FilesetExpression::UnionAll(expressions) => {
+            if expressions.is_empty() {
+                output.push_str("none()");
+            } else {
+                for (index, expression) in expressions.iter().enumerate() {
+                    if index > 0 {
+                        output.push_str(" | ");
+                    }
+                    format_expression_to_buf(output, expression, precedence);
+                }
+            }
+        }
+        FilesetExpression::Intersection(left, right)
+        | FilesetExpression::Difference(left, right) => {
+            format_expression_to_buf(output, left, precedence);
+            output.push_str(
+                if matches!(expression, FilesetExpression::Intersection(_, _)) {
+                    " & "
+                } else {
+                    " ~ "
+                },
+            );
+            // Intersection and difference share precedence and associate left.
+            format_expression_to_buf(output, right, precedence + 1);
+        }
+    }
+    if needs_parens {
+        output.push(')');
+    }
+}
+
+fn format_pattern_to_buf(output: &mut String, pattern: &FilePattern) {
+    match pattern {
+        FilePattern::FilePath(path) => {
+            format_literal_pattern_to_buf(output, "root-file", path.as_internal_file_string());
+        }
+        FilePattern::PrefixPath(path) if path.is_root() => output.push_str("all()"),
+        FilePattern::PrefixPath(path) => {
+            format_literal_pattern_to_buf(output, "root", path.as_internal_file_string());
+        }
+        FilePattern::FileGlob { dir, pattern: glob }
+        | FilePattern::PrefixGlob { dir, pattern: glob } => {
+            let dir = dir.as_internal_file_string();
+            let icase = glob.is_case_insensitive();
+            let kind = match (pattern, icase) {
+                (FilePattern::FileGlob { .. }, false) => "root-glob",
+                (FilePattern::FileGlob { .. }, true) => "root-glob-i",
+                (_, false) => "root-prefix-glob",
+                (_, true) => "root-prefix-glob-i",
+            };
+            if dir.is_empty() {
+                format_literal_pattern_to_buf(output, kind, glob.as_str());
+                return;
+            }
+
+            // A cwd-relative glob's directory is literal and case-sensitive.
+            // Root-relative parsing may move some of it into the glob, so
+            // escape metacharacters and constrain matching to its descendants.
+            // Excluding the directory itself also preserves the behavior of
+            // globs such as "**" that can match an empty suffix.
+            let needs_dir_guard =
+                dir.contains(|c: char| is_glob_char(c) || (icase && c.is_ascii_alphabetic()));
+            if needs_dir_guard {
+                output.push('(');
+                format_literal_pattern_to_buf(output, "root", dir);
+                output.push_str(" ~ ");
+                format_literal_pattern_to_buf(output, "root-file", dir);
+                output.push_str(" & ");
+            }
+            let mut full_glob = String::with_capacity(dir.len() + 1 + glob.as_str().len());
+            for c in dir.chars() {
+                match c {
+                    '?' | '*' | '[' | ']' | '{' | '}' => {
+                        full_glob.push('[');
+                        full_glob.push(c);
+                        full_glob.push(']');
+                    }
+                    // Unlike globset::escape(), preserve literal backslashes
+                    // on Unix, where glob parsing treats them as escapes.
+                    '\\' if !cfg!(windows) => full_glob.push_str(r"\\"),
+                    c => full_glob.push(c),
+                }
+            }
+            full_glob.push('/');
+            full_glob.push_str(glob.as_str());
+            format_literal_pattern_to_buf(output, kind, &full_glob);
+            if needs_dir_guard {
+                output.push(')');
+            }
+        }
+    }
+}
+
+fn format_literal_pattern_to_buf(output: &mut String, kind: &str, value: &str) {
+    output.push_str(kind);
+    output.push(':');
+    output.push_str(&format_string(value));
 }
 
 /// Transforms the union `expressions` to `Matcher` object.

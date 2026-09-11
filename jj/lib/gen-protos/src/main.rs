@@ -24,6 +24,7 @@ fn main() -> Result<()> {
         "simple_op_store.proto",
         "simple_store.proto",
         "simple_workspace_store.proto",
+        "working_copy_patterns.proto",
     ];
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();

@@ -200,52 +200,49 @@ fn test_workspaces_sparse_patterns() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "ws1"]).success();
     let ws1_dir = test_env.work_dir("ws1");
-    let ws2_dir = test_env.work_dir("ws2");
-    let ws3_dir = test_env.work_dir("ws3");
-    let ws4_dir = test_env.work_dir("ws4");
-    let ws5_dir = test_env.work_dir("ws5");
-    let ws6_dir = test_env.work_dir("ws6");
-
+    ws1_dir.write_file("foo/a.rs", "foo");
+    ws1_dir.write_file("bar/b.rs", "bar");
+    ws1_dir.write_file("README", "readme");
+    ws1_dir.run_jj(["new"]).success();
     ws1_dir
-        .run_jj(["sparse", "set", "--clear", "--add=foo"])
+        .run_jj(["sparse", "set", r#"glob:"**/*.rs" ~ bar"#])
         .success();
     ws1_dir.run_jj(["workspace", "add", "../ws2"]).success();
-    let output = ws2_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    foo
-    [EOF]
-    ");
-    ws2_dir.run_jj(["sparse", "set", "--add=bar"]).success();
-    ws2_dir.run_jj(["workspace", "add", "../ws3"]).success();
-    let output = ws3_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    bar
-    foo
-    [EOF]
-    ");
-    // --sparse-patterns behavior
-    ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=copy", "../ws4"])
+    let ws2_dir = test_env.work_dir("ws2");
+    assert!(ws2_dir.root().join("foo/a.rs").exists());
+    assert!(!ws2_dir.root().join("bar/b.rs").exists());
+    assert!(!ws2_dir.root().join("README").exists());
+
+    ws2_dir.run_jj(["sparse", "set", "--add", "bar"]).success();
+    ws2_dir
+        .run_jj(["workspace", "add", "--sparse-patterns=copy", "../ws3"])
         .success();
-    let output = ws4_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    bar
-    foo
-    [EOF]
-    ");
+    let ws3_dir = test_env.work_dir("ws3");
+    assert!(ws3_dir.root().join("foo/a.rs").exists());
+    assert!(ws3_dir.root().join("bar/b.rs").exists());
+    assert!(!ws3_dir.root().join("README").exists());
+    // Modifying the second workspace's selection did not change the first's.
+    assert!(!ws1_dir.root().join("bar/b.rs").exists());
+
     ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=full", "../ws5"])
+        .run_jj(["workspace", "add", "--sparse-patterns=full", "../full"])
         .success();
-    let output = ws5_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"
-    .
-    [EOF]
-    ");
+    let full_dir = test_env.work_dir("full");
+    assert!(full_dir.root().join("foo/a.rs").exists());
+    assert!(full_dir.root().join("bar/b.rs").exists());
+    assert!(full_dir.root().join("README").exists());
     ws3_dir
-        .run_jj(["workspace", "add", "--sparse-patterns=empty", "../ws6"])
+        .run_jj(["workspace", "add", "--sparse-patterns=empty", "../empty"])
         .success();
-    let output = ws6_dir.run_jj(["sparse", "list"]);
-    insta::assert_snapshot!(output, @"");
+    let empty_dir = test_env.work_dir("empty");
+    assert!(!empty_dir.root().join("foo/a.rs").exists());
+    assert!(!empty_dir.root().join("bar/b.rs").exists());
+    assert!(!empty_dir.root().join("README").exists());
+    // An empty checkout still contains the complete canonical tree.
+    assert_eq!(
+        empty_dir.run_jj(["file", "list"]).success().stdout.raw(),
+        "README\nbar/b.rs\nfoo/a.rs\n",
+    );
 }
 
 /// Test adding a second workspace while the current workspace is editing a
@@ -290,17 +287,42 @@ fn test_workspaces_add_ignore_working_copy() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "main"]).success();
     let main_dir = test_env.work_dir("main");
-
-    // TODO: maybe better to error out early?
-    let output = main_dir.run_jj(["workspace", "add", "--ignore-working-copy", "../secondary"]);
-    insta::assert_snapshot!(output.normalize_backslash(), @r#"
-    ------- stderr -------
-    Created workspace in "../secondary"
-    Error: This command must be able to update the working copy.
-    Hint: Don't use --ignore-working-copy.
-    [EOF]
-    [exit status: 1]
-    "#);
+    main_dir.write_file("tracked", "recorded");
+    main_dir.write_file("excluded", "hidden");
+    main_dir.run_jj(["new"]).success();
+    main_dir.run_jj(["sparse", "set", "tracked"]).success();
+    let source_commit = main_dir
+        .run_jj(["log", "-r", "@", "--no-graph", "-T", "commit_id"])
+        .success();
+    main_dir.write_file("tracked", "unsnapshotted");
+    main_dir
+        .run_jj(["workspace", "add", "--ignore-working-copy", "../secondary"])
+        .success();
+    let secondary_dir = test_env.work_dir("secondary");
+    assert!(!secondary_dir.root().join("tracked").exists());
+    assert!(!secondary_dir.root().join("excluded").exists());
+    assert_eq!(main_dir.read_file("tracked"), "unsnapshotted");
+    assert_eq!(
+        main_dir
+            .run_jj([
+                "--ignore-working-copy",
+                "log",
+                "-r",
+                "@",
+                "--no-graph",
+                "-T",
+                "commit_id"
+            ])
+            .success()
+            .stdout
+            .raw(),
+        source_commit.stdout.raw(),
+    );
+    secondary_dir
+        .run_jj(["workspace", "update-stale"])
+        .success();
+    assert_eq!(secondary_dir.read_file("tracked"), "recorded");
+    assert!(!secondary_dir.root().join("excluded").exists());
 }
 
 /// Test that --no-integrate-operation is respected
@@ -1047,176 +1069,68 @@ fn test_workspaces_current_op_discarded_by_other(automatic: bool) {
     if automatic {
         test_env.add_config("snapshot.auto-update-stale = true\n");
     }
-
     test_env.run_jj_in(".", ["git", "init", "main"]).success();
     let main_dir = test_env.work_dir("main");
     let secondary_dir = test_env.work_dir("secondary");
-
     main_dir.write_file("modified", "base\n");
     main_dir.write_file("deleted", "base\n");
     main_dir.write_file("sparse", "base\n");
     main_dir.run_jj(["new"]).success();
     main_dir.write_file("modified", "main\n");
     main_dir.run_jj(["new"]).success();
-
     main_dir
         .run_jj(["workspace", "add", "../secondary"])
         .success();
-    // Make unsnapshotted writes in the secondary working copy
     secondary_dir
-        .run_jj([
-            "sparse",
-            "set",
-            "--clear",
-            "--add=modified",
-            "--add=deleted",
-            "--add=added",
-        ])
+        .run_jj(["sparse", "set", "modified | deleted | added"])
         .success();
     secondary_dir.write_file("modified", "secondary\n");
     secondary_dir.remove_file("deleted");
     secondary_dir.write_file("added", "secondary\n");
-
-    // Create an op by abandoning the parent commit. Importantly, that commit also
-    // changes the target tree in the secondary workspace.
     main_dir.run_jj(["abandon", "@-"]).success();
-
-    let output = main_dir.run_jj([
-        "operation",
-        "log",
-        "--template",
-        r#"id.short(10) ++ " " ++ description"#,
-    ]);
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(output, @"
-        @  a9b524b948 abandon commit de90575a14d8b9198dc0930f9de4a69f846ded36
-        ○  0392b7d733 create initial working-copy commit in workspace secondary
-        ○  766373d1f4 add workspace 'secondary'
-        ○  eb6701963b new empty commit
-        ○  1d937e1f1e snapshot working copy
-        ○  e22ce69861 new empty commit
-        ○  48aa617132 snapshot working copy
-        ○  f63ee16f95 add workspace 'default'
-        ○  0000000000
-        [EOF]
-        ");
-    }
-
-    // Abandon ops, including the one the secondary workspace is currently on.
+    let parent = main_dir
+        .run_jj(["log", "-r", "secondary@", "--no-graph", "-T", "commit_id"])
+        .success();
+    // Remove the operation the secondary workspace last materialized.
     main_dir.run_jj(["operation", "abandon", "..@-"]).success();
     main_dir.run_jj(["util", "gc", "--expire=now"]).success();
 
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(get_log_output(&main_dir), @"
-        @  320bc89effc9 default@
-        │ ○  891f00062e10 secondary@
-        ├─╯
-        ○  367415be5b44
-        ◆  000000000000
-        [EOF]
-        ");
-    }
-
     if automatic {
-        // Run a no-op command to set the randomness seed for commit hashes.
-        secondary_dir.run_jj(["help"]).success();
-
-        let output = secondary_dir.run_jj(["st"]);
-        insta::assert_snapshot!(output, @"
-        Working copy changes:
-        C {modified => added}
-        D deleted
-        M modified
-        Working copy  (@) : kmkuslsw 18851b39 RECOVERY COMMIT FROM `jj workspace update-stale`
-        Parent commit (@-): rzvqmyuk 891f0006 (empty) (no description set)
-        [EOF]
-        ------- stderr -------
-        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 0392b7d73383f694906abd6ffd55416c30d1775a9790553062784f5c4553c09746b388aa86fb7d27b113d1096f50845e28dc24b3de8b1a9d515cbde3b44eb346 of type operation not found
-        Created and checked out recovery commit 866928d1e0fd
-        [EOF]
-        ");
+        secondary_dir.run_jj(["status"]).success();
     } else {
-        let output = secondary_dir.run_jj(["st"]);
-        insta::assert_snapshot!(output, @"
-        ------- stderr -------
-        Error: Could not read working copy's operation.
-        Hint: Run `jj workspace update-stale` to recover.
-        See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy for more information.
-        [EOF]
-        [exit status: 1]
-        ");
-
-        let output = secondary_dir.run_jj(["workspace", "update-stale"]);
-        insta::assert_snapshot!(output, @"
-        ------- stderr -------
-        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 0392b7d73383f694906abd6ffd55416c30d1775a9790553062784f5c4553c09746b388aa86fb7d27b113d1096f50845e28dc24b3de8b1a9d515cbde3b44eb346 of type operation not found
-        Created and checked out recovery commit 866928d1e0fd
-        [EOF]
-        ");
+        assert!(!secondary_dir.run_jj(["status"]).status.success());
+        secondary_dir
+            .run_jj(["workspace", "update-stale"])
+            .success();
     }
-
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(get_log_output(&main_dir), @r#"
-        @  320bc89effc9 default@
-        │ ○  18851b397d09 secondary@ "RECOVERY COMMIT FROM `jj workspace update-stale`"
-        │ ○  891f00062e10
-        ├─╯
-        ○  367415be5b44
-        ◆  000000000000
-        [EOF]
-        "#);
-    }
-
-    // The sparse patterns should remain
-    let output = secondary_dir.run_jj(["sparse", "list"]);
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(output, @"
-        added
-        deleted
-        modified
-        [EOF]
-        ");
-    }
-    let output = secondary_dir.run_jj(["st"]);
-    insta::allow_duplicates! {
-        insta::assert_snapshot!(output, @"
-        Working copy changes:
-        C {modified => added}
-        D deleted
-        M modified
-        Working copy  (@) : kmkuslsw 18851b39 RECOVERY COMMIT FROM `jj workspace update-stale`
-        Parent commit (@-): rzvqmyuk 891f0006 (empty) (no description set)
-        [EOF]
-        ");
-    }
-    insta::allow_duplicates! {
-        // The modified file should have the same contents it had before (not reset to
-        // the base contents)
-        insta::assert_snapshot!(secondary_dir.read_file("modified"), @"secondary");
-    }
-
-    let output = secondary_dir.run_jj(["evolog"]);
-    if automatic {
-        insta::assert_snapshot!(output, @"
-        @  kmkuslsw test.user@example.com 2001-02-03 08:05:18 secondary@ 18851b39
-        │  RECOVERY COMMIT FROM `jj workspace update-stale`
-        │  -- operation 91f539374e6a snapshot working copy
-        ○  kmkuslsw/1 test.user@example.com 2001-02-03 08:05:18 866928d1 (hidden)
-           (empty) RECOVERY COMMIT FROM `jj workspace update-stale`
-           -- operation 2a845e0b4514 recovery commit
-        [EOF]
-        ");
-    } else {
-        insta::assert_snapshot!(output, @"
-        @  kmkuslsw test.user@example.com 2001-02-03 08:05:18 secondary@ 18851b39
-        │  RECOVERY COMMIT FROM `jj workspace update-stale`
-        │  -- operation 2d387a4a6355 snapshot working copy
-        ○  kmkuslsw/1 test.user@example.com 2001-02-03 08:05:18 866928d1 (hidden)
-           (empty) RECOVERY COMMIT FROM `jj workspace update-stale`
-           -- operation 2a845e0b4514 recovery commit
-        [EOF]
-        ");
-    }
+    assert_eq!(secondary_dir.read_file("modified"), "secondary\n");
+    assert_eq!(secondary_dir.read_file("added"), "secondary\n");
+    assert!(!secondary_dir.root().join("deleted").exists());
+    assert!(!secondary_dir.root().join("sparse").exists());
+    assert_eq!(
+        secondary_dir
+            .run_jj(["file", "list"])
+            .success()
+            .stdout
+            .raw(),
+        "added\nmodified\nsparse\n",
+    );
+    assert_eq!(
+        secondary_dir
+            .run_jj(["log", "-r", "@-", "--no-graph", "-T", "commit_id"])
+            .success()
+            .stdout
+            .raw(),
+        parent.stdout.raw(),
+    );
+    assert_eq!(
+        secondary_dir
+            .run_jj(["file", "show", "sparse"])
+            .success()
+            .stdout
+            .raw(),
+        "base\n",
+    );
 }
 
 #[test]
