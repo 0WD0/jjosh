@@ -143,8 +143,8 @@ async fn run_import(
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let transaction = crate::interop::open_josh_transaction(&git_path, false)?;
     let mut sources = Vec::with_capacity(specifications.len());
+    let suffix = crate::ref_names::use_scope_suffix(workspace.settings())?;
     for (name, path) in specifications {
-        let prefix = format!("{name}/");
         let view = workspace.repo().view().store_view();
         let mut has_history = false;
         transaction
@@ -157,7 +157,7 @@ async fn run_import(
             .local_bookmarks
             .keys()
             .chain(view.local_tags.keys())
-            .any(|key| key.as_str().starts_with(&prefix))
+            .any(|key| crate::ref_names::belongs_to_project(&name, key.as_str(), suffix))
             || has_history
         {
             return Err(user_error(format!(
