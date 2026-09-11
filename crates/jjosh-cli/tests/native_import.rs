@@ -1535,3 +1535,47 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
         String::from_utf8_lossy(&overlapped.stderr)
     );
 }
+
+#[test]
+fn native_project_names_are_jj_symbols() {
+    let dotted = NativeRepo::new();
+    dotted.write("file.txt", "dot\n");
+    dotted.jj(&["describe", "-m", "dotted"]);
+    dotted.bookmark("main");
+    let chinese = NativeRepo::new();
+    chinese.write("file.txt", "han\n");
+    chinese.jj(&["describe", "-m", "chinese"]);
+    chinese.bookmark("main");
+
+    let dest = NativeRepo::new();
+    dest.jj(&[
+        "native",
+        "import",
+        "--source",
+        &format!("foo.bar={}", dotted.path.display()),
+        "--source",
+        &format!("项目={}", chinese.path.display()),
+    ]);
+    dest.jj(&["new", "main#foo.bar", "main#项目"]);
+    assert_eq!(
+        fs::read_to_string(dest.path.join("foo.bar/file.txt")).unwrap(),
+        "dot\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dest.path.join("项目/file.txt")).unwrap(),
+        "han\n"
+    );
+
+    let hash = dest.unchecked(&[
+        "native",
+        "import",
+        "--source",
+        &format!("a#b={}", dotted.path.display()),
+    ]);
+    assert!(!hash.status.success());
+    assert!(
+        String::from_utf8_lossy(&hash.stderr).contains('#'),
+        "{}",
+        String::from_utf8_lossy(&hash.stderr)
+    );
+}

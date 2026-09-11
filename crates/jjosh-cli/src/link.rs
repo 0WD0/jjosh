@@ -242,7 +242,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     .map_err(user_error)?;
     let native = native_name.is_some();
     let project = if let Some(name) = &args.name {
-        crate::native_project::validate_project(name).map_err(user_error)?;
+        let name = crate::native_project::parse_project(name).map_err(user_error)?;
         if let Some(native_name) = native_name.as_deref() {
             if native_name != name {
                 return Err(user_error(format!(
@@ -251,7 +251,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
                 )));
             }
         }
-        name.clone()
+        name
     } else if let Some(native_name) = &native_name {
         native_name.clone()
     } else {
