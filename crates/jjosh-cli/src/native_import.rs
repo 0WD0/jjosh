@@ -5,8 +5,6 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
 use jj_lib::backend::CommitId;
-use jj_lib::backend::Tree;
-use jj_lib::backend::TreeValue;
 use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
 use jj_lib::op_store::RefTarget;
@@ -15,7 +13,6 @@ use jj_lib::ref_name::RefName;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
 use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathComponentBuf;
 
 use crate::native_source::NativeSource;
 
@@ -40,9 +37,9 @@ pub(crate) async fn import_source(
     source: &NativeSource,
     dest: &mut MutableRepo,
     scope: &str,
+    mount: &RepoPath,
     mut ids: HashMap<CommitId, CommitId>,
 ) -> Result<Imported> {
-    let component = RepoPathComponentBuf::new(scope.to_owned())?;
     let source_backend = source.store.backend();
     let dest_store = dest.store().clone();
     let dest_backend = dest_store.backend();
@@ -109,7 +106,7 @@ pub(crate) async fn import_source(
                     .with_context(|| format!("missing source {scope} native commit {id}"))?
                     .clone();
                 if let Some(existing) =
-                    crate::native_project::existing_same_project_version(dest, scope, &commit)
+                    crate::native_project::existing_same_project_version(dest, mount, &commit)
                         .await?
                 {
                     ids.insert(id.clone(), existing.clone());
@@ -141,11 +138,8 @@ pub(crate) async fn import_source(
                         let prefixed = if tree_id == source_backend.empty_tree_id() {
                             dest_backend.empty_tree_id().clone()
                         } else {
-                            let tree = Tree::from_sorted_entries(vec![(
-                                component.clone(),
-                                TreeValue::Tree(tree_id.clone()),
-                            )]);
-                            dest_backend.write_tree(RepoPath::root(), &tree).await?
+                            crate::native_project::prefix_tree(dest_store.as_ref(), mount, tree_id)
+                                .await?
                         };
                         trees.insert(tree_id.clone(), prefixed);
                     }
@@ -155,7 +149,7 @@ pub(crate) async fn import_source(
                 intended.root_tree = intended.root_tree.map(|id| trees[id].clone());
                 if lift {
                     let tree =
-                        crate::native_project::inherit_other_projects(dest, scope, &intended)
+                        crate::native_project::inherit_other_projects(dest, mount, &intended)
                             .await?;
                     intended.root_tree = tree.tree_ids().clone();
                     intended.conflict_labels = tree.labels().as_merge().clone();

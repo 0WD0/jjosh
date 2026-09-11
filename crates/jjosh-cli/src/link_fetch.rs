@@ -20,27 +20,18 @@ use josh_core::cache::Expected;
 use josh_core::cache::Transaction;
 use josh_core::filter::Filter;
 
-pub(crate) fn has_native_history(
+fn native_project_name(
     transaction: &Transaction,
-    project: &str,
-) -> Result<bool, CommandError> {
-    let mut found = false;
-    transaction
-        .for_each_ref_prefixed(
-            &crate::native_project::project_ref_prefix(project),
-            |_, _| {
-                found = true;
-                Ok(())
-            },
-        )
-        .map_err(user_error)?;
-    Ok(found)
+    path: &str,
+) -> Result<Option<String>, CommandError> {
+    let mount = crate::native_project::parse_mount(path).map_err(user_error)?;
+    crate::native_project::native_project_for_mount(transaction, &mount).map_err(user_error)
 }
 
-pub(crate) fn remote_name(path: &Path, label: &str) -> Result<RemoteNameBuf, CommandError> {
-    crate::native_project::validate_project(label).map_err(user_error)?;
-    let encoded = crate::link_refs::source_name(path)?;
-    Ok(format!("{encoded}-{label}").into())
+pub(crate) fn remote_name(project: &str, label: &str) -> Result<RemoteNameBuf, CommandError> {
+    crate::ref_names::observation_remote(project, label)
+        .map_err(user_error)
+        .map(Into::into)
 }
 
 pub(crate) async fn fetch(
@@ -54,9 +45,11 @@ pub(crate) async fn fetch(
     tags: Option<&[String]>,
     options: &jj_lib::git::GitImportOptions,
 ) -> Result<(), CommandError> {
-    let project = path
+    let mount_str = path
         .to_str()
         .ok_or_else(|| user_error("Link path must be UTF-8"))?;
+    let mount = crate::native_project::parse_mount(mount_str).map_err(user_error)?;
+    let project = crate::ref_names::project_from_link(path, &link).map_err(user_error)?;
     let url = link
         .get_meta("remote")
         .ok_or_else(|| user_error("Link has no source URL"))?;
@@ -64,9 +57,7 @@ pub(crate) async fn fetch(
     let label = link
         .get_meta("source-remote")
         .unwrap_or_else(|| "upstream".to_owned());
-    let remote = remote_name(path, &label)?;
-    let encoded = crate::link_refs::source_name(path)?;
-    let scope = encoded.replace("%2F", "/");
+    let remote = remote_name(&project, &label)?;
     if jj_lib::git::get_git_repo(repo.store())?
         .remote_names()
         .iter()
@@ -76,14 +67,23 @@ pub(crate) async fn fetch(
             "Link observation name collides with a configured Git remote",
         ));
     }
-    let native = has_native_history(transaction, project)?;
+    let native_name = native_project_name(transaction, mount_str)?;
+    let native = native_name.is_some();
     if native && link.peel() != Filter::new().prefix(path) {
         return Err(user_error(
             "An imported whole project cannot change its source filter during fetch",
         ));
     }
-    let known = if native {
-        crate::native_project::anchors(repo, transaction, project)
+    if let (Some(native_name), true) = (native_name.as_deref(), native) {
+        if native_name != project {
+            return Err(user_error(format!(
+                "Link {} is named {project}, but native history is project {native_name}",
+                path.display()
+            )));
+        }
+    }
+    let known = if let Some(name) = &native_name {
+        crate::native_project::anchors(repo, transaction, name)
             .await
             .map_err(user_error)?
     } else {
@@ -147,7 +147,7 @@ pub(crate) async fn fetch(
     };
     let key =
         josh_core::objects::write_blob(transaction.odb(), url.as_bytes()).map_err(user_error)?;
-    let raw_prefix = format!("refs/jjosh/link-fetch/{encoded}/{key}/");
+    let raw_prefix = format!("refs/jjosh/link-fetch/{project}/{key}/");
     let mut fetched = Vec::new();
     for line in advertised.lines() {
         let Some((_, reference)) = line.split_once('\t') else {
@@ -219,12 +219,12 @@ pub(crate) async fn fetch(
         )
         .await
         .map_err(user_error)?;
-        let imported = crate::native_import::import_source(&source, repo, project, known)
+        let imported = crate::native_import::import_source(&source, repo, &project, &mount, known)
             .await
             .map_err(user_error)?;
         crate::native_project::record_imported_boundaries(
             transaction,
-            project,
+            &project,
             &imported,
             received.iter().map(|(_, _, _, raw, _)| raw),
         )
@@ -253,7 +253,7 @@ pub(crate) async fn fetch(
             format!(
                 "{prefix}{}/{}",
                 remote.as_str(),
-                crate::ref_names::local_name(&scope, name)
+                crate::ref_names::local_name(&project, name)
             ),
             canonical,
         );
@@ -266,7 +266,7 @@ pub(crate) async fn fetch(
         transaction
             .for_each_ref_prefixed(&remote_prefix, |name, old| {
                 let relative = &name[remote_prefix.len()..];
-                let source_name = crate::ref_names::unscoped_name(&scope, relative);
+                let source_name = crate::ref_names::unscoped_name(&project, relative);
                 if source_name.is_some_and(|source| selected(kind, source))
                     && !mapped.contains_key(name)
                 {
@@ -313,7 +313,7 @@ pub(crate) async fn fetch(
         if symbol.remote != remote {
             return false;
         }
-        let source_name = crate::ref_names::unscoped_name(&scope, symbol.name.as_str());
+        let source_name = crate::ref_names::unscoped_name(&project, symbol.name.as_str());
         source_name.is_some_and(|name| selected(kind, name))
     })
     .await?;

@@ -9,8 +9,6 @@ use jj_cli::command_error::user_error;
 use jj_cli::command_error::user_error_with_message;
 use jj_cli::ui::Ui;
 use jj_lib::repo::Repo as _;
-use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathComponent;
 
 use crate::native_source::NativeSource;
 
@@ -31,8 +29,9 @@ enum Command {
     Inspect(BundleArgs),
     /// Import recorded jj repositories into an existing or new monorepo.
     ///
-    /// Each source retains its native graph and references under NAME/. Sources
-    /// are read without snapshotting; record working files in the source first.
+    /// Each source retains its native graph and references under NAME. Trees are
+    /// mounted at NAME/ by default, or at --mount NAME=DEST for a nested path.
+    /// Sources are read without snapshotting; record working files in the source first.
     /// Bundles remain accepted as an optional offline source. Import records
     /// ancestry correspondences for subsequent native fetch/push. It does not
     /// merge or check out the imported heads: use normal jj new/rebase commands.
@@ -55,9 +54,12 @@ struct BundleArgs {
 
 #[derive(clap::Args, Clone, Debug)]
 struct ImportArgs {
-    /// Native jj workspace or bundle and its directory/ref namespace (repeatable).
+    /// Native jj workspace or bundle and its identity (repeatable).
     #[arg(long, value_name = "NAME=PATH", required = true)]
     source: Vec<String>,
+    /// Dest directory for an imported project (repeatable). Defaults to NAME/.
+    #[arg(long, value_name = "NAME=DEST")]
+    mount: Vec<String>,
 }
 
 fn require_current_operation(command: &CommandHelper) -> Result<(), CommandError> {
@@ -138,12 +140,43 @@ async fn run_import(
         }
         specifications.push((name.to_owned(), command.cwd().join(path)));
     }
+    let mut mounts = HashMap::new();
+    for value in args.mount {
+        let (name, path) = value
+            .split_once('=')
+            .ok_or_else(|| user_error("Expected --mount NAME=DEST"))?;
+        if !names.contains(name) {
+            return Err(user_error(format!(
+                "Mount {name:?} does not match a --source project"
+            )));
+        }
+        let mount = crate::native_project::parse_mount(path).map_err(|err| {
+            user_error_with_message(format!("Invalid mount for native project {name}"), err)
+        })?;
+        if mounts.insert(name.to_owned(), mount).is_some() {
+            return Err(user_error(format!("Duplicate mount for project {name:?}")));
+        }
+    }
+    let mut resolved = Vec::with_capacity(specifications.len());
+    for (name, path) in specifications {
+        let mount = match mounts.remove(&name) {
+            Some(mount) => mount,
+            None => crate::native_project::default_mount(&name).map_err(user_error)?,
+        };
+        resolved.push((name, path, mount));
+    }
+    crate::native_project::check_mounts_disjoint(
+        resolved
+            .iter()
+            .map(|(name, _, mount)| (name.as_str(), mount.as_ref())),
+    )
+    .map_err(user_error)?;
     let mut workspace = command.workspace_helper(ui).await?;
     let git_lock = workspace.lock_git_import_export()?;
     let git_path = crate::interop::sha1_git_repo_path(&workspace)?;
     let transaction = crate::interop::open_josh_transaction(&git_path, false)?;
-    let mut sources = Vec::with_capacity(specifications.len());
-    for (name, path) in specifications {
+    let mut sources = Vec::with_capacity(resolved.len());
+    for (name, path, mount) in resolved {
         let view = workspace.repo().view().store_view();
         let mut has_history = false;
         transaction
@@ -163,22 +196,16 @@ async fn run_import(
                 "Project namespace {name:?} already exists; receive updates with native fetch"
             )));
         }
-        let component = RepoPathComponent::new(&name)
-            .map_err(|err| user_error_with_message("Invalid project path", err))?;
         for head in &view.head_ids {
             let commit = workspace.repo().store().get_commit_async(head).await?;
-            for term in commit.tree_ids().iter() {
-                let tree = workspace
-                    .repo()
-                    .store()
-                    .backend()
-                    .read_tree(RepoPath::root(), term)
-                    .await?;
-                if tree.value(component).is_some() {
-                    return Err(user_error(format!(
-                        "Destination path {name:?} is already occupied in visible history"
-                    )));
-                }
+            if crate::native_project::commit_path_occupied(&commit, &mount)
+                .await
+                .map_err(user_error)?
+            {
+                return Err(user_error(format!(
+                    "Destination path {} is already occupied in visible history",
+                    mount.as_internal_file_string()
+                )));
             }
         }
         let source = if path.is_dir() {
@@ -195,16 +222,16 @@ async fn run_import(
             crate::native_bundle::load(&path, workspace.settings()).await
         }
         .map_err(|err| user_error_with_message(format!("Cannot read native source {name}"), err))?;
-        sources.push((name, source));
+        sources.push((name, source, mount));
     }
     let mut tx = workspace.start_transaction();
     let mut view = tx.repo().view().store_view().clone();
     let mut summaries = Vec::new();
     let mut roots = Vec::new();
     let mut remotes = HashSet::new();
-    for (name, source) in &sources {
+    for (name, source, mount) in &sources {
         let imported =
-            crate::native_import::import_source(source, tx.repo_mut(), name, HashMap::new())
+            crate::native_import::import_source(source, tx.repo_mut(), name, mount, HashMap::new())
                 .await
                 .map_err(|err| {
                     user_error_with_message(format!("Cannot import native source {name}"), err)
@@ -249,6 +276,10 @@ async fn run_import(
             .map_err(|err| {
                 user_error_with_message("Cannot record native source correspondence", err)
             })?;
+    }
+    for (name, _, mount) in &sources {
+        crate::native_project::record_mount(&transaction, name, mount)
+            .map_err(|err| user_error_with_message("Cannot record native project mount", err))?;
     }
     transaction
         .flush_mem_odb()

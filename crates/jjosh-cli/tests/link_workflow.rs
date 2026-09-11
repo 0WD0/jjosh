@@ -1008,3 +1008,54 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     jjosh(&client, &["link", "update", "app", "--branch", "main"]);
     assert_eq!(commit_id(&client, "@ & conflicts()"), conflicted);
 }
+
+#[test]
+fn link_add_names_observations_by_project_not_mount_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_work, bare, _) = create_remote(temp.path(), "nested");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "vendor/deps",
+            bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+        ],
+    );
+    let names = String::from_utf8(
+        jjosh(
+            &client,
+            &[
+                "bookmark",
+                "list",
+                "--all-remotes",
+                "-T",
+                r#"if(remote && remote != "git", name ++ "@" ++ remote ++ "\n")"#,
+            ],
+        )
+        .stdout,
+    )
+    .unwrap();
+    assert!(
+        names.contains("main#deps@deps-upstream"),
+        "expected project identity, got:\n{names}"
+    );
+    assert!(
+        !names.contains("%2F") && !names.contains("vendor"),
+        "mount path leaked into observation names:\n{names}"
+    );
+    jjosh(&client, &["new", "@", "main#deps@deps-upstream"]);
+    assert_eq!(
+        fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
+        "nested-v1\n"
+    );
+    let marker = fs::read_to_string(client.join("vendor/deps/.link.josh")).unwrap();
+    assert!(
+        marker.contains("name=\"deps\""),
+        "missing project name in marker:\n{marker}"
+    );
+}

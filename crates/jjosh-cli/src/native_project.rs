@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Write as _;
@@ -31,7 +32,8 @@ use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
-use jj_lib::repo_path::RepoPathComponent;
+use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::store::Store;
 use josh_core::cache::Expected;
 use josh_core::cache::Transaction;
 
@@ -39,7 +41,7 @@ use crate::native_source::NativeSource;
 
 #[derive(clap::Args, Clone, Debug)]
 pub(crate) struct FetchArgs {
-    /// Imported project name (its canonical top-level directory).
+    /// Imported project name (bookmark and private-ref namespace).
     project: String,
     /// Git URL or local jj workspace. A jj workspace is read without snapshotting.
     source: String,
@@ -85,6 +87,267 @@ pub(crate) fn validate_project(project: &str) -> Result<()> {
 
 pub(crate) fn project_ref_prefix(project: &str) -> String {
     format!("refs/jjosh/native/{project}/")
+}
+
+fn mount_ref_name(project: &str) -> String {
+    format!("{}mount", project_ref_prefix(project))
+}
+
+/// Dest directory for a native project. Identity stays `NAME`; this path may be nested.
+pub(crate) fn parse_mount(value: &str) -> Result<RepoPathBuf> {
+    ensure!(
+        !value.is_empty() && !value.contains('\\') && !value.contains('\0'),
+        "Project mount {value:?} must be a repository-relative directory"
+    );
+    let path = RepoPathBuf::from_internal_string(value)?;
+    ensure!(
+        !path.is_root()
+            && path.components().all(|component| {
+                let name = component.as_internal_str();
+                name != "." && name != ".."
+            }),
+        "Project mount {value:?} must stay within the repository and cannot be the root"
+    );
+    Ok(path)
+}
+
+pub(crate) fn default_mount(project: &str) -> Result<RepoPathBuf> {
+    parse_mount(project)
+}
+
+fn mounts_overlap(left: &RepoPath, right: &RepoPath) -> bool {
+    left.starts_with(right) || right.starts_with(left)
+}
+
+pub(crate) fn check_mounts_disjoint<'a>(
+    mounts: impl IntoIterator<Item = (&'a str, &'a RepoPath)>,
+) -> Result<()> {
+    let mounts: Vec<_> = mounts.into_iter().collect();
+    for (i, (left_name, left)) in mounts.iter().enumerate() {
+        for (right_name, right) in mounts.iter().skip(i + 1) {
+            ensure!(
+                !mounts_overlap(left, right),
+                "Project mounts {} ({left_name}) and {} ({right_name}) overlap",
+                left.as_internal_file_string(),
+                right.as_internal_file_string()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn list_native_projects(transaction: &Transaction) -> Result<Vec<String>> {
+    let mut names = BTreeSet::new();
+    transaction.for_each_ref_prefixed("refs/jjosh/native/", |name, _| {
+        let rest = name.strip_prefix("refs/jjosh/native/").unwrap_or(name);
+        if let Some(project) = rest.split('/').next().filter(|name| !name.is_empty()) {
+            names.insert(project.to_owned());
+        }
+        Ok(())
+    })?;
+    Ok(names.into_iter().collect())
+}
+
+pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<RepoPathBuf> {
+    let Some(oid) = transaction.resolve_ref(&mount_ref_name(project))? else {
+        return default_mount(project);
+    };
+    let bytes = josh_core::filter::tree::blob_bytes(transaction.odb(), oid)
+        .ok_or_else(|| anyhow::anyhow!("Native mount ref for {project} is not a blob"))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|err| anyhow::anyhow!("Native mount ref for {project} is not UTF-8: {err}"))?;
+    parse_mount(text)
+}
+
+pub(crate) fn record_mount(
+    transaction: &Transaction,
+    project: &str,
+    mount: &RepoPath,
+) -> Result<()> {
+    if let Some(other) = native_project_for_mount(transaction, mount)? {
+        ensure!(
+            other == project,
+            "Mount {} is already used by native project {other}",
+            mount.as_internal_file_string()
+        );
+    }
+    let blob = josh_core::objects::write_blob(
+        transaction.odb(),
+        mount.as_internal_file_string().as_bytes(),
+    )?;
+    let name = mount_ref_name(project);
+    let previous = transaction.resolve_ref(&name)?;
+    if let Some(old) = previous {
+        ensure!(
+            old == blob,
+            "Native project {project} is already mounted at {}",
+            load_mount(transaction, project)?.as_internal_file_string()
+        );
+        return Ok(());
+    }
+    transaction.update_ref(&name, Expected::Absent, blob, "record native project mount")
+}
+
+pub(crate) fn native_project_for_mount(
+    transaction: &Transaction,
+    mount: &RepoPath,
+) -> Result<Option<String>> {
+    let mut matched = None;
+    for project in list_native_projects(transaction)? {
+        if load_mount(transaction, &project)?.as_ref() == mount {
+            ensure!(
+                matched.as_ref().is_none_or(|previous| previous == &project),
+                "Mount {} is claimed by multiple native projects",
+                mount.as_internal_file_string()
+            );
+            matched = Some(project);
+        }
+    }
+    Ok(matched)
+}
+
+async fn value_at_path(
+    store: &Store,
+    tree_id: &TreeId,
+    path: &RepoPath,
+) -> Result<Option<TreeValue>> {
+    ensure!(
+        !path.is_root(),
+        "Project mount cannot be the repository root"
+    );
+    let mut current = tree_id.clone();
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        let tree = store
+            .backend()
+            .read_tree(RepoPath::root(), &current)
+            .await?;
+        match tree.value(component) {
+            None => return Ok(None),
+            Some(value) if index + 1 == components.len() => return Ok(Some(value.clone())),
+            Some(TreeValue::Tree(id)) => current = id.clone(),
+            Some(value) => return Ok(Some(value.clone())),
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) async fn commit_path_occupied(commit: &Commit, path: &RepoPath) -> Result<bool> {
+    let store = commit.store().as_ref();
+    for id in commit.tree_ids().iter() {
+        if value_at_path(store, id, path).await?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn commit_has_project_tree(commit: &Commit, mount: &RepoPath) -> Result<bool> {
+    let store = commit.store().as_ref();
+    let mut present = false;
+    for id in commit.tree_ids().iter() {
+        match value_at_path(store, id, mount).await? {
+            Some(TreeValue::Tree(_)) => present = true,
+            Some(_) => anyhow::bail!(
+                "Project mount {} is not a directory in {}",
+                mount.as_internal_file_string(),
+                commit.id()
+            ),
+            None => {}
+        }
+    }
+    Ok(present)
+}
+
+async fn tree_id_at_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
+    match value_at_path(store, tree_id, path).await? {
+        Some(TreeValue::Tree(id)) => Ok(id),
+        None => Ok(store.empty_tree_id().clone()),
+        Some(_) => anyhow::bail!(
+            "Project mount {} is not a directory",
+            path.as_internal_file_string()
+        ),
+    }
+}
+
+pub(crate) async fn prefix_tree(store: &Store, mount: &RepoPath, inner: &TreeId) -> Result<TreeId> {
+    ensure!(
+        !mount.is_root(),
+        "Project mount cannot be the repository root"
+    );
+    if inner == store.empty_tree_id() {
+        return Ok(inner.clone());
+    }
+    let mut current = inner.clone();
+    for component in mount.components().rev() {
+        let tree =
+            Tree::from_sorted_entries(vec![(component.to_owned(), TreeValue::Tree(current))]);
+        current = store.backend().write_tree(RepoPath::root(), &tree).await?;
+    }
+    Ok(current)
+}
+
+async fn without_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Result<TreeId> {
+    let empty = store.empty_tree_id();
+    let components: Vec<_> = path.components().collect();
+    ensure!(
+        !components.is_empty(),
+        "Project mount cannot be the repository root"
+    );
+    if tree_id == empty {
+        return Ok(empty.clone());
+    }
+    let mut current = tree_id.clone();
+    let mut stack = Vec::with_capacity(components.len());
+    for (index, component) in components.iter().enumerate() {
+        let tree = store
+            .backend()
+            .read_tree(RepoPath::root(), &current)
+            .await?;
+        let last = index + 1 == components.len();
+        let child = match tree.value(component) {
+            Some(TreeValue::Tree(id)) if !last => Some(id.clone()),
+            Some(TreeValue::Tree(_)) if last => None,
+            None if last => return Ok(tree_id.clone()),
+            None => return Ok(tree_id.clone()),
+            Some(_) if last => None,
+            Some(_) => anyhow::bail!(
+                "Project mount is not a directory at {}",
+                component.as_internal_str()
+            ),
+        };
+        stack.push((tree, *component, last));
+        if let Some(id) = child {
+            current = id;
+        }
+    }
+    let mut rewritten: Option<TreeId> = None;
+    while let Some((tree, component, last)) = stack.pop() {
+        let mut entries = Vec::new();
+        for entry in tree.entries() {
+            if entry.name() != component {
+                entries.push((entry.name().to_owned(), entry.value().clone()));
+                continue;
+            }
+            if last {
+                continue;
+            }
+            if let Some(child) = &rewritten {
+                if child != empty {
+                    entries.push((entry.name().to_owned(), TreeValue::Tree(child.clone())));
+                }
+            }
+        }
+        rewritten = Some(if entries.is_empty() {
+            empty.clone()
+        } else {
+            store
+                .backend()
+                .write_tree(RepoPath::root(), &Tree::from_sorted_entries(entries))
+                .await?
+        });
+    }
+    Ok(rewritten.unwrap_or_else(|| tree_id.clone()))
 }
 
 fn oid(id: &CommitId) -> Result<gix_hash::ObjectId> {
@@ -221,19 +484,12 @@ pub(crate) async fn anchors(
             .all_remote_bookmarks()
             .any(|(symbol, _)| named(symbol.name.as_str()));
     if !present {
-        let component = RepoPathComponent::new(project)?;
-        'heads: for head in repo.view().heads() {
+        let mount = load_mount(transaction, project)?;
+        for head in repo.view().heads() {
             let commit = repo.store().get_commit_async(head).await?;
-            for term in commit.tree_ids().iter() {
-                let tree = repo
-                    .store()
-                    .backend()
-                    .read_tree(RepoPath::root(), term)
-                    .await?;
-                if tree.value(component).is_some() {
-                    present = true;
-                    break 'heads;
-                }
+            if commit_path_occupied(&commit, &mount).await? {
+                present = true;
+                break;
             }
         }
     }
@@ -277,35 +533,19 @@ pub(crate) async fn anchors(
 /// and preserved metadata match. Parents are remapped, so they are not compared.
 pub(crate) async fn existing_same_project_version(
     repo: &dyn Repo,
-    project: &str,
+    mount: &RepoPath,
     source: &backend::Commit,
 ) -> Result<Option<CommitId>> {
     let Some(targets) = repo.resolve_change_id(&source.change_id).await? else {
         return Ok(None);
     };
-    let component = RepoPathComponent::new(project)?;
     let mut matched: Option<CommitId> = None;
     for (id, state) in &targets.targets {
         if *state != ResolvedChangeState::Visible {
             continue;
         }
         let commit = repo.store().get_commit_async(id).await?;
-        let mut has_project = false;
-        for tree_id in commit.tree_ids().iter() {
-            let tree = repo
-                .store()
-                .backend()
-                .read_tree(RepoPath::root(), tree_id)
-                .await?;
-            match tree.value(component) {
-                Some(TreeValue::Tree(_)) => has_project = true,
-                Some(_) => {
-                    anyhow::bail!("Project {project:?} is not a directory in {}", commit.id())
-                }
-                None => {}
-            }
-        }
-        if !has_project {
+        if !commit_has_project_tree(&commit, mount).await? {
             continue;
         }
         if commit.description() != source.description
@@ -314,15 +554,16 @@ pub(crate) async fn existing_same_project_version(
         {
             continue;
         }
-        let projected = project_tree(&commit, project).await?;
+        let projected = project_tree(&commit, mount).await?;
         if projected.tree_ids() != &source.root_tree {
             continue;
         }
         if let Some(previous) = &matched {
             ensure!(
                 previous == id,
-                "Change {} has multiple matching {project} versions {} and {}",
+                "Change {} has multiple matching {} versions {} and {}",
                 source.change_id.hex(),
+                mount.as_internal_file_string(),
                 previous.hex(),
                 id.hex()
             );
@@ -334,7 +575,7 @@ pub(crate) async fn existing_same_project_version(
 
 pub(crate) async fn inherit_other_projects(
     repo: &dyn Repo,
-    project: &str,
+    mount: &RepoPath,
     incoming: &backend::Commit,
 ) -> Result<MergedTree> {
     let store = repo.store();
@@ -343,20 +584,10 @@ pub(crate) async fn inherit_other_projects(
         parents.push(store.get_commit_async(id).await?);
     }
     let parent_tree = jj_lib::rewrite::merge_commit_trees(repo, &parents).await?;
-    let component = RepoPathComponent::new(project)?;
     let mut outside = HashMap::new();
     for id in parent_tree.tree_ids().iter() {
         if !outside.contains_key(id) {
-            let tree = store.backend().read_tree(RepoPath::root(), id).await?;
-            let entries = tree
-                .entries()
-                .filter(|entry| entry.name() != component)
-                .map(|entry| (entry.name().to_owned(), entry.value().clone()))
-                .collect();
-            let id_out = store
-                .backend()
-                .write_tree(RepoPath::root(), &Tree::from_sorted_entries(entries))
-                .await?;
+            let id_out = without_path(store.as_ref(), id, mount).await?;
             outside.insert(id.clone(), id_out);
         }
     }
@@ -382,21 +613,17 @@ pub(crate) async fn inherit_other_projects(
     .await?)
 }
 
-pub(crate) async fn project_tree(commit: &Commit, project: &str) -> Result<MergedTree> {
+pub(crate) async fn project_tree(commit: &Commit, mount: &RepoPath) -> Result<MergedTree> {
     let store = commit.store();
-    let component = RepoPathComponent::new(project)?;
     let mut terms = HashMap::new();
     for id in commit.tree_ids().iter() {
         if terms.contains_key(id) {
             continue;
         }
-        let tree = store.backend().read_tree(RepoPath::root(), id).await?;
-        let selected = match tree.value(component) {
-            Some(TreeValue::Tree(id)) => id.clone(),
-            None => store.empty_tree_id().clone(),
-            Some(_) => anyhow::bail!("Project {project:?} is not a directory in {}", commit.id()),
-        };
-        terms.insert(id.clone(), selected);
+        terms.insert(
+            id.clone(),
+            tree_id_at_path(store.as_ref(), id, mount).await?,
+        );
     }
     Ok(MergedTree::new(
         store.clone(),
@@ -419,13 +646,14 @@ enum Visit {
 
 async fn export_project(
     repo: &dyn Repo,
-    project: &str,
+    mount: &RepoPath,
     head: &Commit,
     known: &HashMap<CommitId, CommitId>,
 ) -> Result<(CommitId, Vec<(CommitId, CommitId)>)> {
     ensure!(
-        !project_tree(head, project).await?.has_conflict(),
-        "Project {project:?} has unresolved conflicts at the publication revision"
+        !project_tree(head, mount).await?.has_conflict(),
+        "Project mount {} has unresolved conflicts at the publication revision",
+        mount.as_internal_file_string()
     );
     let mut reverse = HashMap::new();
     for (raw, canonical) in known {
@@ -459,7 +687,7 @@ async fn export_project(
                         id,
                         Projected {
                             raw: raw.clone(),
-                            tree: project_tree(&commit, project).await?.tree_ids().clone(),
+                            tree: project_tree(&commit, mount).await?.tree_ids().clone(),
                         },
                     );
                     continue;
@@ -469,7 +697,7 @@ async fn export_project(
                 pending.extend(parents.into_iter().map(Visit::Read));
             }
             Visit::Write(commit) => {
-                let tree = project_tree(&commit, project).await?;
+                let tree = project_tree(&commit, mount).await?;
                 let mut seen = HashSet::new();
                 let mut parents: Vec<_> = commit
                     .parent_ids()
@@ -597,6 +825,8 @@ pub(crate) async fn fetch(
     let known = anchors(workspace.repo().as_ref(), &transaction, &args.project)
         .await
         .map_err(user_error)?;
+    let mount = load_mount(&transaction, &args.project).map_err(user_error)?;
+    record_mount(&transaction, &args.project, &mount).map_err(user_error)?;
     let branch = check_branch(&transaction, &args.branch).map_err(user_error)?;
     let local = command.cwd().join(&args.source);
     let (source, target, git_observation) = if local.join(".jj").is_dir() {
@@ -640,7 +870,7 @@ pub(crate) async fn fetch(
     };
     let mut tx = workspace.start_transaction();
     let imported =
-        crate::native_import::import_source(&source, tx.repo_mut(), &args.project, known)
+        crate::native_import::import_source(&source, tx.repo_mut(), &args.project, &mount, known)
             .await
             .map_err(user_error)?;
     let target_mapped = RefTarget::from_merge(
@@ -730,12 +960,12 @@ pub(crate) async fn push(
     let known = anchors(workspace.repo().as_ref(), &transaction, &args.project)
         .await
         .map_err(user_error)?;
+    let mount = load_mount(&transaction, &args.project).map_err(user_error)?;
     let branch = check_branch(&transaction, &args.branch).map_err(user_error)?;
     let remote_url = endpoint(command, &workspace, &transaction, &args.remote, true)?;
-    let (exported, publications) =
-        export_project(workspace.repo().as_ref(), &args.project, &head, &known)
-            .await
-            .map_err(user_error)?;
+    let (exported, publications) = export_project(workspace.repo().as_ref(), &mount, &head, &known)
+        .await
+        .map_err(user_error)?;
     let tracking = crate::link_refs::push_tracking_ref(&transaction, &remote_url, &branch)?;
     let expected = transaction.resolve_ref(&tracking).map_err(user_error)?;
     let lease = expected

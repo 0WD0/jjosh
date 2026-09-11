@@ -1,24 +1,6 @@
-use std::fmt::Write as _;
-use std::path::Path;
-
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
 use jj_cli::command_error::user_error_with_message;
-
-pub fn source_name(path: &Path) -> Result<String, CommandError> {
-    let path = path
-        .to_str()
-        .ok_or_else(|| user_error("Link path must be valid UTF-8"))?;
-    let mut name = String::new();
-    for byte in path.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
-            name.push(char::from(byte));
-        } else {
-            write!(name, "%{byte:02X}").expect("writing to a String cannot fail");
-        }
-    }
-    Ok(name)
-}
 
 // Publication leases are keyed by the exact source URL and destination branch.
 // Retain the existing key so leases established by previous jjosh pushes survive.

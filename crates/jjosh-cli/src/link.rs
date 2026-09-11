@@ -54,6 +54,10 @@ enum LinkCommand {
 struct AddArgs {
     /// Path where the linked repository is mounted.
     path: String,
+    /// Project identity for NAME#PROJECT bookmarks and PROJECT-REMOTE observations.
+    /// Defaults to the last path component.
+    #[arg(long)]
+    name: Option<String>,
     /// Linked repository URL.
     url: String,
     /// Josh filter applied before mounting the linked repository.
@@ -215,9 +219,10 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     }
     let mut workspace = command.workspace_helper(ui).await?;
     let commit = workspace.resolve_single_rev(ui, &args.revision).await?;
-    check_link_commit(&workspace, &commit)?;
     let path = normalized_link_path(&args.path)?;
-    let project = path.to_str().unwrap();
+    let mount = path
+        .to_str()
+        .ok_or_else(|| user_error("Link path must be UTF-8"))?;
     crate::native_project::validate_project(&args.source_remote).map_err(user_error)?;
     let mode = crate::link_metadata::LinkMode::parse(&args.mode).map_err(user_error)?;
     if args.push_target.is_some() && args.push_url.is_none() {
@@ -230,7 +235,41 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         .map_err(user_error)?;
     let existing_links = crate::link_metadata::find_link_files(transaction.odb(), source_tree)
         .map_err(user_error)?;
-    let native = crate::link_fetch::has_native_history(&transaction, project)?;
+    let native_name = crate::native_project::native_project_for_mount(
+        &transaction,
+        &crate::native_project::parse_mount(mount).map_err(user_error)?,
+    )
+    .map_err(user_error)?;
+    let native = native_name.is_some();
+    let project = if let Some(name) = &args.name {
+        crate::native_project::validate_project(name).map_err(user_error)?;
+        if let Some(native_name) = native_name.as_deref() {
+            if native_name != name {
+                return Err(user_error(format!(
+                    "Imported project at {} is named {native_name}, not {name}",
+                    path.display()
+                )));
+            }
+        }
+        name.clone()
+    } else if let Some(native_name) = &native_name {
+        native_name.clone()
+    } else {
+        crate::ref_names::project_from_path(&path).map_err(user_error)?
+    };
+    for (existing_path, existing) in &existing_links {
+        if existing_path == &path {
+            continue;
+        }
+        let existing_name =
+            crate::ref_names::project_from_link(existing_path, existing).map_err(user_error)?;
+        if existing_name == project {
+            return Err(user_error(format!(
+                "Project {project:?} is already mounted at {}",
+                existing_path.display()
+            )));
+        }
+    }
     let filter =
         josh_core::filter::parse(args.filter.as_deref().unwrap_or(":/")).map_err(user_error)?;
     if native
@@ -265,7 +304,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     let mut pin = raw;
     if native {
         let known =
-            crate::native_project::anchors(workspace.repo().as_ref(), &transaction, project)
+            crate::native_project::anchors(workspace.repo().as_ref(), &transaction, &project)
                 .await
                 .map_err(user_error)?;
         let mut pending = vec![raw];
@@ -295,6 +334,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     let prepared = crate::link_metadata::prepare_link_add(
         &transaction,
         &path,
+        &project,
         &url,
         push_url.as_deref(),
         args.filter.as_deref(),
@@ -338,11 +378,13 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
             if mode == crate::link_metadata::LinkMode::Embedded {
                 parents.push(source_id.clone());
             }
-            let remote = crate::link_fetch::remote_name(&path, &args.source_remote)?;
+            let remote: jj_lib::ref_name::RemoteNameBuf =
+                crate::ref_names::observation_remote(&project, &args.source_remote)
+                    .map_err(user_error)?
+                    .into();
             if branch != "pinned" {
-                let scope = crate::link_refs::source_name(&path)?.replace("%2F", "/");
                 let name: jj_lib::ref_name::RefNameBuf =
-                    crate::ref_names::local_name(&scope, &branch).into();
+                    crate::ref_names::local_name(&project, &branch).into();
                 tx.repo_mut().set_remote_bookmark(
                     name.to_remote_symbol(&remote),
                     jj_lib::op_store::RemoteRef {
