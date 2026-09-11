@@ -7,7 +7,7 @@
 
 在新的实验目标仓库里设置 =jjosh.demo-scope-suffix=true=，native import/fetch 以及 link add/update 就把 =PROJECT/NAME= 改成普通 jj 名字 =NAME#PROJECT=。包括本地 bookmark、tag、导入的 remote 引用和 =workspace/default#PROJECT= 工作入口。已登记来源后，日常更新应使用 =link update=，不需要重复提供 source。
 
-remote 仍用现有的全局名字 =PROJECT-REMOTE=：例如 ="main#alpha"@alpha-upstream= 和 ="main#alpha"@alpha-origin=。这里没有新的 symbol 类型、revset 语法、View 子树、存储格式或 =--scope= 参数；引号是 jj 原有的字符串语法。NAME 本身不被拆解，项目名仍沿用现有校验。
+remote 仍用现有的全局名字 =PROJECT-REMOTE=：例如 =main#alpha@alpha-upstream= 和 =main#alpha@alpha-origin=。这里没有新的 symbol 类型、scope 语义、View 子树、存储格式或 =--scope= 参数；revset 现在把 =#= 视为普通名字字符。NAME 本身不被拆解，项目名仍沿用现有校验。
 
 * 最小试用
 
@@ -22,14 +22,14 @@ jjosh -R /tmp/demo-mono link add alpha /tmp/demo-upstream.git --target main
 jjosh -R /tmp/demo-mono link update alpha --branch main
 # 如需另一个未登记的 peer，native fetch 仍是显式的一次性入口。
 jjosh -R /tmp/demo-mono native fetch alpha /tmp/demo-fork.git --branch main --remote origin
-jjosh -R /tmp/demo-mono bookmark track '"main#alpha"@alpha-upstream' '"main#alpha"@alpha-origin'
-jjosh -R /tmp/demo-mono new '"main#alpha"'
+jjosh -R /tmp/demo-mono bookmark track main#alpha@alpha-upstream main#alpha@alpha-origin
+jjosh -R /tmp/demo-mono new main#alpha
 # 修改 /tmp/demo-mono/alpha/ 中的文件，然后记录并选择发布版本。
 jjosh -R /tmp/demo-mono describe -m 'project change'
-jjosh -R /tmp/demo-mono bookmark set '"main#alpha"' -r @
-jjosh -R /tmp/demo-mono native push alpha --remote /tmp/demo-fork.git --branch main -r '"main#alpha"'
+jjosh -R /tmp/demo-mono bookmark set main#alpha -r @
+jjosh -R /tmp/demo-mono native push alpha --remote /tmp/demo-fork.git --branch main -r main#alpha
 jjosh -R /tmp/demo-mono native fetch alpha /tmp/demo-fork.git --branch main --remote origin
-jjosh -R /tmp/demo-mono log -r '"main#alpha"@alpha-upstream | "main#alpha"@alpha-origin'
+jjosh -R /tmp/demo-mono log -r 'main#alpha@alpha-upstream | main#alpha@alpha-origin'
 #+end_src
 
 fetch、track、整合、publish 仍是独立步骤。普通 =main= 与 =main#alpha= 可以并存；local bookmark 的跟踪和重写沿用 jj，不建立一份新的同步状态。

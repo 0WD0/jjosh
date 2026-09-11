@@ -935,15 +935,15 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
             &format!("app={}", work.display()),
         ],
     );
-    jjosh(&client, &["new", "@", "\"workspace/default#app\""]);
-    let fork = commit_id(&client, "\"main#app\"");
+    jjosh(&client, &["new", "@", "workspace/default#app"]);
+    let fork = commit_id(&client, "main#app");
     let before = jjosh(
         &client,
         &[
             "log",
             "--no-graph",
             "-r",
-            "::\"main#app\"",
+            "::main#app",
             "-T",
             "commit_id ++ \"\\n\"",
         ],
@@ -962,11 +962,11 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
             "upstream",
         ],
     );
-    assert_eq!(commit_id(&client, "\"main#app\""), fork);
+    assert_eq!(commit_id(&client, "main#app"), fork);
     jjosh(&client, &["link", "update", "app", "--tag", "v1"]);
     assert!(!commit_id(
         &client,
-        "remote_tags(exact:\"v1#app\", exact:\"app-upstream\")"
+        "remote_tags(exact:v1#app, exact:app-upstream)"
     )
     .is_empty());
     assert_eq!(
@@ -976,7 +976,7 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
                 "log",
                 "--no-graph",
                 "-r",
-                "::\"main#app\"",
+                "::main#app",
                 "-T",
                 "commit_id ++ \"\\n\""
             ]
@@ -990,12 +990,12 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     let local = commit_id(&client, "@");
     jjosh(&client, &["link", "update", "app", "--branch", "main"]);
     assert_eq!(commit_id(&client, "@"), local);
-    assert_eq!(commit_id(&client, "\"main#app\""), fork);
+    assert_eq!(commit_id(&client, "main#app"), fork);
     assert_eq!(
-        commit_id(&client, "parents(\"main#app\"@app-upstream)"),
-        commit_id(&client, "parents(\"main#app\")")
+        commit_id(&client, "parents(main#app@app-upstream)"),
+        commit_id(&client, "parents(main#app)")
     );
-    jjosh(&client, &["new", "@", "\"main#app\"@app-upstream"]);
+    jjosh(&client, &["new", "@", "main#app@app-upstream"]);
     assert_eq!(
         fs::read(client.join("app/src/local.txt")).unwrap(),
         b"maintained fork\n"
