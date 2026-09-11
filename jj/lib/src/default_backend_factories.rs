@@ -61,6 +61,12 @@ pub fn default_backend_factories() -> StoreFactories {
             Ok(Box::new(SimpleOpStore::load(store_path, root_data)))
         }),
     );
+    factories.add_op_store(
+        SimpleOpStore::sparse_name(),
+        Box::new(|_settings, store_path, root_data| {
+            Ok(Box::new(SimpleOpStore::load(store_path, root_data)))
+        }),
+    );
 
     // OpHeadsStores
     factories.add_op_heads_store(
@@ -88,6 +94,14 @@ pub fn default_working_copy_factories() -> WorkingCopyFactories {
     let mut factories = WorkingCopyFactories::new();
     factories.insert(
         LocalWorkingCopy::name().to_owned(),
+        Box::new(LocalWorkingCopyFactory {}),
+    );
+    factories.insert(
+        LocalWorkingCopy::fileset_name().to_owned(),
+        Box::new(LocalWorkingCopyFactory {}),
+    );
+    factories.insert(
+        LocalWorkingCopy::mapped_name().to_owned(),
         Box::new(LocalWorkingCopyFactory {}),
     );
     factories

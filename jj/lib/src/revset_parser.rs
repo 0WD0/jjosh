@@ -1286,6 +1286,7 @@ mod tests {
         assert_matches!(parse_symbol("''").as_deref(), Err(_));
 
         assert_matches!(parse_symbol("foo.bar").as_deref(), Ok("foo.bar"));
+        assert_matches!(parse_symbol("main#jj").as_deref(), Ok("main#jj"));
         assert_matches!(parse_symbol("foo@bar").as_deref(), Err(_));
         assert_matches!(parse_symbol("foo bar").as_deref(), Err(_));
 
@@ -1314,6 +1315,13 @@ mod tests {
             Ok(ExpressionKind::RemoteSymbol(RemoteRefSymbolBuf {
                 name: "main".into(),
                 remote: "origin".into()
+            }))
+        );
+        assert_eq!(
+            parse_into_kind("main#jj@jj-upstream"),
+            Ok(ExpressionKind::RemoteSymbol(RemoteRefSymbolBuf {
+                name: "main#jj".into(),
+                remote: "jj-upstream".into()
             }))
         );
 

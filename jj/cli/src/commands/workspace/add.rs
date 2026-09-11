@@ -23,9 +23,11 @@ use jj_lib::file_util::IoResultExt as _;
 use jj_lib::git::GitSubprocessOptions;
 #[cfg(feature = "git")]
 use jj_lib::git::create_worktree;
+use jj_lib::merge::Merge;
 use jj_lib::ref_name::WorkspaceNameBuf;
 use jj_lib::repo::Repo as _;
 use jj_lib::rewrite::merge_commit_trees;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use jj_lib::workspace::Workspace;
 use tracing::instrument;
 
@@ -115,6 +117,75 @@ pub async fn cmd_workspace_add(
     args: &WorkspaceAddArgs,
 ) -> Result<(), CommandError> {
     let old_workspace_command = command.workspace_helper(ui).await?;
+    let source_desired = old_workspace_command
+        .repo()
+        .view()
+        .get_wc_sparse_patterns(old_workspace_command.workspace_name())
+        .filter(|value| value.as_resolved() != Some(&None));
+    let sparsity = match args.sparse_patterns {
+        SparseInheritance::Full => WorkingCopyPatterns::all(),
+        SparseInheritance::Empty => WorkingCopyPatterns::none(),
+        SparseInheritance::Copy => match source_desired.and_then(Merge::as_resolved) {
+            Some(Some(id)) => {
+                old_workspace_command
+                    .repo()
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await?
+            }
+            _ => old_workspace_command
+                .working_copy()
+                .sparse_patterns()?
+                .clone(),
+        },
+    };
+    sparsity.validate().map_err(user_error)?;
+    let desired = match source_desired {
+        Some(source) if args.sparse_patterns == SparseInheritance::Copy => Some(source.clone()),
+        Some(_) => Some(Merge::resolved(Some(
+            old_workspace_command
+                .repo()
+                .op_store()
+                .write_working_copy_patterns(&sparsity)
+                .await?,
+        ))),
+        None => None,
+    };
+
+    #[cfg(feature = "git")]
+    let should_colocate = if args.colocate {
+        true
+    } else if args.no_colocate {
+        false
+    } else {
+        old_workspace_command.working_copy_shared_with_git()
+            && old_workspace_command.settings().get_bool("git.colocate")?
+    };
+    #[cfg(feature = "git")]
+    if should_colocate {
+        if !sparsity.is_identity() {
+            return Err(user_error(
+                "Path mappings are not supported in colocated Git working copies; use \
+                 --no-colocate or --sparse-patterns full.",
+            ));
+        }
+        if let Some(desired) = &desired {
+            for id in desired.iter().flatten() {
+                if !old_workspace_command
+                    .repo()
+                    .op_store()
+                    .read_working_copy_patterns(id)
+                    .await?
+                    .is_identity()
+                {
+                    return Err(user_error(
+                        "Conflicted path mappings cannot be inherited by a colocated Git working \
+                         copy.",
+                    ));
+                }
+            }
+        }
+    }
     let destination_path = command.cwd().join(&args.destination);
     let workspace_name = if let Some(name) = &args.name {
         name.to_owned()
@@ -146,14 +217,6 @@ pub async fn cmd_workspace_add(
 
     #[cfg(feature = "git")]
     {
-        let should_colocate = if args.colocate {
-            true
-        } else if args.no_colocate {
-            false
-        } else {
-            old_workspace_command.working_copy_shared_with_git()
-                && old_workspace_command.settings().get_bool("git.colocate")?
-        };
         if should_colocate {
             let subprocess_options =
                 GitSubprocessOptions::from_settings(old_workspace_command.settings())?;
@@ -195,24 +258,12 @@ pub async fn cmd_workspace_add(
     #[cfg(feature = "git")]
     maybe_add_gitignore(&new_workspace_command)?;
 
-    let sparsity = match args.sparse_patterns {
-        SparseInheritance::Full => None,
-        SparseInheritance::Empty => Some(vec![]),
-        SparseInheritance::Copy => {
-            let sparse_patterns = old_workspace_command
-                .working_copy()
-                .sparse_patterns()?
-                .to_vec();
-            Some(sparse_patterns)
-        }
-    };
-
-    if let Some(sparse_patterns) = sparsity {
+    if command.is_working_copy_writable() {
         let (mut locked_ws, _wc_commit) =
             new_workspace_command.start_working_copy_mutation().await?;
         locked_ws
             .locked_wc()
-            .set_sparse_patterns(sparse_patterns)
+            .set_sparse_patterns(sparsity)
             .await
             .map_err(|err| internal_error_with_message("Failed to set sparse patterns", err))?;
         let operation_id = locked_ws.locked_wc().old_operation_id().clone();
@@ -220,6 +271,10 @@ pub async fn cmd_workspace_add(
     }
 
     let mut tx = new_workspace_command.start_transaction();
+    if let Some(desired) = desired {
+        tx.repo_mut()
+            .set_wc_sparse_patterns(workspace_name.clone(), desired);
+    }
 
     // If no parent revisions are specified, create a working-copy commit based
     // on the parent of the current working-copy commit.

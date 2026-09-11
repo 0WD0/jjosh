@@ -151,6 +151,39 @@ async fn cmd_git_colocation_enable(
     _args: &GitColocationEnableArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
+    if !workspace_command
+        .working_copy()
+        .sparse_patterns()?
+        .is_identity()
+        || workspace_command
+            .sparse_patterns()?
+            .is_some_and(|patterns| !patterns.is_identity())
+    {
+        return Err(user_error(
+            "Path mappings are not supported in colocated Git working copies; reset mappings \
+             first.",
+        ));
+    }
+    if let Some(desired) = workspace_command
+        .repo()
+        .view()
+        .get_wc_sparse_patterns(workspace_command.workspace_name())
+    {
+        for id in desired.iter().flatten() {
+            if !workspace_command
+                .repo()
+                .op_store()
+                .read_working_copy_patterns(id)
+                .await?
+                .is_identity()
+            {
+                return Err(user_error(
+                    "Path mappings are not supported in colocated Git working copies; resolve or \
+                     reset mappings first.",
+                ));
+            }
+        }
+    }
     let git_backend = git::get_git_backend(workspace_command.repo().store())?;
 
     // Ensure that the workspace is not already colocated before proceeding

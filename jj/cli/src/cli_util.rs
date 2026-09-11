@@ -86,12 +86,14 @@ use jj_lib::lock::FileLock;
 use jj_lib::matchers::Matcher;
 use jj_lib::matchers::NothingMatcher;
 use jj_lib::merge::Diff;
+use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_heads_store;
 use jj_lib::op_store::OpStoreError;
 use jj_lib::op_store::OperationId;
 use jj_lib::op_store::RefTarget;
+use jj_lib::op_store::WorkingCopyPatternsId;
 use jj_lib::op_walk;
 use jj_lib::op_walk::OpsetEvaluationError;
 use jj_lib::operation::Operation;
@@ -144,6 +146,7 @@ use jj_lib::working_copy::UntrackedReason;
 use jj_lib::working_copy::WorkingCopy;
 use jj_lib::working_copy::WorkingCopyFactory;
 use jj_lib::working_copy::WorkingCopyFreshness;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use jj_lib::workspace::DefaultWorkspaceLoaderFactory;
 use jj_lib::workspace::LockedWorkspace;
 use jj_lib::workspace::WorkingCopyFactories;
@@ -663,6 +666,16 @@ impl CommandHelper {
                 let mut workspace_command = self.load_from_workspace(ui, workspace, env).await?;
                 let repo = &workspace_command.user_repo.repo;
                 let desired_wc_commit = workspace_command.prepare_working_copy_mutation().await?;
+                if let Some(desired) = repo
+                    .view()
+                    .get_wc_sparse_patterns(workspace_command.workspace_name())
+                {
+                    for id in desired.iter().flatten() {
+                        workspace_command.validate_sparse_patterns(
+                            &repo.op_store().read_working_copy_patterns(id).await?,
+                        )?;
+                    }
+                }
                 let mut locked_ws = workspace_command
                     .workspace
                     .start_working_copy_mutation()
@@ -710,11 +723,17 @@ impl CommandHelper {
 
                         let stats = update_stale_working_copy(
                             locked_ws,
+                            &workspace_command.user_repo.repo,
+                            &workspace_command.env.workspace_name,
                             workspace_command.user_repo.repo.op_id().clone(),
                             &stale_wc_commit,
                             &desired_wc_commit,
                         )
                         .await?;
+                        workspace_command.env.path_converter =
+                            workspace_command.env.path_converter.with_patterns(
+                                workspace_command.working_copy().sparse_patterns()?.clone(),
+                            );
                         workspace_command.print_updated_working_copy_stats(
                             ui,
                             Some(&stale_wc_commit),
@@ -970,11 +989,19 @@ impl WorkspaceCommandEnvironment {
         let path_converter = RepoPathUiConverter::Fs {
             cwd: command.cwd().to_owned(),
             base: workspace.workspace_root().to_owned(),
-        };
+        }
+        .with_patterns(workspace.working_copy().sparse_patterns()?.clone());
         #[cfg(feature = "git")]
         let working_copy_shared_with_git = crate::git_util::is_colocated_git_workspace(workspace)?;
         #[cfg(not(feature = "git"))]
         let working_copy_shared_with_git = false;
+        if working_copy_shared_with_git
+            && !workspace.working_copy().sparse_patterns()?.is_identity()
+        {
+            return Err(user_error(
+                "Path mappings are not supported in colocated Git working copies.",
+            ));
+        }
         let mut env = Self {
             command: command.clone(),
             settings: settings.clone(),
@@ -998,13 +1025,11 @@ impl WorkspaceCommandEnvironment {
     }
 
     pub(crate) fn cwd(&self) -> &Path {
-        let RepoPathUiConverter::Fs { cwd, base: _ } = &self.path_converter;
-        cwd
+        self.path_converter.cwd()
     }
 
     pub fn workspace_root(&self) -> &Path {
-        let RepoPathUiConverter::Fs { cwd: _, base } = &self.path_converter;
-        base
+        self.path_converter.base()
     }
 
     pub fn workspace_name(&self) -> &WorkspaceName {
@@ -1320,7 +1345,7 @@ impl WorkspaceCommandHelper {
     /// colocated with Git. Returns a token that can be passed to functions
     /// that need to import from or export to Git. For non-colocated repos,
     /// returns a token with no lock inside.
-    fn lock_git_import_export(&self) -> Result<GitImportExportLock, CommandError> {
+    pub fn lock_git_import_export(&self) -> Result<GitImportExportLock, CommandError> {
         self.env.lock_git_import_export(&self.workspace)
     }
 
@@ -1511,6 +1536,173 @@ impl WorkspaceCommandHelper {
 
     pub fn env(&self) -> &WorkspaceCommandEnvironment {
         &self.env
+    }
+
+    /// The operation's selection, falling back to local state only at the head.
+    /// A conflict has no selected side; callers may use the actual local
+    /// selection as the starting point for an explicit resolution.
+    pub fn sparse_patterns(&self) -> Result<Option<WorkingCopyPatterns>, CommandError> {
+        if let Some(patterns) = self
+            .repo()
+            .view()
+            .get_wc_sparse_patterns(self.workspace_name())
+            .and_then(Merge::as_resolved)
+            .and_then(Option::as_ref)
+        {
+            return Ok(Some(
+                self.repo()
+                    .op_store()
+                    .read_working_copy_patterns(patterns)
+                    .block_on()?,
+            ));
+        }
+        if self.env.command.is_working_copy_writable() {
+            Ok(Some(self.working_copy().sparse_patterns()?.clone()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Records a sparse selection while holding the working-copy lock. Snapshot
+    /// has already saved dirty files with the actual selection, never the desired
+    /// selection. The first change gets its own baseline operation for undo.
+    pub async fn update_sparse_patterns_with(
+        &mut self,
+        ui: &mut Ui,
+        f: impl FnOnce(
+            &mut Ui,
+            Option<&WorkingCopyPatterns>,
+        ) -> Result<WorkingCopyPatterns, CommandError>,
+    ) -> Result<(), CommandError> {
+        let workspace_name = self.workspace_name().to_owned();
+        if self.may_update_working_copy {
+            let expected = self
+                .repo()
+                .view()
+                .get_wc_sparse_patterns(&workspace_name)
+                .cloned();
+            // An external editor may have modified files since workspace_helper()
+            // took its snapshot. Reuse the normal snapshot path before removing
+            // any newly excluded files, without accepting a changed selection.
+            self.maybe_snapshot(ui).await?;
+            if self.repo().view().get_wc_sparse_patterns(&workspace_name) != expected.as_ref() {
+                return Err(user_error("Concurrent sparse selection change. Try again."));
+            }
+        }
+        let old_repo = self.repo().clone();
+        let old_desired = old_repo.view().get_wc_sparse_patterns(&workspace_name);
+        let registered = old_desired.is_some_and(|value| value.as_resolved() != Some(&None));
+        if !self.may_update_working_copy {
+            if !registered {
+                return Err(user_error(
+                    "Sparse selection is not recorded at this operation; cannot establish a \
+                     baseline without the current working copy.",
+                ));
+            }
+            let old_patterns = self.sparse_patterns()?;
+            let new_patterns = f(ui, old_patterns.as_ref())?;
+            self.validate_sparse_patterns(&new_patterns)?;
+            let unchanged = old_desired.is_some_and(|value| value.is_resolved())
+                && old_patterns.as_ref() == Some(&new_patterns);
+            let desired = Merge::resolved(Some(
+                old_repo
+                    .op_store()
+                    .write_working_copy_patterns(&new_patterns)
+                    .await?,
+            ));
+            if unchanged {
+                return Ok(());
+            }
+            if self.env.command.is_at_head_operation()
+                && old_repo.op_heads_store().get_op_heads().await? != vec![old_repo.op_id().clone()]
+            {
+                return Err(user_error("Concurrent sparse selection change. Try again."));
+            }
+            let mut tx = self.start_transaction();
+            tx.repo_mut()
+                .set_wc_sparse_patterns(workspace_name, desired);
+            return tx.finish(ui, "update sparse patterns").await;
+        }
+
+        let wc_commit = self.prepare_working_copy_mutation().await?;
+        let mut locked_ws = self.workspace.start_working_copy_mutation().await?;
+        // Tree equality alone misses sparse-only operations while an editor is
+        // open. Check both the locked working copy and repository heads.
+        if locked_ws.locked_wc().old_operation_id() != old_repo.op_id()
+            || locked_ws.locked_wc().old_tree().tree_ids_and_labels()
+                != wc_commit.tree().tree_ids_and_labels()
+            || old_repo.op_heads_store().get_op_heads().await? != vec![old_repo.op_id().clone()]
+        {
+            return Err(user_error("Concurrent working copy operation. Try again."));
+        }
+        let actual = locked_ws.locked_wc().sparse_patterns()?.clone();
+        let old_patterns = match old_desired.and_then(Merge::as_resolved) {
+            Some(Some(id)) => old_repo.op_store().read_working_copy_patterns(id).await?,
+            _ => actual.clone(),
+        };
+        let new_patterns = f(ui, Some(&old_patterns))?;
+        new_patterns.validate().map_err(user_error)?;
+        if self.env.working_copy_shared_with_git && !new_patterns.is_identity() {
+            return Err(user_error(
+                "Path mappings are not supported in colocated Git working copies.",
+            ));
+        }
+        let desired = Merge::resolved(Some(
+            old_repo
+                .op_store()
+                .write_working_copy_patterns(&new_patterns)
+                .await?,
+        ));
+        if old_desired.is_none_or(|value| value.is_resolved()) && old_patterns == new_patterns {
+            return Ok(());
+        }
+        let mut repo = old_repo.clone();
+        if !registered {
+            let mut tx =
+                start_repo_transaction(&repo, &workspace_name, self.env.command.string_args());
+            tx.repo_mut().set_wc_sparse_patterns(
+                workspace_name.clone(),
+                Merge::resolved(Some(
+                    repo.op_store().write_working_copy_patterns(&actual).await?,
+                )),
+            );
+            repo = self
+                .env
+                .command
+                .maybe_commit_transaction(tx, "record sparse patterns baseline")
+                .await?;
+        }
+        let mut tx = start_repo_transaction(&repo, &workspace_name, self.env.command.string_args());
+        tx.repo_mut()
+            .set_wc_sparse_patterns(workspace_name, desired.clone());
+        let repo = self
+            .env
+            .command
+            .maybe_commit_transaction(tx, "update sparse patterns")
+            .await?;
+        // Publish desired state before touching files. If materialization fails,
+        // LocalWorkingCopy blocks further snapshots: preserve the remaining files
+        // and rebuild in a replacement workspace using the recorded selection.
+        let stats = sync_sparse_patterns(ui, &repo, locked_ws.locked_wc(), Some(&desired)).await?;
+        locked_ws.finish(repo.op_id().clone()).await?;
+        self.env.path_converter = self.env.path_converter.with_patterns(new_patterns);
+        self.user_repo = ReadonlyUserRepo::new(repo);
+        print_checkout_stats(ui, &stats, &wc_commit)?;
+        self.report_repo_changes(ui, &old_repo).await?;
+        Ok(())
+    }
+
+    pub fn validate_sparse_patterns(
+        &self,
+        patterns: &WorkingCopyPatterns,
+    ) -> Result<(), CommandError> {
+        patterns.validate().map_err(user_error)?;
+        if self.env.working_copy_shared_with_git && !patterns.is_identity() {
+            return Err(user_error(
+                "Path mappings are not supported in colocated Git working copies.",
+            ));
+        }
+        Ok(())
     }
 
     async fn prepare_working_copy_mutation(&self) -> Result<Commit, CommandError> {
@@ -2266,6 +2458,26 @@ to the current parents may contain changes from multiple commits.
         }
 
         if self.env.command.should_commit_transaction() {
+            let checkout_stats = sync_sparse_patterns(
+                ui,
+                &self.user_repo.repo,
+                locked_ws.locked_wc(),
+                self.user_repo
+                    .repo
+                    .view()
+                    .get_wc_sparse_patterns(&workspace_name),
+            )
+            .await
+            .map_err(snapshot_command_error)?;
+            print_checkout_stats(ui, &checkout_stats, &wc_commit)
+                .map_err(snapshot_command_error)?;
+            self.env.path_converter = self.env.path_converter.with_patterns(
+                locked_ws
+                    .locked_wc()
+                    .sparse_patterns()
+                    .map_err(snapshot_command_error)?
+                    .clone(),
+            );
             locked_ws
                 .finish(self.user_repo.repo.op_id().clone())
                 .await
@@ -2282,12 +2494,17 @@ to the current parents may contain changes from multiple commits.
     ) -> Result<(), CommandError> {
         assert!(self.may_update_working_copy);
         let stats = update_working_copy(
+            ui,
             &self.user_repo.repo,
             &mut self.workspace,
             maybe_old_commit,
             new_commit,
         )
         .await?;
+        self.env.path_converter = self
+            .env
+            .path_converter
+            .with_patterns(self.working_copy().sparse_patterns()?.clone());
         self.print_updated_working_copy_stats(ui, maybe_old_commit, new_commit, &stats)
     }
 
@@ -2349,6 +2566,16 @@ to the current parents may contain changes from multiple commits.
         git_import_export_lock: &GitImportExportLock,
     ) -> Result<(), CommandError> {
         let old_repo = tx.base_repo().clone();
+        if let Some(desired) = tx
+            .repo()
+            .view()
+            .get_wc_sparse_patterns(self.workspace_name())
+        {
+            for id in desired.iter().flatten() {
+                let patterns = old_repo.op_store().read_working_copy_patterns(id).await?;
+                self.validate_sparse_patterns(&patterns)?;
+            }
+        }
 
         let maybe_old_wc_commit = old_repo
             .view()
@@ -2844,6 +3071,24 @@ impl WorkspaceCommandTransaction<'_> {
     }
 
     pub async fn finish(self, ui: &Ui, description: impl Into<String>) -> Result<(), CommandError> {
+        let git_import_export_lock = self.helper.lock_git_import_export()?;
+        self.finish_with_git_import_export_lock(ui, description, &git_import_export_lock)
+            .await
+    }
+
+    /// Finishes the transaction while reusing a Git import/export lock acquired before an
+    /// external Git mutation.
+    ///
+    /// Callers integrating another Git object/ref producer must hold this lock from before that
+    /// producer starts writing until this method returns. This prevents another colocated command
+    /// from observing refs without their corresponding Jujutsu operation, and avoids reacquiring
+    /// the non-reentrant file lock in [`Self::finish`].
+    pub async fn finish_with_git_import_export_lock(
+        self,
+        ui: &Ui,
+        description: impl Into<String>,
+        git_import_export_lock: &GitImportExportLock,
+    ) -> Result<(), CommandError> {
         let Self { helper, mut tx, .. } = self;
         if !tx.repo().has_changes() {
             writeln!(ui.status(), "Nothing changed.")?;
@@ -2853,11 +3098,8 @@ impl WorkspaceCommandTransaction<'_> {
         if num_rebased > 0 {
             writeln!(ui.status(), "Rebased {num_rebased} descendant commits.")?;
         }
-        // Acquire git import/export lock before finishing the transaction to ensure
-        // Git HEAD export happens atomically with the transaction commit.
-        let git_import_export_lock = helper.lock_git_import_export()?;
         helper
-            .finish_transaction(ui, tx, description, &git_import_export_lock)
+            .finish_transaction(ui, tx, description, git_import_export_lock)
             .await
     }
 
@@ -3077,6 +3319,8 @@ See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy \
 
 async fn update_stale_working_copy(
     mut locked_ws: LockedWorkspace<'_>,
+    repo: &ReadonlyRepo,
+    workspace_name: &WorkspaceName,
     op_id: OperationId,
     stale_commit: &Commit,
     new_commit: &Commit,
@@ -3088,9 +3332,13 @@ async fn update_stale_working_copy(
     {
         return Err(user_error("Concurrent working copy operation. Try again."));
     }
+    let patterns =
+        resolved_sparse_patterns(repo, repo.view().get_wc_sparse_patterns(&workspace_name))
+            .await?
+            .unwrap_or(locked_ws.locked_wc().sparse_patterns()?.clone());
     let stats = locked_ws
         .locked_wc()
-        .check_out(new_commit)
+        .check_out_with_sparse_patterns(new_commit, patterns)
         .await
         .map_err(|err| {
             internal_error_with_message(
@@ -3277,7 +3525,11 @@ fn print_invalid_utf8_paths(
         writeln!(
             formatter,
             "  {}: {name:?}",
-            path_converter.format_file_path(dir)
+            jj_lib::file_util::relative_path(
+                path_converter.cwd(),
+                &dir.to_fs_path_unchecked(path_converter.base())
+            )
+            .display()
         )?;
     }
     Ok(())
@@ -3409,17 +3661,93 @@ pub async fn print_unmatched_explicit_paths<'a>(
     Ok(())
 }
 
+async fn resolved_sparse_patterns(
+    repo: &ReadonlyRepo,
+    desired: Option<&Merge<Option<WorkingCopyPatternsId>>>,
+) -> Result<Option<WorkingCopyPatterns>, CommandError> {
+    match desired
+        .and_then(Merge::as_resolved)
+        .and_then(Option::as_ref)
+    {
+        Some(id) => Ok(Some(repo.op_store().read_working_copy_patterns(id).await?)),
+        None => Ok(None),
+    }
+}
+
+async fn sync_sparse_patterns(
+    ui: &Ui,
+    repo: &ReadonlyRepo,
+    locked_wc: &mut dyn LockedWorkingCopy,
+    desired: Option<&Merge<Option<WorkingCopyPatternsId>>>,
+) -> Result<CheckoutStats, CommandError> {
+    let Some(desired) = desired else {
+        return Ok(CheckoutStats::default());
+    };
+    let Some(resolved) = desired.as_resolved() else {
+        writeln!(
+            ui.warning_default(),
+            "Sparse configuration is conflicted; keeping the actual working-copy layout. Use `jj \
+             sparse list` to inspect it and `jj sparse edit` or `jj sparse reset` to resolve it.",
+        )?;
+        return Ok(CheckoutStats::default());
+    };
+    let Some(id) = resolved else {
+        return Ok(CheckoutStats::default());
+    };
+    let patterns = repo.op_store().read_working_copy_patterns(id).await?;
+    if locked_wc.sparse_patterns()? == &patterns {
+        return Ok(CheckoutStats::default());
+    }
+    locked_wc
+        .set_sparse_patterns(patterns)
+        .await
+        .map_err(|err| {
+            internal_error_with_message("Failed to update sparse working-copy paths", err)
+        })
+}
+
 pub async fn update_working_copy(
+    ui: &Ui,
     repo: &Arc<ReadonlyRepo>,
     workspace: &mut Workspace,
     old_commit: Option<&Commit>,
     new_commit: &Commit,
 ) -> Result<CheckoutStats, CommandError> {
-    let old_tree = old_commit.map(|commit| commit.tree());
-    // TODO: CheckoutError::ConcurrentCheckout should probably just result in a
-    // warning for most commands (but be an error for the checkout command)
-    let stats = workspace
-        .check_out(repo.op_id().clone(), old_tree.as_ref(), new_commit)
+    let workspace_name = workspace.workspace_name().to_owned();
+    #[cfg(feature = "git")]
+    if let Some(patterns) =
+        resolved_sparse_patterns(repo, repo.view().get_wc_sparse_patterns(&workspace_name)).await?
+        && !patterns.is_identity()
+        && crate::git_util::is_colocated_git_workspace(workspace)?
+    {
+        return Err(user_error(
+            "Path mappings are not supported in colocated Git working copies.",
+        ));
+    }
+    let mut locked_ws = workspace.start_working_copy_mutation().await?;
+    if let Some(old_commit) = old_commit
+        && old_commit.tree().tree_ids_and_labels()
+            != locked_ws.locked_wc().old_tree().tree_ids_and_labels()
+    {
+        return Err(user_error("Concurrent working copy operation. Try again."));
+    }
+    if repo
+        .view()
+        .get_wc_sparse_patterns(&workspace_name)
+        .is_some_and(|desired| !desired.is_resolved())
+    {
+        writeln!(
+            ui.warning_default(),
+            "Sparse configuration is conflicted; keeping the actual working-copy layout."
+        )?;
+    }
+    let patterns =
+        resolved_sparse_patterns(repo, repo.view().get_wc_sparse_patterns(&workspace_name))
+            .await?
+            .unwrap_or(locked_ws.locked_wc().sparse_patterns()?.clone());
+    let stats = locked_ws
+        .locked_wc()
+        .check_out_with_sparse_patterns(new_commit, patterns)
         .await
         .map_err(|err| {
             internal_error_with_message(
@@ -3427,6 +3755,7 @@ pub async fn update_working_copy(
                 err,
             )
         })?;
+    locked_ws.finish(repo.op_id().clone()).await?;
     Ok(stats)
 }
 

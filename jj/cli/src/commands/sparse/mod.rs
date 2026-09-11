@@ -14,11 +14,12 @@
 
 mod edit;
 mod list;
+mod map;
 mod reset;
 mod set;
 
 use clap::Subcommand;
-use jj_lib::repo_path::RepoPathBuf;
+use jj_lib::working_copy_patterns::WorkingCopyPatterns;
 use tracing::instrument;
 
 use self::edit::SparseEditArgs;
@@ -30,10 +31,7 @@ use self::reset::cmd_sparse_reset;
 use self::set::SparseSetArgs;
 use self::set::cmd_sparse_set;
 use crate::cli_util::CommandHelper;
-use crate::cli_util::WorkspaceCommandHelper;
-use crate::cli_util::print_checkout_stats;
 use crate::command_error::CommandError;
-use crate::command_error::internal_error_with_message;
 use crate::ui::Ui;
 
 /// Manage which paths from the working-copy commit are present in the working
@@ -42,6 +40,8 @@ use crate::ui::Ui;
 pub(crate) enum SparseCommand {
     Edit(SparseEditArgs),
     List(SparseListArgs),
+    #[command(subcommand)]
+    Map(map::SparseMapCommand),
     Reset(SparseResetArgs),
     Set(SparseSetArgs),
 }
@@ -55,25 +55,36 @@ pub(crate) async fn cmd_sparse(
     match subcommand {
         SparseCommand::Edit(args) => cmd_sparse_edit(ui, command, args).await,
         SparseCommand::List(args) => cmd_sparse_list(ui, command, args).await,
+        SparseCommand::Map(args) => map::cmd_sparse_map(ui, command, args).await,
         SparseCommand::Reset(args) => cmd_sparse_reset(ui, command, args).await,
         SparseCommand::Set(args) => cmd_sparse_set(ui, command, args).await,
     }
 }
 
-async fn update_sparse_patterns_with(
-    ui: &mut Ui,
-    workspace_command: &mut WorkspaceCommandHelper,
-    f: impl FnOnce(&mut Ui, &[RepoPathBuf]) -> Result<Vec<RepoPathBuf>, CommandError>,
-) -> Result<(), CommandError> {
-    let (mut locked_ws, wc_commit) = workspace_command.start_working_copy_mutation().await?;
-    let new_patterns = f(ui, locked_ws.locked_wc().sparse_patterns()?)?;
-    let stats = locked_ws
-        .locked_wc()
-        .set_sparse_patterns(new_patterns)
-        .await
-        .map_err(|err| internal_error_with_message("Failed to update working copy paths", err))?;
-    let operation_id = locked_ws.locked_wc().old_operation_id().clone();
-    locked_ws.finish(operation_id).await?;
-    print_checkout_stats(ui, &stats, &wc_commit)?;
-    Ok(())
+/// Round-trippable, root-coordinate representation of the complete configuration.
+fn format_patterns(patterns: &WorkingCopyPatterns) -> String {
+    let mut output = String::new();
+    for rule in &patterns.rules {
+        output.push_str(if rule.include { "+ " } else { "- " });
+        output.push_str(&jj_lib::fileset::format_expression(
+            &rule.expression.to_expression(),
+        ));
+        output.push('\n');
+    }
+    for mapping in &patterns.mappings {
+        output.push_str(if mapping.recursive {
+            "map "
+        } else {
+            "map-file "
+        });
+        output.push_str(
+            &serde_json::to_string(&[
+                mapping.source.as_internal_file_string(),
+                mapping.destination.as_repo_path().as_internal_file_string(),
+            ])
+            .unwrap(),
+        );
+        output.push('\n');
+    }
+    output
 }

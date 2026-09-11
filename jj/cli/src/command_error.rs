@@ -849,6 +849,7 @@ fn file_pattern_parse_error_hint(err: &FilePatternParseError) -> Option<String> 
                 format!(r#"Consider using root:{path:?} to specify repo-relative path"#)
             })
         }
+        FilePatternParseError::UiPath(UiPathParseError::Mapping(_)) => None,
         FilePatternParseError::RelativePath(_) => None,
         FilePatternParseError::GlobPattern(_) => None,
     }

@@ -47,6 +47,7 @@ use crate::repo_path::RepoPathBuf;
 use crate::settings::UserSettings;
 use crate::store::Store;
 use crate::transaction::TransactionCommitError;
+use crate::working_copy_patterns::WorkingCopyPatterns;
 
 /// The trait all working-copy implementations must implement.
 #[async_trait(?Send)]
@@ -64,11 +65,9 @@ pub trait WorkingCopy: Any + Send {
     /// The tree this working copy was most recently updated to.
     fn tree(&self) -> Result<&MergedTree, WorkingCopyStateError>;
 
-    /// Patterns that decide which paths from the current tree should be checked
-    /// out in the working copy. An empty list means that no paths should be
-    /// checked out in the working copy. A single `RepoPath::root()` entry means
-    /// that all files should be checked out.
-    fn sparse_patterns(&self) -> Result<&[RepoPathBuf], WorkingCopyStateError>;
+    /// Actual canonical selection and physical path mappings currently checked
+    /// out. This need not equal the desired configuration in the operation view.
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError>;
 
     /// Locks the working copy and returns an instance with methods for updating
     /// the working copy files and state.
@@ -123,6 +122,14 @@ pub trait LockedWorkingCopy: Any + Send {
     /// Check out the specified commit in the working copy.
     async fn check_out(&mut self, commit: &Commit) -> Result<CheckoutStats, CheckoutError>;
 
+    /// Checks out the canonical commit and its physical layout together.
+    /// Implementations must not materialize either tree under the other layout.
+    async fn check_out_with_sparse_patterns(
+        &mut self,
+        commit: &Commit,
+        patterns: WorkingCopyPatterns,
+    ) -> Result<CheckoutStats, CheckoutError>;
+
     /// Update the workspace name.
     fn rename_workspace(&mut self, new_workspace_name: WorkspaceNameBuf);
 
@@ -134,7 +141,7 @@ pub trait LockedWorkingCopy: Any + Send {
     async fn recover(&mut self, commit: &Commit) -> Result<(), ResetError>;
 
     /// See `WorkingCopy::sparse_patterns()`
-    fn sparse_patterns(&self) -> Result<&[RepoPathBuf], WorkingCopyStateError>;
+    fn sparse_patterns(&self) -> Result<&WorkingCopyPatterns, WorkingCopyStateError>;
 
     /// Updates the patterns that decide which paths from the current tree
     /// should be checked out in the working copy.
@@ -144,7 +151,7 @@ pub trait LockedWorkingCopy: Any + Send {
     // to use sparse).
     async fn set_sparse_patterns(
         &mut self,
-        new_sparse_patterns: Vec<RepoPathBuf>,
+        new_sparse_patterns: WorkingCopyPatterns,
     ) -> Result<CheckoutStats, CheckoutError>;
 
     /// Finish the modifications to the working copy by writing the updated
@@ -214,9 +221,11 @@ pub struct SnapshotOptions<'a> {
     pub progress: Option<&'a SnapshotProgress<'a>>,
     /// For new files that are not already tracked, start tracking them if they
     /// match this.
+    /// Paths are in canonical repository coordinates.
     pub start_tracking_matcher: &'a dyn Matcher,
     /// For files that match the ignore patterns or are too large, start
     /// tracking them anyway if they match this.
+    /// Paths are in canonical repository coordinates.
     pub force_tracking_matcher: &'a dyn Matcher,
     /// The size of the largest file that should be allowed to become tracked
     /// (already tracked files are always snapshotted). If there are larger
@@ -233,10 +242,11 @@ pub type SnapshotProgress<'a> = dyn Fn(&RepoPath) + 'a + Sync;
 #[derive(Clone, Debug, Default)]
 pub struct SnapshotStats {
     /// List of new (previously untracked) files which are still untracked.
+    /// Keys are canonical repository paths, independent of later layout changes.
     pub untracked_paths: BTreeMap<RepoPathBuf, UntrackedReason>,
     /// Paths that were skipped because their file names aren't valid UTF-8,
-    /// as (directory, file name) pairs. These paths cannot be represented as
-    /// `RepoPath`s.
+    /// as (physical working-copy directory, file name) pairs. The file names
+    /// cannot be represented as canonical `RepoPath`s.
     pub invalid_utf8_paths: BTreeSet<(RepoPathBuf, OsString)>,
 }
 

@@ -130,8 +130,6 @@ fn test_root() -> TestResult {
     // Test that the working copy is clean and empty after init.
     let mut test_workspace = TestWorkspace::init();
 
-    let wc = test_workspace.workspace.working_copy();
-    assert_eq!(wc.sparse_patterns()?, vec![RepoPathBuf::root()]);
     let new_tree = test_workspace.snapshot()?;
     let repo = &test_workspace.repo;
     let wc_commit_id = repo
@@ -413,19 +411,24 @@ fn test_checkout_no_op() -> TestResult {
     ws.check_out(repo.op_id().clone(), None, &commit1)
         .block_on()?;
 
-    // Test the setup: the file should exist on in the tree state.
-    let wc: &LocalWorkingCopy = ws.working_copy().downcast_ref().unwrap();
-    assert!(wc.file_states()?.contains_path(file_path));
+    // A no-op checkout must not overwrite an unsnapshotted local edit.
+    let disk_path = file_path.to_fs_path_unchecked(ws.workspace_root());
+    std::fs::write(&disk_path, "unsnapshotted contents")?;
 
-    // Update to commit2 (same tree as commit1)
-    let new_op_id = OperationId::from_bytes(b"whatever");
+    // Workspace checkout now reads the operation's desired configuration.
+    let new_repo = repo
+        .start_transaction()
+        .commit("another operation")
+        .block_on()?;
+    let new_op_id = new_repo.op_id().clone();
     let stats = ws.check_out(new_op_id.clone(), None, &commit2).block_on()?;
     assert_eq!(stats, CheckoutStats::default());
 
-    // The tree state is unchanged but the recorded operation id is updated.
-    let wc: &LocalWorkingCopy = ws.working_copy().downcast_ref().unwrap();
-    assert!(wc.file_states()?.contains_path(file_path));
-    assert_eq!(*wc.operation_id(), new_op_id);
+    assert_eq!(
+        std::fs::read_to_string(disk_path)?,
+        "unsnapshotted contents"
+    );
+    assert_eq!(*ws.working_copy().operation_id(), new_op_id);
     Ok(())
 }
 

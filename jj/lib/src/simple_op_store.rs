@@ -43,6 +43,7 @@ use crate::dag_walk_async;
 use crate::file_util::IoResultExt as _;
 use crate::file_util::PathError;
 use crate::file_util::persist_content_addressed_temp_file;
+use crate::file_util::persist_temp_file;
 use crate::merge::Merge;
 use crate::object_id::HexPrefix;
 use crate::object_id::ObjectId;
@@ -62,11 +63,13 @@ use crate::op_store::RootOperationData;
 use crate::op_store::TimestampRange;
 use crate::op_store::View;
 use crate::op_store::ViewId;
+use crate::op_store::WorkingCopyPatternsId;
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefNameBuf;
 use crate::ref_name::RemoteNameBuf;
 use crate::ref_name::WorkspaceName;
 use crate::ref_name::WorkspaceNameBuf;
+use crate::working_copy_patterns::WorkingCopyPatterns;
 
 // BLAKE2b-512 hash length in bytes
 const OPERATION_ID_LENGTH: usize = 64;
@@ -94,6 +97,11 @@ pub struct SimpleOpStore {
 impl SimpleOpStore {
     pub fn name() -> &'static str {
         "simple_op_store"
+    }
+
+    /// Type identifier fencing off readers that discard versioned sparse state.
+    pub fn sparse_name() -> &'static str {
+        "simple_op_store_working_copy_patterns"
     }
 
     /// Creates an empty OpStore. Returns error if it already exists.
@@ -134,6 +142,48 @@ impl SimpleOpStore {
     fn operations_dir(&self) -> PathBuf {
         self.path.join("operations")
     }
+
+    fn working_copy_patterns_dir(&self) -> PathBuf {
+        self.path.join("working_copy_patterns")
+    }
+
+    /// Upgrade the shared repository marker before incompatible views reach disk.
+    /// Standalone stores have no marker; custom stores own their compatibility.
+    fn ensure_sparse_store_type(&self) -> Result<(), PathError> {
+        let type_path = self.path.join("type");
+        let current_type = match fs::read(&type_path) {
+            Ok(value) => value,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err).context(&type_path),
+        };
+        if current_type != Self::name().as_bytes() && current_type != Self::sparse_name().as_bytes()
+        {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "unsupported operation store type; experimental sparse expression stores cannot \
+                 be reinterpreted",
+            ))
+            .context(&type_path);
+        }
+        if current_type == Self::name().as_bytes() {
+            let lock_path = self.path.join("type.lock");
+            let _lock = crate::lock::FileLock::lock(lock_path.clone())
+                .map_err(io::Error::other)
+                .context(&lock_path)?;
+            if fs::read(&type_path).context(&type_path)? == Self::name().as_bytes() {
+                let mut temp_file = NamedTempFile::new_in(&self.path).context(&self.path)?;
+                temp_file
+                    .write_all(Self::sparse_name().as_bytes())
+                    .context(temp_file.path())?;
+                persist_temp_file(temp_file, &type_path).context(&type_path)?;
+            }
+        }
+        #[cfg(unix)]
+        fs::File::open(&self.path)
+            .and_then(|directory| directory.sync_all())
+            .context(&self.path)?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -162,6 +212,24 @@ impl OpStore for SimpleOpStore {
     }
 
     async fn write_view(&self, view: &View) -> OpStoreResult<ViewId> {
+        if !view.wc_sparse_patterns.is_empty() {
+            self.ensure_sparse_store_type()
+                .map_err(|err| io_to_write_error(err, "view"))?;
+        }
+        if !view.wc_sparse_patterns.is_empty() {
+            // Renew referenced objects before publishing a new view, just as
+            // view writes renew the reachability fence used by concurrent GC.
+            let ids = view
+                .wc_sparse_patterns
+                .values()
+                .flat_map(|target| target.iter().flatten())
+                .unique()
+                .collect_vec();
+            for id in ids {
+                let patterns = self.read_working_copy_patterns(id).await?;
+                self.write_working_copy_patterns(&patterns).await?;
+            }
+        }
         let dir = self.views_dir();
         let temp_file = NamedTempFile::new_in(&dir)
             .context(&dir)
@@ -180,6 +248,57 @@ impl OpStore for SimpleOpStore {
         persist_content_addressed_temp_file(temp_file, &new_path)
             .context(&new_path)
             .map_err(|err| io_to_write_error(err, "view"))?;
+        Ok(id)
+    }
+
+    async fn read_working_copy_patterns(
+        &self,
+        id: &WorkingCopyPatternsId,
+    ) -> OpStoreResult<WorkingCopyPatterns> {
+        let path = self.working_copy_patterns_dir().join(id.hex());
+        let bytes = fs::read(&path)
+            .context(&path)
+            .map_err(|err| io_to_read_error(err, id))?;
+        let patterns =
+            WorkingCopyPatterns::decode(&bytes).map_err(|err| to_read_error(err.into(), id))?;
+        if patterns.id() != *id {
+            return Err(to_read_error(
+                io::Error::new(ErrorKind::InvalidData, "configuration object hash mismatch").into(),
+                id,
+            ));
+        }
+        Ok(patterns)
+    }
+
+    async fn write_working_copy_patterns(
+        &self,
+        patterns: &WorkingCopyPatterns,
+    ) -> OpStoreResult<WorkingCopyPatternsId> {
+        patterns
+            .validate()
+            .map_err(|err| OpStoreError::WriteObject {
+                object_type: "working_copy_patterns",
+                source: err.into(),
+            })?;
+        self.ensure_sparse_store_type()
+            .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
+        let dir = self.working_copy_patterns_dir();
+        fs::create_dir_all(&dir)
+            .context(&dir)
+            .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
+        let temp_file = NamedTempFile::new_in(&dir)
+            .context(&dir)
+            .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
+        temp_file
+            .as_file()
+            .write_all(&patterns.encode())
+            .context(temp_file.path())
+            .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
+        let id = patterns.id();
+        let path = dir.join(id.hex());
+        persist_content_addressed_temp_file(temp_file, &path)
+            .context(&path)
+            .map_err(|err| io_to_write_error(err, "working_copy_patterns"))?;
         Ok(id)
     }
 
@@ -357,6 +476,52 @@ impl OpStore for SimpleOpStore {
         };
         prune_views().map_err(|err| OpStoreError::Other(err.into()))?;
 
+        // Every surviving view counts, including unreachable but recent views.
+        // Traverse *all signed terms*, not just the positive/resolved terms.
+        let mut retained_patterns = HashSet::new();
+        let view_dir = self.views_dir();
+        let entries = view_dir
+            .read_dir()
+            .context(&view_dir)
+            .map_err(|err| OpStoreError::Other(err.into()))?;
+        for entry in entries {
+            let entry = entry
+                .context(&view_dir)
+                .map_err(|err| OpStoreError::Other(err.into()))?;
+            let Some(id) = to_view_id(&entry) else {
+                continue;
+            };
+            let view = self.read_view(&id).await?;
+            retained_patterns.extend(
+                view.wc_sparse_patterns
+                    .into_values()
+                    .flat_map(|target| target.into_iter().flatten()),
+            );
+        }
+        let patterns_dir = self.working_copy_patterns_dir();
+        let entries = match patterns_dir.read_dir() {
+            Ok(entries) => Some(entries),
+            Err(err) if err.kind() == ErrorKind::NotFound => None,
+            Err(err) => return Err(OpStoreError::Other(err.into())),
+        };
+        if let Some(entries) = entries {
+            for entry in entries {
+                let entry = entry
+                    .context(&patterns_dir)
+                    .map_err(|err| OpStoreError::Other(err.into()))?;
+                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                    continue;
+                };
+                let Some(id) = WorkingCopyPatternsId::try_from_hex(name) else {
+                    continue;
+                };
+                if !retained_patterns.contains(&id) {
+                    remove_file_if_not_new(&entry)
+                        .map_err(|err| OpStoreError::Other(err.into()))?;
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -399,6 +564,15 @@ enum PostDecodeError {
     InvalidRemoteRefStateValue(i32),
     #[error("Invalid number of ref target terms {0}")]
     EvenNumberOfRefTargetTerms(usize),
+    #[error("Invalid number of sparse pattern terms {0}")]
+    EvenNumberOfSparsePatternTerms(usize),
+    #[error("Duplicate sparse patterns for workspace {0:?}")]
+    DuplicateWorkspaceSparsePatterns(String),
+    #[error(
+        "Unsupported sparse configuration entry version {0}; experimental string state is not \
+         imported"
+    )]
+    UnsupportedSparsePatternsVersion(u32),
 }
 
 fn operation_id_from_proto(bytes: Vec<u8>) -> Result<OperationId, PostDecodeError> {
@@ -420,6 +594,19 @@ fn view_id_from_proto(bytes: Vec<u8>) -> Result<ViewId, PostDecodeError> {
         })
     } else {
         Ok(ViewId::new(bytes))
+    }
+}
+
+fn working_copy_patterns_id_from_proto(
+    bytes: Vec<u8>,
+) -> Result<WorkingCopyPatternsId, PostDecodeError> {
+    if bytes.len() != 64 {
+        Err(PostDecodeError::InvalidHashLength {
+            expected: 64,
+            actual: bytes.len(),
+        })
+    } else {
+        Ok(WorkingCopyPatternsId::new(bytes))
     }
 }
 
@@ -547,6 +734,22 @@ fn view_to_proto(view: &View) -> crate::protos::simple_op_store::View {
         .iter()
         .map(|(name, id)| (name.into(), id.to_bytes()))
         .collect();
+    let wc_sparse_patterns = view
+        .wc_sparse_patterns
+        .iter()
+        .map(
+            |(name, target)| crate::protos::simple_op_store::WcSparsePatterns {
+                name: name.into(),
+                version: 1,
+                terms: target
+                    .iter()
+                    .map(|value| crate::protos::simple_op_store::SparsePatternTerm {
+                        value: value.as_ref().map(ObjectId::to_bytes),
+                    })
+                    .collect(),
+            },
+        )
+        .collect();
     let head_ids = view.head_ids.iter().map(|id| id.to_bytes()).collect();
 
     let bookmarks = bookmark_views_to_proto_legacy(&view.local_bookmarks, &view.remote_views);
@@ -589,6 +792,7 @@ fn view_to_proto(view: &View) -> crate::protos::simple_op_store::View {
         head_ids,
         wc_commit_id: Default::default(),
         wc_commit_ids,
+        wc_sparse_patterns,
         bookmarks,
         local_tags,
         remote_views,
@@ -620,6 +824,38 @@ fn view_from_proto(proto: crate::protos::simple_op_store::View) -> Result<View, 
     for (name, commit_id) in proto.wc_commit_ids {
         wc_commit_ids.insert(WorkspaceNameBuf::from(name), CommitId::new(commit_id));
     }
+    let mut wc_sparse_patterns = BTreeMap::new();
+    for entry in proto.wc_sparse_patterns {
+        if entry.version != 1 {
+            return Err(PostDecodeError::UnsupportedSparsePatternsVersion(
+                entry.version,
+            ));
+        }
+        let terms: SmallVec<[_; 1]> = entry
+            .terms
+            .into_iter()
+            .map(|term| {
+                term.value
+                    .map(working_copy_patterns_id_from_proto)
+                    .transpose()
+            })
+            .try_collect()?;
+        if terms.len().is_multiple_of(2) {
+            return Err(PostDecodeError::EvenNumberOfSparsePatternTerms(terms.len()));
+        }
+        let target = Merge::from_vec(terms);
+        match wc_sparse_patterns.entry(WorkspaceNameBuf::from(entry.name)) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(target);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                return Err(PostDecodeError::DuplicateWorkspaceSparsePatterns(
+                    entry.key().as_str().to_owned(),
+                ));
+            }
+        }
+    }
+    wc_sparse_patterns.retain(|_, target| target.is_present());
     let head_ids = proto.head_ids.into_iter().map(CommitId::new).collect();
 
     let (local_bookmarks, mut remote_views) = bookmark_views_from_proto_legacy(proto.bookmarks)?;
@@ -711,6 +947,7 @@ fn view_from_proto(proto: crate::protos::simple_op_store::View) -> Result<View, 
         git_refs,
         git_heads,
         wc_commit_ids,
+        wc_sparse_patterns,
     })
 }
 
@@ -1035,6 +1272,7 @@ mod tests {
                 WorkspaceName::DEFAULT.to_owned() => default_wc_commit_id,
                 "test".into() => test_wc_commit_id,
             },
+            wc_sparse_patterns: BTreeMap::new(),
         }
     }
 
@@ -1111,6 +1349,162 @@ mod tests {
         let read_view = store.read_view(&view_id).block_on()?;
         assert_eq!(read_view, view);
         Ok(())
+    }
+
+    #[test]
+    fn test_read_write_sparse_selection_history() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let store = SimpleOpStore::init(
+            temp_dir.path(),
+            RootOperationData {
+                root_commit_id: CommitId::from_hex("000000"),
+            },
+        )?;
+        let mut view = create_view();
+        let legacy_id = store.write_view(&view).block_on()?;
+        let a = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
+            crate::repo_path::RepoPathBuf::from_internal_string("a")?,
+        ));
+        let b = WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
+            crate::repo_path::RepoPathBuf::from_internal_string("b")?,
+        ));
+        let a_id = store.write_working_copy_patterns(&a).block_on()?;
+        let b_id = store.write_working_copy_patterns(&b).block_on()?;
+        let target = Merge::from_vec(vec![Some(a_id.clone()), None, Some(b_id)]);
+        view.wc_sparse_patterns
+            .insert(WorkspaceName::DEFAULT.to_owned(), target.clone());
+        let conflict_id = store.write_view(&view).block_on()?;
+        assert_ne!(conflict_id, legacy_id);
+        view.wc_sparse_patterns.insert(
+            WorkspaceName::DEFAULT.to_owned(),
+            Merge::resolved(Some(a_id)),
+        );
+        let resolved_id = store.write_view(&view).block_on()?;
+        assert_ne!(resolved_id, conflict_id);
+        assert_eq!(store.read_view(&legacy_id).block_on()?, create_view());
+        assert_eq!(
+            store.read_view(&conflict_id).block_on()?.wc_sparse_patterns[WorkspaceName::DEFAULT],
+            target,
+        );
+        assert_eq!(store.read_view(&resolved_id).block_on()?, view);
+        Ok(())
+    }
+
+    #[test]
+    fn test_patterns_gc_keeps_signed_and_recent_view_references() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let store = SimpleOpStore::init(
+            temp_dir.path(),
+            RootOperationData {
+                root_commit_id: CommitId::from_hex("000000"),
+            },
+        )?;
+        let mut ids = vec![];
+        for name in ["left", "base", "right", "recent", "unreachable"] {
+            let patterns =
+                WorkingCopyPatterns::from(crate::fileset::FilesetExpression::prefix_path(
+                    crate::repo_path::RepoPathBuf::from_internal_string(name)?,
+                ));
+            ids.push(store.write_working_copy_patterns(&patterns).block_on()?);
+        }
+        let mut view = create_view();
+        view.wc_sparse_patterns.insert(
+            WorkspaceName::DEFAULT.to_owned(),
+            Merge::from_vec(ids[..3].iter().cloned().map(Some).collect::<Vec<_>>()),
+        );
+        let view_id = store.write_view(&view).block_on()?;
+        let mut op = Operation::make_root(view_id.clone());
+        op.parents = vec![store.root_operation_id().clone()];
+        let op_id = store.write_operation(&op).block_on()?;
+        view.wc_sparse_patterns.insert(
+            WorkspaceName::DEFAULT.to_owned(),
+            Merge::resolved(Some(ids[3].clone())),
+        );
+        let recent_view = store.write_view(&view).block_on()?;
+
+        let old = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let threshold = old + std::time::Duration::from_secs(10);
+        for id in &ids {
+            fs::File::open(store.working_copy_patterns_dir().join(id.hex()))?.set_modified(old)?;
+        }
+        fs::File::open(store.views_dir().join(view_id.hex()))?.set_modified(old)?;
+        fs::File::open(store.views_dir().join(recent_view.hex()))?
+            .set_modified(threshold + std::time::Duration::from_secs(1))?;
+        store.gc(&[op_id], threshold).block_on()?;
+        for id in &ids[..4] {
+            assert_eq!(store.read_working_copy_patterns(id).block_on()?.id(), *id);
+        }
+        assert!(matches!(
+            store.read_working_copy_patterns(&ids[4]).block_on(),
+            Err(OpStoreError::ObjectNotFound { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_patterns_reject_corruption_and_experimental_views() -> TestResult {
+        let temp_dir = new_temp_dir();
+        let store = SimpleOpStore::init(
+            temp_dir.path(),
+            RootOperationData {
+                root_commit_id: CommitId::from_hex("000000"),
+            },
+        )?;
+        let id = store
+            .write_working_copy_patterns(&WorkingCopyPatterns::all())
+            .block_on()?;
+        fs::write(
+            store.working_copy_patterns_dir().join(id.hex()),
+            WorkingCopyPatterns::none().encode(),
+        )?;
+        assert!(matches!(
+            store.read_working_copy_patterns(&id).block_on(),
+            Err(OpStoreError::ReadObject { .. })
+        ));
+        let mut proto = view_to_proto(&create_view());
+        proto
+            .wc_sparse_patterns
+            .push(crate::protos::simple_op_store::WcSparsePatterns {
+                name: "default".to_owned(),
+                version: 0,
+                terms: vec![crate::protos::simple_op_store::SparsePatternTerm { value: None }],
+            });
+        assert!(matches!(
+            view_from_proto(proto),
+            Err(PostDecodeError::UnsupportedSparsePatternsVersion(0))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_reject_malformed_sparse_selection_targets() {
+        use crate::protos::simple_op_store::SparsePatternTerm;
+        use crate::protos::simple_op_store::WcSparsePatterns;
+
+        let mut proto = view_to_proto(&create_view());
+        for count in [0, 2] {
+            proto.wc_sparse_patterns = vec![WcSparsePatterns {
+                name: "default".to_owned(),
+                version: 1,
+                terms: vec![SparsePatternTerm { value: None }; count],
+            }];
+            assert!(matches!(
+                view_from_proto(proto.clone()),
+                Err(PostDecodeError::EvenNumberOfSparsePatternTerms(n)) if n == count,
+            ));
+        }
+        proto.wc_sparse_patterns = vec![
+            WcSparsePatterns {
+                name: "default".to_owned(),
+                version: 1,
+                terms: vec![SparsePatternTerm { value: None }],
+            };
+            2
+        ];
+        assert!(matches!(
+            view_from_proto(proto),
+            Err(PostDecodeError::DuplicateWorkspaceSparsePatterns(_)),
+        ));
     }
 
     #[test]

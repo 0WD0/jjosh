@@ -2180,3 +2180,61 @@ fn test_run_sparse() {
         [EOF]
         ");
 }
+
+#[test]
+fn test_run_copies_sparse_rules_and_mappings() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["git", "init", "--no-colocate", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    work_dir.write_file("project/main.rs", "original");
+    work_dir.write_file("project/hidden.txt", "hidden");
+    work_dir.write_file("other/lib.rs", "other");
+    work_dir
+        .run_jj(["sparse", "set", r#"glob:"**/*.rs" ~ other"#])
+        .success();
+    work_dir
+        .run_jj(["sparse", "map", "set", "project=visible"])
+        .success();
+    work_dir
+        .run_jj([
+            "run",
+            "-r",
+            "@",
+            "--",
+            "sh",
+            "-c",
+            "test -f visible/main.rs && test ! -e visible/hidden.txt && test ! -e project && test \
+             ! -e other && printf edited > visible/main.rs",
+        ])
+        .success();
+    assert_eq!(
+        work_dir
+            .run_jj(["file", "show", "root:project/main.rs"])
+            .success()
+            .stdout
+            .raw(),
+        "edited"
+    );
+    assert_eq!(
+        work_dir
+            .run_jj([
+                "run",
+                "-r",
+                "@",
+                "--sparse-patterns=full",
+                "--",
+                "sh",
+                "-c",
+                "test ! -e visible && cat project/main.rs project/hidden.txt other/lib.rs",
+            ])
+            .success()
+            .stdout
+            .raw(),
+        "editedhiddenother"
+    );
+    assert_eq!(work_dir.read_file("visible/main.rs"), "edited");
+    assert!(!work_dir.root().join("visible/hidden.txt").exists());
+    assert!(!work_dir.root().join("project").exists());
+}

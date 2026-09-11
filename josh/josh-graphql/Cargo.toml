@@ -1,0 +1,33 @@
+[package]
+name = "josh-graphql"
+version = "26.8.28"
+edition = "2024"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+description = "GraphQL support for Josh"
+license-file = "../LICENSE"
+repository = "https://github.com/josh-project/josh"
+keywords = ["git", "monorepo", "workflow", "scm"]
+
+[dependencies]
+glob = "0.3.4"
+strfmt = "0.2.5"
+
+anyhow.workspace = true
+juniper.workspace = true
+gix-hash.workspace = true
+gix-object.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+josh-core.workspace = true
+josh-search.workspace = true
+
+[dependencies.chrono]
+default-features = false
+features = ["alloc", "std"]
+version = "0.4.45"
+
+[features]

@@ -1,0 +1,25 @@
+[package]
+name = "josh-memodb"
+version = "26.8.28"
+repository = "https://ithub.com/josh-project/josh"
+authors = ["Josh Project authors <contact@josh-project.dev>"]
+license-file = "../LICENSE"
+description = "In-memory object store and object-database facade for josh"
+keywords = ["git", "odb"]
+readme = "../README.md"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+gix-features.workspace = true
+gix-hash.workspace = true
+gix-object.workspace = true
+gix-odb.workspace = true
+gix-pack.workspace = true
+gix-zlib.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+gix.workspace = true
