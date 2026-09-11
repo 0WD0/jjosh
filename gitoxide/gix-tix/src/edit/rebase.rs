@@ -65,10 +65,6 @@ pub(crate) enum Edit {
         commit: gix::objs::Commit,
         reset_index: bool,
     },
-    Fork {
-        anchor: ObjectId,
-        commit: gix::objs::Commit,
-    },
     Remove {
         target: ObjectId,
     },
@@ -201,6 +197,10 @@ pub(crate) struct Plan {
     pub steps: Vec<PlanStep>,
     pub checkout: Option<PlanCheckout>,
     pub expected_refs: Vec<PlanRef>,
+    /// Additional steps whose changed ancestry must be replayed before publication.
+    pub eager: Vec<usize>,
+    /// The result to focus after completion, independently of the checkout.
+    pub selection: Option<PlanParent>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -341,6 +341,19 @@ impl PlanConflict {
                 reference: checkout.reference.clone(),
             }),
             expected_refs,
+            eager: self
+                .plan
+                .eager
+                .iter()
+                .filter_map(|index| index.checked_sub(self.continuation_start))
+                .collect(),
+            selection: self.plan.selection.map(|selection| match selection {
+                PlanParent::Existing(commit_id) => PlanParent::Existing(commit_id),
+                PlanParent::Step(index) if index < self.continuation_start => {
+                    PlanParent::Existing(self.produced[index])
+                }
+                PlanParent::Step(index) => PlanParent::Step(index - self.continuation_start),
+            }),
         }
     }
 
@@ -459,6 +472,8 @@ struct Prepared {
     committer: gix::actor::Signature,
     expected_refs: Option<Vec<PlanRef>>,
     checkout_reference: Option<gix::refs::FullName>,
+    /// The staged resolution is the current worktree's baseline before its final checkout.
+    checkout_tree: Option<ObjectId>,
     departure: Option<(ObjectId, Option<ObjectId>)>,
     pins: Vec<ObjectId>,
     delete_refs: Vec<(gix::refs::FullName, Target)>,
@@ -601,6 +616,8 @@ pub(crate) fn squash_plan(
         });
 
     Ok(Plan {
+        eager: Vec::new(),
+        selection: None,
         base,
         scope,
         steps,
@@ -616,293 +633,7 @@ pub(crate) fn copy_insert_plan(
     target: ObjectId,
     target_is_read_only: bool,
 ) -> Result<Plan> {
-    auto_merge::ensure_editable(&repo.find_commit(source)?.decode()?.into_owned()?)?;
-    let source_parents = graph
-        .parents_of(source)
-        .ok_or_raise(|| message("the copy source is not in the loaded history"))?;
-    let [_source_parent] = source_parents.as_slice() else {
-        bail!("copying a commit requires it to have exactly one parent");
-    };
-    if source == target {
-        bail!("the copy source and target must differ");
-    }
-
-    let mut scope = if target_is_read_only {
-        graph
-            .parents_of(target)
-            .ok_or_raise(|| message("the copy target is not in the loaded history"))?;
-        Vec::new()
-    } else {
-        graph
-            .descendants_in_parent_order(target)
-            .ok_or_raise(|| message("the copy target is not in the loaded history"))?
-    };
-    scope.retain(|id| *id != target);
-    let mut steps = vec![PlanStep {
-        parent: PlanParent::Existing(target),
-        commit: PlanCommit::Copy(source),
-        squash: Vec::new(),
-    }];
-    let mut step_by_id = HashMap::with_capacity(scope.len());
-    for id in &scope {
-        let parents = graph
-            .parents_of(*id)
-            .ok_or_raise(|| message("an affected copy commit is incomplete"))?;
-        let Some(parent) = parents
-            .first()
-            .filter(|_| parents.len() == 1 || graph.auto_merges.contains_key(id))
-        else {
-            bail!("copying a commit cannot rewrite root or merge commits");
-        };
-        let parent = if *parent == target {
-            PlanParent::Step(0)
-        } else {
-            step_by_id
-                .get(parent)
-                .copied()
-                .map_or(PlanParent::Existing(*parent), PlanParent::Step)
-        };
-        step_by_id.insert(*id, steps.len());
-        steps.push(PlanStep {
-            parent,
-            commit: PlanCommit::Pick(*id),
-            squash: Vec::new(),
-        });
-    }
-
-    let mut ref_scope = Vec::with_capacity(scope.len() + 1);
-    ref_scope.push(target);
-    ref_scope.extend(scope.iter().copied());
-    let ref_scope_set: HashSet<_> = ref_scope.iter().copied().collect();
-    let mut non_leaves = HashSet::new();
-    for id in &ref_scope {
-        non_leaves.extend(
-            graph
-                .parents_of(*id)
-                .ok_or_raise(|| message("an affected copy commit is incomplete"))?
-                .into_iter()
-                .filter(|parent| ref_scope_set.contains(parent)),
-        );
-    }
-    let tips: Vec<_> = ref_scope
-        .iter()
-        .copied()
-        .filter(|id| !non_leaves.contains(id))
-        .collect();
-    let mut expected_refs = capture_refs(repo, &ref_scope, &tips)?;
-    let head = repo.head()?;
-    let target_is_head = head.id().is_some_and(|id| id == target);
-    let checkout_reference = if target_is_head {
-        head.referent_name().map(ToOwned::to_owned)
-    } else {
-        None
-    };
-    if target_is_read_only || target_is_head {
-        for expected in expected_refs.iter_mut().filter(|expected| expected.source == target) {
-            expected.destination = RefDestination::Follow { tip: false };
-            if checkout_reference
-                .as_ref()
-                .is_some_and(|reference| reference == &expected.name)
-            {
-                expected.destination = RefDestination::Step(0);
-            }
-        }
-    }
-    let checkout = Some(PlanCheckout {
-        target: PlanParent::Step(0),
-        reference: checkout_reference,
-    });
-
-    Ok(Plan {
-        base: target,
-        scope,
-        steps,
-        checkout,
-        expected_refs,
-    })
-}
-
-pub(crate) fn move_insert_plan(
-    repo: &gix::Repository,
-    graph: &HistoryGraph,
-    source: ObjectId,
-    target: ObjectId,
-    target_is_read_only: bool,
-) -> Result<Plan> {
-    stack_insert_plan(repo, graph, source, source, target, target_is_read_only)
-}
-
-pub(crate) fn stack_insert_plan(
-    repo: &gix::Repository,
-    graph: &HistoryGraph,
-    base: ObjectId,
-    head: ObjectId,
-    target: ObjectId,
-    target_is_read_only: bool,
-) -> Result<Plan> {
-    if repo.head_id()?.detach() != head {
-        bail!("the move source must be the current HEAD");
-    }
-    if !graph.is_ancestor(base, head) {
-        bail!("the stack base must be an ancestor of HEAD");
-    }
-    graph
-        .parents_of(target)
-        .ok_or_raise(|| message("the move target is not in the loaded history"))?;
-
-    let mut stack = vec![head];
-    let mut stack_parent = HashMap::new();
-    loop {
-        let id = *stack.last().expect("a stack always contains HEAD");
-        let parents = graph
-            .parents_of(id)
-            .ok_or_raise(|| message("a moved stack commit is incomplete"))?;
-        let Some(parent) = parents
-            .first()
-            .filter(|_| parents.len() == 1 || graph.auto_merges.contains_key(&id))
-        else {
-            bail!("moving a stack requires every commit to have exactly one parent");
-        };
-        stack_parent.insert(id, *parent);
-        if id == base {
-            break;
-        }
-        stack.push(*parent);
-    }
-    stack.reverse();
-    let stack_set: HashSet<_> = stack.iter().copied().collect();
-    if stack_set.contains(&target) {
-        bail!("the move target must not be part of the moved stack");
-    }
-    let base_parent = stack_parent[&base];
-    if base_parent == target {
-        bail!("the stack is already directly above the move target");
-    }
-    if target_is_read_only && graph.is_ancestor(base, target) {
-        bail!("a read-only move target cannot descend from the moved stack");
-    }
-
-    let target_rewritten = !target_is_read_only && graph.is_ancestor(base, target);
-    let target_scope = if target_is_read_only {
-        Vec::new()
-    } else {
-        graph
-            .descendants_in_parent_order(target)
-            .ok_or_raise(|| message("the move target is not in the loaded history"))?
-    };
-    let mut scope = Vec::new();
-    let mut scope_set = HashSet::new();
-    for id in graph
-        .descendants_in_parent_order(base)
-        .ok_or_raise(|| message("the stack base is not in the loaded history"))?
-        .into_iter()
-        .chain(target_scope)
-    {
-        if (id != target || target_rewritten) && scope_set.insert(id) {
-            scope.push(id);
-        }
-    }
-
-    let mut new_parent = HashMap::with_capacity(scope.len());
-    for id in &scope {
-        let parents = graph
-            .parents_of(*id)
-            .ok_or_raise(|| message("an affected move commit is incomplete"))?;
-        let Some(parent) = parents
-            .first()
-            .filter(|_| parents.len() == 1 || graph.auto_merges.contains_key(id))
-        else {
-            bail!("moving a stack cannot rewrite root or merge commits");
-        };
-        new_parent.insert(
-            *id,
-            if *id == base {
-                target
-            } else if stack_set.contains(id) {
-                *parent
-            } else if let Some(old_parent) = stack_parent.get(parent) {
-                *old_parent
-            } else if !target_is_read_only && *parent == target {
-                head
-            } else {
-                *parent
-            },
-        );
-    }
-
-    let mut steps = Vec::with_capacity(scope.len());
-    let mut step_by_id = HashMap::with_capacity(scope.len());
-    while steps.len() < scope.len() {
-        let before = steps.len();
-        for id in &scope {
-            if step_by_id.contains_key(id) {
-                continue;
-            }
-            let parent = new_parent[id];
-            if scope_set.contains(&parent) && !step_by_id.contains_key(&parent) {
-                continue;
-            }
-            let parent = step_by_id
-                .get(&parent)
-                .copied()
-                .map_or(PlanParent::Existing(parent), PlanParent::Step);
-            step_by_id.insert(*id, steps.len());
-            steps.push(PlanStep {
-                parent,
-                commit: PlanCommit::Pick(*id),
-                squash: Vec::new(),
-            });
-        }
-        if steps.len() == before {
-            bail!("moving the stack would create a commit cycle");
-        }
-    }
-
-    let head_step = PlanParent::Step(step_by_id[&head]);
-    let mut ref_scope = scope.clone();
-    if !scope_set.contains(&target) {
-        ref_scope.push(target);
-    }
-    let ref_scope_set: HashSet<_> = ref_scope.iter().copied().collect();
-    let mut non_leaves = HashSet::new();
-    for id in &ref_scope {
-        non_leaves.extend(
-            graph
-                .parents_of(*id)
-                .ok_or_raise(|| message("an affected move commit is incomplete"))?
-                .into_iter()
-                .filter(|parent| ref_scope_set.contains(parent)),
-        );
-    }
-    let tips: Vec<_> = ref_scope
-        .iter()
-        .copied()
-        .filter(|id| !non_leaves.contains(id))
-        .collect();
-    let mut expected_refs = capture_refs(repo, &ref_scope, &tips)?;
-    for expected in &mut expected_refs {
-        if target_is_read_only && expected.source == target {
-            expected.destination = RefDestination::Follow { tip: false };
-        } else if stack_set.contains(&expected.source) {
-            expected.destination = RefDestination::Step(step_by_id[&expected.source]);
-        }
-    }
-    let head = repo.head()?;
-    let reference = head
-        .referent_name()
-        .filter(|name| name.category() == Some(Category::LocalBranch))
-        .map(ToOwned::to_owned);
-
-    Ok(Plan {
-        base: base_parent,
-        scope,
-        steps,
-        checkout: Some(PlanCheckout {
-            target: head_step,
-            reference,
-        }),
-        expected_refs,
-    })
+    super::transplant::paste_plan(repo, graph, source, target, target_is_read_only)
 }
 
 #[tracing::instrument(skip_all, fields(signature = ?signature, tree = ?tree_mode))]
@@ -1176,38 +907,26 @@ fn perform_inner(
         Edit::Repeat { checkout, .. } => Some(*checkout),
         _ => None,
     };
-    let (root, replacement, inserted, reset_index, forked, removed, repeat, mut split_upper) = match edit {
-        Edit::Replace { target, commit } => (Some(target), Some(commit), false, false, false, false, false, None),
+    let (root, replacement, inserted, reset_index, removed, repeat, mut split_upper) = match edit {
+        Edit::Replace { target, commit } => (Some(target), Some(commit), false, false, false, false, None),
         Edit::Insert {
             anchor,
             commit,
             reset_index,
-        } => (anchor, Some(commit), true, reset_index, false, false, false, None),
-        Edit::Fork { anchor, commit } => (Some(anchor), Some(commit), false, false, true, false, false, None),
-        Edit::Remove { target } => (Some(target), None, false, false, false, true, false, None),
-        Edit::Split { target, source, upper } => (
-            Some(target),
-            Some(source),
-            false,
-            false,
-            false,
-            false,
-            false,
-            Some(upper),
-        ),
-        Edit::Repeat { base, .. } => (Some(base), None, false, false, false, false, true, None),
+        } => (anchor, Some(commit), true, reset_index, false, false, None),
+        Edit::Remove { target } => (Some(target), None, false, false, true, false, None),
+        Edit::Split { target, source, upper } => (Some(target), Some(source), false, false, false, false, Some(upper)),
+        Edit::Repeat { base, .. } => (Some(base), None, false, false, false, true, None),
     };
 
-    let mut affected = match root.filter(|_| !forked) {
+    let mut affected = match root {
         Some(root) => graph
             .descendants_in_parent_order(root)
             .ok_or_raise(|| message("the edited commit is not in the loaded history"))?,
         None => Vec::new(),
     };
     let mut progress = Progress {
-        total: affected.len()
-            + usize::from(split_upper.is_some())
-            + usize::from((inserted || forked) && affected.is_empty()),
+        total: affected.len() + usize::from(split_upper.is_some()) + usize::from(inserted && affected.is_empty()),
         ..Progress::default()
     };
     report(None, progress);
@@ -1244,8 +963,7 @@ fn perform_inner(
             root.filter(|id| tree_mode == Tree::CherryPick && graph.auto_merges.contains_key(id)),
         )?
     };
-    progress.total =
-        affected.len() + usize::from(split_upper.is_some()) + usize::from((inserted || forked) && affected.is_empty());
+    progress.total = affected.len() + usize::from(split_upper.is_some()) + usize::from(inserted && affected.is_empty());
     if !repeat && !checkout_path.is_empty() {
         let checkout = checkout.expect("a non-empty checkout path has a checkout");
         let review_boundary =
@@ -1285,7 +1003,7 @@ fn perform_inner(
     let mut conflict = None;
     let mut eager_checkout_rewrite = false;
     let mut finalized_empty = HashSet::new();
-    if inserted || forked {
+    if inserted {
         let mut commit = replacement
             .clone()
             .ok_or_raise(|| message("an inserted commit is required"))?;
@@ -1474,12 +1192,10 @@ fn perform_inner(
         }
     }
 
-    let marked = (!forked && matches!(tree_mode, Tree::LeaveAsIsAndMark | Tree::LeaveAsIsAndMarkDescendants))
-        || conflict.is_some();
+    let marked = matches!(tree_mode, Tree::LeaveAsIsAndMark | Tree::LeaveAsIsAndMarkDescendants) || conflict.is_some();
     let skip_worktree_transitions = header_only
         || !eager_checkout_rewrite
             && (inserted
-                || forked
                 || (matches!(tree_mode, Tree::LeaveAsIsAndMark | Tree::LeaveAsIsAndMarkDescendants) && !removed));
     let mut reset_indices: HashSet<_> = (!header_only && ((inserted && reset_index) || (!inserted && marked)))
         .then_some(root)
@@ -1508,12 +1224,9 @@ fn perform_inner(
         committer,
         expected_refs: None,
         checkout_reference: None,
+        checkout_tree: None,
         departure: None,
-        pins: if forked {
-            selected.into_iter().collect()
-        } else {
-            Vec::new()
-        },
+        pins: Vec::new(),
         delete_refs,
         enrichment: None,
     };
@@ -1788,6 +1501,7 @@ pub(super) fn finish_review_with_progress(
         committer,
         expected_refs: None,
         checkout_reference,
+        checkout_tree: None,
         departure: None,
         pins: Vec::new(),
         delete_refs,
@@ -1900,23 +1614,22 @@ pub(crate) fn perform_plan_with_progress(
         .into_iter()
         .filter_map(|(index, automatic)| automatic.then_some(index))
         .collect();
-    let mut cursor = checkout_target;
-    while let Some(PlanParent::Step(index)) = cursor {
-        if !eager.insert(index) {
-            bail!("the checkout ancestry contains a cycle");
+    for target in checkout_target
+        .into_iter()
+        .chain(plan.eager.iter().copied().map(PlanParent::Step))
+    {
+        let mut cursor = target;
+        while let PlanParent::Step(index) = cursor {
+            // The ordered plan is acyclic; required paths can share ancestors.
+            if !eager.insert(index) || automatic.contains(&index) {
+                break;
+            }
+            cursor = plan
+                .steps
+                .get(index)
+                .ok_or_raise(|| message("an eager step is missing"))?
+                .parent;
         }
-        if automatic.contains(&index) {
-            break;
-        }
-        cursor = match plan
-            .steps
-            .get(index)
-            .ok_or_raise(|| message("the checkout step is missing"))?
-            .parent
-        {
-            parent @ PlanParent::Step(_) => Some(parent),
-            PlanParent::Existing(_) => None,
-        };
     }
 
     let mut optional = HashSet::new();
@@ -1940,6 +1653,7 @@ pub(crate) fn perform_plan_with_progress(
     let mut rewritten = HashMap::<ObjectId, Option<ObjectId>>::new();
     let mut note_rewrites = Vec::new();
     let mut produced = Vec::with_capacity(plan.steps.len());
+    let mut checkout_tree = None;
     let mut delete_refs = Vec::new();
     let mut conflict = None;
     let mut marked = false;
@@ -2008,6 +1722,7 @@ pub(crate) fn perform_plan_with_progress(
                     bail!("the conflict index still has unresolved entries");
                 }
                 commit.tree = super::create::index_tree(&repo, &index)?;
+                checkout_tree = Some(commit.tree);
                 crate::patch_id::clear_unavailable(&mut commit);
                 commit
             }
@@ -2269,6 +1984,7 @@ pub(crate) fn perform_plan_with_progress(
         committer,
         expected_refs: Some(expected_refs.clone()),
         checkout_reference: plan.checkout.as_ref().and_then(|checkout| checkout.reference.clone()),
+        checkout_tree,
         departure: None,
         pins,
         delete_refs,
@@ -2284,9 +2000,14 @@ pub(crate) fn perform_plan_with_progress(
         "prepared rebase plan"
     );
     let Some((original, merged_tree, conflicts, commit, conflict_step, conflict_remaining_squash)) = conflict else {
-        return Ok(PlanPerform::Complete(
-            prepared.finish(plan.checkout.as_ref().map(|_| checkout_options), None)?,
-        ));
+        let mut outcome = prepared.finish(plan.checkout.as_ref().map(|_| checkout_options), None)?;
+        if let Some(selection) = plan.selection {
+            outcome.selected = Some(match selection {
+                PlanParent::Existing(commit_id) => commit_id,
+                PlanParent::Step(index) => produced[index],
+            });
+        }
+        return Ok(PlanPerform::Complete(outcome));
     };
 
     let continuation_start = checkout_target
@@ -2433,7 +2154,10 @@ impl Prepared {
             if let Some(reference) = &self.checkout_reference {
                 super::time_travel::ensure_branch_is_available(&self.repo, reference.as_ref())?;
             }
-            let old_tree = self.repo.head_commit()?.tree_id()?.detach();
+            let old_tree = match self.checkout_tree {
+                Some(tree_id) => tree_id,
+                None => self.repo.head_commit()?.tree_id()?.detach(),
+            };
             let new_tree = self.repo.find_commit(selected)?.tree_id()?.detach();
             super::delete::preflight_tree_transition(&self.repo, workdir, old_tree, new_tree)?;
             Some(IndexBackup::capture(self.repo.index_path().to_owned())?)
@@ -2446,6 +2170,8 @@ impl Prepared {
             &self.rewritten,
             self.expected_refs.as_deref(),
             self.skip_worktree_transitions,
+            checkout.and(self.selected),
+            self.checkout_tree,
         )?;
         let index_resets = (!self.reset_indices.is_empty())
             .then(|| index_resets(&self.repo, &self.rewritten, &self.reset_indices))
@@ -3448,6 +3174,8 @@ fn worktree_transitions(
     rewritten: &HashMap<ObjectId, Option<ObjectId>>,
     expected_refs: Option<&[PlanRef]>,
     inserted: bool,
+    checkout: Option<ObjectId>,
+    checkout_tree: Option<ObjectId>,
 ) -> Result<Vec<Transition>> {
     if inserted {
         return Ok(Vec::new());
@@ -3479,24 +3207,30 @@ fn worktree_transitions(
         let planned = head.referent_name().and_then(|name| {
             expected_refs.and_then(|refs| refs.iter().find(|expected| expected.name.as_bstr() == name.as_bstr()))
         });
-        let new = match planned {
-            Some(expected) if expected.destination == RefDestination::Delete => {
-                if worktree_repo.git_dir() == repo.git_dir() {
-                    continue;
+        let new = match checkout.filter(|_| worktree_repo.git_dir() == repo.git_dir()) {
+            Some(commit_id) => Some(Some(commit_id)),
+            None => match planned {
+                Some(expected) if expected.destination == RefDestination::Delete => {
+                    if worktree_repo.git_dir() == repo.git_dir() {
+                        continue;
+                    }
+                    gix::error::bail!(
+                        "cannot delete {} because another worktree has it checked out",
+                        expected.name.shorten()
+                    );
                 }
-                bail!(
-                    "cannot delete {} because another worktree has it checked out",
-                    expected.name.shorten()
-                );
-            }
-            Some(expected) => Some(expected.destination.resolve(&[])?),
-            None => rewritten.get(&old).copied(),
+                Some(expected) => Some(expected.destination.resolve(&[])?),
+                None => rewritten.get(&old).copied(),
+            },
         };
         let Some(new) = new else { continue };
         if worktree_repo.workdir().is_none() && worktree_repo.is_bare() {
             continue;
         }
-        let old_tree = worktree_repo.find_commit(old)?.tree_id()?.detach();
+        let old_tree = match checkout_tree.filter(|_| worktree_repo.git_dir() == repo.git_dir()) {
+            Some(tree_id) => tree_id,
+            None => worktree_repo.find_commit(old)?.tree_id()?.detach(),
+        };
         let new_tree = match new {
             Some(new) => repo.find_commit(new)?.tree_id()?.detach(),
             None if worktree_repo.head()?.referent_name().is_some() => repo.empty_tree().id,
@@ -3737,6 +3471,42 @@ mod tests {
 
     use super::*;
 
+    fn move_insert_plan(
+        repo: &gix::Repository,
+        graph: &HistoryGraph,
+        source: ObjectId,
+        target: ObjectId,
+        target_is_read_only: bool,
+    ) -> Result<Plan> {
+        stack_insert_plan(repo, graph, source, source, target, target_is_read_only)
+    }
+
+    fn stack_insert_plan(
+        repo: &gix::Repository,
+        graph: &HistoryGraph,
+        base: ObjectId,
+        head: ObjectId,
+        target: ObjectId,
+        target_is_read_only: bool,
+    ) -> Result<Plan> {
+        use super::super::transplant::{Connection, Mode, Placement, Request, Selection};
+        super::super::transplant::plan(
+            repo,
+            graph,
+            &Request {
+                selection: Selection {
+                    root: base,
+                    leaves: vec![head],
+                },
+                mode: Mode::Move,
+                connection: Connection::Insert,
+                placement: Placement::Above,
+                destination: target,
+            },
+            target_is_read_only,
+        )
+    }
+
     #[test]
     fn reset_index_errors_keep_stderr_in_metadata() -> gix_testtools::Result {
         if gix_testtools::run_in_isolated_process()? {
@@ -3930,6 +3700,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base: base_commit_id,
                 scope: vec![middle_commit_id, approved_commit_id],
                 steps: vec![PlanStep {
@@ -4024,6 +3796,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -4841,6 +4615,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![pending, tip],
                 steps: vec![
@@ -4891,6 +4667,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -5029,6 +4807,8 @@ mod tests {
                 &repo,
                 &graph,
                 Plan {
+                    eager: Vec::new(),
+                    selection: None,
                     base: base_commit_id,
                     expected_refs: capture_refs(&repo, &scope, &[trailing_commit_id])?,
                     scope,
@@ -5138,6 +4918,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![
@@ -5267,6 +5049,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![clean, checkout, descendant],
                 steps: vec![
@@ -5351,6 +5135,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -5438,6 +5224,8 @@ mod tests {
                 &repo,
                 &graph,
                 Plan {
+                    eager: Vec::new(),
+                    selection: None,
                     base: base_commit_id,
                     expected_refs: capture_refs(&repo, &scope, &[source_commit_id])?,
                     scope,
@@ -5757,7 +5545,7 @@ mod tests {
     }
 
     #[test]
-    fn stack_insert_rejects_invalid_ranges_and_cycles() -> gix_testtools::Result {
+    fn stack_insert_rejects_invalid_ranges_and_cuts_around_excluded_descendants() -> gix_testtools::Result {
         let fixture = gix_testtools::scripted_fixture_writable("rebase_edit.sh")?;
         git(fixture.path(), &["checkout", "-q", "-b", "cycle-target"])?;
         std::fs::write(fixture.path().join("cycle-target"), b"cycle target\n")?;
@@ -5776,13 +5564,25 @@ mod tests {
         assert!(err.to_string().contains("ancestor"), "{err:#}");
         let err = stack_insert_plan(&repo, &graph, base, head, base, false)
             .expect_err("the insertion target cannot be part of the stack");
-        assert!(err.to_string().contains("moved stack"), "{err:#}");
-        let err = stack_insert_plan(&repo, &graph, base, head, target, false)
-            .expect_err("inserting a stack into its own side descendant would cycle");
-        assert!(err.to_string().contains("cycle"), "{err:#}");
+        assert!(err.to_string().contains("must differ"), "{err:#}");
+        let plan = stack_insert_plan(&repo, &graph, base, head, target, false)?;
         let err = stack_insert_plan(&repo, &graph, base, head, target, true)
             .expect_err("a read-only target cannot retain ancestry through the moved stack");
         assert!(err.to_string().contains("read-only"), "{err:#}");
+        let outcome = perform_plan(&repo, &graph, plan)?.complete()?;
+        let moved_base = outcome.map(base).ok_or_raise(|| message("the moved base survives"))?;
+        let target = outcome
+            .map(target)
+            .ok_or_raise(|| message("the excluded target survives"))?;
+        assert_eq!(
+            repo.find_commit(target)?.parent_ids().next().map(gix::Id::detach),
+            Some(root),
+            "the excluded descendant bypasses every moved ancestor"
+        );
+        assert_eq!(
+            repo.find_commit(moved_base)?.parent_ids().next().map(gix::Id::detach),
+            Some(target)
+        );
         Ok(())
     }
 
@@ -6220,6 +6020,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -6433,6 +6235,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![
@@ -6496,6 +6300,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![
@@ -6539,6 +6345,8 @@ mod tests {
         let middle = repo.rev_parse_single("HEAD~1")?.detach();
         let tip = repo.head_id()?.detach();
         let mut plan = Plan {
+            eager: Vec::new(),
+            selection: None,
             base,
             scope: vec![middle, tip],
             steps: vec![
@@ -6595,6 +6403,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base: onto,
                 scope: vec![middle, tip],
                 steps: vec![
@@ -6658,6 +6468,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -6735,6 +6547,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: steps(),
@@ -6760,6 +6574,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: steps(),
@@ -6804,6 +6620,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -6840,6 +6658,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -6903,6 +6723,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
@@ -6966,6 +6788,8 @@ mod tests {
             &repo,
             &graph,
             Plan {
+                eager: Vec::new(),
+                selection: None,
                 base,
                 scope: vec![middle, tip],
                 steps: vec![PlanStep {
