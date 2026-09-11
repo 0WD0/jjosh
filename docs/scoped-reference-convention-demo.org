@@ -5,20 +5,22 @@
 
 * 只改名字
 
-在新的实验目标仓库里设置 =jjosh.demo-scope-suffix=true=，native import/fetch 就把 =PROJECT/NAME= 改成普通 jj 名字 =NAME#PROJECT=。包括本地 bookmark、tag、导入的 remote 引用和 =workspace/default#PROJECT= 工作入口。
+在新的实验目标仓库里设置 =jjosh.demo-scope-suffix=true=，native import/fetch 以及 link add/update 就把 =PROJECT/NAME= 改成普通 jj 名字 =NAME#PROJECT=。包括本地 bookmark、tag、导入的 remote 引用和 =workspace/default#PROJECT= 工作入口。已登记来源后，日常更新应使用 =link update=，不需要重复提供 source。
 
 remote 仍用现有的全局名字 =PROJECT-REMOTE=：例如 ="main#alpha"@alpha-upstream= 和 ="main#alpha"@alpha-origin=。这里没有新的 symbol 类型、revset 语法、View 子树、存储格式或 =--scope= 参数；引号是 jj 原有的字符串语法。NAME 本身不被拆解，项目名仍沿用现有校验。
 
 * 最小试用
 
-先构建 =cargo build -p jjosh-cli --locked --offline=。下面的 source 是有 =main= 的已记录 jj workspace，upstream/fork 是与之对应的两个 *本地测试* bare repo；请换成自己的临时路径，不要在开发仓库或真实远端上运行。
+先构建 =cargo build -p jjosh-cli --locked --offline=。下面的 source 是有 =main= 的已记录 jj workspace，upstream/fork 是与之对应的两个 *本地测试* bare repo；请换成自己的临时路径，不要在开发仓库或真实远端上运行。初次把已有状态接入时使用一次 =native import=；登记了来源后由 =link update= 负责日常 fetch。
 
 #+begin_src sh
 jjosh git init --no-colocate --object-hash sha1 /tmp/demo-mono
 jjosh -R /tmp/demo-mono config set --repo jjosh.demo-scope-suffix true
 jjosh -R /tmp/demo-mono native import --source alpha=/tmp/demo-source
 
-jjosh -R /tmp/demo-mono native fetch alpha /tmp/demo-upstream.git --branch main --remote upstream
+jjosh -R /tmp/demo-mono link add alpha /tmp/demo-upstream.git --target main
+jjosh -R /tmp/demo-mono link update alpha --branch main
+# 如需另一个未登记的 peer，native fetch 仍是显式的一次性入口。
 jjosh -R /tmp/demo-mono native fetch alpha /tmp/demo-fork.git --branch main --remote origin
 jjosh -R /tmp/demo-mono bookmark track '"main#alpha"@alpha-upstream' '"main#alpha"@alpha-origin'
 jjosh -R /tmp/demo-mono new '"main#alpha"'
@@ -36,7 +38,8 @@ fetch、track、整合、publish 仍是独立步骤。普通 =main= 与 =main#al
 
 - 默认仍是旧的 =PROJECT/NAME=。此开关仅供新建 native demo 仓库使用；没有迁移，不要在导入后切换开关，也不要与仍使用前缀名字的 link 流程混用。
 - =#PROJECT= 是命名约定，不是权限或归属隔离；相同拼写的“字面名字”和“带 scope 的名字”无法共存。导入会拒绝已占用的项目名字空间。
-- 仍显式给 native fetch/push 来源或目标，不新增 =(scope, remote)= 配置、自动路由或短 remote 别名。保留既有 remote 名称及碰撞限制，不承诺任意项目名/远端名组合都不冲突。
+- 已登记的 link 用 =link update [PATH]= 读取版本化的 URL、target 和 source remote；未登记的额外 peer 仍需用 native fetch 显式指定来源。当前一个 link marker 只记录一个 fetch 来源，多个 peer 的观察仍是底层 native fetch 的能力。
+- native push/link push 仍显式给目标；不新增 =(scope, remote)= 配置、自动路由或短 remote 别名。保留既有 remote 名称及碰撞限制，不承诺任意项目名/远端名组合都不冲突。
 - 向来源发布必须走 =native push= 的转换；普通 =git push --all= 不理解这些名字的含义，仍可能发布 monorepo 坐标。不能把引用改名当作历史转换。
 - 原有 native 转换边界、私有保活引用以及按实际 URL/目标分支绑定的 lease 均不变。这个 demo 不宣称解决所有转换歧义、隐藏版本或外部发布恢复问题。
 

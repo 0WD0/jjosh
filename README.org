@@ -192,6 +192,6 @@ third-party/msquic = :/src/msquic
 
 * 接下来改什么
 
-先用 [[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 验证最小工作流，不为 demo 改 jj 的 View、存储和全局 API。目前只接入 native 流程，仍用全局 remote 名字和显式转换入口；没有一等 scope、=--scope= 或统一的 =git remote/fetch/push= 路由。
+先用 [[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 验证最小工作流，不为 demo 改 jj 的 View、存储和全局 API。已登记来源后用 =link update= 日常同步；native fetch 只作为未登记 peer 或一次性来源的显式入口。仍用全局 remote 名字和显式转换入口；没有一等 scope、=--scope= 或统一的 =git remote/fetch/push= 路由。
 
 结构化方案保留在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]，是否需要它由 demo 的实际障碍决定。具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。
