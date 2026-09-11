@@ -41,6 +41,7 @@ pub(crate) async fn import_source(
     mut ids: HashMap<CommitId, CommitId>,
 ) -> Result<Imported> {
     let component = RepoPathComponentBuf::new(scope.to_owned())?;
+    let suffix = crate::ref_names::use_scope_suffix(dest.base_repo().settings())?;
     let source_backend = source.store.backend();
     let dest_store = dest.store().clone();
     let dest_backend = dest_store.backend();
@@ -184,7 +185,7 @@ pub(crate) async fn import_source(
     }
 
     Ok(Imported {
-        view: map_view(source_view.clone(), scope, &ids),
+        view: map_view(source_view.clone(), scope, &ids, suffix),
         commits,
         stripped_signatures,
         ids,
@@ -199,7 +200,7 @@ fn map_reference(target: &RefTarget, ids: &HashMap<CommitId, CommitId>) -> RefTa
     )
 }
 
-fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> View {
+fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>, suffix: bool) -> View {
     // @git observes the source's local Git backend, not a second upstream.
     // Preserve only observations that carry information absent from local refs.
     if let Some(git) = view
@@ -219,7 +220,7 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
             .into_iter()
             .map(|(name, target)| {
                 (
-                    format!("{scope}/{}", name.as_str()).into(),
+                    crate::ref_names::local_name(scope, name.as_str(), suffix).into(),
                     map_reference(&target, ids),
                 )
             })
@@ -234,7 +235,10 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
                     .into_iter()
                     .map(|(name, mut remote_ref)| {
                         remote_ref.target = map_reference(&remote_ref.target, ids);
-                        (format!("{scope}/{}", name.as_str()).into(), remote_ref)
+                        (
+                            crate::ref_names::local_name(scope, name.as_str(), suffix).into(),
+                            remote_ref,
+                        )
                     })
                     .collect();
             }
@@ -244,7 +248,12 @@ fn map_view(mut view: View, scope: &str, ids: &HashMap<CommitId, CommitId>) -> V
     for (workspace, id) in std::mem::take(&mut view.wc_commit_ids) {
         // Collisions were rejected before any objects were written.
         view.local_bookmarks.insert(
-            format!("{scope}/workspace/{}", workspace.as_str()).into(),
+            crate::ref_names::local_name(
+                scope,
+                &format!("workspace/{}", workspace.as_str()),
+                suffix,
+            )
+            .into(),
             RefTarget::normal(ids[&id].clone()),
         );
     }

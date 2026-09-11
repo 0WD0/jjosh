@@ -699,6 +699,163 @@ fn direct_native_import_preserves_recorded_state_without_rebuilding_source_index
 }
 
 #[test]
+fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
+    let source = NativeRepo::new();
+    source.write("value.txt", "base\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main");
+    source.jj(&["tag", "set", "v1"]);
+    let remotes = tempfile::tempdir().unwrap();
+    let upstream = remotes.path().join("upstream.git");
+    let fork = remotes.path().join("fork.git");
+    for remote in [&upstream, &fork] {
+        native_git(
+            remotes.path(),
+            &["init", "--bare", remote.to_str().unwrap()],
+        );
+    }
+    source.jj(&["git", "remote", "add", "origin", fork.to_str().unwrap()]);
+    source.jj(&[
+        "git",
+        "push",
+        "--remote",
+        "origin",
+        "--bookmark",
+        "main",
+        "--tag",
+        "v1",
+    ]);
+    let mono = NativeRepo::new();
+    mono.write("root.txt", "root base\n");
+    mono.jj(&["describe", "-m", "monorepo"]);
+    mono.bookmark("main");
+    let root_main = mono.log("main", "commit_id");
+    let store_type = fs::read(mono.path.join(".jj/repo/op_store/type")).unwrap();
+    mono.jj(&["config", "set", "--repo", "jjosh.demo-scope-suffix", "true"]);
+    mono.jj(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+    ]);
+    let scoped = "\"main#alpha\"";
+    assert_eq!(mono.change_id(scoped), source.change_id("main"));
+    assert_eq!(
+        mono.log("\"v1#alpha\"", "commit_id"),
+        mono.log(scoped, "commit_id")
+    );
+    assert_eq!(
+        mono.log("\"workspace/default#alpha\"", "commit_id"),
+        mono.log(scoped, "commit_id")
+    );
+    assert_eq!(
+        mono.log("\"main#alpha\"@alpha-origin", "commit_id"),
+        mono.log(scoped, "commit_id")
+    );
+    assert_eq!(
+        mono.log("\"v1#alpha\"@alpha-origin", "commit_id"),
+        mono.log(scoped, "commit_id")
+    );
+    assert_eq!(mono.log("main", "commit_id"), root_main);
+    mono.jj(&["new", "@", scoped, "-m", "composition"]);
+
+    let publish = |remote: &Path| {
+        mono.jj(&[
+            "native",
+            "push",
+            "alpha",
+            "--remote",
+            remote.to_str().unwrap(),
+            "--branch",
+            "main",
+            "-r",
+            scoped,
+        ]);
+    };
+    let fetch = |remote: &Path, label: &str| {
+        mono.jj(&[
+            "native",
+            "fetch",
+            "alpha",
+            remote.to_str().unwrap(),
+            "--branch",
+            "main",
+            "--remote",
+            label,
+        ]);
+    };
+    for (remote, label) in [(&upstream, "upstream"), (&fork, "origin")] {
+        publish(remote);
+        fetch(remote, label);
+        mono.jj(&["bookmark", "track", &format!("{scoped}@alpha-{label}")]);
+        assert_eq!(
+            mono.log(
+                &format!("tracked_remote_bookmarks({scoped}, alpha-{label})"),
+                "commit_id"
+            ),
+            mono.log(scoped, "commit_id")
+        );
+    }
+    let old = mono.log(scoped, "commit_id");
+    mono.write("alpha/value.txt", "project change\n");
+    mono.write("root.txt", "unpublished root change\n");
+    mono.jj(&["describe", "-m", "project and monorepo changes"]);
+    mono.bookmark(scoped);
+    let local = mono.log(scoped, "commit_id");
+    fetch(&upstream, "upstream");
+    assert_eq!(mono.log(scoped, "commit_id"), local);
+    publish(&fork);
+    assert_eq!(
+        native_git(&fork, &["show", "main:value.txt"]),
+        "project change\n"
+    );
+    assert_eq!(
+        native_git(&fork, &["ls-tree", "-r", "--name-only", "main"]),
+        "value.txt\n"
+    );
+    assert_eq!(native_git(&upstream, &["show", "main:value.txt"]), "base\n");
+    fetch(&fork, "origin");
+    assert_eq!(
+        mono.log(&format!("{scoped}@alpha-origin"), "commit_id"),
+        local
+    );
+    assert_eq!(
+        mono.log(&format!("{scoped}@alpha-upstream"), "commit_id"),
+        old
+    );
+    assert_eq!(mono.log("main", "commit_id"), root_main);
+    assert_eq!(
+        fs::read_to_string(mono.path.join("root.txt")).unwrap(),
+        "unpublished root change\n"
+    );
+    mono.jj(&["git", "export"]);
+    mono.jj(&["git", "import"]);
+    assert_eq!(mono.log(scoped, "commit_id"), local);
+    assert_eq!(
+        fs::read(mono.path.join(".jj/repo/op_store/type")).unwrap(),
+        store_type
+    );
+}
+
+#[test]
+fn scope_suffix_convention_rejects_an_occupied_name_namespace() {
+    let source = NativeRepo::new();
+    let mono = NativeRepo::new();
+    mono.jj(&["config", "set", "--repo", "jjosh.demo-scope-suffix", "true"]);
+    mono.bookmark("\"existing#alpha\"");
+    let before = mono.operation_id();
+    let output = mono.unchecked(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("namespace"));
+    assert_eq!(mono.operation_id(), before);
+}
+
+#[test]
 fn native_partial_publication_returns_to_canonical_change_and_accepts_contributions() {
     let alpha = NativeRepo::new();
     alpha.jj(&[

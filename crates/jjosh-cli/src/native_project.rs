@@ -157,6 +157,7 @@ pub(crate) async fn anchors(
         "Run `jjosh native migrate` to move legacy correspondence bookmarks to private refs"
     );
     let prefix = project_ref_prefix(project);
+    let suffix = crate::ref_names::use_scope_suffix(repo.base_repo().settings())?;
     let mut ids = HashMap::from([(
         repo.store().root_commit_id().clone(),
         repo.store().root_commit_id().clone(),
@@ -187,7 +188,11 @@ pub(crate) async fn anchors(
             || repo
                 .view()
                 .local_bookmarks()
-                .any(|(name, _)| name.as_str().starts_with(&format!("{project}/"))),
+                .any(|(name, _)| crate::ref_names::belongs_to_project(
+                    project,
+                    name.as_str(),
+                    suffix
+                )),
         "Project {project:?} has no native history boundaries; import it first"
     );
     while let Some((raw, canonical)) = pending.pop() {
@@ -548,7 +553,11 @@ pub(crate) async fn fetch(
             "Observation name collides with a configured Git remote",
         ));
     }
-    let name = format!("{}/{}", args.project, args.branch);
+    let name = crate::ref_names::local_name(
+        &args.project,
+        &args.branch,
+        crate::ref_names::use_scope_suffix(tx.settings())?,
+    );
     let symbol = RemoteRefSymbol {
         name: RefName::new(&name),
         remote: &remote,
@@ -597,9 +606,8 @@ pub(crate) async fn fetch(
     drop(git_lock);
     writeln!(
         ui.status(),
-        "Received {name}@{}: {} new native commits. Integrate with jj new/rebase; working copy \
+        "Received {symbol}: {} new native commits. Integrate with jj new/rebase; working copy \
          unchanged.",
-        remote.as_str(),
         imported.commits.len()
     )?;
     Ok(())

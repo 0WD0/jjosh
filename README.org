@@ -71,7 +71,7 @@ jjosh -R combined new @ ebox/workspace/default ekp/workspace/default
 
 导入保留选定当前 view 及其所需父历史：change ID、空提交、有序 merge 父边、当前 divergence、原生冲突树和冲突引用。目录与父 ID 映射会改变 commit ID；失效的提交签名会移除并报告。/不搬迁旧 operation/evolution 历史，也不包含未记录的磁盘修改。/
 
-源书签和 tag 目前叫 =NAME/原名=，remote 观察叫 =NAME/原名@NAME-原远端=。=NAME/workspace/default= 是导入时保留工作入口的普通书签，不是另一个已挂载 workspace。
+源书签和 tag 默认叫 =NAME/原名=，remote 观察叫 =NAME/原名@NAME-原远端=。=NAME/workspace/default= 是导入时保留工作入口的普通书签，不是另一个已挂载 workspace。新建 native 实验仓库也可选择 [[file:docs/scoped-reference-convention-demo.org][=原名#NAME= 命名约定 demo]]；这不改变 jj 的引用模型。
 
 ** 接收上游，也接收外部贡献
 
@@ -192,6 +192,6 @@ third-party/msquic = :/src/msquic
 
 * 接下来改什么
 
-当前引用归属仍编码在字符串前缀中。下一步是让根 =main= 与项目 =main#jj= 成为不同身份，并让一个 scope 内的 upstream、origin 等对等 remote 共用 =git remote/fetch/push=；link 只保留项目接入描述。提交仍遵循 jj 的多版本与 divergence 语义，不按 scope 强制归并。=#= 与 =--scope= 尚未实现。
+先用 [[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 验证最小工作流，不为 demo 改 jj 的 View、存储和全局 API。目前只接入 native 流程，仍用全局 remote 名字和显式转换入口；没有一等 scope、=--scope= 或统一的 =git remote/fetch/push= 路由。
 
-设计放在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]。README 只保留日常入口；具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。
+结构化方案保留在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]，是否需要它由 demo 的实际障碍决定。具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。

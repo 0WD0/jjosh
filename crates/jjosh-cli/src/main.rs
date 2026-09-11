@@ -9,6 +9,7 @@ mod native_import;
 mod native_project;
 mod native_source;
 mod projection;
+mod ref_names;
 mod transplant;
 
 use jj_cli::cli_util::CliRunner;
