@@ -120,6 +120,7 @@ pub(crate) fn find_native_link_files(
 pub(crate) fn prepare_link_add(
     transaction: &josh_core::cache::Transaction,
     path: &Path,
+    name: &str,
     url: &str,
     push_url: Option<&str>,
     filter: Option<&str>,
@@ -136,6 +137,7 @@ pub(crate) fn prepare_link_add(
         .with_context(|| format!("Failed to parse filter '{filter}'"))?
         .prefix(path);
     let mut link_filter = filter
+        .with_meta("name", name.to_string())
         .with_meta("remote", url.to_string())
         .with_meta("target", target.to_string())
         .with_meta("commit", fetched_commit.to_string())

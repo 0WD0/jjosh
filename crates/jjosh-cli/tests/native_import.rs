@@ -1401,3 +1401,137 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
         "source main and linked main are two versions of one change"
     );
 }
+
+#[test]
+fn native_import_fetch_push_use_nested_mounts() {
+    let source = NativeRepo::new();
+    source.write("file.txt", "nested\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main");
+
+    let dest = NativeRepo::new();
+    dest.write("keep.txt", "root\n");
+    dest.jj(&["describe", "-m", "monorepo"]);
+    dest.jj(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--mount",
+        "alpha=vendor/alpha",
+    ]);
+    assert!(!dest.path.join("vendor").exists());
+    dest.jj(&["new", "@", "main#alpha"]);
+    assert_eq!(
+        fs::read_to_string(dest.path.join("vendor/alpha/file.txt")).unwrap(),
+        "nested\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dest.path.join("keep.txt")).unwrap(),
+        "root\n"
+    );
+
+    source.write("file.txt", "updated\n");
+    source.jj(&["describe", "-m", "updated"]);
+    dest.jj(&[
+        "native",
+        "fetch",
+        "alpha",
+        source.path.to_str().unwrap(),
+        "--branch",
+        "main",
+        "--remote",
+        "local",
+    ]);
+    let fetched = "main#alpha@alpha-local";
+    assert_eq!(dest.change_id(fetched), source.change_id("main"));
+    assert_eq!(
+        dest.jj(&["file", "show", "-r", fetched, "vendor/alpha/file.txt"]),
+        "updated\n"
+    );
+
+    let remotes = tempfile::tempdir().unwrap();
+    let remote = remotes.path().join("alpha.git");
+    native_git(
+        remotes.path(),
+        &["init", "--bare", remote.to_str().unwrap()],
+    );
+    dest.jj(&[
+        "native",
+        "push",
+        "alpha",
+        "--remote",
+        remote.to_str().unwrap(),
+        "--branch",
+        "main",
+        "-r",
+        fetched,
+    ]);
+    let clone = remotes.path().join("clone");
+    native_git(
+        remotes.path(),
+        &[
+            "clone",
+            "--branch",
+            "main",
+            remote.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        fs::read_to_string(clone.join("file.txt")).unwrap(),
+        "updated\n"
+    );
+    assert!(!clone.join("vendor").exists());
+    assert!(!clone.join("keep.txt").exists());
+}
+
+#[test]
+fn native_import_rejects_occupied_or_overlapping_mounts() {
+    let source = NativeRepo::new();
+    source.write("file.txt", "src\n");
+    source.jj(&["describe", "-m", "source"]);
+    source.bookmark("main");
+    let other = NativeRepo::new();
+    other.write("file.txt", "other\n");
+    other.jj(&["describe", "-m", "other"]);
+    other.bookmark("main");
+
+    let dest = NativeRepo::new();
+    dest.write("vendor/alpha/blocked.txt", "occupied\n");
+    dest.jj(&["describe", "-m", "occupied"]);
+    let occupied = dest.unchecked(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--mount",
+        "alpha=vendor/alpha",
+    ]);
+    assert!(!occupied.status.success());
+    assert!(
+        String::from_utf8_lossy(&occupied.stderr).contains("occupied"),
+        "{}",
+        String::from_utf8_lossy(&occupied.stderr)
+    );
+
+    let overlap = NativeRepo::new();
+    let overlapped = overlap.unchecked(&[
+        "native",
+        "import",
+        "--source",
+        &format!("alpha={}", source.path.display()),
+        "--source",
+        &format!("beta={}", other.path.display()),
+        "--mount",
+        "alpha=vendor",
+        "--mount",
+        "beta=vendor/beta",
+    ]);
+    assert!(!overlapped.status.success());
+    assert!(
+        String::from_utf8_lossy(&overlapped.stderr).contains("overlap"),
+        "{}",
+        String::from_utf8_lossy(&overlapped.stderr)
+    );
+}
