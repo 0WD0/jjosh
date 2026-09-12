@@ -1,0 +1,664 @@
+use std::sync::atomic::AtomicBool;
+
+use gix_features::{
+    parallel::{InOrderIter, reduce::Finalize},
+    progress,
+};
+use gix_odb::{pack, pack::FindExt};
+use gix_pack::data::{
+    output,
+    output::{count, entry},
+};
+
+use crate::{
+    data::output::{DbKind, db},
+    hex_to_id, hex_to_id_for_hash, object_hash,
+};
+
+#[test]
+fn invalid_ofs_delta_base_distance_is_an_error() -> crate::Result {
+    let first_entry_offset = gix_pack::data::header::SIZE as gix_pack::data::Offset;
+    for base_distance in [first_entry_offset, u64::MAX] {
+        let mut data = Vec::new();
+        gix_pack::data::entry::Header::OfsDelta { base_distance }.write_to(0, &mut data)?;
+        let count = output::Count::from_data(
+            object_hash().null(),
+            Some(gix_pack::data::entry::Location {
+                pack_id: 0,
+                entry_size: data.len(),
+                pack_offset: first_entry_offset,
+            }),
+        );
+
+        let result = output::Entry::from_pack_entry(
+            gix_pack::find::Entry {
+                data,
+                version: gix_pack::data::Version::V2,
+            },
+            &count,
+            &[],
+            0,
+            None::<fn(u32, u64) -> Option<gix_hash::ObjectId>>,
+            gix_pack::data::Version::V2,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Some(Err(entry::Error::EntryType(
+                    gix_pack::data::entry::decode::Error::Corrupt { .. }
+                )))
+            ),
+            "an invalid packed delta is reported as corrupt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn traversals() -> crate::Result {
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    struct Count {
+        trees: usize,
+        commits: usize,
+        blobs: usize,
+        tags: usize,
+        delta_ref: usize,
+        delta_oid: usize,
+    }
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+    struct ObjectCount {
+        trees: usize,
+        commits: usize,
+        blobs: usize,
+        tags: usize,
+    }
+    impl ObjectCount {
+        fn total(&self) -> usize {
+            self.tags + self.trees + self.commits + self.blobs
+        }
+        fn add(&mut self, kind: gix_object::Kind) {
+            use gix_object::Kind::*;
+            match kind {
+                Tree => self.trees += 1,
+                Commit => self.commits += 1,
+                Blob => self.blobs += 1,
+                Tag => self.tags += 1,
+            }
+        }
+    }
+    impl Count {
+        fn total(&self) -> usize {
+            self.tags + self.trees + self.commits + self.blobs + self.delta_ref + self.delta_oid
+        }
+        fn add(&mut self, kind: output::entry::Kind) {
+            use gix_object::Kind::*;
+            use output::entry::Kind::*;
+            match kind {
+                Base(Tree) => self.trees += 1,
+                Base(Commit) => self.commits += 1,
+                Base(Blob) => self.blobs += 1,
+                Base(Tag) => self.tags += 1,
+                DeltaRef { .. } => self.delta_ref += 1,
+                DeltaOid { .. } => self.delta_oid += 1,
+            }
+        }
+    }
+    let object_hash = object_hash();
+    let whole_pack = Count {
+        trees: match object_hash {
+            gix_hash::Kind::Sha1 => 21,
+            gix_hash::Kind::Sha256 => 20,
+            _ => unimplemented!(),
+        },
+        commits: 16,
+        blobs: match object_hash {
+            gix_hash::Kind::Sha1 => 288,
+            gix_hash::Kind::Sha256 => 323,
+            _ => unimplemented!(),
+        },
+        tags: 1,
+        delta_ref: match object_hash {
+            gix_hash::Kind::Sha1 => 542,
+            gix_hash::Kind::Sha256 => 508,
+            _ => unimplemented!(),
+        },
+        delta_oid: 0, // these are basically none-existing in non-legacy packs, but are used only in thin packs on the wire
+    };
+    let whole_pack_obj_count = ObjectCount {
+        trees: 40,
+        commits: 16,
+        blobs: 811,
+        tags: 1,
+    };
+    for db_kind in [
+        DbKind::DeterministicGeneratedContent,
+        DbKind::DeterministicGeneratedContentMultiIndex,
+    ] {
+        let db = db(db_kind, object_hash)?;
+        for (
+            expansion_mode,
+            expected_count,
+            expected_obj_count,
+            expected_counts_outcome,
+            expected_entries_outcome,
+            expected_pack_hash,
+            expected_thin_pack_hash,
+            take,
+            allow_thin_pack,
+        ) in [
+            (
+                count::objects::ObjectExpansion::AsIs,
+                Count {
+                    trees: 0,
+                    commits: 15,
+                    blobs: 0,
+                    tags: 1,
+                    delta_ref: 0,
+                    delta_oid: 0,
+                },
+                ObjectCount {
+                    trees: 0,
+                    commits: 15,
+                    blobs: 0,
+                    tags: 1,
+                },
+                output::count::objects::Outcome {
+                    input_objects: 16,
+                    expanded_objects: 0,
+                    decoded_objects: 16,
+                    total_objects: 16,
+                },
+                output::entry::iter_from_counts::Outcome {
+                    decoded_and_recompressed_objects: 0,
+                    missing_objects: 0,
+                    objects_copied_from_pack: 16,
+                    ref_delta_objects: 0,
+                },
+                hex_to_id("b920bbb055e1efb9080592a409d3975738b6efb3"),
+                None,
+                None,
+                false,
+            ),
+            (
+                count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+                Count {
+                    trees: 3,
+                    commits: 2, // todo: why more?
+                    blobs: match object_hash {
+                        gix_hash::Kind::Sha1 => 19,
+                        gix_hash::Kind::Sha256 => 22,
+                        _ => unimplemented!(),
+                    },
+                    tags: 0,
+                    delta_ref: 5,
+                    delta_oid: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
+                },
+                ObjectCount {
+                    trees: 5,
+                    commits: 2, // todo: figure out why its more than expected
+                    blobs: 96,
+                    tags: 0,
+                },
+                output::count::objects::Outcome {
+                    input_objects: 1,
+                    expanded_objects: 102,
+                    decoded_objects: 10,
+                    total_objects: 103,
+                },
+                output::entry::iter_from_counts::Outcome {
+                    decoded_and_recompressed_objects: 0,
+                    missing_objects: 0,
+                    objects_copied_from_pack: 103,
+                    ref_delta_objects: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
+                },
+                hex_to_id("25114bd8820b393c402cd53ad8ec7f6a84bb0633"),
+                Some(hex_to_id("29ab9797aff1ca826afb699680356695d19c5acb")),
+                Some(1),
+                true,
+            ),
+            (
+                count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+                Count {
+                    trees: 5,
+                    commits: 2, // todo: why more?
+                    blobs: 91,
+                    tags: 0,
+                    delta_ref: 5,
+                    delta_oid: 0,
+                },
+                ObjectCount {
+                    trees: 5,
+                    commits: 2, // todo: figure out why its more than expected
+                    blobs: 96,
+                    tags: 0,
+                },
+                output::count::objects::Outcome {
+                    input_objects: 1,
+                    expanded_objects: 102,
+                    decoded_objects: 10,
+                    total_objects: 103,
+                },
+                output::entry::iter_from_counts::Outcome {
+                    decoded_and_recompressed_objects: match object_hash {
+                        gix_hash::Kind::Sha1 => 74,
+                        gix_hash::Kind::Sha256 => 71,
+                        _ => unimplemented!(),
+                    },
+                    missing_objects: 0,
+                    objects_copied_from_pack: match object_hash {
+                        gix_hash::Kind::Sha1 => 29,
+                        gix_hash::Kind::Sha256 => 32,
+                        _ => unimplemented!(),
+                    },
+                    ref_delta_objects: 0,
+                },
+                hex_to_id("d83d42128e40957c5174920189a0390b5a70f446"),
+                None,
+                Some(1),
+                false,
+            ),
+            (
+                count::objects::ObjectExpansion::TreeContents,
+                whole_pack,
+                whole_pack_obj_count,
+                output::count::objects::Outcome {
+                    input_objects: 16,
+                    expanded_objects: 852,
+                    decoded_objects: 57,
+                    total_objects: 868,
+                },
+                output::entry::iter_from_counts::Outcome {
+                    decoded_and_recompressed_objects: 0,
+                    missing_objects: 0,
+                    objects_copied_from_pack: 868,
+                    ref_delta_objects: 0,
+                },
+                hex_to_id("542ad1d1c7c762ea4e36907570ff9e4b5b7dde1b"),
+                None,
+                None,
+                false,
+            ),
+            (
+                count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+                whole_pack,
+                whole_pack_obj_count,
+                output::count::objects::Outcome {
+                    input_objects: 16,
+                    expanded_objects: 866,
+                    decoded_objects: 74,
+                    total_objects: 868,
+                },
+                output::entry::iter_from_counts::Outcome {
+                    decoded_and_recompressed_objects: 0,
+                    missing_objects: 0,
+                    objects_copied_from_pack: 868,
+                    ref_delta_objects: 0,
+                },
+                hex_to_id("542ad1d1c7c762ea4e36907570ff9e4b5b7dde1b"),
+                None,
+                None,
+                false,
+            ),
+        ]
+        .iter()
+        .copied()
+        {
+            let head = hex_to_id_for_hash(
+                object_hash,
+                "dfcb5e39ac6eb30179808bbab721e8a28ce1b52e",
+                "ad454f92f046c2873aebac2686d30d5b100ee10fae1a28e2994df52a0c097cae",
+            );
+            let mut commits = gix_traverse::commit::Simple::new(Some(head), db.clone())
+                .map(Result::unwrap)
+                .map(|c| c.id)
+                .collect::<Vec<_>>();
+            if let Some(take) = take {
+                commits.resize(take, object_hash.null());
+            }
+
+            let deterministic_count_needs_single_thread = Some(1);
+            let (counts, stats) = output::count::objects(
+                db.clone(),
+                Box::new(
+                    commits
+                        .into_iter()
+                        .chain(std::iter::once(if take.is_some() {
+                            object_hash.null()
+                        } else {
+                            hex_to_id_for_hash(
+                                object_hash,
+                                "e3fb53cbb4c346d48732a24f09cf445e49bc63d6",
+                                "859b1fd3fd3cc6a0a016edc9f439afd33f87e524dc1fd2befd1ac550953d3b3b",
+                            )
+                        }))
+                        .filter(|o| !o.is_null())
+                        .map(Ok),
+                ),
+                &progress::Discard,
+                &AtomicBool::new(false),
+                count::objects::Options {
+                    input_object_expansion: expansion_mode,
+                    thread_limit: deterministic_count_needs_single_thread,
+                    ..Default::default()
+                },
+            )?;
+            let actual_count = counts.iter().fold(ObjectCount::default(), |mut c, e| {
+                let mut buf = Vec::new();
+                if let Ok((obj, _location)) = db.find(&e.id, &mut buf) {
+                    c.add(obj.kind);
+                }
+                c
+            });
+            assert_eq!(actual_count, expected_obj_count);
+            let counts_len = counts.len();
+            assert_eq!(counts_len, expected_obj_count.total());
+
+            assert_eq!(stats, expected_counts_outcome);
+            assert_eq!(stats.total_objects, expected_obj_count.total());
+
+            let mut entries_iter = output::entry::iter_from_counts(
+                counts,
+                db.clone(),
+                Box::new(progress::Discard),
+                output::entry::iter_from_counts::Options {
+                    allow_thin_pack,
+                    ..Default::default()
+                },
+            );
+            let entries: Vec<_> = InOrderIter::from(entries_iter.by_ref())
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect();
+            let actual_count = entries.iter().fold(Count::default(), |mut c, e| {
+                c.add(e.kind);
+                c
+            });
+            assert_eq!(actual_count, expected_count);
+            assert_eq!(counts_len, expected_count.total());
+            let stats = entries_iter.finalize()?;
+            assert_eq!(stats, expected_entries_outcome);
+
+            assert_eq!(
+                expected_obj_count.total(),
+                expected_count.total(),
+                "two different ways of counting, still the same in the end"
+            );
+
+            write_and_verify(
+                db.clone(),
+                entries,
+                object_hash,
+                expected_pack_hash,
+                expected_thin_pack_hash,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn tree_additions_from_each_merge_parent_are_kept() -> crate::Result {
+    use gix_object::Write;
+
+    let object_hash = object_hash();
+    let mut db = gix_odb::memory::Proxy::new(gix_odb::sink(object_hash), object_hash);
+    let added_blob_id = db.write_buf(gix_object::Kind::Blob, b"added")?;
+    let base_tree_id = db.write(&gix_object::Tree::empty())?;
+    let merged_tree_id = db.write(&gix_object::Tree {
+        entries: vec![gix_object::tree::Entry {
+            mode: gix_object::tree::EntryKind::Blob.into(),
+            oid: added_blob_id,
+            filename: "added".into(),
+        }],
+    })?;
+    let write_commit = |tree, parents: &[gix_hash::ObjectId]| {
+        db.write(&gix_object::Commit {
+            tree,
+            parents: parents.iter().copied().collect(),
+            author: Default::default(),
+            committer: Default::default(),
+            encoding: None,
+            message: "commit".into(),
+            extra_headers: Vec::new(),
+        })
+    };
+    let base_commit_id = write_commit(base_tree_id, &[])?;
+    let feature_commit_id = write_commit(merged_tree_id, &[base_commit_id])?;
+    let merge_commit_id = write_commit(merged_tree_id, &[base_commit_id, feature_commit_id])?;
+    let mut objects = db
+        .take_object_memory()
+        .expect("in-memory object storage is still enabled");
+    let db = gix_pack::testing::Memory::new(objects.drain());
+    let mut input = std::iter::once(Ok::<_, Box<dyn std::error::Error + Send + Sync>>(merge_commit_id));
+
+    let (counts, stats) = output::count::objects_unthreaded(
+        &db,
+        &mut input,
+        &progress::Discard,
+        &AtomicBool::new(false),
+        count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+    )?;
+
+    let expected_ids = std::collections::BTreeSet::from([
+        added_blob_id,
+        base_tree_id,
+        merged_tree_id,
+        base_commit_id,
+        feature_commit_id,
+        merge_commit_id,
+    ]);
+    assert_eq!(
+        counts.len(),
+        expected_ids.len(),
+        "each expected object must be counted exactly once"
+    );
+    assert_eq!(
+        counts
+            .iter()
+            .map(|count| count.id)
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected_ids,
+        "additions found against every merge parent must remain in the pack"
+    );
+    insta::assert_debug_snapshot!(stats, @"
+    Outcome {
+        input_objects: 1,
+        expanded_objects: 5,
+        decoded_objects: 5,
+        total_objects: 6,
+    }
+    ");
+    Ok(())
+}
+
+/// Reproduces https://github.com/GitoxideLabs/gitoxide/issues/2024: with the default backend's
+/// level 1 being much weaker than it used to be, entries have to be compressed with the
+/// configured level, defaulting to what `git` uses.
+#[test]
+fn entry_sizes_depend_on_compression_level() -> crate::Result {
+    use gix_object::WriteTo;
+    let (tree_id, buf) = {
+        // Deterministic pseudo-random bytes (xorshift64*), so tree content is stable across runs.
+        struct Rng(u64);
+        impl Rng {
+            fn next_byte(&mut self) -> u8 {
+                self.0 ^= self.0 >> 12;
+                self.0 ^= self.0 << 25;
+                self.0 ^= self.0 >> 27;
+                (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 56) as u8
+            }
+        }
+        let mut rng = Rng(0x2024);
+        let mut files = (0..1500)
+            .map(|_| {
+                use std::fmt::Write;
+                (0..10).fold(String::new(), |mut buf, _| {
+                    write!(buf, "{:02x}", rng.next_byte()).expect("writing to a string never fails");
+                    buf
+                })
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+        files.dedup();
+
+        let blob_id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Blob, b"xoxo")?;
+        let tree = gix_object::Tree {
+            entries: files
+                .iter()
+                .map(|name| gix_object::tree::Entry {
+                    mode: gix_object::tree::EntryKind::Blob.into(),
+                    oid: blob_id,
+                    filename: name.as_str().into(),
+                })
+                .collect(),
+        };
+        let mut buf = Vec::new();
+        tree.write_to(&mut buf)?;
+        let tree_id = gix_object::compute_hash(gix_hash::Kind::Sha1, gix_object::Kind::Tree, &buf)?;
+        (tree_id, buf)
+    };
+
+    let entry_size = |compression| -> Result<usize, output::entry::Error> {
+        Ok(output::Entry::from_data(
+            &output::Count::from_data(tree_id, None),
+            &gix_object::Data::new(&buf, gix_object::Kind::Tree, gix_hash::Kind::Sha1),
+            compression,
+        )?
+        .compressed_data
+        .len())
+    };
+
+    use gix_zlib::Compression;
+    let default = entry_size(Compression::DEFAULT)?;
+    let fastest = entry_size(Compression::BEST_SPEED)?;
+    let none = entry_size(Compression::NONE)?;
+    assert!(
+        default < 25_000,
+        "the default compression level keeps this ~72KB tree below the issue's regression threshold: {default}"
+    );
+    assert!(
+        none > fastest && fastest >= default,
+        "higher levels compress at least as well as lower ones: none={none} fastest={fastest} default={default}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
+fn empty_pack_is_allowed() {
+    assert_eq!(
+        write_and_verify(
+            db(DbKind::DeterministicGeneratedContent, object_hash()).unwrap(),
+            vec![],
+            object_hash(),
+            hex_to_id("029d08823bd8a8eab510ad6ac75c823cfd3ed31e"),
+            None,
+        )
+        .unwrap_err()
+        .to_string(),
+        "pack data directory should be set",
+        "empty packs are not actually written as they would be useless"
+    );
+}
+
+fn write_and_verify(
+    _db: gix_odb::HandleArc,
+    entries: Vec<output::Entry>,
+    object_hash: gix_hash::Kind,
+    _expected_pack_hash: gix_hash::ObjectId,
+    _expected_thin_pack_hash: Option<gix_hash::ObjectId>,
+) -> crate::Result {
+    let tmp_dir = gix_testtools::tempfile::TempDir::new()?;
+    let pack_file_path = tmp_dir.path().join("new.pack");
+    let mut pack_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&pack_file_path)?;
+    let (num_written_bytes, pack_hash) = {
+        let num_entries = entries.len();
+        let mut pack_writer = output::bytes::FromEntriesIter::new(
+            std::iter::once(Ok::<_, entry::iter_from_counts::Error>(entries)),
+            &mut pack_file,
+            num_entries as u32,
+            pack::data::Version::V2,
+            object_hash,
+        );
+        let mut n = pack_writer.next().expect("one entries bundle was written")?;
+        n += pack_writer.next().expect("the trailer was written")?;
+        assert!(
+            pack_writer.next().is_none(),
+            "there is nothing more to iterate this time"
+        );
+        // verify we can still get the original parts back
+        let hash = pack_writer.digest().expect("digest is available when iterator is done");
+        let _ = pack_writer.input;
+        let _ = pack_writer.into_write();
+        (n, hash)
+    };
+    assert_eq!(
+        num_written_bytes,
+        pack_file.metadata()?.len(),
+        "it reports the correct amount of written bytes"
+    );
+    let pack = pack::data::File::at(&pack_file_path, object_hash)?;
+    let should_interrupt = AtomicBool::new(false);
+    let hash = pack.verify_checksum(&mut progress::Discard, &should_interrupt)?;
+    assert_eq!(
+        hash, pack_hash,
+        "the trailer of the pack matches the actually written trailer"
+    );
+
+    // TODO: figure out why these hashes change, also depending on the machine, even though they are indeed stable.
+    // assert_eq!(hash, expected_pack_hash, "pack hashes are stable if the input is");
+
+    #[cfg(all(not(feature = "wasm"), feature = "streaming-input"))]
+    {
+        // Re-generate the index from the pack for validation.
+        let bundle = pack::Bundle::at(
+            pack::Bundle::write_to_directory(
+                &mut std::io::BufReader::new(std::fs::File::open(pack_file_path)?),
+                Some(tmp_dir.path()),
+                &mut progress::Discard,
+                &should_interrupt,
+                Some(&_db),
+                object_hash,
+                Default::default(),
+            )?
+            .data_path
+            .ok_or("pack data directory should be set")?,
+            object_hash,
+        )?;
+        // TODO: figure out why these hashes change, also depending on the machine, even though they are indeed stable.
+        // if let Some(thin_pack_checksum) = expected_thin_pack_hash {
+        //     let actual_checksum = bundle.pack.verify_checksum(progress::Discard, &should_interrupt)?;
+        //     assert_eq!(
+        //         actual_checksum, thin_pack_checksum,
+        //         "the thin pack is written reproducibly and checksums pan out"
+        //     );
+        // }
+
+        bundle.verify_integrity(
+            &mut progress::Discard,
+            &should_interrupt,
+            gix_pack::index::verify::integrity::Options {
+                verify_mode: pack::index::verify::Mode::HashCrc32DecodeEncode,
+                traversal: pack::index::traverse::Algorithm::Lookup,
+                make_pack_lookup_cache: || pack::cache::Never,
+                thread_limit: None,
+            },
+        )?;
+    }
+
+    Ok(())
+}

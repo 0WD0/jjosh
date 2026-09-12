@@ -1,0 +1,7 @@
+000eversion 2
+0015agent=git/2.40.0
+000cls-refs
+0012fetch=shallow
+0012server-option
+0019object-format=sha256
+0000

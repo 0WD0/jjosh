@@ -1,0 +1,24 @@
+# upstream-repo: https://github.com/pascalkuthe/imara-diff
+# upstream-branch: fix-timeout-window-0.2
+# upstream-commit: 32d1e45d3df061e6ccba6db7fdce92db29e345d8
+# columns: path<TAB>origin<TAB>status<TAB>upstream-blob<TAB>cat-file
+.cargo_vcs_info.json	generated	generated	-	-
+Cargo.lock	generated	generated	-	-
+Cargo.toml	upstream	modified	af703a238ed9f159d5c41e2bd5e86e0cc2031cf0	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:Cargo.toml
+Cargo.toml.orig	generated	generated	-	-
+LICENSE	upstream	unchanged	16fe87b06e802f094b3fbb0894b137bca2b16ef1	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:LICENSE
+README.md	upstream	modified	b1e722e2d0731797b708b56369ed8f1fbd742f09	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:README.md
+src/histogram.rs	upstream	modified	ff2cb0e341d18c28931e01fba01674f071827f2b	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/histogram.rs
+src/histogram/lcs.rs	upstream	modified	5a86e13fa324a589d9bc4ffb8ac38824a619ed18	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/histogram/lcs.rs
+src/histogram/list_pool.rs	upstream	modified	0f014216ac53750764a816b39929b892aa75097f	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/histogram/list_pool.rs
+src/intern.rs	upstream	modified	f93fb54425a0d0f35eb1bb7071e34e94aede0750	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/intern.rs
+src/lib.rs	upstream	modified	6a6eea650debc7897e6a58c9ced5b4c3454be711	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/lib.rs
+src/myers.rs	upstream	modified	2ace530c0e282436c1b639e5ce89bcf3a1a6b901	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/myers.rs
+src/myers/middle_snake.rs	upstream	modified	a5cb5197c948821f5da2d377bdc729152745f9d4	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/myers/middle_snake.rs
+src/myers/preprocess.rs	upstream	modified	2ef5debd763f5859bc73ad0c54b6d558b1db44ec	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/myers/preprocess.rs
+src/myers/slice.rs	upstream	unchanged	f266fa7e17f07eb4a8c6d61fa942607a4beca52b	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/myers/slice.rs
+src/postprocess.rs	upstream	modified	651b12b3a49019a6e2238d51c38d137c09f3ba27	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/postprocess.rs
+src/slider_heuristic.rs	upstream	modified	f3f85914427df381dcee42e44d406cb54663f91c	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/slider_heuristic.rs
+src/sources.rs	upstream	modified	e8ddcfc592b0a8b287b1b6923408ac91e79dbe50	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/sources.rs
+src/unified_diff.rs	upstream	modified	725331afc30774b0ecc0d85cca804a94b7751578	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/unified_diff.rs
+src/util.rs	upstream	modified	e85c3aa9ab46352d4d729acc7b86d4ac1be594d6	git cat-file -p 32d1e45d3df061e6ccba6db7fdce92db29e345d8:src/util.rs

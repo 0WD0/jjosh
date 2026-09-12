@@ -1,0 +1,17 @@
+lints.workspace = true
+
+[package]
+name = "gix-rebase"
+version = "0.0.0"
+repository = "https://github.com/GitoxideLabs/gitoxide"
+license = "MIT OR Apache-2.0"
+description = "A crate of the gitoxide project dealing rebases"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+
+[dependencies]

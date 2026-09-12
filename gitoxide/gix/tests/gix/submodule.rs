@@ -1,0 +1,850 @@
+pub fn repo(name: &str) -> crate::Result<gix::Repository> {
+    use crate::util::named_subrepo_opts;
+    Ok(named_subrepo_opts(
+        "make_submodules.sh",
+        name,
+        gix::open::Options::isolated(),
+    )?)
+}
+
+mod open {
+    use gix_sec::Trust;
+
+    use gix::submodule;
+
+    use crate::{submodule::repo, util::named_subrepo_opts};
+
+    #[test]
+    fn various() -> crate::Result {
+        for (name, expected) in [
+            (
+                "with-submodules",
+                &[
+                    (
+                        "m1",
+                        gix::submodule::State {
+                            repository_exists: true,
+                            is_old_form: false,
+                            worktree_checkout: true,
+                            superproject_configuration: true,
+                        },
+                        Some(false),
+                    ),
+                    (
+                        "dir/m1",
+                        gix::submodule::State {
+                            repository_exists: true,
+                            is_old_form: false,
+                            worktree_checkout: true,
+                            superproject_configuration: true,
+                        },
+                        Some(false),
+                    ),
+                ] as &[_],
+            ),
+            (
+                "with-submodules-after-clone",
+                &[(
+                    "m1",
+                    gix::submodule::State {
+                        repository_exists: false,
+                        is_old_form: false,
+                        worktree_checkout: false,
+                        superproject_configuration: true,
+                    },
+                    None,
+                )],
+            ),
+            (
+                "not-a-submodule",
+                &[(
+                    "m1",
+                    gix::submodule::State {
+                        repository_exists: true,
+                        is_old_form: false,
+                        worktree_checkout: false,
+                        superproject_configuration: true,
+                    },
+                    None,
+                )],
+            ),
+        ] {
+            let repo = repo(name)?;
+            for (sm, (sm_name, expected, _expected_is_dirty)) in
+                repo.submodules()?.expect("modules present").zip(expected)
+            {
+                assert_eq!(sm.name(), sm_name);
+                let state = sm.state()?;
+                assert_eq!(&state, expected);
+
+                let sm_repo = sm.open()?;
+                assert_eq!(sm_repo.is_some(), state.repository_exists);
+                if let Some(sm_repo) = sm_repo {
+                    assert_eq!(
+                        sm_repo.kind(),
+                        gix::repository::Kind::Submodule,
+                        "Submodules are properly detected"
+                    );
+                    assert!(sm_repo.workdir().is_some(), "the workdir is always configured");
+                    let worktree = sm_repo
+                        .worktree()
+                        .expect("worktrees are always returned even if there seems to not be a checkout");
+                    assert_eq!(
+                        worktree.dot_git_exists(),
+                        state.worktree_checkout,
+                        "there is a way to check for indicators that a submodule worktree isn't checked out though"
+                    );
+                }
+                #[cfg(feature = "status")]
+                for check_dirty in [false, true] {
+                    let status = match sm.status(gix::submodule::config::Ignore::None, check_dirty) {
+                        Ok(status) => status,
+                        Err(err) => {
+                            assert_eq!(
+                                name, "not-a-submodule",
+                                "{name}: BUG: only one submodule is expected to fail, got '{err:?}'"
+                            );
+                            continue;
+                        }
+                    };
+                    assert_eq!(
+                        &status.state, expected,
+                        "no matter what status configuration, the state is always obtained"
+                    );
+                    assert_eq!(
+                        status.is_dirty(),
+                        *_expected_is_dirty,
+                        "none of these submodules are dirty, but some aren't checked out"
+                    );
+                }
+            }
+            assert_eq!(
+                repo.modules()?.expect("present").names().count(),
+                expected.len(),
+                "an expectation per submodule"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn absolute_looking_names_remain_below_the_modules_directory() -> crate::Result {
+        let repo = repo("absolute-looking-submodule-names")?;
+        let modules_dir = repo.common_dir().join("modules");
+        let mut count = 0;
+        for sm in repo.submodules()?.expect("submodule configuration present") {
+            let git_dir = sm.git_dir()?;
+            assert!(
+                git_dir.starts_with(&modules_dir),
+                "Git-compatible name {:?} must remain below {} instead of producing {}",
+                sm.name(),
+                modules_dir.display(),
+                git_dir.display()
+            );
+            assert!(sm.index_id()?.is_some(), "Git added the submodule to the index");
+            assert!(sm.head_id()?.is_some(), "Git committed the submodule as a gitlink");
+            count += 1;
+        }
+        assert_eq!(count, 2, "both absolute-looking names were parsed as submodules");
+        Ok(())
+    }
+
+    /// Reproducer for GHSA-p3hw-mv63-rf9w: `Submodule::open()` must not inherit
+    /// `git_dir_trust` from the parent repository because doing so skips recomputing
+    /// trust for the submodule git-dir and can bypass ownership-based trust checks.
+    #[test]
+    fn trust_is_recomputed_for_opened_submodules() -> crate::Result {
+        let repo = named_subrepo_opts(
+            "make_submodules.sh",
+            "with-submodules",
+            crate::restricted().with(Trust::Reduced),
+        )?;
+        assert_eq!(
+            repo.git_dir_trust(),
+            Trust::Reduced,
+            "the parent trust is forced for the test"
+        );
+
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+        let sm_repo = sm.open()?.expect("submodule repository exists");
+        assert_eq!(
+            sm_repo.git_dir_trust(),
+            Trust::Full,
+            "submodule trust must be re-derived from its own git-dir instead of inherited from the parent"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gitlink_target_takes_precedence_over_name_in_git_dir_resolution() -> crate::Result {
+        let repo = repo("submodule-with-divergent-gitlink")?;
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+
+        let git_dir_from_name = sm.git_dir()?;
+        assert!(
+            git_dir_from_name.ends_with("modules/outer/inner"),
+            "the name-derived path is the fallback location, what it should be per submodule configuration/name"
+        );
+
+        let git_dir_from_gitlink = sm.git_dir_try_old_form()?;
+        assert!(
+            git_dir_from_gitlink.ends_with("modules/inner"),
+            "the worktree .git file points at the relocated repository"
+        );
+        assert_ne!(
+            git_dir_from_gitlink, git_dir_from_name,
+            "the gitlink target must be authoritative even when it differs from .git/modules/<name>"
+        );
+        assert_eq!(
+            sm.state()?,
+            submodule::State {
+                repository_exists: true,
+                is_old_form: false,
+                worktree_checkout: true,
+                superproject_configuration: true,
+            },
+            "a modern gitlink remains modern even when its target differs from the name-derived path"
+        );
+
+        #[cfg(feature = "status")]
+        {
+            let status = sm.status(gix::submodule::config::Ignore::None, false)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(false),
+                "opening the gitlink target avoids a 'phantom' submodule HEAD change"
+            );
+            assert_eq!(
+                status.checked_out_head_id, status.index_id,
+                "there are no HEAD changes even though the 'phantom' at modules/outer/inner has its HEAD at @~1"
+            );
+
+            let status = sm.status(gix::submodule::config::Ignore::All, false)?;
+            assert_eq!(
+                status.state,
+                submodule::State {
+                    repository_exists: true,
+                    is_old_form: false,
+                    worktree_checkout: true,
+                    superproject_configuration: true,
+                },
+                "ignore=all still follows a parseable divergent gitdir file"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn status_uses_detached_worktree_from_symlinked_git_dir() -> crate::Result {
+        let root =
+            gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("linked-git-dir-detached-worktree");
+        let repo = gix::open_opts(root.join("home"), gix::open::Options::isolated())?;
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+        let submodule_workdir = gix_path::realpath(root.join("home/.config/awesome/lain"))?;
+
+        assert_eq!(
+            sm.work_dir()?,
+            submodule_workdir,
+            "submodule workdir must stay anchored in the detached worktree"
+        );
+        assert_eq!(
+            sm.open()?.expect("submodule repository exists").workdir(),
+            Some(submodule_workdir.as_path()),
+            "opening the submodule must use its actual checkout, not a path derived from the symlink parent"
+        );
+
+        #[cfg(feature = "status")]
+        {
+            let status = sm.status(gix::submodule::config::Ignore::None, false)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(false),
+                "status must succeed and report the clean detached-worktree submodule"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)] // symlinks are used here, let's not try our luck on Windows.
+    fn keeps_callers_path_namespace_when_opened_through_symlinked_ancestor() -> crate::Result {
+        let link = gix_testtools::scripted_fixture_read_only("make_submodules.sh")?.join("symlinked-ancestor");
+
+        for parent_name in ["with-submodules", "with-submodule-uninitialized-checkout"] {
+            let worktree = link.join(parent_name);
+            let repo = gix::open_opts(&worktree, gix::open::Options::isolated())?;
+            assert_eq!(
+                repo.workdir(),
+                Some(worktree.as_path()),
+                "the parent repository keeps the path it was opened with"
+            );
+            for sm in repo.submodules()?.expect("modules present") {
+                let sm_repo = sm.open()?.expect("submodule repository exists");
+                let sm_git_dir = sm_repo.path();
+                assert!(
+                    sm_git_dir.starts_with(&worktree),
+                    "the submodule git dir stays in the namespace of the path the parent was opened with: {sm_git_dir:?}"
+                );
+                assert_eq!(
+                    sm_repo.workdir(),
+                    Some(worktree.join(gix_path::from_bstr(sm.path()?).as_ref())).as_deref(),
+                    "the submodule workdir stays in the same namespace instead of being canonicalized, \
+                     so it can be related to the parent worktree and the submodule git dir with prefix logic"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn broken_gitlink_target_is_reported() -> crate::Result {
+        let repo = repo("submodule-with-missing-gitlink-target")?;
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+
+        assert!(matches!(
+            sm.git_dir_try_old_form(),
+            Err(submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                target: Some(target),
+                source: None,
+                ..
+            }) if target.ends_with("missing")
+        ));
+        assert!(matches!(
+            sm.state(),
+            Err(submodule::state::Error::GitDirTryOldForm(
+                submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                    target: Some(target),
+                    source: None,
+                    ..
+                }
+            )) if target.ends_with("missing")
+        ));
+        assert!(matches!(
+            sm.open(),
+            Err(submodule::open::Error::GitDir(
+                submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                    target: Some(target),
+                    source: None,
+                    ..
+                }
+            )) if target.ends_with("missing")
+        ));
+
+        #[cfg(feature = "status")]
+        assert!(
+            matches!(
+                sm.status(gix::submodule::config::Ignore::None, false),
+                Err(submodule::status::Error::State(
+                    submodule::state::Error::GitDirTryOldForm(
+                        submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                            target: Some(target),
+                            source: None,
+                            ..
+                        }
+                    )
+                )) if target.ends_with("missing")
+            ),
+            "ignore=none fails as some submodules can't be opened"
+        );
+
+        #[cfg(feature = "status")]
+        {
+            let status = sm.status(gix::submodule::config::Ignore::All, false)?;
+            assert_eq!(
+                status.state,
+                submodule::State {
+                    repository_exists: false,
+                    is_old_form: false,
+                    worktree_checkout: true,
+                    superproject_configuration: true,
+                },
+                "ignore=all does not inspect the broken gitdir target"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_gitlink_target_is_ignored_by_ignore_all_status() -> crate::Result {
+        let repo = repo("submodule-with-malformed-gitlink")?;
+        let sm = repo
+            .submodules()?
+            .expect("modules present")
+            .next()
+            .expect("one submodule");
+
+        assert!(matches!(
+            sm.git_dir_try_old_form(),
+            Err(submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                target: None,
+                source: Some(_),
+                ..
+            })
+        ));
+
+        #[cfg(feature = "status")]
+        {
+            assert!(
+                matches!(
+                    sm.status(gix::submodule::config::Ignore::None, false),
+                    Err(submodule::status::Error::State(
+                        submodule::state::Error::GitDirTryOldForm(
+                            submodule::git_dir_try_old_form::Error::InvalidGitDirFileTarget {
+                                target: None,
+                                source: Some(_),
+                                ..
+                            }
+                        )
+                    ))
+                ),
+                "ignore=none fails as some submodules can't be opened"
+            );
+
+            let status = sm.status(gix::submodule::config::Ignore::All, false)?;
+            assert_eq!(
+                status.state,
+                submodule::State {
+                    repository_exists: true,
+                    is_old_form: false,
+                    worktree_checkout: true,
+                    superproject_configuration: true,
+                },
+                "ignore=all does not parse the malformed gitdir file"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "status")]
+    mod status {
+        use crate::{submodule::repo, util::hex_to_id};
+
+        #[test]
+        fn changed_head_compared_to_superproject_index() -> crate::Result {
+            let repo = repo("submodule-head-changed")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+            let mut status = sm.status(gix::submodule::config::Ignore::None, false)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(true),
+                "we could decide that the submodule is dirty"
+            );
+            assert_eq!(
+                status.index_id,
+                Some(hex_to_id("e046f3e51d955840619fc7d01fbd9a469663de22"))
+            );
+            assert_eq!(
+                status.checked_out_head_id,
+                Some(hex_to_id("362cb5539acbd3c8ca355471f97c6a68d3db0da7")),
+                "the checked out head was reset to something else after the superproject commit"
+            );
+            assert_eq!(
+                status.changes,
+                Some(Vec::new()),
+                "the status check ran, but there were no changes"
+            );
+            // make it easier to compare this as baseline
+            status.changes.take();
+
+            let status_with_ignore = sm.status(gix::submodule::config::Ignore::Dirty, false)?;
+            assert_eq!(
+                status_with_ignore, status,
+                "The lowest status that makes these changes observable"
+            );
+
+            let status_with_ignore_check_only = sm.status(gix::submodule::config::Ignore::Dirty, true)?;
+            assert_eq!(
+                status_with_ignore_check_only, status,
+                "dirty-check has no observable influence here yet as there no 'more expensive' changes"
+            );
+
+            let status_with_ignore = sm.status(gix::submodule::config::Ignore::All, false)?;
+            assert_eq!(
+                status_with_ignore.is_dirty(),
+                Some(false),
+                "no dirty-information is retrieved, it seems clean"
+            );
+            assert_eq!(
+                status_with_ignore.index_id, None,
+                "to avoid false-positives, we don't retrieve the value"
+            );
+            assert_eq!(
+                status_with_ignore.checked_out_head_id, None,
+                "this check is ignored as it requires opening a repository"
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn modified_in_index_only() -> crate::Result {
+            let mut repo: gix::Repository = repo("submodule-index-changed")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+
+            for mode in [
+                gix::submodule::config::Ignore::Untracked,
+                gix::submodule::config::Ignore::None,
+            ] {
+                for check_dirty in [false, true] {
+                    let status = sm.status_opts(mode, check_dirty, &mut |platform| platform)?;
+                    assert_eq!(
+                        status.is_dirty(),
+                        Some(true),
+                        "two files were renamed using `git mv` for an HEAD^{{tree}}-index change"
+                    );
+                    assert_eq!(
+                        status.changes.expect("present").len(),
+                        if check_dirty { 1 } else { 3 },
+                        "in is-dirty mode, we don't collect all changes"
+                    );
+                }
+            }
+
+            assert!(
+                repo.is_dirty()?,
+                "superproject should see submodule changes in the index as well"
+            );
+
+            repo.config_snapshot_mut()
+                .set_value(&gix::config::tree::Diff::IGNORE_SUBMODULES, "all")?;
+
+            if cfg!(feature = "parallel") {
+                assert!(!repo.is_dirty()?, "There is a global flag to deactivate this");
+            } else {
+                assert!(
+                    repo.is_dirty()?,
+                    "We still spawn a thread in non-parallel mode, \
+                    but then ThreadSafe repository isn't actually threadsafe.\
+                    This is why we open a new repo, and can't see in-memory overrides.\
+                    Maybe ThreadSafeRepository should be changed to always use thred-safe primitives."
+                );
+            }
+
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+            let status = sm.status_opts(gix::submodule::config::Ignore::None, true, &mut |platform| platform)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(true),
+                "The global override has no bearing on this specific call"
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn modified_and_untracked() -> crate::Result {
+            let repo = repo("modified-and-untracked")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+
+            let status = sm.status(gix::submodule::config::Ignore::Dirty, false)?;
+            assert_eq!(status.is_dirty(), Some(false), "Dirty skips worktree changes entirely");
+
+            let mut status = sm.status_opts(
+                gix::submodule::config::Ignore::None,
+                false,
+                &mut |status: gix::status::Platform<'_, gix::progress::Discard>| {
+                    status.index_worktree_options_mut(|opts| {
+                        opts.sorting = Some(gix_status::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
+                    })
+                },
+            )?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(true),
+                "we could decide that the submodule is dirty"
+            );
+            assert_eq!(status.index_id, status.checked_out_head_id, "the head didn't change");
+            assert_eq!(
+                status.changes.as_ref().into_iter().flatten().count(),
+                2,
+                "1 modified, 1 untracked"
+            );
+
+            let status_with_dirty_check = sm.status_opts(
+                gix::submodule::config::Ignore::None,
+                true, /* check-dirty */
+                &mut |status: gix::status::Platform<'_, gix::progress::Discard>| {
+                    status.index_worktree_options_mut(|opts| {
+                        opts.sorting = Some(gix_status::index_as_worktree_with_renames::Sorting::ByPathCaseSensitive);
+                    })
+                },
+            )?;
+            status.changes.as_mut().expect("two changes").pop();
+            assert_eq!(
+                status_with_dirty_check, status,
+                "it cannot abort early as the only change it sees is the modification check.\
+                However, with check-dirty, it would only gather the changes"
+            );
+
+            let status = sm.status(gix::submodule::config::Ignore::Untracked, false)?;
+            assert_eq!(
+                status.is_dirty(),
+                Some(true),
+                "we could decide that the submodule is dirty, even though untracked files are missing"
+            );
+            assert_eq!(status.index_id, status.checked_out_head_id, "the head didn't change");
+            assert_eq!(status.changes.as_ref().into_iter().flatten().count(), 1, "1 modified");
+
+            Ok(())
+        }
+
+        #[test]
+        fn changed_head_empty_worktree() -> crate::Result {
+            let repo = repo("submodule-head-changed-no-worktree")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+
+            let status = sm.status(gix::submodule::config::Ignore::None, false)?;
+            assert_eq!(
+                status.state,
+                gix::submodule::State {
+                    repository_exists: true,
+                    is_old_form: false,
+                    worktree_checkout: false,
+                    superproject_configuration: true,
+                }
+            );
+            assert_eq!(
+                status.is_dirty(),
+                None,
+                "a missing worktree counts as no-dirty, even though the checked out HEAD changed. \
+                 Git does the same, even though as we express it as 'not determined'"
+            );
+            assert_ne!(
+                status.index_id, status.checked_out_head_id,
+                "not considered dirty despite head mismatch"
+            );
+            assert!(
+                status.changes.is_none(),
+                "Detailed changes are never done if there is no worktree"
+            );
+
+            Ok(())
+        }
+
+        #[test]
+        fn is_dirty_skips_expensive_checks() -> crate::Result {
+            let repo = repo("submodule-head-changed-and-modified")?;
+            let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+
+            let status = sm.status(gix::submodule::config::Ignore::None, true)?;
+            assert_eq!(
+                status.changes, None,
+                "computation was stopped on the first detected change (the index/head)"
+            );
+            assert_eq!(
+                status.index_id,
+                Some(hex_to_id("e046f3e51d955840619fc7d01fbd9a469663de22")),
+                "the index id was obtained"
+            );
+            assert_eq!(
+                status.checked_out_head_id,
+                Some(hex_to_id("362cb5539acbd3c8ca355471f97c6a68d3db0da7")),
+                "the checked out head was also obtained to be able to se if it's dirty"
+            );
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn not_a_submodule() -> crate::Result {
+        let repo = repo("not-a-submodule")?;
+        let sm = repo.submodules()?.into_iter().flatten().next().expect("one submodule");
+        assert!(sm.open()?.is_some(), "repo available as it was cloned");
+        assert!(sm.index_id()?.is_none(), "no actual submodule");
+        assert!(sm.head_id()?.is_none(), "no actual submodule");
+        Ok(())
+    }
+
+    #[test]
+    fn in_unborn() -> crate::Result {
+        let repo = repo("unborn")?;
+        assert_eq!(
+            repo.submodules()?.into_iter().flatten().count(),
+            0,
+            "there is nothing, and that is fine"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "revision")]
+    fn submodule_worktrees() -> crate::Result {
+        let sm_repo = crate::util::named_subrepo_opts(
+            "make_submodule_with_worktree.sh",
+            "worktree-of-submodule",
+            gix::open::Options::isolated(),
+        )?;
+        let wd = sm_repo.workdir().expect("workdir is present");
+        assert!(
+            sm_repo.rev_parse_single(":this").is_ok(),
+            "the file is in the submodule"
+        );
+        assert!(
+            wd.join("this").is_file(),
+            "The submodule itself has the file, so it should be in the worktree"
+        );
+
+        assert_eq!(sm_repo.worktrees()?.len(), 1, "only a single linked worktree");
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "revision")]
+    fn list_submodule_worktrees() -> crate::Result {
+        let sm_repo = crate::util::named_subrepo_opts(
+            "make_submodule_with_worktree.sh",
+            "submodule-with-extra-worktree-host/m1",
+            gix::open::Options::isolated(),
+        )?;
+        let wd = sm_repo.workdir().expect("workdir is present");
+        assert!(
+            sm_repo.rev_parse_single(":this").is_ok(),
+            "the file is in the submodule"
+        );
+        assert!(
+            wd.join("this").is_file(),
+            "The submodule itself has the file, so it should be in the worktree"
+        );
+
+        assert_eq!(sm_repo.worktrees()?.len(), 1, "only a single linked worktree");
+        Ok(())
+    }
+
+    #[test]
+    fn old_form() -> crate::Result {
+        for name in ["old-form-invalid-worktree-path", "old-form"] {
+            let repo = repo(name)?;
+            let sm = repo
+                .submodules()?
+                .expect("modules present")
+                .next()
+                .expect("one submodule");
+
+            assert_ne!(
+                sm.git_dir_try_old_form()?,
+                sm.git_dir()?,
+                "compat git dir should be the worktree location"
+            );
+            let sm_repo = sm.open()?.expect("initialized");
+            assert_eq!(
+                sm_repo.kind(),
+                gix::repository::Kind::Common,
+                "old submodules aren't recognized as such because it would require reading a lot of additional data"
+            );
+            assert_eq!(
+                sm.state()?,
+                submodule::State {
+                    repository_exists: true,
+                    is_old_form: true,
+                    worktree_checkout: true,
+                    superproject_configuration: true,
+                }
+            );
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+mod advisory {
+    use gix::bstr::BString;
+
+    /// Reproducer for GHSA-p3hw-mv63-rf9w and GHSA-fr8x-3vfx-f45h: a crafted submodule name with
+    /// traversal components is reused to derive `.git/modules/<name>`, so `Submodule::state()` and
+    /// `Submodule::open()` can be redirected to another repository outside the intended modules
+    /// directory.
+    #[test]
+    fn traversal_names_do_not_escape_the_modules_directory() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_submodule_traversal_advisory.sh")?;
+        let repo_dir = fixture.path().join("victim-repo");
+
+        let repo = gix::open_opts(&repo_dir, crate::restricted())?;
+        let sm = repo
+            .submodules()?
+            .expect("submodule configuration present")
+            .next()
+            .expect("one malicious submodule");
+
+        assert!(matches!(
+            sm.git_dir(),
+            Err(gix_validate::submodule::name::Error::ParentComponent)
+        ));
+        assert!(matches!(
+            sm.git_dir_try_old_form(),
+            Err(gix::submodule::git_dir_try_old_form::Error::GitDir(
+                gix_validate::submodule::name::Error::ParentComponent
+            ))
+        ));
+
+        assert!(matches!(
+            sm.open(),
+            Err(gix::submodule::open::Error::GitDir(
+                gix::submodule::git_dir_try_old_form::Error::GitDir(
+                    gix_validate::submodule::name::Error::ParentComponent
+                )
+            ))
+        ));
+        assert!(matches!(
+            sm.state(),
+            Err(gix::submodule::state::Error::GitDirTryOldForm(
+                gix::submodule::git_dir_try_old_form::Error::GitDir(
+                    gix_validate::submodule::name::Error::ParentComponent
+                )
+            ))
+        ));
+
+        let redirected_repo = fixture.path().join("escaped-target.git");
+        assert!(
+            redirected_repo.is_dir(),
+            "the attacker-controlled repository does indeex exist at {}",
+            redirected_repo.display()
+        );
+        Ok(())
+    }
+
+    /// Reproducer for malicious `submodule.<name>.update = !...` commands added in `.gitmodules`
+    /// after `git submodule init`: `gix` must reject them from `.gitmodules` instead of exposing
+    /// them as executable updates.
+    #[test]
+    fn update_commands_from_gitmodules_are_rejected_after_init() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_submodule_update_advisory.sh")?;
+        let victim = fixture.path().join("victim");
+
+        let repo = gix::open_opts(&victim, crate::restricted())?;
+        let sm = repo
+            .submodules()?
+            .expect("submodules present")
+            .next()
+            .expect("one submodule");
+        match sm.update() {
+            Err(gix::submodule::config::update::Error::CommandForbiddenInModulesConfiguration {
+                submodule,
+                actual,
+            }) => {
+                assert_eq!(submodule, BString::from("sub"));
+                assert_eq!(actual, BString::from("touch pwned"));
+            }
+            other => panic!("expected forbidden command from `.gitmodules`, got {other:?}"),
+        }
+        Ok(())
+    }
+}

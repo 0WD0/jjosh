@@ -1,0 +1,34 @@
+lints.workspace = true
+
+[package]
+name = "gix-utils"
+version = "0.3.6"
+repository = "https://github.com/GitoxideLabs/gitoxide"
+license = "MIT OR Apache-2.0"
+description = "A crate with `gitoxide` utilities that don't need feature toggles"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = true
+
+[features]
+bstr = ["dep:bstr"]
+
+[dependencies]
+# We seed our own thread-local `Rng` (see `src/rng.rs`), so `fastrand`'s global generator and its
+# `std` default feature aren't needed.
+fastrand = { version = "2.4.1", default-features = false }
+bstr = { version = "1.12.0", default-features = false, features = ["std"], optional = true }
+unicode-normalization = { version = "0.1.19", default-features = false }
+
+# Used by `rng` to obtain a high-entropy, process-distinct seed. Excluded on
+# `wasm32-unknown-unknown`, which has no entropy backend by default; there `rng` falls back to a
+# best-effort seed (see `src/rng.rs`).
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+getrandom = "0.4"
+
+[dev-dependencies]
+gix-utils = { path = ".", features = ["bstr" ]}

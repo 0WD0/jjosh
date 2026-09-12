@@ -1,0 +1,39 @@
+lints.workspace = true
+
+[package]
+name = "gix-negotiate"
+version = "0.35.1"
+repository = "https://github.com/GitoxideLabs/gitoxide"
+license = "MIT OR Apache-2.0"
+description = "A crate of the gitoxide project implementing negotiation algorithms"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+test = false
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["gix-hash/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["gix-hash/sha256"]
+
+[dependencies]
+gix-hash = { version = "^0.26.2", path = "../gix-hash" }
+gix-object = { version = "^0.64.1", path = "../gix-object" }
+gix-date = { version = "^0.16.0", path = "../gix-date" }
+gix-commitgraph = { version = "^0.39.0", path = "../gix-commitgraph" }
+gix-revwalk = { version = "^0.35.0", path = "../gix-revwalk" }
+bitflags = "2"
+
+[dev-dependencies]
+gix-testtools = { path = "../tests/tools" }
+gix-odb = { path = "../gix-odb", features = ["sha1", "sha256"] }
+gix-ref = { path = "../gix-ref", features = ["sha1", "sha256"] }
+gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
+
+[package.metadata.docs.rs]
+features = ["sha1"]
