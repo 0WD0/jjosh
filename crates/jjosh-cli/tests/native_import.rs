@@ -784,9 +784,9 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     for label in ["upstream", "origin"] {
         let remote = format!("alpha-{label}");
         fetch(&remote);
+        mono.jj(&["bookmark", "track", &format!("{scoped}@alpha-{label}")]);
         publish(&remote);
         fetch(&remote);
-        mono.jj(&["bookmark", "track", &format!("{scoped}@alpha-{label}")]);
         assert_eq!(
             mono.log(
                 &format!("tracked_remote_bookmarks({scoped}, alpha-{label})"),
