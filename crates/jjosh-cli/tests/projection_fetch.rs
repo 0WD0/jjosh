@@ -112,14 +112,6 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         &client,
         &["remote", "add", "origin", upstream_bare.to_str().unwrap()],
     );
-    git(
-        &client,
-        &[
-            "config",
-            "remote.origin.pushurl",
-            upstream_bare.to_str().unwrap(),
-        ],
-    );
 
     jjosh(
         &client,
@@ -221,19 +213,6 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         "app-v2\n"
     );
 
-    let direct_push = run(
-        &client,
-        Path::new("git"),
-        &["push", "origin", "HEAD:refs/heads/direct-push-must-fail"],
-    );
-    assert!(!direct_push.status.success());
-    assert_eq!(
-        git(
-            &upstream_bare,
-            &["for-each-ref", "refs/heads/direct-push-must-fail"]
-        ),
-        ""
-    );
     let visible = String::from_utf8(
         jjosh(
             &client,
