@@ -7,7 +7,7 @@
 
 native import 以及绑定项目的 git fetch 使用普通 jj 名字 =NAME#PROJECT=。包括本地 bookmark、tag、导入的 remote 引用和 =workspace/default#PROJECT= 工作入口。已登记 named remote 后，日常更新使用 =git fetch --remote REMOTE=，不再读取版本化 marker 的 source。
 
-remote 仍用现有的全局名字 =PROJECT-REMOTE=：例如 =main#alpha@alpha-upstream= 和 =main#alpha@alpha-origin=。这里没有新的 symbol 类型、scope 语义、View 子树、存储格式或 =--scope= 参数；revset 现在把 =#= 视为普通名字字符。NAME 本身不被拆解，项目名仍沿用现有校验。
+remote 沿用已有 Git remote 名字：例如 =main#alpha@alpha-upstream= 和 =main#alpha@alpha-origin=，但不要求 =PROJECT-REMOTE= 形式。这里没有新的 symbol 类型、一等 scope 对象、View 子树、存储格式或 =--scope= 参数；revset 把 =#= 视为普通名字字符，同步边界解释最后一个 =#PROJECT= 后缀，项目名仍沿用现有校验。
 
 * 最小试用
 
@@ -33,6 +33,19 @@ jjosh -R /tmp/demo-mono log -r 'main#alpha@alpha-upstream | main#alpha@alpha-ori
 #+end_src
 
 fetch、track、整合、publish 仍是独立步骤。普通 =main= 与 =main#alpha= 可以并存；local bookmark 的跟踪和重写沿用 jj，不建立一份新的同步状态。
+
+没有 =--remote= 且没有 =git.push= 配置时，push 会按现有 =remote.NAME.jjosh-project= 绑定为选中 =#scope= 找目的地，不依赖 remote 名字的前缀或 tracking 猜测。上例 =alpha-upstream= 只读、=alpha-origin= 可写，因此唯一可写绑定会自动胜出：
+
+#+begin_src sh
+jjosh -R /tmp/demo-mono git push --bookmark 'main#*' --dry-run
+jjosh -R /tmp/demo-mono git push --bookmark 'main#*'
+#+end_src
+
+多个项目的同名 =main#PROJECT= 可各自发布为不同 remote 上的 =refs/heads/main=；须给 wildcard 加引号，避免 shell 展开。bookmark 创建、移动和 =--all=、=--tracked=、=--deleted= 等选择仍沿用 jj；路由不会把选中项目广播到别的项目 remote。普通无 scope 引用仍使用 jj 默认 remote 规则。
+
+=--remote= 优先于 =git.push=；两者任一选择目的地时都关闭自动路由，所以上面的显式 fork 发布示例仍有效，也能向没有项目绑定的普通 endpoint 导出。自动选择遇到多个可写绑定或缺失选中 scope 的绑定会报错，需明确选择目的地；未选中的错误 scope 不阻止其他项目。没有可写绑定时，唯一只读 remote 上已跟踪且未变化的引用可以无操作通过，真正的新增、更新或删除会拒绝；多个只读候选也有歧义。
+
+dry-run 显示每个逻辑引用的 remote、完整目标引用与动作，包括未变化的只读引用，不修改远端或 jj 操作。所有批次先准备完成并检查对象与 lease，任何已知准备失败都阻止全部发布。但这不是跨 remote 原子事务：发布阶段的网络、receive hook 或并发更新失败仍可能留下部分成功，只对已确认结果记账。
 
 * 明确不做什么
 

@@ -1,6 +1,7 @@
 mod fetch;
 mod push;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
@@ -8,7 +9,8 @@ use gix::remote::Direction;
 use jj_cli::cli_util::{CommandHelper, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error};
 use jj_cli::git_remote::{
-    GitRemoteExtension, GitRemotePushOptions, GitRemoteSession, RemoteFuture,
+    GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemotePushOptions,
+    GitRemoteSession, RemoteFuture,
 };
 use jj_cli::ui::Ui;
 use jj_lib::git::{
@@ -34,6 +36,66 @@ pub(crate) struct Session {
     pub git_path: PathBuf,
     pub project: Option<Project>,
     pub josh: Option<RemoteConfig>,
+}
+
+struct PushCandidate {
+    name: RemoteNameBuf,
+    read_only: Result<bool, String>,
+}
+
+struct DefaultPushRouter {
+    candidates: BTreeMap<String, Vec<PushCandidate>>,
+}
+
+impl GitPushRouter for DefaultPushRouter {
+    fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError> {
+        let Some((destination, scope)) = name.as_str().rsplit_once('#') else {
+            return Ok(None);
+        };
+        crate::native_project::validate_project(scope).map_err(user_error)?;
+        let candidates = self.candidates.get(scope).ok_or_else(|| {
+            user_error(format!(
+                "No default push remote for scope {scope}; attach a remote to this project or use --remote"
+            ))
+        })?;
+        let mut writable = None;
+        let mut writable_count = 0;
+        for candidate in candidates {
+            let read_only = candidate.read_only.as_ref().map_err(|error| {
+                user_error(format!("Remote {}: {error}", candidate.name.as_str()))
+            })?;
+            if !read_only {
+                writable = Some(&candidate.name);
+                writable_count += 1;
+            }
+        }
+        let remote = match writable_count {
+            1 => writable.unwrap(),
+            0 if candidates.len() == 1 => &candidates[0].name,
+            _ => {
+                let names = candidates
+                    .iter()
+                    .filter(|candidate| writable_count == 0 || candidate.read_only == Ok(false))
+                    .map(|candidate| candidate.name.as_str())
+                    .collect::<Vec<_>>();
+                return Err(user_error(format!(
+                    "Ambiguous default push remote for scope {scope}: {}; use --remote",
+                    names.join(", ")
+                )));
+            }
+        };
+        Ok(Some(GitPushRoute {
+            remote: remote.clone(),
+            name: destination.into(),
+        }))
+    }
+}
+
+fn remote_read_only(repo: &gix::Repository, remote: &RemoteName) -> Result<bool> {
+    repo.config_snapshot()
+        .try_boolean(format!("remote.{}.jjosh-readOnly", remote.as_str()).as_str())
+        .with_context(|| format!("Invalid read-only policy for remote {}", remote.as_str()))
+        .map(|value| value.unwrap_or(false))
 }
 
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
@@ -255,6 +317,28 @@ impl GitRemoteExtension for Extension {
             josh,
         }))
     }
+
+    fn default_push_router(
+        &self,
+        workspace: &WorkspaceCommandHelper,
+    ) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
+        let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
+        let mut candidates: BTreeMap<String, Vec<PushCandidate>> = BTreeMap::new();
+        for name in jj_lib::git::get_all_remote_names(workspace.repo().store())? {
+            let Some(project) =
+                config_string(&git, &format!("remote.{}.jjosh-project", name.as_str()))
+                    .map_err(user_error)?
+            else {
+                continue;
+            };
+            let read_only = remote_read_only(&git, &name).map_err(|error| format!("{error:#}"));
+            candidates
+                .entry(project)
+                .or_default()
+                .push(PushCandidate { name, read_only });
+        }
+        Ok(Some(Box::new(DefaultPushRouter { candidates })))
+    }
 }
 
 impl Session {
@@ -359,10 +443,7 @@ impl Session {
     ) -> Result<gix::Remote<'repo>> {
         if matches!(direction, Direction::Push) {
             ensure!(
-                !repo
-                    .config_snapshot()
-                    .boolean(format!("remote.{}.jjosh-readOnly", self.name.as_str()).as_str())
-                    .unwrap_or(false),
+                !remote_read_only(repo, &self.name)?,
                 "Remote {} has no publication endpoint; configure a writable named remote",
                 self.name.as_str(),
             );
@@ -419,6 +500,13 @@ impl GitRemoteSession for Session {
         }
     }
 
+    fn push_name<'a>(&self, local: &'a RefName) -> &'a str {
+        local
+            .as_str()
+            .rsplit_once('#')
+            .map_or(local.as_str(), |(name, _)| name)
+    }
+
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError> {
         let repo = gix::open(&self.git_path).map_err(user_error)?;
         jj_lib::git::load_default_fetch_bookmarks(&self.name, &repo).map_err(Into::into)
@@ -434,7 +522,7 @@ impl GitRemoteSession for Session {
         Box::pin(fetch::run(self, ui, command, repo, selection))
     }
 
-    fn push<'a>(
+    fn prepare_push<'a>(
         &'a self,
         ui: &'a mut Ui,
         command: &'a CommandHelper,
@@ -443,8 +531,8 @@ impl GitRemoteSession for Session {
         options: &'a GitPushOptions,
         preparation: &'a GitRemotePushOptions,
         dry_run: bool,
-    ) -> RemoteFuture<'a, jj_cli::git_remote::GitRemotePushOutcome> {
-        Box::pin(push::run(
+    ) -> RemoteFuture<'a, Box<dyn GitPreparedPush>> {
+        Box::pin(push::prepare(
             self,
             ui,
             command,

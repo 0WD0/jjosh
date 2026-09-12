@@ -3499,6 +3499,10 @@ dependencies = [
  "josh-compose-graph",
  "josh-core",
  "josh-filter",
+ "josh-git-serde",
+ "josh-gix-ext",
+ "log",
+ "serde",
  "tar",
 ]
 
