@@ -160,14 +160,6 @@ pub(super) async fn prepare(
                 index
             }
         };
-        let conversion = &scopes[scope_index].0;
-        if (conversion.project.is_some() || conversion.filter().is_some())
-            && destination.starts_with("refs/tags/")
-        {
-            return Err(user_error(
-                "Transformed tag publication is unsupported: annotated and signed tags cannot be reverse-mapped safely",
-            ));
-        }
         scopes[scope_index].1.push((index, destination));
     }
     let transformed = scopes
@@ -328,7 +320,7 @@ impl GitPreparedPush for PreparedPush {
                     ) {
                         save_errors.push(format!("{name}: raw publication ref: {error:#}"));
                     }
-                    if destination.starts_with("refs/heads/") {
+                    {
                         let result = match prepared.update.new {
                             Some(id) => crate::link_refs::record_observation(
                                 transaction,
@@ -388,6 +380,8 @@ async fn prepare_scope(
             .map_err(user_error)?.ok_or_else(|| user_error(format!(
                 "Source base {source} has not been fetched from this scope's source endpoint"
             )))?)
+        .map(|id| peel_commit(git, id))
+        .transpose()?
     } else {
         None
     };
@@ -412,6 +406,8 @@ async fn prepare_scope(
                 .resolve_ref(&format!("{prefix}bases/{}", project.name))
                 .map_err(user_error)?,
         }
+        .map(|id| peel_commit(git, id))
+        .transpose()?
     } else {
         None
     };
@@ -431,7 +427,17 @@ async fn prepare_scope(
         let canonical = &canonical[*index];
         let expected = crate::link_refs::observation(transaction, push_endpoint, destination)?;
         let mut publications = Vec::new();
+        let annotation = if destination.starts_with("refs/tags/") {
+            canonical
+                .targets
+                .after
+                .map(|id| crate::link_refs::CommitTag::read(git, id).map_err(user_error))
+                .transpose()?
+        } else {
+            None
+        };
         let new = if let Some(canonical_oid) = canonical.targets.after {
+            let canonical_oid = annotation.as_ref().map_or(canonical_oid, |tag| tag.commit);
             let head = repo
                 .store()
                 .get_commit_async(&CommitId::from_bytes(canonical_oid.as_bytes()))
@@ -448,7 +454,9 @@ async fn prepare_scope(
                 let filter = filter.expect("non-native transformed scope has a filter");
                 let destination_raw = transaction
                     .resolve_ref(&format!("{}{destination}", fetch_prefix.as_ref().unwrap()))
-                    .map_err(user_error)?;
+                    .map_err(user_error)?
+                    .map(|id| peel_commit(git, id))
+                    .transpose()?;
                 crate::interop::check_raw_projectable_history(
                     transaction,
                     destination_raw.into_iter().chain(base).chain(linked_base),
@@ -512,6 +520,13 @@ async fn prepare_scope(
         } else {
             None
         };
+        let new = match (new, annotation) {
+            (Some(target), Some(tag)) => Some(
+                tag.retarget(git, target, destination.strip_prefix("refs/tags/").unwrap())
+                    .map_err(user_error)?,
+            ),
+            (target, _) => target,
+        };
         prepared.push((
             *index,
             Prepared {
@@ -526,6 +541,18 @@ async fn prepare_scope(
         ));
     }
     Ok(prepared)
+}
+
+fn peel_commit(git: &gix::Repository, id: gix::ObjectId) -> Result<gix::ObjectId, CommandError> {
+    let object = git
+        .find_object(id)
+        .map_err(user_error)?
+        .peel_tags_to_end()
+        .map_err(user_error)?;
+    if object.kind != gix::objs::Kind::Commit {
+        return Err(user_error("A projection base must peel to a commit"));
+    }
+    Ok(object.id)
 }
 
 fn finish(

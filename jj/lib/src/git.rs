@@ -2739,8 +2739,11 @@ fn commit_remote_management(
                 // never be hidden behind the original error.
                 let retained = retired.map(|path| path.keep().map_err(|error| error.to_string()));
                 return Err(std::io::Error::other(format!(
-                    "{error}; rollback failed: config={restore_config:?}, repo config={restore_repo_config:?}, metadata={restore_sidecar:?}, retained metadata={retained:?}",
-                )).into());
+                    "{error}; rollback failed: config={restore_config:?}, repo \
+                     config={restore_repo_config:?}, metadata={restore_sidecar:?}, retained \
+                     metadata={retained:?}",
+                ))
+                .into());
             }
             return Err(error);
         }
@@ -3069,8 +3072,7 @@ pub fn remove_remote_with_options(
 fn remove_remote_git_ref_edits(
     git_repo: &gix::Repository,
     remote: &RemoteName,
-) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync + 'static>>
-{
+) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync>> {
     let bookmark_prefix = format!(
         "{REMOTE_BOOKMARK_REF_NAMESPACE}{remote}/",
         remote = remote.as_str()
@@ -3205,8 +3207,7 @@ fn rename_remote_git_ref_edits(
     git_repo: &gix::Repository,
     old_remote_name: &RemoteName,
     new_remote_name: &RemoteName,
-) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync + 'static>>
-{
+) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync>> {
     let to_prefixes = |namespace: &str| {
         (
             format!("{namespace}{remote}/", remote = old_remote_name.as_str()),

@@ -2540,3 +2540,595 @@ fn automatic_push_rejects_wire_collisions_across_remote_aliases() {
     assert_eq!(git(&beta, &["show-ref"]), beta_refs);
     assert_eq!(operation_id(&client), operation);
 }
+
+fn add_tag_project(client: &Path, scope: &str, work: &Path, bare: &Path, native: bool) {
+    if native {
+        jjosh(work, &["git", "init", "--colocate"]);
+        jjosh(
+            client,
+            &[
+                "native",
+                "import",
+                "--source",
+                &format!("{scope}={}", work.display()),
+            ],
+        );
+        let remote = format!("{scope}-upstream");
+        jjosh(
+            client,
+            &["git", "remote", "add", &remote, bare.to_str().unwrap()],
+        );
+        jjosh(client, &["projection", "remote", "attach", &remote, scope]);
+        jjosh(
+            client,
+            &["git", "fetch", "--remote", &remote, "--branch", "main"],
+        );
+    } else {
+        add_routed_link(client, scope, bare, true);
+    }
+}
+
+fn tag_object(git_dir: &Path, target: &str, kind: &str, name: &str, message: &str) -> String {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        file.path(),
+        format!(
+            "object {target}\ntype {kind}\ntag {name}\ntagger Release Author <release@example.com> 1700000000 +0530\n\n{message}"
+        ),
+    ).unwrap();
+    git(
+        git_dir,
+        &[
+            "hash-object",
+            "-t",
+            "tag",
+            "-w",
+            file.path().to_str().unwrap(),
+        ],
+    )
+    .trim()
+    .to_owned()
+}
+
+#[test]
+fn scoped_lightweight_tags_route_roundtrip_and_preserve_dry_run_state() {
+    for native in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (alpha_work, alpha, _) = create_remote(temp.path(), "alpha");
+        let (beta_work, beta, _) = create_remote(temp.path(), "beta");
+        let client = create_client(temp.path(), false);
+        add_tag_project(&client, "alpha", &alpha_work, &alpha, native);
+        add_tag_project(&client, "beta", &beta_work, &beta, native);
+        jjosh(
+            &client,
+            &["new", "main#alpha", "main#beta", "-m", "release both"],
+        );
+        let alpha_file = if native {
+            "alpha/src/value.txt"
+        } else {
+            "alpha/value.txt"
+        };
+        let beta_file = if native {
+            "beta/src/value.txt"
+        } else {
+            "beta/value.txt"
+        };
+        fs::write(client.join(alpha_file), "alpha release\n").unwrap();
+        fs::write(client.join(beta_file), "beta release\n").unwrap();
+        fs::write(client.join("root.txt"), "private overlay\n").unwrap();
+        jjosh(&client, &["tag", "set", "v1.0#alpha", "v1.0#beta"]);
+        let canonical = commit_id(&client, "tags(exact:\"v1.0#alpha\")");
+        let git_dir = PathBuf::from(
+            String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+                .unwrap()
+                .trim(),
+        );
+        let refs = git(&git_dir, &["show-ref"]);
+        let operation = operation_id(&client);
+        let alpha_refs = git(&alpha, &["show-ref"]);
+        let beta_refs = git(&beta, &["show-ref"]);
+        jjosh(&client, &["git", "push", "--tag", "v1.0#*", "--dry-run"]);
+        assert_eq!(git(&git_dir, &["show-ref"]), refs);
+        assert_eq!(operation_id(&client), operation);
+        assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+        assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+
+        jjosh(&client, &["git", "push", "--tag", "v1.0#*"]);
+        for (scope, bare, contents) in [
+            ("alpha", &alpha, "alpha release\n"),
+            ("beta", &beta, "beta release\n"),
+        ] {
+            assert_eq!(
+                git(bare, &["cat-file", "-t", "refs/tags/v1.0"]).trim(),
+                "commit"
+            );
+            assert_eq!(git(bare, &["show", "v1.0:src/value.txt"]), contents);
+            assert_eq!(
+                git(bare, &["ls-tree", "-r", "--name-only", "v1.0"]),
+                "outside.txt\nsrc/value.txt\n"
+            );
+            assert!(
+                !run(
+                    bare,
+                    Path::new("git"),
+                    &["show-ref", "--verify", &format!("refs/tags/v1.0#{scope}")]
+                )
+                .status
+                .success()
+            );
+            jjosh(
+                &client,
+                &[
+                    "git",
+                    "fetch",
+                    "--remote",
+                    &format!("{scope}-upstream"),
+                    "--tag",
+                    "v1.0",
+                ],
+            );
+            assert_eq!(
+                commit_id(
+                    &client,
+                    &format!("remote_tags(exact:\"v1.0#{scope}\", exact:\"{scope}-upstream\")")
+                ),
+                canonical
+            );
+        }
+
+        jjosh(&client, &["new", "-m", "next alpha release"]);
+        fs::write(client.join(alpha_file), "alpha replacement\n").unwrap();
+        jjosh(&client, &["tag", "set", "--allow-move", "v1.0#alpha"]);
+        let replacement = commit_id(&client, "tags(exact:\"v1.0#alpha\")");
+        jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+        assert_eq!(
+            git(&alpha, &["show", "v1.0:src/value.txt"]),
+            "alpha replacement\n"
+        );
+        assert_eq!(
+            git(&beta, &["show", "v1.0:src/value.txt"]),
+            "beta release\n"
+        );
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "alpha-upstream",
+                "--tag",
+                "v1.0",
+            ],
+        );
+        assert_eq!(
+            commit_id(
+                &client,
+                "remote_tags(exact:\"v1.0#alpha\", exact:\"alpha-upstream\")"
+            ),
+            replacement
+        );
+        jjosh(&client, &["tag", "delete", "v1.0#alpha"]);
+        jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+        assert!(
+            !run(
+                &alpha,
+                Path::new("git"),
+                &["show-ref", "--verify", "refs/tags/v1.0"]
+            )
+            .status
+            .success()
+        );
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "alpha-upstream",
+                "--tag",
+                "v1.0",
+            ],
+        );
+        assert_eq!(
+            commit_id(
+                &client,
+                "remote_tags(exact:\"v1.0#alpha\", exact:\"alpha-upstream\")"
+            ),
+            ""
+        );
+        // The confirmed deletion is a reusable absence lease.
+        jjosh(&client, &["tag", "set", "v1.0#alpha", "-r", &replacement]);
+        jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+        assert_eq!(
+            git(&alpha, &["show", "v1.0:src/value.txt"]),
+            "alpha replacement\n"
+        );
+        // A selected fetch must also refresh an externally deleted raw tag,
+        // rather than leave the old object-ID lease authorizing replacements.
+        git(&alpha, &["update-ref", "-d", "refs/tags/v1.0"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "alpha-upstream",
+                "--tag",
+                "v1.0",
+            ],
+        );
+        assert_eq!(
+            commit_id(
+                &client,
+                "remote_tags(exact:\"v1.0#alpha\", exact:\"alpha-upstream\")"
+            ),
+            ""
+        );
+        jjosh(&client, &["tag", "set", "v1.0#alpha", "-r", &replacement]);
+        jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+        assert_eq!(
+            git(&alpha, &["show", "v1.0:src/value.txt"]),
+            "alpha replacement\n"
+        );
+    }
+}
+
+#[test]
+fn fetched_unsigned_nested_tags_republish_annotations_and_exported_targets() {
+    for native in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let (work, source, tip) = create_remote(temp.path(), "alpha");
+        let client = create_client(temp.path(), false);
+        add_tag_project(&client, "alpha", &work, &source, native);
+        let inner = tag_object(&source, &tip, "commit", "inner", "inner message\n");
+        let outer = tag_object(
+            &source,
+            &inner,
+            "tag",
+            "v1.0",
+            "release message\n\nrelease notes\n",
+        );
+        git(&source, &["update-ref", "refs/tags/v1.0", &outer]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "alpha-upstream",
+                "--tag",
+                "v1.0",
+            ],
+        );
+        jjosh(&client, &["tag", "track", "v1.0#alpha@alpha-upstream"]);
+        jjosh(&client, &["git", "export"]);
+        let canonical = commit_id(
+            &client,
+            "remote_tags(exact:\"v1.0#alpha\", exact:\"alpha-upstream\")",
+        );
+        let git_dir = PathBuf::from(
+            String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+                .unwrap()
+                .trim(),
+        );
+        assert_eq!(
+            git(&git_dir, &["cat-file", "-t", "refs/tags/v1.0#alpha"]).trim(),
+            "tag"
+        );
+        assert_eq!(
+            git(&git_dir, &["rev-parse", "refs/tags/v1.0#alpha^{}"]).trim(),
+            canonical
+        );
+
+        let destination = temp.path().join("release.git");
+        git(
+            temp.path(),
+            &["init", "--bare", destination.to_str().unwrap()],
+        );
+        jjosh(
+            &client,
+            &[
+                "git",
+                "remote",
+                "add",
+                "release",
+                destination.to_str().unwrap(),
+            ],
+        );
+        jjosh(
+            &client,
+            &["projection", "remote", "attach", "release", "alpha"],
+        );
+        // --all explicitly permits publishing a tag already tracked elsewhere.
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "release",
+                "--all",
+                "--allow-empty-description",
+            ],
+        );
+        let published_outer = git(&destination, &["cat-file", "tag", "refs/tags/v1.0"]);
+        let published_inner_id = published_outer
+            .lines()
+            .next()
+            .unwrap()
+            .strip_prefix("object ")
+            .unwrap();
+        let published_inner = git(&destination, &["cat-file", "tag", published_inner_id]);
+        assert_eq!(
+            published_outer.split_once("\ntype ").unwrap().1,
+            git(&source, &["cat-file", "tag", &outer])
+                .split_once("\ntype ")
+                .unwrap()
+                .1
+        );
+        assert_eq!(
+            published_inner.split_once("\ntype ").unwrap().1,
+            git(&source, &["cat-file", "tag", &inner])
+                .split_once("\ntype ")
+                .unwrap()
+                .1
+        );
+        assert_eq!(
+            git(&destination, &["show", "v1.0:src/value.txt"]),
+            "alpha-v1\n"
+        );
+        assert_eq!(
+            git(&destination, &["ls-tree", "-r", "--name-only", "v1.0"]),
+            "outside.txt\nsrc/value.txt\n"
+        );
+        assert_ne!(
+            git(&destination, &["rev-parse", "v1.0^{}"]).trim(),
+            canonical
+        );
+        assert_eq!(git(&source, &["rev-parse", "refs/tags/v1.0"]).trim(), outer);
+        if native {
+            // A native JJ workspace source keeps annotation objects outside its
+            // commit-target view, so exercise that source path as well.
+            git(
+                &work,
+                &[
+                    "fetch",
+                    source.to_str().unwrap(),
+                    "refs/tags/v1.0:refs/tags/v1.0",
+                ],
+            );
+            jjosh(&work, &["git", "import"]);
+            jjosh(
+                &client,
+                &[
+                    "git",
+                    "remote",
+                    "add",
+                    "native-source",
+                    work.to_str().unwrap(),
+                ],
+            );
+            jjosh(
+                &client,
+                &["projection", "remote", "attach", "native-source", "alpha"],
+            );
+            jjosh(
+                &client,
+                &["git", "fetch", "--remote", "native-source", "--tag", "v1.0"],
+            );
+            assert_eq!(
+                git(
+                    &git_dir,
+                    &[
+                        "cat-file",
+                        "-t",
+                        "refs/jj/remote-tags/native-source/v1.0#alpha"
+                    ]
+                )
+                .trim(),
+                "tag"
+            );
+            assert_eq!(
+                git(
+                    &git_dir,
+                    &[
+                        "rev-parse",
+                        "refs/jj/remote-tags/native-source/v1.0#alpha^{}"
+                    ]
+                )
+                .trim(),
+                commit_id(
+                    &client,
+                    "remote_tags(exact:\"v1.0#alpha\", exact:\"native-source\")"
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn signed_scoped_tag_preflight_prevents_sibling_branch_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, true);
+    fs::write(client.join("alpha/value.txt"), "must not publish\n").unwrap();
+    jjosh(&client, &["describe", "-m", "signed release"]);
+    jjosh(&client, &["bookmark", "set", "main#alpha"]);
+    let canonical = commit_id(&client, "@");
+    let git_dir = PathBuf::from(
+        String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+            .unwrap()
+            .trim(),
+    );
+    // Signature-bearing tags are refused without attempting cryptographic
+    // validation. In particular, malformed armor must not become unsigned.
+    let signed = tag_object(
+        &git_dir,
+        &canonical,
+        "commit",
+        "inner",
+        "signed release\n-----BEGIN SSH SIGNATURE-----\ninvalid\n-----END SSH SIGNATURE-----\n",
+    );
+    let outer = tag_object(
+        &git_dir,
+        &signed,
+        "tag",
+        "v1.0#beta",
+        "outer unsigned annotation\n",
+    );
+    git(&git_dir, &["update-ref", "refs/tags/v1.0#beta", &outer]);
+    jjosh(&client, &["git", "import"]);
+    let refs = git(&git_dir, &["show-ref"]);
+    let operation = operation_id(&client);
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#alpha",
+            "--tag",
+            "v1.0#beta",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .to_lowercase()
+            .contains("signed")
+    );
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(git(&git_dir, &["show-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+}
+
+#[test]
+fn annotation_only_remote_replacement_requires_a_fresh_tag_lease() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, tip) = create_remote(temp.path(), "alpha");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &source, true);
+    let original = tag_object(&source, &tip, "commit", "v1.0", "original annotation\n");
+    git(&source, &["update-ref", "refs/tags/v1.0", &original]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "alpha-upstream",
+            "--tag",
+            "v1.0",
+        ],
+    );
+    let concurrent = tag_object(&source, &tip, "commit", "v1.0", "concurrent annotation\n");
+    git(
+        &source,
+        &["update-ref", "refs/tags/v1.0", &concurrent, &original],
+    );
+    assert_eq!(git(&source, &["rev-parse", "v1.0^{}"]).trim(), tip);
+    jjosh(&client, &["new", "-m", "replace release"]);
+    fs::write(client.join("alpha/value.txt"), "new release\n").unwrap();
+    jjosh(&client, &["tag", "set", "--allow-move", "v1.0#alpha"]);
+    let git_dir = PathBuf::from(
+        String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+            .unwrap()
+            .trim(),
+    );
+    let refs = git(&git_dir, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+    assert!(!rejected.status.success());
+    assert_eq!(
+        git(&source, &["rev-parse", "refs/tags/v1.0"]).trim(),
+        concurrent
+    );
+    assert_eq!(git(&git_dir, &["show-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "alpha-upstream",
+            "--tag",
+            "v1.0",
+        ],
+    );
+    jjosh(&client, &["git", "push", "--tag", "v1.0#alpha"]);
+    assert_eq!(
+        git(&source, &["show", "v1.0:src/value.txt"]),
+        "new release\n"
+    );
+}
+
+#[test]
+fn signed_transformed_fetch_does_not_grant_sibling_observations_or_leases() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, source, tip) = create_remote(temp.path(), "alpha");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &source, true);
+    let git_dir = PathBuf::from(
+        String::from_utf8(jjosh(&client, &["git", "root"]).stdout)
+            .unwrap()
+            .trim(),
+    );
+    let signed = tag_object(
+        &source,
+        &tip,
+        "commit",
+        "v1.0",
+        "signed\n-----BEGIN PGP SIGNATURE-----\ninvalid\n-----END PGP SIGNATURE-----\n",
+    );
+    git(&source, &["update-ref", "refs/tags/v1.0", &signed]);
+    git(&source, &["update-ref", "refs/heads/sibling", &tip]);
+    let refs = git(&git_dir, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "alpha-upstream",
+            "--branch",
+            "sibling",
+            "--tag",
+            "v1.0",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr)
+            .to_lowercase()
+            .contains("signed")
+    );
+    assert_eq!(git(&git_dir, &["show-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+    assert_eq!(
+        git(&source, &["rev-parse", "refs/tags/v1.0"]).trim(),
+        signed
+    );
+    // The same signed object remains legal on an ordinary unscoped remote.
+    jjosh(
+        &client,
+        &["git", "remote", "add", "ordinary", source.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "ordinary", "--tag", "v1.0"],
+    );
+    jjosh(&client, &["tag", "track", "v1.0@ordinary"]);
+    jjosh(&client, &["git", "export"]);
+    assert_eq!(
+        git(&git_dir, &["rev-parse", "refs/tags/v1.0"]).trim(),
+        signed
+    );
+}

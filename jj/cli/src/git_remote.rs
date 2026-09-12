@@ -18,15 +18,22 @@
 
 use std::pin::Pin;
 
-use jj_lib::git::{
-    GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitPushStats, GitRemoteObservation,
-    IgnoredRefspecs,
-};
-use jj_lib::ref_name::{GitRefNameBuf, RefName, RefNameBuf, RemoteName, RemoteNameBuf};
+use jj_lib::git::GitFetchRefExpression;
+use jj_lib::git::GitPushOptions;
+use jj_lib::git::GitPushRefTargets;
+use jj_lib::git::GitPushStats;
+use jj_lib::git::GitRemoteObservation;
+use jj_lib::git::IgnoredRefspecs;
+use jj_lib::ref_name::GitRefNameBuf;
+use jj_lib::ref_name::RefName;
+use jj_lib::ref_name::RefNameBuf;
+use jj_lib::ref_name::RemoteName;
+use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::str_util::StringExpression;
 
-use crate::cli_util::{CommandHelper, WorkspaceCommandHelper};
+use crate::cli_util::CommandHelper;
+use crate::cli_util::WorkspaceCommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 

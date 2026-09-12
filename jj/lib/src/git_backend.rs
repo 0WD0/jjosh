@@ -1338,160 +1338,10 @@ impl Backend for GitBackend {
 
     async fn write_commit(
         &self,
-        mut contents: Commit,
-        mut sign_with: Option<&mut SigningFn>,
+        contents: Commit,
+        sign_with: Option<&mut SigningFn>,
     ) -> BackendResult<(CommitId, Commit)> {
-        assert!(contents.secure_sig.is_none(), "commit.secure_sig was set");
-
-        let locked_repo = self.lock_git_repo();
-        let tree_ids = &contents.root_tree;
-        let git_tree_id = match tree_ids.as_resolved() {
-            Some(tree_id) => validate_git_object_id(&locked_repo, tree_id)?,
-            None => write_tree_conflict(&locked_repo, tree_ids)?,
-        };
-        let author = signature_to_git(&contents.author);
-        let mut committer = signature_to_git(&contents.committer);
-        let message = &contents.description;
-        if contents.parents.is_empty() {
-            return Err(BackendError::Other(
-                "Cannot write a commit with no parents".into(),
-            ));
-        }
-        let mut parents = SmallVec::new();
-        for parent_id in &contents.parents {
-            if *parent_id == self.root_commit_id {
-                // Git doesn't have a root commit, so if the parent is the root commit, we don't
-                // add it to the list of parents to write in the Git commit. We also check that
-                // there are no other parents since Git cannot represent a merge between a root
-                // commit and another commit.
-                if contents.parents.len() > 1 {
-                    return Err(BackendError::Unsupported(
-                        "The Git backend does not support creating merge commits with the root \
-                         commit as one of the parents."
-                            .to_owned(),
-                    ));
-                }
-            } else {
-                parents.push(validate_git_object_id(&locked_repo, parent_id)?);
-            }
-        }
-        let mut extra_headers: Vec<(BString, BString)> = vec![];
-        if !contents.conflict_labels.is_resolved() {
-            // Labels cannot contain '\n' since we use it as a separator in the header.
-            assert!(
-                contents
-                    .conflict_labels
-                    .iter()
-                    .all(|label| !label.contains('\n'))
-            );
-            let mut joined_with_newlines = contents.conflict_labels.iter().join("\n");
-            joined_with_newlines.push('\n');
-            extra_headers.push((
-                JJ_CONFLICT_LABELS_COMMIT_HEADER.into(),
-                joined_with_newlines.into(),
-            ));
-        }
-        if !tree_ids.is_resolved() {
-            let value = tree_ids.iter().map(|id| id.hex()).join(" ");
-            extra_headers.push((JJ_TREES_COMMIT_HEADER.into(), value.into()));
-        }
-        if self.write_change_id_header {
-            extra_headers.push((
-                CHANGE_ID_COMMIT_HEADER.into(),
-                contents.change_id.reverse_hex().into(),
-            ));
-        }
-
-        if tree_ids.iter().any(|id| id == &self.empty_tree_id) {
-            let tree = gix::objs::Tree::empty();
-            let tree_id =
-                locked_repo
-                    .write_object(&tree)
-                    .map_err(|err| BackendError::WriteObject {
-                        object_type: "tree",
-                        source: Box::new(err),
-                    })?;
-            assert!(tree_id.is_empty_tree());
-        }
-
-        let extras = serialize_extras(&contents);
-
-        // If two writers write commits of the same id with different metadata, they
-        // will both succeed and the metadata entries will be "merged" later. Since
-        // metadata entry is keyed by the commit id, one of the entries would be lost.
-        // To prevent such race condition locally, we extend the scope covered by the
-        // table lock. This is still racy if multiple machines are involved and the
-        // repository is rsync-ed.
-        let (table, table_lock) = self.read_extra_metadata_table_locked()?;
-        let id = loop {
-            let mut commit = gix::objs::Commit {
-                message: message.to_owned().into(),
-                tree: git_tree_id,
-                author: author.clone(),
-                committer: committer.clone(),
-                encoding: None,
-                parents: parents.clone(),
-                extra_headers: extra_headers.clone(),
-            };
-
-            if let Some(sign) = &mut sign_with {
-                // we don't use gix pool, but at least use their heuristic
-                let mut data = Vec::with_capacity(512);
-                commit.write_to(&mut data).unwrap();
-
-                let sig = sign(&data).map_err(|err| BackendError::WriteObject {
-                    object_type: "commit",
-                    source: Box::new(err),
-                })?;
-                let field = signature_field_name(git_tree_id.kind());
-                commit
-                    .extra_headers
-                    .push((field.into(), sig.clone().into()));
-                contents.secure_sig = Some(SecureSig { data, sig });
-            }
-
-            let git_id =
-                locked_repo
-                    .write_object(&commit)
-                    .map_err(|err| BackendError::WriteObject {
-                        object_type: "commit",
-                        source: Box::new(err),
-                    })?;
-
-            match table.get_value(git_id.as_bytes()) {
-                Some(existing_extras) if existing_extras != extras => {
-                    // It's possible a commit already exists with the same
-                    // commit id but different change id. Adjust the timestamp
-                    // until this is no longer the case.
-                    //
-                    // For example, this can happen when rebasing duplicate
-                    // commits, https://github.com/jj-vcs/jj/issues/694.
-                    //
-                    // `jj` resets the committer timestamp to the current
-                    // timestamp whenever it rewrites a commit. So, it's
-                    // unlikely for the timestamp to be 0 even if the original
-                    // commit had its timestamp set to 0. Moreover, we test that
-                    // a commit with a negative timestamp can still be written
-                    // and read back by `jj`.
-                    committer.time.seconds -= 1;
-                }
-                _ => break CommitId::from_bytes(git_id.as_bytes()),
-            }
-        };
-
-        // Everything up to this point had no permanent effect on the repo except
-        // GC-able objects
-        locked_repo
-            .edit_reference(to_no_gc_ref_update(&id))
-            .map_err(|err| BackendError::Other(Box::new(err)))?;
-
-        // Update the signature to match the one that was actually written to the object
-        // store
-        contents.committer.timestamp.timestamp = MillisSinceEpoch(committer.time.seconds * 1000);
-        let mut mut_table = table.start_mutation();
-        mut_table.add_entry(id.to_bytes(), extras);
-        self.save_extra_metadata_table(mut_table, &table_lock)?;
-        Ok((id, contents))
+        self.write_commit_impl(contents, sign_with, true)
     }
 
     fn get_copy_records(
@@ -1575,6 +1425,177 @@ impl Backend for GitBackend {
 }
 
 impl GitBackend {
+    /// Write transport objects without retaining refs or importing JJ metadata.
+    ///
+    /// Publication preparation must not change the repository's reference or
+    /// metadata state. The caller is responsible for retaining confirmed exports.
+    pub fn write_commit_for_export(&self, contents: Commit) -> BackendResult<(CommitId, Commit)> {
+        self.write_commit_impl(contents, None, false)
+    }
+
+    fn write_commit_impl(
+        &self,
+        mut contents: Commit,
+        mut sign_with: Option<&mut SigningFn>,
+        retain: bool,
+    ) -> BackendResult<(CommitId, Commit)> {
+        assert!(contents.secure_sig.is_none(), "commit.secure_sig was set");
+
+        let locked_repo = self.lock_git_repo();
+        let tree_ids = &contents.root_tree;
+        let git_tree_id = match tree_ids.as_resolved() {
+            Some(tree_id) => validate_git_object_id(&locked_repo, tree_id)?,
+            None => write_tree_conflict(&locked_repo, tree_ids)?,
+        };
+        let author = signature_to_git(&contents.author);
+        let mut committer = signature_to_git(&contents.committer);
+        let message = &contents.description;
+        if contents.parents.is_empty() {
+            return Err(BackendError::Other(
+                "Cannot write a commit with no parents".into(),
+            ));
+        }
+        let mut parents = SmallVec::new();
+        for parent_id in &contents.parents {
+            if *parent_id == self.root_commit_id {
+                // Git doesn't have a root commit, so if the parent is the root commit, we don't
+                // add it to the list of parents to write in the Git commit. We also check that
+                // there are no other parents since Git cannot represent a merge between a root
+                // commit and another commit.
+                if contents.parents.len() > 1 {
+                    return Err(BackendError::Unsupported(
+                        "The Git backend does not support creating merge commits with the root \
+                         commit as one of the parents."
+                            .to_owned(),
+                    ));
+                }
+            } else {
+                parents.push(validate_git_object_id(&locked_repo, parent_id)?);
+            }
+        }
+        let mut extra_headers: Vec<(BString, BString)> = vec![];
+        if !contents.conflict_labels.is_resolved() {
+            // Labels cannot contain '\n' since we use it as a separator in the header.
+            assert!(
+                contents
+                    .conflict_labels
+                    .iter()
+                    .all(|label| !label.contains('\n'))
+            );
+            let mut joined_with_newlines = contents.conflict_labels.iter().join("\n");
+            joined_with_newlines.push('\n');
+            extra_headers.push((
+                JJ_CONFLICT_LABELS_COMMIT_HEADER.into(),
+                joined_with_newlines.into(),
+            ));
+        }
+        if !tree_ids.is_resolved() {
+            let value = tree_ids.iter().map(|id| id.hex()).join(" ");
+            extra_headers.push((JJ_TREES_COMMIT_HEADER.into(), value.into()));
+        }
+        if self.write_change_id_header {
+            extra_headers.push((
+                CHANGE_ID_COMMIT_HEADER.into(),
+                contents.change_id.reverse_hex().into(),
+            ));
+        }
+
+        if tree_ids.iter().any(|id| id == &self.empty_tree_id) {
+            let tree = gix::objs::Tree::empty();
+            let tree_id =
+                locked_repo
+                    .write_object(&tree)
+                    .map_err(|err| BackendError::WriteObject {
+                        object_type: "tree",
+                        source: Box::new(err),
+                    })?;
+            assert!(tree_id.is_empty_tree());
+        }
+
+        let extras = retain.then(|| serialize_extras(&contents));
+
+        // If two writers write commits of the same id with different metadata, they
+        // will both succeed and the metadata entries will be "merged" later. Since
+        // metadata entry is keyed by the commit id, one of the entries would be lost.
+        // To prevent such race condition locally, we extend the scope covered by the
+        // table lock. This is still racy if multiple machines are involved and the
+        // repository is rsync-ed.
+        let metadata = retain
+            .then(|| self.read_extra_metadata_table_locked())
+            .transpose()?;
+        let id = loop {
+            let mut commit = gix::objs::Commit {
+                message: message.to_owned().into(),
+                tree: git_tree_id,
+                author: author.clone(),
+                committer: committer.clone(),
+                encoding: None,
+                parents: parents.clone(),
+                extra_headers: extra_headers.clone(),
+            };
+
+            if let Some(sign) = &mut sign_with {
+                // we don't use gix pool, but at least use their heuristic
+                let mut data = Vec::with_capacity(512);
+                commit.write_to(&mut data).unwrap();
+
+                let sig = sign(&data).map_err(|err| BackendError::WriteObject {
+                    object_type: "commit",
+                    source: Box::new(err),
+                })?;
+                let field = signature_field_name(git_tree_id.kind());
+                commit
+                    .extra_headers
+                    .push((field.into(), sig.clone().into()));
+                contents.secure_sig = Some(SecureSig { data, sig });
+            }
+
+            let git_id =
+                locked_repo
+                    .write_object(&commit)
+                    .map_err(|err| BackendError::WriteObject {
+                        object_type: "commit",
+                        source: Box::new(err),
+                    })?;
+
+            match metadata
+                .as_ref()
+                .and_then(|(table, _)| table.get_value(git_id.as_bytes()))
+            {
+                Some(existing_extras) if existing_extras != extras.as_deref().unwrap() => {
+                    // It's possible a commit already exists with the same
+                    // commit id but different change id. Adjust the timestamp
+                    // until this is no longer the case.
+                    //
+                    // For example, this can happen when rebasing duplicate
+                    // commits, https://github.com/jj-vcs/jj/issues/694.
+                    //
+                    // `jj` resets the committer timestamp to the current
+                    // timestamp whenever it rewrites a commit. So, it's
+                    // unlikely for the timestamp to be 0 even if the original
+                    // commit had its timestamp set to 0. Moreover, we test that
+                    // a commit with a negative timestamp can still be written
+                    // and read back by `jj`.
+                    committer.time.seconds -= 1;
+                }
+                _ => break CommitId::from_bytes(git_id.as_bytes()),
+            }
+        };
+
+        // Update the signature to match the one that was actually written to the object
+        // store
+        contents.committer.timestamp.timestamp = MillisSinceEpoch(committer.time.seconds * 1000);
+        if let Some((table, table_lock)) = metadata {
+            locked_repo
+                .edit_reference(to_no_gc_ref_update(&id))
+                .map_err(|err| BackendError::Other(Box::new(err)))?;
+            let mut mut_table = table.start_mutation();
+            mut_table.add_entry(id.to_bytes(), extras.unwrap());
+            self.save_extra_metadata_table(mut_table, &table_lock)?;
+        }
+        Ok((id, contents))
+    }
+
     /// Perform garbage collection.
     ///
     /// All commits found in the `index` won't be removed. In addition to that,

@@ -672,6 +672,7 @@ pub(crate) async fn export_project(
             );
         }
     }
+    let backend = jj_lib::git::get_git_backend(repo.store())?;
     let root = repo.store().root_commit_id();
     let mut mapped = HashMap::from([(
         root.clone(),
@@ -742,20 +743,19 @@ pub(crate) async fn export_project(
                 contents.conflict_labels = tree.labels().as_merge().clone();
                 contents.predecessors.clear();
                 contents.secure_sig = None;
-                let exported = repo.store().write_commit(contents.clone(), None).await?;
+                let (raw, exported) = backend.write_commit_for_export(contents.clone())?;
                 ensure!(
-                    exported.store_commit().as_ref() == &contents,
+                    exported == contents,
                     "Backend changed metadata while projecting {}",
                     commit.id()
                 );
-                if !known.contains_key(exported.id()) && published_ids.insert(exported.id().clone())
-                {
-                    publications.push((exported.id().clone(), commit.id().clone()));
+                if !known.contains_key(&raw) && published_ids.insert(raw.clone()) {
+                    publications.push((raw.clone(), commit.id().clone()));
                 }
                 mapped.insert(
                     commit.id().clone(),
                     Projected {
-                        raw: exported.id().clone(),
+                        raw,
                         tree: tree.tree_ids().clone(),
                     },
                 );
