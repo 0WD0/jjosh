@@ -416,6 +416,9 @@ impl Platform {
                             .ok_or_raise(|| message("amending did not produce a selection"))?;
                         println!("{}", crate::change_id::display(&output_repository, selected, 7)?);
                         print_ref_rewrites(&output_repository, &outcome.ref_rewrites)?;
+                        if let Some(notice) = outcome.notice {
+                            eprintln!("{notice}");
+                        }
                         record_undo(&output_repository, "amend", Ok(outcome.ref_changes));
                     }
                     None => println!("nothing to amend"),
