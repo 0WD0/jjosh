@@ -92,19 +92,19 @@ fn projected_info(
     ))
 }
 
-async fn reuse_filtered_commit(
+async fn find_existing_filtered_commit(
     repo: &MutableRepo,
     transaction: &Transaction,
     path: &Path,
     filtered: gix_hash::ObjectId,
-    matches: &mut Vec<ProjectedMatch>,
-) -> Result<CommitId, CommandError> {
+    matches: &[ProjectedMatch],
+) -> Result<(ChangeId, ProjectedContent, Option<CommitId>), CommandError> {
     let (change_id, content) = projected_info(transaction, filtered)?;
     if let Some(previous) = matches
         .iter()
         .find(|previous| previous.change_id == change_id && previous.content == content)
     {
-        return Ok(previous.canonical.clone());
+        return Ok((change_id, content, Some(previous.canonical.clone())));
     }
 
     let mut canonical: Option<CommitId> = None;
@@ -139,13 +139,86 @@ async fn reuse_filtered_commit(
             canonical = Some(id.clone());
         }
     }
-    let canonical = canonical.unwrap_or_else(|| crate::interop::commit_id_from_josh_oid(filtered));
-    matches.push(ProjectedMatch {
-        change_id,
-        content,
-        canonical: canonical.clone(),
-    });
-    Ok(canonical)
+    Ok((change_id, content, canonical))
+}
+
+enum ProjectedVisit {
+    Read(gix_hash::ObjectId),
+    Write(gix_hash::ObjectId),
+}
+
+async fn canonicalize_filtered_graph(
+    repo: &MutableRepo,
+    transaction: &Transaction,
+    path: &Path,
+    filtered: gix_hash::ObjectId,
+    matches: &mut Vec<ProjectedMatch>,
+) -> Result<CommitId, CommandError> {
+    let mut mapped: HashMap<gix_hash::ObjectId, CommitId> = HashMap::new();
+    let mut pending = vec![ProjectedVisit::Read(filtered)];
+    while let Some(visit) = pending.pop() {
+        match visit {
+            ProjectedVisit::Read(id) => {
+                if mapped.contains_key(&id) {
+                    continue;
+                }
+                let commit = josh_core::objects::CommitData::read(transaction.odb(), id)
+                    .map_err(user_error)?;
+                let parents: Vec<_> = commit.parent_ids().collect();
+                pending.push(ProjectedVisit::Write(id));
+                pending.extend(parents.into_iter().rev().map(ProjectedVisit::Read));
+            }
+            ProjectedVisit::Write(id) => {
+                if mapped.contains_key(&id) {
+                    continue;
+                }
+                let (change_id, content, reused) =
+                    find_existing_filtered_commit(repo, transaction, path, id, matches).await?;
+                let canonical = if let Some(reused) = reused {
+                    reused
+                } else {
+                    let commit = josh_core::objects::CommitData::read(transaction.odb(), id)
+                        .map_err(user_error)?;
+                    let original_parents: Vec<_> = commit.parent_ids().collect();
+                    let mut canonical_parents = Vec::with_capacity(original_parents.len());
+                    for parent in &original_parents {
+                        let mapped_parent = mapped.get(parent).ok_or_else(|| {
+                            user_error(format!(
+                                "Filtered parent {parent} was not canonicalized before {id}"
+                            ))
+                        })?;
+                        canonical_parents.push(
+                            gix_hash::ObjectId::try_from(mapped_parent.as_bytes())
+                                .map_err(user_error)?,
+                        );
+                    }
+                    let rewritten = if canonical_parents == original_parents {
+                        id
+                    } else {
+                        josh_core::history::rewrite_commit(
+                            transaction.odb(),
+                            &commit,
+                            &canonical_parents,
+                            josh_core::filter::Rewrite::from_commit_data(&commit)
+                                .map_err(user_error)?,
+                            josh_core::history::GpgsigMode::Remove,
+                        )
+                        .map_err(user_error)?
+                    };
+                    crate::interop::commit_id_from_josh_oid(rewritten)
+                };
+                matches.push(ProjectedMatch {
+                    change_id,
+                    content,
+                    canonical: canonical.clone(),
+                });
+                mapped.insert(id, canonical);
+            }
+        }
+    }
+    mapped
+        .remove(&filtered)
+        .ok_or_else(|| user_error("Filtered commit was not canonicalized"))
 }
 
 pub(crate) async fn fetch(
@@ -358,7 +431,8 @@ pub(crate) async fn fetch(
             if filtered.is_null() {
                 continue;
             }
-            reuse_filtered_commit(repo, transaction, path, filtered, &mut projected_matches).await?
+            canonicalize_filtered_graph(repo, transaction, path, filtered, &mut projected_matches)
+                .await?
         };
         let prefix = match kind {
             GitRefKind::Bookmark => "refs/remotes/",

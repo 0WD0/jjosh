@@ -1095,3 +1095,49 @@ fn link_push_then_fetch_reuses_published_local_change() {
         published_change
     );
 }
+
+#[test]
+fn link_push_then_fetches_descendant_without_duplicate_published_change() {
+    let temp = tempfile::tempdir().unwrap();
+    let (work, remote_bare, _) = create_remote(temp.path(), "descendant");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+            "--push-target",
+            "main",
+        ],
+    );
+    jjosh(&client, &["new"]);
+    fs::write(client.join("deps/value.txt"), "published\n").unwrap();
+    jjosh(&client, &["describe", "-m", "published local change"]);
+    let published = commit_id(&client, "@");
+    jjosh(&client, &["link", "push", "deps"]);
+
+    git(&work, &["fetch", remote_bare.to_str().unwrap(), "main"]);
+    git(&work, &["reset", "--hard", "FETCH_HEAD"]);
+    fs::write(work.join("src/value.txt"), "upstream descendant\n").unwrap();
+    git(&work, &["add", "src/value.txt"]);
+    git(&work, &["commit", "-m", "upstream descendant"]);
+    git(&work, &["push", remote_bare.to_str().unwrap(), "HEAD:main"]);
+
+    jjosh(&client, &["link", "update", "deps", "--branch", "main"]);
+    assert_no_divergent_changes(&client);
+    assert_eq!(
+        commit_id(&client, "parents(main#deps@deps-upstream)"),
+        published
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#deps@deps-upstream", "deps/value.txt"),
+        b"upstream descendant\n"
+    );
+}
