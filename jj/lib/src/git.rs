@@ -2570,6 +2570,198 @@ impl GitRemoteManagementError {
     }
 }
 
+/// Additional remote configuration understood by an embedding application.
+/// Arbitrary custom keys remain protected by the ordinary safety checks.
+#[derive(Default)]
+pub struct GitRemoteManagementOptions {
+    pub extra_config_keys: &'static [&'static str],
+    pub sidecar: Option<GitRemoteSidecar>,
+    /// Prepared repository-level settings committed alongside the Git remote.
+    pub repo_config: Option<crate::config::ConfigFile>,
+}
+
+/// A name-keyed metadata file to move, or retire when `new` is absent.
+pub struct GitRemoteSidecar {
+    pub old: PathBuf,
+    pub new: Option<PathBuf>,
+}
+
+fn lock_remote_config(
+    git_repo: &gix::Repository,
+) -> Result<gix::lock::Marker, GitRemoteManagementError> {
+    let path = git_repo
+        .config_path(gix::config::Source::Local)
+        .map_err(GitRemoteManagementError::from_git)?;
+    gix::lock::Marker::acquire_to_hold_resource(path, gix::lock::acquire::Fail::Immediately, None)
+        .map_err(GitRemoteManagementError::from_git)
+}
+
+/// All fallible preparation, including reference locks and destination collision
+/// checks, precedes mutation. Keep the config and sidecar locks until rollback or
+/// completion so another config writer cannot observe and overwrite half a move.
+fn commit_remote_management(
+    git_repo: &gix::Repository,
+    config: &gix::config::File,
+    edits: Vec<gix::refs::transaction::RefEdit>,
+    options: &GitRemoteManagementOptions,
+) -> Result<(), GitRemoteManagementError> {
+    let run = || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let config_path = config.meta().path.as_ref().expect("local Git config path");
+        let directory = config_path.parent().expect("Git config directory");
+        let mut replacement = tempfile::NamedTempFile::new_in(directory)?;
+        let backup = tempfile::NamedTempFile::new_in(directory)?;
+        std::fs::copy(config_path, backup.path())?;
+        replacement
+            .as_file()
+            .set_permissions(std::fs::metadata(config_path)?.permissions())?;
+        config.write_to_filter(replacement.as_file_mut(), |section| {
+            section.meta() == config.meta()
+        })?;
+        replacement.as_file().sync_all()?;
+        let mut repo_config_lock = None;
+        let mut repo_config_files = None;
+        if let Some(file) = &options.repo_config {
+            repo_config_lock = Some(gix::lock::Marker::acquire_to_hold_resource(
+                file.path(),
+                gix::lock::acquire::Fail::Immediately,
+                None,
+            )?);
+            let parent = file.path().parent().expect("repo config directory");
+            let replacement = tempfile::NamedTempFile::new_in(parent)?;
+            let backup = tempfile::NamedTempFile::new_in(parent)?;
+            std::fs::copy(file.path(), backup.path())?;
+            replacement
+                .as_file()
+                .set_permissions(std::fs::metadata(file.path())?.permissions())?;
+            let mut file = file.clone();
+            std::fs::write(replacement.path(), file.data_mut().to_string())?;
+            replacement.as_file().sync_all()?;
+            repo_config_files = Some((file.path().to_owned(), replacement, backup));
+        }
+
+        let mut sidecar_locks = Vec::new();
+        let mut retired = None;
+        let sidecar_move = if let Some(sidecar) = &options.sidecar {
+            let old_parent = sidecar.old.parent().expect("sidecar directory");
+            if old_parent.try_exists()? {
+                sidecar_locks.push(gix::lock::Marker::acquire_to_hold_resource(
+                    &sidecar.old,
+                    gix::lock::acquire::Fail::Immediately,
+                    None,
+                )?);
+            }
+            if let Some(new) = &sidecar.new {
+                if new.parent().expect("sidecar directory").try_exists()? {
+                    sidecar_locks.push(gix::lock::Marker::acquire_to_hold_resource(
+                        new,
+                        gix::lock::acquire::Fail::Immediately,
+                        None,
+                    )?);
+                }
+                // symlink_metadata detects dangling symlinks as collisions too.
+                match std::fs::symlink_metadata(new) {
+                    Ok(_) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::AlreadyExists,
+                            format!("Remote metadata already exists: {}", new.display()),
+                        )
+                        .into());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            match std::fs::symlink_metadata(&sidecar.old) {
+                Ok(metadata) => {
+                    if !metadata.file_type().is_file() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Remote metadata is not a regular file",
+                        )
+                        .into());
+                    }
+                    let destination = if let Some(new) = &sidecar.new {
+                        new.clone()
+                    } else {
+                        let temporary =
+                            tempfile::NamedTempFile::new_in(old_parent)?.into_temp_path();
+                        let path = temporary.to_path_buf();
+                        retired = Some(temporary);
+                        path
+                    };
+                    Some((&sidecar.old, destination))
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            None
+        };
+        let committer = git_repo.committer().transpose()?;
+        let references = git_repo.refs.transaction().prepare(
+            edits,
+            gix::lock::acquire::Fail::Immediately,
+            gix::lock::acquire::Fail::Immediately,
+        )?;
+        if let Some((old, new)) = &sidecar_move {
+            std::fs::rename(old, new)?;
+        }
+        let mut repo_config_backup = None;
+        let mut config_changed = false;
+        let result = (|| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            replacement.persist(config_path)?;
+            config_changed = true;
+            if let Some((path, replacement, backup)) = repo_config_files {
+                replacement.persist(&path)?;
+                repo_config_backup = Some((path, backup));
+            }
+            references.commit(committer)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            let restore_repo_config = if let Some((path, backup)) = repo_config_backup {
+                restore_remote_config(backup, &path)
+            } else {
+                Ok(())
+            };
+            let restore_config = if config_changed {
+                restore_remote_config(backup, config_path)
+            } else {
+                Ok(())
+            };
+            let restore_sidecar = if let Some((old, new)) = &sidecar_move {
+                std::fs::rename(new, old).map_err(|error| error.to_string())
+            } else {
+                Ok(())
+            };
+            if restore_config.is_err() || restore_sidecar.is_err() || restore_repo_config.is_err() {
+                // A failed restoration must preserve its backup and be reported,
+                // never be hidden behind the original error.
+                let retained = retired.map(|path| path.keep().map_err(|error| error.to_string()));
+                return Err(std::io::Error::other(format!(
+                    "{error}; rollback failed: config={restore_config:?}, repo config={restore_repo_config:?}, metadata={restore_sidecar:?}, retained metadata={retained:?}",
+                )).into());
+            }
+            return Err(error);
+        }
+        drop(repo_config_lock);
+        Ok(())
+    };
+    run().map_err(GitRemoteManagementError::from_git)
+}
+
+fn restore_remote_config(backup: tempfile::NamedTempFile, path: &Path) -> Result<(), String> {
+    backup.persist(path).map(|_| ()).map_err(|error| {
+        let cause = error.error.to_string();
+        let retained = error
+            .file
+            .keep()
+            .map(|(_, path)| path)
+            .map_err(|error| error.to_string());
+        format!("{cause}; retained backup: {retained:?}")
+    })
+}
+
 fn default_fetch_refspec(remote: &RemoteName) -> String {
     format!(
         "+refs/heads/*:{REMOTE_BOOKMARK_REF_NAMESPACE}{remote}/*",
@@ -2713,6 +2905,7 @@ fn remove_remote_git_branch_config_sections(
 fn remove_remote_git_config_sections(
     config: &mut gix::config::File,
     remote_name: &RemoteName,
+    extra_config_keys: &[&str],
 ) -> Result<(), GitRemoteManagementError> {
     let section_ids_to_remove: Vec<_> = config
         .sections_by_name("remote")
@@ -2726,6 +2919,10 @@ fn remove_remote_git_config_sections(
                 !name.eq_ignore_ascii_case("url")
                     && !name.eq_ignore_ascii_case("fetch")
                     && !name.eq_ignore_ascii_case("tagOpt")
+                    && !name.eq_ignore_ascii_case("pushurl")
+                    && !extra_config_keys
+                        .iter()
+                        .any(|key| name.eq_ignore_ascii_case(key))
             }) {
                 return Err(GitRemoteManagementError::NonstandardConfiguration(
                     remote_name.to_owned(),
@@ -2833,7 +3030,21 @@ pub fn remove_remote(
     mut_repo: &mut MutableRepo,
     remote_name: &RemoteName,
 ) -> Result<(), GitRemoteManagementError> {
-    let mut git_repo = get_git_repo(mut_repo.store())?;
+    remove_remote_with_options(
+        mut_repo,
+        remote_name,
+        &GitRemoteManagementOptions::default(),
+    )
+}
+
+pub fn remove_remote_with_options(
+    mut_repo: &mut MutableRepo,
+    remote_name: &RemoteName,
+    options: &GitRemoteManagementOptions,
+) -> Result<(), GitRemoteManagementError> {
+    let git_repo = get_git_repo(mut_repo.store())?;
+    let _config_lock = lock_remote_config(&git_repo)?;
+    let git_repo = get_git_repo(mut_repo.store())?;
 
     if try_find_active_remote_inner(&git_repo, remote_name).is_none() {
         return Err(GitRemoteManagementError::NoSuchRemote(
@@ -2843,11 +3054,10 @@ pub fn remove_remote(
 
     let mut config = git_repo.config_snapshot().clone();
     remove_remote_git_branch_config_sections(&mut config, remote_name)?;
-    remove_remote_git_config_sections(&mut config, remote_name)?;
-    save_git_config(&config).map_err(GitRemoteManagementError::GitConfigSaveError)?;
-
-    remove_remote_git_refs(&mut git_repo, remote_name)
+    remove_remote_git_config_sections(&mut config, remote_name, options.extra_config_keys)?;
+    let edits = remove_remote_git_ref_edits(&git_repo, remote_name)
         .map_err(GitRemoteManagementError::from_git)?;
+    commit_remote_management(&git_repo, &config, edits, options)?;
 
     if remote_name != REMOTE_NAME_FOR_LOCAL_GIT_REPO {
         remove_remote_refs(mut_repo, remote_name);
@@ -2856,10 +3066,11 @@ pub fn remove_remote(
     Ok(())
 }
 
-fn remove_remote_git_refs(
-    git_repo: &mut gix::Repository,
+fn remove_remote_git_ref_edits(
+    git_repo: &gix::Repository,
     remote: &RemoteName,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync + 'static>>
+{
     let bookmark_prefix = format!(
         "{REMOTE_BOOKMARK_REF_NAMESPACE}{remote}/",
         remote = remote.as_str()
@@ -2879,8 +3090,7 @@ fn remove_remote_git_refs(
             .map_ok(remove_ref),
     )
     .try_collect()?;
-    git_repo.edit_references(edits)?;
-    Ok(())
+    Ok(edits)
 }
 
 fn remove_remote_refs(mut_repo: &mut MutableRepo, remote: &RemoteName) {
@@ -2906,7 +3116,23 @@ pub fn rename_remote(
     old_remote_name: &RemoteName,
     new_remote_name: &RemoteName,
 ) -> Result<(), GitRemoteManagementError> {
-    let mut git_repo = get_git_repo(mut_repo.store())?;
+    rename_remote_with_options(
+        mut_repo,
+        old_remote_name,
+        new_remote_name,
+        &GitRemoteManagementOptions::default(),
+    )
+}
+
+pub fn rename_remote_with_options(
+    mut_repo: &mut MutableRepo,
+    old_remote_name: &RemoteName,
+    new_remote_name: &RemoteName,
+    options: &GitRemoteManagementOptions,
+) -> Result<(), GitRemoteManagementError> {
+    let git_repo = get_git_repo(mut_repo.store())?;
+    let _config_lock = lock_remote_config(&git_repo)?;
+    let git_repo = get_git_repo(mut_repo.store())?;
 
     validate_remote_name(new_remote_name)?;
 
@@ -2941,13 +3167,32 @@ pub fn rename_remote(
         .expect("default refspec to be valid");
 
     let mut config = git_repo.config_snapshot().clone();
+    let extra_values: Vec<_> = options
+        .extra_config_keys
+        .iter()
+        .flat_map(|key| {
+            let full_key = format!("remote.{}.{key}", old_remote_name.as_str());
+            config
+                .raw_values(full_key.as_str())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|value| (*key, value))
+                .collect_vec()
+        })
+        .collect();
     save_remote(&mut config, new_remote_name, &mut remote)?;
+    for (key, value) in extra_values {
+        config
+            .section_mut("remote", new_remote_name.as_str())
+            .map_err(GitRemoteManagementError::from_git)?
+            .push(key, value.as_slice())
+            .map_err(GitRemoteManagementError::from_git)?;
+    }
     rename_remote_in_git_branch_config_sections(&mut config, old_remote_name, new_remote_name)?;
-    remove_remote_git_config_sections(&mut config, old_remote_name)?;
-    save_git_config(&config).map_err(GitRemoteManagementError::GitConfigSaveError)?;
-
-    rename_remote_git_refs(&mut git_repo, old_remote_name, new_remote_name)
+    remove_remote_git_config_sections(&mut config, old_remote_name, options.extra_config_keys)?;
+    let edits = rename_remote_git_ref_edits(&git_repo, old_remote_name, new_remote_name)
         .map_err(GitRemoteManagementError::from_git)?;
+    commit_remote_management(&git_repo, &config, edits, options)?;
 
     if old_remote_name != REMOTE_NAME_FOR_LOCAL_GIT_REPO {
         rename_remote_refs(mut_repo, old_remote_name, new_remote_name);
@@ -2956,11 +3201,12 @@ pub fn rename_remote(
     Ok(())
 }
 
-fn rename_remote_git_refs(
-    git_repo: &mut gix::Repository,
+fn rename_remote_git_ref_edits(
+    git_repo: &gix::Repository,
     old_remote_name: &RemoteName,
     new_remote_name: &RemoteName,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+) -> Result<Vec<gix::refs::transaction::RefEdit>, Box<dyn std::error::Error + Send + Sync + 'static>>
+{
     let to_prefixes = |namespace: &str| {
         (
             format!("{namespace}{remote}/", remote = old_remote_name.as_str()),
@@ -3006,8 +3252,7 @@ fn rename_remote_git_refs(
     )
     .flatten_ok()
     .try_collect()?;
-    git_repo.edit_references(edits)?;
-    Ok(())
+    Ok(edits)
 }
 
 /// Sets the new URLs on the remote. If a URL of given kind is not provided, it

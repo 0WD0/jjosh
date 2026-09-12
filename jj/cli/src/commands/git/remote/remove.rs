@@ -35,13 +35,25 @@ pub async fn cmd_git_remote_remove(
     command: &CommandHelper,
     args: &GitRemoteRemoveArgs,
 ) -> Result<(), CommandError> {
-    let mut workspace_command = command.workspace_helper(ui).await?;
+    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let mut options = command
+        .git_remote_extension()
+        .map(|extension| {
+            extension.prepare_remote_management(&workspace_command, &args.remote, None)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    options.repo_config = remove_remote_from_repo_config(ui, command.raw_config(), &args.remote)?;
     let mut tx = workspace_command.start_transaction();
-    git::remove_remote(tx.repo_mut(), &args.remote)?;
-    remove_remote_from_repo_config(ui, command.raw_config(), &args.remote)?;
+    git::remove_remote_with_options(tx.repo_mut(), &args.remote, &options)?;
     if tx.repo().has_changes() {
-        tx.finish(ui, format!("remove git remote {}", args.remote.as_symbol()))
-            .await?;
+        tx.finish_with_git_import_export_lock(
+            ui,
+            format!("remove git remote {}", args.remote.as_symbol()),
+            &git_lock,
+        )
+        .await?;
     } else {
         // Do not print "Nothing changed." for the remote named "git".
     }

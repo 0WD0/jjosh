@@ -387,6 +387,15 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     if was_working_copy {
         tx.edit(&added)?;
     }
+    let project_mount = crate::native_project::parse_mount(mount).map_err(user_error)?;
+    crate::git_remote::validate_attachment(
+        &git_path,
+        &remote_name,
+        &project,
+        &project_mount,
+        Some(filter.prefix(&path)),
+    )
+    .map_err(user_error)?;
     josh_cli::remote_ops::configure_remote(
         &git_path,
         &remote_name,
@@ -395,15 +404,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         None,
         push_url.as_deref(),
         None,
-    )
-    .map_err(user_error)?;
-    let project_mount = crate::native_project::parse_mount(mount).map_err(user_error)?;
-    crate::git_remote::configure_attachment(
-        &git_path,
-        &remote_name,
-        &project,
-        &project_mount,
-        push_url.is_none(),
+        &crate::git_remote::attachment_settings(&project, &project_mount, push_url.is_none()),
     )
     .map_err(user_error)?;
     let configured_git = gix::open(&git_path).map_err(user_error)?;

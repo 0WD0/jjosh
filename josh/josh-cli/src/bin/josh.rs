@@ -452,6 +452,7 @@ fn handle_remote_add_repo(args: &RemoteAddArgs, repo_path: &std::path::Path) -> 
         forge,
         args.push_url.as_deref(),
         args.forge_args.gerrit_mode,
+        &[],
     )?;
 
     eprintln!("Added remote '{}' with filter '{}'", args.name, args.filter);

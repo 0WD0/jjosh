@@ -159,6 +159,163 @@ fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
 }
 
 #[test]
+fn rejected_projection_reconfiguration_preserves_effective_source_and_layout() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, original, _) = create_remote(temp.path(), "original");
+    let (_, replacement, _) = create_remote(temp.path(), "replacement");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "source",
+            original.to_str().unwrap(),
+            ":/src",
+            "--project",
+            "pkg",
+            "--mount",
+            "vendor/pkg",
+        ],
+    );
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "source",
+            replacement.to_str().unwrap(),
+            ":/",
+            "--project",
+            "pkg",
+            "--mount",
+            "wrong",
+        ],
+    );
+    assert!(!rejected.status.success());
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "source", "--branch", "main"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#pkg@source", "vendor/pkg/value.txt"),
+        b"original-v1\n",
+    );
+}
+
+#[test]
+fn project_peers_cannot_register_conflicting_mounts_or_source_filters() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, original, _) = create_remote(temp.path(), "original");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "source",
+            original.to_str().unwrap(),
+            ":/src",
+            "--project",
+            "pkg",
+            "--mount",
+            "vendor/pkg",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "remote", "add", "peer", original.to_str().unwrap()],
+    );
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "attach",
+            "peer",
+            "pkg",
+            "--mount",
+            "other/pkg",
+        ],
+    );
+    assert!(!rejected.status.success());
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "peer",
+            original.to_str().unwrap(),
+            ":/",
+            "--project",
+            "pkg",
+            "--mount",
+            "vendor/pkg",
+        ],
+    );
+    assert!(!rejected.status.success());
+    jjosh(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "peer",
+            original.to_str().unwrap(),
+            ":/src",
+            "--project",
+            "pkg",
+        ],
+    );
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "peer", "--branch", "main"],
+    );
+    assert_eq!(
+        file_at_revision(&client, "main#pkg@peer", "vendor/pkg/value.txt"),
+        b"original-v1\n",
+    );
+}
+
+#[test]
+fn reattachment_does_not_turn_an_invalid_read_only_policy_into_write_access() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, original, _) = create_remote(temp.path(), "original");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &["git", "remote", "add", "source", original.to_str().unwrap()],
+    );
+    jjosh(
+        &client,
+        &["projection", "remote", "attach", "source", "pkg"],
+    );
+    let git_path = String::from_utf8(jjosh(&client, &["git", "root"]).stdout).unwrap();
+    let git_path = Path::new(git_path.trim());
+    git(
+        git_path,
+        &["config", "remote.source.jjosh-readOnly", "invalid"],
+    );
+    let rejected = jjosh_unchecked(
+        &client,
+        &["projection", "remote", "attach", "source", "pkg"],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(
+        git(
+            git_path,
+            &["config", "--get", "remote.source.jjosh-readOnly"]
+        )
+        .trim(),
+        "invalid",
+    );
+}
+
+#[test]
 fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description() {
     let temp = tempfile::tempdir().unwrap();
     let (remote_work, remote_bare, _) = create_remote(temp.path(), "empty-tip");

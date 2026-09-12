@@ -38,18 +38,28 @@ pub async fn cmd_git_remote_rename(
     command: &CommandHelper,
     args: &GitRemoteRenameArgs,
 ) -> Result<(), CommandError> {
-    let mut workspace_command = command.workspace_helper(ui).await?;
+    let mut workspace_command = command.workspace_helper_no_snapshot(ui).await?;
+    let git_lock = workspace_command.lock_git_import_export()?;
+    let mut options = command
+        .git_remote_extension()
+        .map(|extension| {
+            extension.prepare_remote_management(&workspace_command, &args.old, Some(&args.new))
+        })
+        .transpose()?
+        .unwrap_or_default();
+    options.repo_config =
+        rename_remote_in_repo_config(ui, command.raw_config(), &args.old, &args.new)?;
     let mut tx = workspace_command.start_transaction();
-    git::rename_remote(tx.repo_mut(), &args.old, &args.new)?;
-    rename_remote_in_repo_config(ui, command.raw_config(), &args.old, &args.new)?;
+    git::rename_remote_with_options(tx.repo_mut(), &args.old, &args.new, &options)?;
     if tx.repo().has_changes() {
-        tx.finish(
+        tx.finish_with_git_import_export_lock(
             ui,
             format!(
                 "rename git remote {old} to {new}",
                 old = args.old.as_symbol(),
                 new = args.new.as_symbol()
             ),
+            &git_lock,
         )
         .await?;
     } else {

@@ -1,4 +1,5 @@
 mod fetch;
+mod lifecycle;
 mod push;
 
 use std::collections::BTreeMap;
@@ -91,7 +92,7 @@ impl GitPushRouter for DefaultPushRouter {
     }
 }
 
-fn remote_read_only(repo: &gix::Repository, remote: &RemoteName) -> Result<bool> {
+pub(crate) fn remote_read_only(repo: &gix::Repository, remote: &RemoteName) -> Result<bool> {
     repo.config_snapshot()
         .try_boolean(format!("remote.{}.jjosh-readOnly", remote.as_str()).as_str())
         .with_context(|| format!("Invalid read-only policy for remote {}", remote.as_str()))
@@ -114,6 +115,15 @@ pub(crate) fn project_mount(
     git_path: &std::path::Path,
     project: &str,
 ) -> Result<RepoPathBuf, CommandError> {
+    recorded_project_mount(git_path, project)?
+        .map(Ok)
+        .unwrap_or_else(|| crate::native_project::default_mount(project).map_err(user_error))
+}
+
+pub(crate) fn recorded_project_mount(
+    git_path: &std::path::Path,
+    project: &str,
+) -> Result<Option<RepoPathBuf>, CommandError> {
     let transaction = crate::interop::open_josh_transaction(git_path, true)?;
     let mut recorded = false;
     transaction
@@ -154,18 +164,16 @@ pub(crate) fn project_mount(
             mount = Some(path);
         }
     }
-    mount
-        .map(Ok)
-        .unwrap_or_else(|| crate::native_project::default_mount(project).map_err(user_error))
+    Ok(mount)
 }
 
-/// Bind layout identity to a named remote, never to a versioned transport marker.
-pub(crate) fn configure_attachment(
+/// Validate a complete proposed attachment before changing any configuration.
+pub(crate) fn validate_attachment(
     repo_path: &std::path::Path,
     remote: &str,
     project: &str,
     mount: &jj_lib::repo_path::RepoPath,
-    read_only: bool,
+    filter: Option<Filter>,
 ) -> Result<()> {
     crate::native_project::validate_project(project)?;
     let repo = gix::open(repo_path)?;
@@ -173,7 +181,6 @@ pub(crate) fn configure_attachment(
         repo.object_hash() == gix::hash::Kind::Sha1,
         "Project attachment requires SHA-1"
     );
-    repo.find_remote(remote)?;
     let project_key = format!("remote.{remote}.jjosh-project");
     let mount_key = format!("remote.{remote}.jjosh-mount");
     if let Some(existing) = config_string(&repo, &project_key)? {
@@ -188,13 +195,82 @@ pub(crate) fn configure_attachment(
             "Remote {remote} is already mounted at {existing}"
         );
     }
+    if let Some(recorded) =
+        recorded_project_mount(repo_path, project).map_err(|error| anyhow::anyhow!(error.error))?
+    {
+        ensure!(
+            recorded.as_ref() == mount,
+            "Project {project} is already mounted at {}",
+            recorded.as_internal_file_string()
+        );
+    }
+    let transaction = crate::interop::open_josh_transaction(repo_path, true)
+        .map_err(|error| anyhow::anyhow!(error.error))?;
+    if let Some(owner) = crate::native_project::native_project_for_mount(&transaction, mount)? {
+        ensure!(
+            owner == project,
+            "Mount belongs to project {owner}, not {project}"
+        );
+        ensure!(
+            filter.is_none_or(|filter| {
+                filter == Filter::new().prefix(mount.as_internal_file_string())
+            }),
+            "A native whole-project remote cannot apply a source-changing Josh filter"
+        );
+    }
+    if let Some(filter) = filter {
+        for name in repo.remote_names() {
+            let Ok(name) = std::str::from_utf8(&name) else {
+                continue;
+            };
+            if name == remote
+                || config_string(&repo, &format!("remote.{name}.jjosh-project"))?.as_deref()
+                    != Some(project)
+            {
+                continue;
+            }
+            if let Some(peer) =
+                josh_changes::remote_config::try_read_remote_config(repo_path, name)?
+            {
+                ensure!(
+                    peer.semantic_filter() == filter,
+                    "Project {project} has a different source filter in remote {name}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn attachment_settings<'a>(
+    project: &'a str,
+    mount: &'a jj_lib::repo_path::RepoPath,
+    read_only: bool,
+) -> [(&'static str, &'a str); 3] {
+    [
+        ("jjosh-project", project),
+        ("jjosh-mount", mount.as_internal_file_string()),
+        ("jjosh-readOnly", if read_only { "true" } else { "false" }),
+    ]
+}
+
+/// Bind layout identity to an existing named remote.
+pub(crate) fn configure_attachment(
+    repo_path: &std::path::Path,
+    remote: &str,
+    project: &str,
+    mount: &jj_lib::repo_path::RepoPath,
+    read_only: bool,
+) -> Result<()> {
+    let repo = gix::open(repo_path)?;
+    repo.find_remote(remote)?;
+    let filter = josh_changes::remote_config::try_read_remote_config(repo_path, remote)?
+        .map(|config| config.semantic_filter());
+    validate_attachment(repo_path, remote, project, mount, filter)?;
     let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local)?)?;
-    config.set_raw_value(project_key.as_str(), project)?;
-    config.set_raw_value(mount_key.as_str(), mount.as_internal_file_string())?;
-    config.set_raw_value(
-        format!("remote.{remote}.jjosh-readOnly").as_str(),
-        if read_only { "true" } else { "false" },
-    )?;
+    for (key, value) in attachment_settings(project, mount, read_only) {
+        config.set_raw_value(format!("remote.{remote}.{key}").as_str(), value)?;
+    }
     config.commit()?;
     Ok(())
 }
@@ -236,6 +312,15 @@ pub(crate) fn remote_endpoint(
 }
 
 impl GitRemoteExtension for Extension {
+    fn prepare_remote_management(
+        &self,
+        workspace: &WorkspaceCommandHelper,
+        old: &RemoteName,
+        new: Option<&RemoteName>,
+    ) -> Result<jj_lib::git::GitRemoteManagementOptions, CommandError> {
+        lifecycle::prepare(workspace, old, new)
+    }
+
     fn open(
         &self,
         command: &CommandHelper,
