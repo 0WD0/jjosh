@@ -2395,6 +2395,202 @@ fn test_import_some_refs() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn test_import_remote_observations_selected_deletion() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let options = auto_track_import_options();
+    let deleted = empty_git_commit(&git_repo, "refs/remotes/origin/deleted", &[]);
+    let kept = empty_git_commit(&git_repo, "refs/remotes/origin/kept", &[]);
+    let tag = empty_git_commit(&git_repo, "refs/jj/remote-tags/origin/v1", &[]);
+    let observations = [
+        (GitRefKind::Bookmark, "deleted", deleted),
+        (GitRefKind::Bookmark, "kept", kept),
+        (GitRefKind::Tag, "v1", tag),
+    ]
+    .map(|(kind, name, oid)| git::GitRemoteObservation {
+        kind,
+        symbol: remote_symbol(name, "origin").to_owned(),
+        target: RefTarget::normal(jj_id(oid)),
+        canonical_git_oid: Some(oid),
+    });
+    let mut tx = repo.start_transaction();
+    git::import_remote_observations(tx.repo_mut(), &options, observations, |_, symbol| {
+        symbol.remote == "origin"
+    })
+    .block_on()?;
+    let repo = tx.commit("initial observations").block_on()?;
+
+    delete_git_ref(&git_repo, "refs/remotes/origin/deleted");
+    delete_git_ref(&git_repo, "refs/jj/remote-tags/origin/v1");
+    // Even a physically missing unselected ref is not evidence of deletion.
+    delete_git_ref(&git_repo, "refs/remotes/origin/kept");
+    let mut tx = repo.start_transaction();
+    git::import_remote_observations(tx.repo_mut(), &options, [], |kind, symbol| {
+        symbol.remote == "origin" && (kind == GitRefKind::Tag || symbol.name == "deleted")
+    })
+    .block_on()?;
+    let view = tx.repo().view();
+    assert!(view.get_local_bookmark("deleted".as_ref()).is_absent());
+    assert!(
+        view.get_remote_bookmark(remote_symbol("deleted", "origin"))
+            .is_absent()
+    );
+    assert!(view.get_local_tag("v1".as_ref()).is_absent());
+    assert!(
+        view.get_remote_tag(remote_symbol("v1", "origin"))
+            .is_absent()
+    );
+    assert_eq!(
+        view.get_local_bookmark("kept".as_ref()),
+        &RefTarget::normal(jj_id(kept))
+    );
+    assert_eq!(
+        view.get_remote_bookmark(remote_symbol("kept", "origin"))
+            .target,
+        RefTarget::normal(jj_id(kept))
+    );
+    assert_eq!(
+        view.get_git_ref("refs/remotes/origin/kept".as_ref()),
+        &RefTarget::normal(jj_id(kept))
+    );
+    assert!(
+        view.get_git_ref("refs/remotes/origin/deleted".as_ref())
+            .is_absent()
+    );
+    assert!(view.heads().contains(&jj_id(kept)));
+    assert!(!view.heads().contains(&jj_id(deleted)));
+    assert!(!view.heads().contains(&jj_id(tag)));
+    Ok(())
+}
+
+#[test]
+fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let options = auto_track_import_options();
+    let base = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
+    let left = empty_git_commit(&git_repo, "refs/jjosh/test/left", &[base]);
+    let right = empty_git_commit(&git_repo, "refs/jjosh/test/right", &[base]);
+    let symbol = remote_symbol("main", "origin");
+    let mut tx = repo.start_transaction();
+    git::import_remote_observations(
+        tx.repo_mut(),
+        &options,
+        [git::GitRemoteObservation {
+            kind: GitRefKind::Bookmark,
+            symbol: symbol.to_owned(),
+            target: RefTarget::normal(jj_id(base)),
+            canonical_git_oid: Some(base),
+        }],
+        |_, candidate| candidate == symbol,
+    )
+    .block_on()?;
+    let repo = tx.commit("initial observation").block_on()?;
+
+    let conflict = RefTarget::from_legacy_form([jj_id(base)], [jj_id(left), jj_id(right)]);
+    delete_git_ref(&git_repo, "refs/remotes/origin/main");
+    let mut tx = repo.start_transaction();
+    git::import_remote_observations(
+        tx.repo_mut(),
+        &options,
+        [git::GitRemoteObservation {
+            kind: GitRefKind::Bookmark,
+            symbol: symbol.to_owned(),
+            target: conflict.clone(),
+            canonical_git_oid: None,
+        }],
+        |_, candidate| candidate == symbol,
+    )
+    .block_on()?;
+    let view = tx.repo().view();
+    assert_eq!(view.get_local_bookmark("main".as_ref()), &conflict);
+    assert_eq!(
+        view.get_remote_bookmark(symbol),
+        &RemoteRef {
+            target: conflict.clone(),
+            state: RemoteRefState::Tracked,
+        }
+    );
+    assert!(
+        view.get_git_ref("refs/remotes/origin/main".as_ref())
+            .is_absent()
+    );
+    assert_eq!(view.heads(), &hashset! { jj_id(left), jj_id(right) });
+    // Ordinary import has no physical evidence with which to replace a native
+    // conflict; private transport refs must not become visible observations.
+    git::import_refs(tx.repo_mut(), &options).block_on()?;
+    assert_eq!(
+        tx.repo().view().get_remote_bookmark(symbol).target,
+        conflict
+    );
+    assert_eq!(tx.repo().view().all_remote_bookmarks().count(), 1);
+    // Explicit successful observation of absence, however, deletes it.
+    git::import_remote_observations(tx.repo_mut(), &options, [], |_, candidate| {
+        candidate == symbol
+    })
+    .block_on()?;
+    assert!(tx.repo().view().get_remote_bookmark(symbol).is_absent());
+    assert!(
+        tx.repo()
+            .view()
+            .get_local_bookmark("main".as_ref())
+            .is_absent()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_import_remote_observations_unchanged_after_restore() -> TestResult {
+    let test_repo = TestRepo::init_with_backend(TestRepoBackend::Git);
+    let repo = &test_repo.repo;
+    let git_repo = get_git_repo(repo);
+    let options = auto_track_import_options();
+    let before = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[]);
+    let after = empty_git_commit(&git_repo, "refs/remotes/origin/main", &[before]);
+    let symbol = remote_symbol("main", "origin");
+    let observation = git::GitRemoteObservation {
+        kind: GitRefKind::Bookmark,
+        symbol: symbol.to_owned(),
+        target: RefTarget::normal(jj_id(after)),
+        canonical_git_oid: Some(after),
+    };
+    let mut tx = repo.start_transaction();
+    git::import_remote_observations(
+        tx.repo_mut(),
+        &options,
+        [observation.clone()],
+        |_, candidate| candidate == symbol,
+    )
+    .block_on()?;
+    // Operation restore restores logical refs while retaining current Git refs.
+    tx.repo_mut().set_remote_bookmark(
+        symbol,
+        RemoteRef {
+            target: RefTarget::normal(jj_id(before)),
+            state: RemoteRefState::Tracked,
+        },
+    );
+    tx.repo_mut()
+        .set_local_bookmark_target(symbol.name, RefTarget::normal(jj_id(before)));
+    git::import_remote_observations(tx.repo_mut(), &options, [observation], |_, candidate| {
+        candidate == symbol
+    })
+    .block_on()?;
+    let view = tx.repo().view();
+    assert_eq!(
+        view.get_remote_bookmark(symbol).target,
+        RefTarget::normal(jj_id(after))
+    );
+    assert_eq!(
+        view.get_local_bookmark(symbol.name),
+        &RefTarget::normal(jj_id(after))
+    );
+    Ok(())
+}
+
 fn git_ref(git_repo: &gix::Repository, name: &str, target: gix::ObjectId) {
     git_repo
         .reference(name, target, gix::refs::transaction::PreviousValue::Any, "")
