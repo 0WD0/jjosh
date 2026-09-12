@@ -140,13 +140,28 @@ pub fn read_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
 ) -> anyhow::Result<RemoteConfig> {
+    match try_read_remote_config(repo_path, remote_name)? {
+        Some(config) => Ok(config),
+        None => migrate_legacy_config(repo_path, remote_name),
+    }
+}
+
+/// Read authoritative named-remote configuration without modifying the repository.
+///
+/// Returns `None` only when the common-directory `josh/remotes/<name>.josh`
+/// file is absent. Invalid or unreadable configuration is an error, not an
+/// ordinary Git remote fallback. Legacy Git configuration is not migrated.
+pub fn try_read_remote_config(
+    repo_path: &std::path::Path,
+    remote_name: &str,
+) -> anyhow::Result<Option<RemoteConfig>> {
     let remotes_dir = remotes_dir(repo_path)?;
     let remote_file = remotes_dir.join(format!("{}.josh", remote_name));
 
     let content = match std::fs::read_to_string(&remote_file) {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return migrate_legacy_config(repo_path, remote_name);
+            return Ok(None);
         }
         Err(e) => {
             return Err(anyhow!(
@@ -189,14 +204,14 @@ pub fn read_remote_config(
         .map_err(|m| anyhow!("Unknown gerrit-mode: {m}"))?
         .unwrap_or_default();
 
-    Ok(RemoteConfig {
+    Ok(Some(RemoteConfig {
         url,
         ref_spec: fetch,
         filter_with_meta: filter,
         forge,
         push_url,
         gerrit_mode,
-    })
+    }))
 }
 
 /// Persist remote configuration under the repository's common Git directory.

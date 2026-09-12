@@ -554,6 +554,23 @@ impl GitImportRefUpdate {
     }
 }
 
+/// A complete logical remote-ref observation after conversion to this repo's
+/// canonical commit IDs, independent of transport and physical Git ref scanning.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitRemoteObservation {
+    pub kind: GitRefKind,
+    pub symbol: RemoteRefSymbolBuf,
+    /// May contain a native conflict. Every term must use canonical commit IDs.
+    pub target: RefTarget,
+    /// Peeled canonical commit ID of the physical Git mirror, if representable.
+    ///
+    /// This is never an endpoint/raw object ID or an annotated tag object ID.
+    /// Use `None` for an absent or conflicted target, and remove its physical
+    /// mirror. For a normal target, this must identify the same canonical commit.
+    /// Real remote tags aren't recorded in `View.git_refs`, as with Git scanning.
+    pub canonical_git_oid: Option<gix::ObjectId>,
+}
+
 /// Describes changes made by `import_refs()` or `fetch()`.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct GitImportStats {
@@ -650,6 +667,126 @@ pub async fn import_fetched_refs(
     let git_repo = get_git_repo(mut_repo.store())?;
     let refs_to_import = diff_refs_to_import(mut_repo.view(), &git_repo, true, git_ref_filter)?;
     import_refs_inner(mut_repo, refs_to_import, options).await
+}
+
+/// Applies a complete selected set of canonical remote observations.
+///
+/// Include unchanged refs: an explicit fetch must restore remote observations
+/// even when an operation restore retained the latest Git mirror state. Selected
+/// known refs omitted from `observations` are authoritative deletions; unselected
+/// refs are untouched. Each `(kind, symbol)` must occur at most once.
+///
+/// Transport must have successfully observed the entire selected set before
+/// calling this function. Rejected, missing transport results, and unobserved
+/// refs must not be converted into absence: abort or exclude them from selection.
+///
+/// This function does not read or write physical Git refs. The caller must first
+/// install/prune selected canonical mirrors in `refs/remotes/` (or local Git
+/// namespaces for `@git`) and `refs/jj/remote-tags/`. Nonrepresentable native
+/// conflicts have no mirror. Raw transport caches must stay outside these
+/// namespaces and must never enter `View.git_refs`, which records canonical
+/// mirrors only. Mirror installation and committing the jj operation are not
+/// atomic; a later ordinary import may recover already-installed mirrors.
+pub async fn import_remote_observations(
+    mut_repo: &mut MutableRepo,
+    options: &GitImportOptions,
+    observations: impl IntoIterator<Item = GitRemoteObservation>,
+    selected: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
+) -> Result<GitImportStats, GitImportError> {
+    get_git_backend(mut_repo.store())?;
+    let refs_to_import = diff_remote_observations(mut_repo.view(), observations, selected);
+    import_refs_inner(mut_repo, refs_to_import, options).await
+}
+
+fn diff_remote_observations(
+    view: &View,
+    observations: impl IntoIterator<Item = GitRemoteObservation>,
+    selected: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
+) -> RefsToImport {
+    let mut observations: BTreeMap<_, _> = observations
+        .into_iter()
+        .filter(|observation| selected(observation.kind, observation.symbol.as_ref()))
+        .map(|observation| ((observation.kind, observation.symbol.clone()), observation))
+        .collect();
+    let mut known_git_refs: HashMap<_, _> = view
+        .git_refs()
+        .iter()
+        .filter(|(name, _)| {
+            let (kind, symbol) = parse_git_ref(name).expect("stored git ref should be parsable");
+            selected(kind, symbol)
+        })
+        .collect();
+    let mut changed_git_refs = Vec::new();
+    for observation in observations.values() {
+        if let Some(name) = to_git_ref_name(observation.kind, observation.symbol.as_ref()) {
+            let old_target = known_git_refs
+                .remove(&name)
+                .unwrap_or_else(|| RefTarget::absent_ref());
+            let new_target = RefTarget::resolved(
+                observation
+                    .canonical_git_oid
+                    .map(|oid| CommitId::from_bytes(oid.as_bytes())),
+            );
+            if *old_target != new_target {
+                changed_git_refs.push((name, new_target));
+            }
+        }
+    }
+    changed_git_refs.extend(
+        known_git_refs
+            .into_keys()
+            .map(|name| (name.clone(), RefTarget::absent())),
+    );
+    let mut changed_remote_bookmarks = Vec::new();
+    let mut changed_remote_tags = Vec::new();
+    for (kind, refs) in [
+        (GitRefKind::Bookmark, view.all_remote_bookmarks().collect_vec()),
+        (GitRefKind::Tag, view.all_remote_tags().collect_vec()),
+    ] {
+        let changed = match kind {
+            GitRefKind::Bookmark => &mut changed_remote_bookmarks,
+            GitRefKind::Tag => &mut changed_remote_tags,
+        };
+        for (symbol, old_remote_ref) in refs {
+            if !selected(kind, symbol) {
+                continue;
+            }
+            let new_target = observations
+                .remove(&(kind, symbol.to_owned()))
+                .map_or_else(RefTarget::absent, |observation| observation.target);
+            if new_target != old_remote_ref.target {
+                changed.push(GitImportRefUpdate::new(
+                    symbol.to_owned(),
+                    old_remote_ref.clone(),
+                    new_target,
+                ));
+            }
+        }
+    }
+    for ((kind, symbol), observation) in observations {
+        if observation.target.is_absent() {
+            continue;
+        }
+        let changed = match kind {
+            GitRefKind::Bookmark => &mut changed_remote_bookmarks,
+            GitRefKind::Tag => &mut changed_remote_tags,
+        };
+        changed.push(GitImportRefUpdate::new(
+            symbol,
+            RemoteRef::absent_ref().clone(),
+            observation.target,
+        ));
+    }
+    changed_git_refs.sort_unstable_by(|(name1, _), (name2, _)| name1.cmp(name2));
+    changed_remote_bookmarks
+        .sort_unstable_by(|update1, update2| update1.symbol.cmp(&update2.symbol));
+    changed_remote_tags.sort_unstable_by(|update1, update2| update1.symbol.cmp(&update2.symbol));
+    RefsToImport {
+        changed_git_refs,
+        changed_remote_bookmarks,
+        changed_remote_tags,
+        failed_ref_names: Vec::new(),
+    }
 }
 
 async fn import_refs_inner(
