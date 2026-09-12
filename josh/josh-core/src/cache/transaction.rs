@@ -1732,6 +1732,24 @@ mod tests {
     }
 
     #[test]
+    fn rev_parse_reports_corrupt_objects_instead_of_absent_revisions() {
+        let (_dir, transaction) = test_transaction();
+        let repo = transaction.repo();
+        let corrupt = gix_object::Write::write_buf(
+            &repo.objects,
+            gix_object::Kind::Commit,
+            b"not a commit\n",
+        )
+        .unwrap();
+        transaction
+            .update_ref("refs/heads/main", Expected::Any, corrupt, "test")
+            .unwrap();
+        transaction.apply_pending_refs().unwrap();
+
+        assert!(transaction.rev_parse("main~1").is_err());
+    }
+
+    #[test]
     fn configuration_methods_use_repository_configuration() {
         let dir = tempfile::tempdir().unwrap();
         gix::init_bare(dir.path()).unwrap();
