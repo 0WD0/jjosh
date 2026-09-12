@@ -17,10 +17,49 @@ pub(crate) struct Args {
 
 #[derive(clap::Subcommand, Clone, Debug)]
 enum Command {
+    /// Register an existing monorepo directory independently of any remote.
+    Add(ProjectAddArgs),
+    /// List projects, mounts, projection remotes, and configuration problems.
+    List(OutputArgs),
+    /// Show one project's layout, remotes, and publication readiness.
+    Show(ShowArgs),
+    /// Diagnose project configuration without contacting remotes.
+    Check(CheckArgs),
     /// Preview a projected commit without changing refs or the working copy.
-    Status(StatusArgs),
+    Preview(PreviewArgs),
     /// Configure projection remotes.
     Remote(RemoteArgs),
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct ProjectAddArgs {
+    /// Project identity used in bookmark and tag names such as main#PROJECT.
+    project: String,
+    /// Existing directory, relative to the repository root in recorded @.
+    #[arg(long)]
+    mount: String,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct OutputArgs {
+    /// Emit structured JSON instead of human-readable output.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct ShowArgs {
+    project: String,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+struct CheckArgs {
+    /// Limit diagnostics to this project and its remotes.
+    project: Option<String>,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -68,13 +107,30 @@ impl FilterArgs {
 }
 
 #[derive(clap::Args, Clone, Debug)]
-struct StatusArgs {
-    #[command(flatten)]
-    projection: FilterArgs,
+#[command(group(
+    clap::ArgGroup::new("selection").required(true).args(["filter", "view", "project"])
+))]
+struct PreviewArgs {
+    /// Josh filter expression applied to the selected recorded revision.
+    filter: Option<String>,
+    /// Versioned workspace.josh view, relative to the repository root.
+    #[arg(long)]
+    view: Option<String>,
+    /// Preview this project's directory view using its recorded mount.
+    #[arg(long)]
+    project: Option<String>,
 
     /// Revision to project.
     #[arg(short = 'r', long, default_value = "@")]
     revision: RevisionArg,
+    /// List files in the resulting view, relative to its root.
+    #[arg(long)]
+    files: bool,
+    /// List commits and parent IDs in the resulting view history.
+    #[arg(long)]
+    history: bool,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -124,7 +180,15 @@ pub(crate) async fn run(
     args: Args,
 ) -> Result<(), CommandError> {
     match args.command {
-        Command::Status(args) => run_status(ui, command_helper, args).await,
+        Command::Add(args) => run_project_add(ui, command_helper, args).await,
+        Command::List(args) => run_inspect(ui, command_helper, None, args, false).await,
+        Command::Show(args) => {
+            run_inspect(ui, command_helper, Some(args.project), args.output, false).await
+        }
+        Command::Check(args) => {
+            run_inspect(ui, command_helper, args.project, args.output, true).await
+        }
+        Command::Preview(args) => run_preview(ui, command_helper, args).await,
         Command::Remote(args) => run_remote(ui, command_helper, args).await,
     }
 }
@@ -157,7 +221,7 @@ async fn recorded_workspace(
         .await?;
         let [operation] = heads.as_slice() else {
             return Err(user_error(
-                "Projection requires one recorded operation head; reconcile operations separately or select --at-operation for status",
+                "Projection requires one recorded operation head; reconcile operations separately or select --at-operation for read-only inspection",
             ));
         };
         operation.clone()
@@ -166,10 +230,230 @@ async fn recorded_workspace(
     command_helper.for_workable_repo(ui, workspace, repo)
 }
 
-async fn run_status(
+async fn run_project_add(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    args: ProjectAddArgs,
+) -> Result<(), CommandError> {
+    require_current_operation(command)?;
+    let workspace = recorded_workspace(ui, command).await?;
+    let git_path = sha1_git_repo_path(&workspace)?;
+    let project = crate::native_project::parse_project(&args.project).map_err(user_error)?;
+    let mount = crate::native_project::parse_mount(&args.mount).map_err(user_error)?;
+    let commit = workspace
+        .resolve_single_rev(ui, &RevisionArg::AT)
+        .await?;
+    if !crate::native_project::commit_path_occupied(&commit, &mount)
+        .await
+        .map_err(user_error)?
+    {
+        return Err(user_error(format!(
+            "No directory at {} in recorded @; record working files before registering the project",
+            mount.as_internal_file_string(),
+        )));
+    }
+    // This also rejects a file or symlink where a directory is expected.
+    crate::native_project::project_tree(&commit, &mount)
+        .await
+        .map_err(user_error)?;
+    let _git_lock = workspace.lock_git_import_export()?;
+    crate::project_config::register(&git_path, &project, &mount).map_err(user_error)?;
+    writeln!(
+        ui.status(),
+        "Registered {project} at {}",
+        mount.as_internal_file_string()
+    )?;
+    Ok(())
+}
+
+fn write_json(ui: &mut Ui, value: &impl serde::Serialize) -> Result<(), CommandError> {
+    serde_json::to_writer_pretty(ui.stdout(), value).map_err(user_error)?;
+    writeln!(ui.stdout())?;
+    Ok(())
+}
+
+async fn run_inspect(
+    ui: &mut Ui,
+    command: &CommandHelper,
+    project: Option<String>,
+    args: OutputArgs,
+    check: bool,
+) -> Result<(), CommandError> {
+    use crate::project_config::Severity;
+    let workspace = recorded_workspace(ui, command).await?;
+    let git_path = sha1_git_repo_path(&workspace)?;
+    let mut inventory = crate::project_config::inspect(&git_path).map_err(user_error)?;
+    if let Some(project) = project {
+        let project = crate::native_project::parse_project(&project).map_err(user_error)?;
+        let selected = inventory
+            .projects
+            .iter()
+            .find(|entry| entry.name == project)
+            .ok_or_else(|| user_error(format!("Unknown project {project}")))?;
+        inventory
+            .issues
+            .retain(|issue| issue.subject == project || selected.remotes.contains(&issue.subject));
+        inventory
+            .remotes
+            .retain(|remote| selected.remotes.contains(&remote.name));
+        inventory.projects.retain(|entry| entry.name == project);
+    }
+    let failed = inventory
+        .issues
+        .iter()
+        .any(|issue| issue.severity == Severity::Error);
+    if args.json {
+        write_json(ui, &inventory)?;
+    } else {
+        writeln!(ui.stdout(), "PROJECT\tMOUNT\tREGISTRATION\tREMOTES")?;
+        for project in &inventory.projects {
+            writeln!(
+                ui.stdout(),
+                "{}\t{}\t{}\t{}",
+                project.name,
+                project.mount.as_deref().unwrap_or("(invalid)"),
+                if project.native {
+                    "native"
+                } else if project.registered {
+                    "registered"
+                } else {
+                    "remote-derived"
+                },
+                if project.remotes.is_empty() {
+                    "(none)".to_owned()
+                } else {
+                    project.remotes.join(", ")
+                },
+            )?;
+        }
+        for remote in &inventory.remotes {
+            writeln!(ui.stdout(), "\nRemote: {}", remote.name)?;
+            writeln!(
+                ui.stdout(),
+                "  Project: {}",
+                remote.project.as_deref().unwrap_or("(standalone)")
+            )?;
+            writeln!(
+                ui.stdout(),
+                "  Fetch: {}",
+                remote.fetch_url.as_deref().unwrap_or("(missing)")
+            )?;
+            writeln!(
+                ui.stdout(),
+                "  Push: {}",
+                remote.push_url.as_deref().unwrap_or("(missing)")
+            )?;
+            writeln!(
+                ui.stdout(),
+                "  Writable: {}",
+                match remote.read_only {
+                    Some(false) => "yes",
+                    Some(true) => "no",
+                    None => "invalid policy",
+                }
+            )?;
+            if let Some(filter) = &remote.filter {
+                writeln!(ui.stdout(), "  Source filter: {filter}")?;
+            }
+        }
+        for issue in &inventory.issues {
+            writeln!(
+                ui.stdout(),
+                "{} [{}]: {}",
+                match issue.severity {
+                    Severity::Error => "Error",
+                    Severity::Warning => "Warning",
+                },
+                issue.subject,
+                issue.message
+            )?;
+        }
+        if check && inventory.issues.is_empty() {
+            writeln!(ui.stdout(), "Configuration is consistent.")?;
+        }
+    }
+    if check && failed {
+        return Err(user_error("Projection configuration has errors"));
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct Preview {
+    project: Option<String>,
+    mount: Option<String>,
+    filter: String,
+    source_commit: String,
+    source_change_id: String,
+    projected_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history: Option<Vec<PreviewCommit>>,
+}
+
+#[derive(serde::Serialize)]
+struct PreviewCommit {
+    commit: String,
+    parents: Vec<String>,
+    description: String,
+}
+
+fn preview_files(
+    transaction: &josh_core::cache::Transaction,
+    head: gix_hash::ObjectId,
+) -> anyhow::Result<Vec<String>> {
+    let mut files = Vec::new();
+    if head.is_null() {
+        return Ok(files);
+    }
+    let tree = josh_core::objects::CommitData::read(transaction.odb(), head)?.tree_id()?;
+    let mut pending = vec![(String::new(), tree)];
+    while let Some((prefix, tree)) = pending.pop() {
+        for entry in josh_core::objects::read_tree_entries(transaction.odb(), tree)? {
+            let name = std::str::from_utf8(&entry.filename)?;
+            let path = format!("{prefix}{name}");
+            if entry.mode.is_tree() {
+                pending.push((format!("{path}/"), entry.oid));
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn preview_history(
+    transaction: &josh_core::cache::Transaction,
+    head: gix_hash::ObjectId,
+) -> anyhow::Result<Vec<PreviewCommit>> {
+    let mut commits = Vec::new();
+    if head.is_null() {
+        return Ok(commits);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut pending = vec![head];
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let commit = josh_core::objects::CommitData::read(transaction.odb(), id)?;
+        let parents: Vec<_> = commit.parent_ids().collect();
+        pending.extend(parents.iter().rev().copied());
+        commits.push(PreviewCommit {
+            commit: id.to_string(),
+            parents: parents.iter().map(ToString::to_string).collect(),
+            description: std::str::from_utf8(commit.message_raw()?)?.to_owned(),
+        });
+    }
+    Ok(commits)
+}
+
+async fn run_preview(
     ui: &mut Ui,
     command_helper: &CommandHelper,
-    args: StatusArgs,
+    args: PreviewArgs,
 ) -> Result<(), CommandError> {
     let workspace_command = recorded_workspace(ui, command_helper).await?;
     jj_lib::git::get_git_backend(workspace_command.repo().store())?.disable_lazy_commit_imports();
@@ -180,7 +464,30 @@ async fn run_status(
     check_projectable_repo_history(workspace_command.repo().as_ref(), &commit).await?;
 
     let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let filter = args.projection.resolve()?;
+    let project = args
+        .project
+        .as_deref()
+        .map(crate::native_project::parse_project)
+        .transpose()
+        .map_err(user_error)?;
+    let mount = project
+        .as_deref()
+        .map(|project| {
+            crate::git_remote::recorded_project_mount(&git_repo_path, project)?
+                .ok_or_else(|| user_error(format!("Unknown project {project}")))
+        })
+        .transpose()?;
+    let filter = if let Some(mount) = &mount {
+        josh_core::filter::Filter::new()
+            .subdir(mount.as_internal_file_string())
+            .exclude(josh_core::filter::Filter::new().file(".link.josh"))
+    } else {
+        FilterArgs {
+            filter: args.filter,
+            view: args.view,
+        }
+        .resolve()?
+    };
     let source_oid = commit_as_josh_oid(&commit)?;
 
     // Filtering transforms history; the displayed change ID belongs to the source,
@@ -189,15 +496,75 @@ async fn run_status(
     let projected_oid = josh_core::filter_commit(&transaction, filter, source_oid)
         .map_err(|err| user_error_with_message("Failed to apply the Josh projection", err))?;
 
-    writeln!(
-        ui.stdout(),
-        "Projection: {}",
-        josh_core::filter::spec(filter)
-    )?;
-    writeln!(ui.stdout(), "Source commit: {source_oid}")?;
-    writeln!(ui.stdout(), "Projected commit: {projected_oid}")?;
-    writeln!(ui.stdout(), "Source change ID: {}", commit.change_id())?;
-    writeln!(ui.stdout(), "Objects persisted: no")?;
+    let preview = Preview {
+        project,
+        mount: mount.map(|mount| mount.as_internal_file_string().to_owned()),
+        filter: josh_core::filter::spec(filter),
+        source_commit: source_oid.to_string(),
+        source_change_id: commit.change_id().to_string(),
+        projected_commit: (!projected_oid.is_null()).then(|| projected_oid.to_string()),
+        files: args
+            .files
+            .then(|| preview_files(&transaction, projected_oid))
+            .transpose()
+            .map_err(user_error)?,
+        history: args
+            .history
+            .then(|| preview_history(&transaction, projected_oid))
+            .transpose()
+            .map_err(user_error)?,
+    };
+    if args.output.json {
+        write_json(ui, &preview)?;
+    } else {
+        if let (Some(project), Some(mount)) = (&preview.project, &preview.mount) {
+            writeln!(ui.stdout(), "Project directory view: {project} at {mount}")?;
+        }
+        writeln!(ui.stdout(), "Projection: {}", preview.filter)?;
+        writeln!(ui.stdout(), "Source commit: {}", preview.source_commit)?;
+        writeln!(
+            ui.stdout(),
+            "Projected commit: {}",
+            preview
+                .projected_commit
+                .as_deref()
+                .unwrap_or("(empty view)")
+        )?;
+        writeln!(
+            ui.stdout(),
+            "Source change ID: {}",
+            preview.source_change_id
+        )?;
+        writeln!(ui.stdout(), "Objects persisted: no")?;
+        if let Some(files) = &preview.files {
+            writeln!(ui.stdout(), "Files ({}):", files.len())?;
+            for path in files {
+                writeln!(ui.stdout(), "  {path:?}")?;
+            }
+        }
+        if let Some(history) = &preview.history {
+            writeln!(
+                ui.stdout(),
+                "Projected history ({} commits):",
+                history.len()
+            )?;
+            for commit in history {
+                writeln!(
+                    ui.stdout(),
+                    "  {} {:?} parents=[{}]",
+                    commit.commit,
+                    commit.description.lines().next().unwrap_or(""),
+                    commit.parents.join(", ")
+                )?;
+            }
+        }
+        if preview.project.is_some() {
+            writeln!(
+                ui.stdout(),
+                "This is the local directory view; git push --dry-run resolves the reverse-publication plan."
+            )?;
+        }
+    }
     Ok(())
 }
 

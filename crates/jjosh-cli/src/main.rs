@@ -10,6 +10,7 @@ mod native_bundle;
 mod native_import;
 mod native_project;
 mod native_source;
+mod project_config;
 mod projection;
 mod ref_names;
 mod transplant;

@@ -94,16 +94,64 @@ pub(crate) fn check_mounts_disjoint<'a>(
     Ok(())
 }
 
-fn list_native_projects(transaction: &Transaction) -> Result<Vec<String>> {
+/// Projects with explicit mount ownership, independent of conversion provenance.
+pub(crate) fn list_registered_projects(transaction: &Transaction) -> Result<Vec<String>> {
+    project_names_matching(transaction, |suffix| suffix == "mount")
+}
+
+/// Only correspondence records establish native graph provenance. Mount records
+/// and retained raw objects alone must not change a Josh project's conversion.
+pub(crate) fn list_native_projects(transaction: &Transaction) -> Result<Vec<String>> {
+    project_names_matching(transaction, |suffix| {
+        suffix.split_once('/').is_some_and(|(kind, raw)| {
+            matches!(kind, "origin" | "published" | "graft") && !raw.is_empty()
+        })
+    })
+}
+
+fn project_names_matching(
+    transaction: &Transaction,
+    matches: impl Fn(&str) -> bool,
+) -> Result<Vec<String>> {
     let mut names = BTreeSet::new();
     transaction.for_each_ref_prefixed("refs/jjosh/native/", |name, _| {
         let rest = name.strip_prefix("refs/jjosh/native/").unwrap_or(name);
-        if let Some(project) = rest.split('/').next().filter(|name| !name.is_empty()) {
-            names.insert(project.to_owned());
+        for (index, _) in rest.match_indices('/') {
+            if matches(&rest[index + 1..]) {
+                names.insert(rest[..index].to_owned());
+                break;
+            }
         }
         Ok(())
     })?;
     Ok(names.into_iter().collect())
+}
+
+pub(crate) fn is_registered(transaction: &Transaction, project: &str) -> Result<bool> {
+    Ok(transaction.resolve_ref(&mount_ref_name(project))?.is_some())
+}
+
+/// Mount ownership includes offline registrations and legacy native provenance.
+pub(crate) fn project_for_mount(
+    transaction: &Transaction,
+    mount: &RepoPath,
+) -> Result<Option<String>> {
+    let names: BTreeSet<_> = list_registered_projects(transaction)?
+        .into_iter()
+        .chain(list_native_projects(transaction)?)
+        .collect();
+    let mut matched = None;
+    for project in names {
+        if load_mount(transaction, &project)?.as_ref() == mount {
+            ensure!(
+                matched.is_none(),
+                "Mount {} is claimed by multiple projects",
+                mount.as_internal_file_string()
+            );
+            matched = Some(project);
+        }
+    }
+    Ok(matched)
 }
 
 pub(crate) fn load_mount(transaction: &Transaction, project: &str) -> Result<RepoPathBuf> {
@@ -122,28 +170,30 @@ pub(crate) fn record_mount(
     project: &str,
     mount: &RepoPath,
 ) -> Result<()> {
-    if let Some(other) = native_project_for_mount(transaction, mount)? {
+    validate_project(project)?;
+    parse_mount(mount.as_internal_file_string())?;
+    if let Some(other) = project_for_mount(transaction, mount)? {
         ensure!(
             other == project,
-            "Mount {} is already used by native project {other}",
+            "Mount {} is already used by project {other}",
             mount.as_internal_file_string()
         );
+    }
+    let name = mount_ref_name(project);
+    if transaction.resolve_ref(&name)?.is_some() {
+        let existing = load_mount(transaction, project)?;
+        ensure!(
+            existing.as_ref() == mount,
+            "Project {project} is already mounted at {}",
+            existing.as_internal_file_string()
+        );
+        return Ok(());
     }
     let blob = josh_core::objects::write_blob(
         transaction.odb(),
         mount.as_internal_file_string().as_bytes(),
     )?;
-    let name = mount_ref_name(project);
-    let previous = transaction.resolve_ref(&name)?;
-    if let Some(old) = previous {
-        ensure!(
-            old == blob,
-            "Native project {project} is already mounted at {}",
-            load_mount(transaction, project)?.as_internal_file_string()
-        );
-        return Ok(());
-    }
-    transaction.update_ref(&name, Expected::Absent, blob, "record native project mount")
+    transaction.update_ref(&name, Expected::Absent, blob, "record project mount")
 }
 
 pub(crate) fn native_project_for_mount(

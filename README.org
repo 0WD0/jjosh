@@ -59,12 +59,36 @@ jjosh git push --bookmark 'topic#*'
 | 想做的事 | 用什么 | 改变什么 |
 |----------+--------+----------|
 | 把已有 jj 项目的开发状态纳入 monorepo | native import | 将来源原生图映射到目标目录，保留 change 身份 |
+| 为 monorepo 内已有目录登记独立项目 | projection add/list/show/check | 项目名与目录的本地登记，不要求已有 remote |
 | 持续获取、发布一个子项目 | git fetch/push | 来源坐标与 monorepo 坐标之间的历史和普通 jj 远端观察 |
 | 只检出一部分文件，或换一种本地构建布局 | sparse | 工作副本，不生成另一份提交历史 |
 | 把仓库的一部分作为独立历史视图开发 | projection | 经过 Josh 转换的历史，可反向发布 |
 | 在仓库内整体搬迁一段可变修改图 | native transplant | 显式选定提交的路径与父关系 |
 
 native 与 link 可以配合：先把已有本地软 fork 原样纳入，再用 link add 初始化 named remote。也可以把普通 Git remote 通过 =projection remote attach= 绑定到项目。不必把当前 fork 顶端伪装成一个干净上游基线。
+
+* 首次发布 monorepo 中已有的目录
+
+已有目录不需要重新 import 或 link。先把项目身份和目录独立登记，再配置发布地址。例如目录叫 =rivulet.el/=，引用中的项目名叫 =rivulet=：
+
+#+begin_src sh
+jjosh projection add rivulet --mount rivulet.el
+jjosh projection show rivulet
+jjosh projection preview --project rivulet -r @ --files --history
+
+# 目标是已创建的空 Git 仓库。
+jjosh git remote add rivulet-origin /path/to/rivulet.git
+jjosh projection remote attach rivulet-origin rivulet
+jjosh bookmark create main#rivulet -r @
+jjosh git push --remote rivulet-origin --bookmark main#rivulet --dry-run
+jjosh git push --remote rivulet-origin --bookmark main#rivulet
+#+end_src
+
+=--mount= 总是相对仓库根目录。=projection add= 读取已记录的 =@=，不 snapshot 工作文件，也不移动目录或导入历史；刚创建的文件先用 =jjosh status= 记录。挂载登记复用已有私有 mount ref，删除最后一个 remote 后仍保留。为已有 filtered 项目登记目录不会把它改成 native 转换。
+
+=projection list= 汇总项目、目录和 remotes；=show PROJECT= 只看一个项目。仅由 remote 推导的绑定显示为 =remote-derived=，也可用 =add= 独立登记。=check [PROJECT]= 汇总配置错误和发布路由警告，不连接远端；错误返回非零退出码，无可写目的地或多个可写候选只发出警告。离线项目可以先登记，发布时再选择目的地。
+
+=list/show/check/preview= 均支持 =--json=。=preview= 替代原来的 =projection status=，可选择 =--project NAME=、filter 或 =--view PATH=，三者互斥；按需用 =--files=、=--history= 查看文件和转换后的历史，不持久化转换对象或更新操作。项目预览是本地目录视图，不是经过来源 filter 反向转换后的远端树；用 =git push --dry-run= 检查实际目的地和引用计划。
 
 * 把已有项目接进来
 
@@ -83,7 +107,7 @@ jjosh -R combined native import \
 jjosh -R combined new @ workspace/default#ebox workspace/default#ekp
 #+end_src
 
-已有目标仓库可以直接 import，不需要重新 init。每个 NAME 是当前实现中的 canonical 顶层目录和引用前缀，允许 ASCII 字母、数字、=-=、=_=；占用的目录或命名空间会被拒绝。
+已有目标仓库可以直接 import，不需要重新 init。NAME 是项目身份和引用 scope，默认挂载到 =NAME/=，可用 =--mount NAME=DIR= 指定嵌套目录。项目名不能包含 =#= 或 =/=，且必须是有效的 jj 名字和 Git 引用组件；占用的目录或命名空间会被拒绝。
 
 导入保留选定当前 view 及其所需父历史：change ID、空提交、有序 merge 父边、当前 divergence、原生冲突树和冲突引用。目录与父 ID 映射会改变 commit ID；失效的提交签名会移除并报告。/不搬迁旧 operation/evolution 历史，也不包含未记录的磁盘修改。/
 
@@ -222,6 +246,6 @@ Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 fi
 
 * 接下来改什么
 
-[[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 保留全局 remote 名字，没有一等 scope 或 =--scope=。日常同步已经统一到 =git fetch/push=，初始化仍由 =link add=、=native import=、=projection remote add/attach= 负责；不保留旧的 link/native/projection fetch/push 别名。
+[[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 保留全局 remote 名字，没有一等引用 scope 或 =--scope=。日常同步统一到 =git fetch/push=；=projection add= 登记已有目录，=link add=、=native import= 接入来源，=projection remote add/attach= 配置转换与远端。不保留旧的 link/native/projection fetch/push 或 projection status 别名。
 
 结构化方案保留在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]，是否需要它由 demo 的实际障碍决定。具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。

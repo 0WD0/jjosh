@@ -206,11 +206,13 @@ pub(crate) fn validate_attachment(
     }
     let transaction = crate::interop::open_josh_transaction(repo_path, true)
         .map_err(|error| anyhow::anyhow!(error.error))?;
-    if let Some(owner) = crate::native_project::native_project_for_mount(&transaction, mount)? {
+    if let Some(owner) = crate::native_project::project_for_mount(&transaction, mount)? {
         ensure!(
             owner == project,
             "Mount belongs to project {owner}, not {project}"
         );
+    }
+    if crate::native_project::native_project_for_mount(&transaction, mount)?.is_some() {
         ensure!(
             filter.is_none_or(|filter| {
                 filter == Filter::new().prefix(mount.as_internal_file_string())
@@ -344,27 +346,20 @@ impl GitRemoteExtension for Extension {
         let project = if let Some(name) = project_name {
             crate::native_project::validate_project(&name).map_err(user_error)?;
             let transaction = crate::interop::open_josh_transaction(&git_path, true)?;
-            let mount = if let Some(path) =
-                config_string(&git, &format!("remote.{}.jjosh-mount", remote.as_str()))
-                    .map_err(user_error)?
+            let mount = project_mount(&git_path, &name)?;
+            if let Some(owner) = crate::native_project::project_for_mount(&transaction, &mount)
+                .map_err(user_error)?
             {
-                crate::native_project::parse_mount(&path).map_err(user_error)?
-            } else {
-                project_mount(&git_path, &name)?
-            };
-            let mut native =
-                match crate::native_project::native_project_for_mount(&transaction, &mount)
-                    .map_err(user_error)?
-                {
-                    Some(existing) if existing == name => true,
-                    Some(existing) => {
-                        return Err(user_error(format!(
-                            "Mount {} belongs to native project {existing}, not {name}",
-                            mount.as_internal_file_string(),
-                        )));
-                    }
-                    None => false,
-                };
+                if owner != name {
+                    return Err(user_error(format!(
+                        "Mount {} belongs to project {owner}, not {name}",
+                        mount.as_internal_file_string(),
+                    )));
+                }
+            }
+            let mut native = crate::native_project::native_project_for_mount(&transaction, &mount)
+                .map_err(user_error)?
+                .is_some();
             if !native {
                 let url = git
                     .find_remote(remote.as_str())
@@ -485,6 +480,18 @@ impl Session {
             candidates.push((remote.to_owned(), config, has_base));
         }
         if candidates.is_empty() {
+            if crate::native_project::is_registered(&transaction, name).map_err(user_error)? {
+                return Ok(Session {
+                    name: self.name.clone(),
+                    git_path: self.git_path.clone(),
+                    project: Some(Project {
+                        name: name.to_owned(),
+                        mount,
+                        native: false,
+                    }),
+                    josh: None,
+                });
+            }
             return Err(user_error(format!(
                 "Unknown reference scope {name}: no recorded project conversion"
             )));
