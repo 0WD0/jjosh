@@ -92,16 +92,32 @@ pub(crate) enum PlanParent {
 pub(crate) enum PlanCommit {
     Pick(ObjectId),
     Copy(ObjectId),
+    /// Copy this AutoMerge's recorded result while leaving the original recipe live.
+    FrozenCopy(ObjectId),
     Resolved(ObjectId),
     Empty(BString),
 }
 
 impl PlanCommit {
-    fn source(&self) -> Option<ObjectId> {
+    pub(crate) fn source(&self) -> Option<ObjectId> {
         match self {
-            Self::Pick(commit_id) | Self::Copy(commit_id) | Self::Resolved(commit_id) => Some(*commit_id),
+            Self::Pick(commit_id) | Self::Copy(commit_id) | Self::FrozenCopy(commit_id) | Self::Resolved(commit_id) => {
+                Some(*commit_id)
+            }
             Self::Empty(_) => None,
         }
+    }
+
+    pub(crate) fn rewritten_source(&self) -> Option<ObjectId> {
+        self.source().filter(|_| !self.is_copy())
+    }
+
+    fn is_copy(&self) -> bool {
+        matches!(self, Self::Copy(_) | Self::FrozenCopy(_))
+    }
+
+    fn is_frozen(&self) -> bool {
+        matches!(self, Self::FrozenCopy(_))
     }
 }
 
@@ -246,6 +262,7 @@ pub(crate) struct PlanConflict {
     conflict: Conflict,
     plan: Plan,
     produced: Vec<ObjectId>,
+    collapsed_steps: HashSet<usize>,
     rewritten: HashMap<ObjectId, Option<ObjectId>>,
     conflict_step: usize,
     continuation_start: usize,
@@ -279,6 +296,30 @@ impl PlanConflict {
     }
 
     pub(crate) fn continuation_plan(&self) -> Plan {
+        let commit_at = |parent| match parent {
+            PlanParent::Existing(commit_id) => commit_id,
+            PlanParent::Step(index) => self.produced[index],
+        };
+        let mut positions: HashMap<_, _> = self.produced[..self.continuation_start]
+            .iter()
+            .map(|&commit_id| (commit_id, PlanParent::Existing(commit_id)))
+            .collect();
+        let mut continued = Vec::new();
+        for (index, &commit_id) in self.produced.iter().enumerate().skip(self.continuation_start) {
+            // A collapsed AutoMerge aliases its surviving parent, which may be outside the plan.
+            if positions.contains_key(&commit_id) || self.collapsed_steps.contains(&index) {
+                continue;
+            }
+            positions.insert(commit_id, PlanParent::Step(continued.len()));
+            continued.push(index);
+        }
+        let remap = |parent| match parent {
+            PlanParent::Existing(commit_id) => PlanParent::Existing(commit_id),
+            PlanParent::Step(index) => positions
+                .get(&self.produced[index])
+                .copied()
+                .unwrap_or(PlanParent::Existing(self.produced[index])),
+        };
         let expected_refs = self
             .plan
             .expected_refs
@@ -293,17 +334,16 @@ impl PlanConflict {
                     .expect("the plan was produced")
                     .expect("continued refs have a target"),
                 editable: expected.editable,
-                destination: match expected.destination {
-                    RefDestination::Step(index) if index < self.continuation_start => {
-                        RefDestination::Existing(self.produced[index])
-                    }
-                    RefDestination::Step(index) => RefDestination::Step(index - self.continuation_start),
-                    destination => destination,
-                },
+                destination: expected
+                    .destination
+                    .placement()
+                    .map_or(expected.destination, |parent| remap(parent).into()),
             })
             .collect();
-        let mut scope = self.produced[self.continuation_start..].to_vec();
+        let mut scope: Vec<_> = continued.iter().map(|&index| self.produced[index]).collect();
         scope.extend(self.remaining_squash.iter().flatten().map(|fold| fold.commit_id));
+        let mut seen = HashSet::new();
+        scope.retain(|commit_id| seen.insert(*commit_id));
         let base = match self.plan.steps[self.continuation_start].parents[0] {
             PlanParent::Existing(id) => id,
             PlanParent::Step(parent) => self.produced[parent],
@@ -311,13 +351,10 @@ impl PlanConflict {
         Plan {
             base,
             scope,
-            steps: self
-                .plan
-                .steps
-                .iter()
-                .enumerate()
-                .skip(self.continuation_start)
-                .map(|(index, step)| {
+            steps: continued
+                .into_iter()
+                .map(|index| {
+                    let step = &self.plan.steps[index];
                     let commit = self
                         .conflict
                         .prepared
@@ -335,19 +372,11 @@ impl PlanConflict {
                         .parents
                         .iter()
                         .filter(|parent| {
-                            let commit_id = match parent {
-                                PlanParent::Existing(commit_id) => *commit_id,
-                                PlanParent::Step(index) => self.produced[*index],
-                            };
+                            let commit_id = commit_at(**parent);
                             pending_merge || seen.insert(commit_id)
                         })
-                        .map(|parent| match *parent {
-                            PlanParent::Existing(id) => PlanParent::Existing(id),
-                            PlanParent::Step(parent) if parent < self.continuation_start => {
-                                PlanParent::Existing(self.produced[parent])
-                            }
-                            PlanParent::Step(parent) => PlanParent::Step(parent - self.continuation_start),
-                        })
+                        .copied()
+                        .map(remap)
                         .collect();
                     PlanStep {
                         parents,
@@ -361,13 +390,7 @@ impl PlanConflict {
                 })
                 .collect(),
             checkout: self.plan.checkout.as_ref().map(|checkout| PlanCheckout {
-                target: match checkout.target {
-                    PlanParent::Existing(id) => PlanParent::Existing(id),
-                    PlanParent::Step(index) if index < self.continuation_start => {
-                        PlanParent::Existing(self.produced[index])
-                    }
-                    PlanParent::Step(index) => PlanParent::Step(index - self.continuation_start),
-                },
+                target: remap(checkout.target),
                 reference: checkout.reference.clone(),
             }),
             expected_refs,
@@ -375,15 +398,16 @@ impl PlanConflict {
                 .plan
                 .eager
                 .iter()
-                .filter_map(|index| index.checked_sub(self.continuation_start))
+                .filter_map(|&index| match remap(PlanParent::Step(index)) {
+                    PlanParent::Existing(_) => None,
+                    PlanParent::Step(index) => Some(index),
+                })
+                .filter({
+                    let mut seen = HashSet::new();
+                    move |index| seen.insert(*index)
+                })
                 .collect(),
-            selection: self.plan.selection.map(|selection| match selection {
-                PlanParent::Existing(commit_id) => PlanParent::Existing(commit_id),
-                PlanParent::Step(index) if index < self.continuation_start => {
-                    PlanParent::Existing(self.produced[index])
-                }
-                PlanParent::Step(index) => PlanParent::Step(index - self.continuation_start),
-            }),
+            selection: self.plan.selection.map(remap),
         }
     }
 
@@ -1095,7 +1119,7 @@ fn perform_inner(
             .collect();
         if auto_merge::is_auto_merge(&commit) {
             let eager = !header_only && conflict.is_none() && auto.eager.contains(&old_id);
-            let (new_id, _) = replay.auto_merge(
+            let (new_id, _, _) = replay.auto_merge(
                 old_id,
                 commit,
                 &mut auto.refs,
@@ -1457,7 +1481,7 @@ pub(super) fn finish_review_with_progress(
         let mut commit = repo.find_commit(old)?.decode()?.into_owned()?;
         if auto_merge::is_auto_merge(&commit) {
             let eager = conflict.is_none() && auto.eager.contains(&old);
-            let (commit_id, _) = replay.auto_merge(
+            let (commit_id, _, _) = replay.auto_merge(
                 old,
                 commit,
                 &mut auto.refs,
@@ -1598,6 +1622,13 @@ pub(crate) fn perform_plan_with_progress(
     checkout_options: CheckoutOptions<'_>,
     mut report: impl FnMut(Progress),
 ) -> Result<PlanPerform> {
+    for step in &plan.steps {
+        if step.commit.is_frozen() {
+            let commit_id = step.commit.source().expect("a frozen step has a source");
+            auto_merge::ensure_freezable(&repo.find_commit(commit_id)?.decode()?.into_owned()?)?;
+            gix::error::ensure!(step.squash.is_empty(), "a frozen AutoMerge cannot be squashed into");
+        }
+    }
     let mut auto_refs = auto_merge::expand_plan(repo, graph, &mut plan)?;
     let dependencies = auto_merge::order_plan(repo, &mut plan, &mut auto_refs)?;
     let mut progress = Progress::for_plan(&plan);
@@ -1617,19 +1648,11 @@ pub(crate) fn perform_plan_with_progress(
     for step in &plan.steps {
         gix::error::ensure!(!step.parents.is_empty(), "a rebase step must have a parent");
         if let PlanCommit::Copy(id) = step.commit
-            && (graph
-                .parents_of(id)
-                .ok_or_raise(|| message("a copied commit is incomplete"))?
-                .len()
-                != 1
-                || auto_merge::is_auto_merge(&repo.find_commit(id)?.decode()?.into_owned()?))
+            && auto_merge::is_auto_merge(&repo.find_commit(id)?.decode()?.into_owned()?)
         {
-            bail!("copying a commit requires it to have exactly one parent");
+            bail!("copying an AutoMerge requires freezing its selected occurrence");
         }
-        let source = match step.commit {
-            PlanCommit::Pick(id) | PlanCommit::Resolved(id) => Some(id),
-            PlanCommit::Copy(_) | PlanCommit::Empty(_) => None,
-        };
+        let source = step.commit.rewritten_source();
         for id in source.into_iter().chain(step.squash.iter().map(|fold| fold.commit_id)) {
             if !scope.contains(&id) || !picked.insert(id) {
                 bail!("a rebase plan contains an invalid or duplicate pick");
@@ -1644,8 +1667,12 @@ pub(crate) fn perform_plan_with_progress(
         }
         if let Some(commit_id) = step.commit.source() {
             let commit = repo.find_commit(commit_id)?.decode()?.into_owned()?;
-            if !auto_merge::is_auto_merge(&commit) {
+            if step.commit.is_frozen() || !auto_merge::is_auto_merge(&commit) {
                 let original_parents = replay_parents(&commit)?.unwrap_or_else(|| commit.parents.to_vec());
+                gix::error::ensure!(
+                    original_parents.len() <= 1 || step.squash.is_empty(),
+                    message("merge commits cannot be squashed")
+                );
                 gix::error::ensure!(
                     original_parents.len() == step.parents.len(),
                     message("a rebase step must preserve its parent slots")
@@ -1734,6 +1761,7 @@ pub(crate) fn perform_plan_with_progress(
     let mut rewritten = HashMap::<ObjectId, Option<ObjectId>>::new();
     let mut note_rewrites = Vec::new();
     let mut produced = Vec::with_capacity(plan.steps.len());
+    let mut collapsed_steps = HashSet::new();
     let mut checkout_tree = None;
     let mut delete_refs = Vec::new();
     let mut conflict = None;
@@ -1744,7 +1772,7 @@ pub(crate) fn perform_plan_with_progress(
         {
             let commit = repo.find_commit(old_id)?.decode()?.into_owned()?;
             let materialize = conflict.is_none() && (eager.contains(&index) || optional.contains(&index));
-            let (new_id, pending) = replay.auto_merge(
+            let (new_id, pending, collapsed) = replay.auto_merge(
                 old_id,
                 commit,
                 &mut auto_refs,
@@ -1754,6 +1782,9 @@ pub(crate) fn perform_plan_with_progress(
                 conflict.is_none(),
                 &mut progress,
             )?;
+            if collapsed {
+                collapsed_steps.insert(index);
+            }
             marked |= pending;
             rewritten.insert(old_id, Some(new_id));
             if old_id != new_id {
@@ -1784,7 +1815,9 @@ pub(crate) fn perform_plan_with_progress(
         let parent = parents[0];
         let optional_input = optional.contains(&index) && !eager.contains(&index) && step.squash.is_empty();
         let mut commit = match &step.commit {
-            PlanCommit::Pick(id) | PlanCommit::Copy(id) => repo.find_commit(*id)?.decode()?.into_owned()?,
+            PlanCommit::Pick(id) | PlanCommit::Copy(id) | PlanCommit::FrozenCopy(id) => {
+                repo.find_commit(*id)?.decode()?.into_owned()?
+            }
             PlanCommit::Resolved(planned) => {
                 let head = repo
                     .head()?
@@ -1821,20 +1854,18 @@ pub(crate) fn perform_plan_with_progress(
         let parent_pending = replay_parents_pending(&repo, &commit, &parents)?;
         let eager = conflict.is_none()
             && !parent_pending
-            && (matches!(step.commit, PlanCommit::Copy(_))
-                || eager.contains(&index)
-                || optional_input
-                || !step.squash.is_empty());
-        if matches!(step.commit, PlanCommit::Copy(_))
+            && (step.commit.is_copy() || eager.contains(&index) || optional_input || !step.squash.is_empty());
+        if step.commit.is_frozen() {
+            auto_merge::freeze(&mut commit)?;
+        }
+        if step.commit.is_copy()
             && let Some(reference) = super::review::reference(&commit)?
         {
             super::review::remove_identity(&mut commit, reference.as_bstr());
         }
-        let graph_parents = match step.commit {
-            PlanCommit::Pick(id) | PlanCommit::Copy(id) | PlanCommit::Resolved(id) => {
-                graph.parents_or_load(&repo, id)?
-            }
-            PlanCommit::Empty(_) => vec![parent],
+        let graph_parents = match step.commit.source() {
+            Some(commit_id) => graph.parents_or_load(&repo, commit_id)?,
+            None => vec![parent],
         };
         let recorded_parent = has_marker(&commit).then(|| marked_parent(&commit)).transpose()?;
         if let PlanCommit::Pick(id) = step.commit
@@ -1858,7 +1889,9 @@ pub(crate) fn perform_plan_with_progress(
             && !crate::patch_id::is_unavailable(&commit)
             && step.squash.is_empty()
             && empty_commit_has_final_parent(&repo, commit.tree, replay_parents.first().copied(), Some(parent))?;
-        let mode = if eager || finalize_empty {
+        // Like an unchanged ordinary pick, metadata-only freezing needs no replay, even behind a conflict.
+        let finalize_frozen = step.commit.is_frozen() && !parent_pending && graph_parents == parents;
+        let mode = if eager || finalize_empty || finalize_frozen {
             Tree::CherryPick
         } else {
             Tree::LeaveAsIsAndMark
@@ -1935,7 +1968,7 @@ pub(crate) fn perform_plan_with_progress(
         }
         let state = if step_conflict.is_some() {
             CommitState::Unmarked(Signature::InvalidateExisting)
-        } else if (eager || finalize_empty) && !optional_conflict {
+        } else if (eager || finalize_empty || finalize_frozen) && !optional_conflict {
             CommitState::Unmarked(Signature::RedoIfNeeded)
         } else {
             let original_parent = recorded_parent.flatten().or_else(|| graph_parents.first().copied());
@@ -1961,12 +1994,12 @@ pub(crate) fn perform_plan_with_progress(
             progress.processed += 1;
         }
         report(progress);
-        if let PlanCommit::Pick(old_id) | PlanCommit::Resolved(old_id) = step.commit {
+        if let Some(old_id) = step.commit.rewritten_source() {
             rewritten.insert(old_id, Some(new_id));
             if old_id != new_id {
                 note_rewrites.push((old_id, new_id));
             }
-        } else if let PlanCommit::Copy(old_id) = step.commit
+        } else if let Some(old_id) = step.commit.source()
             && old_id != new_id
         {
             note_rewrites.push((old_id, new_id));
@@ -2158,6 +2191,7 @@ pub(crate) fn perform_plan_with_progress(
         },
         plan,
         produced,
+        collapsed_steps,
         rewritten,
         conflict_step,
         continuation_start,
@@ -2273,9 +2307,7 @@ impl Prepared {
         let continuation_edits = super::replay_refs::continuation_edits(
             &self.repo,
             self.continuation.as_ref().map(|(owner, ids)| (*owner, ids.as_slice())),
-            self.release_continuation
-                .as_ref()
-                .map(|(owner, ids)| (*owner, ids.as_slice())),
+            self.release_continuation.as_ref().map(|(owner, _)| *owner),
         )?;
         resource_edits.forward.extend(continuation_edits.forward);
         resource_edits.rollback.extend(continuation_edits.rollback);
@@ -3218,7 +3250,7 @@ impl<'repo> Replay<'repo> {
         Ok(replayed)
     }
 
-    /// Return the resulting commit and whether it was written with a pending replay marker.
+    /// Return the resulting commit, whether it has a pending replay marker, and whether it collapsed to an input.
     #[expect(
         clippy::too_many_arguments,
         reason = "derived replay needs the operation's ref read set and final placements"
@@ -3233,10 +3265,10 @@ impl<'repo> Replay<'repo> {
         eager: bool,
         can_finalize: bool,
         progress: &mut Progress,
-    ) -> Result<(ObjectId, bool)> {
+    ) -> Result<(ObjectId, bool, bool)> {
         match auto_merge::rebuild(self.repo, &mut commit, refs, rewritten, planned, eager)? {
-            auto_merge::Rebuilt::Empty => return Ok((old_id, false)),
-            auto_merge::Rebuilt::Collapse(commit_id) => return Ok((commit_id, false)),
+            auto_merge::Rebuilt::Empty => return Ok((old_id, false, false)),
+            auto_merge::Rebuilt::Collapse(commit_id) => return Ok((commit_id, false, true)),
             auto_merge::Rebuilt::Commit => {}
         }
         for parent in &commit.parents {
@@ -3247,7 +3279,7 @@ impl<'repo> Replay<'repo> {
         }
         let original = self.repo.find_commit(old_id)?.decode()?.into_owned()?;
         if commit == original && !is_pending(&commit) {
-            return Ok((old_id, false));
+            return Ok((old_id, false, false));
         }
         let state = if eager {
             CommitState::Unmarked(Signature::RedoIfNeeded)
@@ -3255,7 +3287,11 @@ impl<'repo> Replay<'repo> {
             self.reparented_state(old_id, &commit, original.parents.first().copied(), can_finalize)?
         };
         let pending = matches!(state, CommitState::Pending { .. });
-        Ok((self.write(commit, Some(old_id), state, false, progress)?, pending))
+        Ok((
+            self.write(commit, Some(old_id), state, false, progress)?,
+            pending,
+            false,
+        ))
     }
 
     fn reparented_state(
@@ -5906,7 +5942,10 @@ mod tests {
         let target = repo.rev_parse_single("cycle-target")?.detach();
         let err = stack_insert_plan(&repo, &graph, target, head, root, false)
             .expect_err("the selected base must be in HEAD's ancestry");
-        assert!(err.to_string().contains("ancestor"), "{err:#}");
+        assert!(
+            err.to_string().contains("eligible path from the source root"),
+            "{err:#}"
+        );
         let err = stack_insert_plan(&repo, &graph, base, head, base, false)
             .expect_err("the insertion target cannot be part of the stack");
         assert!(err.to_string().contains("must differ"), "{err:#}");
@@ -6329,7 +6368,7 @@ mod tests {
         let graph = super::super::loaded_graph(&repo)?;
         let err = move_insert_plan(&repo, &graph, root, target, false)
             .expect_err("root HEAD cannot be removed from its old position");
-        assert!(err.to_string().contains("exactly one parent"), "{err:#}");
+        assert!(err.to_string().contains("must have a parent"), "{err:#}");
         Ok(())
     }
 
