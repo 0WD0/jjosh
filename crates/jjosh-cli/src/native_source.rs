@@ -65,7 +65,11 @@ impl NativeSource {
                 .into_iter()
                 .filter(|(name, _)| tags.is_match(name.as_str()))
                 .collect();
-            for target in selected.local_bookmarks.values().chain(selected.local_tags.values()) {
+            for target in selected
+                .local_bookmarks
+                .values()
+                .chain(selected.local_tags.values())
+            {
                 selected.head_ids.extend(target.added_ids().cloned());
             }
             *view = selected;

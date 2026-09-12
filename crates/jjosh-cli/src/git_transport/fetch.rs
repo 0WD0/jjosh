@@ -62,10 +62,16 @@ pub(crate) fn fetch(
 
     let keep_paths = receive_objects(
         remote,
-        received.iter().filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned)),
+        received
+            .iter()
+            .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned)),
         interrupt,
     )?;
-    Ok(Outcome { advertised, received, keep_paths })
+    Ok(Outcome {
+        advertised,
+        received,
+        keep_paths,
+    })
 }
 
 /// Receive explicit object IDs without ref destinations, including an initial pinned import.

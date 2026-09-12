@@ -1,19 +1,15 @@
 use std::collections::HashSet;
-use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::cli_util::RevisionArg;
-use jj_cli::cli_util::WorkspaceCommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
 use jj_cli::command_error::user_error_with_message;
 use jj_cli::ui::Ui;
-use jj_lib::commit::Commit;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
-use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::Repo as _;
 
 use crate::interop::commit_as_josh_oid;
@@ -69,7 +65,6 @@ struct AddArgs {
     revision: RevisionArg,
 }
 
-
 pub(crate) async fn run(
     ui: &mut Ui,
     command_helper: &CommandHelper,
@@ -95,22 +90,6 @@ fn normalized_link_path(path: &str) -> Result<PathBuf, CommandError> {
         return Err(user_error("Link path must stay within the repository"));
     }
     Ok(path)
-}
-
-fn check_link_commit(
-    workspace_command: &WorkspaceCommandHelper,
-    commit: &Commit,
-) -> Result<(), CommandError> {
-    if commit.id() == workspace_command.repo().store().root_commit_id() {
-        return Err(user_error("The root commit cannot contain links"));
-    }
-    if commit.has_conflict() {
-        return Err(user_error(format!(
-            "Revision {} has unresolved conflicts and cannot be used for a link operation",
-            commit.id().hex()
-        )));
-    }
-    Ok(())
 }
 
 fn write_link_metadata(
@@ -176,7 +155,9 @@ fn fetch_initial(
         .map_err(user_error)?
         .unwrap_or("pinned")
         .to_owned();
-    let id = reference.unpack().1
+    let id = reference
+        .unpack()
+        .1
         .ok_or_else(|| user_error("Initial source has no object"))?
         .to_owned();
     Ok((id, branch, fetched.keep_paths))
@@ -225,15 +206,21 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     } else {
         crate::ref_names::project_from_path(&path).map_err(user_error)?
     };
-    let remote_name = crate::ref_names::observation_remote(&project, &args.source_remote)
-        .map_err(user_error)?;
+    let remote_name =
+        crate::ref_names::observation_remote(&project, &args.source_remote).map_err(user_error)?;
     let git = gix::open(&git_path).map_err(user_error)?;
-    if git.remote_names().iter().any(|name| &name[..] == remote_name.as_bytes())
+    if git
+        .remote_names()
+        .iter()
+        .any(|name| &name[..] == remote_name.as_bytes())
         && crate::git_remote::config_string(&git, &format!("remote.{remote_name}.jjosh-project"))
             .map_err(user_error)?
-            .as_deref() != Some(project.as_str())
+            .as_deref()
+            != Some(project.as_str())
     {
-        return Err(user_error(format!("Remote {remote_name} already exists and is not attached to {project}")));
+        return Err(user_error(format!(
+            "Remote {remote_name} already exists and is not attached to {project}"
+        )));
     }
     for (existing_path, existing) in &existing_links {
         if existing_path == &path {
@@ -270,11 +257,13 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         raw_object,
         gix::refs::transaction::PreviousValue::Any,
         "retain initial linked source",
-    ).map_err(user_error)?;
+    )
+    .map_err(user_error)?;
     for keep in keeps {
         std::fs::remove_file(keep)?;
     }
-    let raw = josh_core::objects::peel_to_commit(transaction.odb(), raw_object).map_err(user_error)?;
+    let raw =
+        josh_core::objects::peel_to_commit(transaction.odb(), raw_object).map_err(user_error)?;
     let mut pin = raw;
     if native {
         let known =
@@ -313,7 +302,6 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         push_url.as_deref(),
         args.filter.as_deref(),
         &args.target,
-        None,
         pin,
         source_tree,
         mode.clone(),
@@ -352,8 +340,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
             if mode == crate::link_metadata::LinkMode::Embedded {
                 parents.push(source_id.clone());
             }
-            let remote: jj_lib::ref_name::RemoteNameBuf =
-                remote_name.clone().into();
+            let remote: jj_lib::ref_name::RemoteNameBuf = remote_name.clone().into();
             if branch != "pinned" {
                 let name: jj_lib::ref_name::RefNameBuf =
                     crate::ref_names::local_name(&project, &branch).into();
@@ -405,21 +392,32 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         None,
         push_url.as_deref(),
         None,
-    ).map_err(user_error)?;
+    )
+    .map_err(user_error)?;
     let project_mount = crate::native_project::parse_mount(mount).map_err(user_error)?;
     crate::git_remote::configure_attachment(
-        &git_path, &remote_name, &project, &project_mount, push_url.is_none(),
-    ).map_err(user_error)?;
+        &git_path,
+        &remote_name,
+        &project,
+        &project_mount,
+        push_url.is_none(),
+    )
+    .map_err(user_error)?;
     if branch != "pinned" {
         let prefix = crate::git_remote::raw_ref_prefix(&git, &fetch_url).map_err(user_error)?;
         let raw_ref = format!("{prefix}refs/heads/{branch}");
         let old = transaction.resolve_ref(&raw_ref).map_err(user_error)?;
-        transaction.update_ref(
-            &raw_ref,
-            old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At),
-            raw,
-            "observe initial linked source",
-        ).map_err(user_error)?;
+        transaction
+            .update_ref(
+                &raw_ref,
+                old.map_or(
+                    josh_core::cache::Expected::Absent,
+                    josh_core::cache::Expected::At,
+                ),
+                raw,
+                "observe initial linked source",
+            )
+            .map_err(user_error)?;
         transaction.flush_mem_odb().map_err(user_error)?;
     }
     tx.finish_with_git_import_export_lock(
@@ -439,4 +437,3 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     }
     Ok(())
 }
-

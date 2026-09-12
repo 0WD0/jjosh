@@ -1,17 +1,10 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Write as _;
 
 use anyhow::Context as _;
 use anyhow::Result;
 use anyhow::ensure;
-use jj_cli::cli_util::CommandHelper;
-use jj_cli::cli_util::RevisionArg;
-use jj_cli::command_error::CommandError;
-use jj_cli::command_error::user_error;
-use jj_cli::command_error::user_error_with_message;
-use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::backend::Tree;
 use jj_lib::backend::TreeId;
@@ -23,23 +16,12 @@ use jj_lib::index::ResolvedChangeState;
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::op_store::RefTarget;
-use jj_lib::op_store::RemoteRef;
-use jj_lib::op_store::RemoteRefState;
-use jj_lib::op_store::View;
-use jj_lib::ref_name::RefName;
-use jj_lib::ref_name::RemoteNameBuf;
-use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::repo::Repo;
 use jj_lib::repo_path::RepoPath;
 use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::store::Store;
 use josh_core::cache::Expected;
 use josh_core::cache::Transaction;
-
-use crate::native_source::NativeSource;
-
-
 pub(crate) fn parse_project(name: &str) -> Result<String> {
     let name = jj_lib::revset::parse_symbol(name)
         .map_err(|err| anyhow::anyhow!("Invalid project name: {}", err.kind()))?;
@@ -737,4 +719,3 @@ pub(crate) async fn export_project(
     );
     Ok((result, publications))
 }
-
