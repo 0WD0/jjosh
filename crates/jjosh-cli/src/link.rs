@@ -264,6 +264,9 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     }
     let raw =
         josh_core::objects::peel_to_commit(transaction.odb(), raw_object).map_err(user_error)?;
+    if !native {
+        crate::interop::check_raw_projectable_history(&transaction, [raw])?;
+    }
     let mut pin = raw;
     if native {
         let known =
@@ -403,6 +406,35 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         push_url.is_none(),
     )
     .map_err(user_error)?;
+    if !native {
+        // Initial context is declared by link setup, not a publication lease.
+        // Prefer the live source branch after later explicit fetches.
+        let source_remote = git.remote_at(url.as_str()).map_err(user_error)?;
+        let (mut endpoint, _) = source_remote
+            .sanitized_url_and_version(gix::remote::Direction::Fetch).map_err(user_error)?;
+        endpoint.canonicalize(git.workdir().unwrap_or_else(|| git.common_dir())).map_err(user_error)?;
+        let endpoint = String::from_utf8(endpoint.to_bstring().into()).map_err(user_error)?;
+        let prefix = crate::git_remote::raw_ref_prefix(&git, &endpoint).map_err(user_error)?;
+        let initial = format!("{prefix}bases/{project}");
+        let old = transaction.resolve_ref(&initial).map_err(user_error)?;
+        transaction.update_ref(
+            &initial,
+            old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At),
+            raw,
+            "retain initial project context",
+        ).map_err(user_error)?;
+        let source = if branch == "pinned" {
+            format!("bases/{project}")
+        } else {
+            format!("refs/heads/{branch}")
+        };
+        let mut config = git.config_file_mut(git.config_path(gix::config::Source::Local).map_err(user_error)?)
+            .map_err(user_error)?;
+        config.set_raw_value(format!("remote.{remote_name}.jjosh-base").as_str(), source.as_str())
+            .map_err(user_error)?;
+        config.commit().map_err(user_error)?;
+        transaction.flush_mem_odb().map_err(user_error)?;
+    }
     if branch != "pinned" {
         let prefix = crate::git_remote::raw_ref_prefix(&git, &fetch_url).map_err(user_error)?;
         let raw_ref = format!("{prefix}refs/heads/{branch}");

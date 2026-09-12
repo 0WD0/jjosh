@@ -168,6 +168,9 @@ pub(super) async fn run(
     } else {
         None
     };
+    let has_new = canonical
+        .iter()
+        .any(|update| update.targets.after.is_some());
     let base = if let Some(base) = &preparation.base {
         let source = if base.starts_with("refs/") {
             base.clone()
@@ -178,6 +181,23 @@ pub(super) async fn run(
         Some(transaction.resolve_ref(&format!("{}{source}", fetch_prefix.as_ref().unwrap()))
             .map_err(user_error)?
             .ok_or_else(|| user_error(format!("Source base {source} has not been fetched from this remote's fetch endpoint")))?)
+    } else {
+        None
+    };
+    let linked_base = if let Some(project) = session.project.as_ref().filter(|project| !project.native && has_new) {
+        let prefix = fetch_prefix.as_ref().expect("linked project has a source filter");
+        let configured = super::config_string(&git, &format!("remote.{}.jjosh-base", session.name.as_str()))
+            .map_err(user_error)?;
+        let observed = if let Some(source) = configured {
+            transaction.resolve_ref(&format!("{prefix}{source}")).map_err(user_error)?
+        } else {
+            None
+        };
+        if observed.is_some() {
+            observed
+        } else {
+            transaction.resolve_ref(&format!("{prefix}bases/{}", project.name)).map_err(user_error)?
+        }
     } else {
         None
     };
@@ -192,9 +212,6 @@ pub(super) async fn run(
             }
         }
     }
-    let has_new = canonical
-        .iter()
-        .any(|update| update.targets.after.is_some());
     let known = if let Some(project) = session
         .project
         .as_ref()
@@ -230,7 +247,7 @@ pub(super) async fn run(
                         .map_err(user_error)?;
                     crate::interop::check_raw_projectable_history(
                         &transaction,
-                        destination_raw.into_iter().chain(base),
+                        destination_raw.into_iter().chain(base).chain(linked_base),
                     )?;
                     let projected = if let Some(project) = &session.project {
                         let local = crate::link_metadata::local_link_filter(Path::new(
@@ -255,9 +272,10 @@ pub(super) async fn run(
                     {
                         // Linked snapshot roots preserve fetched ancestry; unrelated and empty
                         // monorepo changes are pruned, exactly as in linked history export.
-                        let original = destination_raw
+                        let context = linked_base.or(destination_raw);
+                        let original = context
                             .unwrap_or_else(|| gix::ObjectId::null(gix::hash::Kind::Sha1));
-                        let old = match destination_raw {
+                        let old = match context {
                             Some(raw) => josh_core::filter_commit(&transaction, filter, raw)
                                 .map_err(user_error)?,
                             None => original,
@@ -269,7 +287,7 @@ pub(super) async fn run(
                             old,
                             projected,
                             josh_core::history::UnapplyOptions {
-                                reparent_orphans: destination_raw,
+                                reparent_orphans: context,
                                 prune_empty: true,
                                 ..Default::default()
                             },
