@@ -1155,6 +1155,17 @@ fn diff_refs_to_import(
         changed_git_refs.push((full_name.to_owned(), RefTarget::absent()));
     }
     for (RemoteRefKey(symbol), old) in known_remote_bookmarks {
+        // A native conflicted observation cannot have a physical Git mirror.
+        // Its absence isn't a Git-side deletion. A later explicit observation
+        // set can still authoritatively delete it. Conflicts with an observed
+        // Git mirror retain the ordinary scanner's deletion behavior.
+        if symbol.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO
+            && old.target.has_conflict()
+            && to_git_ref_name(GitRefKind::Bookmark, symbol)
+                .is_none_or(|name| view.get_git_ref(&name).is_absent())
+        {
+            continue;
+        }
         if old.is_present() {
             changed_remote_bookmarks.push(GitImportRefUpdate::new(
                 symbol.to_owned(),
