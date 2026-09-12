@@ -123,7 +123,6 @@ pub(crate) async fn check_projectable_repo_history(
     Ok(())
 }
 
-
 /// Validate explicitly received source objects without consulting ref namespaces.
 pub(crate) fn check_raw_projectable_history(
     transaction: &josh_core::cache::Transaction,

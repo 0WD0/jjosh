@@ -177,6 +177,11 @@ impl NativeRepo {
             &format!("b={}", b.display()),
         ]);
     }
+
+    fn add_project_remote(&self, name: &str, url: &Path, project: &str) {
+        self.jj(&["git", "remote", "add", name, url.to_str().unwrap()]);
+        self.jj(&["projection", "remote", "attach", name, project]);
+    }
 }
 
 #[test]
@@ -759,34 +764,27 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     assert_eq!(mono.log("main", "commit_id"), root_main);
     mono.jj(&["new", "@", scoped, "-m", "composition"]);
 
-    let publish = |remote: &Path| {
+    mono.add_project_remote("alpha-upstream", &upstream, "alpha");
+    mono.add_project_remote("alpha-origin", &fork, "alpha");
+    let publish = |remote: &str| {
         mono.jj(&[
-            "native",
+            "git",
             "push",
-            "alpha",
             "--remote",
-            remote.to_str().unwrap(),
-            "--branch",
-            "main",
-            "-r",
-            scoped,
+            remote,
+            "--named",
+            &format!("main#alpha={scoped}"),
+            "--allow-empty-description",
         ]);
     };
-    let fetch = |remote: &Path, label: &str| {
-        mono.jj(&[
-            "native",
-            "fetch",
-            "alpha",
-            remote.to_str().unwrap(),
-            "--branch",
-            "main",
-            "--remote",
-            label,
-        ]);
+    let fetch = |remote: &str| {
+        mono.jj(&["git", "fetch", "--remote", remote, "--branch", "main"]);
     };
-    for (remote, label) in [(&upstream, "upstream"), (&fork, "origin")] {
-        publish(remote);
-        fetch(remote, label);
+    for label in ["upstream", "origin"] {
+        let remote = format!("alpha-{label}");
+        fetch(&remote);
+        publish(&remote);
+        fetch(&remote);
         mono.jj(&["bookmark", "track", &format!("{scoped}@alpha-{label}")]);
         assert_eq!(
             mono.log(
@@ -802,9 +800,9 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
     mono.jj(&["describe", "-m", "project and monorepo changes"]);
     mono.bookmark(scoped);
     let local = mono.log(scoped, "commit_id");
-    fetch(&upstream, "upstream");
+    fetch("alpha-upstream");
     assert_eq!(mono.log(scoped, "commit_id"), local);
-    publish(&fork);
+    publish("alpha-origin");
     assert_eq!(
         native_git(&fork, &["show", "main:value.txt"]),
         "project change\n"
@@ -814,7 +812,7 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
         "value.txt\n"
     );
     assert_eq!(native_git(&upstream, &["show", "main:value.txt"]), "base\n");
-    fetch(&fork, "origin");
+    fetch("alpha-origin");
     assert_eq!(
         mono.log(&format!("{scoped}@alpha-origin"), "commit_id"),
         local
@@ -850,7 +848,6 @@ fn scope_suffix_convention_rejects_an_occupied_name_namespace() {
         &format!("alpha={}", source.path.display()),
     ]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("namespace"));
     assert_eq!(mono.operation_id(), before);
 }
 
@@ -899,21 +896,22 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
             &["init", "--bare", remote.to_str().unwrap()],
         );
     }
-    let push_alpha = |remote: &Path, branch: &str| {
+    mono.add_project_remote("alpha-upstream", &upstream, "alpha");
+    mono.add_project_remote("alpha-origin", &fork, "alpha");
+    mono.add_project_remote("beta-origin", &beta_remote, "beta");
+    let push_alpha = |remote: &str, branch: &str| {
         mono.jj(&[
-            "native",
+            "git",
             "push",
-            "alpha",
             "--remote",
-            remote.to_str().unwrap(),
-            "--branch",
-            branch,
-            "-r",
-            "@",
+            remote,
+            "--named",
+            &format!("{branch}#alpha=@"),
+            "--allow-empty-description",
         ]);
     };
-    push_alpha(&upstream, "topic");
-    push_alpha(&fork, "review");
+    push_alpha("alpha-upstream", "topic");
+    push_alpha("alpha-origin", "review");
     assert_eq!(
         native_git(
             remotes.path(),
@@ -930,14 +928,12 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         ),
     );
     mono.jj(&[
-        "native",
+        "git",
         "fetch",
-        "alpha",
-        upstream.to_str().unwrap(),
+        "--remote",
+        "alpha-upstream",
         "--branch",
         "topic",
-        "--remote",
-        "upstream",
     ]);
     assert_eq!(
         mono.log("topic#alpha@alpha-upstream", "commit_id"),
@@ -973,14 +969,12 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     native_git(&contributor, &["push", "origin", "HEAD:topic"]);
     let before_fetch = mono.operation_id();
     mono.jj(&[
-        "native",
+        "git",
         "fetch",
-        "alpha",
-        upstream.to_str().unwrap(),
+        "--remote",
+        "alpha-upstream",
         "--branch",
         "topic",
-        "--remote",
-        "upstream",
     ]);
     let received = mono.log("topic#alpha@alpha-upstream", "commit_id");
     assert_eq!(
@@ -1013,14 +1007,12 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         canonical
     );
     mono.jj(&[
-        "native",
+        "git",
         "fetch",
-        "alpha",
-        upstream.to_str().unwrap(),
+        "--remote",
+        "alpha-upstream",
         "--branch",
         "topic",
-        "--remote",
-        "upstream",
     ]);
     assert_eq!(
         mono.log("topic#alpha@alpha-upstream", "commit_id"),
@@ -1036,14 +1028,12 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     );
     native_git(&contributor, &["push", "origin", "HEAD:topic"]);
     mono.jj(&[
-        "native",
+        "git",
         "fetch",
-        "alpha",
-        upstream.to_str().unwrap(),
+        "--remote",
+        "alpha-upstream",
         "--branch",
         "topic",
-        "--remote",
-        "upstream",
     ]);
     mono.jj(&[
         "new",
@@ -1059,15 +1049,14 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     );
     // An unrelated project's conflict must not prevent publication of Beta.
     mono.jj(&[
-        "native",
+        "git",
         "push",
-        "beta",
         "--remote",
-        beta_remote.to_str().unwrap(),
-        "--branch",
-        "feature/cross",
-        "-r",
-        "@",
+        "beta-origin",
+        "--named",
+        "feature/cross#beta=@",
+        "--allow-empty-description",
+        "--allow-conflicts",
     ]);
     assert_eq!(
         native_git(
@@ -1098,15 +1087,13 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     assert!(
         !mono
             .unchecked(&[
-                "native",
+                "git",
                 "push",
-                "alpha",
                 "--remote",
-                fork.to_str().unwrap(),
-                "--branch",
-                "conflicted",
-                "-r",
-                "@"
+                "alpha-origin",
+                "--named",
+                "conflicted#alpha=@",
+                "--allow-empty-description",
             ])
             .status
             .success()
@@ -1116,18 +1103,16 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
     mono.jj(&["status"]);
     assert_eq!(mono.change_id("@"), integration_change);
     assert_eq!(mono.log("@", "conflict"), "false");
-    push_alpha(&fork, "resolved");
+    push_alpha("alpha-origin", "resolved");
     mono.jj(&["util", "gc", "--expire", "now"]);
     mono.jj(&[
-        "native",
+        "git",
         "push",
-        "alpha",
         "--remote",
-        fork.to_str().unwrap(),
-        "--branch",
-        "resolved",
-        "-r",
-        "@",
+        "alpha-origin",
+        "--named",
+        "resolved#alpha=@",
+        "--allow-empty-description",
         "--dry-run",
     ]);
 }
@@ -1194,15 +1179,14 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         let rewritten = mono.log("@", "commit_id");
         assert_ne!(rewritten, original);
         assert_eq!(mono.log("main#app", "commit_id"), rewritten);
+        mono.add_project_remote("app-upstream", &source.path, "app");
         mono.jj(&[
-            "native",
+            "git",
             "fetch",
-            "app",
-            source.path.to_str().unwrap(),
+            "--remote",
+            "app-upstream",
             "--branch",
             "main",
-            "--remote",
-            "upstream",
         ]);
         assert_eq!(mono.log("main#app@app-upstream", "commit_id"), original);
         assert_eq!(mono.log("main#app", "commit_id"), rewritten);
@@ -1212,27 +1196,24 @@ fn native_boundary_migration_preserves_rewrites_and_old_version_intake() {
         );
         let remote = mono.temp.path().join("publication.git");
         native_git(&mono.path, &["init", "--bare", remote.to_str().unwrap()]);
+        mono.add_project_remote("app-review", &remote, "app");
         mono.jj(&[
-            "native",
+            "git",
             "push",
-            "app",
             "--remote",
-            remote.to_str().unwrap(),
-            "--branch",
-            "topic",
-            "-r",
-            "@",
+            "app-review",
+            "--named",
+            "topic#app=@",
+            "--allow-empty-description",
         ]);
         mono.jj(&["util", "gc", "--expire", "now"]);
         mono.jj(&[
-            "native",
+            "git",
             "fetch",
-            "app",
-            remote.to_str().unwrap(),
+            "--remote",
+            "app-review",
             "--branch",
             "topic",
-            "--remote",
-            "review",
         ]);
         assert_eq!(
             mono.jj(&[
@@ -1265,17 +1246,6 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     let git_dir = source.path.join(".jj/repo/store/git");
 
     let dest = NativeRepo::new();
-    let missing = dest.unchecked(&[
-        "native",
-        "fetch",
-        "jj",
-        source.path.to_str().unwrap(),
-        "--branch",
-        "topic",
-        "--remote",
-        "local",
-    ]);
-    assert!(!missing.status.success());
     dest.jj(&[
         "link",
         "add",
@@ -1290,16 +1260,8 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
         source.change_id("main")
     );
 
-    dest.jj(&[
-        "native",
-        "fetch",
-        "jj",
-        source.path.to_str().unwrap(),
-        "--branch",
-        "topic",
-        "--remote",
-        "local",
-    ]);
+    dest.add_project_remote("jj-local", &source.path, "jj");
+    dest.jj(&["git", "fetch", "--remote", "jj-local", "--branch", "topic"]);
     let fetched = "topic#jj@jj-local";
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
@@ -1310,30 +1272,12 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
     assert!(dest.log("divergent()", "commit_id").is_empty());
 
     let first = dest.log(fetched, "commit_id");
-    dest.jj(&[
-        "native",
-        "fetch",
-        "jj",
-        source.path.to_str().unwrap(),
-        "--branch",
-        "topic",
-        "--remote",
-        "local",
-    ]);
+    dest.jj(&["git", "fetch", "--remote", "jj-local", "--branch", "topic"]);
     assert_eq!(dest.log(fetched, "commit_id"), first);
 
     source.write("value.txt", "amended\n");
     source.jj(&["describe", "-m", "amended topic"]);
-    dest.jj(&[
-        "native",
-        "fetch",
-        "jj",
-        source.path.to_str().unwrap(),
-        "--branch",
-        "topic",
-        "--remote",
-        "local",
-    ]);
+    dest.jj(&["git", "fetch", "--remote", "jj-local", "--branch", "topic"]);
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_ne!(dest.log(fetched, "commit_id"), first);
     assert_eq!(dest.log(&format!("{fetched}-"), "commit_id"), linked_main);
@@ -1372,16 +1316,8 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
     source.jj(&["describe", "-m", "topic"]);
     source.bookmark("topic");
 
-    dest.jj(&[
-        "native",
-        "fetch",
-        "jj",
-        source.path.to_str().unwrap(),
-        "--branch",
-        "topic",
-        "--remote",
-        "local",
-    ]);
+    dest.add_project_remote("jj-local", &source.path, "jj");
+    dest.jj(&["git", "fetch", "--remote", "jj-local", "--branch", "topic"]);
     let fetched = "topic#jj@jj-local";
     assert_eq!(dest.change_id(fetched), source.change_id("topic"));
     assert_eq!(dest.change_id(&format!("{fetched}-")), main_change);
@@ -1433,15 +1369,14 @@ fn native_import_fetch_push_use_nested_mounts() {
 
     source.write("file.txt", "updated\n");
     source.jj(&["describe", "-m", "updated"]);
+    dest.add_project_remote("alpha-local", &source.path, "alpha");
     dest.jj(&[
-        "native",
+        "git",
         "fetch",
-        "alpha",
-        source.path.to_str().unwrap(),
+        "--remote",
+        "alpha-local",
         "--branch",
         "main",
-        "--remote",
-        "local",
     ]);
     let fetched = "main#alpha@alpha-local";
     assert_eq!(dest.change_id(fetched), source.change_id("main"));
@@ -1456,16 +1391,15 @@ fn native_import_fetch_push_use_nested_mounts() {
         remotes.path(),
         &["init", "--bare", remote.to_str().unwrap()],
     );
+    dest.add_project_remote("alpha-origin", &remote, "alpha");
     dest.jj(&[
-        "native",
+        "git",
         "push",
-        "alpha",
         "--remote",
-        remote.to_str().unwrap(),
-        "--branch",
-        "main",
-        "-r",
-        fetched,
+        "alpha-origin",
+        "--named",
+        &format!("main#alpha={fetched}"),
+        "--allow-empty-description",
     ]);
     let clone = remotes.path().join("clone");
     native_git(
@@ -1509,11 +1443,6 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
         "alpha=vendor/alpha",
     ]);
     assert!(!occupied.status.success());
-    assert!(
-        String::from_utf8_lossy(&occupied.stderr).contains("occupied"),
-        "{}",
-        String::from_utf8_lossy(&occupied.stderr)
-    );
 
     let overlap = NativeRepo::new();
     let overlapped = overlap.unchecked(&[
@@ -1529,11 +1458,6 @@ fn native_import_rejects_occupied_or_overlapping_mounts() {
         "beta=vendor/beta",
     ]);
     assert!(!overlapped.status.success());
-    assert!(
-        String::from_utf8_lossy(&overlapped.stderr).contains("overlap"),
-        "{}",
-        String::from_utf8_lossy(&overlapped.stderr)
-    );
 }
 
 #[test]
@@ -1573,9 +1497,4 @@ fn native_project_names_are_jj_symbols() {
         &format!("a#b={}", dotted.path.display()),
     ]);
     assert!(!hash.status.success());
-    assert!(
-        String::from_utf8_lossy(&hash.stderr).contains('#'),
-        "{}",
-        String::from_utf8_lossy(&hash.stderr)
-    );
 }

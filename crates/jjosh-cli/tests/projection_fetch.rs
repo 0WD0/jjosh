@@ -133,15 +133,14 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         ],
     );
 
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
-    let initial_backing = git(&client, &["rev-parse", "refs/josh/remotes/origin/main"])
-        .trim()
-        .to_owned();
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     let initial_projected = git(&client, &["rev-parse", "refs/remotes/origin/main"])
         .trim()
         .to_owned();
-    assert_eq!(initial_backing, upstream_base);
-    assert_ne!(initial_projected, initial_backing);
+    assert_ne!(initial_projected, upstream_base);
     assert_eq!(
         git(
             &client,
@@ -174,9 +173,12 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         ],
     );
 
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     assert_eq!(
-        git(&client, &["rev-parse", "refs/josh/remotes/origin/main"]).trim(),
+        git(&upstream_bare, &["rev-parse", "main"]).trim(),
         outside_upstream
     );
     assert_eq!(
@@ -202,7 +204,10 @@ fn fetch_projects_refs_and_imports_only_visible_changes() {
         ],
     );
 
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     let final_projected = git(&client, &["rev-parse", "refs/remotes/origin/main"])
         .trim()
         .to_owned();
@@ -290,8 +295,6 @@ fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
         "refs/tags/local-keep",
         "refs/heads/local-keep",
         "refs/remotes/other/keep",
-        "refs/josh/remotes/other/keep",
-        "refs/namespaces/josh-other/refs/heads/keep",
     ];
     for name in preserved {
         git(&client, &["update-ref", name, &local]);
@@ -310,7 +313,10 @@ fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
             &["config", "--add", "remote.origin.fetch", refspec],
         );
     }
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     for branch in ["stale", "empty"] {
         assert_eq!(
             git(
@@ -328,28 +334,21 @@ fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
     git(&source, &["add", "."]);
     git(&source, &["commit", "-m", "empty-projection"]);
     git(&source, &["checkout", "main"]);
-    // Exercise packed as well as loose ref deletion at both private stages.
+    // Exercise packed as well as loose canonical ref deletion.
     git(&client, &["pack-refs", "--all", "--prune"]);
 
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
-    assert_eq!(
-        git(&client, &["for-each-ref", "refs/josh/remotes/origin/stale"]),
-        ""
-    );
-    assert_eq!(
-        git(&client, &["rev-parse", "refs/josh/remotes/origin/empty"]),
-        git(&source, &["rev-parse", "empty"])
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
     );
     for branch in ["stale", "empty"] {
-        for prefix in [
-            "refs/namespaces/josh-origin/refs/heads",
-            "refs/remotes/origin",
-        ] {
-            assert_eq!(
-                git(&client, &["for-each-ref", &format!("{prefix}/{branch}")]),
-                ""
-            );
-        }
+        assert_eq!(
+            git(
+                &client,
+                &["for-each-ref", &format!("refs/remotes/origin/{branch}")]
+            ),
+            ""
+        );
         assert_eq!(
             String::from_utf8(
                 jjosh(
@@ -368,16 +367,14 @@ fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
             ""
         );
     }
-    // With every remaining source branch outside the view, the namespace has
-    // no heads at all; its dangling default HEAD must not keep stale bookmarks.
+    // With every remaining source branch outside the view, no stale remote
+    // bookmarks may remain visible.
     git(&source, &["reset", "--hard", "empty"]);
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
-    for prefix in [
-        "refs/namespaces/josh-origin/refs/heads",
-        "refs/remotes/origin",
-    ] {
-        assert_eq!(git(&client, &["for-each-ref", prefix]), "");
-    }
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
+    assert_eq!(git(&client, &["for-each-ref", "refs/remotes/origin"]), "");
     assert_eq!(
         String::from_utf8(jjosh(&client, &["bookmark", "list", "--remote", "origin"]).stdout,)
             .unwrap(),
@@ -407,7 +404,10 @@ fn fetch_prunes_only_selected_projection_branches_even_with_tag_pruning() {
 #[test]
 fn fetch_synchronizes_external_git_checkout_and_unrecorded_files() {
     let (_temp, _source, client) = projection_fetch_repo();
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     jjosh(&client, &["new", "main@origin"]);
     git(
         &client,
@@ -421,7 +421,10 @@ fn fetch_synchronizes_external_git_checkout_and_unrecorded_files() {
     fs::write(client.join("untracked.txt"), "unrecorded new file\n").unwrap();
 
     // No native command may synchronize the external checkout before fetch.
-    jjosh(&client, &["projection", "fetch", "--remote", "origin"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "origin", "--branch", "*"],
+    );
     assert_eq!(
         fs::read_to_string(client.join("external.txt")).unwrap(),
         "external commit\n"

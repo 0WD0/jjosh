@@ -158,21 +158,6 @@ fn file_at_revision(client: &Path, revision: &str, path: &str) -> Vec<u8> {
     jjosh(client, &["file", "show", "-r", revision, path]).stdout
 }
 
-fn visible_graph(client: &Path) -> Vec<u8> {
-    jjosh(
-        client,
-        &[
-            "log",
-            "-r",
-            "all()",
-            "--no-graph",
-            "-T",
-            "commit_id ++ \" \" ++ change_id ++ \"\\n\"",
-        ],
-    )
-    .stdout
-}
-
 #[test]
 fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description() {
     let temp = tempfile::tempdir().unwrap();
@@ -207,7 +192,18 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
         ],
     );
     // Prune only new publication history, never rewrite the pinned upstream.
-    jjosh(&client, &["link", "push", "deps", "--to", "unchanged"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "unchanged#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/unchanged"]),
         source_tip
@@ -216,7 +212,15 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
     jjosh(&client, &["describe", "-m", "Actual change"]);
     jjosh(
         &client,
-        &["link", "push", "deps", "-r", "@", "--to", "expected"],
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "expected#deps=@",
+            "--allow-empty-description",
+        ],
     );
     let expected_tip = git(&remote_bare, &["rev-parse", "refs/heads/expected"])
         .trim()
@@ -233,10 +237,31 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
     let before_refs = git(&remote_bare, &["show-ref"]);
     jjosh(
         &client,
-        &["link", "push", "deps", "--to", "topic", "--dry-run"],
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "topic#deps=@",
+            "--allow-empty-description",
+            "--dry-run",
+        ],
     );
+    assert_eq!(operation_id(&client), before_operation);
     assert_eq!(git(&remote_bare, &["show-ref"]), before_refs);
-    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "topic#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/topic"]).trim(),
         expected_tip
@@ -246,12 +271,19 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
         "local change\n"
     );
     assert_eq!(commit_id(&client, "@"), empty_tip);
-    assert_eq!(operation_id(&client), before_operation);
 
     // Explicit selection applies the same content-based pruning.
     jjosh(
         &client,
-        &["link", "push", "deps", "-r", "@", "--to", "explicit"],
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "explicit#deps=@",
+            "--allow-empty-description",
+        ],
     );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/explicit"]).trim(),
@@ -260,7 +292,18 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
 
     // A description cannot make an empty exported change meaningful.
     jjosh(&client, &["describe", "-m", "Release checkpoint"]);
-    jjosh(&client, &["link", "push", "deps", "--to", "checkpoint"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "checkpoint#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/checkpoint"]).trim(),
         expected_tip
@@ -270,7 +313,18 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
     // neither contributes a commit to this link's published history.
     jjosh(&client, &["new", "-m", "Only change another project"]);
     fs::write(client.join("outside.txt"), "unrelated local content\n").unwrap();
-    jjosh(&client, &["link", "push", "deps", "--to", "outside"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "outside#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/outside"]).trim(),
         expected_tip
@@ -279,10 +333,17 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
     fs::write(client.join("deps/value.txt"), "next local change\n").unwrap();
     jjosh(&client, &["new"]);
     let local_tip = commit_id(&client, "@");
-    let local_operation = operation_id(&client);
     jjosh(
         &client,
-        &["link", "push", "deps", "-r", "@", "--to", "continued"],
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "continued#deps=@",
+            "--allow-empty-description",
+        ],
     );
     assert_eq!(
         git(
@@ -297,7 +358,6 @@ fn link_push_prunes_empty_exported_commits_regardless_of_revision_or_description
         "next local change\n"
     );
     assert_eq!(commit_id(&client, "@"), local_tip);
-    assert_eq!(operation_id(&client), local_operation);
 }
 
 #[test]
@@ -325,7 +385,18 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
         ],
     );
     fs::write(client.join("deps/left.txt"), "left\n").unwrap();
-    jjosh(&client, &["link", "push", "deps", "--to", "left"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "left#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(git(&remote_bare, &["show", "left:src/left.txt"]), "left\n");
     let left = commit_id(&client, "@");
     jjosh(
@@ -335,7 +406,18 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
     fs::write(client.join("deps/right.txt"), "right\n").unwrap();
     let right = commit_id(&client, "@");
     jjosh(&client, &["new", &left, &right]);
-    jjosh(&client, &["link", "push", "deps", "--to", "merged"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "merged#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["show", "merged:src/left.txt"]),
         "left\n"
@@ -359,7 +441,18 @@ fn link_push_prunes_empty_branches_without_losing_meaningful_merges() {
     );
     let empty_branch = commit_id(&client, "@");
     jjosh(&client, &["new", &left, &empty_branch]);
-    jjosh(&client, &["link", "push", "deps", "--to", "collapsed"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "collapsed#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/collapsed"]),
         git(&remote_bare, &["rev-parse", "refs/heads/left"])
@@ -391,15 +484,24 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
             "main",
             "--push-url",
             remote_bare.to_str().unwrap(),
-            "--push-target",
-            "main",
         ],
     );
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published-v1\n").unwrap();
     jjosh(&client, &["status"]);
     let local_change = change_id(&client, "@");
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     let first_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
         .trim()
         .to_owned();
@@ -407,7 +509,18 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
         git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
         "published-v1\n"
     );
-    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "topic#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/topic"]).trim(),
         first_tip
@@ -417,14 +530,37 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     jjosh(&client, &["status"]);
     assert_eq!(change_id(&client, "@"), local_change);
     let preflight_operation = operation_id(&client);
-    jjosh(&client, &["link", "push", "deps", "--dry-run"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+            "--dry-run",
+        ],
+    );
     assert_eq!(operation_id(&client), preflight_operation);
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
         first_tip
     );
     // A dry-run must leave the lease at the actually published v1.
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     let second_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
         .trim()
         .to_owned();
@@ -451,7 +587,18 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     fs::write(client.join("deps/value.txt"), "published-v3\n").unwrap();
     jjosh(&client, &["status"]);
     assert_eq!(change_id(&client, "@"), local_change);
-    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "topic#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     let topic_tip = git(&remote_bare, &["rev-parse", "refs/heads/topic"])
         .trim()
         .to_owned();
@@ -463,7 +610,18 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
         second_tip
     );
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
         topic_tip
@@ -499,15 +657,24 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             "main",
             "--push-url",
             remote_bare.to_str().unwrap(),
-            "--push-target",
-            "main",
         ],
     );
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["status"]);
     let local_change = change_id(&client, "@");
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     let published_tip = git(&remote_bare, &["rev-parse", "refs/heads/main"])
         .trim()
         .to_owned();
@@ -537,7 +704,19 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     jjosh(&client, &["status"]);
     assert_eq!(change_id(&client, "@"), local_change);
     let preflight_operation = operation_id(&client);
-    let rejected_preflight = jjosh_unchecked(&client, &["link", "push", "deps", "--dry-run"]);
+    let rejected_preflight = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+            "--dry-run",
+        ],
+    );
     assert!(!rejected_preflight.status.success());
     assert_eq!(operation_id(&client), preflight_operation);
     assert_eq!(
@@ -548,7 +727,18 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
         git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
         "other-writer\n"
     );
-    let rejected_push = jjosh_unchecked(&client, &["link", "push", "deps"]);
+    let rejected_push = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert!(!rejected_push.status.success());
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
@@ -559,7 +749,18 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
         "other-writer\n"
     );
     // A rejected real push must not bless the other writer's tip either.
-    let rejected_retry = jjosh_unchecked(&client, &["link", "push", "deps"]);
+    let rejected_retry = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert!(!rejected_retry.status.success());
     assert_eq!(
         git(&remote_bare, &["rev-parse", "refs/heads/main"]).trim(),
@@ -577,7 +778,18 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             &format!("{published_tip}:refs/heads/main"),
         ],
     );
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["show", "refs/heads/main:src/value.txt"]),
         "local-rewrite\n"
@@ -642,8 +854,30 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     );
     fs::write(client.join("deps/value.txt"), "published local change\n").unwrap();
     jjosh(&client, &["describe", "-m", "local change"]);
-    jjosh(&client, &["link", "push", "deps"]);
-    jjosh(&client, &["link", "push", "deps", "--to", "topic"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "topic#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     jjosh(&client, &["new"]);
     let local_change = change_id(&client, "@");
 
@@ -674,18 +908,50 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     fs::write(client.join("deps/pending.txt"), "new local change\n").unwrap();
     jjosh(&client, &["status"]);
     assert!(
-        !jjosh_unchecked(&client, &["link", "push", "deps"])
-            .status
-            .success()
+        !jjosh_unchecked(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "deps-upstream",
+                "--named",
+                "main#deps=@",
+                "--allow-empty-description"
+            ]
+        )
+        .status
+        .success()
     );
 
-    jjosh(&client, &["link", "update", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "deps-upstream",
+            "--branch",
+            "main",
+        ],
+    );
     assert_eq!(change_id(&client, "@"), local_change);
     assert_eq!(
         fs::read_to_string(client.join("deps/pending.txt")).unwrap(),
         "new local change\n"
     );
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
     assert_eq!(
         git(&remote_bare, &["show", "main:src/pending.txt"]),
         "new local change\n"
@@ -696,9 +962,20 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     );
     // Fetching main must not authorize overwriting the independently changed topic.
     assert!(
-        !jjosh_unchecked(&client, &["link", "push", "deps", "--to", "topic"])
-            .status
-            .success()
+        !jjosh_unchecked(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "deps-upstream",
+                "--named",
+                "topic#deps=@",
+                "--allow-empty-description"
+            ]
+        )
+        .status
+        .success()
     );
     assert_eq!(
         git(&remote_bare, &["rev-parse", "topic"]).trim(),
@@ -707,9 +984,10 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
 }
 
 #[test]
-fn malformed_link_metadata_is_not_silently_omitted() {
+fn named_remote_sync_ignores_redirected_or_malformed_link_metadata() {
     let temp = tempfile::tempdir().unwrap();
     let (remote_work, remote_bare, _) = create_remote(temp.path(), "malformed");
+    let (_other_work, other_bare, _) = create_remote(temp.path(), "other");
     let client = create_client(temp.path(), true);
     jjosh(
         &client,
@@ -725,55 +1003,69 @@ fn malformed_link_metadata_is_not_silently_omitted() {
             remote_bare.to_str().unwrap(),
         ],
     );
-    let valid_metadata = fs::read(client.join("deps/.link.josh")).unwrap();
-    let broken_metadata = b":link[mode=\"embedded\",commit=\"unterminated\n";
-    fs::write(client.join("deps/.link.josh"), broken_metadata).unwrap();
-    jjosh(&client, &["status"]);
-    let local = commit_id(&client, "@");
-    let graph = visible_graph(&client);
-    let operation = operation_id(&client);
-    for args in [
-        vec!["link", "update"],
-        vec!["link", "update", "deps"],
-        vec!["link", "push", "deps"],
-        vec![
-            "link",
-            "add",
-            "other",
-            remote_bare.to_str().unwrap(),
-            ":/src",
-            "--target",
-            "main",
-        ],
-    ] {
-        let rejected = jjosh_unchecked(&client, &args);
-        assert!(
-            !rejected.status.success(),
-            "{args:?} ignored malformed link metadata"
-        );
-        assert_eq!(commit_id(&client, "@"), local);
-        assert_eq!(visible_graph(&client), graph);
-        assert_eq!(operation_id(&client), operation);
-        assert_eq!(
-            fs::read(client.join("deps/.link.josh")).unwrap(),
-            broken_metadata
-        );
-    }
-    assert!(!client.join("other").exists());
-    // The same link remains usable after the user repairs its metadata.
-    fs::write(client.join("deps/.link.josh"), valid_metadata).unwrap();
-    fs::write(remote_work.join("src/value.txt"), "repaired-v2\n").unwrap();
-    git(&remote_work, &["commit", "-am", "repaired-v2"]);
+    let valid_metadata = fs::read_to_string(client.join("deps/.link.josh")).unwrap();
+    let redirected_metadata = valid_metadata
+        .replace(remote_bare.to_str().unwrap(), other_bare.to_str().unwrap())
+        .replace("\"main\"", "\"redirected\"");
+    let other_refs = git(&other_bare, &["show-ref"]);
+    fs::write(client.join("deps/local.txt"), "local publication\n").unwrap();
+    jjosh(&client, &["describe", "-m", "local publication"]);
+    fs::write(remote_work.join("src/value.txt"), "upstream-v2\n").unwrap();
+    git(&remote_work, &["commit", "-am", "upstream-v2"]);
     git(
         &remote_work,
         &["push", remote_bare.to_str().unwrap(), "HEAD:main"],
     );
-    jjosh(&client, &["link", "update"]);
-    jjosh(&client, &["new", "@", "main#deps@deps-upstream"]);
-    assert_eq!(
-        fs::read_to_string(client.join("deps/value.txt")).unwrap(),
-        "repaired-v2\n"
-    );
+    for (index, marker) in [
+        redirected_metadata.as_str(),
+        ":link[mode=\"embedded\",commit=\"unterminated\n",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        fs::write(client.join("deps/.link.josh"), marker).unwrap();
+        let local = commit_id(&client, "@");
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--branch",
+                "main",
+            ],
+        );
+        assert_eq!(
+            file_at_revision(&client, "main#deps@deps-upstream", "deps/value.txt"),
+            b"upstream-v2\n"
+        );
+        jjosh(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "deps-upstream",
+                "--named",
+                &format!("published-{index}#deps=@"),
+                "--allow-empty-description",
+            ],
+        );
+        assert_eq!(
+            git(
+                &remote_bare,
+                &["show", &format!("published-{index}:src/local.txt")]
+            ),
+            "local publication\n"
+        );
+        assert_eq!(git(&other_bare, &["show-ref"]), other_refs);
+        assert_eq!(commit_id(&client, "@"), local);
+        assert_eq!(
+            fs::read_to_string(client.join("deps/.link.josh")).unwrap(),
+            marker
+        );
+    }
 }
 
 #[test]
@@ -804,10 +1096,40 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         let local = commit_id(&client, "@");
         let initial = commit_id(&client, "main#deps@deps-upstream");
         let metadata = fs::read(client.join("deps/.link.josh")).unwrap();
+        // A link without an explicit push URL remains read-only, even though
+        // its fetch endpoint happens to be a writable local repository.
+        let readonly_refs = git(&bare, &["show-ref"]);
+        let readonly_operation = operation_id(&client);
+        let rejected = jjosh_unchecked(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "deps-upstream",
+                "--named",
+                "readonly#deps=@",
+                "--allow-empty-description",
+            ],
+        );
+        assert!(!rejected.status.success());
+        assert_eq!(git(&bare, &["show-ref"]), readonly_refs);
+        assert_eq!(operation_id(&client), readonly_operation);
+        assert_eq!(commit_id(&client, "@"), local);
         fs::write(work.join("src/value.txt"), "upstream v2\n").unwrap();
         git(&work, &["commit", "-am", "v2"]);
         git(&work, &["push", bare.to_str().unwrap(), "main"]);
-        jjosh(&client, &["link", "update", "deps", "--tag", "v*"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--tag",
+                "glob:v*",
+            ],
+        );
         assert_eq!(commit_id(&client, "main#deps@deps-upstream"), initial);
         assert_eq!(
             file_at_revision(
@@ -821,7 +1143,14 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         jjosh(
             &client,
             &[
-                "link", "update", "deps", "--branch", "main", "--branch", "keep",
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--branch",
+                "main",
+                "--branch",
+                "keep",
             ],
         );
         let updated = commit_id(&client, "main#deps@deps-upstream");
@@ -843,7 +1172,14 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         jjosh(
             &client,
             &[
-                "link", "update", "deps", "--branch", "main", "--branch", "keep",
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--branch",
+                "main",
+                "--branch",
+                "keep",
             ],
         );
         assert_eq!(commit_id(&client, "main#deps@deps-upstream"), updated);
@@ -854,7 +1190,17 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
             &work,
             &["push", bare.to_str().unwrap(), ":keep", ":refs/tags/v1"],
         );
-        jjosh(&client, &["link", "update", "deps", "--branch", "main"]);
+        jjosh(
+            &client,
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--branch",
+                "main",
+            ],
+        );
         assert_eq!(commit_id(&client, "@"), local);
         assert_eq!(
             file_at_revision(&client, "main#deps@deps-upstream", "deps/value.txt"),
@@ -871,7 +1217,16 @@ fn selected_link_fetch_preserves_work_and_handles_tags_rewrites_and_deletions() 
         );
         jjosh(
             &client,
-            &["link", "update", "deps", "--branch", "keep", "--tag", "v1"],
+            &[
+                "git",
+                "fetch",
+                "--remote",
+                "deps-upstream",
+                "--branch",
+                "keep",
+                "--tag",
+                "v1",
+            ],
         );
         assert_eq!(
             commit_id(
@@ -956,7 +1311,10 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
         ],
     );
     assert_eq!(commit_id(&client, "main#app"), fork);
-    jjosh(&client, &["link", "update", "app", "--tag", "v1"]);
+    jjosh(
+        &client,
+        &["git", "fetch", "--remote", "app-upstream", "--tag", "v1"],
+    );
     assert!(!commit_id(&client, "remote_tags(exact:v1#app, exact:app-upstream)").is_empty());
     assert_eq!(
         jjosh(
@@ -977,7 +1335,17 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     git(&upstream, &["commit", "-am", "upstream advancement"]);
     git(&upstream, &["push", "origin", "main"]);
     let local = commit_id(&client, "@");
-    jjosh(&client, &["link", "update", "app", "--branch", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "app-upstream",
+            "--branch",
+            "main",
+        ],
+    );
     assert_eq!(commit_id(&client, "@"), local);
     assert_eq!(commit_id(&client, "main#app"), fork);
     assert_eq!(
@@ -1005,7 +1373,17 @@ fn imported_soft_fork_attaches_upstream_without_reimporting_local_history() {
     jjosh(&client, &["new", &left, &right]);
     let conflicted = commit_id(&client, "@ & conflicts()");
     assert_eq!(conflicted, commit_id(&client, "@"));
-    jjosh(&client, &["link", "update", "app", "--branch", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "app-upstream",
+            "--branch",
+            "main",
+        ],
+    );
     assert_eq!(commit_id(&client, "@ & conflicts()"), conflicted);
 }
 
@@ -1053,11 +1431,6 @@ fn link_add_names_observations_by_project_not_mount_path() {
         fs::read_to_string(client.join("vendor/deps/value.txt")).unwrap(),
         "nested-v1\n"
     );
-    let marker = fs::read_to_string(client.join("vendor/deps/.link.josh")).unwrap();
-    assert!(
-        marker.contains("name=\"deps\""),
-        "missing project name in marker:\n{marker}"
-    );
 }
 
 #[test]
@@ -1077,8 +1450,6 @@ fn link_push_then_fetch_reuses_published_local_change() {
             "main",
             "--push-url",
             remote_bare.to_str().unwrap(),
-            "--push-target",
-            "main",
         ],
     );
     jjosh(&client, &["new"]);
@@ -1086,8 +1457,29 @@ fn link_push_then_fetch_reuses_published_local_change() {
     jjosh(&client, &["describe", "-m", "published local change"]);
     let published = commit_id(&client, "@");
     let published_change = change_id(&client, "@");
-    jjosh(&client, &["link", "push", "deps"]);
-    jjosh(&client, &["link", "update", "deps", "--branch", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "deps-upstream",
+            "--branch",
+            "main",
+        ],
+    );
     assert_no_divergent_changes(&client);
     assert_eq!(commit_id(&client, "main#deps@deps-upstream"), published);
     assert_eq!(
@@ -1113,15 +1505,24 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
             "main",
             "--push-url",
             remote_bare.to_str().unwrap(),
-            "--push-target",
-            "main",
         ],
     );
     jjosh(&client, &["new"]);
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["describe", "-m", "published local change"]);
     let published = commit_id(&client, "@");
-    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "deps-upstream",
+            "--named",
+            "main#deps=@",
+            "--allow-empty-description",
+        ],
+    );
 
     git(&work, &["fetch", remote_bare.to_str().unwrap(), "main"]);
     git(&work, &["reset", "--hard", "FETCH_HEAD"]);
@@ -1130,7 +1531,17 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
     git(&work, &["commit", "-m", "upstream descendant"]);
     git(&work, &["push", remote_bare.to_str().unwrap(), "HEAD:main"]);
 
-    jjosh(&client, &["link", "update", "deps", "--branch", "main"]);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "deps-upstream",
+            "--branch",
+            "main",
+        ],
+    );
     assert_no_divergent_changes(&client);
     assert_eq!(
         commit_id(&client, "parents(main#deps@deps-upstream)"),

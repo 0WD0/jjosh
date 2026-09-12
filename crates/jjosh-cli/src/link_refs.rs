@@ -59,11 +59,13 @@ pub(crate) fn observation(
         b"jjosh-remote-absent\n",
     )
     .map_err(user_error)?;
-    Ok(match transaction.resolve_ref(&reference).map_err(user_error)? {
-        None => Expected::Unknown,
-        Some(id) if id == absent => Expected::Absent,
-        Some(id) => Expected::At(id),
-    })
+    Ok(
+        match transaction.resolve_ref(&reference).map_err(user_error)? {
+            None => Expected::Unknown,
+            Some(id) if id == absent => Expected::Absent,
+            Some(id) => Expected::At(id),
+        },
+    )
 }
 
 /// Records a successfully observed absence, independently of projected visibility.

@@ -7,9 +7,13 @@ use anyhow::{Context, Result, ensure};
 use gix::remote::Direction;
 use jj_cli::cli_util::{CommandHelper, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error};
-use jj_cli::git_remote::{GitRemoteExtension, GitRemotePushOptions, GitRemoteSession, RemoteFuture};
+use jj_cli::git_remote::{
+    GitRemoteExtension, GitRemotePushOptions, GitRemoteSession, RemoteFuture,
+};
 use jj_cli::ui::Ui;
-use jj_lib::git::{GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitRemoteObservation, IgnoredRefspecs};
+use jj_lib::git::{
+    GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitRemoteObservation, IgnoredRefspecs,
+};
 use jj_lib::ref_name::{RefName, RefNameBuf, RemoteName, RemoteNameBuf};
 use jj_lib::repo::{MutableRepo, Repo as _};
 use jj_lib::repo_path::RepoPathBuf;
@@ -35,7 +39,11 @@ pub(crate) struct Session {
 pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<String>> {
     repo.config_snapshot()
         .string(key)
-        .map(|value| std::str::from_utf8(&value).map(str::to_owned).map_err(Into::into))
+        .map(|value| {
+            std::str::from_utf8(&value)
+                .map(str::to_owned)
+                .map_err(Into::into)
+        })
         .transpose()
 }
 
@@ -49,15 +57,24 @@ pub(crate) fn configure_attachment(
 ) -> Result<()> {
     crate::native_project::validate_project(project)?;
     let repo = gix::open(repo_path)?;
-    ensure!(repo.object_hash() == gix::hash::Kind::Sha1, "Project attachment requires SHA-1");
+    ensure!(
+        repo.object_hash() == gix::hash::Kind::Sha1,
+        "Project attachment requires SHA-1"
+    );
     repo.find_remote(remote)?;
     let project_key = format!("remote.{remote}.jjosh-project");
     let mount_key = format!("remote.{remote}.jjosh-mount");
     if let Some(existing) = config_string(&repo, &project_key)? {
-        ensure!(existing == project, "Remote {remote} is already attached to project {existing}");
+        ensure!(
+            existing == project,
+            "Remote {remote} is already attached to project {existing}"
+        );
     }
     if let Some(existing) = config_string(&repo, &mount_key)? {
-        ensure!(existing == mount.as_internal_file_string(), "Remote {remote} is already mounted at {existing}");
+        ensure!(
+            existing == mount.as_internal_file_string(),
+            "Remote {remote} is already mounted at {existing}"
+        );
     }
     let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local)?)?;
     config.set_raw_value(project_key.as_str(), project)?;
@@ -71,7 +88,11 @@ pub(crate) fn configure_attachment(
 }
 
 pub(crate) fn raw_ref_prefix(repo: &gix::Repository, endpoint: &str) -> Result<String> {
-    let key = gix_object::compute_hash(repo.object_hash(), gix_object::Kind::Blob, endpoint.as_bytes())?;
+    let key = gix_object::compute_hash(
+        repo.object_hash(),
+        gix_object::Kind::Blob,
+        endpoint.as_bytes(),
+    )?;
     Ok(format!("refs/jjosh/remote/{key}/"))
 }
 
@@ -87,29 +108,36 @@ impl GitRemoteExtension for Extension {
         let git_path = backend.git_repo_path().to_owned();
         let josh = josh_changes::remote_config::try_read_remote_config(&git_path, remote.as_str())
             .map_err(user_error)?;
-        let project_name = config_string(&git, &format!("remote.{}.jjosh-project", remote.as_str()))
-            .map_err(user_error)?;
-        if (josh.is_some() || project_name.is_some()) && git.object_hash() != gix::hash::Kind::Sha1 {
-            return Err(user_error("Josh and native project conversion require a SHA-1 repository"));
+        let project_name =
+            config_string(&git, &format!("remote.{}.jjosh-project", remote.as_str()))
+                .map_err(user_error)?;
+        if (josh.is_some() || project_name.is_some()) && git.object_hash() != gix::hash::Kind::Sha1
+        {
+            return Err(user_error(
+                "Josh and native project conversion require a SHA-1 repository",
+            ));
         }
         let project = if let Some(name) = project_name {
             crate::native_project::validate_project(&name).map_err(user_error)?;
             let transaction = crate::interop::open_josh_transaction(&git_path, true)?;
-            let mount = if let Some(path) = config_string(
-                &git,
-                &format!("remote.{}.jjosh-mount", remote.as_str()),
-            ).map_err(user_error)? {
+            let mount = if let Some(path) =
+                config_string(&git, &format!("remote.{}.jjosh-mount", remote.as_str()))
+                    .map_err(user_error)?
+            {
                 crate::native_project::parse_mount(&path).map_err(user_error)?
             } else {
                 crate::native_project::load_mount(&transaction, &name).map_err(user_error)?
             };
             let native = match crate::native_project::native_project_for_mount(&transaction, &mount)
-                .map_err(user_error)? {
+                .map_err(user_error)?
+            {
                 Some(existing) if existing == name => true,
-                Some(existing) => return Err(user_error(format!(
-                    "Mount {} belongs to native project {existing}, not {name}",
-                    mount.as_internal_file_string(),
-                ))),
+                Some(existing) => {
+                    return Err(user_error(format!(
+                        "Mount {} belongs to native project {existing}, not {name}",
+                        mount.as_internal_file_string(),
+                    )));
+                }
                 None => false,
             };
             if native && let Some(config) = &josh {
@@ -117,33 +145,56 @@ impl GitRemoteExtension for Extension {
                 if filter != Filter::new()
                     && filter != Filter::new().prefix(mount.as_internal_file_string())
                 {
-                    return Err(user_error("A native whole-project remote cannot apply a source-changing Josh filter"));
+                    return Err(user_error(
+                        "A native whole-project remote cannot apply a source-changing Josh filter",
+                    ));
                 }
             }
-            Some(Project { name, mount, native })
+            Some(Project {
+                name,
+                mount,
+                native,
+            })
         } else {
             None
         };
-        Ok(Box::new(Session { name: remote.to_owned(), git_path, project, josh }))
+        Ok(Box::new(Session {
+            name: remote.to_owned(),
+            git_path,
+            project,
+            josh,
+        }))
     }
 }
 
 impl Session {
     /// Rebind the named handle to Josh's real endpoints without losing transport configuration.
-    pub fn remote<'repo>(&self, repo: &'repo gix::Repository, direction: Direction) -> Result<gix::Remote<'repo>> {
+    pub fn remote<'repo>(
+        &self,
+        repo: &'repo gix::Repository,
+        direction: Direction,
+    ) -> Result<gix::Remote<'repo>> {
         if matches!(direction, Direction::Push) {
             ensure!(
-                !repo.config_snapshot().boolean(format!("remote.{}.jjosh-readOnly", self.name.as_str()).as_str()).unwrap_or(false),
+                !repo
+                    .config_snapshot()
+                    .boolean(format!("remote.{}.jjosh-readOnly", self.name.as_str()).as_str())
+                    .unwrap_or(false),
                 "Remote {} has no publication endpoint; configure a writable named remote",
                 self.name.as_str(),
             );
         }
         let mut remote = repo.find_remote(self.name.as_str())?;
         if let Some(config) = &self.josh {
-            remote = remote.with_url(config.url.as_str())?
+            remote = remote
+                .with_url(config.url.as_str())?
                 .with_push_url(config.push_url.as_deref().unwrap_or(&config.url))?;
         }
-        ensure!(remote.urls(direction).count() == 1, "Remote {} must have exactly one selected endpoint", self.name.as_str());
+        ensure!(
+            remote.urls(direction).count() == 1,
+            "Remote {} must have exactly one selected endpoint",
+            self.name.as_str()
+        );
         Ok(remote)
     }
 
@@ -161,7 +212,9 @@ impl Session {
         } else if let Some(config) = &self.josh {
             Some(config.semantic_filter())
         } else {
-            self.project.as_ref().map(|project| Filter::new().prefix(project.mount.as_internal_file_string()))
+            self.project
+                .as_ref()
+                .map(|project| Filter::new().prefix(project.mount.as_internal_file_string()))
         }
     }
 
@@ -211,6 +264,15 @@ impl GitRemoteSession for Session {
         preparation: &'a GitRemotePushOptions,
         dry_run: bool,
     ) -> RemoteFuture<'a, jj_cli::git_remote::GitRemotePushOutcome> {
-        Box::pin(push::run(self, ui, command, repo, targets, options, preparation, dry_run))
+        Box::pin(push::run(
+            self,
+            ui,
+            command,
+            repo,
+            targets,
+            options,
+            preparation,
+            dry_run,
+        ))
     }
 }

@@ -1,41 +1,15 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::collections::HashSet;
-use std::io::Write as _;
 use std::path::Path;
 
-use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
-use jj_cli::ui::Ui;
 use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
-use jj_lib::git::GitFetchRefExpression;
-use jj_lib::git::GitRefKind;
 use jj_lib::index::ResolvedChangeState;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
-use jj_lib::str_util::StringExpression;
-use josh_core::cache::Expected;
 use josh_core::cache::Transaction;
-use josh_core::filter::Filter;
-
-fn native_project_name(
-    transaction: &Transaction,
-    path: &str,
-) -> Result<Option<String>, CommandError> {
-    let mount = crate::native_project::parse_mount(path).map_err(user_error)?;
-    crate::native_project::native_project_for_mount(transaction, &mount).map_err(user_error)
-}
-
-pub(crate) fn remote_name(project: &str, label: &str) -> Result<RemoteNameBuf, CommandError> {
-    crate::ref_names::observation_remote(project, label)
-        .map_err(user_error)
-        .map(Into::into)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProjectedSignature {
     name: Vec<u8>,
@@ -219,4 +193,3 @@ pub(crate) async fn canonicalize_filtered_graph(
         .remove(&filtered)
         .ok_or_else(|| user_error("Filtered commit was not canonicalized"))
 }
-
