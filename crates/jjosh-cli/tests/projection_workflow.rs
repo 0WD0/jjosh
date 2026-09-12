@@ -213,6 +213,7 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         f.commit(&source, "source base");
         let remote = f.bare(&source, "source.git");
         let client = f.client("client", colocated, &remote, ":/app");
+        f.jj(&client, &["bookmark", "track", "main@origin"]);
         f.jj(&client, &["new", "main@origin", "-m", "native edit"]);
         f.write(&client, "file.txt", "native working copy\n");
         f.jj(&client, &["describe", "-m", "native edit"]);
@@ -236,10 +237,11 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
                 "colocated Git HEAD should point at the native parent"
             );
         }
+        f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
         let operation_before_push = f.operation_id(&client);
         f.jj(
             &client,
-            &["git", "push", "--remote", "origin", "--named", "main=@"],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_eq!(f.log(&client, "@", "commit_id"), selected);
         assert_ne!(f.operation_id(&client), operation_before_push);
@@ -265,13 +267,17 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         f.jj(&client, &["git", "fetch", "--remote", "origin"]);
         f.jj(
             &client,
+            &["bookmark", "set", "main", "-r", &selected, "--allow-backwards"],
+        );
+        f.jj(
+            &client,
             &[
                 "git",
                 "push",
                 "--remote",
                 "origin",
-                "--named",
-                &format!("main={selected}"),
+                "--bookmark",
+                "main",
             ],
         );
         assert_eq!(f.refs(&remote), before);
@@ -283,6 +289,7 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         );
         let empty = f.log(&client, "@", "commit_id");
         assert_eq!(f.log(&client, "@", "empty"), "true");
+        f.jj(&client, &["bookmark", "set", "main", "-r", &empty]);
         f.jj(
             &client,
             &[
@@ -290,8 +297,8 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
                 "push",
                 "--remote",
                 "origin",
-                "--named",
-                &format!("main={empty}"),
+                "--bookmark",
+                "main",
             ],
         );
         assert_ne!(f.refs(&remote), before);
@@ -353,13 +360,15 @@ fn named_git_endpoints_control_projected_fetch_and_push() {
             "file.txt\n"
         );
 
+        f.jj(&client, &["bookmark", "track", "main@origin"]);
         f.jj(&client, &["new", "main@origin", "-m", "publish to push endpoint"]);
         f.write(&client, "file.txt", "converted publication\n");
         f.jj(&client, &["describe", "-m", "publish to push endpoint"]);
         let selected = f.log(&client, "@", "commit_id");
+        f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
         f.jj(
             &client,
-            &["git", "push", "--remote", "origin", "--named", "main=@"],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_eq!(
             f.git(&destination, &["show", "main:app/file.txt"]),
@@ -411,15 +420,19 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
             .to_owned();
         let target = f.bare(&target_source, &format!("target-{suffix}.git"));
         f.remote(&client, suffix, &target, ":/app");
+        f.jj(
+            &client,
+            &["bookmark", "set", "imported", "-r", &projected, "--allow-backwards"],
+        );
         let working_copy_before_push = f.log(&client, "@", "commit_id");
-        let publication = format!("imported={projected}");
         let mut args = vec![
             "git",
             "push",
             "--remote",
             suffix,
-            "--named",
-            &publication,
+            "--bookmark",
+            "imported",
+            "--allow-new",
             "--base",
             "main",
         ];
@@ -460,7 +473,11 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
         f.jj(&client, &["git", "fetch", "--remote", suffix]);
         f.jj(
             &client,
-            &["git", "push", "--remote", suffix, "--named", &publication],
+            &["bookmark", "set", "imported", "-r", &projected, "--allow-backwards"],
+        );
+        f.jj(
+            &client,
+            &["git", "push", "--remote", suffix, "--bookmark", "imported"],
         );
         assert_eq!(f.refs(&target), before);
     }
@@ -494,6 +511,7 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
     assert_eq!(f.git(&source, &["rev-list", "--merges", "main"]), "");
     let remote = f.bare(&source, "source.git");
     let sunshine = f.view_client("sunshine", true, &remote, "src/Sunshine");
+    f.jj(&sunshine, &["bookmark", "track", "main@origin"]);
     f.jj(
         &sunshine,
         &[
@@ -521,6 +539,7 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
     f.write(&sunshine, "pending.txt", "keep this local edit\n");
     f.jj(&sunshine, &["describe", "-m", "unpublished follow-up"]);
     let pending_change = f.log(&sunshine, "@", "change_id");
+    f.jj(&sunshine, &["bookmark", "set", "main", "-r", &published]);
     f.jj(
         &sunshine,
         &[
@@ -528,8 +547,8 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
             "push",
             "--remote",
             "origin",
-            "--named",
-            &format!("main={published}"),
+            "--bookmark",
+            "main",
         ],
     );
     f.jj(&sunshine, &["git", "fetch", "--remote", "origin"]);
@@ -576,9 +595,10 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
         "quic edited in Sunshine\n",
     );
     f.jj(&sunshine, &["describe", "-m", "edit via Sunshine view"]);
+    f.jj(&sunshine, &["bookmark", "set", "main", "-r", "@"]);
     f.jj(
         &sunshine,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert_eq!(
         f.git(&remote, &["show", "main:src/moonlight-common-c/lib.txt"]),
@@ -594,6 +614,7 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
     );
 
     let artemis = f.view_client("artemis", false, &remote, "src/Artemis");
+    f.jj(&artemis, &["bookmark", "track", "main@origin"]);
     f.jj(
         &artemis,
         &["new", "main@origin", "-m", "edit via Artemis view"],
@@ -615,9 +636,10 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
     );
     f.jj(&artemis, &["describe", "-m", "edit via Artemis view"]);
     let artemis_change = f.log(&artemis, "@", "change_id");
+    f.jj(&artemis, &["bookmark", "set", "main", "-r", "@"]);
     f.jj(
         &artemis,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert_eq!(
         f.git(&remote, &["show", "main:src/moonlight-common-c/lib.txt"]),
@@ -701,6 +723,7 @@ fn removing_view_mapping_can_detach_files_or_remove_them_without_deleting_shared
         f.commit(&source, "two views of canonical libraries");
         let remote = f.bare(&source, "source.git");
         let sunshine = f.view_client("sunshine", remove_files, &remote, "src/Sunshine");
+        f.jj(&sunshine, &["bookmark", "track", "main@origin"]);
         f.jj(
             &sunshine,
             &["new", "main@origin", "-m", "remove moonlight mapping"],
@@ -719,9 +742,10 @@ fn removing_view_mapping_can_detach_files_or_remove_them_without_deleting_shared
             fs::remove_dir_all(sunshine.join("third-party/moonlight-common-c")).unwrap();
         }
         f.jj(&sunshine, &["describe", "-m", "remove moonlight mapping"]);
+        f.jj(&sunshine, &["bookmark", "set", "main", "-r", "@"]);
         f.jj(
             &sunshine,
-            &["git", "push", "--remote", "origin", "--named", "main=@"],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_eq!(
             f.git(&remote, &["show", "main:src/moonlight-common-c/lib.txt"]),
@@ -766,9 +790,10 @@ fn removing_view_mapping_can_detach_files_or_remove_them_without_deleting_shared
                 &["new", "main@origin", "-m", "edit detached library"],
             );
             f.write(&sunshine, library, "Sunshine independent copy\n");
+            f.jj(&sunshine, &["bookmark", "set", "main", "-r", "@"]);
             f.jj(
                 &sunshine,
-                &["git", "push", "--remote", "origin", "--named", "main=@"],
+                &["git", "push", "--remote", "origin", "--bookmark", "main"],
             );
             assert_eq!(
                 f.git(&remote, &["show", "main:src/moonlight-common-c/lib.txt"]),
@@ -789,6 +814,7 @@ fn removing_view_mapping_can_detach_files_or_remove_them_without_deleting_shared
         // The other consumer still edits canonical content. A fresh projection
         // must neither recreate a removed path nor overwrite a detached copy.
         let artemis = f.view_client("artemis", !remove_files, &remote, "src/Artemis");
+        f.jj(&artemis, &["bookmark", "track", "main@origin"]);
         f.jj(
             &artemis,
             &["new", "main@origin", "-m", "advance still-shared library"],
@@ -803,9 +829,10 @@ fn removing_view_mapping_can_detach_files_or_remove_them_without_deleting_shared
             artemis_library,
             "canonical advanced through Artemis\n",
         );
+        f.jj(&artemis, &["bookmark", "set", "main", "-r", "@"]);
         f.jj(
             &artemis,
-            &["git", "push", "--remote", "origin", "--named", "main=@"],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_eq!(
             f.git(&remote, &["show", "main:src/moonlight-common-c/lib.txt"]),
@@ -853,6 +880,7 @@ fn view_mapping_can_publish_local_files_and_relocate_their_view_path() {
     f.commit(&source, "library owned by application");
     let remote = f.bare(&source, "source.git");
     let client = f.view_client("sunshine", false, &remote, "src/Sunshine");
+    f.jj(&client, &["bookmark", "track", "main@origin"]);
     f.jj(
         &client,
         &["new", "main@origin", "-m", "publish local library"],
@@ -862,9 +890,10 @@ fn view_mapping_can_publish_local_files_and_relocate_their_view_path() {
         "workspace.josh",
         "vendor/local = :/src/new-library\n",
     );
+    f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
     f.jj(
         &client,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert_eq!(
         f.git(&remote, &["show", "main:src/new-library/lib.txt"]),
@@ -894,9 +923,10 @@ fn view_mapping_can_publish_local_files_and_relocate_their_view_path() {
         "workspace.josh",
         "deps/shared = :/src/new-library\n",
     );
+    f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
     f.jj(
         &client,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert_eq!(
         f.git(&remote, &["show", "main:src/new-library/lib.txt"]),
@@ -934,6 +964,7 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
     f.commit(&source, "literal path and unrelated content");
     let remote = f.bare(&source, "source.git");
     let client = f.view_client("client", false, &remote, view);
+    f.jj(&client, &["bookmark", "track", "main@origin"]);
     f.jj(&client, &["new", "main@origin", "-m", "edit literal view"]);
     assert_eq!(
         fs::read_to_string(client.join("local.txt")).unwrap(),
@@ -966,9 +997,10 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
         "local.txt\n"
     );
     f.write(&client, "local.txt", "literal view edited\n");
+    f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
     f.jj(
         &client,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert_eq!(
         f.git(&remote, &["show", &format!("main:{view}/local.txt")]),
@@ -1023,10 +1055,12 @@ fn dry_run_non_fast_forward_and_native_conflict_ancestry_cannot_publish() {
     f.commit(&source, "base");
     let remote = f.bare(&source, "source.git");
     let client = f.client("client", true, &remote, ":/app");
+    f.jj(&client, &["bookmark", "track", "main@origin"]);
     f.jj(&client, &["new", "main@origin", "-m", "local edit"]);
     f.write(&client, "file.txt", "local\n");
     f.jj(&client, &["describe", "-m", "local edit"]);
     let selected = f.log(&client, "@", "commit_id");
+    f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
     let before = f.refs(&remote);
     let local_refs = f.refs(&client);
     let operation = f.operation_id(&client);
@@ -1037,8 +1071,8 @@ fn dry_run_non_fast_forward_and_native_conflict_ancestry_cannot_publish() {
             "push",
             "--remote",
             "origin",
-            "--named",
-            "main=@",
+            "--bookmark",
+            "main",
             "--dry-run",
         ],
     );
@@ -1052,7 +1086,7 @@ fn dry_run_non_fast_forward_and_native_conflict_ancestry_cannot_publish() {
     let advanced = f.refs(&remote);
     let rejected = f.jj_unchecked(
         &client,
-        &["git", "push", "--remote", "origin", "--named", "main=@"],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     assert!(!rejected.status.success());
     assert_eq!(f.refs(&remote), advanced);

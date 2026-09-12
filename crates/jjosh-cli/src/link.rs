@@ -406,15 +406,21 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         push_url.is_none(),
     )
     .map_err(user_error)?;
+    let configured_git = gix::open(&git_path).map_err(user_error)?;
+    let source_endpoint = crate::git_remote::remote_endpoint(
+        &configured_git.find_remote(remote_name.as_str()).map_err(user_error)?,
+        gix::remote::Direction::Fetch,
+        false,
+    ).map_err(user_error)?;
+    let fetched_endpoint = crate::git_remote::remote_endpoint(
+        &git.remote_at(fetch_url.as_str()).map_err(user_error)?,
+        gix::remote::Direction::Fetch,
+        false,
+    ).map_err(user_error)?;
     if !native {
         // Initial context is declared by link setup, not a publication lease.
         // Prefer the live source branch after later explicit fetches.
-        let source_remote = git.remote_at(url.as_str()).map_err(user_error)?;
-        let (mut endpoint, _) = source_remote
-            .sanitized_url_and_version(gix::remote::Direction::Fetch).map_err(user_error)?;
-        endpoint.canonicalize(git.workdir().unwrap_or_else(|| git.common_dir())).map_err(user_error)?;
-        let endpoint = String::from_utf8(endpoint.to_bstring().into()).map_err(user_error)?;
-        let prefix = crate::git_remote::raw_ref_prefix(&git, &endpoint).map_err(user_error)?;
+        let prefix = crate::git_remote::raw_ref_prefix(&git, &source_endpoint).map_err(user_error)?;
         let initial = format!("{prefix}bases/{project}");
         let old = transaction.resolve_ref(&initial).map_err(user_error)?;
         transaction.update_ref(
@@ -436,7 +442,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         transaction.flush_mem_odb().map_err(user_error)?;
     }
     if branch != "pinned" {
-        let prefix = crate::git_remote::raw_ref_prefix(&git, &fetch_url).map_err(user_error)?;
+        let prefix = crate::git_remote::raw_ref_prefix(&git, &fetched_endpoint).map_err(user_error)?;
         let raw_ref = format!("{prefix}refs/heads/{branch}");
         let old = transaction.resolve_ref(&raw_ref).map_err(user_error)?;
         transaction
@@ -461,7 +467,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     if branch != "pinned" {
         crate::link_refs::record_observation(
             &transaction,
-            &fetch_url,
+            &fetched_endpoint,
             &format!("refs/heads/{branch}"),
             raw,
         )?;
