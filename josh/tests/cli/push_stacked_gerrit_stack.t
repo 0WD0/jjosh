@@ -21,8 +21,6 @@ stored per-remote in the remote config.
 
   $ josh clone ${TESTTMP}/upstream :/sub1 filtered --forge gerrit --gerrit-mode stack > /dev/null 2>&1
   $ cd filtered
-  $ grep gerrit-mode "$(git rev-parse --git-common-dir)/josh/remotes/origin.josh"
-      gerrit-mode="stack"
   $ git config user.email "josh@example.com"
   $ git config user.name "Josh Test"
 

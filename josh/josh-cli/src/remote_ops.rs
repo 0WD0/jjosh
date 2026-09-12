@@ -31,30 +31,10 @@ pub fn to_absolute_remote_url(url: &str) -> anyhow::Result<String> {
     }
 }
 
-fn validate_remote_name(name: &str) -> anyhow::Result<()> {
-    // The name is both a single config-file component and an unquoted shell
-    // argument in uploadpack. Git ref validation alone does not make it safe.
-    anyhow::ensure!(
-        !name.is_empty()
-            && !name.starts_with('-')
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)),
-        "Invalid Josh remote name '{}': expected a single shell-safe name",
-        name
-    );
-    // This validates the variable component shared by all generated ref paths.
-    let reference = format!("refs/remotes/{name}/HEAD");
-    gix::validate::reference::name(reference.as_str().into())
-        .with_context(|| format!("Invalid Josh remote name '{}'", name))?;
-    Ok(())
-}
-
-/// Add or update a Josh remote and its local, read-only namespace transport.
+/// Add or update a Josh remote with real Git transport endpoints.
 ///
 /// Source and push filesystem paths are resolved against the caller's working
-/// directory. The Git remote exposes projected refs only; source publication
-/// must go through Josh's reverse filtering rather than ordinary `git push`.
+/// directory. Ordinary Git commands bypass Josh's projection conversion.
 pub fn configure_remote(
     repo_path: &std::path::Path,
     name: &str,
@@ -64,63 +44,18 @@ pub fn configure_remote(
     push_url: Option<&str>,
     gerrit_mode: Option<crate::config::GerritMode>,
 ) -> anyhow::Result<()> {
-    validate_remote_name(name)?;
-    // The writer validates these too, but creates its directory first. Reject
-    // invalid semantic input here before making any filesystem/config changes.
-    let parsed_filter = josh_core::filter::parse(filter)
-        .with_context(|| format!("Failed to parse filter '{}'", filter))?;
-    for key in josh_changes::remote_config::TRANSPORT_META_KEYS {
-        anyhow::ensure!(
-            parsed_filter.get_meta(key).is_none(),
-            "Filter must not set reserved meta key '{}': it is owned by the remote config",
-            key
-        );
-    }
     let remote_url = to_absolute_remote_url(url)?;
     let push_url = push_url.map(to_absolute_remote_url).transpose()?;
-    let repo = gix::open(repo_path).context("Failed to open repository")?;
-    let workdir = repo.workdir().unwrap_or_else(|| repo.git_dir());
-    let repo_remote = to_absolute_remote_url(
-        workdir
-            .to_str()
-            .context("Repository path is not valid UTF-8")?,
-    )?;
-    let source_refspec = format!("+refs/heads/*:refs/josh/remotes/{name}/*");
     crate::config::write_remote_config(
         repo_path,
         name,
         &remote_url,
         filter,
-        &source_refspec,
         forge,
         push_url.as_deref(),
         gerrit_mode,
     )
-    .context("Failed to write remote config file")?;
-
-    let fetch_refspec = format!("+refs/heads/*:refs/remotes/{name}/*");
-    let uploadpack = format!("env GIT_NAMESPACE=josh-{name} git upload-pack");
-    for (key, value) in [
-        ("receivepack", "false"),
-        ("pushurl", repo_remote.as_str()),
-        ("url", repo_remote.as_str()),
-        ("fetch", fetch_refspec.as_str()),
-        ("uploadpack", uploadpack.as_str()),
-    ] {
-        josh_core::git::GitCommand::new(
-            repo.git_dir(),
-            [
-                "config",
-                "--local",
-                "--replace-all",
-                &format!("remote.{name}.{key}"),
-                value,
-            ],
-            std::iter::empty::<(&str, &str)>(),
-        )
-        .spawn()
-        .with_context(|| format!("Failed to set remote {key}"))?;
-    }
+    .context("Failed to configure Josh remote")?;
     Ok(())
 }
 
@@ -189,7 +124,7 @@ pub fn resolve_default_branch(
 
 /// Return raw `(refname, oid)` pairs for all refs under
 /// `refs/josh/remotes/{remote_name}/*`, suitable as input to
-/// `josh_core::filter_refs`.  Errors if no refs are found.
+/// `josh_core::filter_refs`. An empty remote has no backing refs.
 pub fn get_backing_refs(
     transaction: &josh_core::cache::Transaction,
     remote_name: &str,
@@ -202,13 +137,6 @@ pub fn get_backing_refs(
             Ok(())
         },
     )?;
-
-    if input_refs.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No remote references found for '{}'",
-            remote_name
-        ));
-    }
 
     Ok(input_refs)
 }
@@ -229,16 +157,14 @@ pub fn step_ref_prefix(step_idx: usize, steps: &[Filter]) -> String {
         .join("/")
 }
 
-/// Apply a josh filter to all refs under `refs/josh/remotes/{remote_name}/*` and write
-/// the filtered commits to `refs/namespaces/josh-{remote_name}/refs/heads/*`.
+/// Apply a Josh filter to backing refs and publish directly to
+/// `refs/remotes/{remote_name}/*`, pruning branches no longer projected.
 /// Also writes `refs/josh/filtered/` refs for the default branch and persists filter tree objects.
-/// Then runs `git fetch --porcelain {remote_name}` to expose them through the configured
-/// remote, returning the ref updates reported by the fetch.
 pub fn apply_josh_filtering(
     transaction: &josh_core::cache::Transaction,
     filter: josh_core::filter::Filter,
     remote_name: &str,
-    default_branch: &str,
+    default_branch: Option<&str>,
 ) -> anyhow::Result<Vec<RefUpdate>> {
     let prefix = format!("refs/josh/remotes/{}/", remote_name);
 
@@ -278,7 +204,7 @@ pub fn apply_josh_filtering(
             }
 
             // Write refs/josh/filtered/ ref only for the default branch
-            if branch_name == default_branch {
+            if Some(branch_name.as_str()) == default_branch {
                 let filtered_ref =
                     format!("refs/josh/filtered/{}/heads/{}", prefix_path, branch_name);
                 transaction
@@ -297,63 +223,48 @@ pub fn apply_josh_filtering(
         current_commits = next_commits;
     }
 
-    // A namespace is the current projection, not an append-only cache. Remove
-    // branches that disappeared from the source or now project to no history.
-    let namespace = format!("refs/namespaces/josh-{remote_name}/refs/heads/");
-    let wanted: std::collections::HashSet<_> = current_commits
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect();
-    let mut stale = Vec::new();
-    transaction.for_each_ref_prefixed(&namespace, |name, id| {
-        if let Some(branch) = name.strip_prefix(&namespace)
-            && !wanted.contains(branch)
-        {
-            stale.push((name.to_owned(), id));
-        }
+    let canonical = format!("refs/remotes/{remote_name}/");
+    let mut existing = std::collections::BTreeMap::new();
+    // Symbolic refs are excluded by this iterator, preserving remote HEAD.
+    transaction.for_each_ref_prefixed(&canonical, |name, id| {
+        existing.insert(name.to_owned(), id);
         Ok(())
     })?;
-    for (name, id) in stale {
-        transaction.delete_ref(&name, josh_core::cache::Expected::At(id))?;
+    let mut updates = Vec::new();
+    for (branch_name, new) in current_commits {
+        let reference = format!("{canonical}{branch_name}");
+        let old = existing.remove(&reference);
+        let update = match old {
+            Some(old) if old == new => continue,
+            Some(old) if filter::is_ancestor_of(transaction, old, new)? => {
+                RefUpdate::FastForward { old, new, reference }
+            }
+            Some(old) => RefUpdate::Forced { old, new, reference },
+            None => RefUpdate::New { new, reference },
+        };
+        updates.push(update);
     }
-    for (branch_name, filtered_oid) in &current_commits {
-        let ns_ref = format!("{namespace}{branch_name}");
-        transaction
-            .update_ref(
-                &ns_ref,
-                josh_core::cache::Expected::Any,
-                *filtered_oid,
-                "josh filter",
-            )
-            .context("failed to create filtered reference")?;
+    updates.extend(existing.into_iter().map(|(reference, old)| {
+        RefUpdate::Deleted { old, reference }
+    }));
+    // Complete ancestry classification before staging any canonical ref edits.
+    for update in &updates {
+        use josh_core::cache::Expected;
+        match update {
+            RefUpdate::FastForward { old, new, reference }
+            | RefUpdate::Forced { old, new, reference } => {
+                transaction.update_ref(reference, Expected::At(*old), *new, "josh filter")?;
+            }
+            RefUpdate::New { new, reference } => {
+                transaction.update_ref(reference, Expected::Absent, *new, "josh filter")?;
+            }
+            RefUpdate::Deleted { old, reference } => {
+                transaction.delete_ref(reference, Expected::At(*old))?;
+            }
+            RefUpdate::Rejected { .. } => unreachable!("local projection updates cannot be rejected"),
+        }
     }
-
-    // Ignore configured ref mappings and tag pruning: this fetch owns only the
-    // selected remote's branch refs, even when global or remote pruneTags is set.
-    let refspec = format!("+refs/heads/*:refs/remotes/{remote_name}/*");
-    // Stdout is piped for parsing; stderr keeps the default handling
-    // (inherited on a TTY, forwarded otherwise) so progress/errors reach the user.
-    // git_command flushes staged namespace deletions and updates before upload-pack
-    // reads them, so pruning observes the complete current projection.
-    let output = transaction
-        .git_command(
-            &[
-                "fetch",
-                "--prune",
-                "--no-prune-tags",
-                "--no-tags",
-                "--refmap=",
-                "--porcelain",
-                remote_name,
-                &refspec,
-            ],
-            &[],
-        )?
-        .with_stdout(std::process::Stdio::piped())
-        .spawn()
-        .context("failed to fetch filtered refs")?;
-
-    crate::porcelain::parse_fetch_porcelain(&String::from_utf8_lossy(&output.stdout))
+    Ok(updates)
 }
 
 #[cfg(test)]

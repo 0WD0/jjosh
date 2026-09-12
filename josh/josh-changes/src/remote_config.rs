@@ -35,8 +35,9 @@ impl std::fmt::Display for GerritMode {
     }
 }
 
-/// Meta keys that configure the remote itself rather than the filter semantics.
-pub const TRANSPORT_META_KEYS: &[&str] = &["url", "fetch", "forge", "push", "gerrit-mode"];
+/// Meta keys reserved for remote configuration rather than filter semantics.
+pub const TRANSPORT_META_KEYS: &[&str] =
+    &["url", "fetch", "push", "pushurl", "forge", "gerrit-mode"];
 
 /// Resolved remote transport and filter configuration.
 pub struct RemoteConfig {
@@ -57,12 +58,14 @@ impl RemoteConfig {
     }
 }
 
-/// Use the common Git directory so linked worktrees share remote configuration.
-fn remotes_dir(repo_path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("Failed to open repository at {}", repo_path.display()))?;
-
-    Ok(repo.common_dir().join("josh").join("remotes"))
+fn validate_remote_name(name: &str) -> anyhow::Result<()> {
+    gix::remote::name::validated(name)
+        .with_context(|| format!("Invalid Josh remote name '{name}'"))?;
+    anyhow::ensure!(
+        !name.contains('/'),
+        "Josh remote name '{name}' must be a single configuration-file component"
+    );
+    Ok(())
 }
 
 fn config_string(repo: &gix::Repository, key: &str) -> anyhow::Result<Option<String>> {
@@ -76,87 +79,28 @@ fn config_string(repo: &gix::Repository, key: &str) -> anyhow::Result<Option<Str
         .transpose()
 }
 
-pub fn migrate_legacy_config(
-    repo_path: &std::path::Path,
-    remote_name: &str,
-) -> anyhow::Result<RemoteConfig> {
-    let repo =
-        gix::open(repo_path).context("Failed to open repository for legacy config migration")?;
-
-    let url = match config_string(&repo, &format!("josh-remote.{}.url", remote_name))? {
-        Some(url) => url,
-        None => {
-            let remote_file = remotes_dir(repo_path)?.join(format!("{}.josh", remote_name));
-
-            return Err(anyhow!(
-                "Remote '{}' not found in new format ({}) or legacy git config (josh-remote.{})",
-                remote_name,
-                remote_file.display(),
-                remote_name
-            ));
-        }
-    };
-
-    let filter_str = config_string(&repo, &format!("josh-remote.{}.filter", remote_name))?
-        .with_context(|| format!("Legacy config missing filter for remote '{}'", remote_name))?;
-
-    let fetch = config_string(&repo, &format!("josh-remote.{}.fetch", remote_name))?
-        .with_context(|| format!("Legacy config missing fetch for remote '{}'", remote_name))?;
-
-    write_remote_config(
-        repo_path,
-        remote_name,
-        &url,
-        &filter_str,
-        &fetch,
-        None,
-        None,
-        None,
-    )
-    .context("Failed to migrate legacy config to new format")?;
-
-    let filter_obj = josh_core::filter::parse(&filter_str)
-        .with_context(|| format!("Failed to parse filter '{}'", filter_str))?;
-
-    let filter_with_meta = filter_obj.with_meta("url", &url).with_meta("fetch", &fetch);
-
-    log::info!(
-        "Migrated remote '{}' from legacy git config to new file format",
-        remote_name
-    );
-
-    Ok(RemoteConfig {
-        url,
-        ref_spec: fetch,
-        filter_with_meta,
-        forge: None,
-        push_url: None,
-        gerrit_mode: GerritMode::default(),
-    })
-}
-
-/// Read a remote config, migrating legacy Git config when needed.
+/// Read a configured Josh remote without modifying the repository.
 pub fn read_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
 ) -> anyhow::Result<RemoteConfig> {
-    match try_read_remote_config(repo_path, remote_name)? {
-        Some(config) => Ok(config),
-        None => migrate_legacy_config(repo_path, remote_name),
-    }
+    try_read_remote_config(repo_path, remote_name)?
+        .with_context(|| format!("Josh remote '{}' is not configured; configure it first", remote_name))
 }
 
 /// Read authoritative named-remote configuration without modifying the repository.
 ///
 /// Returns `None` only when the common-directory `josh/remotes/<name>.josh`
 /// file is absent. Invalid or unreadable configuration is an error, not an
-/// ordinary Git remote fallback. Legacy Git configuration is not migrated.
+/// ordinary Git remote fallback. Obsolete endpoint metadata is rejected.
 pub fn try_read_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
 ) -> anyhow::Result<Option<RemoteConfig>> {
-    let remotes_dir = remotes_dir(repo_path)?;
-    let remote_file = remotes_dir.join(format!("{}.josh", remote_name));
+    validate_remote_name(remote_name)?;
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("Failed to open repository at {}", repo_path.display()))?;
+    let remote_file = repo.common_dir().join("josh").join("remotes").join(format!("{remote_name}.josh"));
 
     let content = match std::fs::read_to_string(&remote_file) {
         Ok(content) => content,
@@ -175,13 +119,18 @@ pub fn try_read_remote_config(
     let filter = josh_core::filter::parse(&content)
         .with_context(|| format!("Failed to parse filter from {}", remote_file.display()))?;
 
-    let url = filter
-        .get_meta("url")
-        .ok_or_else(|| anyhow!("Missing 'url' metadata in remote config"))?;
-
-    let fetch = filter
-        .get_meta("fetch")
-        .ok_or_else(|| anyhow!("Missing 'fetch' metadata in remote config"))?;
+    for key in ["url", "fetch", "push", "pushurl"] {
+        anyhow::ensure!(
+            filter.get_meta(key).is_none(),
+            "Obsolete '{}' endpoint metadata in {}; reconfigure remote '{}' to store endpoints in Git config",
+            key,
+            remote_file.display(),
+            remote_name
+        );
+    }
+    let url = config_string(&repo, &format!("remote.{remote_name}.url"))?
+        .with_context(|| format!("Missing Git remote.{remote_name}.url"))?;
+    gix::url::parse(url.as_str()).context("Invalid Git remote URL")?;
 
     let forge = filter
         .get_meta("forge")
@@ -192,7 +141,10 @@ pub fn try_read_remote_config(
         .transpose()
         .map_err(|f| anyhow!("Unknown forge: {f}"))?;
 
-    let push_url = filter.get_meta("push");
+    let push_url = config_string(&repo, &format!("remote.{remote_name}.pushurl"))?;
+    if let Some(push_url) = &push_url {
+        gix::url::parse(push_url.as_str()).context("Invalid Git remote push URL")?;
+    }
 
     let gerrit_mode = filter
         .get_meta("gerrit-mode")
@@ -206,7 +158,7 @@ pub fn try_read_remote_config(
 
     Ok(Some(RemoteConfig {
         url,
-        ref_spec: fetch,
+        ref_spec: format!("+refs/heads/*:refs/josh/remotes/{remote_name}/*"),
         filter_with_meta: filter,
         forge,
         push_url,
@@ -214,26 +166,21 @@ pub fn try_read_remote_config(
     }))
 }
 
-/// Persist remote configuration under the repository's common Git directory.
-#[allow(clippy::too_many_arguments)]
+/// Persist real Git endpoints and canonical selection, plus separate Josh metadata.
 pub fn write_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
     url: &str,
     filter: &str,
-    fetch: &str,
     forge: Option<Forge>,
     push_url: Option<&str>,
     gerrit_mode: Option<GerritMode>,
 ) -> anyhow::Result<()> {
-    let remotes_dir = remotes_dir(repo_path)?;
-
-    std::fs::create_dir_all(&remotes_dir).with_context(|| {
-        format!(
-            "Failed to create remotes directory: {}",
-            remotes_dir.display()
-        )
-    })?;
+    validate_remote_name(remote_name)?;
+    gix::url::parse(url).context("Invalid Git remote URL")?;
+    if let Some(push_url) = push_url {
+        gix::url::parse(push_url).context("Invalid Git remote push URL")?;
+    }
 
     let filter_obj = josh_core::filter::parse(filter)
         .with_context(|| format!("Failed to parse filter '{}'", filter))?;
@@ -248,14 +195,10 @@ pub fn write_remote_config(
         }
     }
 
-    let mut filter_with_meta = filter_obj.with_meta("url", url).with_meta("fetch", fetch);
+    let mut filter_with_meta = filter_obj;
 
     if let Some(forge) = forge {
         filter_with_meta = filter_with_meta.with_meta("forge", forge.to_string());
-    }
-
-    if let Some(push_url) = push_url {
-        filter_with_meta = filter_with_meta.with_meta("push", push_url);
     }
 
     if let Some(gerrit_mode) = gerrit_mode {
@@ -264,6 +207,43 @@ pub fn write_remote_config(
 
     let content = josh_core::filter::as_file(filter_with_meta, 0);
 
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("Failed to open repository at {}", repo_path.display()))?;
+    let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local)?)?;
+    // Replace only endpoint/selection keys, preserving authentication and other
+    // custom remote settings, including custom upload-pack/receive-pack commands.
+    let fetch = format!("+refs/heads/*:refs/remotes/{remote_name}/*");
+    for (key, value) in [("url", Some(url)), ("pushurl", push_url), ("fetch", Some(fetch.as_str()))] {
+        let key = format!("remote.{remote_name}.{key}");
+        if let Ok(mut values) = config.raw_values_mut(key.as_str()) {
+            values.delete_all();
+        }
+        if let Some(value) = value {
+            config.set_raw_value(key.as_str(), value)?;
+        }
+    }
+    let generated_uploadpack = format!("env GIT_NAMESPACE=josh-{remote_name} git upload-pack");
+    for (key, generated) in [
+        ("uploadpack", generated_uploadpack.as_str()),
+        ("receivepack", "false"),
+    ] {
+        if let Ok(mut values) = config.raw_values_mut(format!("remote.{remote_name}.{key}").as_str()) {
+            for (index, value) in values.get()?.iter().enumerate().rev() {
+                if value.as_slice() == generated.as_bytes() {
+                    values.delete(index);
+                }
+            }
+        }
+    }
+    // Reconfiguration also retires the old split Git configuration authority.
+    for key in ["url", "fetch", "filter"] {
+        if let Ok(mut values) = config.raw_values_mut(format!("josh-remote.{remote_name}.{key}").as_str()) {
+            values.delete_all();
+        }
+    }
+    let remotes_dir = repo.common_dir().join("josh").join("remotes");
+    std::fs::create_dir_all(&remotes_dir)
+        .with_context(|| format!("Failed to create remotes directory: {}", remotes_dir.display()))?;
     let remote_file = remotes_dir.join(format!("{}.josh", remote_name));
     std::fs::write(&remote_file, content).with_context(|| {
         format!(
@@ -271,6 +251,7 @@ pub fn write_remote_config(
             remote_file.display()
         )
     })?;
+    config.commit().context("Failed to write Git remote configuration")?;
 
     Ok(())
 }

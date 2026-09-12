@@ -176,15 +176,11 @@ impl GitRemoteExtension for Extension {
                 None => false,
             };
             if !native {
-                let url = if let Some(config) = &josh {
-                    gix::url::parse(config.url.as_str()).map_err(user_error)?
-                } else {
-                    git.find_remote(remote.as_str()).map_err(user_error)?
-                        .url(Direction::Fetch).cloned()
-                        .ok_or_else(|| user_error("Project remote has no fetch URL"))?
-                };
+                let url = git.find_remote(remote.as_str()).map_err(user_error)?
+                    .url(Direction::Fetch).cloned()
+                    .ok_or_else(|| user_error("Project remote has no fetch URL"))?;
                 if url.scheme == gix::url::Scheme::File {
-                    let path = gix::path::from_bstr(url.path.as_ref());
+                    let path = gix::path::from_bstr(&url.path);
                     native = command.cwd().join(path).join(".jj").is_dir();
                 }
             }
@@ -216,7 +212,7 @@ impl GitRemoteExtension for Extension {
 }
 
 impl Session {
-    /// Rebind the named handle to Josh's real endpoints without losing transport configuration.
+    /// Resolve endpoints and transport settings exclusively from the named Git remote.
     pub fn remote<'repo>(
         &self,
         repo: &'repo gix::Repository,
@@ -232,12 +228,7 @@ impl Session {
                 self.name.as_str(),
             );
         }
-        let mut remote = repo.find_remote(self.name.as_str())?;
-        if let Some(config) = &self.josh {
-            remote = remote
-                .with_url(config.url.as_str())?
-                .with_push_url(config.push_url.as_deref().unwrap_or(&config.url))?;
-        }
+        let remote = repo.find_remote(self.name.as_str())?;
         ensure!(
             remote.urls(direction).count() == 1,
             "Remote {} must have exactly one selected endpoint",

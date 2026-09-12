@@ -17,17 +17,16 @@ pub struct FetchArgs {
     pub rref: String,
 }
 
-/// A completed backing fetch whose objects can be inspected before exposing
-/// their filtered history through the namespace remote.
+/// A completed backing fetch whose objects can be inspected before publishing
+/// their filtered history to canonical remote-tracking refs.
 pub struct FetchedRemote {
     pub remote: String,
     pub filter: josh_core::filter::Filter,
-    pub default_branch: String,
+    pub default_branch: Option<String>,
 }
 
-/// Fetch unfiltered refs, apply projection filtering, and fetch the filtered
-/// refs through the namespace remote. Returns the ref updates reported by the
-/// final (namespaced) fetch; does not integrate anything into local branches.
+/// Fetch unfiltered refs and publish projection-filtered remote-tracking refs.
+/// Returns the projection ref updates without integrating local branches.
 pub fn handle_fetch(
     args: &FetchArgs,
     transaction: &josh_core::cache::Transaction,
@@ -96,14 +95,10 @@ pub fn fetch_unfiltered(
     }
 
     let ls_output = String::from_utf8(output.stdout)?;
-    let (default_branch, _) =
-        remote_ops::try_parse_symref(&args.remote, &ls_output).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Could not determine default branch from remote '{}': \
-                 no symref for HEAD in ls-remote output",
-                args.remote
-            )
-        })?;
+    // Empty repositories may not advertise HEAD. Publication must still run
+    // so that deleting the final upstream branch prunes its projection.
+    let default_branch =
+        remote_ops::try_parse_symref(&args.remote, &ls_output).map(|(branch, _)| branch);
 
     Ok(FetchedRemote {
         remote: args.remote.clone(),
@@ -118,20 +113,17 @@ pub fn filter_fetched(
     fetched: &FetchedRemote,
     transaction: &josh_core::cache::Transaction,
 ) -> anyhow::Result<Vec<RefUpdate>> {
-    transaction.create_symref(
-        &format!("refs/remotes/{}/HEAD", fetched.remote),
-        &format!("refs/remotes/{}/{}", fetched.remote, fetched.default_branch),
-        "josh remote HEAD",
-    )?;
-    transaction.create_symref(
-        &format!("refs/namespaces/josh-{}/HEAD", fetched.remote),
-        &format!("refs/heads/{}", fetched.default_branch),
-        "josh remote HEAD",
-    )?;
+    if let Some(default_branch) = &fetched.default_branch {
+        transaction.create_symref(
+            &format!("refs/remotes/{}/HEAD", fetched.remote),
+            &format!("refs/remotes/{}/{}", fetched.remote, default_branch),
+            "josh remote HEAD",
+        )?;
+    }
     remote_ops::apply_josh_filtering(
         transaction,
         fetched.filter,
         &fetched.remote,
-        &fetched.default_branch,
+        fetched.default_branch.as_deref(),
     )
 }

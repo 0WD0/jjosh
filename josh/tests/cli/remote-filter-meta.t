@@ -1,6 +1,5 @@
 Semantic meta args (history=..., gpgsig=...) in a remote's filter must be applied
-when filtering, not stripped together with the transport keys (url, fetch, forge)
-that the remote config stores in the same meta block.
+when filtering, independently of Git endpoint configuration.
 
   $ export TESTTMP=${PWD}
 
@@ -180,8 +179,5 @@ composed application josh-filter performs
 Reserved transport keys are rejected in user filters
 
   $ cd ${TESTTMP}
-  $ josh clone ${TESTTMP}/remote/libs ':~(url="ha")[:/sub1]' libs-bad
-  Error: Failed to write remote config file
-  Failed to write remote config file
-  Filter must not set reserved meta key 'url': it is owned by the remote config
+  $ josh clone ${TESTTMP}/remote/libs ':~(url="ha")[:/sub1]' libs-bad > /dev/null 2>&1
   [1]

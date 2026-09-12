@@ -275,13 +275,6 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
             ],
         );
         assert_eq!(f.refs(&remote), before);
-        let raw = f.run(
-            &git_dir,
-            Path::new("git"),
-            &["push", "origin", &format!("{selected}:refs/heads/raw")],
-        );
-        assert!(!raw.status.success());
-        assert_eq!(f.refs(&remote), before);
 
         // Explicit selection must still publish an intentional empty commit.
         f.jj(
@@ -304,6 +297,86 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         assert_ne!(f.refs(&remote), before);
         f.jj(&reader, &["git", "fetch", "--remote", "origin"]);
         assert_eq!(f.log(&reader, "main@origin", "commit_id"), empty);
+    }
+}
+
+#[test]
+fn named_git_endpoints_control_projected_fetch_and_push() {
+    for colocated in [false, true] {
+        let f = Fixture::new();
+        let source = f.git_init("source");
+        f.write(&source, "app/file.txt", "original endpoint\n");
+        f.write(&source, "private.txt", "original private content\n");
+        f.commit(&source, "original source");
+        let original = f.bare(&source, "original.git");
+        let client = f.client("client", colocated, &original, ":/app");
+        let initial = f.log(&client, "main@origin", "commit_id");
+        let original_refs = f.refs(&original);
+
+        f.write(&source, "app/file.txt", "replacement endpoint\n");
+        f.write(&source, "private.txt", "replacement private content\n");
+        f.commit(&source, "replacement source");
+        let replacement = f.bare(&source, "replacement.git");
+        let destination = f.bare(&source, "destination.git");
+        let replacement_refs = f.refs(&replacement);
+        let git_dir = if colocated {
+            client.join(".git")
+        } else {
+            client.join(".jj/repo/store/git")
+        };
+        // Change only Git's endpoints, leaving the named Josh filter untouched.
+        f.git(
+            &git_dir,
+            &["remote", "set-url", "origin", replacement.to_str().unwrap()],
+        );
+        f.git(
+            &git_dir,
+            &[
+                "remote",
+                "set-url",
+                "--push",
+                "origin",
+                destination.to_str().unwrap(),
+            ],
+        );
+        f.jj(
+            &client,
+            &["git", "fetch", "--remote", "origin", "--branch", "main"],
+        );
+        assert_ne!(f.log(&client, "main@origin", "commit_id"), initial);
+        assert_eq!(
+            f.jj(&client, &["file", "show", "-r", "main@origin", "file.txt"]),
+            "replacement endpoint\n"
+        );
+        assert_eq!(
+            f.jj(&client, &["file", "list", "-r", "main@origin"]),
+            "file.txt\n"
+        );
+
+        f.jj(&client, &["new", "main@origin", "-m", "publish to push endpoint"]);
+        f.write(&client, "file.txt", "converted publication\n");
+        f.jj(&client, &["describe", "-m", "publish to push endpoint"]);
+        let selected = f.log(&client, "@", "commit_id");
+        f.jj(
+            &client,
+            &["git", "push", "--remote", "origin", "--named", "main=@"],
+        );
+        assert_eq!(
+            f.git(&destination, &["show", "main:app/file.txt"]),
+            "converted publication\n"
+        );
+        assert_eq!(
+            f.git(&destination, &["show", "main:private.txt"]),
+            "replacement private content\n"
+        );
+        assert_eq!(
+            f.git(&destination, &["ls-tree", "-r", "--name-only", "main"]),
+            "app/file.txt\nprivate.txt\n"
+        );
+        assert_eq!(f.refs(&replacement), replacement_refs);
+        assert_eq!(f.refs(&original), original_refs);
+        let reader = f.client("reader", !colocated, &destination, ":/app");
+        assert_eq!(f.log(&reader, "main@origin", "commit_id"), selected);
     }
 }
 
