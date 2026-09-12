@@ -93,6 +93,89 @@ pub struct PublishArgs {
     pub merge: bool,
 }
 
+/// Objects and history context prepared for a projected branch update.
+#[derive(Debug)]
+pub struct PreparedProjectedCommit {
+    /// Raw commit to transmit, including the optional merge wrapper.
+    pub unfiltered_oid: gix_hash::ObjectId,
+    /// Explicit raw base, otherwise the raw destination, or a null OID.
+    pub original_target: gix_hash::ObjectId,
+    /// Filtered raw destination, or a null OID when no destination exists.
+    pub old_filtered_oid: gix_hash::ObjectId,
+}
+
+/// Reverse-filter a projected commit without resolving remotes or publishing refs.
+///
+/// `filter` must retain semantic metadata but exclude transport metadata (see
+/// `RemoteConfig::semantic_filter`). The destination supplies the old filtered
+/// history independently of `base`; an explicit base also reparents orphan roots.
+/// Originally empty commits are preserved using the default `UnapplyOptions`.
+///
+/// This only prepares objects in `transaction`. The caller owns object flushing,
+/// transmission, and all ref or observation updates.
+pub fn prepare_projected_commit(
+    transaction: &josh_core::cache::Transaction,
+    filter: josh_core::filter::Filter,
+    projected_commit: gix_hash::ObjectId,
+    destination: Option<gix_hash::ObjectId>,
+    base: Option<gix_hash::ObjectId>,
+    merge: bool,
+) -> anyhow::Result<PreparedProjectedCommit> {
+    let null_oid = gix_hash::ObjectId::null(gix_hash::Kind::Sha1);
+    let old_filtered_oid = match destination {
+        Some(destination) => josh_core::filter_commit(transaction, filter, destination)
+            .map_err(|error| anyhow!("josh filter error: {}", error))?,
+        None => null_oid,
+    };
+    let original_target = base.or(destination).unwrap_or(null_oid);
+
+    log::debug!("old_filtered_oid: {:?}", old_filtered_oid);
+    log::debug!("original_target: {:?}", original_target);
+
+    let unfiltered_oid = josh_core::history::unapply_filter(
+        transaction,
+        filter,
+        original_target,
+        old_filtered_oid,
+        projected_commit,
+        josh_core::history::UnapplyOptions {
+            reparent_orphans: base,
+            ..Default::default()
+        },
+    )
+    .context("Failed to unapply filter")?;
+
+    let unfiltered_oid = if merge {
+        if original_target == null_oid {
+            return Err(anyhow!(
+                "--merge requires --base=<ref> or an existing destination ref"
+            ));
+        }
+        let odb = transaction.odb();
+        let merged_tree =
+            josh_core::objects::merge_commits(odb, original_target, unfiltered_oid, None)?;
+        let signature = josh_core::git::josh_actor_signature()?;
+        josh_core::objects::write_commit(
+            odb,
+            merged_tree,
+            &[original_target, unfiltered_oid],
+            &signature,
+            &signature,
+            &format!("Merge from {}", josh_core::filter::pretty(filter, 0)),
+        )?
+    } else {
+        unfiltered_oid
+    };
+
+    log::debug!("unfiltered_oid: {:?}", unfiltered_oid);
+
+    Ok(PreparedProjectedCommit {
+        unfiltered_oid,
+        original_target,
+        old_filtered_oid,
+    })
+}
+
 struct PreparedPush {
     to_push: Vec<PushRef>,
     pr_infos: Vec<josh_github_changes::PrInfo>,
@@ -135,83 +218,27 @@ fn prepare_push(
     };
 
     let dest_remote_ref = format!("refs/josh/remotes/{}/{}", remote_name, remote_ref);
-    let (dest_oid, old_filtered_oid) =
-        if let Some(dest_oid) = transaction.resolve_ref(&dest_remote_ref)? {
-            let (filtered_oids, errors) =
-                josh_core::filter_refs(transaction, filter, &[(dest_remote_ref.clone(), dest_oid)]);
+    let destination = transaction.resolve_ref(&dest_remote_ref)?;
+    let base = base
+        .map(|base| {
+            let base_remote_ref = format!("refs/josh/remotes/{}/{}", remote_name, base);
+            transaction
+                .resolve_ref(&base_remote_ref)?
+                .ok_or_else(|| anyhow!("no such ref: '{}'", base_remote_ref))
+                .with_context(|| {
+                    format!(
+                        "Failed to resolve --base ref (looked up '{}')",
+                        base_remote_ref
+                    )
+                })
+        })
+        .transpose()?;
 
-            if let Some(error) = errors.into_iter().next() {
-                return Err(anyhow!("josh filter error: {}", error.1));
-            }
-
-            let old_filtered = if let Some((_, filtered_oid)) = filtered_oids.first() {
-                *filtered_oid
-            } else {
-                gix_hash::ObjectId::null(gix_hash::Kind::Sha1)
-            };
-
-            (dest_oid, old_filtered)
-        } else {
-            (
-                gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
-                gix_hash::ObjectId::null(gix_hash::Kind::Sha1),
-            )
-        };
-
-    let original_target = if let Some(base) = base {
-        let base_remote_ref = format!("refs/josh/remotes/{}/{}", remote_name, base);
-        transaction
-            .resolve_ref(&base_remote_ref)?
-            .ok_or_else(|| anyhow!("no such ref: '{}'", base_remote_ref))
-            .with_context(|| {
-                format!(
-                    "Failed to resolve --base ref (looked up '{}')",
-                    base_remote_ref
-                )
-            })?
-    } else {
-        dest_oid
-    };
-
-    log::debug!("old_filtered_oid: {:?}", old_filtered_oid);
-    log::debug!("original_target: {:?}", original_target);
-
-    let unfiltered_oid = josh_core::history::unapply_filter(
-        transaction,
-        filter,
+    let PreparedProjectedCommit {
+        unfiltered_oid,
         original_target,
-        old_filtered_oid,
-        local_commit,
-        josh_core::history::UnapplyOptions {
-            reparent_orphans: base.map(|_| original_target),
-            ..Default::default()
-        },
-    )
-    .context("Failed to unapply filter")?;
-
-    let unfiltered_oid = if merge {
-        if original_target == gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
-            return Err(anyhow!(
-                "--merge requires --base=<ref> or an existing destination ref"
-            ));
-        }
-        let odb = transaction.odb();
-        let merged_tree =
-            josh_core::objects::merge_commits(odb, original_target, unfiltered_oid, None)?;
-        let signature = josh_core::git::josh_actor_signature()?;
-        josh_core::objects::write_commit(
-            odb,
-            merged_tree,
-            &[original_target, unfiltered_oid],
-            &signature,
-            &signature,
-            &format!("Merge from {}", josh_core::filter::pretty(filter, 0)),
-        )?
-    } else {
-        unfiltered_oid
-    };
-
-    log::debug!("unfiltered_oid: {:?}", unfiltered_oid);
+        ..
+    } = prepare_projected_commit(transaction, filter, local_commit, destination, base, merge)?;
 
     // Gerrit publishing pushes to the magic ref `refs/for/<branch>` instead of
     // josh's `@changes`/`@base` ref pairs, and needs no PR API call. The mode

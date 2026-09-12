@@ -1733,18 +1733,18 @@ mod tests {
 
     #[test]
     fn rev_parse_reports_corrupt_objects_instead_of_absent_revisions() {
-        let (_dir, transaction) = test_transaction();
-        let repo = transaction.repo();
-        let corrupt = gix_object::Write::write_buf(
-            &repo.objects,
-            gix_object::Kind::Commit,
-            b"not a commit\n",
-        )
-        .unwrap();
+        let (dir, transaction) = test_transaction();
+        let corrupt = commit(&transaction, "corrupt");
         transaction
             .update_ref("refs/heads/main", Expected::Any, corrupt, "test")
             .unwrap();
         transaction.apply_pending_refs().unwrap();
+        let hex = corrupt.to_hex().to_string();
+        std::fs::write(
+            dir.path().join("objects").join(&hex[..2]).join(&hex[2..]),
+            b"not a zlib stream",
+        )
+        .unwrap();
 
         assert!(transaction.rev_parse("main~1").is_err());
     }
