@@ -8,7 +8,7 @@ name = "git-tree-pretty"
 path = "src/main.rs"
 
 [dependencies]
-gix = { version = "0.86.0", default-features = false, features = ["sha1", "revision", "status"] }
+gix = { version = "0.87.1", default-features = false, features = ["sha1", "revision", "status"] }
 clap = { version = "4.6.5", features = ["derive", "env"] }
 anyhow = { version = "1", features = ["backtrace"] }
 libc = "0.2.189"

@@ -8,7 +8,7 @@ edition = "2021"
 # workspace's lock during unified builds.
 anyhow = "1"
 dirs = "6"
-gix = { version = "0.86", default-features = false, features = ["sha1", "tree-editor"] }
+gix = { version = "0.87.1", default-features = false, features = ["sha1"] }
 josh-gix-ext = { path = "../../josh-gix-ext" }
 rand = "0.10"
 tempfile = "3"

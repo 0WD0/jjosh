@@ -15,7 +15,6 @@ anyhow = "1.0"
 clap = { version = "4.6.5", features = ["derive"] }
 gix-hash = { version = "0.26", features = ["sha1"] }
 gix-object = "0.64.1"
-josh-gix-object = { package = "gix-object", version = "0.63.0" }
 gix-validate = "0.11.4"
 jj-cli = { path = "jj/cli", default-features = false, features = ["git"] }
 jj-lib = { path = "jj/lib", default-features = false, features = ["git"] }
@@ -31,8 +30,7 @@ gix-chunk           = { path = "gitoxide/gix-chunk" }
 gix-command         = { path = "gitoxide/gix-command" }
 gix-commitgraph     = { path = "gitoxide/gix-commitgraph" }
 gix-config          = { path = "gitoxide/gix-config" }
-# Keep the registry gix-config-value for legacy gix-config 0.59;
-# local gix-config uses its own path dependency with a newer API.
+gix-config-value    = { path = "gitoxide/gix-config-value" }
 gix-date            = { path = "gitoxide/gix-date" }
 gix-diff            = { path = "gitoxide/gix-diff" }
 gix-discover        = { path = "gitoxide/gix-discover" }
@@ -48,6 +46,7 @@ gix-imara-diff      = { path = "gitoxide/gix-imara-diff" }
 gix-index           = { path = "gitoxide/gix-index" }
 gix-lock            = { path = "gitoxide/gix-lock" }
 gix-macros          = { path = "gitoxide/gix-macros" }
+gix-merge           = { path = "gitoxide/gix-merge" }
 gix-note            = { path = "gitoxide/gix-note" }
 gix-object          = { path = "gitoxide/gix-object" }
 gix-odb             = { path = "gitoxide/gix-odb" }
