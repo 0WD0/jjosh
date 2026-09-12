@@ -1,4 +1,4 @@
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use gix::{
     Error, ObjectId, Result,
@@ -344,11 +344,8 @@ pub(super) fn ensure_clean(workdir: &Path) -> Result<()> {
 }
 
 pub(super) fn is_dirty(workdir: &Path) -> Result<bool> {
-    let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(workdir)
-        .args(["status", "--porcelain=v1", "--untracked-files=all"]);
+    let mut command = crate::git_command(workdir);
+    command.args(["status", "--porcelain=v1", "--untracked-files=all"]);
     let output = command
         .output()
         .or_raise(|| message("could not inspect worktree status").with_program(command.get_program()))?;
@@ -383,8 +380,8 @@ fn return_pin_reference(review: &BStr) -> Result<gix::refs::FullName> {
 }
 
 fn git<const N: usize>(workdir: &Path, args: [&str; N]) -> Result<()> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(workdir).args(args);
+    let mut command = crate::git_command(workdir);
+    command.args(args);
     let output = command
         .output()
         .or_raise(|| message("could not launch command").with_program(command.get_program()))?;
@@ -395,7 +392,7 @@ fn git<const N: usize>(workdir: &Path, args: [&str; N]) -> Result<()> {
     }
 }
 
-fn git_failure(command: &Command, output: std::process::Output) -> gix::error::Message {
+fn git_failure(command: &std::process::Command, output: std::process::Output) -> gix::error::Message {
     message("git command failed").with_command_output(command, output)
 }
 
@@ -411,10 +408,13 @@ mod tests {
     use super::*;
 
     fn run(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(path)
+        let output = gix_testtools::git_command(path)
             .args(args)
+            // These fixtures deliberately configure their identity in the local repository.
+            .env_remove("GIT_AUTHOR_NAME")
+            .env_remove("GIT_AUTHOR_EMAIL")
+            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("GIT_COMMITTER_EMAIL")
             .env("GIT_AUTHOR_DATE", "2001-01-01T00:00:00 +0000")
             .env("GIT_COMMITTER_DATE", "2001-01-01T00:00:00 +0000")
             .output()?;

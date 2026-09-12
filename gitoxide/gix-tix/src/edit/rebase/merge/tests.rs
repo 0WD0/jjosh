@@ -1,5 +1,5 @@
 use gix::error::{OptionExt as _, ResultExt as _, message};
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use gix::Result;
 
@@ -8,7 +8,7 @@ use gix::ObjectId;
 use crate::edit::{rebase, time_travel};
 
 fn git(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git").current_dir(path).args(args).output().or_error()?;
+    let output = gix_testtools::git_command(path).args(args).output().or_error()?;
     gix::error::ensure!(
         output.status.success(),
         "git {} failed: {}",

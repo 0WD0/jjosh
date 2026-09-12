@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Write as _,
     path::Path,
-    process::Command,
 };
 
 use gix::{
@@ -292,9 +291,7 @@ pub(super) fn save(
         .and_then(|mut reference| reference.peel_to_id().ok().map(gix::Id::detach));
     drop(repo);
 
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(workdir)
+    let output = crate::git_command(workdir)
         .args(["stash", "push", "--include-untracked", "--quiet", "--message"])
         .arg(message)
         .output()
@@ -320,9 +317,7 @@ pub(super) fn save(
         reflog_message,
     )]) {
         drop(repo);
-        let restore = Command::new("git")
-            .arg("-C")
-            .arg(workdir)
+        let restore = crate::git_command(workdir)
             .args(["stash", "pop", "--index", "--quiet"])
             .output();
         return Err(err).or_raise(|| match restore {
@@ -342,9 +337,7 @@ pub(super) fn save(
 
     let warning = match current(repository_path, bare) {
         Ok(Some(current)) if current == id => {
-            match Command::new("git")
-                .arg("-C")
-                .arg(workdir)
+            match crate::git_command(workdir)
                 .args(["stash", "drop", "--quiet", "stash@{0}"])
                 .output()
             {
@@ -395,9 +388,7 @@ pub(super) fn find(repository_path: &Path, bare: bool, name: gix::refs::FullName
 pub(super) fn apply(repository_path: &Path, bare: bool, workdir: &Path, stash: SavedStash) -> Result<String> {
     let repo = open_repository(repository_path, bare, false)
         .or_raise(|| message("could not open repository before applying saved worktree state"))?;
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(workdir)
+    let output = crate::git_command(workdir)
         .args(["stash", "apply", "--index", "--quiet"])
         .arg(stash.name.as_bstr().to_str_lossy().as_ref())
         .output()
@@ -427,7 +418,7 @@ mod tests {
     use super::*;
 
     fn git(path: &Path, args: &[&str]) -> gix_testtools::Result<Vec<u8>> {
-        let output = Command::new("git").arg("-C").arg(path).args(args).output()?;
+        let output = gix_testtools::git_command(path).args(args).output()?;
         if !output.status.success() {
             return Err(format!(
                 "git {} failed: {}",

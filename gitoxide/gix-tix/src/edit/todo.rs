@@ -1624,7 +1624,6 @@ fn resolve_ref_name(
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
 
     use gix::error::TestResult;
 
@@ -1894,9 +1893,7 @@ mod tests {
             },
         ]);
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "-q", "--detach", &merge_commit_id.to_string()])
                 .status()?
                 .success(),
@@ -2202,9 +2199,7 @@ mod tests {
             )?;
             if detached {
                 assert!(
-                    Command::new("git")
-                        .arg("-C")
-                        .arg(fixture.path())
+                    gix_testtools::git_command(fixture.path())
                         .args(["checkout", "-q", "--detach", &source_commit_id.to_string()])
                         .status()?
                         .success(),
@@ -2626,9 +2621,7 @@ mod tests {
         let mut commit = repo.find_commit(middle)?.decode()?.into_owned()?;
         commit.tree = repo.find_commit(base)?.tree_id()?.detach();
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "-q", "--detach", &base.to_string()])
                 .status()?
                 .success(),
@@ -2649,9 +2642,7 @@ mod tests {
             .map(old_tip)
             .ok_or_raise(|| message("the pending tip is retained"))?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "-q", "main"])
                 .status()?
                 .success(),
@@ -2689,9 +2680,7 @@ mod tests {
             assert!(!rebase::has_marker(&commit), "the eager @ ancestry is replayed");
             current = commit.parents.first().copied();
         }
-        let files = Command::new("git")
-            .arg("-C")
-            .arg(fixture.path())
+        let files = gix_testtools::git_command(fixture.path())
             .args(["ls-tree", "-r", "--name-only", "HEAD"])
             .output()?;
         assert!(files.status.success());
@@ -2772,9 +2761,7 @@ mod tests {
         let (fixture, repo) = repo()?;
         let (_old_base, base, reviewed, _) = commits(&repo)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["switch", "-q", "-c", "topic"])
                 .status()?
                 .success(),
@@ -2897,9 +2884,7 @@ mod tests {
         let (fixture, repo) = repo()?;
         let (base, onto, _tip, _commits) = commits(&repo)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["switch", "-q", "-c", "empty", &base.to_string()])
                 .status()?
                 .success(),
@@ -3371,9 +3356,7 @@ mod tests {
         let (fixture, repo) = repo()?;
         let (base, _middle, tip, commits) = commits(&repo)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["checkout", "--quiet", "--detach", &tip.to_string()])
                 .status()?
                 .success(),
@@ -3438,9 +3421,7 @@ mod tests {
         let (base, _middle, _tip, commits) = commits(&repo)?;
         let prepared = prepare_test(&repo, base, base, &commits, None)?;
         assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(fixture.path())
+            gix_testtools::git_command(fixture.path())
                 .args(["symbolic-ref", "HEAD", "refs/heads/unborn"])
                 .status()?
                 .success(),
