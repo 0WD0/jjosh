@@ -154,6 +154,20 @@ pub(crate) fn prepare_link_add(
     tree::insert_oid(odb, head_tree, &marker, blob, 0o0100644)
         .with_context(|| format!("Failed to insert link metadata '{}'", marker.display()))
 }
+/// The local-side projection used to compare link content with a fetched source.
+pub(crate) fn local_link_filter(path: &Path) -> anyhow::Result<Filter> {
+    let normalized_path = path
+        .to_str()
+        .ok_or_else(|| anyhow!("Link path is not valid UTF-8: '{}'", path.display()))?
+        .trim_matches('/');
+    if normalized_path.is_empty() {
+        return Err(anyhow!("Path cannot be empty"));
+    }
+    Ok(Filter::new()
+        .subdir(normalized_path)
+        .exclude(Filter::new().file(".link.josh"))
+        .prefix(normalized_path))
+}
 
 /// A link export ready to push to its configured destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,10 +234,7 @@ pub(crate) fn prepare_link_push(
     let source_filter = link_file.peel();
     let old_filtered_commit = josh_core::filter_commit(transaction, source_filter, original_target)
         .context("Failed to filter the pinned link commit")?;
-    let local_filter = Filter::new()
-        .subdir(normalized_path)
-        .exclude(Filter::new().file(".link.josh"))
-        .prefix(normalized_path);
+    let local_filter = local_link_filter(path)?;
     let local_commit = josh_core::filter_commit(transaction, local_filter, head_commit)
         .context("Failed to isolate the local link history")?;
     if local_commit == gix_hash::ObjectId::null(gix_hash::Kind::Sha1) {
