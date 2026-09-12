@@ -1392,7 +1392,13 @@ fn native_import_fetch_push_use_nested_mounts() {
         remotes.path(),
         &["init", "--bare", remote.to_str().unwrap()],
     );
-    dest.add_project_remote("alpha-origin", &remote, "alpha");
+    dest.jj(&[
+        "git",
+        "remote",
+        "add",
+        "alpha-origin",
+        remote.to_str().unwrap(),
+    ]);
     dest.jj(&[
         "bookmark",
         "set",

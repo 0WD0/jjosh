@@ -297,7 +297,9 @@ pub async fn cmd_git_push(
     }
     let mut workspace_command = command.workspace_helper(ui).await?;
     if (args.base.is_some() || args.merge) && command.git_remote_extension().is_none() {
-        return Err(user_error("--base and --merge require a projection-aware remote"));
+        return Err(user_error(
+            "--base and --merge require a projection-aware remote",
+        ));
     }
 
     let remote_expr = if let Some(remotes) = &args.remotes {
@@ -333,7 +335,10 @@ pub async fn cmd_git_push(
     let mut remote_sessions = std::collections::HashMap::new();
     if let Some(extension) = command.git_remote_extension() {
         for remote in &matching_remotes {
-            remote_sessions.insert(*remote, extension.open(command, &workspace_command, remote)?);
+            remote_sessions.insert(
+                *remote,
+                extension.open(command, &workspace_command, remote)?,
+            );
         }
     }
     let git_lock = if remote_sessions.is_empty() {
@@ -621,7 +626,15 @@ pub async fn cmd_git_push(
 
         let push_stats = if let Some(session) = remote_sessions.get(remote) {
             match session
-                .push(ui, command, tx.repo_mut(), ref_updates, &options, &preparation, args.dry_run)
+                .push(
+                    ui,
+                    command,
+                    tx.repo_mut(),
+                    ref_updates,
+                    &options,
+                    &preparation,
+                    args.dry_run,
+                )
                 .await
             {
                 Ok(outcome) => {
@@ -705,7 +718,8 @@ pub async fn cmd_git_push(
         };
 
         if let Some(git_lock) = git_lock {
-            tx.finish_with_git_import_export_lock(ui, description, &git_lock).await?;
+            tx.finish_with_git_import_export_lock(ui, description, &git_lock)
+                .await?;
         } else {
             tx.finish(ui, description).await?;
         }

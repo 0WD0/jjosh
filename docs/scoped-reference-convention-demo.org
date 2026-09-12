@@ -39,7 +39,7 @@ fetch、track、整合、publish 仍是独立步骤。普通 =main= 与 =main#al
 - 默认就是 =NAME#PROJECT=。旧的 =PROJECT/NAME= 观察可以暂时并存，新 fetch 下来后再删。
 - =#PROJECT= 是命名约定，不是权限或归属隔离；相同拼写的“字面名字”和“带 scope 的名字”无法共存。导入会拒绝已占用的项目名字空间。
 - named Git remote 保存真实 URL，Josh 文件只保存转换语义；项目身份和挂载属于 named remote 配置。多个 peer 分别配置，不从 =.link.josh= 的 URL/target 决定同步。
-- 发布保留 jj 的显式选择和 tracking。=--named= 只创建新 bookmark；已有名字先 set/move，再 =git push --bookmark=。不新增一等 =(scope, remote)= 类型或短 remote 别名。
+- 发布保留 jj 的显式选择和 tracking。bookmark 的创建、移动与 push 分开；push 根据选中引用的 =#scope= 自动导出项目并移除远端名字的 scope 后缀。发布 endpoint 不必绑定项目，fetch 的来源映射仍需配置。
 - =jjosh git fetch/push= 执行所配置的转换；原生 =git fetch/push= 绕过转换并连接真实上游。没有 namespace façade 或原生 Git push 拦截器，不能把引用改名当作历史转换。
 - 原有 native 转换边界、私有保活引用以及按实际 URL/目标分支绑定的 lease 均不变。这个 demo 不宣称解决所有转换歧义、隐藏版本或外部发布恢复问题。
 

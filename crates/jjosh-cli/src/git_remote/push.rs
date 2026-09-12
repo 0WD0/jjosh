@@ -1,17 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use gix::bstr::{BString, ByteSlice};
 use gix::remote::Direction;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
-use jj_cli::git_remote::{GitRemotePushOptions, GitRemotePushOutcome, GitRemoteSession as _};
+use jj_cli::git_remote::{GitRemotePushOptions, GitRemotePushOutcome};
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::git::{GitPushOptions, GitPushRefTargets, GitPushStats, GitRefUpdate};
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::ref_name::RefName;
 use jj_lib::repo::{MutableRepo, Repo as _};
 use josh_core::cache::{Expected as RefExpected, Transaction};
 
@@ -21,9 +20,10 @@ use crate::git_transport::push::{self as transport, Expected, RefStatus, Update}
 struct Prepared {
     update: Update,
     publications: Vec<(CommitId, CommitId)>,
+    scope: Option<usize>,
 }
 
-fn source_destination(session: &Session, update: &GitRefUpdate) -> Result<String> {
+fn source_destination(update: &GitRefUpdate) -> Result<(String, Option<&str>)> {
     let qualified = update.qualified_name.as_str();
     let (prefix, local) = if let Some(local) = qualified.strip_prefix("refs/heads/") {
         ("refs/heads/", local)
@@ -32,12 +32,12 @@ fn source_destination(session: &Session, update: &GitRefUpdate) -> Result<String
     } else {
         bail!("Unsupported logical push reference {qualified}");
     };
-    let source = session.source_name(RefName::new(local)).with_context(|| {
-        format!("Reference {qualified} does not belong to the selected remote project")
-    })?;
+    let (source, scope) = local
+        .rsplit_once('#')
+        .map_or((local, None), |(source, scope)| (source, Some(scope)));
     let destination = format!("{prefix}{source}");
     gix::validate::reference::name(destination.as_bytes().as_bstr())?;
-    Ok(destination)
+    Ok((destination, scope))
 }
 
 fn save_raw_ref(transaction: &Transaction, name: &str, new: Option<gix::ObjectId>) -> Result<()> {
@@ -92,288 +92,197 @@ pub(super) async fn run(
     preparation: &GitRemotePushOptions,
     dry_run: bool,
 ) -> Result<GitRemotePushOutcome, CommandError> {
-    let filter = session.filter();
-    if filter.is_none() && (preparation.base.is_some() || preparation.merge) {
-        return Err(user_error(
-            "--base and --merge require a Josh projection; they cannot be used for ordinary or native project pushes",
-        ));
-    }
     let canonical = jj_lib::git::prepare_push_refs(repo, &session.name, targets)?;
-    let transformed = session.project.is_some() || filter.is_some();
-    // Validate the complete logical mapping before exporting objects or connecting.
-    let mut destinations = Vec::with_capacity(canonical.len());
-    let mut unique = HashSet::with_capacity(canonical.len());
-    for update in &canonical {
-        let destination = source_destination(session, update).map_err(user_error)?;
-        if transformed && destination.starts_with("refs/tags/") {
+    let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
+    let mut scopes: Vec<(Session, Vec<(usize, String)>)> = Vec::new();
+    let mut scope_indices = HashMap::new();
+    let mut destinations = HashSet::with_capacity(canonical.len());
+    for (index, update) in canonical.iter().enumerate() {
+        let (destination, scope) = source_destination(update).map_err(user_error)?;
+        if !destinations.insert(destination.clone()) {
+            return Err(user_error(format!(
+                "Multiple selected references map to push destination {destination}"
+            )));
+        }
+        let scope_index = match scope_indices.get(&scope) {
+            Some(index) => *index,
+            None => {
+                let conversion = if let Some(scope) = scope {
+                    session.push_scope(&git, scope)?
+                } else {
+                    // Unscoped names do not inherit a destination's project.
+                    // A standalone projection view still uses its own filter.
+                    Session {
+                        name: session.name.clone(),
+                        git_path: session.git_path.clone(),
+                        project: None,
+                        josh: if session.project.is_none() {
+                            josh_changes::remote_config::try_read_remote_config(
+                                &session.git_path,
+                                session.name.as_str(),
+                            )
+                            .map_err(user_error)?
+                        } else {
+                            None
+                        },
+                    }
+                };
+                let filter = conversion.filter();
+                if filter.is_none() && (preparation.base.is_some() || preparation.merge) {
+                    return Err(user_error(
+                        "--base and --merge require a Josh projection; they cannot be used for ordinary or native project pushes",
+                    ));
+                }
+                let index = scopes.len();
+                scopes.push((conversion, Vec::new()));
+                scope_indices.insert(scope, index);
+                index
+            }
+        };
+        let conversion = &scopes[scope_index].0;
+        if (conversion.project.is_some() || conversion.filter().is_some())
+            && destination.starts_with("refs/tags/")
+        {
             return Err(user_error(
                 "Transformed tag publication is unsupported: annotated and signed tags cannot be reverse-mapped safely",
             ));
         }
-        if !unique.insert(destination.clone()) {
-            return Err(user_error(format!(
-                "Multiple logical references map to push destination {destination}"
-            )));
-        }
-        destinations.push(destination);
+        scopes[scope_index].1.push((index, destination));
     }
-
-    let git = gix::open(&session.git_path).map_err(user_error)?;
-    let transport_options = transport::Options {
-        dry_run,
-        atomic: false,
-        push_options: options
-            .remote_push_options
-            .iter()
-            .map(|value| BString::from(value.as_str()))
-            .collect(),
-    };
-    if !transformed {
-        // Ordinary Git keeps exact tag objects and JJ's exact Absent/At leases.
-        // Its canonical mirrors already retain raw identities, including SHA-256.
-        let updates: Vec<_> = canonical
-            .iter()
-            .zip(&destinations)
-            .map(|(update, destination)| Update {
-                name: BString::from(destination.as_str()),
-                expected: update.targets.before.map_or(Expected::Absent, Expected::At),
-                new: update.targets.after,
-            })
-            .collect();
-        let remote = session.remote(&git, Direction::Push).map_err(user_error)?;
-        let report =
-            transport::push(&git, remote, &updates, &transport_options).map_err(user_error)?;
-        return finish(
-            session,
-            repo,
-            targets,
-            &canonical,
-            report,
-            Vec::new(),
-            dry_run,
-        );
-    }
-    let push_endpoint = session
-        .endpoint_url(&git, Direction::Push)
-        .map_err(user_error)?;
-    let push_prefix = session
-        .raw_prefix(&git, &push_endpoint)
-        .map_err(user_error)?;
-    let transaction = crate::interop::open_josh_transaction(&session.git_path, dry_run)?;
-    let fetch_prefix = if filter.is_some() {
-        let endpoint = session
-            .endpoint_url(&git, Direction::Fetch)
-            .map_err(user_error)?;
-        Some(session.raw_prefix(&git, &endpoint).map_err(user_error)?)
-    } else {
-        None
-    };
-    let has_new = canonical
+    let transformed = scopes
         .iter()
-        .any(|update| update.targets.after.is_some());
-    let base = if let Some(base) = &preparation.base {
-        let source = if base.starts_with("refs/") {
-            base.clone()
-        } else {
-            format!("refs/heads/{base}")
-        };
-        gix::validate::reference::name(source.as_bytes().as_bstr()).map_err(user_error)?;
-        Some(transaction.resolve_ref(&format!("{}{source}", fetch_prefix.as_ref().unwrap()))
-            .map_err(user_error)?
-            .ok_or_else(|| user_error(format!("Source base {source} has not been fetched from this remote's fetch endpoint")))?)
+        .any(|(scope, _)| scope.project.is_some() || scope.filter().is_some());
+    let transaction = transformed
+        .then(|| crate::interop::open_josh_transaction(&session.git_path, dry_run))
+        .transpose()?;
+    let push_endpoint = if transformed {
+        Some(
+            session
+                .endpoint_url(&git, Direction::Push)
+                .map_err(user_error)?,
+        )
     } else {
         None
     };
-    let linked_base = if let Some(project) = session.project.as_ref().filter(|project| !project.native && has_new) {
-        let prefix = fetch_prefix.as_ref().expect("linked project has a source filter");
-        let configured = super::config_string(&git, &format!("remote.{}.jjosh-base", session.name.as_str()))
-            .map_err(user_error)?;
-        let observed = if let Some(source) = configured {
-            transaction.resolve_ref(&format!("{prefix}{source}")).map_err(user_error)?
+    let mut prepared: Vec<Option<Prepared>> = (0..canonical.len()).map(|_| None).collect();
+    // Resolve and prepare every selected scope before opening a mutation request.
+    for (scope_index, (scope, updates)) in scopes.iter().enumerate() {
+        if scope.project.is_none() && scope.filter().is_none() {
+            for (index, destination) in updates {
+                let update = &canonical[*index];
+                prepared[*index] = Some(Prepared {
+                    update: Update {
+                        name: BString::from(destination.as_str()),
+                        expected: update.targets.before.map_or(Expected::Absent, Expected::At),
+                        new: update.targets.after,
+                    },
+                    publications: Vec::new(),
+                    scope: None,
+                });
+            }
         } else {
-            None
-        };
-        if observed.is_some() {
-            observed
-        } else {
-            transaction.resolve_ref(&format!("{prefix}bases/{}", project.name)).map_err(user_error)?
-        }
-    } else {
-        None
-    };
-    if filter.is_some() {
-        for update in &canonical {
-            if let Some(id) = update.targets.after {
-                let head = repo
-                    .store()
-                    .get_commit_async(&CommitId::from_bytes(id.as_bytes()))
-                    .await?;
-                crate::interop::check_projectable_repo_history(repo, &head).await?;
+            for (index, update) in prepare_scope(
+                scope,
+                scope_index,
+                updates,
+                &canonical,
+                repo,
+                &git,
+                transaction.as_ref().unwrap(),
+                push_endpoint.as_deref().unwrap(),
+                preparation,
+            )
+            .await?
+            {
+                prepared[index] = Some(update);
             }
         }
     }
-    let known = if let Some(project) = session
-        .project
-        .as_ref()
-        .filter(|project| project.native && has_new)
-    {
-        crate::native_project::anchors(repo, &transaction, &project.name)
-            .await
-            .map_err(user_error)?
-    } else {
-        HashMap::new()
-    };
-    let mut prepared = Vec::with_capacity(canonical.len());
-    for (canonical, destination) in canonical.iter().zip(&destinations) {
-        // The receive-pack advertisement must never become rewrite authority.
-        let expected = crate::link_refs::observation(&transaction, &push_endpoint, destination)?;
-        let mut publications = Vec::new();
-        let new = match canonical.targets.after {
-            None => None, // Deletion does not inspect or transform commit history.
-            Some(canonical_oid) => {
-                let id = CommitId::from_bytes(canonical_oid.as_bytes());
-                let head = repo.store().get_commit_async(&id).await?;
-                if let Some(project) = session.project.as_ref().filter(|project| project.native) {
-                    let (raw, deltas) =
-                        crate::native_project::export_project(repo, &project.mount, &head, &known)
-                            .await
-                            .map_err(user_error)?;
-                    publications = deltas;
-                    Some(gix::ObjectId::try_from(raw.as_bytes()).map_err(user_error)?)
-                } else {
-                    let filter = filter.expect("non-native transformed remote has a filter");
-                    let destination_raw = transaction
-                        .resolve_ref(&format!("{}{destination}", fetch_prefix.as_ref().unwrap()))
-                        .map_err(user_error)?;
-                    crate::interop::check_raw_projectable_history(
-                        &transaction,
-                        destination_raw.into_iter().chain(base).chain(linked_base),
-                    )?;
-                    let projected = if let Some(project) = &session.project {
-                        let local = crate::link_metadata::local_link_filter(Path::new(
-                            project.mount.as_internal_file_string(),
-                        ))
-                        .map_err(user_error)?;
-                        let isolated = josh_core::filter_commit(&transaction, local, canonical_oid)
-                            .map_err(user_error)?;
-                        if isolated.is_null() {
-                            return Err(user_error(format!(
-                                "No content found at project mount {} to push",
-                                project.mount.as_internal_file_string()
-                            )));
-                        }
-                        isolated
-                    } else {
-                        canonical_oid
-                    };
-                    let raw = if session.project.is_some()
-                        && preparation.base.is_none()
-                        && !preparation.merge
-                    {
-                        // Linked snapshot roots preserve fetched ancestry; unrelated and empty
-                        // monorepo changes are pruned, exactly as in linked history export.
-                        let context = linked_base.or(destination_raw);
-                        let original = context
-                            .unwrap_or_else(|| gix::ObjectId::null(gix::hash::Kind::Sha1));
-                        let old = match context {
-                            Some(raw) => josh_core::filter_commit(&transaction, filter, raw)
-                                .map_err(user_error)?,
-                            None => original,
-                        };
-                        josh_core::history::unapply_filter(
-                            &transaction,
-                            filter,
-                            original,
-                            old,
-                            projected,
-                            josh_core::history::UnapplyOptions {
-                                reparent_orphans: context,
-                                prune_empty: true,
-                                ..Default::default()
-                            },
-                        )
-                        .map_err(user_error)?
-                    } else {
-                        josh_cli::commands::push::prepare_projected_commit(
-                            &transaction,
-                            filter,
-                            projected,
-                            destination_raw,
-                            base,
-                            preparation.merge,
-                        )
-                        .map_err(user_error)?
-                        .unfiltered_oid
-                    };
-                    Some(raw)
-                }
-            }
-        };
-        prepared.push(Prepared {
-            update: Update {
-                name: BString::from(destination.as_str()),
-                expected,
-                new,
-            },
-            publications,
-        });
+    let prepared: Vec<_> = prepared.into_iter().map(Option::unwrap).collect();
+    if let Some(transaction) = &transaction {
+        // Only prepared objects may be durable before publication, never success records.
+        transaction.flush_mem_odb().map_err(user_error)?;
     }
-
-    // Only objects have been prepared. Transaction drop is not a rollback mechanism:
-    // no successful-publication refs, observations, or anchors may be staged yet.
-    transaction.flush_mem_odb().map_err(user_error)?;
     let updates: Vec<_> = prepared
         .iter()
         .map(|prepared| prepared.update.clone())
         .collect();
     let remote = session.remote(&git, Direction::Push).map_err(user_error)?;
-    let report = transport::push(&git, remote, &updates, &transport_options).map_err(user_error)?;
+    let report = transport::push(
+        &git,
+        remote,
+        &updates,
+        &transport::Options {
+            dry_run,
+            atomic: false,
+            push_options: options
+                .remote_push_options
+                .iter()
+                .map(|value| BString::from(value.as_str()))
+                .collect(),
+        },
+    )
+    .map_err(user_error)?;
     if dry_run {
         return finish(session, repo, targets, &canonical, report, Vec::new(), true);
     }
 
     let mut save_errors = Vec::new();
-    for (prepared, (name, status)) in prepared.iter().zip(&report.refs) {
-        if *status != RefStatus::Accepted {
-            continue;
-        }
-        if let Some(project) = session.project.as_ref().filter(|project| project.native) {
-            for (raw, canonical) in &prepared.publications {
-                if let Err(error) = crate::native_project::record_anchor(
-                    &transaction,
-                    &project.name,
-                    "published",
-                    raw,
-                    canonical,
-                )
-                .and_then(|()| transaction.flush_mem_odb())
-                {
-                    save_errors.push(format!("{name}: native publication anchor: {error:#}"));
+    if let Some(transaction) = &transaction {
+        let push_endpoint = push_endpoint.as_deref().unwrap();
+        let push_prefix = session
+            .raw_prefix(&git, push_endpoint)
+            .map_err(user_error)?;
+        for (prepared, (name, status)) in prepared.iter().zip(&report.refs) {
+            if *status != RefStatus::Accepted {
+                continue;
+            }
+            let Some(scope_index) = prepared.scope else {
+                continue;
+            };
+            if let Some(project) = scopes[scope_index]
+                .0
+                .project
+                .as_ref()
+                .filter(|project| project.native)
+            {
+                for (raw, canonical) in &prepared.publications {
+                    if let Err(error) = crate::native_project::record_anchor(
+                        transaction,
+                        &project.name,
+                        "published",
+                        raw,
+                        canonical,
+                    )
+                    .and_then(|()| transaction.flush_mem_odb())
+                    {
+                        save_errors.push(format!("{name}: native publication anchor: {error:#}"));
+                    }
                 }
             }
-        }
-        // Save the PUSH endpoint only. A fork publication must not rewrite the
-        // FETCH endpoint's source context for subsequent reverse filtering.
-        let destination = std::str::from_utf8(name).expect("validated UTF-8 source destination");
-        if let Err(error) = save_raw_ref(
-            &transaction,
-            &format!("{push_prefix}{destination}"),
-            prepared.update.new,
-        ) {
-            save_errors.push(format!("{name}: raw publication ref: {error:#}"));
-        }
-        if destination.starts_with("refs/heads/") {
-            let result = match prepared.update.new {
-                Some(id) => crate::link_refs::record_observation(
-                    &transaction,
-                    &push_endpoint,
-                    destination,
-                    id,
-                ),
-                None => crate::link_refs::record_absence(&transaction, &push_endpoint, destination),
-            };
-            if let Err(error) = result {
-                save_errors.push(format!("{name}: publication lease: {}", error.error));
+            let destination = std::str::from_utf8(name).expect("validated UTF-8 destination");
+            if let Err(error) = save_raw_ref(
+                transaction,
+                &format!("{push_prefix}{destination}"),
+                prepared.update.new,
+            ) {
+                save_errors.push(format!("{name}: raw publication ref: {error:#}"));
+            }
+            if destination.starts_with("refs/heads/") {
+                let result = match prepared.update.new {
+                    Some(id) => crate::link_refs::record_observation(
+                        transaction,
+                        push_endpoint,
+                        destination,
+                        id,
+                    ),
+                    None => {
+                        crate::link_refs::record_absence(transaction, push_endpoint, destination)
+                    }
+                };
+                if let Err(error) = result {
+                    save_errors.push(format!("{name}: publication lease: {}", error.error));
+                }
             }
         }
     }
@@ -386,6 +295,181 @@ pub(super) async fn run(
         save_errors,
         false,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn prepare_scope(
+    scope: &Session,
+    scope_index: usize,
+    updates: &[(usize, String)],
+    canonical: &[GitRefUpdate],
+    repo: &MutableRepo,
+    git: &gix::Repository,
+    transaction: &Transaction,
+    push_endpoint: &str,
+    preparation: &GitRemotePushOptions,
+) -> Result<Vec<(usize, Prepared)>, CommandError> {
+    let filter = scope.filter();
+    let fetch_prefix = if filter.is_some() {
+        let endpoint = scope
+            .endpoint_url(git, Direction::Fetch)
+            .map_err(user_error)?;
+        Some(scope.raw_prefix(git, &endpoint).map_err(user_error)?)
+    } else {
+        None
+    };
+    let has_new = updates
+        .iter()
+        .any(|(index, _)| canonical[*index].targets.after.is_some());
+    let base = if let Some(base) = &preparation.base {
+        let source = if base.starts_with("refs/") {
+            base.clone()
+        } else {
+            format!("refs/heads/{base}")
+        };
+        gix::validate::reference::name(source.as_bytes().as_bstr()).map_err(user_error)?;
+        Some(transaction.resolve_ref(&format!("{}{source}", fetch_prefix.as_ref().unwrap()))
+            .map_err(user_error)?.ok_or_else(|| user_error(format!(
+                "Source base {source} has not been fetched from this scope's source endpoint"
+            )))?)
+    } else {
+        None
+    };
+    let linked_base = if let Some(project) = scope
+        .project
+        .as_ref()
+        .filter(|project| !project.native && has_new)
+    {
+        let prefix = fetch_prefix.as_ref().expect("linked project has a filter");
+        let configured =
+            super::config_string(git, &format!("remote.{}.jjosh-base", scope.name.as_str()))
+                .map_err(user_error)?;
+        let observed = match configured {
+            Some(source) => transaction
+                .resolve_ref(&format!("{prefix}{source}"))
+                .map_err(user_error)?,
+            None => None,
+        };
+        match observed {
+            Some(id) => Some(id),
+            None => transaction
+                .resolve_ref(&format!("{prefix}bases/{}", project.name))
+                .map_err(user_error)?,
+        }
+    } else {
+        None
+    };
+    let known = if let Some(project) = scope
+        .project
+        .as_ref()
+        .filter(|project| project.native && has_new)
+    {
+        crate::native_project::anchors(repo, transaction, &project.name)
+            .await
+            .map_err(user_error)?
+    } else {
+        HashMap::new()
+    };
+    let mut prepared = Vec::with_capacity(updates.len());
+    for (index, destination) in updates {
+        let canonical = &canonical[*index];
+        let expected = crate::link_refs::observation(transaction, push_endpoint, destination)?;
+        let mut publications = Vec::new();
+        let new = if let Some(canonical_oid) = canonical.targets.after {
+            let head = repo
+                .store()
+                .get_commit_async(&CommitId::from_bytes(canonical_oid.as_bytes()))
+                .await?;
+            if let Some(project) = scope.project.as_ref().filter(|project| project.native) {
+                let (raw, deltas) =
+                    crate::native_project::export_project(repo, &project.mount, &head, &known)
+                        .await
+                        .map_err(user_error)?;
+                publications = deltas;
+                Some(gix::ObjectId::try_from(raw.as_bytes()).map_err(user_error)?)
+            } else {
+                crate::interop::check_projectable_repo_history(repo, &head).await?;
+                let filter = filter.expect("non-native transformed scope has a filter");
+                let destination_raw = transaction
+                    .resolve_ref(&format!("{}{destination}", fetch_prefix.as_ref().unwrap()))
+                    .map_err(user_error)?;
+                crate::interop::check_raw_projectable_history(
+                    transaction,
+                    destination_raw.into_iter().chain(base).chain(linked_base),
+                )?;
+                let projected = if let Some(project) = &scope.project {
+                    let local = crate::link_metadata::local_link_filter(Path::new(
+                        project.mount.as_internal_file_string(),
+                    ))
+                    .map_err(user_error)?;
+                    let isolated = josh_core::filter_commit(transaction, local, canonical_oid)
+                        .map_err(user_error)?;
+                    if isolated.is_null() {
+                        return Err(user_error(format!(
+                            "No content found at project mount {} to push",
+                            project.mount.as_internal_file_string()
+                        )));
+                    }
+                    isolated
+                } else {
+                    canonical_oid
+                };
+                let raw = if scope.project.is_some()
+                    && preparation.base.is_none()
+                    && !preparation.merge
+                {
+                    let context = linked_base.or(destination_raw);
+                    let original =
+                        context.unwrap_or_else(|| gix::ObjectId::null(gix::hash::Kind::Sha1));
+                    let old = match context {
+                        Some(raw) => josh_core::filter_commit(transaction, filter, raw)
+                            .map_err(user_error)?,
+                        None => original,
+                    };
+                    josh_core::history::unapply_filter(
+                        transaction,
+                        filter,
+                        original,
+                        old,
+                        projected,
+                        josh_core::history::UnapplyOptions {
+                            reparent_orphans: context,
+                            prune_empty: true,
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(user_error)?
+                } else {
+                    josh_cli::commands::push::prepare_projected_commit(
+                        transaction,
+                        filter,
+                        projected,
+                        destination_raw,
+                        base,
+                        preparation.merge,
+                    )
+                    .map_err(user_error)?
+                    .unfiltered_oid
+                };
+                Some(raw)
+            }
+        } else {
+            None
+        };
+        prepared.push((
+            *index,
+            Prepared {
+                update: Update {
+                    name: destination.as_str().into(),
+                    expected,
+                    new,
+                },
+                publications,
+                scope: Some(scope_index),
+            },
+        ));
+    }
+    Ok(prepared)
 }
 
 fn finish(

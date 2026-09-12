@@ -264,18 +264,18 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         f.jj(&client, &["git", "fetch", "--remote", "origin"]);
         f.jj(
             &client,
-            &["bookmark", "set", "main", "-r", &selected, "--allow-backwards"],
+            &[
+                "bookmark",
+                "set",
+                "main",
+                "-r",
+                &selected,
+                "--allow-backwards",
+            ],
         );
         f.jj(
             &client,
-            &[
-                "git",
-                "push",
-                "--remote",
-                "origin",
-                "--bookmark",
-                "main",
-            ],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_eq!(f.refs(&remote), before);
 
@@ -289,14 +289,7 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
         f.jj(&client, &["bookmark", "set", "main", "-r", &empty]);
         f.jj(
             &client,
-            &[
-                "git",
-                "push",
-                "--remote",
-                "origin",
-                "--bookmark",
-                "main",
-            ],
+            &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
         assert_ne!(f.refs(&remote), before);
         f.jj(&reader, &["git", "fetch", "--remote", "origin"]);
@@ -358,7 +351,10 @@ fn named_git_endpoints_control_projected_fetch_and_push() {
         );
 
         f.jj(&client, &["bookmark", "track", "main@origin"]);
-        f.jj(&client, &["new", "main@origin", "-m", "publish to push endpoint"]);
+        f.jj(
+            &client,
+            &["new", "main@origin", "-m", "publish to push endpoint"],
+        );
         f.write(&client, "file.txt", "converted publication\n");
         f.jj(&client, &["describe", "-m", "publish to push endpoint"]);
         let selected = f.log(&client, "@", "commit_id");
@@ -419,9 +415,19 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
         f.remote(&client, suffix, &target, ":/app");
         f.jj(
             &client,
-            &["bookmark", "set", "imported", "-r", &projected, "--allow-backwards"],
+            &[
+                "bookmark",
+                "set",
+                "imported",
+                "-r",
+                &projected,
+                "--allow-backwards",
+            ],
         );
-        f.jj(&client, &["bookmark", "track", &format!("imported@{suffix}")]);
+        f.jj(
+            &client,
+            &["bookmark", "track", &format!("imported@{suffix}")],
+        );
         let working_copy_before_push = f.log(&client, "@", "commit_id");
         let mut args = vec![
             "git",
@@ -470,7 +476,14 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
         f.jj(&client, &["git", "fetch", "--remote", suffix]);
         f.jj(
             &client,
-            &["bookmark", "set", "imported", "-r", &projected, "--allow-backwards"],
+            &[
+                "bookmark",
+                "set",
+                "imported",
+                "-r",
+                &projected,
+                "--allow-backwards",
+            ],
         );
         f.jj(
             &client,
@@ -539,14 +552,7 @@ fn versioned_projection_views_splice_history_and_share_edits_across_consumer_pat
     f.jj(&sunshine, &["bookmark", "set", "main", "-r", &published]);
     f.jj(
         &sunshine,
-        &[
-            "git",
-            "push",
-            "--remote",
-            "origin",
-            "--bookmark",
-            "main",
-        ],
+        &["git", "push", "--remote", "origin", "--bookmark", "main"],
     );
     f.jj(&sunshine, &["git", "fetch", "--remote", "origin"]);
     assert_eq!(f.log(&sunshine, "main@origin", "change_id"), mapping_change);
