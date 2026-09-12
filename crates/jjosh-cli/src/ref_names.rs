@@ -1,5 +1,5 @@
 //! Native and link observations use ordinary jj names `NAME#PROJECT`.
-//! Remote identity remains the global `PROJECT-REMOTE` name.
+//! Configured remote names identify endpoints independently of project scope.
 //! PROJECT is a project identity, not a mount path.
 
 use std::path::Path;

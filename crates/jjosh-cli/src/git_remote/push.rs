@@ -6,11 +6,14 @@ use gix::bstr::{BString, ByteSlice};
 use gix::remote::Direction;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
-use jj_cli::git_remote::{GitRemotePushOptions, GitRemotePushOutcome};
+use jj_cli::git_remote::{
+    GitPreparedPush, GitRemotePushOptions, GitRemotePushOutcome, RemoteFuture,
+};
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::git::{GitPushOptions, GitPushRefTargets, GitPushStats, GitRefUpdate};
 use jj_lib::object_id::ObjectId as _;
+use jj_lib::ref_name::{GitRefNameBuf, RemoteName, RemoteNameBuf};
 use jj_lib::repo::{MutableRepo, Repo as _};
 use josh_core::cache::{Expected as RefExpected, Transaction};
 
@@ -21,6 +24,19 @@ struct Prepared {
     update: Update,
     publications: Vec<(CommitId, CommitId)>,
     scope: Option<usize>,
+}
+
+struct PreparedPush {
+    remote: RemoteNameBuf,
+    targets: GitPushRefTargets,
+    canonical: Vec<GitRefUpdate>,
+    scopes: Vec<(Session, Vec<(usize, String)>)>,
+    prepared: Vec<Prepared>,
+    transaction: Option<Transaction>,
+    endpoint: String,
+    raw_prefix: Option<String>,
+    destinations: Vec<GitRefNameBuf>,
+    transport: transport::PreparedPush,
 }
 
 fn source_destination(update: &GitRefUpdate) -> Result<(String, Option<&str>)> {
@@ -82,7 +98,7 @@ fn canonical_stats(canonical: &[GitRefUpdate], report: &transport::Outcome) -> G
     stats
 }
 
-pub(super) async fn run(
+pub(super) async fn prepare(
     session: &Session,
     _ui: &mut Ui,
     _command: &CommandHelper,
@@ -91,9 +107,14 @@ pub(super) async fn run(
     options: &GitPushOptions,
     preparation: &GitRemotePushOptions,
     dry_run: bool,
-) -> Result<GitRemotePushOutcome, CommandError> {
+) -> Result<Box<dyn GitPreparedPush>, CommandError> {
     let canonical = jj_lib::git::prepare_push_refs(repo, &session.name, targets)?;
     let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
+    // Resolve the actual selected receive-pack endpoint, including writability,
+    // before conversion. Native source workspaces are not publication endpoints.
+    let remote = session.remote(&git, Direction::Push).map_err(user_error)?;
+    let push_endpoint =
+        super::remote_endpoint(&remote, Direction::Push, false).map_err(user_error)?;
     let mut scopes: Vec<(Session, Vec<(usize, String)>)> = Vec::new();
     let mut scope_indices = HashMap::new();
     let mut destinations = HashSet::with_capacity(canonical.len());
@@ -153,17 +174,11 @@ pub(super) async fn run(
         .iter()
         .any(|(scope, _)| scope.project.is_some() || scope.filter().is_some());
     let transaction = transformed
-        .then(|| crate::interop::open_josh_transaction(&session.git_path, dry_run))
+        .then(|| crate::interop::open_josh_transaction(&session.git_path, true))
         .transpose()?;
-    let push_endpoint = if transformed {
-        Some(
-            session
-                .endpoint_url(&git, Direction::Push)
-                .map_err(user_error)?,
-        )
-    } else {
-        None
-    };
+    let raw_prefix = transformed
+        .then(|| session.raw_prefix(&git, &push_endpoint).map_err(user_error))
+        .transpose()?;
     let mut prepared: Vec<Option<Prepared>> = (0..canonical.len()).map(|_| None).collect();
     // Resolve and prepare every selected scope before opening a mutation request.
     for (scope_index, (scope, updates)) in scopes.iter().enumerate() {
@@ -189,7 +204,7 @@ pub(super) async fn run(
                 repo,
                 &git,
                 transaction.as_ref().unwrap(),
-                push_endpoint.as_deref().unwrap(),
+                &push_endpoint,
                 preparation,
             )
             .await?
@@ -200,20 +215,19 @@ pub(super) async fn run(
     }
     let prepared: Vec<_> = prepared.into_iter().map(Option::unwrap).collect();
     if let Some(transaction) = &transaction {
-        // Only prepared objects may be durable before publication, never success records.
+        // Persist only objects for the independent transport ODB. The ephemeral
+        // conversion transaction discards filter refs and correspondence writes.
         transaction.flush_mem_odb().map_err(user_error)?;
     }
     let updates: Vec<_> = prepared
         .iter()
         .map(|prepared| prepared.update.clone())
         .collect();
-    let remote = session.remote(&git, Direction::Push).map_err(user_error)?;
-    let report = transport::push(
+    let transport = transport::prepare(
         &git,
         remote,
         &updates,
         &transport::Options {
-            dry_run,
             atomic: false,
             push_options: options
                 .remote_push_options
@@ -223,78 +237,120 @@ pub(super) async fn run(
         },
     )
     .map_err(user_error)?;
-    if dry_run {
-        return finish(session, repo, targets, &canonical, report, Vec::new(), true);
+    // Success records use a fresh transaction, never the conversion transaction's
+    // queued refs. Opening it now also keeps local preparation failures pre-send.
+    drop(transaction);
+    let transaction = transformed
+        .then(|| crate::interop::open_josh_transaction(&session.git_path, dry_run))
+        .transpose()?;
+    let destinations = updates
+        .iter()
+        .map(|update| {
+            GitRefNameBuf::from(
+                std::str::from_utf8(&update.name).expect("validated UTF-8 destination"),
+            )
+        })
+        .collect();
+    Ok(Box::new(PreparedPush {
+        remote: session.name.clone(),
+        targets: targets.clone(),
+        canonical,
+        scopes,
+        prepared,
+        transaction,
+        endpoint: push_endpoint,
+        raw_prefix,
+        destinations,
+        transport,
+    }))
+}
+
+impl GitPreparedPush for PreparedPush {
+    fn destinations(&self) -> (&str, &[GitRefNameBuf]) {
+        (&self.endpoint, &self.destinations)
     }
 
-    let mut save_errors = Vec::new();
-    if let Some(transaction) = &transaction {
-        let push_endpoint = push_endpoint.as_deref().unwrap();
-        let push_prefix = session
-            .raw_prefix(&git, push_endpoint)
-            .map_err(user_error)?;
-        for (prepared, (name, status)) in prepared.iter().zip(&report.refs) {
-            if *status != RefStatus::Accepted {
-                continue;
-            }
-            let Some(scope_index) = prepared.scope else {
-                continue;
-            };
-            if let Some(project) = scopes[scope_index]
-                .0
-                .project
-                .as_ref()
-                .filter(|project| project.native)
-            {
-                for (raw, canonical) in &prepared.publications {
-                    if let Err(error) = crate::native_project::record_anchor(
-                        transaction,
-                        &project.name,
-                        "published",
-                        raw,
-                        canonical,
-                    )
-                    .and_then(|()| transaction.flush_mem_odb())
-                    {
-                        save_errors.push(format!("{name}: native publication anchor: {error:#}"));
-                    }
-                }
-            }
-            let destination = std::str::from_utf8(name).expect("validated UTF-8 destination");
-            if let Err(error) = save_raw_ref(
+    fn publish<'a>(
+        self: Box<Self>,
+        repo: &'a mut MutableRepo,
+    ) -> RemoteFuture<'a, GitRemotePushOutcome> {
+        Box::pin(async move {
+            let Self {
+                remote,
+                targets,
+                canonical,
+                scopes,
+                prepared,
                 transaction,
-                &format!("{push_prefix}{destination}"),
-                prepared.update.new,
-            ) {
-                save_errors.push(format!("{name}: raw publication ref: {error:#}"));
-            }
-            if destination.starts_with("refs/heads/") {
-                let result = match prepared.update.new {
-                    Some(id) => crate::link_refs::record_observation(
-                        transaction,
-                        push_endpoint,
-                        destination,
-                        id,
-                    ),
-                    None => {
-                        crate::link_refs::record_absence(transaction, push_endpoint, destination)
+                endpoint: push_endpoint,
+                raw_prefix,
+                transport,
+                ..
+            } = *self;
+            let report = transport.publish();
+            let mut save_errors = Vec::new();
+            if let Some(transaction) = &transaction {
+                let push_prefix = raw_prefix.as_deref().unwrap();
+                for (prepared, (name, status)) in prepared.iter().zip(&report.refs) {
+                    if *status != RefStatus::Accepted {
+                        continue;
                     }
-                };
-                if let Err(error) = result {
-                    save_errors.push(format!("{name}: publication lease: {}", error.error));
+                    let Some(scope_index) = prepared.scope else {
+                        continue;
+                    };
+                    if let Some(project) = scopes[scope_index]
+                        .0
+                        .project
+                        .as_ref()
+                        .filter(|project| project.native)
+                    {
+                        for (raw, canonical) in &prepared.publications {
+                            if let Err(error) = crate::native_project::record_anchor(
+                                transaction,
+                                &project.name,
+                                "published",
+                                raw,
+                                canonical,
+                            )
+                            .and_then(|()| transaction.flush_mem_odb())
+                            {
+                                save_errors
+                                    .push(format!("{name}: native publication anchor: {error:#}"));
+                            }
+                        }
+                    }
+                    let destination =
+                        std::str::from_utf8(name).expect("validated UTF-8 destination");
+                    if let Err(error) = save_raw_ref(
+                        transaction,
+                        &format!("{push_prefix}{destination}"),
+                        prepared.update.new,
+                    ) {
+                        save_errors.push(format!("{name}: raw publication ref: {error:#}"));
+                    }
+                    if destination.starts_with("refs/heads/") {
+                        let result = match prepared.update.new {
+                            Some(id) => crate::link_refs::record_observation(
+                                transaction,
+                                &push_endpoint,
+                                destination,
+                                id,
+                            ),
+                            None => crate::link_refs::record_absence(
+                                transaction,
+                                &push_endpoint,
+                                destination,
+                            ),
+                        };
+                        if let Err(error) = result {
+                            save_errors.push(format!("{name}: publication lease: {}", error.error));
+                        }
+                    }
                 }
             }
-        }
+            finish(&remote, repo, &targets, &canonical, report, save_errors)
+        })
     }
-    finish(
-        session,
-        repo,
-        targets,
-        &canonical,
-        report,
-        save_errors,
-        false,
-    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -473,42 +529,18 @@ async fn prepare_scope(
 }
 
 fn finish(
-    session: &Session,
+    remote: &RemoteName,
     repo: &mut MutableRepo,
     targets: &GitPushRefTargets,
     canonical: &[GitRefUpdate],
     report: transport::Outcome,
     mut save_errors: Vec<String>,
-    dry_run: bool,
 ) -> Result<GitRemotePushOutcome, CommandError> {
-    if dry_run {
-        let rejected: Vec<_> = report
-            .refs
-            .iter()
-            .filter_map(|(name, status)| match status {
-                RefStatus::Rejected(reason) => Some(format!("{name}: {reason}")),
-                _ => None,
-            })
-            .collect();
-        if !rejected.is_empty() {
-            return Err(user_error(format!(
-                "Push preflight rejected references:\n{}",
-                rejected.join("\n")
-            )));
-        }
-        if let Some(error) = report.error {
-            return Err(user_error(error));
-        }
-        return Ok(GitRemotePushOutcome {
-            stats: GitPushStats::default(),
-            error: None,
-        });
-    }
     // Import independently confirmed results even when other refs or local saves
     // failed. JJ owns the final operation commit and receives both facts and errors.
     let stats = match jj_lib::git::import_push_results(
         repo,
-        &session.name,
+        remote,
         targets,
         canonical,
         canonical_stats(canonical, &report),

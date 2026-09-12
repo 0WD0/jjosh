@@ -42,6 +42,7 @@ use jj_lib::operation::Operation;
 use jj_lib::ref_name::RefName;
 use jj_lib::ref_name::RefNameBuf;
 use jj_lib::ref_name::RemoteName;
+use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::refs::LocalAndRemoteRef;
 use jj_lib::refs::RefPushAction;
@@ -76,6 +77,9 @@ use crate::command_error::user_error_with_message;
 use crate::commands::git::get_single_remote;
 use crate::complete;
 use crate::formatter::Formatter;
+use crate::git_remote::GitPushRoute;
+use crate::git_remote::GitPushRouter;
+use crate::git_remote::GitRemoteSession;
 use crate::git_util::GitSubprocessUi;
 use crate::git_util::print_push_stats;
 use crate::progress::ProgressWriter;
@@ -101,8 +105,9 @@ use crate::ui::Ui;
 /// current state matches what Jujutsu last fetched.
 ///
 /// Unlike in Git, the remote to push to is not derived from the tracked remote
-/// bookmarks. Use `--remote` to select the remote Git repository by name. There
-/// is no option to push to multiple remotes.
+/// bookmarks. Use `--remote` (which can be repeated) or `git.push` to select
+/// destinations explicitly. An embedding application's remote extension may
+/// choose a default destination separately for each selected reference.
 ///
 /// Before the command actually moves, creates, or deletes a remote bookmark, it
 /// makes several [safety checks]. If there is a problem, you may need to run
@@ -121,8 +126,10 @@ use crate::ui::Ui;
 pub struct GitPushArgs {
     /// The remote(s) to push to (can be repeated)
     ///
-    /// This defaults to the `git.push` setting. If that is not configured, and
-    /// if there are multiple remotes, the remote named "origin" will be used.
+    /// This defaults to the `git.push` setting. If that is not configured, an
+    /// embedding application's remote extension may choose destinations per
+    /// reference. Otherwise, the only remote is used, or "origin" if there are
+    /// multiple remotes.
     ///
     /// By default, the specified pattern matches remote names with glob syntax,
     /// e.g., `--remote '*'`. You can also use other [string pattern syntax].
@@ -302,14 +309,76 @@ pub async fn cmd_git_push(
         ));
     }
 
-    let remote_expr = if let Some(remotes) = &args.remotes {
+    let router = if args.remotes.is_none()
+        && workspace_command
+            .settings()
+            .get_value("git.push")
+            .optional()?
+            .is_none()
+    {
+        command
+            .git_remote_extension()
+            .map(|extension| extension.default_push_router(&workspace_command))
+            .transpose()?
+            .flatten()
+    } else {
+        None
+    };
+    let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
+    let git_lock = if command.git_remote_extension().is_some() {
+        Some(workspace_command.lock_git_import_export()?)
+    } else {
+        None
+    };
+    let mut tx = workspace_command.start_transaction();
+    // Create these before resolving routes, so generated names use the same
+    // routing and classification as every other selected bookmark.
+    let change_bookmark_names = create_change_bookmarks(ui, &mut tx, &args.change).await?;
+    let named_bookmark_commits = try_join_all(args.named.iter().map(|arg| async {
+        let (name, revision_arg) = parse_named_bookmark(arg)?;
+        let commit = tx
+            .base_workspace_helper()
+            .resolve_single_rev(ui, &revision_arg)
+            .await?;
+        Ok::<_, CommandError>((name, commit))
+    }))
+    .await?;
+    for (name, commit) in &named_bookmark_commits {
+        ensure_new_bookmark_name(tx.repo(), name)?;
+        tx.repo_mut()
+            .set_local_bookmark_target(name, RefTarget::normal(commit.id().clone()));
+    }
+    let routes = if let Some(router) = router.as_deref() {
+        Some(
+            resolve_push_routes(
+                ui,
+                tx.base_workspace_helper(),
+                tx.repo().view(),
+                args,
+                change_bookmark_names
+                    .iter()
+                    .chain(named_bookmark_commits.iter().map(|(name, _)| name)),
+                &all_remotes,
+                router,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let remote_expr = if let Some(routes) = &routes {
+        StringExpression::union_all(
+            routes
+                .values()
+                .map(|route| StringExpression::exact(&route.remote))
+                .collect_vec(),
+        )
+    } else if let Some(remotes) = &args.remotes {
         parse_union_name_patterns(ui, remotes)?
     } else {
-        get_default_push_remotes(ui, &workspace_command)?
+        get_default_push_remotes(ui, tx.base_workspace_helper())?
     };
     let remote_matcher = remote_expr.to_matcher();
-
-    let all_remotes = git::get_all_remote_names(workspace_command.repo().store())?;
     let matching_remotes = all_remotes
         .iter()
         .filter(|r| remote_matcher.is_match(r.as_str()))
@@ -328,7 +397,7 @@ pub async fn cmd_git_push(
             unmatched_remotes.map(|name| name.as_symbol()).join(", ")
         )?;
     }
-    if matching_remotes.is_empty() {
+    if matching_remotes.is_empty() && routes.as_ref().is_none_or(|routes| !routes.is_empty()) {
         return Err(user_error("No git remotes to push to"));
     }
 
@@ -337,18 +406,16 @@ pub async fn cmd_git_push(
         for remote in &matching_remotes {
             remote_sessions.insert(
                 *remote,
-                extension.open(command, &workspace_command, remote)?,
+                extension.open(command, tx.base_workspace_helper(), remote)?,
             );
         }
     }
-    let git_lock = if remote_sessions.is_empty() {
-        None
-    } else {
-        Some(workspace_command.lock_git_import_export()?)
-    };
-
-    let mut tx = workspace_command.start_transaction();
     let mut by_remote = Vec::with_capacity(matching_remotes.len());
+    let routing = PushRouting {
+        routes: routes.as_ref(),
+        sessions: &remote_sessions,
+        dry_run: args.dry_run,
+    };
 
     if args.all {
         let workspace_helper = tx.base_workspace_helper();
@@ -368,6 +435,7 @@ pub async fn cmd_git_push(
                 remote,
                 |_targets| true,
                 params,
+                routing,
             )
             .await?;
 
@@ -391,6 +459,7 @@ pub async fn cmd_git_push(
                 remote,
                 |targets| targets.remote_ref.is_tracked(),
                 params,
+                routing,
             )
             .await?;
 
@@ -415,29 +484,14 @@ pub async fn cmd_git_push(
                 remote,
                 |targets| targets.local_target.is_absent(),
                 params,
+                routing,
             )
             .await?;
 
             by_remote.push((remote, ref_updates));
         }
     } else {
-        // --change and --named don't move existing bookmarks. If they did, be
-        // careful to not select old state by -r/--revisions and bookmark names.
-        let change_bookmark_names = create_change_bookmarks(ui, &mut tx, &args.change).await?;
-        let named_bookmark_commits = try_join_all(args.named.iter().map(|arg| async {
-            let (name, revision_arg) = parse_named_bookmark(arg)?;
-            let commit = tx
-                .base_workspace_helper()
-                .resolve_single_rev(ui, &revision_arg)
-                .await?;
-            Ok::<_, CommandError>((name, commit))
-        }))
-        .await?;
-        for (name, commit) in &named_bookmark_commits {
-            ensure_new_bookmark_name(tx.repo(), name)?;
-            tx.repo_mut()
-                .set_local_bookmark_target(name, RefTarget::normal(commit.id().clone()));
-        }
+        // --change and --named were created before resolving default routes.
         for remote in matching_remotes {
             let mut seen_bookmarks: HashSet<&RefName> = HashSet::new();
             let mut seen_tags: HashSet<&RefName> = HashSet::new();
@@ -455,9 +509,10 @@ pub async fn cmd_git_push(
                 });
             for (remote_symbol, targets) in created_bookmarks {
                 let name = remote_symbol.name;
-                if !seen_bookmarks.insert(name) {
+                if !routing.includes(name, remote) || !seen_bookmarks.insert(name) {
                     continue;
                 }
+                routing.print_unchanged(ui, remote_symbol, "heads", targets)?;
                 let params = ClassifyParams {
                     allow_new: true,     // --change implies creation of remote bookmark
                     allow_delete: false, // doesn't matter
@@ -476,10 +531,11 @@ pub async fn cmd_git_push(
             let view = tx.repo().view();
             let bookmarks_by_name = find_bookmarks_to_push(ui, view, &args.bookmark, remote)?;
             for &(name, targets) in &bookmarks_by_name {
-                if !seen_bookmarks.insert(name) {
+                if !routing.includes(name, remote) || !seen_bookmarks.insert(name) {
                     continue;
                 }
                 let remote_symbol = name.to_remote_symbol(remote);
+                routing.print_unchanged(ui, remote_symbol, "heads", targets)?;
                 let params = ClassifyParams {
                     // Override allow_new if the bookmark is not tracked with any remote
                     // already. The user has specified --bookmark, so their intent which
@@ -500,10 +556,11 @@ pub async fn cmd_git_push(
 
             let tags_by_name = find_tags_to_push(ui, view, &args.tag, remote)?;
             for &(name, targets) in &tags_by_name {
-                if !seen_tags.insert(name) {
+                if !routing.includes(name, remote) || !seen_tags.insert(name) {
                     continue;
                 }
                 let remote_symbol = name.to_remote_symbol(remote);
+                routing.print_unchanged(ui, remote_symbol, "tags", targets)?;
                 let params = ClassifyParams {
                     // named explicitly, allow track or delete
                     allow_new: !has_tracked_remote_tags(tx.repo(), name),
@@ -534,7 +591,7 @@ pub async fn cmd_git_push(
                 && args.revisions.is_empty()
                 && args.named.is_empty();
             let target_revisions = if use_default_revset {
-                find_default_target_revisions(ui, tx.base_workspace_helper(), remote).await?
+                find_default_target_revisions(ui, tx.base_workspace_helper(), remote, true).await?
             } else {
                 find_target_revisions(ui, tx.base_workspace_helper(), &args.revisions).await?
             };
@@ -544,11 +601,14 @@ pub async fn cmd_git_push(
                 allow_delete: false,
             };
             for (name, targets) in tx.base_repo().view().local_remote_bookmarks(remote) {
-                if !matches_local_target(targets, &target_revisions) || !seen_bookmarks.insert(name)
+                if !routing.includes(name, remote)
+                    || !matches_local_target(targets, &target_revisions)
+                    || !seen_bookmarks.insert(name)
                 {
                     continue;
                 }
                 let remote_symbol = name.to_remote_symbol(remote);
+                routing.print_unchanged(ui, remote_symbol, "heads", targets)?;
                 match classify_bookmark_update(remote_symbol, targets, params) {
                     Ok(Some(update)) => match commits_validator.validate_update(&update).await? {
                         Ok(()) => ref_updates.bookmarks.push((name.to_owned(), update)),
@@ -561,10 +621,14 @@ pub async fn cmd_git_push(
                 }
             }
             for (name, targets) in tx.base_repo().view().local_remote_tags(remote) {
-                if !matches_local_target(targets, &target_revisions) || !seen_tags.insert(name) {
+                if !routing.includes(name, remote)
+                    || !matches_local_target(targets, &target_revisions)
+                    || !seen_tags.insert(name)
+                {
                     continue;
                 }
                 let remote_symbol = name.to_remote_symbol(remote);
+                routing.print_unchanged(ui, remote_symbol, "tags", targets)?;
 
                 match classify_tag_update(remote_symbol, targets, params) {
                     Ok(Some(update)) => match commits_validator.validate_update(&update).await? {
@@ -579,10 +643,8 @@ pub async fn cmd_git_push(
         }
     }
 
-    if by_remote
-        .iter()
-        .all(|(_, ref_updates)| ref_updates.bookmarks.is_empty() && ref_updates.tags.is_empty())
-    {
+    by_remote.retain(|(_, updates)| !updates.bookmarks.is_empty() || !updates.tags.is_empty());
+    if by_remote.is_empty() {
         writeln!(ui.status(), "Nothing changed.")?;
         return Ok(());
     }
@@ -610,9 +672,43 @@ pub async fn cmd_git_push(
         base: args.base.clone(),
         merge: args.merge,
     };
-    let mut all_ok = true;
-    let mut some_exported = false;
-    let mut push_error = None;
+    // Keep every prepared pack alive until the whole command has passed
+    // conversion and preflight. A later remote's failure must not publish an
+    // earlier remote's changes.
+    let mut prepared_pushes = HashMap::new();
+    for (remote, ref_updates) in &by_remote {
+        if let Some(session) = remote_sessions.get(remote) {
+            let prepared = session
+                .prepare_push(
+                    ui,
+                    command,
+                    tx.repo_mut(),
+                    ref_updates,
+                    &options,
+                    &preparation,
+                    args.dry_run,
+                )
+                .await?;
+            prepared_pushes.insert(*remote, prepared);
+        }
+    }
+    let mut destinations = HashMap::new();
+    for (remote, _) in &by_remote {
+        if let Some(prepared) = prepared_pushes.get(remote) {
+            let (endpoint, names) = prepared.destinations();
+            for name in names {
+                if let Some(previous) = destinations.insert((endpoint, name), *remote) {
+                    return Err(user_error(format!(
+                        "Remotes {} and {} push to the same destination {}",
+                        previous.as_symbol(),
+                        remote.as_symbol(),
+                        name.as_str(),
+                    )));
+                }
+            }
+        }
+    }
+    drop(destinations);
 
     for (remote, ref_updates) in &by_remote {
         if let Some(mut formatter) = ui.status_formatter() {
@@ -623,30 +719,58 @@ pub async fn cmd_git_push(
             )?;
             print_commits_ready_to_push(formatter.as_mut(), tx.repo(), ref_updates).await?;
         }
-
-        let push_stats = if let Some(session) = remote_sessions.get(remote) {
-            match session
-                .push(
-                    ui,
-                    command,
-                    tx.repo_mut(),
-                    ref_updates,
-                    &options,
-                    &preparation,
-                    args.dry_run,
+        if args.dry_run && !remote_sessions.is_empty() {
+            for (namespace, name, update) in ref_updates
+                .bookmarks
+                .iter()
+                .map(|(name, update)| ("heads", name, update))
+                .chain(
+                    ref_updates
+                        .tags
+                        .iter()
+                        .map(|(name, update)| ("tags", name, update)),
                 )
-                .await
             {
+                let destination =
+                    if let Some(route) = routes.as_ref().and_then(|routes| routes.get(name)) {
+                        route.name.as_str()
+                    } else if let Some(session) = remote_sessions.get(remote) {
+                        session.push_name(name)
+                    } else {
+                        name.as_str()
+                    };
+                let action = if update.after.is_none() {
+                    "delete"
+                } else if update.before.is_none() {
+                    "create"
+                } else {
+                    "update"
+                };
+                writeln!(
+                    ui.status(),
+                    "  {} -> {} -> refs/{namespace}/{destination} ({action})",
+                    name.as_symbol(),
+                    remote.as_symbol()
+                )?;
+            }
+        }
+    }
+    if args.dry_run {
+        writeln!(ui.status(), "Dry-run requested, not pushing.")?;
+        return Ok(());
+    }
+
+    let mut all_ok = true;
+    let mut some_exported = false;
+    let mut push_error = None;
+
+    for (remote, ref_updates) in &by_remote {
+        let push_stats = if let Some(prepared) = prepared_pushes.remove(remote) {
+            match prepared.publish(tx.repo_mut()).await {
                 Ok(outcome) => {
-                    if let Some(error) = outcome.error {
-                        if args.dry_run {
-                            return Err(error);
-                        }
-                        push_error = Some(error);
-                    }
+                    push_error = outcome.error;
                     outcome.stats
                 }
-                Err(error) if args.dry_run => return Err(error),
                 Err(error) => {
                     push_error = Some(error);
                     all_ok = false;
@@ -654,21 +778,22 @@ pub async fn cmd_git_push(
                 }
             }
         } else {
-            if args.dry_run {
-                continue;
-            }
-            git::push_refs(
+            match git::push_refs(
                 tx.repo_mut(),
                 git_settings.to_subprocess_options(),
                 remote,
                 ref_updates,
                 &mut GitSubprocessUi::new(ui),
                 &options,
-            )?
+            ) {
+                Ok(stats) => stats,
+                Err(error) => {
+                    push_error = Some(error.into());
+                    all_ok = false;
+                    break;
+                }
+            }
         };
-        if args.dry_run {
-            continue;
-        }
 
         print_push_stats(ui, &push_stats)?;
 
@@ -678,11 +803,6 @@ pub async fn cmd_git_push(
             all_ok = false;
             break;
         }
-    }
-
-    if args.dry_run {
-        writeln!(ui.status(), "Dry-run requested, not pushing.")?;
-        return Ok(());
     }
 
     // TODO: On partial success, locally-created --change/--named bookmarks will
@@ -736,6 +856,171 @@ pub async fn cmd_git_push(
     }
 }
 
+/// The cached decision is also the selection boundary: another remote's local
+/// bookmark must never leak into this remote's batch.
+#[derive(Clone, Copy)]
+struct PushRouting<'a> {
+    routes: Option<&'a HashMap<RefNameBuf, GitPushRoute>>,
+    sessions: &'a HashMap<&'a RemoteName, Box<dyn GitRemoteSession>>,
+    dry_run: bool,
+}
+
+impl PushRouting<'_> {
+    fn includes(self, name: &RefName, remote: &RemoteName) -> bool {
+        self.routes
+            .is_none_or(|routes| routes.get(name).is_some_and(|route| route.remote == remote))
+    }
+
+    fn print_unchanged(
+        self,
+        ui: &Ui,
+        symbol: RemoteRefSymbol<'_>,
+        namespace: &str,
+        targets: LocalAndRemoteRef<'_>,
+    ) -> Result<(), CommandError> {
+        if self.dry_run
+            && matches!(
+                classify_ref_push_action(targets),
+                RefPushAction::AlreadyMatches
+            )
+            && let Some(session) = self.sessions.get(symbol.remote)
+        {
+            let destination = self
+                .routes
+                .and_then(|routes| routes.get(symbol.name))
+                .map_or_else(
+                    || session.push_name(symbol.name),
+                    |route| route.name.as_str(),
+                );
+            writeln!(
+                ui.status(),
+                "  {} -> {} -> refs/{namespace}/{destination} (unchanged)",
+                symbol.name.as_symbol(),
+                symbol.remote.as_symbol(),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+async fn resolve_push_routes<'a>(
+    ui: &Ui,
+    workspace: &WorkspaceCommandHelper,
+    view: &View,
+    args: &GitPushArgs,
+    created_names: impl IntoIterator<Item = &'a RefNameBuf>,
+    all_remotes: &[RemoteNameBuf],
+    router: &dyn GitPushRouter,
+) -> Result<HashMap<RefNameBuf, GitPushRoute>, CommandError> {
+    let bookmark_matcher = parse_union_name_patterns(ui, &args.bookmark)?.to_matcher();
+    let tag_matcher = parse_union_name_patterns(ui, &args.tag)?.to_matcher();
+    let mut selected: IndexSet<RefNameBuf> = created_names.into_iter().cloned().collect();
+    let use_default_revset = !args.all
+        && !args.tracked
+        && !args.deleted
+        && args.bookmark.is_empty()
+        && args.tag.is_empty()
+        && args.change.is_empty()
+        && args.revisions.is_empty()
+        && args.named.is_empty();
+    let revisions = find_target_revisions(ui, workspace, &args.revisions).await?;
+    let mut tracked_names = HashMap::new();
+
+    // Include local refs even when there are no remotes (or no origin). This
+    // does not choose origin: ordinary fallback is resolved lazily below, only
+    // if a selected name is explicitly delegated by the router.
+    for remote in all_remotes
+        .iter()
+        .map(AsRef::as_ref)
+        .chain(iter::once(DEFAULT_REMOTE))
+        .unique()
+    {
+        let default_revisions = if use_default_revset {
+            find_default_target_revisions(ui, workspace, remote, false).await?
+        } else {
+            HashSet::new()
+        };
+        for (is_bookmark, name, targets) in view
+            .local_remote_bookmarks(remote)
+            .map(|(name, targets)| (true, name, targets))
+            .chain(
+                view.local_remote_tags(remote)
+                    .map(|(name, targets)| (false, name, targets)),
+            )
+        {
+            let explicitly_named = if is_bookmark {
+                bookmark_matcher.is_match(name.as_str())
+            } else {
+                tag_matcher.is_match(name.as_str())
+            } && (targets.local_target.is_present()
+                || targets.remote_ref.is_tracked());
+            let selected_here = if args.all {
+                targets.local_target.is_present() || targets.remote_ref.target.is_present()
+            } else if args.tracked {
+                targets.remote_ref.is_tracked()
+            } else if args.deleted {
+                targets.local_target.is_absent() && targets.remote_ref.target.is_present()
+            } else if use_default_revset {
+                // Use the observed remote's revision range for tracked refs,
+                // not an unrelated remote's empty range. Tracking influences
+                // selection here, never the router's destination decision.
+                let tracked_anywhere =
+                    *tracked_names.entry((is_bookmark, name)).or_insert_with(|| {
+                        if is_bookmark {
+                            has_tracked_remote_bookmarks(workspace.repo().as_ref(), name)
+                        } else {
+                            has_tracked_remote_tags(workspace.repo().as_ref(), name)
+                        }
+                    });
+                (!tracked_anywhere || targets.remote_ref.is_tracked())
+                    && matches_local_target(targets, &default_revisions)
+            } else {
+                explicitly_named || matches_local_target(targets, &revisions)
+            };
+            if selected_here {
+                selected.insert(name.to_owned());
+            }
+        }
+    }
+    if selected.is_empty() {
+        // There will be no per-remote selection loop to emit the usual
+        // diagnostics for explicitly named references which do not exist.
+        find_bookmarks_to_push(ui, view, &args.bookmark, DEFAULT_REMOTE)?;
+        find_tags_to_push(ui, view, &args.tag, DEFAULT_REMOTE)?;
+    }
+
+    let mut fallback_remote: Option<RemoteNameBuf> = None;
+    let mut routes = HashMap::new();
+    for name in selected {
+        let route = if let Some(route) = router.route(&name)? {
+            route
+        } else {
+            if fallback_remote.is_none() {
+                let expression = get_default_push_remotes(ui, workspace)?;
+                let remote = expression
+                    .exact_strings()
+                    .next()
+                    .expect("unconfigured default push remote is an exact name");
+                fallback_remote = Some(RemoteNameBuf::from(remote));
+            }
+            let remote = fallback_remote.as_ref().unwrap();
+            GitPushRoute {
+                remote: remote.clone(),
+                name: name.clone(),
+            }
+        };
+        if !all_remotes.contains(&route.remote) {
+            return Err(user_error(format!(
+                "No git remote {} for selected reference {}",
+                route.remote.as_symbol(),
+                name.as_symbol()
+            )));
+        }
+        routes.insert(name, route);
+    }
+    Ok(routes)
+}
+
 #[derive(Debug, Copy, Clone)]
 struct ClassifyParams {
     allow_new: bool,
@@ -749,14 +1034,16 @@ async fn classify_tags_and_bookmark_updates(
     remote: &RemoteName,
     predicate: impl Fn(LocalAndRemoteRef<'_>) -> bool,
     params: ClassifyParams,
+    routing: PushRouting<'_>,
 ) -> Result<GitPushRefTargets, CommandError> {
     let view = workspace_helper.repo().view();
     let mut ref_updates = GitPushRefTargets::default();
     for (name, targets) in view
         .local_remote_bookmarks(remote)
-        .filter(|(_, targets)| predicate(*targets))
+        .filter(|(name, targets)| routing.includes(name, remote) && predicate(*targets))
     {
         let remote_symbol = name.to_remote_symbol(remote);
+        routing.print_unchanged(ui, remote_symbol, "heads", targets)?;
         match classify_bookmark_update(remote_symbol, targets, params) {
             Ok(Some(update)) => match commits_validator.validate_update(&update).await? {
                 Ok(()) => ref_updates.bookmarks.push((name.to_owned(), update)),
@@ -768,9 +1055,10 @@ async fn classify_tags_and_bookmark_updates(
     }
     for (name, targets) in view
         .local_remote_tags(remote)
-        .filter(|(_name, targets)| predicate(*targets))
+        .filter(|(name, targets)| routing.includes(name, remote) && predicate(*targets))
     {
         let remote_symbol = name.to_remote_symbol(remote);
+        routing.print_unchanged(ui, remote_symbol, "tags", targets)?;
         match classify_tag_update(remote_symbol, targets, params) {
             Ok(Some(update)) => match commits_validator.validate_update(&update).await? {
                 Ok(()) => ref_updates.tags.push((name.to_owned(), update)),
@@ -1503,6 +1791,7 @@ async fn find_default_target_revisions(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
     remote: &RemoteName,
+    warn_if_empty: bool,
 ) -> Result<HashSet<CommitId>, CommandError> {
     // remote_bookmarks(remote=<remote>)..@
     let workspace_name = workspace_command.workspace_name();
@@ -1523,7 +1812,7 @@ async fn find_default_target_revisions(
         .evaluate_to_commit_ids()?
         .peekable();
     let mut commit_ids = std::pin::pin!(commit_ids);
-    if commit_ids.as_mut().peek().await.is_none() {
+    if warn_if_empty && commit_ids.as_mut().peek().await.is_none() {
         writeln!(
             ui.warning_default(),
             "No bookmarks/tags found in the default push revset: \

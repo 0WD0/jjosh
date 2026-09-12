@@ -56,7 +56,7 @@ where
     T: Transport,
 {
     pub(crate) fn configured_credentials_for_current_url(&self, repo: &crate::Repository) -> AuthenticateFn<'static> {
-        configured_credentials_for_current_url(repo.clone())
+        repo.configured_credentials_for_current_url()
     }
 }
 
@@ -106,7 +106,7 @@ where
     ///
     /// The transport creates these actions from its current URL, which means authentication naturally follows redirects.
     pub fn configured_credentials_for_current_url(&self) -> AuthenticateFn<'static> {
-        configured_credentials_for_current_url(self.remote.repo.clone())
+        self.remote.repo.configured_credentials_for_current_url()
     }
 
     /// Return the underlying remote that instantiate this connection.
@@ -134,38 +134,43 @@ where
     }
 }
 
-fn configured_credentials_for_current_url(repo: crate::Repository) -> AuthenticateFn<'static> {
-    let mut previous_cascade_and_prompt = None;
-    Box::new(move |action| {
-        if matches!(&action, gix_credentials::helper::Action::Get(_)) {
-            // The handshake creates the `Get` action from the transport's current URL. That URL may
-            // differ from the initial remote URL after redirects, and credential configuration can be
-            // URL-specific. Configure the cascade for this action URL, then keep it for the matching
-            // `Store` or `Erase` follow-up actions whose context is carried as an encoded payload,
-            // and is less convenient to use.
-            let url = action
-                .context()
-                .and_then(|ctx| ctx.url.clone().or_else(|| ctx.to_url()))
-                .ok_or(gix_credentials::protocol::Error::UrlMissing)?;
-            let (mut cascade, _action_with_normalized_url, prompt_opts) = repo
-                .config_snapshot()
-                .credential_helpers(gix_url::parse(&url)?)
-                .map_err(|source| gix_credentials::protocol::Error::ConfigureCredentialHelpers {
-                    source: Box::new(source),
-                })?;
-            let outcome = cascade.invoke(action, prompt_opts.clone());
-            previous_cascade_and_prompt = Some((cascade, prompt_opts));
-            outcome
-        } else {
-            match previous_cascade_and_prompt.as_mut() {
-                Some((cascade, prompt_opts)) => cascade.invoke(action, prompt_opts.clone()),
-                None => {
-                    gix_trace::warn!(
-                        "credential Store/Erase follow-up was invoked without a preceding Get; ignoring advisory action"
-                    );
-                    Ok(None)
+impl crate::Repository {
+    /// Return an owned credential callback configured for each transport action's
+    /// current URL, including redirects, without constructing a connection.
+    pub fn configured_credentials_for_current_url(&self) -> AuthenticateFn<'static> {
+        let repo = self.clone();
+        let mut previous_cascade_and_prompt = None;
+        Box::new(move |action| {
+            if matches!(&action, gix_credentials::helper::Action::Get(_)) {
+                // The handshake creates the `Get` action from the transport's current URL. That URL may
+                // differ from the initial remote URL after redirects, and credential configuration can be
+                // URL-specific. Configure the cascade for this action URL, then keep it for the matching
+                // `Store` or `Erase` follow-up actions whose context is carried as an encoded payload,
+                // and is less convenient to use.
+                let url = action
+                    .context()
+                    .and_then(|ctx| ctx.url.clone().or_else(|| ctx.to_url()))
+                    .ok_or(gix_credentials::protocol::Error::UrlMissing)?;
+                let (mut cascade, _action_with_normalized_url, prompt_opts) = repo
+                    .config_snapshot()
+                    .credential_helpers(gix_url::parse(&url)?)
+                    .map_err(|source| gix_credentials::protocol::Error::ConfigureCredentialHelpers {
+                        source: Box::new(source),
+                    })?;
+                let outcome = cascade.invoke(action, prompt_opts.clone());
+                previous_cascade_and_prompt = Some((cascade, prompt_opts));
+                outcome
+            } else {
+                match previous_cascade_and_prompt.as_mut() {
+                    Some((cascade, prompt_opts)) => cascade.invoke(action, prompt_opts.clone()),
+                    None => {
+                        gix_trace::warn!(
+                            "credential Store/Erase follow-up was invoked without a preceding Get; ignoring advisory action"
+                        );
+                        Ok(None)
+                    }
                 }
             }
-        }
-    }) as AuthenticateFn<'_>
+        }) as AuthenticateFn<'_>
+    }
 }

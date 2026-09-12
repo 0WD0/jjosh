@@ -24,7 +24,6 @@ pub(crate) struct Update {
 
 #[derive(Default, Debug)]
 pub(crate) struct Options {
-    pub dry_run: bool,
     pub atomic: bool,
     pub push_options: Vec<BString>,
 }
@@ -36,7 +35,7 @@ pub(crate) enum RefStatus {
     Rejected(BString),
     /// Commands may have been applied, but no conclusive report was received.
     Indeterminate,
-    /// Authorized and preflighted, but not sent because this is a dry run.
+    /// Authorized and preflighted, but not yet sent.
     Planned,
 }
 
@@ -48,14 +47,29 @@ pub(crate) struct Outcome {
     pub error: Option<anyhow::Error>,
 }
 
-/// Push raw objects and refs without changing local refs, leases, or JJ state.
-/// Errors returned directly are pre-mutation failures; post-send failures retain per-ref outcomes.
-pub(crate) fn push(
+/// An owned receive-pack session whose authorization and complete pack are fixed.
+pub(crate) struct PreparedPush {
+    transfer: Option<Transfer>,
+    outcome: Outcome,
+}
+
+struct Transfer {
+    transport: Box<dyn transport::client::blocking_io::Transport + Send>,
+    handshake: protocol::Handshake,
+    commands: Vec<wire::Command>,
+    command_indices: Vec<usize>,
+    options: wire::Options,
+    pack: Option<File>,
+}
+
+/// Prepare raw objects and refs without changing remote refs, leases, or JJ state.
+/// Every known rejection aborts the complete batch before a mutation request.
+pub(crate) fn prepare(
     repo: &gix::Repository,
     remote: gix::Remote<'_>,
     updates: &[Update],
     options: &Options,
-) -> Result<Outcome> {
+) -> Result<PreparedPush> {
     let hash = repo.object_hash();
     let mut names = HashSet::with_capacity(updates.len());
     for update in updates {
@@ -83,9 +97,12 @@ pub(crate) fn push(
         }
     }
     if updates.is_empty() {
-        return Ok(Outcome {
-            refs: Vec::new(),
-            error: None,
+        return Ok(PreparedPush {
+            transfer: None,
+            outcome: Outcome {
+                refs: Vec::new(),
+                error: None,
+            },
         });
     }
 
@@ -101,7 +118,7 @@ pub(crate) fn push(
         url.to_bstring().as_bstr(),
         remote.name().map(|name| name.as_bstr()),
     )?;
-    let transport = transport::client::blocking_io::connect::connect(
+    let mut transport = transport::client::blocking_io::connect::connect(
         url,
         transport::client::blocking_io::connect::Options {
             version: transport::Protocol::V1,
@@ -112,16 +129,14 @@ pub(crate) fn push(
                 .unwrap_or_default(),
         },
     )?;
-    let mut connection = remote.to_connection_with_transport(transport);
-    let credentials = connection.configured_credentials_for_current_url();
+    let credentials = repo.configured_credentials_for_current_url();
     if let Some(config) = transport_options {
-        connection
-            .transport_mut()
+        transport
             .configure(&*config)
             .map_err(anyhow::Error::from_boxed)?;
     }
     let handshake = protocol::handshake(
-        connection.transport_mut(),
+        &mut transport,
         transport::Service::ReceivePack,
         credentials,
         Vec::new(),
@@ -211,11 +226,7 @@ pub(crate) fn push(
         let status = if let Some(reason) = rejection {
             RefStatus::Rejected(reason)
         } else if old == update.new {
-            if options.dry_run {
-                RefStatus::Planned
-            } else {
-                RefStatus::Accepted
-            }
+            RefStatus::Accepted
         } else {
             commands.push(wire::Command {
                 name: update.name.clone(),
@@ -227,24 +238,19 @@ pub(crate) fn push(
         };
         outcome.refs.push((update.name.clone(), status));
     }
-    if options.atomic
-        && outcome
-            .refs
-            .iter()
-            .any(|(_, status)| matches!(status, RefStatus::Rejected(_)))
-    {
-        for (_, status) in &mut outcome.refs {
-            if !matches!(status, RefStatus::Rejected(_)) {
-                *status = RefStatus::Rejected(
-                    "atomic push aborted by another ref's preflight rejection".into(),
-                );
-            }
-        }
-        return Ok(outcome);
-    }
-    if commands.is_empty() {
-        return Ok(outcome);
-    }
+    let rejected: Vec<_> = outcome
+        .refs
+        .iter()
+        .filter_map(|(name, status)| match status {
+            RefStatus::Rejected(reason) => Some(format!("{name}: {reason}")),
+            _ => None,
+        })
+        .collect();
+    ensure!(
+        rejected.is_empty(),
+        "Push preflight rejected references:\n{}",
+        rejected.join("\n")
+    );
 
     let wire_options = wire::Options {
         atomic: options.atomic,
@@ -252,55 +258,92 @@ pub(crate) fn push(
     };
     let has_pack = commands.iter().any(|command| !command.new.is_null());
     wire::preflight(&handshake, &commands, &wire_options, has_pack)?;
-    let mut pack = if has_pack {
+    let pack = if has_pack {
         Some(prepare_pack(&objects, hash, &commands)?)
     } else {
         None
     };
-    if options.dry_run {
-        return Ok(outcome);
-    }
+    Ok(PreparedPush {
+        transfer: Some(Transfer {
+            transport,
+            handshake,
+            commands,
+            command_indices,
+            options: wire_options,
+            pack,
+        }),
+        outcome,
+    })
+}
 
-    // All graph and encoding failures occur before issuing a mutation request.
-    // The callback only streams an already-complete pack, never retaining packed bytes in RAM.
-    let mut copy_pack = |out: &mut dyn Write| -> io::Result<()> {
-        io::copy(
-            pack.as_mut()
-                .expect("pack callback only supplied with a pack"),
-            out,
-        )?;
-        Ok(())
-    };
-    let report = wire::execute(
-        connection.transport_mut(),
-        &handshake,
-        &commands,
-        &wire_options,
-        if has_pack { Some(&mut copy_pack) } else { None },
-    )?;
-    for index in &command_indices {
-        outcome.refs[*index].1 = RefStatus::Indeterminate;
-    }
-    let indices: HashMap<_, _> = command_indices
-        .iter()
-        .map(|index| (updates[*index].name.as_bstr(), *index))
-        .collect();
-    for (name, status) in report.refs {
-        if let Some(index) = indices.get(name.as_bstr()) {
-            outcome.refs[*index].1 = match status {
-                wire::RefStatus::Accepted => RefStatus::Accepted,
-                wire::RefStatus::Rejected(reason) => RefStatus::Rejected(reason),
-                wire::RefStatus::Indeterminate => RefStatus::Indeterminate,
-            };
+impl PreparedPush {
+    /// Send only the retained commands and pack on the original advertisement.
+    pub(crate) fn publish(self) -> Outcome {
+        let Self {
+            transfer,
+            mut outcome,
+        } = self;
+        let Some(Transfer {
+            mut transport,
+            handshake,
+            commands,
+            command_indices,
+            options,
+            mut pack,
+        }) = transfer
+        else {
+            return outcome;
+        };
+        let has_pack = pack.is_some();
+        // Graph traversal and encoding have already succeeded. This callback can
+        // only stream the complete spool; it cannot discover new object failures.
+        let mut copy_pack = |out: &mut dyn Write| -> io::Result<()> {
+            io::copy(
+                pack.as_mut()
+                    .expect("pack callback only supplied with a pack"),
+                out,
+            )?;
+            Ok(())
+        };
+        let report = match wire::execute(
+            &mut transport,
+            &handshake,
+            &commands,
+            &options,
+            if has_pack { Some(&mut copy_pack) } else { None },
+        ) {
+            Ok(report) => report,
+            Err(error) => {
+                // execute's direct errors guarantee that no commands were sent.
+                outcome.error = Some(error.into());
+                return outcome;
+            }
+        };
+        for index in &command_indices {
+            outcome.refs[*index].1 = RefStatus::Indeterminate;
         }
-    }
-    outcome.error = report.error.map(anyhow::Error::new);
-    if outcome.error.is_none() {
-        if let Some(Err(reason)) = report.unpack {
-            outcome.error = Some(anyhow::anyhow!("receive-pack unpack failed: {reason}"));
+        let indices: HashMap<_, _> = commands
+            .iter()
+            .zip(&command_indices)
+            .map(|(command, index)| (command.name.as_bstr(), *index))
+            .collect();
+        for (name, status) in report.refs {
+            if let Some(index) = indices.get(name.as_bstr()) {
+                outcome.refs[*index].1 = match status {
+                    wire::RefStatus::Accepted => RefStatus::Accepted,
+                    wire::RefStatus::Rejected(reason) => RefStatus::Rejected(reason),
+                    wire::RefStatus::Indeterminate => RefStatus::Indeterminate,
+                };
+            }
         }
+        outcome.error = report.error.map(anyhow::Error::new);
+        if outcome.error.is_none() {
+            if let Some(Err(reason)) = report.unpack {
+                outcome.error = Some(anyhow::anyhow!("receive-pack unpack failed: {reason}"));
+            }
+        }
+        outcome
     }
-    Ok(outcome)
 }
 
 fn checked_object<'a>(

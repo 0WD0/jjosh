@@ -45,8 +45,14 @@ jjosh git push --remote jj-origin --bookmark topic#jj
 jjosh git push --remote josh-origin --bookmark topic#josh
 #+end_src
 
-push 沿用 jj 的选择和 tracking，根据选中引用的 =#scope= 自动导出对应项目，并把 =topic#jj= 发布为源坐标的 =topic=。
-发布 remote 只决定 endpoint，不必附着到项目；缺失 scope 转换规则或多个引用映射到同一个远端名字时会拒绝发布。
+push 沿用 jj 的选择和 tracking，根据选中引用的 =#scope= 自动导出对应项目，并把 =topic#jj= 发布为源坐标的 =topic=。没有 =--remote= 且未配置 =git.push= 时，按现有 =remote.NAME.jjosh-project= 绑定为每个选中 scope 选择唯一可写 remote；不从 remote 的名字或 bookmark tracking 猜目的地。上面的两个项目各有唯一可写绑定时，也可以一次发布：
+
+#+begin_src sh
+jjosh git push --bookmark 'topic#*' --dry-run
+jjosh git push --bookmark 'topic#*'
+#+end_src
+
+=--remote= 优先于 =git.push=；任一显式目的地选择都会关闭自动路由。显式发布 remote 只决定 endpoint，不必附着到项目，因此上述逐 remote 示例仍适合导出到其他 fork。无 scope 引用保留 jj 普通默认 remote 规则。缺失选中 scope 的绑定或转换规则、多个可写候选，或多个引用落到同一实际 endpoint 的同一远端名字时，会在发布前拒绝；未选中的 scope 不因此阻止其他项目。
 
 * 几种能力，别混成一件事
 
@@ -131,7 +137,9 @@ jjosh git push --remote ebox-upstream --bookmark topic#ebox
 
 没有有效 =jj:change-id= header 的 Git 提交会按 Git OID 合成 change ID。过滤或重写会改变 OID，因此设置 =git.write-change-id-header=false= 时，不保证取回后仍复用原本的本地 commit；这是 Josh 有损历史的边界，不应把它当作 round-trip 身份保证。
 
-=git push= 按选中引用的 =#scope= 找到项目挂载和源历史转换，反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述不会使空提交绕过裁剪。link add 未指定 =--push-url= 时将该来源 remote 标为只读，发布可另配普通 writable remote。转换路径按实际 endpoint 与目标分支记录 raw 位置，后续重写使用精确 expected-old lease；失败或 =--dry-run= 不推进发布记录，没有绕过保护的 =--force= 入口。
+=git push= 按选中引用的 =#scope= 找到项目挂载和源历史转换，反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述不会使空提交绕过裁剪。link add 未指定 =--push-url= 时将该来源 remote 标为只读，发布可另配普通 writable remote。自动路由优先使用唯一可写绑定；若只有一个只读候选，已跟踪且未变化的选中引用可无操作通过，实际新增、更新或删除会在准备阶段拒绝。没有可写候选且有多个只读候选时也需显式选 remote。
+
+所有 remote 批次先完成转换、对象准备和 lease 检查，再开始任何远端写入；后一个批次的已知准备错误不会留下前一个批次的发布。=--dry-run= 列出逻辑引用、remote、完整目标引用与动作，但不推进远端、jj 操作或发布记录。转换路径按实际 endpoint 与目标分支记录 raw 位置，后续重写使用精确 expected-old lease，没有绕过保护的 =--force= 入口。多个 remote 之间仍非原子：准备后出现的网络、receive hook 或并发更新失败可能留下部分成功，只记录已确认的结果。
 
 * 一份 canonical 树，多种构建布局
 

@@ -22,7 +22,7 @@ use jj_lib::git::{
     GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitPushStats, GitRemoteObservation,
     IgnoredRefspecs,
 };
-use jj_lib::ref_name::{RefName, RefNameBuf, RemoteName};
+use jj_lib::ref_name::{GitRefNameBuf, RefName, RefNameBuf, RemoteName, RemoteNameBuf};
 use jj_lib::repo::MutableRepo;
 use jj_lib::str_util::StringExpression;
 
@@ -32,6 +32,19 @@ use crate::ui::Ui;
 
 pub type RemoteFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CommandError>> + 'a>>;
 
+/// A logical ref's default destination remote and unqualified publication name.
+#[derive(Clone, Debug)]
+pub struct GitPushRoute {
+    pub remote: RemoteNameBuf,
+    pub name: RefNameBuf,
+}
+
+/// Resolves only selected refs; unrelated ambiguous or missing routes are harmless.
+pub trait GitPushRouter {
+    /// `None` delegates an unscoped ref to jj's ordinary default-remote rules.
+    fn route(&self, name: &RefName) -> Result<Option<GitPushRoute>, CommandError>;
+}
+
 /// Resolves the authoritative configuration for a selected named remote.
 pub trait GitRemoteExtension {
     fn open(
@@ -40,6 +53,14 @@ pub trait GitRemoteExtension {
         workspace: &WorkspaceCommandHelper,
         remote: &RemoteName,
     ) -> Result<Box<dyn GitRemoteSession>, CommandError>;
+
+    /// Used only when neither `--remote` nor `git.push` selects a destination.
+    fn default_push_router(
+        &self,
+        _workspace: &WorkspaceCommandHelper,
+    ) -> Result<Option<Box<dyn GitPushRouter>>, CommandError> {
+        Ok(None)
+    }
 }
 
 /// Source-side context for a remote which reverses a history projection.
@@ -56,6 +77,18 @@ pub struct GitRemotePushOutcome {
     pub error: Option<CommandError>,
 }
 
+/// Fully converted and preflighted publication, with no remote writes yet.
+pub trait GitPreparedPush {
+    /// Normalized endpoint and wire names, for collisions across remote aliases.
+    fn destinations(&self) -> (&str, &[GitRefNameBuf]);
+
+    /// Records only independently confirmed publication results.
+    fn publish<'a>(
+        self: Box<Self>,
+        repo: &'a mut MutableRepo,
+    ) -> RemoteFuture<'a, GitRemotePushOutcome>;
+}
+
 /// A configured remote, before any network mutation or logical observation update.
 pub trait GitRemoteSession {
     /// Converts a source ref's short name to its name in the destination view.
@@ -63,6 +96,11 @@ pub trait GitRemoteSession {
 
     /// Returns no source name for a logical ref outside this remote's domain.
     fn source_name<'a>(&self, local: &'a RefName) -> Option<&'a str>;
+
+    /// Maps a logical ref to its publication name, independently of fetch scope.
+    fn push_name<'a>(&self, local: &'a RefName) -> &'a str {
+        local.as_str()
+    }
 
     fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;
 
@@ -76,9 +114,9 @@ pub trait GitRemoteSession {
         selection: GitFetchRefExpression,
     ) -> RemoteFuture<'a, Vec<GitRemoteObservation>>;
 
-    /// Publishes selected canonical targets and records only confirmed successes.
-    /// A dry run must not mutate remote refs, observations, or correspondence state.
-    fn push<'a>(
+    /// Completes conversion, object preparation, and transport preflight before any
+    /// remote refs change. Dry runs must not update observations or correspondence.
+    fn prepare_push<'a>(
         &'a self,
         ui: &'a mut Ui,
         command: &'a CommandHelper,
@@ -87,5 +125,5 @@ pub trait GitRemoteSession {
         options: &'a GitPushOptions,
         preparation: &'a GitRemotePushOptions,
         dry_run: bool,
-    ) -> RemoteFuture<'a, GitRemotePushOutcome>;
+    ) -> RemoteFuture<'a, Box<dyn GitPreparedPush>>;
 }

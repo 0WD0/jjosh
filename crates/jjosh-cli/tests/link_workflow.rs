@@ -1834,3 +1834,552 @@ fn push_selects_each_scope_independently_of_publication_remote() {
     assert!(!rejected.status.success());
     assert_eq!(git(&publication, &["show-ref"]), refs);
 }
+
+fn add_routed_link(client: &Path, scope: &str, source: &Path, writable: bool) {
+    let mut args = vec![
+        "link",
+        "add",
+        scope,
+        source.to_str().unwrap(),
+        ":/src",
+        "--target",
+        "main",
+    ];
+    if writable {
+        args.extend(["--push-url", source.to_str().unwrap()]);
+    }
+    jjosh(client, &args);
+    jjosh(
+        client,
+        &[
+            "bookmark",
+            "track",
+            &format!("main#{scope}@{scope}-upstream"),
+        ],
+    );
+}
+
+#[test]
+fn automatic_push_routes_a_wildcard_without_leaking_other_projects() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, false);
+    add_routed_link(&client, "beta", &beta, false);
+    // Keep the read-only source filters and bases intact. The independently
+    // attached writers have arbitrary names and win over the read-only sources.
+    for (scope, remote, source) in [
+        ("alpha", "source-one", &alpha),
+        ("beta", "source-two", &beta),
+    ] {
+        jjosh(
+            &client,
+            &[
+                "projection",
+                "remote",
+                "add",
+                remote,
+                source.to_str().unwrap(),
+                ":/src",
+                "--project",
+                scope,
+                "--mount",
+                scope,
+                "--push-url",
+                source.to_str().unwrap(),
+            ],
+        );
+        jjosh(
+            &client,
+            &["git", "fetch", "--remote", remote, "--branch", "main"],
+        );
+        jjosh(
+            &client,
+            &["bookmark", "track", &format!("main#{scope}@{remote}")],
+        );
+    }
+    fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
+    fs::write(client.join("root.txt"), "never publish the root\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit both projects"]);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
+    );
+
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    let operation = operation_id(&client);
+    let preview = jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--allow-empty-description",
+            "--dry-run",
+        ],
+    );
+    let preview = String::from_utf8_lossy(&preview.stderr);
+    for (scope, remote) in [("alpha", "source-one"), ("beta", "source-two")] {
+        assert!(
+            preview.lines().any(|line| {
+                line.contains(&format!("main#{scope}"))
+                    && line.contains(remote)
+                    && line.contains("refs/heads/main")
+            }),
+            "missing routing for {scope} in:\n{preview}"
+        );
+    }
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(operation_id(&client), operation);
+
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--allow-empty-description",
+        ],
+    );
+    for (scope, remote, source) in [
+        ("alpha", "source-one", &alpha),
+        ("beta", "source-two", &beta),
+    ] {
+        assert_eq!(
+            git(source, &["show", "main:src/value.txt"]),
+            format!("{scope} edit\n")
+        );
+        assert_eq!(
+            git(source, &["show", "main:outside.txt"]),
+            format!("{scope}-outside\n")
+        );
+        assert_eq!(
+            git(source, &["ls-tree", "-r", "--name-only", "main"]),
+            "outside.txt\nsrc/value.txt\n"
+        );
+        assert_eq!(
+            commit_id(&client, &format!("main#{scope}@{remote}")),
+            commit_id(&client, &format!("main#{scope}"))
+        );
+    }
+}
+
+#[test]
+fn automatic_push_allows_unchanged_readonly_refs_but_preflights_updates() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, false);
+    fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit writable project"]);
+    jjosh(&client, &["bookmark", "set", "main#alpha", "-r", "@"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    let operation = operation_id(&client);
+    let preview = jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--dry-run",
+            "--allow-empty-description",
+        ],
+    );
+    let preview = String::from_utf8_lossy(&preview.stderr);
+    assert!(
+        preview.lines().any(|line| {
+            line.contains("main#beta")
+                && line.contains("beta-upstream")
+                && line.contains("refs/heads/main")
+        }),
+        "unchanged read-only destination missing:\n{preview}"
+    );
+    assert_eq!(operation_id(&client), operation);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(
+        git(&alpha, &["show", "main:src/value.txt"]),
+        "alpha published\n"
+    );
+
+    jjosh(&client, &["new", "-m", "edit both projects"]);
+    fs::write(client.join("alpha/value.txt"), "alpha blocked\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta blocked\n").unwrap();
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(operation_id(&client), operation);
+}
+
+#[test]
+fn automatic_push_rejects_selected_ambiguous_and_missing_routes_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let (_, fork, _) = create_remote(temp.path(), "fork");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, true);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "second-writer",
+            fork.to_str().unwrap(),
+        ],
+    );
+    jjosh(
+        &client,
+        &["projection", "remote", "attach", "second-writer", "beta"],
+    );
+    fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit projects"]);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    let fork_refs = git(&fork, &["show-ref"]);
+    let operation = operation_id(&client);
+    let ambiguous = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#*",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!ambiguous.status.success());
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+    assert_eq!(operation_id(&client), operation);
+
+    jjosh(&client, &["bookmark", "create", "main#missing", "-r", "@"]);
+    let operation = operation_id(&client);
+    let missing = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#alpha",
+            "--bookmark",
+            "main#missing",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!missing.status.success());
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+    assert_eq!(operation_id(&client), operation);
+
+    // Neither an ambiguous nor an unknown unselected scope blocks this batch.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "main#alpha",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&alpha, &["show", "main:src/value.txt"]), "alpha edit\n");
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(git(&fork, &["show-ref"]), fork_refs);
+}
+
+#[test]
+fn automatic_push_prepares_later_remote_leases_before_publishing_first() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (beta_work, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, true);
+    fs::write(client.join("alpha/value.txt"), "alpha published\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta published\n").unwrap();
+    jjosh(&client, &["describe", "-m", "publish both projects"]);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
+    );
+    jjosh(
+        &client,
+        &["git", "push", "--tracked", "--allow-empty-description"],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let alpha_observation = commit_id(&client, "main#alpha@alpha-upstream");
+    let beta_observation = commit_id(&client, "main#beta@beta-upstream");
+
+    git(&beta_work, &["fetch", beta.to_str().unwrap(), "main"]);
+    git(&beta_work, &["switch", "--detach", "FETCH_HEAD"]);
+    fs::write(beta_work.join("src/value.txt"), "external writer\n").unwrap();
+    git(&beta_work, &["commit", "-am", "external advance"]);
+    git(&beta_work, &["push", beta.to_str().unwrap(), "HEAD:main"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+
+    jjosh(&client, &["new", "-m", "next local update"]);
+    fs::write(client.join("alpha/value.txt"), "alpha must wait\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta stale\n").unwrap();
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#alpha", "main#beta", "-r", "@"],
+    );
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &["git", "push", "--tracked", "--allow-empty-description"],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(operation_id(&client), operation);
+    assert_eq!(
+        commit_id(&client, "main#alpha@alpha-upstream"),
+        alpha_observation
+    );
+    assert_eq!(
+        commit_id(&client, "main#beta@beta-upstream"),
+        beta_observation
+    );
+}
+
+#[test]
+fn automatic_push_preserves_all_tracked_and_deleted_selection_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, true);
+    fs::write(client.join("alpha/value.txt"), "alpha topic\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta topic\n").unwrap();
+    jjosh(&client, &["describe", "-m", "new topics"]);
+    jjosh(
+        &client,
+        &["bookmark", "create", "topic#alpha", "topic#beta", "-r", "@"],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    jjosh(
+        &client,
+        &["git", "push", "--tracked", "--allow-empty-description"],
+    );
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+
+    jjosh(
+        &client,
+        &["git", "push", "--all", "--allow-empty-description"],
+    );
+    assert_eq!(
+        git(&alpha, &["show", "topic:src/value.txt"]),
+        "alpha topic\n"
+    );
+    assert_eq!(git(&beta, &["show", "topic:src/value.txt"]), "beta topic\n");
+    assert_eq!(git(&alpha, &["show", "main:src/value.txt"]), "alpha-v1\n");
+    assert_eq!(git(&beta, &["show", "main:src/value.txt"]), "beta-v1\n");
+    let beta_refs = git(&beta, &["show-ref"]);
+    jjosh(&client, &["new", "-m", "advance only alpha topic"]);
+    fs::write(client.join("alpha/value.txt"), "alpha next\n").unwrap();
+    jjosh(&client, &["bookmark", "set", "topic#alpha", "-r", "@"]);
+    jjosh(
+        &client,
+        &["git", "push", "--tracked", "--allow-empty-description"],
+    );
+    assert_eq!(
+        git(&alpha, &["show", "topic:src/value.txt"]),
+        "alpha next\n"
+    );
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+
+    jjosh(&client, &["bookmark", "delete", "topic#alpha"]);
+    jjosh(&client, &["git", "push", "--deleted"]);
+    assert_eq!(
+        git(
+            &alpha,
+            &["for-each-ref", "--format=%(refname)", "refs/heads"]
+        ),
+        "refs/heads/main\n"
+    );
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+}
+
+#[test]
+fn configured_push_overrides_scope_routes_and_unscoped_refs_use_origin() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, publication, _) = create_remote(temp.path(), "publication");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            publication.to_str().unwrap(),
+        ],
+    );
+    fs::write(client.join("alpha/value.txt"), "alpha review\n").unwrap();
+    fs::write(client.join("root.txt"), "root review\n").unwrap();
+    jjosh(&client, &["describe", "-m", "review"]);
+    jjosh(
+        &client,
+        &[
+            "bookmark",
+            "create",
+            "review#alpha",
+            "whole-tree",
+            "-r",
+            "@",
+        ],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    jjosh(
+        &client,
+        &[
+            "--config",
+            "git.push=origin",
+            "git",
+            "push",
+            "--bookmark",
+            "review#alpha",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(
+        git(&publication, &["show", "review:src/value.txt"]),
+        "alpha review\n"
+    );
+    assert_eq!(
+        git(&publication, &["ls-tree", "-r", "--name-only", "review"]),
+        "outside.txt\nsrc/value.txt\n"
+    );
+
+    // With several remotes, the ordinary unscoped fallback still picks origin.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "whole-tree",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(
+        git(&publication, &["show", "whole-tree:root.txt"]),
+        "root review\n"
+    );
+    assert_eq!(
+        git(&publication, &["show", "whole-tree:alpha/value.txt"]),
+        "alpha review\n"
+    );
+}
+
+#[test]
+fn automatic_push_rejects_wire_collisions_across_remote_aliases() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let client = create_client(temp.path(), false);
+    add_routed_link(&client, "alpha", &alpha, true);
+    add_routed_link(&client, "beta", &beta, true);
+    fs::write(client.join("alpha/value.txt"), "alpha publication\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta publication\n").unwrap();
+    jjosh(
+        &client,
+        &["describe", "-m", "two different scoped publications"],
+    );
+    jjosh(
+        &client,
+        &[
+            "bookmark",
+            "create",
+            "collision#alpha",
+            "collision#beta",
+            "-r",
+            "@",
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "set-url",
+            "beta-upstream",
+            "--push",
+            alpha.to_str().unwrap(),
+        ],
+    );
+    let alpha_refs = git(&alpha, &["show-ref"]);
+    let beta_refs = git(&beta, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--bookmark",
+            "collision#*",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert!(
+        String::from_utf8_lossy(&rejected.stderr).contains("refs/heads/collision"),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    assert_eq!(git(&alpha, &["show-ref"]), alpha_refs);
+    assert_eq!(git(&beta, &["show-ref"]), beta_refs);
+    assert_eq!(operation_id(&client), operation);
+}
