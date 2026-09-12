@@ -703,29 +703,33 @@ fn diff_remote_observations(
     observations: impl IntoIterator<Item = GitRemoteObservation>,
     selected: impl Fn(GitRefKind, RemoteRefSymbol<'_>) -> bool,
 ) -> RefsToImport {
-    let mut observations: BTreeMap<_, _> = observations
+    let mut observations: HashMap<_, _> = observations
         .into_iter()
         .filter(|observation| selected(observation.kind, observation.symbol.as_ref()))
-        .map(|observation| ((observation.kind, observation.symbol.clone()), observation))
+        .map(|observation| {
+            (
+                (observation.kind, observation.symbol),
+                (observation.target, observation.canonical_git_oid),
+            )
+        })
         .collect();
-    let mut known_git_refs: HashMap<_, _> = view
+    let mut known_git_refs: HashMap<&GitRefName, &RefTarget> = view
         .git_refs()
         .iter()
         .filter(|(name, _)| {
             let (kind, symbol) = parse_git_ref(name).expect("stored git ref should be parsable");
             selected(kind, symbol)
         })
+        .map(|(name, target)| (name.as_ref(), target))
         .collect();
     let mut changed_git_refs = Vec::new();
-    for observation in observations.values() {
-        if let Some(name) = to_git_ref_name(observation.kind, observation.symbol.as_ref()) {
+    for ((kind, symbol), (_, canonical_git_oid)) in &observations {
+        if let Some(name) = to_git_ref_name(*kind, symbol.as_ref()) {
             let old_target = known_git_refs
-                .remove(&name)
+                .remove(name.as_ref())
                 .unwrap_or_else(|| RefTarget::absent_ref());
             let new_target = RefTarget::resolved(
-                observation
-                    .canonical_git_oid
-                    .map(|oid| CommitId::from_bytes(oid.as_bytes())),
+                canonical_git_oid.map(|oid| CommitId::from_bytes(oid.as_bytes())),
             );
             if *old_target != new_target {
                 changed_git_refs.push((name, new_target));
@@ -735,36 +739,38 @@ fn diff_remote_observations(
     changed_git_refs.extend(
         known_git_refs
             .into_keys()
-            .map(|name| (name.clone(), RefTarget::absent())),
+            .map(|name| (name.to_owned(), RefTarget::absent())),
     );
     let mut changed_remote_bookmarks = Vec::new();
     let mut changed_remote_tags = Vec::new();
-    for (kind, refs) in [
-        (GitRefKind::Bookmark, view.all_remote_bookmarks().collect_vec()),
-        (GitRefKind::Tag, view.all_remote_tags().collect_vec()),
-    ] {
+    let known_remote_refs = view
+        .all_remote_bookmarks()
+        .map(|(symbol, remote_ref)| (GitRefKind::Bookmark, symbol, remote_ref))
+        .chain(
+            view.all_remote_tags()
+                .map(|(symbol, remote_ref)| (GitRefKind::Tag, symbol, remote_ref)),
+        );
+    for (kind, symbol, old_remote_ref) in known_remote_refs {
         let changed = match kind {
             GitRefKind::Bookmark => &mut changed_remote_bookmarks,
             GitRefKind::Tag => &mut changed_remote_tags,
         };
-        for (symbol, old_remote_ref) in refs {
-            if !selected(kind, symbol) {
-                continue;
-            }
-            let new_target = observations
-                .remove(&(kind, symbol.to_owned()))
-                .map_or_else(RefTarget::absent, |observation| observation.target);
-            if new_target != old_remote_ref.target {
-                changed.push(GitImportRefUpdate::new(
-                    symbol.to_owned(),
-                    old_remote_ref.clone(),
-                    new_target,
-                ));
-            }
+        if !selected(kind, symbol) {
+            continue;
+        }
+        let new_target = observations
+            .remove(&(kind, symbol.to_owned()))
+            .map_or_else(RefTarget::absent, |(target, _)| target);
+        if new_target != old_remote_ref.target {
+            changed.push(GitImportRefUpdate::new(
+                symbol.to_owned(),
+                old_remote_ref.clone(),
+                new_target,
+            ));
         }
     }
-    for ((kind, symbol), observation) in observations {
-        if observation.target.is_absent() {
+    for ((kind, symbol), (target, _)) in observations {
+        if target.is_absent() {
             continue;
         }
         let changed = match kind {
@@ -774,7 +780,7 @@ fn diff_remote_observations(
         changed.push(GitImportRefUpdate::new(
             symbol,
             RemoteRef::absent_ref().clone(),
-            observation.target,
+            target,
         ));
     }
     changed_git_refs.sort_unstable_by(|(name1, _), (name2, _)| name1.cmp(name2));
