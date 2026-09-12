@@ -23,37 +23,39 @@ export PATH="$PWD/target/release:$PATH"
 export JOSH_EXPERIMENTAL_FEATURES=1
 #+end_src
 
-三个上游子目录保留各自的 Cargo workspace。根 =Cargo.toml= 将兼容版本的 gitoxide crates 接到本地源码；Josh 使用的旧版 gix 依赖保持独立，不随接入强制升级。
+三个上游子目录保留各自的 Cargo workspace。根 =.cargo/config.toml= 将 jj、Josh 与根 workspace 的 gitoxide 依赖统一接到 =gitoxide/= 本地源码；相关 manifest 与 lockfile 一起维护。
 
-gitoxide 从未修改的上游 Git 历史接入，没有导入来源的 jj 状态。当前来源为 =main=，接入记录位于 [[file:gitoxide/.link.josh][gitoxide/.link.josh]]，未配置发布出口。
-
-jj 和 Josh 的来源、pin、发布目标分别放在 [[file:jj/.link.josh][jj/.link.josh]] 与 [[file:josh/.link.josh][josh/.link.josh]]。当前来源分支是 jj 的 main 和 Josh 的 master：
+日常同步由 named Git remote 决定，不从 =.link.josh= 推断当前 URL 或发布目标。先查看实际配置，再选择来源；以下名字和分支仅为示例：
 
 #+begin_src sh
-jjosh link update
+jjosh git remote list
+jjosh git fetch --remote jj-upstream --branch main
+jjosh git fetch --remote josh-upstream --branch master
 jjosh new @ main#jj@jj-upstream master#josh@josh-upstream
 #+end_src
 
-这里的 =new= 是一种整合选择，不是 update 的副作用。也可以只整合一个项目，或按当前修改图用 rebase/squash 接续。
+这里的 =new= 是一种整合选择，不是 fetch 的副作用。也可以只整合一个项目，或按当前修改图用 rebase/squash 接续。
 
-发布时分别选项目和 revision；下面使用 marker 中的发布目标，目前是各自 0WD0 fork 的 =jjosh/embedded-integration= 分支：
+发布到已配置的 fork 时，先明确选定本地 bookmark；下面为尚未存在的名字创建发布 bookmark：
 
 #+begin_src sh
-jjosh link push jj -r @
-jjosh link push josh -r @
+jjosh git push --remote jj-origin --named topic#jj=@
+jjosh git push --remote josh-origin --named topic#josh=@
 #+end_src
+
+=--named NAME=REVISION= 只创建新名字。已有 bookmark 用 =bookmark set NAME -r REVISION= 后再 =git push --remote REMOTE --bookmark NAME=；已有远端观察需要先显式 =bookmark track NAME@REMOTE=。
 
 * 几种能力，别混成一件事
 
 | 想做的事 | 用什么 | 改变什么 |
 |----------+--------+----------|
 | 把已有 jj 项目的开发状态纳入 monorepo | native import | 将来源原生图映射到目标目录，保留 change 身份 |
-| 持续获取、发布一个子项目 | native fetch/push 或 link | 来源坐标与 monorepo 坐标之间的历史 |
+| 持续获取、发布一个子项目 | git fetch/push | 来源坐标与 monorepo 坐标之间的历史和普通 jj 远端观察 |
 | 只检出一部分文件，或换一种本地构建布局 | sparse | 工作副本，不生成另一份提交历史 |
 | 把仓库的一部分作为独立历史视图开发 | projection | 经过 Josh 转换的历史，可反向发布 |
 | 在仓库内整体搬迁一段可变修改图 | native transplant | 显式选定提交的路径与父关系 |
 
-native 与 link 可以配合：先把已有本地软 fork 原样纳入，再用 link 记录其持续同步配置。不必把当前 fork 顶端伪装成一个干净上游基线。
+native 与 link 可以配合：先把已有本地软 fork 原样纳入，再用 link add 初始化 named remote。也可以把普通 Git remote 通过 =projection remote attach= 绑定到项目。不必把当前 fork 顶端伪装成一个干净上游基线。
 
 * 把已有项目接进来
 
@@ -83,48 +85,49 @@ jjosh -R combined new @ workspace/default#ebox workspace/default#ekp
 native 的获取来源和发布目标不绑定。可以从 Git 上游、贡献者 fork 或本地其他 repo 的 jj workspace 接收指定分支：
 
 #+begin_src sh
-jjosh -R combined native fetch ebox /path/to/other-jj-workspace \
-  --branch topic --remote contributor
+jjosh -R combined git remote add ebox-contributor /path/to/other-jj-workspace
+jjosh -R combined projection remote attach ebox-contributor ebox
+jjosh -R combined git fetch --remote ebox-contributor --branch topic
 jjosh -R combined new @ topic#ebox@ebox-contributor
 
-jjosh -R combined native push ebox \
-  --remote /path/to/ebox-fork.git --branch topic -r @
+jjosh -R combined git remote add ebox-origin /path/to/ebox-fork.git
+jjosh -R combined projection remote attach ebox-origin ebox
+jjosh -R combined git push --remote ebox-origin --named review#ebox=@
 #+end_src
 
-=--remote= 发布参数可以是 URL 或已配置的 Git remote。fetch 将结果记为普通 remote bookmark；未跟踪的观察不改本地书签，显式 track 后沿用 jj 的引用合并规则。它不替你选择工作头，也不自动消除 divergence。
+=--remote= 选择已配置的 named remote，不是临时 URL。fetch 将结果记为普通 remote bookmark；未跟踪的观察不改本地书签，显式 track 后沿用 jj 的引用合并规则。它不替你选择工作头，也不自动消除 divergence。本地 =.jj= 来源读取已记录的原生状态；普通 Git endpoint 通过 gitoxide 接收对象后转换。
 
 push 只导出 Ebox 的内容，裁剪对该项目没有变化的提交，不拆分本地 canonical 修改图。已知源边界与发布对应关系会被复用；再次收到自己发布的版本时，可以接回对应的 canonical change。所选项目在发布终点的未解决冲突会阻止发布，其他项目的冲突不阻止它。
 
 无法直接读取来源时，可以用 =native export FILE=、=native inspect FILE= 和 =native import --source NAME=FILE= 运输当前原生状态。Bundle 不是整个仓库的备份，也不携带来源内部项目的私有转换记录或发布 lease。
 
-* 用 link 记录持续同步配置
+* 用 link 初始化项目同步
 
-link 将来源 URL、filter、初始 raw pin、fetch target 和发布出口放进版本化的 =PATH/.link.josh=。项目名默认取 =PATH= 的末段（可由 =--name= 覆盖）；默认 source remote 名为 =upstream=，因此来源的 =main= 会成为普通 jj remote bookmark =main#项目名@项目名-upstream=。它既可引入新来源，也可为有共同历史的原生导入项目登记持续同步；已占用项目不会被重做成源码快照。
+=link add= 初始化真实 Git remote、项目挂载和转换规则，并保留初始 raw pin 与 =PATH/.link.josh= 接入记录。项目名默认取 =PATH= 的末段（可由 =--name= 覆盖）；默认 remote 名为 =项目名-upstream=，因此来源的 =main= 会成为普通 jj remote bookmark =main#项目名@项目名-upstream=。它既可引入新来源，也可为有共同历史的原生导入项目登记来源；已占用项目不会被重做成源码快照。后续同步不读取 marker 中的 URL、target 或 push 字段。
 
 #+begin_src sh
 jjosh link add ebox /path/to/ebox.git \
   --target main \
-  --push-url /path/to/ebox-fork.git \
-  --push-target topic
+  --push-url /path/to/ebox-fork.git
 
-jjosh link update ebox --branch main
+jjosh git fetch --remote ebox-upstream --branch main
 jjosh new @ main#ebox@ebox-upstream
-jjosh link push ebox -r @
+jjosh git push --remote ebox-upstream --named topic#ebox=@
 #+end_src
 
 默认 =embedded= 模式接入来源历史；=--mode snapshot= 用于快照式引入。新来源只需一部分内容时，可以在 URL 后加 Josh filter，例如 =':/src'=。关联已有原生项目则保持原挂载布局，不借此隐式改变 filter。
 
-=link update= 是带坐标转换的 fetch，不更新 marker 的 pin，不建立 =jjosh/trunk=，也不主动 merge/rebase。省略路径会处理当前 revision 中的全部 links。引用选择有三条规则：
+=git fetch= 不更新 marker 的 pin，不建立 =jjosh/trunk=，也不主动 merge/rebase。引用选择沿用 jj：
 
-- 不给 =--branch= / =--tag=：获取目标分支和全部 tags。
-- 只给其中一种：只获取那一种；选项可重复，支持 jj 名字模式。
+- 不给 =--branch= / =--tag=：按 named remote 的默认 fetch 选择和 jj 的 tag 规则获取。
+- 显式选项可重复，支持 jj 名字模式和 =--tracked=。
 - 只更新选中引用，包括匹配的来源删除；未选择的观察保留。
 
-同一来源引用未变化时，重复 =link update= 保持其投影后的 bookmark target。若来源回到刚由本地发布的版本，提交带有效 =jj:change-id= header 且投影内容相同，update 会复用本地已发布 commit；随后来源后继会接在该 canonical 父边之后，避免仅因发布再取回而产生重复版本。相同 change ID 但投影内容不同仍按 jj 的 divergence 规则保留，不会为回环强行合并。
+同一来源引用未变化时，重复 fetch 保持其投影后的 bookmark target。若来源回到刚由本地发布的版本，提交带有效 =jj:change-id= header 且投影内容相同，fetch 会复用本地已发布 commit；随后来源后继会接在该 canonical 父边之后，避免仅因发布再取回而产生重复版本。相同 change ID 但投影内容不同仍按 jj 的 divergence 规则保留，不会为回环强行合并。
 
 没有有效 =jj:change-id= header 的 Git 提交会按 Git OID 合成 change ID。过滤或重写会改变 OID，因此设置 =git.write-change-id-header=false= 时，不保证取回后仍复用原本的本地 commit；这是 Josh 有损历史的边界，不应把它当作 round-trip 身份保证。
 
-=link push= 默认选择 =@=，=--to= 覆盖配置的发布分支。它反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述和显式 =-r= 不会使空提交绕过裁剪。发布需要配置 =--push-url=。成功发布后会按精确 URL 与目标分支记录 raw 位置；后续重写用 force-with-lease 校验该观察，失败或 =--dry-run= 不推进记录，=--force= 才绕过此保护。
+绑定项目的 =git push= 反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述不会使空提交绕过裁剪。link add 未指定 =--push-url= 时将该来源 remote 标为只读，发布可另配 writable remote。转换路径按实际 endpoint 与目标分支记录 raw 位置，后续重写使用精确 expected-old lease；失败或 =--dry-run= 不推进发布记录，没有绕过保护的 =--force= 入口。
 
 * 一份 canonical 树，多种构建布局
 
@@ -168,11 +171,13 @@ projection 让局部视图成为一个可独立开发、再反向发布的仓库
 #+begin_src sh
 jjosh git init --no-colocate --object-hash sha1 api-view
 jjosh -R api-view projection remote add mono /path/to/monorepo.git ':/services/api'
-jjosh -R api-view projection fetch --remote mono
+jjosh -R api-view git fetch --remote mono --branch main
+jjosh -R api-view bookmark track main@mono
 jjosh -R api-view new main@mono
 
 # 在 api-view 中修改并整理提交后，明确选择发布终点。
-jjosh -R api-view projection push --remote mono --to main -r @
+jjosh -R api-view bookmark set main -r @
+jjosh -R api-view git push --remote mono --bookmark main
 #+end_src
 
 也可以用 =--view src/Sunshine= 替代 filter，读取源仓库该目录的 =workspace.josh=。例如共享依赖定义：
@@ -184,23 +189,25 @@ third-party/msquic = :/src/msquic
 
 视图中的修改反向落到对应 canonical 源路径；它不是符号链接或实时共享目录，也不自动清理原路径重叠的 gitlink、重复文件和构建脚本。
 
-=projection push= 必须给出 =-r= 和 =--to=，精确发布所选版本。改变映射后，Josh 可能规范化定义、补入内容和调整父关系；重新 fetch 回来的版本可能保留 change ID，却有不同 commit ID。接续它时迁移尚未发布的后继，不要再次重放已经发布的映射提交。
+发布选择沿用 jj 的 bookmark/tag 规则；=--base= 和 =--merge= 为 Josh 反向映射指定来源上下文。改变映射后，Josh 可能规范化定义、补入内容和调整父关系；重新 fetch 回来的版本可能保留 change ID，却有不同 commit ID。接续它时迁移尚未发布的后继，不要再次重放已经发布的映射提交。
 
-这条通道目前只投影分支，不自动导入 tags，来源需要通过 HEAD 广告默认分支。它不能保真转换含未解决 jj 原生冲突的所选祖先历史；需要保留这种状态时使用 native，而不是假定干净的 tip 能掩盖冲突祖先。
+投影 fetch 可选择分支和指向提交的 tags；反向发布转换后的 tags 尚不支持。获取不要求来源提供 HEAD 默认分支。Josh 不能保真转换含未解决 jj 原生冲突的所选祖先历史；需要保留这种状态时使用 native，而不是假定干净的 tip 能掩盖冲突祖先。
+
+Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 filter 和语义元数据。没有本地 namespace façade，也不会再从自己 fetch 一次。旧的含 URL/refspec metadata 的 Josh remote 文件需要通过 =projection remote add= 显式重新配置；配置错误不会静默按普通 Git 处理。
 
 * 真正需要记住的边界
 
-- *历史坐标不等于引用名字。* 当前 =main#jj@jj-upstream= 仍是普通 jj 引用。项目前缀不会阻止普通 Git push 发布 monorepo 坐标的提交；向来源发布要走 native/link/projection 的对应入口。
-- *发布保护有区别。* native/link 按实际目标 URL 与分支记录 raw 位置；首次只允许创建或快进，已有观察时使用 force-with-lease。projection 使用普通非快进拒绝，没有同样的 lease 契约。=--force= 绕过相应保护。
+- *历史坐标不等于引用名字。* =main#jj@jj-upstream= 仍是普通 jj 引用。=jjosh git fetch/push= 根据 named remote 执行转换；直接运行原生 =git fetch/push= 会绕过它并连接真实上游，不是受支持的投影同步路径。
+- *观察不是覆盖授权。* native/Josh 按实际目标 endpoint 与分支记录 raw lease；首次只允许创建或可证明的快进，已有观察时校验 expected-old。普通 Git 路径使用 jj 准备的引用 lease。收到新的 push advertisement 不自动刷新覆盖授权，未确认或结果不明的引用不按成功记账。
 - *恢复本地操作不撤销发布。* =op restore= 不回滚远端或私有发布记录。非 colocated 仓库恢复引用后，先用 =jjosh git export= 同步物理 refs，再做 import。多个来源之间没有原子发布。
 - *私有对应关系不是可随手删的缓存。* =refs/jjosh/native/NAME/= 同时保存转换边界并保活 raw/canonical 对象。旧 =jjosh-native-NAME= 伪远端用 =native migrate= 迁移，不手工改名或删除。
 - *格式升级不是开关。* sparse 的新工作副本和 operation-store 格式会拒绝旧二进制，reset 不降级。切换前退出旧 jj 进程；更早的 =simple_op_store_native_remotes=、=simple_op_store_sparse= 实验格式不能靠改类型标记升级。
-- *来源仍有外部边界。* 当前 native/link/projection 只支持 SHA-1 Git backend。gitlink 不递归展开，缺失历史要先补齐。projection 会获取原始历史，不是权限隔离。
+- *来源仍有外部边界。* 普通 Git 路径支持 SHA-1/SHA-256；native/Josh 转换仍只支持 SHA-1 Git backend。gitlink 不递归展开，缺失历史要先补齐。projection 会获取原始历史，不是权限隔离。网络对象传输使用 gitoxide；本地 native 对象搬运仍有 Git pack plumbing。
 
 =native transplant= 留给另一类任务：在当前仓库内，通过 =--map= 和 =--parent= 整体重定位显式选定的可变修改图。它保留 change 身份与空提交，不跨仓库取对象，也不自动重定位 link metadata。选集必须闭合于受影响后代，外部父边需要明确映射；它不是普通来源同步或给引用增加 scope 的替代办法。
 
 * 接下来改什么
 
-先用 [[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 验证最小工作流，不为 demo 改 jj 的 View、存储和全局 API。已登记来源后用 =link update= 日常同步；native fetch 只作为未登记 peer 或一次性来源的显式入口。仍用全局 remote 名字和显式转换入口；没有一等 scope、=--scope= 或统一的 =git remote/fetch/push= 路由。
+[[file:docs/scoped-reference-convention-demo.org][普通名字 =main#jj= 的约定]] 保留全局 remote 名字，没有一等 scope 或 =--scope=。日常同步已经统一到 =git fetch/push=，初始化仍由 =link add=、=native import=、=projection remote add/attach= 负责；不保留旧的 link/native/projection fetch/push 别名。
 
 结构化方案保留在 [[file:docs/scoped-references-design.org][《给引用一个归属》]]，是否需要它由 demo 的实际障碍决定。具体命令参数看 =jjosh <command> --help=，实现与回归场景从 [[file:crates/jjosh-cli/src/][CLI 源码]]、[[file:crates/jjosh-cli/tests/][工作流测试]] 进入。

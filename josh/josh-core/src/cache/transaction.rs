@@ -1740,11 +1740,9 @@ mod tests {
             .unwrap();
         transaction.apply_pending_refs().unwrap();
         let hex = corrupt.to_hex().to_string();
-        std::fs::write(
-            dir.path().join("objects").join(&hex[..2]).join(&hex[2..]),
-            b"not a zlib stream",
-        )
-        .unwrap();
+        let object_path = dir.path().join("objects").join(&hex[..2]).join(&hex[2..]);
+        std::fs::remove_file(&object_path).unwrap();
+        std::fs::write(&object_path, b"not a zlib stream").unwrap();
 
         assert!(transaction.rev_parse("main~1").is_err());
     }
