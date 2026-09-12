@@ -1,0 +1,103 @@
+lints.workspace = true
+
+[package]
+name = "gix-diff"
+version = "0.67.1"
+repository = "https://github.com/GitoxideLabs/gitoxide"
+license = "MIT OR Apache-2.0"
+description = "Calculate differences between various git objects"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[features]
+default = ["blob", "index"]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `gix-hash` crate.
+sha1 = ["gix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `gix-hash` crate.
+sha256 = ["gix-hash/sha256"]
+## Enable diffing of blobs using imara-diff.
+blob = [
+    "dep:imara-diff",
+    "dep:gix-filter",
+    "dep:gix-worktree",
+    "dep:gix-path",
+    "dep:gix-fs",
+    "dep:gix-command",
+    "dep:gix-tempfile",
+    "dep:gix-trace",
+    "dep:gix-traverse"
+]
+## Enable diffing of two indices, which also allows for a generic rewrite tracking implementation.
+index = ["dep:gix-index", "dep:gix-pathspec", "dep:gix-attributes"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "gix-hash/serde", "gix-object/serde", "gix-index?/serde"]
+## Make it possible to compile to the `wasm32-unknown-unknown` target.
+wasm = ["dep:getrandom"]
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "line-count"
+harness = false
+required-features = ["blob"]
+path = "./benches/line_count.rs"
+
+[[bench]]
+name = "rewrite-tracker"
+harness = false
+required-features = ["blob"]
+path = "./benches/rewrite_tracker.rs"
+
+[dependencies]
+gix-index = { version = "^0.55.0", path = "../gix-index", optional = true }
+gix-pathspec = { version = "^0.20.0", path = "../gix-pathspec", optional = true }
+gix-attributes = { version = "^0.35.0", path = "../gix-attributes", optional = true }
+gix-hash = { version = "^0.26.1", path = "../gix-hash" }
+gix-object = { version = "^0.64.0", path = "../gix-object" }
+gix-filter = { version = "^0.34.0", path = "../gix-filter", optional = true }
+gix-worktree = { version = "^0.56.0", path = "../gix-worktree", default-features = false, features = ["attributes"], optional = true }
+gix-command = { version = "^0.10.1", path = "../gix-command", optional = true }
+gix-path = { version = "^0.12.6", path = "../gix-path", optional = true }
+gix-fs = { version = "^0.22.1", path = "../gix-fs", optional = true }
+gix-tempfile = { version = "^24.0.0", path = "../gix-tempfile", optional = true }
+gix-trace = { version = "^0.1.21", path = "../gix-trace", optional = true }
+gix-traverse = { version = "^0.61.0", path = "../gix-traverse", optional = true }
+imara-diff = { package = "gix-imara-diff", version = "^0.2.5", optional = true, path = "../gix-imara-diff" }
+
+thiserror = "2.0.18"
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+getrandom = { version = "0.4", optional = true, default-features = false, features = ["wasm_js"] }
+bstr = { version = "1.12.0", default-features = false }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+criterion = "0.8.2"
+gix-hash = { path = "../gix-hash", features = ["sha1", "sha256"] }
+gix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+gix-index = { path = "../gix-index" }
+gix-pathspec = { path = "../gix-pathspec" }
+gix-fs = { path = "../gix-fs" }
+gix-worktree = { path = "../gix-worktree" }
+gix-object = { path = "../gix-object" }
+gix-odb = { path = "../gix-odb" }
+gix-filter = { path = "../gix-filter" }
+gix-traverse = { path = "../gix-traverse" }
+
+insta = "1.46.3"
+pretty_assertions = "1.4.0"
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "document-features"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    # WASM support dependency activated through the `wasm = ["dep:getrandom"]` feature.
+    "getrandom",
+    # Optional API feature wiring (`dep:serde`) referenced only from feature definitions.
+    "serde",
+]

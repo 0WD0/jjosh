@@ -1,0 +1,12 @@
+$.config
+\$starts-with-dollar
+# html files are now precious and won't be discarded
+$*.html
+
+!foo.html
+
+# not allowed with precious support, but a plain negation without it
+!$foo.html
+
+# but this is a literal !/* that is precious
+$!/*

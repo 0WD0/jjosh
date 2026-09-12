@@ -1,0 +1,4 @@
+tests/fixtures/*
+!tests/fixtures/*.sh
+!src/signature/fixtures/
+!src/signature/fixtures/**

@@ -1,0 +1,1385 @@
+use crate::{remote, util::restricted};
+
+#[cfg(all(feature = "worktree-mutation", feature = "blocking-network-client"))]
+mod blocking_io {
+    use std::{borrow::Cow, path::Path, sync::atomic::AtomicBool};
+
+    use crate::{
+        remote,
+        util::{hex_to_id, restricted},
+    };
+    use gix::{
+        bstr::BString,
+        config::tree::{Clone, Core, Init, Key},
+        refs::transaction::PreviousValue,
+        remote::{
+            Direction,
+            fetch::{Shallow, refmap::SpecIndex},
+        },
+    };
+    use gix_object::bstr::ByteSlice;
+    use gix_ref::TargetRef;
+    use gix_refspec::parse::Operation;
+
+    const EXISTING_CONTENT: &[u8] = b"Pre-existing user content.\n";
+    const EXISTING_HEAD_CONTENT: &[u8] = b"ref: refs/heads/pre-existing\n";
+
+    #[test]
+    #[serial_test::serial]
+    fn inherited_core_symlinks_false_is_respected() -> crate::Result {
+        use gix_sec::Permission;
+
+        let fixture = gix_testtools::scripted_fixture_read_only("make_clone_with_symlink.sh")?;
+        let destination = gix_testtools::tempfile::TempDir::new()?;
+        let global = destination.path().join("global.config");
+        std::fs::write(
+            &global,
+            "[core]
+                symlinks = false",
+        )?;
+        let _env = gix_testtools::Env::new().set("GIT_CONFIG_GLOBAL", global.display().to_string());
+
+        let mut permissions = gix::open::Permissions::isolated();
+        permissions.config.user = true;
+        permissions.env.git_prefix = Permission::Allow;
+        let mut capabilities = gix_fs::Capabilities {
+            symlink: true,
+            ..Default::default()
+        };
+        let mut prepare = gix::clone::PrepareFetch::new(
+            fixture.join("source.git"),
+            destination.path().join("clone"),
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                fs_capabilities: Some(capabilities),
+                ..Default::default()
+            },
+            gix::open::Options::isolated().permissions(permissions),
+        )?;
+        let (mut checkout, _) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        let link = repo.workdir().expect("worktree repository").join("link");
+        assert!(
+            !std::fs::symlink_metadata(&link)?.file_type().is_symlink(),
+            "inherited core.symlinks=false must disable symlink checkout even if the probe supports them"
+        );
+        assert_eq!(
+            std::fs::read(link)?,
+            b"target",
+            "the link target is written as a plain file"
+        );
+        assert_eq!(
+            gix::open_opts(repo.git_dir(), gix::open::Options::isolated())?
+                .config_snapshot()
+                .boolean(gix::config::tree::Core::SYMLINKS),
+            None,
+            "a successful probe must not persist core.symlinks=true and mask inherited configuration"
+        );
+
+        capabilities.symlink = false;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            fixture.join("source.git"),
+            destination.path().join("probe-disables-symlinks"),
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                fs_capabilities: Some(capabilities),
+                ..Default::default()
+            },
+            gix::open::Options::isolated()
+                .permissions(permissions)
+                .config_overrides(["core.symlinks=true"]),
+        )?;
+        let (mut checkout, _) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+        assert!(
+            !std::fs::symlink_metadata(repo.workdir().expect("worktree repository").join("link"))?
+                .file_type()
+                .is_symlink(),
+            "a failed symlink probe must override configuration that enables symlinks"
+        );
+        assert_eq!(
+            gix::open_opts(repo.git_dir(), gix::open::Options::isolated())?
+                .config_snapshot()
+                .boolean(gix::config::tree::Core::SYMLINKS),
+            Some(false),
+            "a failed probe is persisted like Git"
+        );
+        Ok(())
+    }
+
+    fn shallow_ids(repo: &gix::Repository, expected: &'static str) -> crate::Result<Vec<gix::ObjectId>> {
+        let commits = repo.shallow_commits()?.expect(expected);
+        // `gix_shallow::read` returns these sorted by id; the expected side is sorted via `sorted(...)`.
+        Ok(std::iter::once(commits.head)
+            .chain(commits.tail.iter().copied())
+            .collect())
+    }
+
+    fn sorted(ids: impl IntoIterator<Item = gix::ObjectId>) -> Vec<gix::ObjectId> {
+        let mut ids: Vec<_> = ids.into_iter().collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn fetch_shallow_no_checkout_then_unshallow() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let called_configure_remote = std::sync::Arc::new(AtomicBool::default());
+        let remote_name = "special";
+        let desired_fetch_tags = gix::remote::fetch::Tags::Included;
+        let mut prepare = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
+            .with_remote_name(remote_name)?
+            .configure_remote({
+                move |r| {
+                    called_configure_remote.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let mut r = r.with_fetch_tags(desired_fetch_tags);
+                    r.replace_refspecs(
+                        [
+                            BString::from(format!("refs/heads/main:refs/remotes/{remote_name}/main")),
+                            "+refs/tags/b-tag:refs/tags/b-tag".to_owned().into(),
+                        ],
+                        Direction::Fetch,
+                    )?;
+                    Ok(r)
+                }
+            })
+            .with_shallow(Shallow::DepthAtRemote(2.try_into().expect("non-zero")));
+        let (repo, _out) = prepare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        drop(prepare);
+
+        assert_eq!(
+            shallow_ids(&repo, "shallow")?,
+            sorted([
+                hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
+                hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
+                hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),
+                hex_to_id("b5152869aedeb21e55696bb81de71ea1bb880c85")
+            ]),
+            "shallow information is written"
+        );
+
+        let shallow_commit_count = repo.head_id()?.ancestors().all()?.count();
+        let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
+
+        remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .with_shallow(Shallow::undo())
+            .receive(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(repo.shallow_commits()?.is_none(), "the repo isn't shallow anymore");
+        assert!(
+            !repo.is_shallow(),
+            "both methods agree - if there are no shallow commits, it shouldn't think the repo is shallow"
+        );
+        assert!(
+            !repo.shallow_file().exists(),
+            "when the repo is not shallow anymore, there is no need for a shallow file"
+        );
+        assert!(
+            repo.head_id()?.ancestors().all()?.count() > shallow_commit_count,
+            "there are more commits now as the history is complete"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn shallow_clone_uses_single_branch_refspec() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let (repo, _out) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
+            .with_shallow(Shallow::DepthAtRemote(1.try_into()?))
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(repo.is_shallow(), "repository should be shallow");
+
+        // Verify that only a single-branch refspec was configured
+        let remote = repo.find_remote("origin")?;
+        let refspecs: Vec<_> = remote
+            .refspecs(Direction::Fetch)
+            .iter()
+            .map(|spec| spec.to_ref().to_bstring())
+            .collect();
+
+        assert_eq!(refspecs.len(), 1, "shallow clone should have only one fetch refspec");
+
+        // The refspec should be for a single branch (main), not a wildcard
+        let refspec_str = refspecs[0].to_str().expect("valid utf8");
+        assert_eq!(
+            refspec_str, "+refs/heads/main:refs/remotes/origin/main",
+            "shallow clone refspec should not use wildcard and should be the main branch: {refspec_str}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn shallow_clone_with_ambiguous_branch_and_tag_name_prefers_branch() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_remote_repos.sh")?;
+        let remote_repo = gix::open_opts(fixture.path().join("base"), restricted())?;
+        let branch_name = "b";
+        remote_repo.tag_reference(
+            branch_name,
+            remote_repo.find_reference("refs/heads/main")?.id(),
+            PreviousValue::MustNotExist,
+        )?;
+
+        let destination = gix_testtools::tempfile::TempDir::new()?;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            destination.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?
+        .with_ref_name(Some(branch_name))?
+        .with_shallow(Shallow::DepthAtRemote(1.try_into()?));
+
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        let checked_out_ref = repo.head_ref()?.expect("head points to ref");
+        assert_eq!(
+            checked_out_ref, "refs/heads/b",
+            "branches win over same-named tags, matching git clone --branch"
+        );
+        assert_eq!(
+            checked_out_ref
+                .remote_ref_name(gix::remote::Direction::Fetch)
+                .transpose()?
+                .unwrap(),
+            "refs/heads/b",
+            "branch merge configuration records the chosen branch"
+        );
+
+        let remote = repo.find_remote("origin")?;
+        let refspecs: Vec<_> = remote
+            .refspecs(Direction::Fetch)
+            .iter()
+            .map(|spec| spec.to_ref().to_bstring().to_str().expect("valid utf8").to_owned())
+            .collect();
+        assert_eq!(
+            refspecs,
+            vec!["+refs/heads/b:refs/remotes/origin/b"],
+            "the shallow clone follows only the chosen branch"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn from_shallow_prohibited_with_option() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let err = gix::clone::PrepareFetch::new(
+            remote::repo("base.shallow").path(),
+            tmp.path(),
+            gix::create::Kind::Bare,
+            Default::default(),
+            gix::open::Options::isolated().config_overrides([Clone::REJECT_SHALLOW.validated_assignment_fmt(&true)?]),
+        )?
+        .fetch_only(gix::progress::Discard, &AtomicBool::default())
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                gix::clone::fetch::Error::Fetch(gix::remote::fetch::Error::Fetch(
+                    gix_protocol::fetch::Error::RejectShallowRemote
+                ))
+            ),
+            "we can avoid fetching from remotes with this setting"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_shallow_allowed_by_default() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let (repo, _change) = gix::prepare_clone_bare(remote::repo("base.shallow").path(), tmp.path())?
+            .with_in_memory_config_overrides(Some("my.marker=1"))
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        assert_eq!(
+            shallow_ids(&repo, "present")?,
+            sorted([
+                hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
+                hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
+                hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
+            ])
+        );
+        assert_eq!(
+            repo.config_snapshot().boolean("my.marker"),
+            Some(true),
+            "configuration overrides are set in time"
+        );
+        assert_eq!(
+            gix::open_opts(repo.git_dir(), gix::open::Options::isolated())?
+                .config_snapshot()
+                .boolean("my.marker"),
+            None,
+            "these options are not persisted"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_non_shallow_then_deepen_then_deepen_since_to_unshallow() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let (repo, _change) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
+            .with_shallow(Shallow::DepthAtRemote(2.try_into()?))
+            .configure_remote(|mut r| {
+                r.replace_refspecs(Some("refs/heads/main:refs/remotes/origin/main"), Direction::Fetch)?;
+                Ok(r)
+            })
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(repo.is_shallow());
+        assert_eq!(
+            shallow_ids(&repo, "present")?,
+            sorted([
+                hex_to_id("2d9d136fb0765f2e24c44a0f91984318d580d03b"),
+                hex_to_id("dfd0954dabef3b64f458321ef15571cc1a46d552"),
+            ])
+        );
+
+        let shallow_commit_count = repo.head_id()?.ancestors().all()?.count();
+
+        let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
+        remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .with_shallow(Shallow::Deepen(1))
+            .receive(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert_eq!(
+            shallow_ids(&repo, "present")?,
+            sorted([
+                hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
+                hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),
+                hex_to_id("b5152869aedeb21e55696bb81de71ea1bb880c85"),
+            ]),
+            "the shallow boundary was changed"
+        );
+        assert!(
+            repo.head_id()?.ancestors().all()?.count() > shallow_commit_count,
+            "there are more commits now as the history was deepened"
+        );
+
+        let shallow_commit_count = repo.head_id()?.ancestors().all()?.count();
+        remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .with_shallow(Shallow::Since {
+                cutoff: gix::date::Time::new(1112354053, 0),
+            })
+            .receive(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(
+            !repo.is_shallow(),
+            "the cutoff date is before the first commit, effectively unshallowing"
+        );
+        assert!(
+            repo.head_id()?.ancestors().all()?.count() > shallow_commit_count,
+            "there is even more commits than previously"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_non_shallow_by_deepen_exclude_then_deepen_to_unshallow() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let excluded_leaf_refs = ["g", "h", "j"];
+
+        let (repo, _change) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
+            .with_fetch_options(gix::remote::ref_map::Options {
+                extra_refspecs: vec![
+                    gix::refspec::parse("refs/heads/*:refs/remotes/origin/*".into(), Operation::Fetch)?.into(),
+                ],
+                ..Default::default()
+            })
+            .with_shallow(Shallow::Exclude {
+                remote_refs: excluded_leaf_refs
+                    .into_iter()
+                    .map(|n| n.try_into().expect("valid"))
+                    .collect(),
+                since_cutoff: None,
+            })
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(repo.is_shallow());
+        assert_eq!(
+            shallow_ids(&repo, "present")?,
+            sorted([
+                hex_to_id("27e71576a6335294aa6073ab767f8b36bdba81d0"),
+                hex_to_id("82024b2ef7858273337471cbd1ca1cedbdfd5616"),
+            ])
+        );
+
+        let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
+        remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .with_shallow(Shallow::Deepen(2))
+            .receive(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert!(!repo.is_shallow(), "one is just enough to unshallow it");
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_only_with_configuration() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let called_configure_remote = std::sync::Arc::new(AtomicBool::default());
+        let remote_name = "special";
+        let desired_fetch_tags = gix::remote::fetch::Tags::Included;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            tmp.path(),
+            gix::create::Kind::Bare,
+            Default::default(),
+            gix::open::Options::isolated().config_overrides([
+                Init::DEFAULT_BRANCH.validated_assignment_fmt(&"unused-as-overridden-by-remote")?,
+                Core::LOG_ALL_REF_UPDATES.logical_name().into(),
+                // missing user and email is acceptable in this special case, i.e. `git` also doesn't mind filling it in.
+            ]),
+        )?
+        .with_remote_name(remote_name)?
+        .configure_remote({
+            let called_configure_remote = called_configure_remote.clone();
+            move |r| {
+                called_configure_remote.store(true, std::sync::atomic::Ordering::Relaxed);
+                let r = r
+                    .with_refspecs(Some("+refs/tags/b-tag:refs/tags/b-tag"), gix::remote::Direction::Fetch)?
+                    .with_fetch_tags(desired_fetch_tags);
+                Ok(r)
+            }
+        });
+        let (repo, out) = prepare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        drop(prepare);
+
+        assert!(
+            called_configure_remote.load(std::sync::atomic::Ordering::Relaxed),
+            "custom remote configuration is called"
+        );
+        assert_eq!(repo.remote_names().len(), 1, "only ever one remote");
+        let remote = repo.find_remote(remote_name)?;
+        let num_refspecs = remote.refspecs(gix::remote::Direction::Fetch).len();
+        assert_eq!(
+            num_refspecs, 2,
+            "our added spec was stored as well, but no implied specs due to the `Tags::All` setting"
+        );
+        assert_eq!(
+            remote.fetch_tags(),
+            desired_fetch_tags,
+            "fetch-tags are persisted via the 'tagOpt` key"
+        );
+        assert!(
+            gix::path::from_bstr(Cow::Borrowed(
+                remote
+                    .url(gix::remote::Direction::Fetch)
+                    .expect("present")
+                    .path
+                    .as_ref()
+            ))
+            .is_absolute(),
+            "file urls can't be relative paths"
+        );
+
+        let (explicit_max_idx, implicit_max_index) =
+            out.ref_map
+                .mappings
+                .iter()
+                .map(|m| m.spec_index)
+                .fold((0, 0), |(a, b), i| match i {
+                    SpecIndex::ExplicitInRemote(idx) => (idx.max(a), b),
+                    SpecIndex::Implicit(idx) => (a, idx.max(b)),
+                });
+        assert_eq!(
+            explicit_max_idx,
+            num_refspecs - 1,
+            "mappings don't refer to non-existing explicit refspecs"
+        );
+        assert_eq!(
+            implicit_max_index,
+            &out.ref_map.extra_refspecs.len() - 1,
+            "mappings don't refer to non-existing implicit refspecs"
+        );
+        let packed_refs = repo
+            .refs
+            .cached_packed_buffer()?
+            .expect("packed refs should be present");
+        assert_eq!(
+            repo.refs.loose_iter()?.count(),
+            1,
+            "HEAD is the only remaining loose symbolic ref as born remote symrefs are stored peeled"
+        );
+        assert_eq!(
+            packed_refs.iter()?.count(),
+            15,
+            "all non-symbolic refs should be stored, if reachable from our refs"
+        );
+        let sig = repo
+            .head()?
+            .log_iter()
+            .all()?
+            .expect("present")
+            .next()
+            .expect("one line")?
+            .signature
+            .to_owned()?;
+        assert_eq!(sig.name, "no name configured");
+        assert_eq!(sig.email, "noEmailAvailable@example.com");
+
+        match out.status {
+            gix::remote::fetch::Status::Change { update_refs, .. } => {
+                for edit in &update_refs.edits {
+                    use gix_object::Exists;
+                    match edit.change.new_value().expect("always set/no deletion") {
+                        TargetRef::Symbolic(referent) => {
+                            assert!(
+                                repo.find_reference(referent).is_ok(),
+                                "if we set up a symref, the target should exist by now"
+                            );
+                        }
+                        TargetRef::Object(id) => {
+                            assert!(repo.objects.exists(id), "part of the fetched pack");
+                        }
+                    }
+                    let r = repo
+                        .find_reference(edit.name.as_ref())
+                        .unwrap_or_else(|_| panic!("didn't find created reference: {edit:?}"));
+                    if r.name().category().expect("known") != gix_ref::Category::Tag {
+                        assert!(
+                            r.name()
+                                .category_and_short_name()
+                                .expect("computable")
+                                .1
+                                .starts_with_str(remote_name)
+                        );
+                        match r.target() {
+                            TargetRef::Object(_) => {
+                                let mut logs = r.log_iter();
+                                assert_reflog(logs.all());
+                            }
+                            TargetRef::Symbolic(_) => {
+                                // TODO: it *should* be possible to set the reflog here based on the referent if deref = true
+                                //       when setting up the edits. But it doesn't seem to work. Also, some tests are
+                                //       missing for `leaf_referent_previous_oid`.
+                                assert!(
+                                    !r.log_exists(),
+                                    "symbolic refs don't have object ids, so they can't get \
+                                      into the reflog as these need previous and new oid"
+                                );
+                            }
+                        }
+                    }
+                }
+                let mut out_of_graph_tags = Vec::new();
+                for mapping in update_refs
+                    .updates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, update)| {
+                        matches!(
+                            update.mode,
+                            gix::remote::fetch::refs::update::Mode::ImplicitTagNotSentByRemote
+                        )
+                    })
+                    .map(|(idx, _)| &out.ref_map.mappings[idx])
+                {
+                    out_of_graph_tags.push(
+                        mapping
+                            .remote
+                            .as_name()
+                            .expect("tag always has a path")
+                            .to_str()
+                            .expect("valid UTF8"),
+                    );
+                }
+                assert_eq!(
+                    out_of_graph_tags,
+                    &[
+                        "refs/tags/annotated-detached-tag",
+                        "refs/tags/annotated-future-tag",
+                        "refs/tags/detached-tag",
+                        "refs/tags/future-tag"
+                    ]
+                );
+            }
+            _ => unreachable!("clones are always causing changes and dry-runs aren't possible"),
+        }
+
+        let remote_repo = remote::repo("base");
+        let remote_head = repo
+            .find_reference(&format!("refs/remotes/{remote_name}/HEAD"))
+            .expect("remote HEAD present");
+        let remote_head_id = remote_repo.head_id()?;
+        assert_eq!(
+            remote_head.target().try_id(),
+            Some(remote_head_id.as_ref()),
+            "remote HEAD is stored as the peeled object id advertised by the remote"
+        );
+
+        let head = repo.head()?;
+        {
+            let mut logs = head.log_iter();
+            assert_reflog(logs.all());
+        }
+
+        let referent = head.try_into_referent().expect("symbolic ref is present");
+        assert!(
+            referent.id().object().is_ok(),
+            "the object pointed to by HEAD was fetched as well"
+        );
+        assert_eq!(
+            referent,
+            remote_repo.head_name()?.expect("symbolic"),
+            "local clone always adopts the name of the remote"
+        );
+
+        let ref_name = referent.name();
+        assert_eq!(
+            referent
+                .remote_name(gix::remote::Direction::Fetch)
+                .expect("remote is set")
+                .as_ref(),
+            remote_name,
+            "the remote branch information is fully configured"
+        );
+        assert_eq!(
+            repo.branch_remote_ref_name(ref_name, gix::remote::Direction::Fetch)
+                .expect("present")?,
+            "refs/heads/main"
+        );
+
+        {
+            let mut logs = referent.log_iter();
+            assert_reflog(logs.all());
+        }
+        Ok(())
+    }
+
+    fn assert_reflog(log: std::io::Result<Option<gix_ref::file::log::iter::Forward<'_>>>) {
+        let lines = log
+            .unwrap()
+            .expect("log present")
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(lines.len(), 1, "just created");
+        let line = &lines[0];
+        assert!(
+            line.message.starts_with(b"clone: from "),
+            "{:?} unexpected",
+            line.message
+        );
+        let path = gix_path::from_bstr(line.message.rsplit(|b| *b == b' ').next().expect("path").as_bstr());
+        assert!(path.is_absolute(), "{path:?} must be absolute");
+    }
+
+    #[test]
+    fn fetch_and_checkout() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?;
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        let index = repo.index()?;
+        assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
+
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn fetch_and_checkout_does_not_follow_delayed_symlink_prefixes() -> crate::Result {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = gix_testtools::scripted_fixture_read_only("make_symlink_prefix_reuse_advisory.sh")?;
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let mut prepare = gix::clone::PrepareFetch::new(
+            fixture.join("malicious.git"),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?;
+
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        let git_dir = repo.git_dir();
+        let hook_path = git_dir.join("hooks").join("post-checkout");
+        assert!(
+            !hook_path.is_symlink(),
+            "checkout must not write attacker-controlled hooks through a symlink prefix"
+        );
+
+        let worktree = repo.workdir().expect("non-bare");
+        let payload = worktree.join("payload");
+        assert!(payload.is_file(), "payload itself is checked out");
+        assert_ne!(
+            payload.metadata()?.permissions().mode() & 0o111,
+            0,
+            "payload keeps its executable bits"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_into_non_empty_directory() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty");
+        let existing_path = destination.join("existing.txt");
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?;
+        let (mut checkout, _out) =
+            prepare.fetch_then_checkout(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())?;
+
+        let index = repo.index()?;
+        assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+
+        assert_eq!(std::fs::read(&existing_path)?, EXISTING_CONTENT);
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_into_non_empty_directory_does_not_overwrite_pre_existing_tracked_file() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty-with-conflicting-file");
+        let existing_path = destination.join("file");
+        let remote_file_content = std::fs::read(remote::repo("base").workdir().expect("non-bare").join("file"))?;
+        assert_ne!(
+            EXISTING_CONTENT, remote_file_content,
+            "the fixture must differ from the file that checkout would write"
+        );
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?;
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, outcome) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert_eq!(
+            std::fs::read(&existing_path)?,
+            EXISTING_CONTENT,
+            "checkout must not overwrite the pre-existing tracked path"
+        );
+        assert_eq!(repo.index()?.entries().len(), 1, "the index is still written");
+        assert_eq!(
+            outcome.collisions,
+            [gix_worktree_state::checkout::Collision {
+                path: BString::from("file"),
+                error_kind: std::io::ErrorKind::AlreadyExists
+            }],
+            "the pre-existing tracked path is reported as a normal checkout collision"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_into_non_empty_directory_with_existing_dot_git_is_rejected() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty-with-dot-git");
+        let existing_path = destination.join("existing.txt");
+        let dot_git = destination.join(".git");
+        let head_path = dot_git.join("HEAD");
+
+        let err = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )
+        .map(drop)
+        .expect_err("an existing .git directory must not be reused for clone");
+
+        assert!(
+            matches!(
+                err,
+                gix::clone::Error::Init(gix::init::Error::Init(gix::create::Error::DirectoryExists { ref path }))
+                    if *path == dot_git
+            ),
+            "unexpected error: {err}"
+        );
+        assert_eq!(std::fs::read(&existing_path)?, EXISTING_CONTENT);
+        assert_eq!(std::fs::read(&head_path)?, EXISTING_HEAD_CONTENT);
+        Ok(())
+    }
+
+    #[test]
+    fn drop_after_failed_fetch_into_non_empty_directory_preserves_destination() -> crate::Result {
+        let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+        let destination = fixture.path().join("non-empty");
+        let existing_path = destination.join("existing.txt");
+
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            &destination,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                destination_must_be_empty: Some(false),
+                ..Default::default()
+            },
+            restricted(),
+        )?
+        .with_ref_name(Some("does-not-exist"))?;
+
+        prepare
+            .fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())
+            .expect_err("non-existing ref must fail");
+        drop(prepare);
+
+        assert_eq!(
+            std::fs::read(&existing_path)?,
+            EXISTING_CONTENT,
+            "pre-existing user files must survive a failed clone+drop"
+        );
+        assert!(
+            destination.join(".git").is_dir(),
+            "the .git directory we created should remain for user cleanup"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_specific_ref() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        let ref_to_checkout = "a";
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?
+        .with_ref_name(Some(ref_to_checkout))?;
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert_eq!(
+            repo.references()?.all()?.count() - 2,
+            remote_repo.references()?.all()?.count(),
+            "all references have been cloned, + remote HEAD + remote main (not listed in remote_repo)"
+        );
+        let checked_out_ref = repo.head_ref()?.expect("head points to ref");
+        let remote_ref_name = format!("refs/heads/{ref_to_checkout}");
+        assert_eq!(
+            checked_out_ref, remote_ref_name,
+            "it's possible to checkout anything with that name, but here we have an ordinary branch"
+        );
+
+        assert_eq!(
+            checked_out_ref
+                .remote_ref_name(gix::remote::Direction::Fetch)
+                .transpose()?
+                .unwrap(),
+            remote_ref_name,
+            "the merge configuration is using the given name"
+        );
+
+        let index = repo.index()?;
+        assert_eq!(index.entries().len(), 1, "All entries are known as per HEAD tree");
+
+        assure_index_entries_on_disk(&index, repo.workdir().expect("non-bare"));
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_specific_revision() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        let branch_id = remote_repo.find_reference("refs/heads/a")?.peel_to_id()?.detach();
+        let tag_id = remote_repo
+            .find_reference("refs/tags/annotated-detached-tag")?
+            .peel_to_commit()?
+            .id;
+        let head_id = remote_repo.head_id()?.detach();
+        for (name, revision, expected) in [
+            ("branch", "refs/heads/a".to_owned(), branch_id),
+            ("tag", "refs/tags/annotated-detached-tag".to_owned(), tag_id),
+            ("head", "HEAD".to_owned(), head_id),
+            ("object-id", branch_id.to_string(), branch_id),
+        ] {
+            let mut prepare = gix::clone::PrepareFetch::new(
+                remote_repo.path(),
+                tmp.path().join(name),
+                gix::create::Kind::WithWorktree,
+                Default::default(),
+                restricted(),
+            )?
+            .with_revision(Some(revision))?;
+
+            let (mut checkout, _) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+            let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+            assert_eq!(repo.head_id()?, expected, "HEAD points at the requested revision");
+            assert!(repo.head_ref()?.is_none(), "HEAD is detached");
+            assert_eq!(
+                repo.references()?.all()?.count(),
+                0,
+                "single-revision clones create no ordinary references"
+            );
+            let remote = repo.find_remote("origin")?;
+            assert!(
+                remote.refspecs(Direction::Fetch).is_empty(),
+                "single-revision clones persist no fetch refspec"
+            );
+            assert_eq!(
+                remote.fetch_tags(),
+                gix::remote::fetch::Tags::None,
+                "later fetches do not follow tags"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_specific_revision_bare_and_shallow() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        let revision = "refs/heads/a";
+        let expected = remote_repo.find_reference(revision)?.peel_to_id()?;
+
+        let mut bare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path().join("bare"),
+            gix::create::Kind::Bare,
+            Default::default(),
+            restricted(),
+        )?
+        .with_revision(Some(revision))?;
+        let (repo, _) = bare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        assert_eq!(repo.head_id()?, expected, "bare clones retain a detached HEAD");
+        assert_eq!(
+            repo.references()?.all()?.count(),
+            0,
+            "bare clones create no ordinary references"
+        );
+
+        let mut shallow = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path().join("shallow"),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?
+        .with_revision(Some(revision))?
+        .with_shallow(Shallow::DepthAtRemote(1.try_into()?));
+        let (mut checkout, _) = shallow.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+        assert!(repo.is_shallow(), "depth applies to a single-revision clone");
+        assert_eq!(repo.head_id()?, expected, "the requested revision is checked out");
+        assert_eq!(
+            repo.references()?.all()?.count(),
+            0,
+            "shallow clones also create no ordinary references"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_specific_revisions_are_rejected() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        for invalid in ["main", "deadbeef", "refs/heads/main^"] {
+            let result = gix::clone::PrepareFetch::new(
+                remote_repo.path(),
+                tmp.path().join(invalid.replace('/', "_")),
+                gix::create::Kind::Bare,
+                Default::default(),
+                restricted(),
+            )?
+            .with_revision(Some(invalid));
+            assert!(result.is_err(), "{invalid:?} is not a full revision");
+        }
+
+        let mut missing = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path().join("missing"),
+            gix::create::Kind::Bare,
+            Default::default(),
+            restricted(),
+        )?
+        .with_revision(Some("refs/heads/does-not-exist"))?;
+        let err = missing
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())
+            .expect_err("missing full references fail");
+        assert!(
+            matches!(err, gix::clone::fetch::Error::RevisionMissing { .. }),
+            "the missing revision is reported directly: {err}"
+        );
+
+        let tree_id = remote_repo
+            .find_reference("refs/heads/a")?
+            .peel_to_commit()?
+            .tree_id()?;
+        let mut tree = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path().join("tree"),
+            gix::create::Kind::Bare,
+            Default::default(),
+            restricted(),
+        )?
+        .with_revision(Some(tree_id.to_string()))?;
+        let err = tree
+            .fetch_only(gix::progress::Discard, &AtomicBool::default())
+            .expect_err("tree revisions cannot become HEAD");
+        assert!(
+            matches!(err, gix::clone::fetch::Error::PeelRevision(_)),
+            "non-commit revisions are rejected: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_specific_non_existing() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        let ref_to_checkout = "does-not-exist";
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?
+        .with_ref_name(Some(ref_to_checkout))?;
+
+        let err = prepare
+            .fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "The remote didn't have any ref that matched 'does-not-exist'",
+            "we don't test this, but it's important that it determines this before receiving a pack"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_succeeds_despite_remote_head_ref() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("head-ref");
+        let mut prepare = gix::clone::PrepareFetch::new(
+            remote_repo.path(),
+            tmp.path(),
+            gix::create::Kind::WithWorktree,
+            Default::default(),
+            restricted(),
+        )?;
+
+        let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+        assert!(repo.head().is_ok(), "we could handle the HEAD normaller");
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_and_checkout_specific_annotated_tag() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let remote_repo = remote::repo("base");
+        let ref_to_checkout = "annotated-detached-tag";
+        for shallow in [false, true] {
+            let destination = tmp.path().join(if shallow { "shallow" } else { "full" });
+            let mut prepare = gix::clone::PrepareFetch::new(
+                remote_repo.path(),
+                destination,
+                gix::create::Kind::WithWorktree,
+                Default::default(),
+                restricted(),
+            )?;
+            if shallow {
+                prepare = prepare.with_shallow(Shallow::DepthAtRemote(1.try_into()?));
+            }
+            let mut prepare = prepare.with_ref_name(Some(ref_to_checkout))?;
+            let (mut checkout, _out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+
+            let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+            assert_eq!(repo.is_shallow(), shallow);
+            let remote_ref_name = format!("refs/tags/{ref_to_checkout}");
+            if shallow {
+                let remote = repo.find_remote("origin")?;
+                let refspecs: Vec<_> = remote
+                    .refspecs(Direction::Fetch)
+                    .iter()
+                    .map(|spec| spec.to_ref().to_bstring().to_str().expect("valid utf8").to_owned())
+                    .collect();
+                assert_eq!(
+                    refspecs,
+                    vec![format!("+{remote_ref_name}:{remote_ref_name}")],
+                    "shallow clones of tags use a tag refspec"
+                );
+            } else {
+                assert_eq!(
+                    repo.references()?.all()?.count() - 1,
+                    remote_repo.references()?.all()?.count(),
+                    "all references have been cloned, + remote HEAD (not listed in remote_repo)"
+                );
+            }
+
+            let checked_out_ref = repo.head_ref()?.expect("head points to ref");
+            assert_eq!(checked_out_ref, remote_ref_name, "it also works with tags");
+
+            assert_eq!(
+                checked_out_ref
+                    .remote_ref_name(gix::remote::Direction::Fetch)
+                    .transpose()?,
+                None,
+                "there is no merge configuration for tags"
+            );
+        }
+        Ok(())
+    }
+
+    fn assure_index_entries_on_disk(index: &gix::worktree::Index, work_dir: &Path) {
+        for entry in index.entries() {
+            let entry_path = work_dir.join(gix_path::from_bstr(entry.path(index)));
+            assert!(entry_path.is_file(), "{entry_path:?} not found on disk");
+        }
+    }
+
+    #[test]
+    fn fetch_and_checkout_empty_remote_repo() -> crate::Result {
+        for version in [
+            gix::protocol::transport::Protocol::V0,
+            gix::protocol::transport::Protocol::V2,
+        ] {
+            let tmp = gix_testtools::tempfile::TempDir::new()?;
+            let mut prepare = gix::clone::PrepareFetch::new(
+                gix_testtools::scripted_fixture_read_only("make_empty_repo.sh")?,
+                tmp.path(),
+                gix::create::Kind::WithWorktree,
+                Default::default(),
+                restricted().config_overrides(Some(format!("protocol.version={}", version as u8))),
+            )?;
+            let (mut checkout, out) = prepare.fetch_then_checkout(gix::progress::Discard, &AtomicBool::default())?;
+            let (repo, _) = checkout.main_worktree(gix::progress::Discard, &AtomicBool::default())?;
+
+            assert!(!repo.index_path().is_file(), "newly initialized repos have no index");
+            let head = repo.head()?;
+            assert!(head.is_unborn());
+            assert_eq!(repo.head_tree_id_or_empty()?, repo.empty_tree().id());
+
+            assert!(
+                head.log_iter().all()?.is_none(),
+                "no reflog for unborn heads (as it needs non-null destination hash)"
+            );
+
+            let supports_unborn = out
+                .handshake
+                .capabilities
+                .capability("ls-refs")
+                .is_some_and(|cap| cap.supports("unborn").unwrap_or(false));
+            if supports_unborn {
+                assert_eq!(
+                    head.referent_name().expect("present"),
+                    "refs/heads/special",
+                    "we pick up the name as present on the server, not the one we default to"
+                );
+            } else {
+                assert_eq!(
+                    head.referent_name().expect("present"),
+                    "refs/heads/main",
+                    "we simply keep our own post-init HEAD which defaults to the branch name we configured locally"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fetch_only_without_configuration() -> crate::Result {
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let (repo, out) = gix::clone::PrepareFetch::new(
+            remote::repo("base").path(),
+            tmp.path(),
+            gix::create::Kind::Bare,
+            Default::default(),
+            restricted(),
+        )?
+        .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        assert!(repo.find_remote("origin").is_ok(), "default remote name is 'origin'");
+        match out.status {
+            gix::remote::fetch::Status::Change { write_pack_bundle, .. } => {
+                assert!(
+                    write_pack_bundle.keep_path.is_none(),
+                    "keep files aren't kept if refs are written"
+                );
+            }
+            _ => unreachable!("a clone always carries a change"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "sha256")]
+    fn fetch_only_adopts_remote_sha256_object_format() -> crate::Result {
+        let remote = gix_testtools::scripted_fixture_read_only("make_sha256_remote.sh")?.join("remote");
+        assert_eq!(
+            gix::open_opts(&remote, gix::open::Options::isolated())?.object_hash(),
+            gix::hash::Kind::Sha256,
+            "precondition: the fixture remote uses SHA-256 regardless of GIX_TEST_FIXTURE_HASH"
+        );
+
+        let tmp = gix_testtools::tempfile::TempDir::new()?;
+        let (repo, out) = gix::clone::PrepareFetch::new(
+            remote,
+            tmp.path(),
+            gix::create::Kind::Bare,
+            Default::default(),
+            restricted(),
+        )?
+        .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+
+        assert_eq!(
+            repo.object_hash(),
+            gix::hash::Kind::Sha256,
+            "the freshly initialized SHA-1 repository adopted the remote's SHA-256 object format"
+        );
+        assert!(
+            matches!(out.status, gix::remote::fetch::Status::Change { .. }),
+            "the SHA-256 pack was fetched, so a clone always carries a change"
+        );
+        let persisted = gix::open_opts(repo.git_dir(), gix::open::Options::isolated())?;
+        assert_eq!(
+            persisted.object_hash(),
+            gix::hash::Kind::Sha256,
+            "the adopted object format is persisted on disk, not just in memory"
+        );
+        let config = persisted.config_snapshot();
+        let origin_remotes = config.plumbing().sections_by_name("remote").map_or(0, |sections| {
+            sections
+                .filter(|section| section.header().subsection_name() == Some("origin".into()))
+                .count()
+        });
+        assert_eq!(
+            origin_remotes, 1,
+            "exactly one `origin` remote is written despite the adoption retry"
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn clone_and_early_persist_without_receive() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    let repo = gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        tmp.path(),
+        gix::create::Kind::Bare,
+        Default::default(),
+        restricted(),
+    )?
+    .persist();
+    assert!(repo.is_bare(), "repo is now ours and remains");
+    assert_eq!(repo.kind(), gix::repository::Kind::Common);
+    Ok(())
+}
+
+#[test]
+fn clone_and_destination_must_be_empty() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    std::fs::write(tmp.path().join("file"), b"hello")?;
+    match gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        tmp.path(),
+        gix::create::Kind::Bare,
+        Default::default(),
+        restricted(),
+    ) {
+        Ok(_) => unreachable!("this should fail as the directory isn't empty"),
+        Err(err) => assert!(
+            err.to_string()
+                .starts_with("Refusing to initialize the non-empty directory as ")
+        ),
+    }
+    Ok(())
+}
+
+#[test]
+fn clone_with_worktree_and_destination_must_be_empty() -> crate::Result {
+    let fixture = gix_testtools::scripted_fixture_writable("make_clone_destinations.sh")?;
+    let destination = fixture.path().join("non-empty");
+    let err = gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        &destination,
+        gix::create::Kind::WithWorktree,
+        Default::default(),
+        restricted(),
+    )
+    .map(drop)
+    .expect_err("this should fail as the directory isn't empty");
+    assert!(
+        err.to_string()
+            .starts_with("Refusing to initialize the non-empty directory as ")
+    );
+    Ok(())
+}
+
+#[test]
+fn clone_bare_into_empty_directory_and_early_drop() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    // this breaks isolation, but shouldn't be affecting the test. If so, use isolation options for opening the repo.
+    let prep = gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        tmp.path(),
+        gix::create::Kind::Bare,
+        Default::default(),
+        restricted(),
+    )?;
+    let head = tmp.path().join("HEAD");
+    assert!(head.is_file(), "now a bare basic repo is present");
+    drop(prep);
+
+    assert!(!head.is_file(), "we cleanup if the clone isn't followed through");
+    Ok(())
+}
+
+#[test]
+fn clone_into_empty_directory_and_early_drop() -> crate::Result {
+    let tmp = gix_testtools::tempfile::TempDir::new()?;
+    let prep = gix::clone::PrepareFetch::new(
+        remote::repo("base").path(),
+        tmp.path(),
+        gix::create::Kind::WithWorktree,
+        Default::default(),
+        restricted(),
+    )?;
+    let head = tmp.path().join(".git").join("HEAD");
+    assert!(head.is_file(), "now a basic repo is present");
+    drop(prep);
+
+    assert!(!head.is_file(), "we cleanup if the clone isn't followed through");
+    Ok(())
+}

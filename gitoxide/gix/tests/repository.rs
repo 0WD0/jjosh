@@ -1,0 +1,445 @@
+use std::fs;
+
+use gix::bstr::ByteSlice;
+use gix_testtools::{Env, tempfile};
+use serial_test::serial;
+
+#[test]
+#[serial]
+fn config_path_uses_repository_options_for_global_sources() -> gix_testtools::Result {
+    use gix::config::{Source, file_mut::Error};
+
+    let fixture = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?)?;
+    let git_dir = fixture.join("bare-repo");
+    let missing = fixture.join("missing");
+    let installation = missing.join("installation.config");
+    let system = missing.join("system.config");
+    let global = missing.join("global.config");
+    let _env = Env::new()
+        .set("GIT_CONFIG_GLOBAL", global.to_string_lossy())
+        .set("GIT_CONFIG_SYSTEM", "ignored.config")
+        .set("GIT_CONFIG_NOSYSTEM", "0");
+    let mut options = gix::open::Options::isolated()
+        .git_installation_config_path(&installation)
+        .system_config_path(&system);
+    options.permissions.config.git_binary = true;
+    options.permissions.config.system = true;
+    options.permissions.config.git = true;
+    options.permissions.config.user = true;
+    options.permissions.env.git_prefix = gix::sec::Permission::Allow;
+    let repo = gix::open_opts(&git_dir, options)?;
+    for (source, expected) in [
+        (Source::GitInstallation, installation),
+        (Source::System, system),
+        (Source::Git, global.clone()),
+        (Source::User, global),
+    ] {
+        assert_eq!(
+            repo.config_path(source)?,
+            expected,
+            "{source:?} honors the repository's explicit paths and environment permissions"
+        );
+    }
+    assert!(!missing.exists(), "path lookup does not create files or directories");
+
+    let repo = gix::open_opts(&git_dir, gix::open::Options::isolated())?;
+    for source in [Source::GitInstallation, Source::System, Source::Git, Source::User] {
+        assert!(
+            matches!(repo.config_path(source), Err(Error::SourceUnavailable(actual)) if actual == source),
+            "{source:?} remains unavailable when disabled by the repository's permissions"
+        );
+    }
+    for source in [Source::Env, Source::Cli, Source::Api, Source::EnvOverride] {
+        assert!(
+            matches!(repo.config_path(source), Err(Error::UnsupportedSource(actual)) if actual == source),
+            "{source:?} has no physical configuration file even with a repository"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn config_paths_use_the_opening_cwd() -> gix_testtools::Result {
+    use gix::config::Source;
+
+    let fixture = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_config_repos.sh")?)?;
+    let _cwd = gix_testtools::set_current_dir(&fixture)?;
+    let _env = Env::new()
+        .set("GIT_CONFIG_GLOBAL", "missing/global.config")
+        .set("GIT_CONFIG_NOSYSTEM", "0");
+    let mut options = gix::open::Options::isolated()
+        .git_installation_config_path("missing/installation.config")
+        .system_config_path("missing/system.config");
+    options.permissions.config.git_binary = true;
+    options.permissions.config.system = true;
+    options.permissions.config.git = true;
+    options.permissions.config.user = true;
+    options.permissions.env.git_prefix = gix::sec::Permission::Allow;
+    let repo = gix::open_opts("bare-repo", options)?;
+    std::env::set_current_dir(fixture.join("bare-repo"))?;
+
+    for (source, path) in [
+        (Source::Local, "bare-repo/config"),
+        (Source::Worktree, "bare-repo/config.worktree"),
+        (Source::GitInstallation, "missing/installation.config"),
+        (Source::System, "missing/system.config"),
+        (Source::Git, "missing/global.config"),
+        (Source::User, "missing/global.config"),
+    ] {
+        assert_eq!(
+            repo.config_path(source)?,
+            repo.current_dir().join(path),
+            "{source:?} resolves relative paths against the opening CWD whether or not the file exists"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn config_file_paths_use_the_cwd_captured_while_opening() -> gix_testtools::Result {
+    let fixture = gix_testtools::scripted_fixture_writable("make_config_repo.sh")?;
+    let elsewhere = gix_testtools::tempfile::tempdir()?;
+    let _cwd = gix_testtools::set_current_dir(fixture.path())?;
+    let mut repo = gix::open_opts(".", gix::open::Options::isolated())?;
+    std::env::set_current_dir(elsewhere.path())?;
+
+    let mut file = repo.config_file_mut(".git/config")?;
+    file.set_raw_value("physical.after-cwd-change", "written")?;
+    file.commit()?;
+    assert!(
+        !elsewhere.path().join(".git/config").exists(),
+        "the process's new working directory is not used"
+    );
+    repo.reload()?;
+    assert_eq!(
+        repo.config_snapshot()
+            .string("physical.after-cwd-change")
+            .expect("reloaded value"),
+        "written"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+#[cfg(target_os = "macos")]
+fn config_file_paths_follow_a_precomposed_opening_cwd() -> gix_testtools::Result {
+    let tmp = gix_testtools::tempfile::tempdir()?;
+    let decomposed = tmp.path().join("a\u{308}");
+    std::fs::create_dir(&decomposed)?;
+    let repo = gix::init(&decomposed)?;
+    let config_path = repo.git_dir().join("config");
+    let mut disk = gix_config::File::from_path_no_includes(config_path.clone(), gix_config::Source::Local)?;
+    disk.set_raw_value("core.precomposeUnicode", "true")?;
+    std::fs::write(&config_path, disk.to_bstring())?;
+    drop(repo);
+
+    let _cwd = gix_testtools::set_current_dir(&decomposed)?;
+    let original_cwd = std::env::current_dir()?;
+    let repo = gix::open_opts(".", gix::open::Options::isolated())?;
+    assert_ne!(
+        repo.current_dir(),
+        original_cwd,
+        "core.precomposeUnicode must normalize the captured CWD before it becomes the base for relative config paths"
+    );
+    let mut file = repo.config_file_mut(".git/config")?;
+    file.set_raw_value("physical.precomposed", "written")?;
+    file.commit()?;
+
+    let disk = gix_config::File::from_path_no_includes(config_path.clone(), gix_config::Source::Local)?;
+    assert_eq!(
+        disk.string("physical.precomposed").expect("written value"),
+        "written",
+        "the relative .git/config path must still reach the initialized repository after precomposing its stored CWD"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn relative_paths_use_the_cwd_captured_when_opening() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let nested = root.join("some/very");
+
+    let _cwd = gix_testtools::set_current_dir(&nested)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    assert_eq!(
+        repo.normalize_path("file")?.as_bstr(),
+        "some/very/file",
+        "relative paths start at the captured CWD"
+    );
+    assert_eq!(
+        repo.normalize_path("../file")?.as_bstr(),
+        "some/file",
+        "parent components consume the captured CWD prefix"
+    );
+    assert_eq!(
+        repo.normalize_path("../../file")?.as_bstr(),
+        "file",
+        "all CWD components can be consumed"
+    );
+    assert_eq!(
+        repo.normalize_path("./file")?.as_bstr(),
+        "some/very/file",
+        "current-directory components are removed"
+    );
+
+    std::env::set_current_dir(&root)?;
+    assert_eq!(
+        repo.normalize_path("file")?.as_bstr(),
+        "some/very/file",
+        "Repository keeps the CWD captured when it was opened"
+    );
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    assert!(
+        matches!(repo.normalize_path("file")?, std::borrow::Cow::Borrowed(path) if path == "file"),
+        "unchanged paths are returned without allocation"
+    );
+    assert_eq!(
+        repo.normalize_path("")?.as_bstr(),
+        "",
+        "an empty path at the repository root remains empty"
+    );
+    assert_eq!(
+        repo.normalize_path(".")?.as_bstr(),
+        "",
+        "the repository root expressed as a current-directory component normalizes to an empty path"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn paths_cannot_leave_the_repository() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let nested = root.join("some");
+
+    let _cwd = gix_testtools::set_current_dir(&nested)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    let absolute = gix::path::into_bstr(root.join("some-with-file/very/deeply/nested/subdir/empty-file"));
+    assert_eq!(
+        repo.normalize_path(&absolute)?.as_bstr(),
+        "some-with-file/very/deeply/nested/subdir/empty-file",
+        "absolute paths inside the worktree become repository-relative"
+    );
+    assert!(
+        matches!(
+            repo.normalize_path("../../outside"),
+            Err(gix::repository::normalize_path::Error::OutsideOfRepository { .. })
+        ),
+        "relative paths cannot traverse above the worktree"
+    );
+
+    assert_eq!(
+        repo.normalize_path("")?.as_bstr(),
+        "some",
+        "an empty path refers to the captured current directory"
+    );
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn absolute_paths_outside_the_repository_are_rejected() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let repo = gix::discover_opts(&root, Default::default(), gix::open::Options::isolated())?;
+    let outside = root.parent().expect("fixture has a parent").to_owned();
+    let outside_as_bstr = gix::path::into_bstr(outside.clone());
+
+    match repo
+        .normalize_path(&outside_as_bstr)
+        .expect_err("an absolute path outside the repository must fail")
+    {
+        gix::repository::normalize_path::Error::AbsolutePathOutsideOfRepository {
+            path,
+            root: actual_root,
+        } => {
+            assert_eq!(path, outside, "the rejected path is retained");
+            assert_eq!(actual_root, root, "the repository root is retained");
+        }
+        err => panic!("expected an absolute-path-outside error, got {err:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "status")]
+#[serial]
+fn is_dirty_sees_index_changes_outside_the_current_working_directory() -> gix_testtools::Result {
+    let root = gix::path::realpath(
+        gix_testtools::scripted_fixture_read_only("make_status_repos.sh")?.join("index-changed-outside-subdir"),
+    )?;
+
+    let _cwd = gix_testtools::set_current_dir(root.join("subdir"))?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    assert!(
+        repo.is_dirty()?,
+        "the index comparison isn't limited to the current working directory"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "revision")]
+#[serial]
+fn revspec_paths_starting_with_a_dot_are_relative_to_the_current_directory() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+    let nested = root.join("some/very");
+
+    let _cwd = gix_testtools::set_current_dir(&nested)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    let blob = repo.rev_parse_single("HEAD:this")?.detach();
+    let tree = repo.rev_parse_single("HEAD^{tree}")?.detach();
+    for spec in [
+        "HEAD:../../this",
+        "HEAD:./.././../this",
+        ":../../this",
+        ":..//.././/this",
+        ":0:../../this",
+    ] {
+        assert_eq!(
+            repo.rev_parse_single(spec)?.detach(),
+            blob,
+            "`{spec}` consumes the CWD prefix to name the blob at the worktree root"
+        );
+    }
+    for spec in ["HEAD:../../", "HEAD:../..", "HEAD:./..//.."] {
+        assert_eq!(
+            repo.rev_parse_single(spec)?.detach(),
+            tree,
+            "`{spec}` names the tree the CWD components resolve to"
+        );
+    }
+
+    std::env::set_current_dir(&root)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    for spec in ["HEAD:./this", "HEAD:././this", ":./this", ":0:./this"] {
+        assert_eq!(
+            repo.rev_parse_single(spec)?.detach(),
+            blob,
+            "`{spec}` looks the path up relative to the CWD, even if it's root"
+        );
+    }
+    assert_eq!(
+        repo.rev_parse_single("HEAD:./")?.detach(),
+        tree,
+        "`HEAD:./` names the tree of the CWD itself"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "revision")]
+#[serial]
+fn revspec_paths_starting_with_a_dot_need_a_worktree_to_stay_within() -> gix_testtools::Result {
+    let root = gix::path::realpath(gix_testtools::scripted_fixture_read_only("make_basic_repo.sh")?)?;
+
+    let _cwd = gix_testtools::set_current_dir(&root)?;
+    let repo = gix::discover_opts(".", Default::default(), gix::open::Options::isolated())?;
+    for spec in [
+        "HEAD:../this",
+        ":../this",
+        "HEAD:./../this",
+        ":./../this",
+        ":0:./../this",
+        "HEAD:././../",
+    ] {
+        assert!(
+            probable_cause(repo.rev_parse_single(spec)).contains("leaves the repository"),
+            "`{spec}` traverses above the worktree and must not resolve"
+        );
+    }
+
+    let repo = gix::open_opts(root.join("non-bare-without-worktree"), gix::open::Options::isolated())?;
+    assert!(
+        repo.rev_parse_single("HEAD:this").is_ok(),
+        "`HEAD:this` is repository-relative and resolves without a worktree"
+    );
+    for spec in ["HEAD:./this", ":./this"] {
+        assert!(
+            probable_cause(repo.rev_parse_single(spec)).contains("can't be used outside of a worktree"),
+            "`{spec}` has nothing to be relative to and must not resolve"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn open_options_preset_system_config_paths_avoid_running_git() -> gix_testtools::Result {
+    let temp = tempfile::tempdir()?;
+    let git_dir = temp.path().join("repo.git");
+    fs::create_dir_all(git_dir.join("objects"))?;
+    fs::create_dir_all(git_dir.join("refs"))?;
+    fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n")?;
+    fs::write(
+        git_dir.join("config"),
+        "[core]
+            repositoryFormatVersion = 0
+            bare = true",
+    )?;
+
+    let installation_config = temp.path().join("installation.gitconfig");
+    fs::write(
+        &installation_config,
+        "[preset]
+            installation = configured",
+    )?;
+    let system_config = temp.path().join("system.gitconfig");
+    fs::write(
+        &system_config,
+        "[preset]
+            system = configured",
+    )?;
+
+    let trace = temp.path().join("git.trace");
+    let _env = Env::new().set("GIT_TRACE", trace.to_string_lossy());
+    let mut options = gix::open::Options::isolated()
+        .git_installation_config_path(&installation_config)
+        .system_config_path(&system_config);
+    options.permissions.config.git_binary = true;
+    options.permissions.config.system = true;
+
+    let repo = gix::open_opts(&git_dir, options)?;
+    assert_eq!(
+        repo.config_snapshot()
+            .string("preset.installation")
+            .expect("installation configuration was loaded"),
+        "configured"
+    );
+    assert_eq!(
+        repo.config_snapshot()
+            .string("preset.system")
+            .expect("system configuration was loaded"),
+        "configured"
+    );
+
+    let _no_system = Env::new().set("GIT_CONFIG_NOSYSTEM", "1");
+    let mut options = gix::open::Options::isolated()
+        .git_installation_config_path(installation_config)
+        .system_config_path(system_config);
+    options.permissions.config.git_binary = true;
+    options.permissions.config.system = true;
+    options.permissions.env.git_prefix = gix::sec::Permission::Allow;
+    let repo = gix::open_opts(git_dir, options)?;
+    assert!(
+        repo.config_snapshot().string("preset.installation").is_none(),
+        "GIT_CONFIG_NOSYSTEM must disable preset installation configuration"
+    );
+    assert!(
+        repo.config_snapshot().string("preset.system").is_none(),
+        "GIT_CONFIG_NOSYSTEM must disable preset system configuration"
+    );
+    assert!(!trace.exists(), "presetting both paths must avoid launching Git");
+    Ok(())
+}
+
+#[cfg(feature = "revision")]
+fn probable_cause(res: Result<gix::Id<'_>, gix::revision::spec::parse::single::Error>) -> String {
+    match res.expect_err("the revspec must not resolve") {
+        gix::revision::spec::parse::single::Error::Parse(err) => err.probable_cause().to_string(),
+        err => panic!("expected a failure while parsing, got {err:?}"),
+    }
+}
