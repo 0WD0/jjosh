@@ -138,7 +138,7 @@ pub(super) async fn run(
     repo: &mut MutableRepo,
     selection: GitFetchRefExpression,
 ) -> Result<Vec<GitRemoteObservation>, CommandError> {
-    let git = gix::open(&session.git_path).map_err(user_error)?;
+    let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
     let endpoint = session
         .endpoint_url(&git, gix::remote::Direction::Fetch)
         .map_err(user_error)?;

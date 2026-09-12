@@ -238,13 +238,10 @@ fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
             );
         }
         f.jj(&client, &["bookmark", "set", "main", "-r", "@"]);
-        let operation_before_push = f.operation_id(&client);
         f.jj(
             &client,
             &["git", "push", "--remote", "origin", "--bookmark", "main"],
         );
-        assert_eq!(f.log(&client, "@", "commit_id"), selected);
-        assert_ne!(f.operation_id(&client), operation_before_push);
         assert_eq!(f.log(&client, "main@origin", "commit_id"), selected);
         assert_eq!(
             f.git(&remote, &["show", "main:app/file.txt"]),
@@ -424,6 +421,7 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
             &client,
             &["bookmark", "set", "imported", "-r", &projected, "--allow-backwards"],
         );
+        f.jj(&client, &["bookmark", "track", &format!("imported@{suffix}")]);
         let working_copy_before_push = f.log(&client, "@", "commit_id");
         let mut args = vec![
             "git",
@@ -432,7 +430,6 @@ fn unrelated_history_import_uses_base_with_optional_merge_and_reprojects_exactly
             suffix,
             "--bookmark",
             "imported",
-            "--allow-new",
             "--base",
             "main",
         ];

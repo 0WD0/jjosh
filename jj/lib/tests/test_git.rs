@@ -2431,6 +2431,7 @@ fn test_import_remote_observations_selected_deletion() -> TestResult {
         symbol.remote == "origin" && (kind == GitRefKind::Tag || symbol.name == "deleted")
     })
     .block_on()?;
+    tx.repo_mut().rebase_descendants().block_on()?;
     let view = tx.repo().view();
     assert!(view.get_local_bookmark("deleted".as_ref()).is_absent());
     assert!(
@@ -2505,6 +2506,7 @@ fn test_import_remote_observations_tracked_native_conflict() -> TestResult {
         |_, candidate| candidate == symbol,
     )
     .block_on()?;
+    tx.repo_mut().rebase_descendants().block_on()?;
     let view = tx.repo().view();
     assert_eq!(view.get_local_bookmark("main".as_ref()), &conflict);
     assert_eq!(
