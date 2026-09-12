@@ -2075,7 +2075,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "103d11bef95c467577ecfa8b7b86a22e65af3507b2c9bfa3809a4afbae7df301"
 dependencies = [
  "bstr",
- "gix-config-value",
+ "gix-config-value 0.19.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gix-features",
  "gix-glob",
  "gix-path",
@@ -2092,7 +2092,7 @@ name = "gix-config"
 version = "0.60.0"
 dependencies = [
  "bstr",
- "gix-config-value",
+ "gix-config-value 0.19.1",
  "gix-features",
  "gix-glob",
  "gix-path",
@@ -2107,6 +2107,19 @@ dependencies = [
 [[package]]
 name = "gix-config-value"
 version = "0.19.1"
+dependencies = [
+ "bitflags 2.13.1",
+ "bstr",
+ "gix-path",
+ "libc",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "gix-config-value"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f6af5321bfd3711a279d6b244d58532ba1cfabf9eb6374791f19929d8970082"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
@@ -2599,7 +2612,7 @@ dependencies = [
  "bitflags 2.13.1",
  "bstr",
  "gix-attributes 0.34.0",
- "gix-config-value",
+ "gix-config-value 0.19.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gix-glob",
  "gix-path",
  "thiserror 2.0.19",
@@ -2612,7 +2625,7 @@ dependencies = [
  "bitflags 2.13.1",
  "bstr",
  "gix-attributes 0.35.0",
- "gix-config-value",
+ "gix-config-value 0.19.1",
  "gix-glob",
  "gix-path",
  "thiserror 2.0.19",
