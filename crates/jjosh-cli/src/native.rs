@@ -33,13 +33,9 @@ enum Command {
     /// mounted at NAME/ by default, or at --mount NAME=DEST for a nested path.
     /// Sources are read without snapshotting; record working files in the source first.
     /// Bundles remain accepted as an optional offline source. Import records
-    /// ancestry correspondences for subsequent native fetch/push. It does not
+    /// ancestry correspondences for subsequent git fetch/push. It does not
     /// merge or check out the imported heads: use normal jj new/rebase commands.
     Import(ImportArgs),
-    /// Receive an upstream or contribution branch in native monorepo coordinates.
-    Fetch(crate::native_project::FetchArgs),
-    /// Publish a project revision to an explicitly chosen remote and branch.
-    Push(crate::native_project::PushArgs),
     /// Move legacy native correspondence bookmarks into private Git refs.
     Migrate,
     /// Relocate a native change graph with explicit path and parent mappings.
@@ -78,8 +74,6 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         Command::Transplant(args) => crate::transplant::run(ui, command, args).await,
-        Command::Fetch(args) => crate::native_project::fetch(ui, command, args).await,
-        Command::Push(args) => crate::native_project::push(ui, command, args).await,
         Command::Migrate => run_migrate(ui, command).await,
         Command::Inspect(args) => {
             let source =
@@ -195,7 +189,7 @@ async fn run_import(
             || has_history
         {
             return Err(user_error(format!(
-                "Project namespace {name:?} already exists; receive updates with native fetch"
+                "Project namespace {name:?} already exists; receive updates with git fetch"
             )));
         }
         for head in &view.head_ids {

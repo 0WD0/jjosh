@@ -30,6 +30,54 @@ pub(crate) struct NativeSource {
 
 impl NativeSource {
     pub async fn read(loader: &RepoLoader, bookmark: Option<&str>) -> Result<Self> {
+        Self::read_with(loader, |view| {
+            if let Some(name) = bookmark {
+                let target = view
+                    .local_bookmarks
+                    .get(jj_lib::ref_name::RefName::new(name))
+                    .with_context(|| format!("Source has no local bookmark {name:?}"))?
+                    .clone();
+                *view = View::make_root(loader.store().root_commit_id().clone());
+                view.head_ids.extend(target.added_ids().cloned());
+                view.local_bookmarks.insert(name.into(), target);
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Capture only selected recorded local refs and their ancestry. In particular,
+    /// fetching a workspace never snapshots it or imports its working-copy roles,
+    /// foreign remote observations, or unrelated visible heads.
+    pub async fn read_selected(
+        loader: &RepoLoader,
+        selection: &jj_lib::git::GitFetchRefExpression,
+    ) -> Result<Self> {
+        let bookmarks = selection.bookmark.to_matcher();
+        let tags = selection.tag.to_matcher();
+        Self::read_with(loader, |view| {
+            let mut selected = View::make_root(loader.store().root_commit_id().clone());
+            selected.local_bookmarks = std::mem::take(&mut view.local_bookmarks)
+                .into_iter()
+                .filter(|(name, _)| bookmarks.is_match(name.as_str()))
+                .collect();
+            selected.local_tags = std::mem::take(&mut view.local_tags)
+                .into_iter()
+                .filter(|(name, _)| tags.is_match(name.as_str()))
+                .collect();
+            for target in selected.local_bookmarks.values().chain(selected.local_tags.values()) {
+                selected.head_ids.extend(target.added_ids().cloned());
+            }
+            *view = selected;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn read_with(
+        loader: &RepoLoader,
+        select: impl FnOnce(&mut View) -> Result<()>,
+    ) -> Result<Self> {
         let heads = jj_lib::op_walk::get_current_head_ops(
             loader.op_store(),
             loader.op_heads_store().as_ref(),
@@ -48,16 +96,7 @@ impl NativeSource {
         );
         backend.disable_lazy_commit_imports();
         let mut view = operation.view().await?.store_view().clone();
-        if let Some(name) = bookmark {
-            let target = view
-                .local_bookmarks
-                .get(jj_lib::ref_name::RefName::new(name))
-                .with_context(|| format!("Source has no local bookmark {name:?}"))?
-                .clone();
-            view = View::make_root(loader.store().root_commit_id().clone());
-            view.head_ids.extend(target.added_ids().cloned());
-            view.local_bookmarks.insert(name.into(), target);
-        }
+        select(&mut view)?;
         let source = Self::read_view(
             loader.store().clone(),
             loader.op_store().clone(),

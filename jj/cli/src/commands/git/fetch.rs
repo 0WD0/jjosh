@@ -165,6 +165,18 @@ pub async fn cmd_git_fetch(
         return Err(user_error("No git remotes to fetch from"));
     }
 
+    let mut remote_sessions = std::collections::HashMap::new();
+    if let Some(extension) = command.git_remote_extension() {
+        for remote in &matching_remotes {
+            remote_sessions.insert(*remote, extension.open(command, &workspace_command, remote)?);
+        }
+    }
+    let git_lock = if remote_sessions.is_empty() {
+        None
+    } else {
+        Some(workspace_command.lock_git_import_export()?)
+    };
+
     let mut tx = workspace_command.start_transaction();
     let remote_settings = tx.settings().remote_settings()?;
 
@@ -185,7 +197,12 @@ pub async fn cmd_git_fetch(
                     .view()
                     .local_remote_bookmarks(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
-                    .map(|(name, _)| StringExpression::exact(name))
+                    .filter_map(|(name, _)| {
+                        let source = remote_sessions
+                            .get(remote)
+                            .map_or(Some(name.as_str()), |session| session.source_name(name))?;
+                        Some(StringExpression::exact(source))
+                    })
                     .collect(),
             );
             let tag = StringExpression::union_all(
@@ -193,7 +210,12 @@ pub async fn cmd_git_fetch(
                     .view()
                     .local_remote_tags(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
-                    .map(|(name, _)| StringExpression::exact(name))
+                    .filter_map(|(name, _)| {
+                        let source = remote_sessions
+                            .get(remote)
+                            .map_or(Some(name.as_str()), |session| session.source_name(name))?;
+                        Some(StringExpression::exact(source))
+                    })
                     .collect(),
             );
             let ref_expr = GitFetchRefExpression { bookmark, tag };
@@ -208,7 +230,11 @@ pub async fn cmd_git_fetch(
             } else if let Some(expr) = parse_remote_fetch_bookmarks(ui, &remote_settings, remote)? {
                 expr
             } else {
-                let (ignored, expr) = load_default_fetch_bookmarks(remote, &git_repo)?;
+                let (ignored, expr) = if let Some(session) = remote_sessions.get(remote) {
+                    session.default_fetch_bookmarks()?
+                } else {
+                    load_default_fetch_bookmarks(remote, &git_repo)?
+                };
                 warn_ignored_refspecs(ui, remote, ignored)?;
                 expr
             };
@@ -227,32 +253,61 @@ pub async fn cmd_git_fetch(
 
     let git_settings = GitSettings::from_settings(tx.settings())?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
-    let mut git_fetch = GitFetch::new(
-        tx.repo_mut(),
-        git_settings.to_subprocess_options(),
-        &import_options,
-    )?;
-
-    for (remote, expanded) in expansions {
-        let mut callback = GitSubprocessUi::new(ui);
-        git_fetch.fetch(remote, expanded, &mut callback, None)?;
-    }
-
-    let import_stats = git_fetch.import_refs().await?;
+    let import_stats = if remote_sessions.is_empty() {
+        let mut git_fetch = GitFetch::new(
+            tx.repo_mut(),
+            git_settings.to_subprocess_options(),
+            &import_options,
+        )?;
+        for (remote, expanded) in expansions {
+            let mut callback = GitSubprocessUi::new(ui);
+            git_fetch.fetch(remote, expanded, &mut callback, None)?;
+        }
+        git_fetch.import_refs().await?
+    } else {
+        let mut observations = Vec::new();
+        let mut selections = Vec::with_capacity(expansions.len());
+        for (remote, expanded) in expansions {
+            let expr = expanded.into_expression();
+            let bookmarks = expr.bookmark.to_matcher();
+            let tags = expr.tag.to_matcher();
+            let session = &remote_sessions[remote];
+            observations.extend(session.fetch(ui, command, tx.repo_mut(), expr).await?);
+            selections.push((*remote, bookmarks, tags));
+        }
+        git::import_remote_observations(
+            tx.repo_mut(),
+            &import_options,
+            observations,
+            |kind, symbol| {
+                selections.iter().any(|(remote, bookmarks, tags)| {
+                    *remote == symbol.remote
+                        && remote_sessions[remote].source_name(symbol.name).is_some_and(|name| {
+                            match kind {
+                                git::GitRefKind::Bookmark => bookmarks.is_match(name),
+                                git::GitRefKind::Tag => tags.is_match(name),
+                            }
+                        })
+                })
+            },
+        )
+        .await?
+    };
     print_git_import_stats(ui, &tx, &import_stats)?;
 
     if let Some(bookmark_expr) = &common_bookmark_expr {
-        warn_if_branches_not_found(ui, &tx, bookmark_expr, &matching_remotes)?;
+        warn_if_branches_not_found(ui, &tx, bookmark_expr, &matching_remotes, &remote_sessions)?;
     }
     // TODO: warn_if_tags_not_found()
-    tx.finish(
-        ui,
-        format!(
-            "fetch from git remote(s) {}",
-            matching_remotes.iter().map(|n| n.as_symbol()).join(",")
-        ),
-    )
-    .await?;
+    let description = format!(
+        "fetch from git remote(s) {}",
+        matching_remotes.iter().map(|n| n.as_symbol()).join(","),
+    );
+    if let Some(git_lock) = git_lock {
+        tx.finish_with_git_import_export_lock(ui, description, &git_lock).await?;
+    } else {
+        tx.finish(ui, description).await?;
+    }
     Ok(())
 }
 
@@ -288,6 +343,10 @@ fn warn_if_branches_not_found(
     tx: &WorkspaceCommandTransaction,
     bookmark_expr: &StringExpression,
     remotes: &[&RemoteName],
+    remote_sessions: &std::collections::HashMap<
+        &RemoteName,
+        Box<dyn crate::git_remote::GitRemoteSession>,
+    >,
 ) -> io::Result<()> {
     let bookmark_matcher = bookmark_expr.to_matcher();
     let mut missing_branches = bookmark_expr
@@ -296,7 +355,10 @@ fn warn_if_branches_not_found(
         .map(RefName::new)
         .filter(|name| {
             remotes.iter().all(|&remote| {
-                let symbol = name.to_remote_symbol(remote);
+                let local_name = remote_sessions
+                    .get(remote)
+                    .map(|session| session.local_name(name.as_str()));
+                let symbol = local_name.as_deref().unwrap_or(name).to_remote_symbol(remote);
                 let view = tx.repo().view();
                 let base_view = tx.base_repo().view();
                 view.get_remote_bookmark(symbol).is_absent()

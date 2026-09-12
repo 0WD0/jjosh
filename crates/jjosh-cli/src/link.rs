@@ -32,22 +32,6 @@ pub(crate) struct Args {
 enum LinkCommand {
     /// Add an external project, or associate a source with an imported jj project.
     Add(AddArgs),
-    /// Fetch selected source branches and tags into monorepo coordinates.
-    ///
-    /// Updates jj reference observations without composing a new baseline or
-    /// automatically rebasing local changes. Integrate with ordinary jj commands.
-    Update(UpdateArgs),
-    /// Export a linked path, safely rewriting a previously pushed destination.
-    ///
-    /// Rewrites are allowed only while the remote matches its last successful
-    /// push or explicit source-branch observation (force-with-lease). State is
-    /// kept locally per exact remote URL and destination branch.
-    ///
-    /// Without a recorded position (including old-version publications), only
-    /// branch creation or fast-forward updates are allowed. Use --force only
-    /// after checking that replacement will not discard remote work.
-    /// Dry runs and failed pushes never change the recorded remote position.
-    Push(PushArgs),
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -62,7 +46,7 @@ struct AddArgs {
     url: String,
     /// Josh filter applied before mounting the linked repository.
     filter: Option<String>,
-    /// Branch updated by `link update` and used by `link push`.
+    /// Source branch used for the initial import.
     #[arg(long, default_value = "HEAD")]
     target: String,
     /// Alternate URL used only to fetch the initial linked history.
@@ -74,9 +58,6 @@ struct AddArgs {
     /// Alternate branch, tag, or commit used only to select the initial linked history.
     #[arg(long)]
     at: Option<String>,
-    /// Default publication branch. Defaults to the source target when omitted.
-    #[arg(long)]
-    push_target: Option<String>,
     /// Name of this source observation, such as upstream or origin.
     #[arg(long = "remote-name", default_value = "upstream")]
     source_remote: String,
@@ -88,41 +69,6 @@ struct AddArgs {
     revision: RevisionArg,
 }
 
-#[derive(clap::Args, Clone, Debug)]
-struct UpdateArgs {
-    /// Linked path to update. Omit to update every link in the revision.
-    path: Option<String>,
-    /// Revision whose link configuration selects the sources to fetch.
-    #[arg(short = 'r', long, default_value = "@")]
-    revision: RevisionArg,
-    /// Branch patterns to fetch (repeatable, using jj string-pattern syntax).
-    #[arg(long = "branch", short = 'b', alias = "bookmark")]
-    branches: Option<Vec<String>>,
-    /// Tag patterns to fetch (repeatable, using jj string-pattern syntax).
-    #[arg(long = "tag", short = 't')]
-    tags: Option<Vec<String>>,
-}
-
-#[derive(clap::Args, Clone, Debug)]
-struct PushArgs {
-    /// Linked path to export and push.
-    path: String,
-    /// Jujutsu revision whose linked contents should be exported.
-    /// Commits with no exported file changes are pruned regardless of their
-    /// description or whether the revision was explicitly selected.
-    #[arg(short = 'r', long, default_value = "@")]
-    revision: RevisionArg,
-    /// Destination branch. Required when the link target is not a branch.
-    #[arg(long)]
-    to: Option<String>,
-    /// Overwrite the destination even if it changed since the last observation.
-    #[arg(long, short)]
-    force: bool,
-    /// Validate the inverse export and remote update without changing the remote.
-    /// Does not update the remembered remote position.
-    #[arg(long)]
-    dry_run: bool,
-}
 
 pub(crate) async fn run(
     ui: &mut Ui,
@@ -131,8 +77,6 @@ pub(crate) async fn run(
 ) -> Result<(), CommandError> {
     match args.command {
         LinkCommand::Add(args) => run_add(ui, command_helper, args).await,
-        LinkCommand::Update(args) => run_update(ui, command_helper, args).await,
-        LinkCommand::Push(args) => run_push(ui, command_helper, args).await,
     }
 }
 
@@ -190,25 +134,52 @@ fn write_link_metadata(
     Ok(tree)
 }
 
-fn fetched_source_branch(
+fn fetch_initial(
+    git_path: &Path,
+    url: &str,
     target: &str,
-    remote: &str,
-    repo_path: &Path,
-) -> Result<String, CommandError> {
-    let fetch_head = std::fs::read_to_string(repo_path.join("FETCH_HEAD"))
-        .map_err(|err| user_error_with_message("Failed to read fetched source identity", err))?;
-    if fetch_head
-        .lines()
-        .filter_map(|line| line.splitn(3, '\t').nth(2))
-        .any(|description| description.starts_with("tag '"))
-        || target.starts_with("refs/") && !target.starts_with("refs/heads/")
-        || target.bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Ok("pinned".to_owned());
+) -> Result<(gix_hash::ObjectId, String, Vec<PathBuf>), CommandError> {
+    let git = gix::open(git_path).map_err(user_error)?;
+    let remote = git.remote_at(url).map_err(user_error)?;
+    let interrupt = std::sync::atomic::AtomicBool::new(false);
+    if let Ok(id) = gix_hash::ObjectId::from_hex(target.as_bytes()) {
+        let keeps = crate::git_transport::fetch::receive_objects(remote, [id], &interrupt)
+            .map_err(user_error)?;
+        return Ok((id, "pinned".to_owned(), keeps));
     }
-    Ok(destination_ref(target, None, remote, repo_path)?
-        .trim_start_matches("refs/heads/")
-        .to_owned())
+    let fetched = crate::git_transport::fetch::fetch(
+        remote,
+        |reference| {
+            let name = reference.unpack().0;
+            name == target.as_bytes()
+                || target != "HEAD"
+                    && (name.strip_prefix(b"refs/heads/") == Some(target.as_bytes())
+                        || name.strip_prefix(b"refs/tags/") == Some(target.as_bytes()))
+        },
+        &interrupt,
+    )
+    .map_err(user_error)?;
+    let [reference] = fetched.received.as_slice() else {
+        return Err(user_error(format!(
+            "Initial source {target:?} must select exactly one existing branch, tag, or HEAD"
+        )));
+    };
+    let branch_name = match reference {
+        gix::protocol::handshake::Ref::Symbolic { target, .. } => {
+            target.strip_prefix(b"refs/heads/")
+        }
+        _ => reference.unpack().0.strip_prefix(b"refs/heads/"),
+    };
+    let branch = branch_name
+        .map(std::str::from_utf8)
+        .transpose()
+        .map_err(user_error)?
+        .unwrap_or("pinned")
+        .to_owned();
+    let id = reference.unpack().1
+        .ok_or_else(|| user_error("Initial source has no object"))?
+        .to_owned();
+    Ok((id, branch, fetched.keep_paths))
 }
 
 async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<(), CommandError> {
@@ -225,9 +196,6 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         .ok_or_else(|| user_error("Link path must be UTF-8"))?;
     crate::native_project::validate_project(&args.source_remote).map_err(user_error)?;
     let mode = crate::link_metadata::LinkMode::parse(&args.mode).map_err(user_error)?;
-    if args.push_target.is_some() && args.push_url.is_none() {
-        return Err(user_error("--push-target requires --push-url"));
-    }
     let git_path = sha1_git_repo_path(&workspace)?;
     let git_lock = workspace.lock_git_import_export()?;
     let transaction = open_josh_transaction(&git_path, false)?;
@@ -257,6 +225,16 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     } else {
         crate::ref_names::project_from_path(&path).map_err(user_error)?
     };
+    let remote_name = crate::ref_names::observation_remote(&project, &args.source_remote)
+        .map_err(user_error)?;
+    let git = gix::open(&git_path).map_err(user_error)?;
+    if git.remote_names().iter().any(|name| &name[..] == remote_name.as_bytes())
+        && crate::git_remote::config_string(&git, &format!("remote.{remote_name}.jjosh-project"))
+            .map_err(user_error)?
+            .as_deref() != Some(project.as_str())
+    {
+        return Err(user_error(format!("Remote {remote_name} already exists and is not attached to {project}")));
+    }
     for (existing_path, existing) in &existing_links {
         if existing_path == &path {
             continue;
@@ -286,21 +264,17 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         args.fetch_url.as_deref().unwrap_or(&args.url),
     )?;
     let fetch_target = args.at.as_deref().unwrap_or(&args.target);
-    transaction
-        .spawn_git(
-            &[
-                "fetch",
-                "--no-tags",
-                "--refmap=",
-                "--",
-                &fetch_url,
-                fetch_target,
-            ],
-            &[],
-        )
-        .map_err(user_error)?;
-    let raw = josh_core::git::resolve_fetch_head(&transaction).map_err(user_error)?;
-    let branch = fetched_source_branch(fetch_target, &fetch_url, &git_path)?;
+    let (raw_object, branch, keeps) = fetch_initial(&git_path, &fetch_url, fetch_target)?;
+    git.reference(
+        format!("refs/jjosh/pins/{raw_object}"),
+        raw_object,
+        gix::refs::transaction::PreviousValue::Any,
+        "retain initial linked source",
+    ).map_err(user_error)?;
+    for keep in keeps {
+        std::fs::remove_file(keep)?;
+    }
+    let raw = josh_core::objects::peel_to_commit(transaction.odb(), raw_object).map_err(user_error)?;
     let mut pin = raw;
     if native {
         let known =
@@ -339,7 +313,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
         push_url.as_deref(),
         args.filter.as_deref(),
         &args.target,
-        args.push_target.as_deref(),
+        None,
         pin,
         source_tree,
         mode.clone(),
@@ -379,9 +353,7 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
                 parents.push(source_id.clone());
             }
             let remote: jj_lib::ref_name::RemoteNameBuf =
-                crate::ref_names::observation_remote(&project, &args.source_remote)
-                    .map_err(user_error)?
-                    .into();
+                remote_name.clone().into();
             if branch != "pinned" {
                 let name: jj_lib::ref_name::RefNameBuf =
                     crate::ref_names::local_name(&project, &branch).into();
@@ -425,16 +397,41 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     if was_working_copy {
         tx.edit(&added)?;
     }
+    josh_cli::remote_ops::configure_remote(
+        &git_path,
+        &remote_name,
+        &url,
+        &josh_core::filter::spec(filter.prefix(&path)),
+        None,
+        push_url.as_deref(),
+        None,
+    ).map_err(user_error)?;
+    let project_mount = crate::native_project::parse_mount(mount).map_err(user_error)?;
+    crate::git_remote::configure_attachment(
+        &git_path, &remote_name, &project, &project_mount, push_url.is_none(),
+    ).map_err(user_error)?;
+    if branch != "pinned" {
+        let prefix = crate::git_remote::raw_ref_prefix(&git, &fetch_url).map_err(user_error)?;
+        let raw_ref = format!("{prefix}refs/heads/{branch}");
+        let old = transaction.resolve_ref(&raw_ref).map_err(user_error)?;
+        transaction.update_ref(
+            &raw_ref,
+            old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At),
+            raw,
+            "observe initial linked source",
+        ).map_err(user_error)?;
+        transaction.flush_mem_odb().map_err(user_error)?;
+    }
     tx.finish_with_git_import_export_lock(
         ui,
         format!("add linked source {}", path.display()),
         &git_lock,
     )
     .await?;
-    if args.fetch_url.is_none() && args.at.is_none() && branch != "pinned" {
+    if branch != "pinned" {
         crate::link_refs::record_observation(
             &transaction,
-            &url,
+            &fetch_url,
             &format!("refs/heads/{branch}"),
             raw,
         )?;
@@ -443,183 +440,3 @@ async fn run_add(ui: &mut Ui, command: &CommandHelper, args: AddArgs) -> Result<
     Ok(())
 }
 
-async fn run_update(
-    ui: &mut Ui,
-    command_helper: &CommandHelper,
-    args: UpdateArgs,
-) -> Result<(), CommandError> {
-    if !command_helper.is_at_head_operation() || command_helper.global_args().no_integrate_operation
-    {
-        return Err(user_error(
-            "Link fetch requires the current integrated operation",
-        ));
-    }
-    let mut workspace = command_helper.workspace_helper(ui).await?;
-    let commit = workspace.resolve_single_rev(ui, &args.revision).await?;
-    let selected = args.path.as_deref().map(normalized_link_path).transpose()?;
-    let git_lock = workspace.lock_git_import_export()?;
-    let transaction = open_josh_transaction(&sha1_git_repo_path(&workspace)?, false)?;
-    let links = crate::link_metadata::find_native_link_files(transaction.odb(), &commit)
-        .map_err(user_error)?;
-    let links: Vec<_> = links
-        .into_iter()
-        .filter(|(path, _)| selected.as_ref().is_none_or(|selected| selected == path))
-        .collect();
-    if links.is_empty() {
-        return Err(user_error(
-            "No matching Josh links in the selected revision",
-        ));
-    }
-    let mut tx = workspace.start_transaction();
-    let settings = jj_lib::git::GitSettings::from_settings(tx.settings())?;
-    let remote_settings = tx.settings().remote_settings()?;
-    let options = jj_cli::git_util::load_git_import_options(ui, &settings, &remote_settings)?;
-    for (path, link) in links {
-        crate::link_fetch::fetch(
-            ui,
-            command_helper,
-            tx.repo_mut(),
-            &transaction,
-            &path,
-            link,
-            args.branches.as_deref(),
-            args.tags.as_deref(),
-            &options,
-        )
-        .await?;
-    }
-    tx.finish_with_git_import_export_lock(ui, "fetch linked source references", &git_lock)
-        .await
-}
-
-fn destination_ref(
-    configured_target: &str,
-    override_target: Option<&str>,
-    remote: &str,
-    repo_path: &Path,
-) -> Result<String, CommandError> {
-    let target = if let Some(target) = override_target {
-        target.to_owned()
-    } else if configured_target == "HEAD" {
-        josh_cli::remote_ops::get_head_branch(remote, repo_path, "link").map_err(|err| {
-            user_error_with_message("Failed to resolve the linked remote's default branch", err)
-        })?
-    } else {
-        configured_target.to_owned()
-    };
-    if target.starts_with("refs/heads/") {
-        Ok(target)
-    } else if target.starts_with("refs/") || target.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        Err(user_error(format!(
-            "Link target '{target}' is not a branch; specify --to <branch>"
-        )))
-    } else {
-        Ok(format!("refs/heads/{target}"))
-    }
-}
-
-async fn run_push(
-    ui: &mut Ui,
-    command_helper: &CommandHelper,
-    args: PushArgs,
-) -> Result<(), CommandError> {
-    // Never refresh a lease by querying the remote during push. Only prior
-    // successful publication or explicit source observation authorizes rewrites.
-    let workspace_command = command_helper.workspace_helper(ui).await?;
-    let commit = workspace_command
-        .resolve_single_rev(ui, &args.revision)
-        .await?;
-    check_link_commit(&workspace_command, &commit)?;
-    let path = normalized_link_path(&args.path)?;
-    let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let _git_lock = workspace_command.lock_git_import_export()?;
-    let transaction = open_josh_transaction(&git_repo_path, args.dry_run)?;
-    let source_commit = commit_as_josh_oid(&commit)?;
-    let prepared = crate::link_metadata::prepare_link_push(&transaction, source_commit, &path)
-        .map_err(|err| user_error_with_message("Failed to export the Josh link", err))?;
-    let push_remote = prepared.push_remote.as_deref().ok_or_else(|| {
-        user_error(format!(
-            "Josh link at '{}' has no push remote; add push metadata with --push-url before \
-             publishing",
-            path.display()
-        ))
-    })?;
-    let configured_destination = prepared
-        .configured_push_target
-        .as_deref()
-        .unwrap_or(&prepared.configured_target);
-    let normalized_repo_path = josh_core::git::normalize_repo_path(&git_repo_path);
-    let destination = destination_ref(
-        configured_destination,
-        args.to.as_deref(),
-        push_remote,
-        &normalized_repo_path,
-    )?;
-    let tracking_ref =
-        crate::link_refs::push_tracking_ref(&transaction, push_remote, &destination)?;
-    let last_pushed = transaction.resolve_ref(&tracking_ref).map_err(|err| {
-        user_error_with_message("Failed to read the last successful link push", err)
-    })?;
-    let refspec = format!(
-        "{}{}:{}",
-        if args.force { "+" } else { "" },
-        prepared.exported_commit,
-        destination
-    );
-    let lease = last_pushed
-        .filter(|_| !args.force)
-        .map(|expected| format!("--force-with-lease={destination}:{expected}"));
-    let mut push_args = vec!["push"];
-    if let Some(lease) = &lease {
-        push_args.push(lease);
-    }
-    if args.dry_run {
-        push_args.push("--dry-run");
-    }
-    push_args.extend(["--", push_remote, &refspec]);
-    let failure_context = if args.dry_run {
-        "Failed to preflight the Josh link push"
-    } else {
-        "Failed to push the Josh link"
-    };
-    transaction
-        .spawn_git(&push_args, &[])
-        .map_err(|err| user_error_with_message(failure_context, err))?;
-    if args.dry_run {
-        writeln!(
-            ui.status(),
-            "Link push preflight succeeded for {} to {}:{}\nExported commit: {}\nRemote updated: \
-             no",
-            path.display(),
-            push_remote,
-            destination,
-            prepared.exported_commit
-        )?;
-    } else {
-        transaction
-            .update_ref(
-                &tracking_ref,
-                last_pushed.map_or(
-                    josh_core::cache::Expected::Absent,
-                    josh_core::cache::Expected::At,
-                ),
-                prepared.exported_commit,
-                "jjosh link push",
-            )
-            .and_then(|()| transaction.flush_mem_odb())
-            .map_err(|err| {
-                user_error_with_message(
-                    "Link was pushed, but its new remote position could not be saved",
-                    err,
-                )
-            })?;
-        writeln!(
-            ui.status(),
-            "Pushed link {} to {}:{}",
-            path.display(),
-            push_remote,
-            destination
-        )?;
-    }
-    Ok(())
-}

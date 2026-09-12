@@ -321,6 +321,8 @@ struct CommandHelperData {
     revset_extensions: Arc<RevsetExtensions>,
     commit_template_extensions: Vec<Arc<dyn CommitTemplateLanguageExtension>>,
     operation_template_extensions: Vec<Arc<dyn OperationTemplateLanguageExtension>>,
+    #[cfg(feature = "git")]
+    git_remote_extension: Option<Box<dyn crate::git_remote::GitRemoteExtension>>,
     maybe_workspace_loader: Result<Box<dyn WorkspaceLoader>, CommandError>,
     store_factories: StoreFactories,
     working_copy_factories: WorkingCopyFactories,
@@ -399,6 +401,11 @@ impl CommandHelper {
 
     pub fn revset_extensions(&self) -> &Arc<RevsetExtensions> {
         &self.data.revset_extensions
+    }
+
+    #[cfg(feature = "git")]
+    pub fn git_remote_extension(&self) -> Option<&dyn crate::git_remote::GitRemoteExtension> {
+        self.data.git_remote_extension.as_deref()
     }
 
     /// Parses template of the given language into evaluation tree.
@@ -4728,6 +4735,8 @@ pub struct CliRunner<'a> {
     revset_extensions: RevsetExtensions,
     commit_template_extensions: Vec<Arc<dyn CommitTemplateLanguageExtension>>,
     operation_template_extensions: Vec<Arc<dyn OperationTemplateLanguageExtension>>,
+    #[cfg(feature = "git")]
+    git_remote_extension: Option<Box<dyn crate::git_remote::GitRemoteExtension>>,
     dispatch: BoxedAsyncCliDispatch<'a>,
     dispatch_hooks: Vec<BoxedAsyncCliDispatchHook<'a>>,
     process_global_args_fns: Vec<ProcessGlobalArgsFn<'a>>,
@@ -4753,6 +4762,8 @@ impl<'a> CliRunner<'a> {
             revset_extensions: Default::default(),
             commit_template_extensions: vec![],
             operation_template_extensions: vec![],
+            #[cfg(feature = "git")]
+            git_remote_extension: None,
             dispatch: Box::new(AsyncCliDispatchFn(crate::commands::run_command)),
             dispatch_hooks: vec![],
             process_global_args_fns: vec![],
@@ -4848,6 +4859,16 @@ impl<'a> CliRunner<'a> {
     ) -> Self {
         self.operation_template_extensions
             .push(operation_template_extension.into());
+        self
+    }
+
+    /// Replaces the transport/conversion boundary of ordinary Git fetch and push.
+    #[cfg(feature = "git")]
+    pub fn add_git_remote_extension(
+        mut self,
+        extension: Box<dyn crate::git_remote::GitRemoteExtension>,
+    ) -> Self {
+        self.git_remote_extension = Some(extension);
         self
     }
 
@@ -5030,6 +5051,8 @@ impl<'a> CliRunner<'a> {
             revset_extensions: self.revset_extensions.into(),
             commit_template_extensions: self.commit_template_extensions,
             operation_template_extensions: self.operation_template_extensions,
+            #[cfg(feature = "git")]
+            git_remote_extension: self.git_remote_extension,
             maybe_workspace_loader,
             store_factories: self.store_factories,
             working_copy_factories: self.working_copy_factories,

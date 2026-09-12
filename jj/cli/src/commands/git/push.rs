@@ -237,6 +237,14 @@ pub struct GitPushArgs {
     #[arg(long)]
     dry_run: bool,
 
+    /// Source branch supplying context when reversing a history projection.
+    #[arg(long)]
+    base: Option<String>,
+
+    /// Merge reverse-projected history with its source context.
+    #[arg(long)]
+    merge: bool,
+
     /// Git push options
     #[arg(long, short)]
     option: Vec<String>,
@@ -288,6 +296,9 @@ pub async fn cmd_git_push(
         ));
     }
     let mut workspace_command = command.workspace_helper(ui).await?;
+    if (args.base.is_some() || args.merge) && command.git_remote_extension().is_none() {
+        return Err(user_error("--base and --merge require a projection-aware remote"));
+    }
 
     let remote_expr = if let Some(remotes) = &args.remotes {
         parse_union_name_patterns(ui, remotes)?
@@ -318,6 +329,18 @@ pub async fn cmd_git_push(
     if matching_remotes.is_empty() {
         return Err(user_error("No git remotes to push to"));
     }
+
+    let mut remote_sessions = std::collections::HashMap::new();
+    if let Some(extension) = command.git_remote_extension() {
+        for remote in &matching_remotes {
+            remote_sessions.insert(*remote, extension.open(command, &workspace_command, remote)?);
+        }
+    }
+    let git_lock = if remote_sessions.is_empty() {
+        None
+    } else {
+        Some(workspace_command.lock_git_import_export()?)
+    };
 
     let mut tx = workspace_command.start_transaction();
     let mut by_remote = Vec::with_capacity(matching_remotes.len());
@@ -578,8 +601,13 @@ pub async fn cmd_git_push(
     let options = GitPushOptions {
         remote_push_options: args.option.clone(),
     };
+    let preparation = crate::git_remote::GitRemotePushOptions {
+        base: args.base.clone(),
+        merge: args.merge,
+    };
     let mut all_ok = true;
     let mut some_exported = false;
+    let mut push_error = None;
 
     for (remote, ref_updates) in &by_remote {
         if let Some(mut formatter) = ui.status_formatter() {
@@ -591,23 +619,52 @@ pub async fn cmd_git_push(
             print_commits_ready_to_push(formatter.as_mut(), tx.repo(), ref_updates).await?;
         }
 
+        let push_stats = if let Some(session) = remote_sessions.get(remote) {
+            match session
+                .push(ui, command, tx.repo_mut(), ref_updates, &options, &preparation, args.dry_run)
+                .await
+            {
+                Ok(outcome) => {
+                    if let Some(error) = outcome.error {
+                        if args.dry_run {
+                            return Err(error);
+                        }
+                        push_error = Some(error);
+                    }
+                    outcome.stats
+                }
+                Err(error) if args.dry_run => return Err(error),
+                Err(error) => {
+                    push_error = Some(error);
+                    all_ok = false;
+                    break;
+                }
+            }
+        } else {
+            if args.dry_run {
+                continue;
+            }
+            git::push_refs(
+                tx.repo_mut(),
+                git_settings.to_subprocess_options(),
+                remote,
+                ref_updates,
+                &mut GitSubprocessUi::new(ui),
+                &options,
+            )?
+        };
         if args.dry_run {
             continue;
         }
-
-        let push_stats = git::push_refs(
-            tx.repo_mut(),
-            git_settings.to_subprocess_options(),
-            remote,
-            ref_updates,
-            &mut GitSubprocessUi::new(ui),
-            &options,
-        )?;
 
         print_push_stats(ui, &push_stats)?;
 
         all_ok &= push_stats.all_ok();
         some_exported |= push_stats.some_exported();
+        if push_error.is_some() {
+            all_ok = false;
+            break;
+        }
     }
 
     if args.dry_run {
@@ -647,7 +704,15 @@ pub async fn cmd_git_push(
             }
         };
 
-        tx.finish(ui, description).await?;
+        if let Some(git_lock) = git_lock {
+            tx.finish_with_git_import_export_lock(ui, description, &git_lock).await?;
+        } else {
+            tx.finish(ui, description).await?;
+        }
+    }
+
+    if let Some(error) = push_error {
+        return Err(error);
     }
 
     if all_ok {

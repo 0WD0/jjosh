@@ -3135,6 +3135,13 @@ pub struct ExpandedFetchRefSpecs {
     negative_refspecs: Vec<NegativeRefSpec>,
 }
 
+impl ExpandedFetchRefSpecs {
+    /// Returns the validated source-name selection for an object-only transport.
+    pub fn into_expression(self) -> GitFetchRefExpression {
+        self.expr
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum GitRefExpansionError {
     #[error(transparent)]

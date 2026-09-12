@@ -87,7 +87,7 @@ pub(crate) fn push(
         url.to_bstring().as_bstr(),
         remote.name().map(|name| name.as_bstr()),
     )?;
-    let transport = transport::client::blocking_io::connect(
+    let transport = transport::client::blocking_io::connect::connect(
         url,
         transport::client::blocking_io::connect::Options {
             version: transport::Protocol::V1,
@@ -98,7 +98,10 @@ pub(crate) fn push(
     let mut connection = remote.to_connection_with_transport(transport);
     let credentials = connection.configured_credentials_for_current_url();
     if let Some(config) = transport_options {
-        connection.transport_mut().configure(&*config)?;
+        connection
+            .transport_mut()
+            .configure(&*config)
+            .map_err(anyhow::Error::from_boxed)?;
     }
     let handshake = protocol::handshake(
         connection.transport_mut(),
