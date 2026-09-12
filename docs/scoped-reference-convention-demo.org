@@ -47,14 +47,24 @@ jjosh -R /tmp/demo-mono git push --bookmark 'main#*'
 
 dry-run 显示每个逻辑引用的 remote、完整目标引用与动作，包括未变化的只读引用，不修改远端或 jj 操作。所有批次先准备完成并检查对象与 lease，任何已知准备失败都阻止全部发布。但这不是跨 remote 原子事务：发布阶段的网络、receive hook 或并发更新失败仍可能留下部分成功，只对已确认结果记账。
 
+tag 采用同一约定，不额外引入 scope 参数：
+
+#+begin_src sh
+jjosh -R /tmp/demo-mono tag set 'v1.0#alpha' -r 'main#alpha'
+jjosh -R /tmp/demo-mono git push --tag 'v1.0#*' --dry-run
+jjosh -R /tmp/demo-mono git push --tag 'v1.0#*'
+#+end_src
+
+远端名字为 =refs/tags/v1.0=。轻量 tag 和 unsigned annotated commit tag 均可转换，annotation-only 更新也由直接对象 ID lease 保护；signed tag 转换明确拒绝，不产生失效签名或隐式去签名。
+
 * 明确不做什么
 
 - 默认就是 =NAME#PROJECT=。旧的 =PROJECT/NAME= 观察可以暂时并存，新 fetch 下来后再删。
 - =#PROJECT= 是命名约定，不是权限或归属隔离；相同拼写的“字面名字”和“带 scope 的名字”无法共存。导入会拒绝已占用的项目名字空间。
-- named Git remote 保存真实 URL，Josh 文件只保存转换语义；项目身份和挂载属于 named remote 配置。多个 peer 分别配置，不从 =.link.josh= 的 URL/target 决定同步。
+- named Git remote 保存真实 URL，Josh 文件只保存转换语义。项目可用 =projection add NAME --mount DIR= 独立登记，再 attach 多个 peer；=projection list/show/check= 查询和诊断绑定，不从 =.link.josh= 的 URL/target 决定同步。
 - 发布保留 jj 的显式选择和 tracking。bookmark 的创建、移动与 push 分开；push 根据选中引用的 =#scope= 自动导出项目并移除远端名字的 scope 后缀。发布 endpoint 不必绑定项目，fetch 的来源映射仍需配置。
 - =jjosh git fetch/push= 执行所配置的转换；原生 =git fetch/push= 绕过转换并连接真实上游。没有 namespace façade 或原生 Git push 拦截器，不能把引用改名当作历史转换。
-- 原有 native 转换边界、私有保活引用以及按实际 URL/目标分支绑定的 lease 均不变。这个 demo 不宣称解决所有转换歧义、隐藏版本或外部发布恢复问题。
+- 原有 native 转换边界和私有保活引用继续使用；lease 按实际 URL 与完整分支/tag 引用记录，tag 比较直接对象 ID。这个 demo 不宣称解决所有转换歧义、隐藏版本或外部发布恢复问题。
 
 * 验证
 

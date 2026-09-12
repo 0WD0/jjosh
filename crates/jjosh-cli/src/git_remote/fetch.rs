@@ -39,7 +39,7 @@ fn canonical_ref(session: &Session, kind: GitRefKind, source: &str) -> String {
     )
 }
 
-/// The logical target and the physical mirror differ for identity annotated tags.
+/// Logical tags target commits; physical mirrors retain unsigned annotations.
 struct Converted {
     target: RefTarget,
     mirror: Option<gix::ObjectId>,
@@ -247,6 +247,7 @@ pub(super) async fn run(
     } else {
         None
     };
+    let mut annotations = BTreeMap::new();
     if let Some(path) = native_path {
         let transaction = transaction
             .as_ref()
@@ -264,6 +265,37 @@ pub(super) async fn run(
             crate::native_source::NativeSource::read_selected(workspace.repo_loader(), &selection)
                 .await
                 .map_err(user_error)?;
+        // Native JJ sources also have Git annotation objects outside their
+        // commit-target view. Preserve them only when the mirror still agrees
+        // with that view, and reject signed conversion before any observations.
+        let source_objects = source_git.git_repo();
+        for (name, target) in &source.view.local_tags {
+            let Some(commit) = target.as_normal() else {
+                continue;
+            };
+            let reference_name = format!("refs/tags/{}", name.as_str());
+            let Some(reference) = source_objects
+                .try_find_reference(reference_name.as_str())
+                .map_err(user_error)?
+            else {
+                continue;
+            };
+            let Some(id) = reference.try_id() else {
+                continue;
+            };
+            let peeled = id
+                .object()
+                .map_err(user_error)?
+                .peel_tags_to_end()
+                .map_err(user_error)?;
+            if peeled.kind == gix::objs::Kind::Commit && peeled.id.as_bytes() == commit.as_bytes() {
+                annotations.insert(
+                    format!("refs/tags/{}", name.as_str()),
+                    crate::link_refs::CommitTag::read(&source_objects, id.detach())
+                        .map_err(user_error)?,
+                );
+            }
+        }
         let project = session
             .project
             .as_ref()
@@ -363,27 +395,6 @@ pub(super) async fn run(
             new_raw.insert(format!("{raw_prefix}{name}"), id);
             received.insert(name.to_owned(), id);
         }
-        // No keep file is removed if raw publication fails. Even noncommit tag
-        // objects retain their exact direct IDs in this private namespace.
-        install_refs(&git, &old_raw, &new_raw)?;
-        for path in outcome.keep_paths {
-            std::fs::remove_file(path).map_err(user_error)?;
-        }
-        // Endpoint leases reflect the advertisement, not projection visibility.
-        if let Some(transaction) = &transaction {
-            for source in converted
-                .keys()
-                .filter(|name| name.starts_with("refs/heads/"))
-            {
-                match advertised.get(source).copied().flatten() {
-                    Some(id) => {
-                        crate::link_refs::record_observation(transaction, &endpoint, source, id)?
-                    }
-                    None => crate::link_refs::record_absence(transaction, &endpoint, source)?,
-                }
-            }
-            transaction.flush_mem_odb().map_err(user_error)?;
-        }
         let mut commits = BTreeMap::new();
         for (name, direct) in &received {
             let object = git
@@ -392,8 +403,35 @@ pub(super) async fn run(
                 .peel_tags_to_end()
                 .map_err(user_error)?;
             if object.kind == gix::objs::Kind::Commit {
+                if transaction.is_some() && name.starts_with("refs/tags/") {
+                    // Preflight the entire selected batch before installing refs
+                    // or granting endpoint leases. Keep received immutable objects,
+                    // but never manufacture an unsigned mirror of a signed tag.
+                    annotations.insert(
+                        name.clone(),
+                        crate::link_refs::CommitTag::read(&git, *direct).map_err(user_error)?,
+                    );
+                }
                 commits.insert(name.clone(), object.id);
             }
+        }
+        // No keep file is removed if raw publication fails. Even noncommit tag
+        // objects retain their exact direct IDs in this private namespace.
+        install_refs(&git, &old_raw, &new_raw)?;
+        for path in outcome.keep_paths {
+            std::fs::remove_file(path).map_err(user_error)?;
+        }
+        // Endpoint leases reflect the advertisement, not projection visibility.
+        if let Some(transaction) = &transaction {
+            for source in converted.keys() {
+                match advertised.get(source).copied().flatten() {
+                    Some(id) => {
+                        crate::link_refs::record_observation(transaction, &endpoint, source, id)?
+                    }
+                    None => crate::link_refs::record_absence(transaction, &endpoint, source)?,
+                }
+            }
+            transaction.flush_mem_odb().map_err(user_error)?;
         }
         if let Some(project) = session.project.as_ref().filter(|project| project.native) {
             let transaction = transaction
@@ -481,6 +519,19 @@ pub(super) async fn run(
                     },
                 );
             }
+        }
+    }
+    for (source, tag) in annotations {
+        if let Some(converted) = converted.get_mut(&source)
+            && let Some(commit) = converted.mirror
+        {
+            let name = source
+                .strip_prefix("refs/tags/")
+                .expect("tag classified above");
+            converted.mirror = Some(
+                tag.retarget(&git, commit, session.local_name(name).as_str())
+                    .map_err(user_error)?,
+            );
         }
     }
     // Generated objects and native boundary refs must be durable before exposing

@@ -240,9 +240,7 @@ async fn run_project_add(
     let git_path = sha1_git_repo_path(&workspace)?;
     let project = crate::native_project::parse_project(&args.project).map_err(user_error)?;
     let mount = crate::native_project::parse_mount(&args.mount).map_err(user_error)?;
-    let commit = workspace
-        .resolve_single_rev(ui, &RevisionArg::AT)
-        .await?;
+    let commit = workspace.resolve_single_rev(ui, &RevisionArg::AT).await?;
     if !crate::native_project::commit_path_occupied(&commit, &mount)
         .await
         .map_err(user_error)?

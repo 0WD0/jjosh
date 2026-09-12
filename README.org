@@ -90,6 +90,22 @@ jjosh git push --remote rivulet-origin --bookmark main#rivulet
 
 =list/show/check/preview= 均支持 =--json=。=preview= 替代原来的 =projection status=，可选择 =--project NAME=、filter 或 =--view PATH=，三者互斥；按需用 =--files=、=--history= 查看文件和转换后的历史，不持久化转换对象或更新操作。项目预览是本地目录视图，不是经过来源 filter 反向转换后的远端树；用 =git push --dry-run= 检查实际目的地和引用计划。
 
+** 发布版本 tag
+
+tag 与 bookmark 使用同一个 scope 约定。本地 =v1.0#rivulet= 发布成该项目远端的 =refs/tags/v1.0=：
+
+#+begin_src sh
+jjosh tag set 'v1.0#rivulet' -r 'main#rivulet'
+jjosh git push --remote rivulet-origin --tag 'v1.0#rivulet' --dry-run
+jjosh git push --remote rivulet-origin --tag 'v1.0#rivulet'
+#+end_src
+
+不同项目可使用同一版本号，=git push --tag 'v1.0#*'= 按各自的可写绑定路由。=tag set= 创建轻量 tag；已有 unsigned annotated tag（包括指向提交的嵌套 tag）在转换时保留 tagger 与消息，重写目标对象和外层公开名字。fetch 得到的 tag 仍需按 jj 规则显式 =tag track NAME#PROJECT@REMOTE=，不会因为获取就自动成为本地 tag。
+
+修改已有 tag 用 =tag set --allow-move NAME#PROJECT -r REV=，删除用 =tag delete NAME#PROJECT= 后再 push。发布授权按 endpoint 和完整引用记录 *直接对象 ID*；远端仅修改 annotation、未改变 peeled commit 也会触发 stale lease，需重新 fetch。选择明确的 =REV=：创建 tag 可能使目标不可变，并让 =@= 移到新的子提交。
+
+签名不能随目标转换继续有效。选中的 signed tag（包括签名的内层 tag）会在转换 fetch/push 的引用和 lease 写入前拒绝，不静默去签名；普通无转换 Git tag 不受此限制。dry-run 可以准备可回收对象，但不会建立发布记录或新增 native 导出的保活引用。
+
 * 把已有项目接进来
 
 ** 保留正在进行的 jj 开发
@@ -227,7 +243,7 @@ third-party/msquic = :/src/msquic
 
 发布选择沿用 jj 的 bookmark/tag 规则；=--base= 和 =--merge= 为 Josh 反向映射指定来源上下文。改变映射后，Josh 可能规范化定义、补入内容和调整父关系；重新 fetch 回来的版本可能保留 change ID，却有不同 commit ID。接续它时迁移尚未发布的后继，不要再次重放已经发布的映射提交。
 
-投影 fetch 可选择分支和指向提交的 tags；反向发布转换后的 tags 尚不支持。获取不要求来源提供 HEAD 默认分支。Josh 不能保真转换含未解决 jj 原生冲突的所选祖先历史；需要保留这种状态时使用 native，而不是假定干净的 tip 能掩盖冲突祖先。
+投影 fetch/push 支持分支、轻量 tag 和 unsigned annotated commit tag；signed tag 转换会明确拒绝。获取不要求来源提供 HEAD 默认分支。Josh 不能保真转换含未解决 jj 原生冲突的所选祖先历史；需要保留这种状态时使用 native，而不是假定干净的 tip 能掩盖冲突祖先。
 
 Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 filter 和语义元数据。没有本地 namespace façade，也不会再从自己 fetch 一次。旧的含 URL/refspec metadata 的 Josh remote 文件需要通过 =projection remote add= 显式重新配置；配置错误不会静默按普通 Git 处理。
 
@@ -236,7 +252,7 @@ Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 fi
 * 真正需要记住的边界
 
 - *历史坐标不等于引用名字。* =main#jj@jj-upstream= 仍是普通 jj 引用。fetch 根据来源配置转换，push 根据选中引用的 =#scope= 导出项目；直接运行原生 =git fetch/push= 会绕过它并连接真实上游，不是受支持的投影同步路径。
-- *观察不是覆盖授权。* native/Josh 按实际目标 endpoint 与分支记录 raw lease；首次只允许创建或可证明的快进，已有观察时校验 expected-old。普通 Git 路径使用 jj 准备的引用 lease。收到新的 push advertisement 不自动刷新覆盖授权，未确认或结果不明的引用不按成功记账。
+- *观察不是覆盖授权。* native/Josh 按实际目标 endpoint 与完整分支/tag 引用记录 raw lease，tag 使用直接对象 ID 而非 peeled commit。首次只允许创建或可证明的快进，已有观察时校验 expected-old。普通 Git 路径使用 jj 准备的引用 lease。收到新的 push advertisement 不自动刷新覆盖授权，未确认或结果不明的引用不按成功记账。
 - *恢复本地操作不撤销发布。* =op restore= 不回滚远端或私有发布记录。非 colocated 仓库恢复引用后，先用 =jjosh git export= 同步物理 refs，再做 import。多个来源之间没有原子发布。
 - *私有对应关系不是可随手删的缓存。* =refs/jjosh/native/NAME/= 同时保存转换边界并保活 raw/canonical 对象。旧 =jjosh-native-NAME= 伪远端用 =native migrate= 迁移，不手工改名或删除。
 - *格式升级不是开关。* sparse 的新工作副本和 operation-store 格式会拒绝旧二进制，reset 不降级。切换前退出旧 jj 进程；更早的 =simple_op_store_native_remotes=、=simple_op_store_sparse= 实验格式不能靠改类型标记升级。
