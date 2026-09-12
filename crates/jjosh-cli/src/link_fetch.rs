@@ -51,11 +51,9 @@ struct ProjectedContent {
     message: Vec<u8>,
 }
 
-struct ProjectedMatch {
-    change_id: ChangeId,
-    content: ProjectedContent,
-    canonical: CommitId,
-}
+// A source history can have many commits; only divergent versions of one change
+// need a linear projected-content comparison.
+type ProjectedMatches = HashMap<ChangeId, Vec<(ProjectedContent, CommitId)>>;
 
 fn projected_info(
     transaction: &Transaction,
@@ -97,14 +95,16 @@ async fn find_existing_filtered_commit(
     transaction: &Transaction,
     path: &Path,
     filtered: gix_hash::ObjectId,
-    matches: &[ProjectedMatch],
+    matches: &ProjectedMatches,
 ) -> Result<(ChangeId, ProjectedContent, Option<CommitId>), CommandError> {
     let (change_id, content) = projected_info(transaction, filtered)?;
-    if let Some(previous) = matches
-        .iter()
-        .find(|previous| previous.change_id == change_id && previous.content == content)
-    {
-        return Ok((change_id, content, Some(previous.canonical.clone())));
+    if let Some(previous) = matches.get(&change_id).and_then(|versions| {
+        versions
+            .iter()
+            .find(|(previous, _)| previous == &content)
+            .map(|(_, canonical)| canonical)
+    }) {
+        return Ok((change_id, content, Some(previous.clone())));
     }
 
     let mut canonical: Option<CommitId> = None;
@@ -152,7 +152,7 @@ async fn canonicalize_filtered_graph(
     transaction: &Transaction,
     path: &Path,
     filtered: gix_hash::ObjectId,
-    matches: &mut Vec<ProjectedMatch>,
+    matches: &mut ProjectedMatches,
 ) -> Result<CommitId, CommandError> {
     let mut mapped: HashMap<gix_hash::ObjectId, CommitId> = HashMap::new();
     let mut pending = vec![ProjectedVisit::Read(filtered)];
@@ -207,11 +207,10 @@ async fn canonicalize_filtered_graph(
                     };
                     crate::interop::commit_id_from_josh_oid(rewritten)
                 };
-                matches.push(ProjectedMatch {
-                    change_id,
-                    content,
-                    canonical: canonical.clone(),
-                });
+                matches
+                    .entry(change_id)
+                    .or_default()
+                    .push((content, canonical.clone()));
                 mapped.insert(id, canonical);
             }
         }
@@ -420,7 +419,7 @@ pub(crate) async fn fetch(
     } else {
         HashMap::new()
     };
-    let mut projected_matches = Vec::new();
+    let mut projected_matches = ProjectedMatches::new();
     for (kind, name, _, raw, _new_boundary) in &received {
         let canonical = if native {
             ids[raw].clone()
