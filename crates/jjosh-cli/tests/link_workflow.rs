@@ -1059,3 +1059,39 @@ fn link_add_names_observations_by_project_not_mount_path() {
         "missing project name in marker:\n{marker}"
     );
 }
+
+#[test]
+fn link_push_then_fetch_reuses_published_local_change() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_work, remote_bare, _) = create_remote(temp.path(), "roundtrip");
+    let client = create_client(temp.path(), false);
+    jjosh(
+        &client,
+        &[
+            "link",
+            "add",
+            "deps",
+            remote_bare.to_str().unwrap(),
+            ":/src",
+            "--target",
+            "main",
+            "--push-url",
+            remote_bare.to_str().unwrap(),
+            "--push-target",
+            "main",
+        ],
+    );
+    jjosh(&client, &["new"]);
+    fs::write(client.join("deps/value.txt"), "published\n").unwrap();
+    jjosh(&client, &["describe", "-m", "published local change"]);
+    let published = commit_id(&client, "@");
+    let published_change = change_id(&client, "@");
+    jjosh(&client, &["link", "push", "deps"]);
+    jjosh(&client, &["link", "update", "deps", "--branch", "main"]);
+    assert_no_divergent_changes(&client);
+    assert_eq!(commit_id(&client, "main#deps@deps-upstream"), published);
+    assert_eq!(
+        change_id(&client, "main#deps@deps-upstream"),
+        published_change
+    );
+}

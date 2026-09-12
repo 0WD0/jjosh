@@ -8,9 +8,11 @@ use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
 use jj_cli::ui::Ui;
+use jj_lib::backend::ChangeId;
 use jj_lib::backend::CommitId;
 use jj_lib::git::GitFetchRefExpression;
 use jj_lib::git::GitRefKind;
+use jj_lib::index::ResolvedChangeState;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::MutableRepo;
@@ -32,6 +34,116 @@ pub(crate) fn remote_name(project: &str, label: &str) -> Result<RemoteNameBuf, C
     crate::ref_names::observation_remote(project, label)
         .map_err(user_error)
         .map(Into::into)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProjectedSignature {
+    name: Vec<u8>,
+    email: Vec<u8>,
+    time: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProjectedContent {
+    tree: gix_hash::ObjectId,
+    author: ProjectedSignature,
+    committer: ProjectedSignature,
+    message: Vec<u8>,
+}
+
+struct ProjectedMatch {
+    change_id: ChangeId,
+    content: ProjectedContent,
+    canonical: CommitId,
+}
+
+fn projected_info(
+    transaction: &Transaction,
+    oid: gix_hash::ObjectId,
+) -> Result<(Option<ChangeId>, ProjectedContent), CommandError> {
+    let commit =
+        josh_core::objects::CommitData::read(transaction.odb(), oid).map_err(user_error)?;
+    let parsed = commit.parsed().map_err(user_error)?;
+    let author = parsed.author().map_err(user_error)?;
+    let committer = parsed.committer().map_err(user_error)?;
+    let change_id = josh_core::trailers::commit_change_meta(&commit)
+        .0
+        .and_then(|id| ChangeId::try_from_reverse_hex(id));
+    Ok((
+        change_id,
+        ProjectedContent {
+            tree: commit.tree_id().map_err(user_error)?,
+            author: ProjectedSignature {
+                name: author.name.to_owned().into(),
+                email: author.email.to_owned().into(),
+                time: author.time.to_owned(),
+            },
+            committer: ProjectedSignature {
+                name: committer.name.to_owned().into(),
+                email: committer.email.to_owned().into(),
+                time: committer.time.to_owned(),
+            },
+            message: commit.message_raw().map_err(user_error)?.to_owned().into(),
+        },
+    ))
+}
+
+async fn reuse_filtered_commit(
+    repo: &MutableRepo,
+    transaction: &Transaction,
+    path: &Path,
+    filtered: gix_hash::ObjectId,
+    matches: &mut Vec<ProjectedMatch>,
+) -> Result<CommitId, CommandError> {
+    let (Some(change_id), content) = projected_info(transaction, filtered)? else {
+        return Ok(crate::interop::commit_id_from_josh_oid(filtered));
+    };
+    if let Some(previous) = matches
+        .iter()
+        .find(|previous| previous.change_id == change_id && previous.content == content)
+    {
+        return Ok(previous.canonical.clone());
+    }
+
+    let mut canonical: Option<CommitId> = None;
+    if let Some(targets) = repo
+        .resolve_change_id(&change_id)
+        .await
+        .map_err(user_error)?
+    {
+        let local_filter = crate::link_metadata::local_link_filter(path).map_err(user_error)?;
+        for (id, state) in &targets.targets {
+            if *state != ResolvedChangeState::Visible {
+                continue;
+            }
+            let candidate = gix_hash::ObjectId::try_from(id.as_bytes()).map_err(user_error)?;
+            let candidate = josh_core::filter_commit(transaction, local_filter.clone(), candidate)
+                .map_err(user_error)?;
+            if candidate.is_null() {
+                continue;
+            }
+            let (_, candidate_content) = projected_info(transaction, candidate)?;
+            if candidate_content != content {
+                continue;
+            }
+            if let Some(previous) = &canonical {
+                return Err(user_error(format!(
+                    "Change {} has multiple matching projected versions {} and {}",
+                    change_id.hex(),
+                    previous.hex(),
+                    id.hex()
+                )));
+            }
+            canonical = Some(id.clone());
+        }
+    }
+    let canonical = canonical.unwrap_or_else(|| crate::interop::commit_id_from_josh_oid(filtered));
+    matches.push(ProjectedMatch {
+        change_id,
+        content,
+        canonical: canonical.clone(),
+    });
+    Ok(canonical)
 }
 
 pub(crate) async fn fetch(
@@ -233,6 +345,7 @@ pub(crate) async fn fetch(
     } else {
         HashMap::new()
     };
+    let mut projected_matches = Vec::new();
     for (kind, name, _, raw, _new_boundary) in &received {
         let canonical = if native {
             ids[raw].clone()
@@ -243,7 +356,7 @@ pub(crate) async fn fetch(
             if filtered.is_null() {
                 continue;
             }
-            CommitId::from_bytes(filtered.as_bytes())
+            reuse_filtered_commit(repo, transaction, path, filtered, &mut projected_matches).await?
         };
         let prefix = match kind {
             GitRefKind::Bookmark => "refs/remotes/",
