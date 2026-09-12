@@ -20,6 +20,17 @@ pub(super) fn prepare(
     }
     let git = jj_lib::git::get_git_backend(workspace.repo().store())?.git_repo();
     let directory = git.common_dir().join("josh/remotes");
+    let old_sidecar = directory.join(format!("{}.josh", old.as_str()));
+    if new.is_some_and(|name| name.as_str().contains('/'))
+        && (old_sidecar.try_exists().map_err(user_error)?
+            || super::config_string(&git, &format!("remote.{}.jjosh-project", old.as_str()))
+                .map_err(user_error)?
+                .is_some())
+    {
+        return Err(user_error(
+            "Projection remote names must be a single path component",
+        ));
+    }
     // Only name-keyed filter configuration moves. Endpoint-keyed leases and
     // shared native/project history belong to their endpoint, not this alias.
     Ok(GitRemoteManagementOptions {
@@ -30,7 +41,7 @@ pub(super) fn prepare(
             "jjosh-base",
         ],
         sidecar: Some(GitRemoteSidecar {
-            old: directory.join(format!("{}.josh", old.as_str())),
+            old: old_sidecar,
             new: new.map(|name| directory.join(format!("{}.josh", name.as_str()))),
         }),
         repo_config: None,

@@ -204,6 +204,258 @@ impl Fixture {
 }
 
 #[test]
+fn offline_project_registration_survives_remote_removal_and_exports_only_its_directory() {
+    let f = Fixture::new();
+    let client = f.init_client("client", false);
+    f.write(&client, "packages/api/api.txt", "standalone API\n");
+    f.write(&client, "outside.txt", "monorepo only\n");
+    f.jj(&client, &["describe", "-m", "create API in monorepo"]);
+    f.jj(
+        &client,
+        &["projection", "add", "api", "--mount", "packages/api"],
+    );
+    let bare = f.dir("api.git");
+    f.git(&bare, &["init", "--bare"]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "publication",
+            bare.to_str().unwrap(),
+        ],
+    );
+    f.jj(&client, &["bookmark", "create", "main#api", "-r", "@"]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "publication",
+            "--bookmark",
+            "main#api",
+        ],
+    );
+    assert_eq!(
+        f.git(&bare, &["ls-tree", "-r", "--name-only", "main"]),
+        "api.txt\n"
+    );
+    f.jj(&client, &["git", "remote", "remove", "publication"]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "replacement",
+            bare.to_str().unwrap(),
+        ],
+    );
+    f.jj(
+        &client,
+        &["projection", "remote", "attach", "replacement", "api"],
+    );
+    f.jj(
+        &client,
+        &[
+            "git",
+            "fetch",
+            "--remote",
+            "replacement",
+            "--branch",
+            "main",
+        ],
+    );
+    assert_eq!(
+        f.jj(
+            &client,
+            &[
+                "file",
+                "show",
+                "-r",
+                "main#api@replacement",
+                "packages/api/api.txt"
+            ]
+        ),
+        "standalone API\n",
+    );
+}
+
+#[test]
+fn registering_a_filtered_project_preserves_its_reverse_source_layout() {
+    let f = Fixture::new();
+    let source = f.git_init("source");
+    f.write(&source, "src/value.txt", "original\n");
+    f.write(&source, "outside.txt", "preserve upstream context\n");
+    f.commit(&source, "source layout");
+    let bare = f.bare(&source, "source.git");
+    let client = f.init_client("client", false);
+    f.jj(
+        &client,
+        &[
+            "projection",
+            "remote",
+            "add",
+            "source",
+            bare.to_str().unwrap(),
+            ":/src",
+            "--project",
+            "api",
+            "--mount",
+            "packages/api",
+        ],
+    );
+    f.jj(
+        &client,
+        &["git", "fetch", "--remote", "source", "--branch", "main"],
+    );
+    f.jj(
+        &client,
+        &["new", "main#api@source", "-m", "edit filtered project"],
+    );
+    f.write(&client, "packages/api/value.txt", "project edit\n");
+    f.jj(&client, &["describe", "-m", "edit filtered project"]);
+    f.jj(
+        &client,
+        &["projection", "add", "api", "--mount", "packages/api"],
+    );
+    f.jj(&client, &["bookmark", "create", "main#api", "-r", "@"]);
+    f.jj(&client, &["bookmark", "track", "main#api@source"]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "source",
+            "--bookmark",
+            "main#api",
+        ],
+    );
+    assert_eq!(
+        f.git(&bare, &["show", "main:src/value.txt"]),
+        "project edit\n"
+    );
+    assert_eq!(
+        f.git(&bare, &["show", "main:outside.txt"]),
+        "preserve upstream context\n"
+    );
+}
+
+#[test]
+fn project_preview_uses_recorded_history_without_snapshotting_pending_files() {
+    let f = Fixture::new();
+    let client = f.init_client("client", false);
+    f.write(&client, "outside.txt", "initial scaffold\n");
+    f.jj(&client, &["describe", "-m", "monorepo scaffold"]);
+    f.jj(&client, &["new", "-m", "create API"]);
+    f.write(&client, "api/api.txt", "recorded API\n");
+    f.jj(&client, &["describe", "-m", "create API"]);
+    f.jj(&client, &["projection", "add", "api", "--mount", "api"]);
+    f.jj(&client, &["new", "-m", "unrelated monorepo change"]);
+    f.write(&client, "outside.txt", "unrelated edit\n");
+    f.jj(&client, &["describe", "-m", "unrelated monorepo change"]);
+    let operation = f.operation_id(&client);
+    let git_path = f.jj(&client, &["git", "root"]);
+    let refs = f.refs(Path::new(git_path.trim()));
+    f.write(&client, "api/pending.txt", "not recorded\n");
+    let preview: serde_json::Value = serde_json::from_str(&f.jj(
+        &client,
+        &[
+            "projection",
+            "preview",
+            "--project",
+            "api",
+            "--files",
+            "--history",
+            "--json",
+        ],
+    ))
+    .unwrap();
+    assert_eq!(preview["files"], serde_json::json!(["api.txt"]));
+    let history = preview["history"].as_array().unwrap();
+    assert_eq!(
+        history
+            .iter()
+            .map(|commit| commit["description"].as_str().unwrap().trim())
+            .collect::<Vec<_>>(),
+        ["create API"]
+    );
+    assert_eq!(f.operation_id(&client), operation);
+    assert_eq!(f.refs(Path::new(git_path.trim())), refs);
+    assert_eq!(
+        fs::read_to_string(client.join("api/pending.txt")).unwrap(),
+        "not recorded\n"
+    );
+    let rejected = f.jj_unchecked(
+        &client,
+        &["projection", "preview", ":/api", "--project", "api"],
+    );
+    assert!(!rejected.status.success());
+}
+
+#[test]
+fn project_check_collects_independent_errors_and_limits_selected_diagnostics() {
+    let f = Fixture::new();
+    let client = f.init_client("client", false);
+    f.write(&client, "api/api.txt", "API\n");
+    f.jj(&client, &["describe", "-m", "create API"]);
+    f.jj(&client, &["projection", "add", "api", "--mount", "api"]);
+    let bare = f.dir("api.git");
+    f.git(&bare, &["init", "--bare"]);
+    f.jj(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "publication",
+            bare.to_str().unwrap(),
+        ],
+    );
+    f.jj(
+        &client,
+        &["projection", "remote", "attach", "publication", "api"],
+    );
+    let git_path = f.jj(&client, &["git", "root"]);
+    let git_path = Path::new(git_path.trim());
+    f.git(
+        git_path,
+        &["config", "remote.publication.jjosh-readOnly", "invalid"],
+    );
+    f.write(git_path, "josh/remotes/orphan.josh", ":/missing\n");
+    let result = f.jj_unchecked(&client, &["projection", "check", "--json"]);
+    assert!(!result.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    let errors: Vec<_> = report["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|issue| issue["severity"] == "error")
+        .map(|issue| issue["subject"].as_str().unwrap())
+        .collect();
+    assert!(errors.contains(&"publication"));
+    assert!(errors.contains(&"orphan"));
+    let result = f.jj_unchecked(&client, &["projection", "check", "api", "--json"]);
+    assert!(!result.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert!(
+        report["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|issue| issue["subject"] != "orphan")
+    );
+    f.git(
+        git_path,
+        &["config", "remote.publication.jjosh-readOnly", "false"],
+    );
+    f.jj(&client, &["projection", "check", "api", "--json"]);
+}
+
+#[test]
 fn native_working_copy_push_roundtrips_in_both_colocation_modes() {
     for colocated in [false, true] {
         let f = Fixture::new();
@@ -1018,7 +1270,7 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
     let before = f.refs(&remote);
     let preview = f.jj(
         &raw,
-        &["projection", "status", "--view", view, "-r", "main@origin"],
+        &["projection", "preview", "--view", view, "-r", "main@origin"],
     );
     assert_eq!(
         preview,
@@ -1026,7 +1278,7 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
             &raw,
             &[
                 "projection",
-                "status",
+                "preview",
                 "--view",
                 &format!("./{view}"),
                 "-r",
@@ -1038,7 +1290,7 @@ fn view_paths_are_literal_and_cannot_be_combined_with_filter_expressions() {
         &raw,
         &[
             "projection",
-            "status",
+            "preview",
             ":/",
             "--view",
             view,
