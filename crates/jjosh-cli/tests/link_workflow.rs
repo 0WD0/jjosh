@@ -492,13 +492,21 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     let local_change = change_id(&client, "@");
     jjosh(
         &client,
+        &["bookmark", "track", "main#deps@deps-upstream"],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -529,6 +537,10 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     fs::write(client.join("deps/value.txt"), "published-v2\n").unwrap();
     jjosh(&client, &["status"]);
     assert_eq!(change_id(&client, "@"), local_change);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
     let preflight_operation = operation_id(&client);
     jjosh(
         &client,
@@ -537,8 +549,8 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
             "--dry-run",
         ],
@@ -556,8 +568,8 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -589,13 +601,17 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     assert_eq!(change_id(&client, "@"), local_change);
     jjosh(
         &client,
+        &["bookmark", "set", "topic#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "topic#deps=@",
+            "--bookmark",
+            "topic#deps",
             "--allow-empty-description",
         ],
     );
@@ -612,13 +628,17 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     );
     jjosh(
         &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -665,13 +685,21 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     let local_change = change_id(&client, "@");
     jjosh(
         &client,
+        &["bookmark", "track", "main#deps@deps-upstream"],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -703,6 +731,10 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     fs::write(client.join("deps/value.txt"), "local-rewrite\n").unwrap();
     jjosh(&client, &["status"]);
     assert_eq!(change_id(&client, "@"), local_change);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
     let preflight_operation = operation_id(&client);
     let rejected_preflight = jjosh_unchecked(
         &client,
@@ -711,8 +743,8 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
             "--dry-run",
         ],
@@ -734,8 +766,8 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -756,8 +788,8 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -785,8 +817,8 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -856,13 +888,21 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     jjosh(&client, &["describe", "-m", "local change"]);
     jjosh(
         &client,
+        &["bookmark", "track", "main#deps@deps-upstream"],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -907,6 +947,10 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     let observed = git(&remote_work, &["rev-parse", "HEAD"]);
     fs::write(client.join("deps/pending.txt"), "new local change\n").unwrap();
     jjosh(&client, &["status"]);
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
     assert!(
         !jjosh_unchecked(
             &client,
@@ -915,8 +959,8 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
                 "push",
                 "--remote",
                 "deps-upstream",
-                "--named",
-                "main#deps=@",
+                "--bookmark",
+                "main#deps",
                 "--allow-empty-description"
             ]
         )
@@ -942,13 +986,17 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     );
     jjosh(
         &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -961,6 +1009,10 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
         "new hidden upstream content\n"
     );
     // Fetching main must not authorize overwriting the independently changed topic.
+    jjosh(
+        &client,
+        &["bookmark", "set", "topic#deps", "-r", "@", "--allow-backwards"],
+    );
     assert!(
         !jjosh_unchecked(
             &client,
@@ -969,8 +1021,8 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
                 "push",
                 "--remote",
                 "deps-upstream",
-                "--named",
-                "topic#deps=@",
+                "--bookmark",
+                "topic#deps",
                 "--allow-empty-description"
             ]
         )
@@ -1459,13 +1511,21 @@ fn link_push_then_fetch_reuses_published_local_change() {
     let published_change = change_id(&client, "@");
     jjosh(
         &client,
+        &["bookmark", "track", "main#deps@deps-upstream"],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );
@@ -1513,13 +1573,21 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
     let published = commit_id(&client, "@");
     jjosh(
         &client,
+        &["bookmark", "track", "main#deps@deps-upstream"],
+    );
+    jjosh(
+        &client,
+        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+    );
+    jjosh(
+        &client,
         &[
             "git",
             "push",
             "--remote",
             "deps-upstream",
-            "--named",
-            "main#deps=@",
+            "--bookmark",
+            "main#deps",
             "--allow-empty-description",
         ],
     );

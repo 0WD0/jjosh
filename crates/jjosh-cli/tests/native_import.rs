@@ -772,14 +772,15 @@ fn scope_suffix_convention_uses_native_tracking_and_project_publication() {
             "push",
             "--remote",
             remote,
-            "--named",
-            &format!("main#alpha={scoped}"),
+            "--bookmark",
+            scoped,
             "--allow-empty-description",
         ]);
     };
     let fetch = |remote: &str| {
         mono.jj(&["git", "fetch", "--remote", remote, "--branch", "main"]);
     };
+    mono.jj(&["bookmark", "track", "main#alpha@alpha-origin"]);
     for label in ["upstream", "origin"] {
         let remote = format!("alpha-{label}");
         fetch(&remote);
@@ -1110,8 +1111,8 @@ fn native_partial_publication_returns_to_canonical_change_and_accepts_contributi
         "push",
         "--remote",
         "alpha-origin",
-        "--named",
-        "resolved#alpha=@",
+        "--bookmark",
+        "resolved#alpha",
         "--allow-empty-description",
         "--dry-run",
     ]);
@@ -1393,12 +1394,20 @@ fn native_import_fetch_push_use_nested_mounts() {
     );
     dest.add_project_remote("alpha-origin", &remote, "alpha");
     dest.jj(&[
+        "bookmark",
+        "set",
+        "main#alpha",
+        "-r",
+        fetched,
+        "--allow-backwards",
+    ]);
+    dest.jj(&[
         "git",
         "push",
         "--remote",
         "alpha-origin",
-        "--named",
-        &format!("main#alpha={fetched}"),
+        "--bookmark",
+        "main#alpha",
         "--allow-empty-description",
     ]);
     let clone = remotes.path().join("clone");

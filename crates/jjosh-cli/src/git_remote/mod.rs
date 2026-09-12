@@ -131,6 +131,30 @@ pub(crate) fn raw_ref_prefix(repo: &gix::Repository, endpoint: &str) -> Result<S
     Ok(format!("refs/jjosh/remote/{key}/"))
 }
 
+/// Use one endpoint identity for initial context, later observations, and leases.
+pub(crate) fn remote_endpoint(
+    remote: &gix::Remote<'_>,
+    direction: Direction,
+    native: bool,
+) -> Result<String> {
+    let repo = remote.repo();
+    let mut url = remote.url(direction).context("Remote has no selected endpoint")?.clone();
+    url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
+    let native_workspace = native
+        && url.scheme == gix::url::Scheme::File
+        && gix::path::from_bstr(&url.path).join(".jj").is_dir();
+    if !native_workspace {
+        // Git transport resolves worktrees to their Git directory. A native jj
+        // workspace is instead opened by jj and need not contain a .git entry.
+        url = remote.sanitized_url_and_version(direction)?.0;
+        url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
+    }
+    if url.scheme == gix::url::Scheme::File {
+        url.serialize_alternative_form = false;
+    }
+    String::from_utf8(url.to_bstring().into()).context("Remote endpoint is not UTF-8")
+}
+
 impl GitRemoteExtension for Extension {
     fn open(
         &self,
@@ -239,9 +263,11 @@ impl Session {
 
     pub fn endpoint_url(&self, repo: &gix::Repository, direction: Direction) -> Result<String> {
         let remote = self.remote(repo, direction)?;
-        let (mut url, _) = remote.sanitized_url_and_version(direction)?;
-        url.canonicalize(repo.workdir().unwrap_or_else(|| repo.common_dir()))?;
-        String::from_utf8(url.to_bstring().into()).context("Remote endpoint is not UTF-8")
+        remote_endpoint(
+            &remote,
+            direction,
+            self.project.as_ref().is_some_and(|project| project.native),
+        )
     }
 
     /// The complete source-to-canonical Git filter. Native conversion is separate.
