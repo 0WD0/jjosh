@@ -726,7 +726,7 @@ fn diff_remote_observations(
     for ((kind, symbol), (_, canonical_git_oid)) in &observations {
         if let Some(name) = to_git_ref_name(*kind, symbol.as_ref()) {
             let old_target = known_git_refs
-                .remove(name.as_ref())
+                .remove::<GitRefName>(name.as_ref())
                 .unwrap_or_else(|| RefTarget::absent_ref());
             let new_target = RefTarget::resolved(
                 canonical_git_oid.map(|oid| CommitId::from_bytes(oid.as_bytes())),
@@ -3624,22 +3624,24 @@ pub struct GitPushOptions {
     pub remote_push_options: Vec<String>,
 }
 
-/// Pushes the specified refs and updates the repo view accordingly.
-pub fn push_refs(
-    mut_repo: &mut MutableRepo,
-    subprocess_options: GitSubprocessOptions,
+/// Prepares canonical Git updates without performing transport or changing state.
+///
+/// Updates are ordered as `targets.bookmarks` followed by `targets.tags`.
+/// Annotated tag objects are retained when they peel to the requested canonical
+/// commits. Adapters may convert these updates for transport, but must retain
+/// this canonical envelope for [`import_push_results()`].
+pub fn prepare_push_refs(
+    repo: &dyn Repo,
     remote: &RemoteName,
     targets: &GitPushRefTargets,
-    callback: &mut dyn GitSubprocessCallback,
-    options: &GitPushOptions,
-) -> Result<GitPushStats, GitPushError> {
+) -> Result<Vec<GitRefUpdate>, GitPushError> {
     validate_remote_name(remote)?;
 
-    let git_repo = get_git_repo(mut_repo.store())?;
+    let git_repo = get_git_repo(repo.store())?;
     let to_tag_target = |name: &RefName, remote: &RemoteName, id: &CommitId| {
         let remote_matcher = StringMatcher::exact(remote);
         let oid = owned_oid_from_commit_id(id);
-        find_git_tag_oid_to_copy(mut_repo.view(), &git_repo, name, &remote_matcher, &oid)
+        find_git_tag_oid_to_copy(repo.view(), &git_repo, name, &remote_matcher, &oid)
             .unwrap_or(oid)
     };
     let ref_updates = itertools::chain(
@@ -3664,6 +3666,19 @@ pub fn push_refs(
         }),
     )
     .collect_vec();
+    Ok(ref_updates)
+}
+
+/// Pushes the specified refs and updates the repo view accordingly.
+pub fn push_refs(
+    mut_repo: &mut MutableRepo,
+    subprocess_options: GitSubprocessOptions,
+    remote: &RemoteName,
+    targets: &GitPushRefTargets,
+    callback: &mut dyn GitSubprocessCallback,
+    options: &GitPushOptions,
+) -> Result<GitPushStats, GitPushError> {
+    let ref_updates = prepare_push_refs(mut_repo, remote, targets)?;
 
     let push_stats = push_updates(
         mut_repo,
@@ -3674,15 +3689,35 @@ pub fn push_refs(
         options,
     )?;
     tracing::debug!(?push_stats);
+    import_push_results(mut_repo, remote, targets, &ref_updates, push_stats)
+}
+
+/// Records only transport-confirmed pushes in canonical mirrors and the jj view.
+///
+/// `canonical_updates` must correspond, in order, to `targets.bookmarks` followed
+/// by `targets.tags`, as returned by [`prepare_push_refs()`]. Both update names
+/// and all names in `push_stats` must be canonical qualified names, even when an
+/// adapter transmitted different source names or raw object IDs. The adapter
+/// must not update the view or canonical mirrors itself. Rejected or unobserved
+/// updates must not appear in `push_stats.pushed`.
+pub fn import_push_results(
+    mut_repo: &mut MutableRepo,
+    remote: &RemoteName,
+    targets: &GitPushRefTargets,
+    canonical_updates: &[GitRefUpdate],
+    push_stats: GitPushStats,
+) -> Result<GitPushStats, GitPushError> {
+    validate_remote_name(remote)?;
+    let git_repo = get_git_repo(mut_repo.store())?;
 
     let pushed: HashSet<&GitRefName> = push_stats.pushed.iter().map(AsRef::as_ref).collect();
     let pushed_bookmark_updates = || {
-        iter::zip(&targets.bookmarks, &ref_updates[..targets.bookmarks.len()])
+        iter::zip(&targets.bookmarks, &canonical_updates[..targets.bookmarks.len()])
             .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
             .map(|((name, update), _)| (&**name, update))
     };
     let pushed_tag_updates = || {
-        iter::zip(&targets.tags, &ref_updates[targets.bookmarks.len()..])
+        iter::zip(&targets.tags, &canonical_updates[targets.bookmarks.len()..])
             .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
             .map(|((name, update), ref_update)| (&**name, update, ref_update))
     };

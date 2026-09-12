@@ -62,6 +62,10 @@ pub mod fetch;
 #[cfg(any(feature = "blocking-client", feature = "async-client"))]
 pub use fetch::function::fetch;
 
+/// Blocking receive-pack command execution with per-ref mutation outcomes.
+#[cfg(feature = "blocking-client")]
+pub mod push;
+
 mod remote_progress;
 pub use remote_progress::RemoteProgress;
 
