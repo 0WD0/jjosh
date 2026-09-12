@@ -207,6 +207,8 @@ third-party/msquic = :/src/msquic
 
 Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 filter 和语义元数据。没有本地 namespace façade，也不会再从自己 fetch 一次。旧的含 URL/refspec metadata 的 Josh remote 文件需要通过 =projection remote add= 显式重新配置；配置错误不会静默按普通 Git 处理。
 
+=projection remote add/attach= 在写入前检查项目挂载、来源 filter 与只读策略的一致性；被拒绝的重配置不会先改掉 URL 或 filter。=git remote rename/remove= 同时处理项目绑定和按 remote 名保存的 Josh filter；改名不改变 endpoint 对应的发布 lease，删除 remote 不删除共享项目历史。目标 metadata 冲突或配置/引用锁冲突会在修改前拒绝。这些操作不是跨文件的崩溃原子事务。
+
 * 真正需要记住的边界
 
 - *历史坐标不等于引用名字。* =main#jj@jj-upstream= 仍是普通 jj 引用。fetch 根据来源配置转换，push 根据选中引用的 =#scope= 导出项目；直接运行原生 =git fetch/push= 会绕过它并连接真实上游，不是受支持的投影同步路径。

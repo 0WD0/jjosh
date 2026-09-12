@@ -54,6 +54,17 @@ pub trait GitRemoteExtension {
         remote: &RemoteName,
     ) -> Result<Box<dyn GitRemoteSession>, CommandError>;
 
+    /// Prepare name-keyed metadata and declare the remote keys owned by this
+    /// extension. This must not mutate repository state.
+    fn prepare_remote_management(
+        &self,
+        _workspace: &WorkspaceCommandHelper,
+        _old: &RemoteName,
+        _new: Option<&RemoteName>,
+    ) -> Result<jj_lib::git::GitRemoteManagementOptions, CommandError> {
+        Ok(Default::default())
+    }
+
     /// Used only when neither `--remote` nor `git.push` selects a destination.
     fn default_push_router(
         &self,

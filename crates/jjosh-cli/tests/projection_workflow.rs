@@ -1242,3 +1242,272 @@ fn fetch_removes_deleted_branches_and_empty_projections() {
         "projected content\n"
     );
 }
+
+#[test]
+fn projected_remote_rename_retains_filter_and_remove_readd_is_unfiltered() {
+    for colocated in [false, true] {
+        let f = Fixture::new();
+        let source = f.git_init("source");
+        f.write(&source, "app/file.txt", "projected\n");
+        f.write(&source, "private.txt", "private\n");
+        f.commit(&source, "source");
+        let remote = f.bare(&source, "source.git");
+        let client = f.client("client", colocated, &remote, ":/app");
+        let before = f.log(&client, "main@origin", "commit_id");
+        f.jj(&client, &["git", "remote", "rename", "origin", "renamed"]);
+        assert_eq!(f.log(&client, "main@renamed", "commit_id"), before);
+        f.jj(&client, &["git", "fetch", "--remote", "renamed"]);
+        assert_eq!(
+            f.jj(&client, &["file", "list", "-r", "main@renamed"]),
+            "file.txt\n",
+        );
+        assert_eq!(
+            f.jj(&client, &["file", "show", "-r", "main@renamed", "file.txt"]),
+            "projected\n",
+        );
+        f.jj(&client, &["git", "remote", "remove", "renamed"]);
+        assert!(
+            !f.jj_unchecked(&client, &["log", "-r", "main@renamed"])
+                .status
+                .success()
+        );
+        f.jj(
+            &client,
+            &["git", "remote", "add", "renamed", remote.to_str().unwrap()],
+        );
+        f.jj(&client, &["git", "fetch", "--remote", "renamed"]);
+        assert_eq!(
+            f.jj(&client, &["file", "list", "-r", "main@renamed"]),
+            "app/file.txt\nprivate.txt\n",
+        );
+        // The original name was also retired by rename.
+        f.jj(
+            &client,
+            &["git", "remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        f.jj(&client, &["git", "fetch", "--remote", "origin"]);
+        assert_eq!(
+            f.jj(
+                &client,
+                &["file", "show", "-r", "main@origin", "private.txt"]
+            ),
+            "private\n",
+        );
+    }
+}
+
+#[test]
+fn attached_remote_lifecycle_preserves_mount_policy_push_endpoint_and_peer() {
+    let f = Fixture::new();
+    let source = f.git_init("source");
+    f.write(&source, "file.txt", "project\n");
+    f.commit(&source, "source");
+    let remote = f.bare(&source, "source.git");
+    let destination = f.bare(&source, "destination.git");
+    let client = f.init_client("client", false);
+    let git_dir = client.join(".jj/repo/store/git");
+    for name in ["origin", "peer"] {
+        f.jj(
+            &client,
+            &["git", "remote", "add", name, remote.to_str().unwrap()],
+        );
+        f.jj(
+            &client,
+            &[
+                "projection",
+                "remote",
+                "attach",
+                name,
+                "project",
+                "--mount",
+                "vendor",
+            ],
+        );
+        f.jj(&client, &["git", "fetch", "--remote", name]);
+    }
+    f.git(
+        &git_dir,
+        &[
+            "config",
+            "remote.origin.pushurl",
+            destination.to_str().unwrap(),
+        ],
+    );
+    f.git(
+        &git_dir,
+        &["config", "remote.origin.jjosh-readOnly", "true"],
+    );
+    let source_base = f.git(&remote, &["rev-parse", "main"]);
+    f.git(
+        &git_dir,
+        &["config", "remote.origin.jjosh-base", source_base.trim()],
+    );
+    let before = f.log(&client, "main#project@origin", "commit_id");
+    f.jj(&client, &["git", "remote", "rename", "origin", "renamed"]);
+    assert_eq!(f.log(&client, "main#project@renamed", "commit_id"), before);
+    f.jj(&client, &["git", "fetch", "--remote", "renamed"]);
+    assert_eq!(
+        f.jj(
+            &client,
+            &[
+                "file",
+                "show",
+                "-r",
+                "main#project@renamed",
+                "vendor/file.txt"
+            ]
+        ),
+        "project\n",
+    );
+    f.jj(&client, &["bookmark", "track", "main#project@renamed"]);
+    f.jj(&client, &["new", "main#project@renamed"]);
+    f.write(&client, "vendor/file.txt", "published\n");
+    f.jj(&client, &["describe", "-m", "publish"]);
+    f.jj(&client, &["bookmark", "set", "main#project", "-r", "@"]);
+    let before_destination = f.refs(&destination);
+    assert!(
+        !f.jj_unchecked(
+            &client,
+            &[
+                "git",
+                "push",
+                "--remote",
+                "renamed",
+                "--bookmark",
+                "main#project"
+            ],
+        )
+        .status
+        .success()
+    );
+    assert_eq!(f.refs(&destination), before_destination);
+    f.git(
+        &git_dir,
+        &["config", "remote.renamed.jjosh-readOnly", "false"],
+    );
+    f.jj(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "renamed",
+            "--bookmark",
+            "main#project",
+        ],
+    );
+    assert_eq!(
+        f.git(&destination, &["show", "main:file.txt"]),
+        "published\n"
+    );
+    assert_eq!(f.git(&remote, &["show", "main:file.txt"]), "project\n");
+    f.jj(&client, &["git", "remote", "remove", "renamed"]);
+    assert!(
+        !f.jj_unchecked(&client, &["log", "-r", "main#project@renamed"])
+            .status
+            .success()
+    );
+    f.jj(&client, &["git", "fetch", "--remote", "peer"]);
+    assert_eq!(
+        f.jj(
+            &client,
+            &["file", "show", "-r", "main#project@peer", "vendor/file.txt"]
+        ),
+        "project\n",
+    );
+}
+
+#[test]
+fn rejected_remote_lifecycle_preserves_configuration_sidecars_and_observations() {
+    let f = Fixture::new();
+    let source = f.git_init("source");
+    f.write(&source, "app/file.txt", "projected\n");
+    f.write(&source, "private.txt", "private\n");
+    f.commit(&source, "source");
+    let remote = f.bare(&source, "source.git");
+    let client = f.client("client", false, &remote, ":/app");
+    let git_dir = client.join(".jj/repo/store/git");
+    let sidecar = git_dir.join("josh/remotes/origin.josh");
+    let collision = git_dir.join("josh/remotes/destination.josh");
+    fs::copy(&sidecar, &collision).unwrap();
+    f.jj(
+        &client,
+        &["config", "set", "--repo", "remotes.origin.fetch", "main"],
+    );
+    let repo_config_path = PathBuf::from(f.jj(&client, &["config", "path", "--repo"]).trim());
+    let repo_config = fs::read(&repo_config_path).unwrap();
+    let config = fs::read(git_dir.join("config")).unwrap();
+    let selection = fs::read(&sidecar).unwrap();
+    let operation = f.operation_id(&client);
+    let observation = f.log(&client, "main@origin", "commit_id");
+    // An unrecorded working-copy edit must not create an operation on rejection.
+    f.write(&client, "unrecorded.txt", "local edit\n");
+    assert!(
+        !f.jj_unchecked(
+            &client,
+            &["git", "remote", "rename", "origin", "destination"],
+        )
+        .status
+        .success()
+    );
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
+    assert_eq!(fs::read(&sidecar).unwrap(), selection);
+    assert_eq!(fs::read(&collision).unwrap(), selection);
+    assert_eq!(f.operation_id(&client), operation);
+    assert_eq!(f.log(&client, "main@origin", "commit_id"), observation);
+    fs::remove_file(&collision).unwrap();
+    // Reference locking is also a preparable failure, after metadata selection.
+    let ref_lock = git_dir.join("refs/remotes/origin/main.lock");
+    fs::write(&ref_lock, "").unwrap();
+    assert!(
+        !f.jj_unchecked(&client, &["git", "remote", "remove", "origin"],)
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
+    assert_eq!(fs::read(&sidecar).unwrap(), selection);
+    assert_eq!(f.operation_id(&client), operation);
+    fs::remove_file(ref_lock).unwrap();
+    // A prepared repository-settings write must fail before any remote state
+    // changes, not after the Git config and sidecar have already moved.
+    let repo_config_lock = repo_config_path.with_extension("toml.lock");
+    fs::write(&repo_config_lock, "").unwrap();
+    assert!(
+        !f.jj_unchecked(
+            &client,
+            &["git", "remote", "rename", "origin", "destination"],
+        )
+        .status
+        .success()
+    );
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), config);
+    assert_eq!(fs::read(&repo_config_path).unwrap(), repo_config);
+    assert_eq!(fs::read(&sidecar).unwrap(), selection);
+    assert_eq!(f.operation_id(&client), operation);
+    fs::remove_file(repo_config_lock).unwrap();
+    f.git(
+        &git_dir,
+        &["config", "remote.origin.custom-setting", "protected"],
+    );
+    let custom_config = fs::read(git_dir.join("config")).unwrap();
+    assert!(
+        !f.jj_unchecked(
+            &client,
+            &["git", "remote", "rename", "origin", "destination"],
+        )
+        .status
+        .success()
+    );
+    assert_eq!(fs::read(git_dir.join("config")).unwrap(), custom_config);
+    assert_eq!(fs::read(&sidecar).unwrap(), selection);
+    assert_eq!(f.operation_id(&client), operation);
+    f.git(
+        &git_dir,
+        &["config", "--unset", "remote.origin.custom-setting"],
+    );
+    f.jj(&client, &["git", "fetch", "--remote", "origin"]);
+    assert_eq!(
+        f.jj(&client, &["file", "list", "-r", "main@origin"]),
+        "file.txt\n",
+    );
+}

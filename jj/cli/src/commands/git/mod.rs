@@ -192,15 +192,15 @@ fn write_repo_presets(
     Ok(())
 }
 
-/// Renames preset trunk and remote settings in repo-level config file.
+/// Prepares preset trunk and remote settings for the remote-management transaction.
 fn rename_remote_in_repo_config(
     ui: &Ui,
     config: &RawConfig,
     old_remote: &RemoteName,
     new_remote: &RemoteName,
-) -> Result<(), CommandError> {
+) -> Result<Option<ConfigFile>, CommandError> {
     let Some(mut file) = existing_repo_config_file(config) else {
-        return Ok(());
+        return Ok(None);
     };
 
     // [remotes.<old_remote>] -> [remotes.<new_remote>]
@@ -224,18 +224,17 @@ fn rename_remote_in_repo_config(
         )?;
     }
 
-    file.save()?;
-    Ok(())
+    Ok(Some(file))
 }
 
-/// Removes preset trunk and remote settings from repo-level config file.
+/// Prepares removal of repo settings without changing their source file.
 fn remove_remote_from_repo_config(
     ui: &Ui,
     config: &RawConfig,
     old_remote: &RemoteName,
-) -> Result<(), CommandError> {
+) -> Result<Option<ConfigFile>, CommandError> {
     let Some(mut file) = existing_repo_config_file(config) else {
-        return Ok(());
+        return Ok(None);
     };
 
     // [remotes.<old_remote>]
@@ -257,8 +256,7 @@ fn remove_remote_from_repo_config(
         )?;
     }
 
-    file.save()?;
-    Ok(())
+    Ok(Some(file))
 }
 
 fn get_trunk_symbol(layer: &ConfigLayer) -> Option<RemoteRefSymbolBuf> {

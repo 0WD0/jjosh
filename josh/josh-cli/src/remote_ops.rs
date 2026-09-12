@@ -43,6 +43,7 @@ pub fn configure_remote(
     forge: Option<crate::config::Forge>,
     push_url: Option<&str>,
     gerrit_mode: Option<crate::config::GerritMode>,
+    extra_remote_settings: &[(&str, &str)],
 ) -> anyhow::Result<()> {
     let remote_url = to_absolute_remote_url(url)?;
     let push_url = push_url.map(to_absolute_remote_url).transpose()?;
@@ -54,6 +55,7 @@ pub fn configure_remote(
         forge,
         push_url.as_deref(),
         gerrit_mode,
+        extra_remote_settings,
     )
     .context("Failed to configure Josh remote")?;
     Ok(())

@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use anyhow::{Context, anyhow};
 
 /// Forge-specific behavior for a remote.
@@ -175,6 +177,11 @@ pub fn try_read_remote_config(
 }
 
 /// Persist real Git endpoints and canonical selection, plus separate Josh metadata.
+///
+/// Extra settings are single value names relative to `remote.<name>`, and cannot
+/// override endpoint or selection keys. Both files are staged before publication;
+/// a failed Git config commit restores the previous sidecar under its lock.
+/// This is failure-safe for returned errors, not a crash-atomic two-file transaction.
 pub fn write_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
@@ -183,11 +190,43 @@ pub fn write_remote_config(
     forge: Option<Forge>,
     push_url: Option<&str>,
     gerrit_mode: Option<GerritMode>,
+    extra_remote_settings: &[(&str, &str)],
 ) -> anyhow::Result<()> {
     validate_remote_name(remote_name)?;
+    anyhow::ensure!(!url.contains('\0'), "Git remote URL must not contain NUL");
     gix::url::parse(url).context("Invalid Git remote URL")?;
     if let Some(push_url) = push_url {
+        anyhow::ensure!(
+            !push_url.contains('\0'),
+            "Git remote push URL must not contain NUL"
+        );
         gix::url::parse(push_url).context("Invalid Git remote push URL")?;
+    }
+    for (index, (key, value)) in extra_remote_settings.iter().enumerate() {
+        anyhow::ensure!(
+            key.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+            "Invalid extra remote setting key '{key}': expected a single Git variable name"
+        );
+        anyhow::ensure!(
+            !TRANSPORT_META_KEYS
+                .iter()
+                .any(|reserved| key.eq_ignore_ascii_case(reserved))
+                && !key.eq_ignore_ascii_case("filter"),
+            "Extra remote setting '{key}' is reserved for endpoint or selection configuration"
+        );
+        anyhow::ensure!(
+            !extra_remote_settings[..index]
+                .iter()
+                .any(|(previous, _)| key.eq_ignore_ascii_case(previous)),
+            "Duplicate extra remote setting '{key}'"
+        );
+        anyhow::ensure!(
+            !value.contains('\0'),
+            "Extra remote setting '{key}' must not contain NUL"
+        );
     }
 
     let filter_obj = josh_core::filter::parse(filter)
@@ -257,6 +296,13 @@ pub fn write_remote_config(
             values.delete_all();
         }
     }
+    for (key, value) in extra_remote_settings {
+        let key = format!("remote.{remote_name}.{key}");
+        if let Ok(mut values) = config.raw_values_mut(key.as_str()) {
+            values.delete_all();
+        }
+        config.set_raw_value(key.as_str(), *value)?;
+    }
     let remotes_dir = repo.common_dir().join("josh").join("remotes");
     std::fs::create_dir_all(&remotes_dir).with_context(|| {
         format!(
@@ -265,15 +311,79 @@ pub fn write_remote_config(
         )
     })?;
     let remote_file = remotes_dir.join(format!("{}.josh", remote_name));
-    std::fs::write(&remote_file, content).with_context(|| {
+    // Keep this lock through both publication and rollback. The Git transaction
+    // is always acquired first, matching other remote configuration writers.
+    let _sidecar_lock = gix::lock::Marker::acquire_to_hold_resource(
+        &remote_file,
+        gix::lock::acquire::Fail::Immediately,
+        None,
+    )
+    .with_context(|| {
         format!(
-            "Failed to write remote config file: {}",
+            "Failed to lock remote config file: {}",
             remote_file.display()
         )
     })?;
-    config
-        .commit()
-        .context("Failed to write Git remote configuration")?;
+    let stage = || {
+        gix::tempfile::new(
+            &remotes_dir,
+            gix::tempfile::ContainingDirectory::Exists,
+            gix::tempfile::AutoRemove::Tempfile,
+        )?
+        .take()
+        .context("Remote config staging file disappeared")
+    };
+    let mut staged = stage().context("Failed to stage remote config")?;
+    staged
+        .write_all(content.as_bytes())
+        .context("Failed to stage remote config content")?;
+    let previous = match std::fs::File::open(&remote_file) {
+        Ok(mut file) => {
+            let permissions = file
+                .metadata()
+                .context("Failed to read remote config permissions")?
+                .permissions();
+            staged.as_file().set_permissions(permissions.clone())?;
+            let mut backup = stage().context("Failed to stage remote config rollback")?;
+            backup.as_file().set_permissions(permissions)?;
+            std::io::copy(&mut file, &mut backup)
+                .context("Failed to copy previous remote config")?;
+            Some(backup)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed to read previous remote config: {}",
+                    remote_file.display()
+                )
+            });
+        }
+    };
+    staged.persist(&remote_file).with_context(|| {
+        format!(
+            "Failed to publish remote config file: {}",
+            remote_file.display()
+        )
+    })?;
+    if let Err(error) = config.commit() {
+        let rollback = match previous {
+            Some(previous) => previous
+                .persist(&remote_file)
+                .map(|_| ())
+                .map_err(|error| error.error),
+            None => std::fs::remove_file(&remote_file),
+        };
+        return match rollback {
+            Ok(()) => Err(error).context("Failed to write Git remote configuration; restored previous Josh remote configuration"),
+            Err(rollback) => Err(error).with_context(|| {
+                format!(
+                    "Failed to write Git remote configuration; also failed to restore {}: {rollback}",
+                    remote_file.display()
+                )
+            }),
+        };
+    }
 
     Ok(())
 }
