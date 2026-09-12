@@ -84,8 +84,12 @@ pub fn read_remote_config(
     repo_path: &std::path::Path,
     remote_name: &str,
 ) -> anyhow::Result<RemoteConfig> {
-    try_read_remote_config(repo_path, remote_name)?
-        .with_context(|| format!("Josh remote '{}' is not configured; configure it first", remote_name))
+    try_read_remote_config(repo_path, remote_name)?.with_context(|| {
+        format!(
+            "Josh remote '{}' is not configured; configure it first",
+            remote_name
+        )
+    })
 }
 
 /// Read authoritative named-remote configuration without modifying the repository.
@@ -100,7 +104,11 @@ pub fn try_read_remote_config(
     validate_remote_name(remote_name)?;
     let repo = gix::open(repo_path)
         .with_context(|| format!("Failed to open repository at {}", repo_path.display()))?;
-    let remote_file = repo.common_dir().join("josh").join("remotes").join(format!("{remote_name}.josh"));
+    let remote_file = repo
+        .common_dir()
+        .join("josh")
+        .join("remotes")
+        .join(format!("{remote_name}.josh"));
 
     let content = match std::fs::read_to_string(&remote_file) {
         Ok(content) => content,
@@ -213,7 +221,11 @@ pub fn write_remote_config(
     // Replace only endpoint/selection keys, preserving authentication and other
     // custom remote settings, including custom upload-pack/receive-pack commands.
     let fetch = format!("+refs/heads/*:refs/remotes/{remote_name}/*");
-    for (key, value) in [("url", Some(url)), ("pushurl", push_url), ("fetch", Some(fetch.as_str()))] {
+    for (key, value) in [
+        ("url", Some(url)),
+        ("pushurl", push_url),
+        ("fetch", Some(fetch.as_str())),
+    ] {
         let key = format!("remote.{remote_name}.{key}");
         if let Ok(mut values) = config.raw_values_mut(key.as_str()) {
             values.delete_all();
@@ -227,7 +239,9 @@ pub fn write_remote_config(
         ("uploadpack", generated_uploadpack.as_str()),
         ("receivepack", "false"),
     ] {
-        if let Ok(mut values) = config.raw_values_mut(format!("remote.{remote_name}.{key}").as_str()) {
+        if let Ok(mut values) =
+            config.raw_values_mut(format!("remote.{remote_name}.{key}").as_str())
+        {
             for (index, value) in values.get()?.iter().enumerate().rev() {
                 if value.as_slice() == generated.as_bytes() {
                     values.delete(index);
@@ -237,13 +251,19 @@ pub fn write_remote_config(
     }
     // Reconfiguration also retires the old split Git configuration authority.
     for key in ["url", "fetch", "filter"] {
-        if let Ok(mut values) = config.raw_values_mut(format!("josh-remote.{remote_name}.{key}").as_str()) {
+        if let Ok(mut values) =
+            config.raw_values_mut(format!("josh-remote.{remote_name}.{key}").as_str())
+        {
             values.delete_all();
         }
     }
     let remotes_dir = repo.common_dir().join("josh").join("remotes");
-    std::fs::create_dir_all(&remotes_dir)
-        .with_context(|| format!("Failed to create remotes directory: {}", remotes_dir.display()))?;
+    std::fs::create_dir_all(&remotes_dir).with_context(|| {
+        format!(
+            "Failed to create remotes directory: {}",
+            remotes_dir.display()
+        )
+    })?;
     let remote_file = remotes_dir.join(format!("{}.josh", remote_name));
     std::fs::write(&remote_file, content).with_context(|| {
         format!(
@@ -251,7 +271,9 @@ pub fn write_remote_config(
             remote_file.display()
         )
     })?;
-    config.commit().context("Failed to write Git remote configuration")?;
+    config
+        .commit()
+        .context("Failed to write Git remote configuration")?;
 
     Ok(())
 }

@@ -18,7 +18,10 @@
 
 use std::pin::Pin;
 
-use jj_lib::git::{GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitPushStats, GitRemoteObservation, IgnoredRefspecs};
+use jj_lib::git::{
+    GitFetchRefExpression, GitPushOptions, GitPushRefTargets, GitPushStats, GitRemoteObservation,
+    IgnoredRefspecs,
+};
 use jj_lib::ref_name::{RefName, RefNameBuf, RemoteName};
 use jj_lib::repo::MutableRepo;
 use jj_lib::str_util::StringExpression;
@@ -61,9 +64,7 @@ pub trait GitRemoteSession {
     /// Returns no source name for a logical ref outside this remote's domain.
     fn source_name<'a>(&self, local: &'a RefName) -> Option<&'a str>;
 
-    fn default_fetch_bookmarks(
-        &self,
-    ) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;
+    fn default_fetch_bookmarks(&self) -> Result<(IgnoredRefspecs, StringExpression), CommandError>;
 
     /// Receives and converts a complete selected snapshot, including unchanged refs.
     /// Install only canonical Git mirrors; return no raw objects as observations.

@@ -36,14 +36,17 @@ jjosh new @ main#jj@jj-upstream master#josh@josh-upstream
 
 这里的 =new= 是一种整合选择，不是 fetch 的副作用。也可以只整合一个项目，或按当前修改图用 rebase/squash 接续。
 
-发布到已配置的 fork 时，先明确选定本地 bookmark；下面为尚未存在的名字创建发布 bookmark：
+发布到已配置的 fork 时，创建或移动 bookmark 与 push 分开执行：
 
 #+begin_src sh
-jjosh git push --remote jj-origin --named topic#jj=@
-jjosh git push --remote josh-origin --named topic#josh=@
+jjosh bookmark create topic#jj -r @
+jjosh bookmark create topic#josh -r @
+jjosh git push --remote jj-origin --bookmark topic#jj
+jjosh git push --remote josh-origin --bookmark topic#josh
 #+end_src
 
-=--named NAME=REVISION= 只创建新名字。已有 bookmark 用 =bookmark set NAME -r REVISION= 后再 =git push --remote REMOTE --bookmark NAME=；已有远端观察需要先显式 =bookmark track NAME@REMOTE=。
+push 沿用 jj 的选择和 tracking，根据选中引用的 =#scope= 自动导出对应项目，并把 =topic#jj= 发布为源坐标的 =topic=。
+发布 remote 只决定 endpoint，不必附着到项目；缺失 scope 转换规则或多个引用映射到同一个远端名字时会拒绝发布。
 
 * 几种能力，别混成一件事
 
@@ -91,8 +94,8 @@ jjosh -R combined git fetch --remote ebox-contributor --branch topic
 jjosh -R combined new @ topic#ebox@ebox-contributor
 
 jjosh -R combined git remote add ebox-origin /path/to/ebox-fork.git
-jjosh -R combined projection remote attach ebox-origin ebox
-jjosh -R combined git push --remote ebox-origin --named review#ebox=@
+jjosh -R combined bookmark create review#ebox -r @
+jjosh -R combined git push --remote ebox-origin --bookmark review#ebox
 #+end_src
 
 =--remote= 选择已配置的 named remote，不是临时 URL。fetch 将结果记为普通 remote bookmark；未跟踪的观察不改本地书签，显式 track 后沿用 jj 的引用合并规则。它不替你选择工作头，也不自动消除 divergence。本地 =.jj= 来源读取已记录的原生状态；普通 Git endpoint 通过 gitoxide 接收对象后转换。
@@ -112,7 +115,8 @@ jjosh link add ebox /path/to/ebox.git \
 
 jjosh git fetch --remote ebox-upstream --branch main
 jjosh new @ main#ebox@ebox-upstream
-jjosh git push --remote ebox-upstream --named topic#ebox=@
+jjosh bookmark create topic#ebox -r @
+jjosh git push --remote ebox-upstream --bookmark topic#ebox
 #+end_src
 
 默认 =embedded= 模式接入来源历史；=--mode snapshot= 用于快照式引入。新来源只需一部分内容时，可以在 URL 后加 Josh filter，例如 =':/src'=。关联已有原生项目则保持原挂载布局，不借此隐式改变 filter。
@@ -127,7 +131,7 @@ jjosh git push --remote ebox-upstream --named topic#ebox=@
 
 没有有效 =jj:change-id= header 的 Git 提交会按 Git OID 合成 change ID。过滤或重写会改变 OID，因此设置 =git.write-change-id-header=false= 时，不保证取回后仍复用原本的本地 commit；这是 Josh 有损历史的边界，不应把它当作 round-trip 身份保证。
 
-绑定项目的 =git push= 反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述不会使空提交绕过裁剪。link add 未指定 =--push-url= 时将该来源 remote 标为只读，发布可另配 writable remote。转换路径按实际 endpoint 与目标分支记录 raw 位置，后续重写使用精确 expected-old lease；失败或 =--dry-run= 不推进发布记录，没有绕过保护的 =--force= 入口。
+=git push= 按选中引用的 =#scope= 找到项目挂载和源历史转换，反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述不会使空提交绕过裁剪。link add 未指定 =--push-url= 时将该来源 remote 标为只读，发布可另配普通 writable remote。转换路径按实际 endpoint 与目标分支记录 raw 位置，后续重写使用精确 expected-old lease；失败或 =--dry-run= 不推进发布记录，没有绕过保护的 =--force= 入口。
 
 * 一份 canonical 树，多种构建布局
 
@@ -197,7 +201,7 @@ Git config 保存唯一真实 fetch/push 地址，Josh remote 文件只保存 fi
 
 * 真正需要记住的边界
 
-- *历史坐标不等于引用名字。* =main#jj@jj-upstream= 仍是普通 jj 引用。=jjosh git fetch/push= 根据 named remote 执行转换；直接运行原生 =git fetch/push= 会绕过它并连接真实上游，不是受支持的投影同步路径。
+- *历史坐标不等于引用名字。* =main#jj@jj-upstream= 仍是普通 jj 引用。fetch 根据来源配置转换，push 根据选中引用的 =#scope= 导出项目；直接运行原生 =git fetch/push= 会绕过它并连接真实上游，不是受支持的投影同步路径。
 - *观察不是覆盖授权。* native/Josh 按实际目标 endpoint 与分支记录 raw lease；首次只允许创建或可证明的快进，已有观察时校验 expected-old。普通 Git 路径使用 jj 准备的引用 lease。收到新的 push advertisement 不自动刷新覆盖授权，未确认或结果不明的引用不按成功记账。
 - *恢复本地操作不撤销发布。* =op restore= 不回滚远端或私有发布记录。非 colocated 仓库恢复引用后，先用 =jjosh git export= 同步物理 refs，再做 import。多个来源之间没有原子发布。
 - *私有对应关系不是可随手删的缓存。* =refs/jjosh/native/NAME/= 同时保存转换边界并保活 raw/canonical 对象。旧 =jjosh-native-NAME= 伪远端用 =native migrate= 迁移，不手工改名或删除。

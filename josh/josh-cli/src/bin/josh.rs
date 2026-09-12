@@ -479,7 +479,12 @@ fn handle_filter(
 
     let default_branch = josh_cli::remote_ops::resolve_default_branch(transaction, &args.remote)?;
 
-    josh_cli::remote_ops::apply_josh_filtering(transaction, filter, &args.remote, Some(&default_branch))?;
+    josh_cli::remote_ops::apply_josh_filtering(
+        transaction,
+        filter,
+        &args.remote,
+        Some(&default_branch),
+    )?;
 
     println!(
         "Applied filter '{}' to remote '{}'",

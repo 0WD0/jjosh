@@ -168,7 +168,10 @@ pub async fn cmd_git_fetch(
     let mut remote_sessions = std::collections::HashMap::new();
     if let Some(extension) = command.git_remote_extension() {
         for remote in &matching_remotes {
-            remote_sessions.insert(*remote, extension.open(command, &workspace_command, remote)?);
+            remote_sessions.insert(
+                *remote,
+                extension.open(command, &workspace_command, remote)?,
+            );
         }
     }
     let git_lock = if remote_sessions.is_empty() {
@@ -285,12 +288,12 @@ pub async fn cmd_git_fetch(
             |kind, symbol| {
                 selections.iter().any(|(remote, bookmarks, tags)| {
                     *remote == symbol.remote
-                        && remote_sessions[remote].source_name(symbol.name).is_some_and(|name| {
-                            match kind {
+                        && remote_sessions[remote]
+                            .source_name(symbol.name)
+                            .is_some_and(|name| match kind {
                                 git::GitRefKind::Bookmark => bookmarks.is_match(name),
                                 git::GitRefKind::Tag => tags.is_match(name),
-                            }
-                        })
+                            })
                 })
             },
         )
@@ -307,7 +310,8 @@ pub async fn cmd_git_fetch(
         matching_remotes.iter().map(|n| n.as_symbol()).join(","),
     );
     if let Some(git_lock) = git_lock {
-        tx.finish_with_git_import_export_lock(ui, description, &git_lock).await?;
+        tx.finish_with_git_import_export_lock(ui, description, &git_lock)
+            .await?;
     } else {
         tx.finish(ui, description).await?;
     }
@@ -361,7 +365,10 @@ fn warn_if_branches_not_found(
                 let local_name = remote_sessions
                     .get(remote)
                     .map(|session| session.local_name(name.as_str()));
-                let symbol = local_name.as_deref().unwrap_or(name).to_remote_symbol(remote);
+                let symbol = local_name
+                    .as_deref()
+                    .unwrap_or(name)
+                    .to_remote_symbol(remote);
                 let view = tx.repo().view();
                 let base_view = tx.base_repo().view();
                 view.get_remote_bookmark(symbol).is_absent()

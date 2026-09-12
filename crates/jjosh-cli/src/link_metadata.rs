@@ -121,4 +121,3 @@ pub(crate) fn local_link_filter(path: &Path) -> anyhow::Result<Filter> {
         .exclude(Filter::new().file(".link.josh"))
         .prefix(normalized_path))
 }
-

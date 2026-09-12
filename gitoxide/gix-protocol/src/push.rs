@@ -3,12 +3,18 @@
 //! Authentication, lease authorization, object selection, and pack creation belong to the caller.
 //! Only basic `report-status` is negotiated; sidebands and `report-status-v2` are not requested.
 
-use std::{collections::HashMap, io::{self, Write}};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+};
 
 use bstr::{BString, ByteSlice};
 use gix_transport::{
     Protocol,
-    client::{self, MessageKind, WriteMode, blocking_io::{ExtendedBufRead, Transport}},
+    client::{
+        self, MessageKind, WriteMode,
+        blocking_io::{ExtendedBufRead, Transport},
+    },
     packetline::{PacketLineRef, blocking_io::encode},
 };
 
@@ -128,7 +134,10 @@ pub fn execute<T: Transport + ?Sized>(
     }
     let (capabilities, indices) = validate(handshake, commands, options, write_pack.is_some())?;
     let mut outcome = Outcome {
-        refs: commands.iter().map(|cmd| (cmd.name.clone(), RefStatus::Indeterminate)).collect(),
+        refs: commands
+            .iter()
+            .map(|cmd| (cmd.name.clone(), RefStatus::Indeterminate))
+            .collect(),
         ..Outcome::default()
     };
     let request = transport.request(WriteMode::Binary, MessageKind::Flush, false)?;
@@ -181,7 +190,11 @@ fn validate<'a>(
         return Err(Error::UnsupportedProtocol);
     }
     let require = |name| {
-        if handshake.capabilities.contains(name) { Ok(()) } else { Err(Error::MissingCapability(name)) }
+        if handshake.capabilities.contains(name) {
+            Ok(())
+        } else {
+            Err(Error::MissingCapability(name))
+        }
     };
     require("report-status")?;
     let format_cap = handshake.capabilities.capability("object-format");
@@ -239,8 +252,7 @@ fn validate<'a>(
         } else {
             needs_pack = true;
         }
-        let length = kind.len_in_hex() * 2 + 2 + cmd.name.len()
-            + if index == 0 { 1 + capabilities.len() } else { 0 };
+        let length = kind.len_in_hex() * 2 + 2 + cmd.name.len() + if index == 0 { 1 + capabilities.len() } else { 0 };
         if length > MAX_PACKET_DATA {
             return Err(Error::PacketTooLarge);
         }
@@ -279,7 +291,8 @@ fn read_status<'a>(
             return Err(Error::MalformedStatus("invalid status record"));
         }
         if outcome.unpack.is_none() {
-            let result = line.strip_prefix(b"unpack ")
+            let result = line
+                .strip_prefix(b"unpack ")
                 .filter(|result| !result.is_empty())
                 .ok_or(Error::MalformedStatus("expected unpack report first"))?;
             outcome.unpack = Some(if result == b"ok" { Ok(()) } else { Err(result.into()) });
@@ -291,7 +304,9 @@ fn read_status<'a>(
             }
             (name, RefStatus::Accepted)
         } else if let Some(rest) = line.strip_prefix(b"ng ") {
-            let split = rest.iter().position(|byte| *byte == b' ')
+            let split = rest
+                .iter()
+                .position(|byte| *byte == b' ')
                 .ok_or(Error::MalformedStatus("rejection lacks a reason"))?;
             let (name, reason) = (&rest[..split], &rest[split + 1..]);
             if reason.is_empty() {
@@ -301,7 +316,9 @@ fn read_status<'a>(
         } else {
             return Err(Error::MalformedStatus("expected ok or ng record"));
         };
-        let index = *indices.get(name).ok_or(Error::MalformedStatus("status names an unrequested ref"))?;
+        let index = *indices
+            .get(name)
+            .ok_or(Error::MalformedStatus("status names an unrequested ref"))?;
         let previous = &mut outcome.refs[index].1;
         if !matches!(previous, RefStatus::Indeterminate) {
             // A conflicting duplicate invalidates this ref's confirmation, not unrelated confirmations.
@@ -310,7 +327,12 @@ fn read_status<'a>(
         }
         *previous = status;
     }
-    if outcome.unpack.is_none() || outcome.refs.iter().any(|(_, status)| matches!(status, RefStatus::Indeterminate)) {
+    if outcome.unpack.is_none()
+        || outcome
+            .refs
+            .iter()
+            .any(|(_, status)| matches!(status, RefStatus::Indeterminate))
+    {
         return Err(Error::IncompleteStatus);
     }
     Ok(())
@@ -322,11 +344,14 @@ mod tests {
     use gix_transport::client::git::{self, blocking_io::Connection};
 
     fn commands() -> Vec<Command> {
-        ["refs/heads/a", "refs/heads/b"].into_iter().map(|name| Command {
-            name: name.into(),
-            old: gix_hash::ObjectId::from_hex(b"1111111111111111111111111111111111111111").unwrap(),
-            new: gix_hash::Kind::Sha1.null(),
-        }).collect()
+        ["refs/heads/a", "refs/heads/b"]
+            .into_iter()
+            .map(|name| Command {
+                name: name.into(),
+                old: gix_hash::ObjectId::from_hex(b"1111111111111111111111111111111111111111").unwrap(),
+                new: gix_hash::Kind::Sha1.null(),
+            })
+            .collect()
     }
 
     fn response(records: &[&[u8]], flush: bool) -> Vec<u8> {
@@ -342,12 +367,19 @@ mod tests {
 
     fn run(reader: impl io::Read) -> Outcome {
         let mut transport = Connection::new(
-            reader, io::sink(), Protocol::V1, "/unused",
-            None::<(String, Option<u16>)>, git::ConnectMode::Process, false,
+            reader,
+            io::sink(),
+            Protocol::V1,
+            "/unused",
+            None::<(String, Option<u16>)>,
+            git::ConnectMode::Process,
+            false,
         );
         let handshake = crate::Handshake {
             server_protocol_version: Protocol::V1,
-            capabilities: client::Capabilities::from_bytes(b"\0report-status delete-refs").unwrap().0,
+            capabilities: client::Capabilities::from_bytes(b"\0report-status delete-refs")
+                .unwrap()
+                .0,
             ..crate::Handshake::default()
         };
         execute(&mut transport, &handshake, &commands(), &Options::default(), None).unwrap()
@@ -355,13 +387,19 @@ mod tests {
 
     #[test]
     fn stale_ref_rejection_does_not_erase_another_refs_acceptance() {
-        let report = response(&[b"unpack ok\n", b"ok refs/heads/a\n", b"ng refs/heads/b stale info\n"], true);
+        let report = response(
+            &[b"unpack ok\n", b"ok refs/heads/a\n", b"ng refs/heads/b stale info\n"],
+            true,
+        );
         let outcome = run(report.as_slice());
         assert!(outcome.error.is_none());
-        assert_eq!(outcome.refs, vec![
-            ("refs/heads/a".into(), RefStatus::Accepted),
-            ("refs/heads/b".into(), RefStatus::Rejected("stale info".into())),
-        ]);
+        assert_eq!(
+            outcome.refs,
+            vec![
+                ("refs/heads/a".into(), RefStatus::Accepted),
+                ("refs/heads/b".into(), RefStatus::Rejected("stale info".into())),
+            ]
+        );
     }
 
     #[test]
@@ -393,9 +431,15 @@ mod tests {
 
     #[test]
     fn conflicting_duplicate_invalidates_only_its_own_ref() {
-        let report = response(&[
-            b"unpack ok", b"ok refs/heads/a", b"ok refs/heads/b", b"ng refs/heads/b denied",
-        ], true);
+        let report = response(
+            &[
+                b"unpack ok",
+                b"ok refs/heads/a",
+                b"ok refs/heads/b",
+                b"ng refs/heads/b denied",
+            ],
+            true,
+        );
         let outcome = run(report.as_slice());
         assert!(matches!(outcome.error, Some(Error::MalformedStatus(_))));
         assert_eq!(outcome.refs[0].1, RefStatus::Accepted);
@@ -413,7 +457,12 @@ mod tests {
             let report = response(&records, true);
             let outcome = run(report.as_slice());
             assert!(matches!(outcome.error, Some(Error::MalformedStatus(_))));
-            assert!(outcome.refs.iter().all(|(_, status)| *status == RefStatus::Indeterminate));
+            assert!(
+                outcome
+                    .refs
+                    .iter()
+                    .all(|(_, status)| *status == RefStatus::Indeterminate)
+            );
         }
     }
 
@@ -423,10 +472,17 @@ mod tests {
         impl io::Read for FailAfter {
             fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
                 let count = io::Read::read(&mut self.0, buffer)?;
-                if count == 0 { Err(io::ErrorKind::ConnectionReset.into()) } else { Ok(count) }
+                if count == 0 {
+                    Err(io::ErrorKind::ConnectionReset.into())
+                } else {
+                    Ok(count)
+                }
             }
         }
-        let outcome = run(FailAfter(io::Cursor::new(response(&[b"unpack ok", b"ok refs/heads/a"], false))));
+        let outcome = run(FailAfter(io::Cursor::new(response(
+            &[b"unpack ok", b"ok refs/heads/a"],
+            false,
+        ))));
         assert!(matches!(outcome.error, Some(Error::Io(_))));
         assert_eq!(outcome.refs[0].1, RefStatus::Accepted);
         assert_eq!(outcome.refs[1].1, RefStatus::Indeterminate);

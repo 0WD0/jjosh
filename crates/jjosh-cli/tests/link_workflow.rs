@@ -490,13 +490,17 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     fs::write(client.join("deps/value.txt"), "published-v1\n").unwrap();
     jjosh(&client, &["status"]);
     let local_change = change_id(&client, "@");
+    jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
     jjosh(
         &client,
-        &["bookmark", "track", "main#deps@deps-upstream"],
-    );
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -539,7 +543,14 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     assert_eq!(change_id(&client, "@"), local_change);
     jjosh(
         &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     let preflight_operation = operation_id(&client);
     jjosh(
@@ -601,7 +612,14 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     assert_eq!(change_id(&client, "@"), local_change);
     jjosh(
         &client,
-        &["bookmark", "set", "topic#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "topic#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -628,7 +646,14 @@ fn link_push_rewrites_published_changes_with_independent_destination_leases() {
     );
     jjosh(
         &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -683,13 +708,17 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["status"]);
     let local_change = change_id(&client, "@");
+    jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
     jjosh(
         &client,
-        &["bookmark", "track", "main#deps@deps-upstream"],
-    );
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -733,7 +762,14 @@ fn link_push_rejects_external_advances_without_refreshing_its_lease() {
     assert_eq!(change_id(&client, "@"), local_change);
     jjosh(
         &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     let preflight_operation = operation_id(&client);
     let rejected_preflight = jjosh_unchecked(
@@ -886,13 +922,17 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     );
     fs::write(client.join("deps/value.txt"), "published local change\n").unwrap();
     jjosh(&client, &["describe", "-m", "local change"]);
+    jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
     jjosh(
         &client,
-        &["bookmark", "track", "main#deps@deps-upstream"],
-    );
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -949,7 +989,14 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     jjosh(&client, &["status"]);
     jjosh(
         &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     assert!(
         !jjosh_unchecked(
@@ -986,7 +1033,14 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     );
     jjosh(
         &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -1011,7 +1065,14 @@ fn source_update_refreshes_only_the_observed_publication_branch() {
     // Fetching main must not authorize overwriting the independently changed topic.
     jjosh(
         &client,
-        &["bookmark", "set", "topic#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "topic#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     assert!(
         !jjosh_unchecked(
@@ -1509,13 +1570,17 @@ fn link_push_then_fetch_reuses_published_local_change() {
     jjosh(&client, &["describe", "-m", "published local change"]);
     let published = commit_id(&client, "@");
     let published_change = change_id(&client, "@");
+    jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
     jjosh(
         &client,
-        &["bookmark", "track", "main#deps@deps-upstream"],
-    );
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -1571,13 +1636,17 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
     fs::write(client.join("deps/value.txt"), "published\n").unwrap();
     jjosh(&client, &["describe", "-m", "published local change"]);
     let published = commit_id(&client, "@");
+    jjosh(&client, &["bookmark", "track", "main#deps@deps-upstream"]);
     jjosh(
         &client,
-        &["bookmark", "track", "main#deps@deps-upstream"],
-    );
-    jjosh(
-        &client,
-        &["bookmark", "set", "main#deps", "-r", "@", "--allow-backwards"],
+        &[
+            "bookmark",
+            "set",
+            "main#deps",
+            "-r",
+            "@",
+            "--allow-backwards",
+        ],
     );
     jjosh(
         &client,
@@ -1619,4 +1688,149 @@ fn link_push_then_fetches_descendant_without_duplicate_published_change() {
         file_at_revision(&client, "main#deps@deps-upstream", "deps/value.txt"),
         b"upstream descendant\n"
     );
+}
+
+#[test]
+fn push_selects_each_scope_independently_of_publication_remote() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, alpha, _) = create_remote(temp.path(), "alpha");
+    let (_, beta, _) = create_remote(temp.path(), "beta");
+    let (_, publication, _) = create_remote(temp.path(), "publication");
+    let client = create_client(temp.path(), false);
+    for (name, source) in [("alpha", &alpha), ("beta", &beta)] {
+        jjosh(
+            &client,
+            &[
+                "link",
+                "add",
+                name,
+                source.to_str().unwrap(),
+                ":/src",
+                "--target",
+                "main",
+            ],
+        );
+    }
+    fs::write(client.join("alpha/value.txt"), "alpha edit\n").unwrap();
+    fs::write(client.join("beta/value.txt"), "beta edit\n").unwrap();
+    fs::write(client.join("root.txt"), "never publish the root\n").unwrap();
+    jjosh(&client, &["describe", "-m", "edit both projects"]);
+    jjosh(
+        &client,
+        &[
+            "bookmark",
+            "create",
+            "alpha-topic#alpha",
+            "beta-topic#beta",
+            "-r",
+            "@",
+        ],
+    );
+    // Publication is an ordinary endpoint with no project attachment.
+    jjosh(
+        &client,
+        &[
+            "git",
+            "remote",
+            "add",
+            "review+origin",
+            publication.to_str().unwrap(),
+        ],
+    );
+    jjosh(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "review+origin",
+            "--bookmark",
+            "alpha-topic#alpha",
+            "--bookmark",
+            "beta-topic#beta",
+            "--allow-empty-description",
+        ],
+    );
+    assert_eq!(
+        git(&publication, &["show", "alpha-topic:src/value.txt"]),
+        "alpha edit\n"
+    );
+    assert_eq!(
+        git(&publication, &["show", "beta-topic:src/value.txt"]),
+        "beta edit\n"
+    );
+    assert_eq!(
+        git(&publication, &["show", "alpha-topic:outside.txt"]),
+        "alpha-outside\n"
+    );
+    assert_eq!(
+        git(&publication, &["show", "beta-topic:outside.txt"]),
+        "beta-outside\n"
+    );
+    for branch in ["alpha-topic", "beta-topic"] {
+        assert_eq!(
+            git(&publication, &["ls-tree", "-r", "--name-only", branch]),
+            "outside.txt\nsrc/value.txt\n"
+        );
+    }
+    assert_eq!(
+        commit_id(&client, "alpha-topic#alpha@review+origin"),
+        commit_id(&client, "alpha-topic#alpha"),
+    );
+    assert_eq!(
+        commit_id(&client, "beta-topic#beta@review+origin"),
+        commit_id(&client, "beta-topic#beta"),
+    );
+
+    // Stripping scopes must not let two logical refs overwrite one wire ref.
+    jjosh(
+        &client,
+        &[
+            "bookmark",
+            "create",
+            "collision#alpha",
+            "collision#beta",
+            "-r",
+            "@",
+        ],
+    );
+    let refs = git(&publication, &["show-ref"]);
+    let operation = operation_id(&client);
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "review+origin",
+            "--bookmark",
+            "collision#alpha",
+            "--bookmark",
+            "collision#beta",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(git(&publication, &["show-ref"]), refs);
+    assert_eq!(operation_id(&client), operation);
+
+    // An unknown scope must never degrade to publishing the monorepo unchanged.
+    jjosh(
+        &client,
+        &["bookmark", "create", "unknown#missing", "-r", "@"],
+    );
+    let rejected = jjosh_unchecked(
+        &client,
+        &[
+            "git",
+            "push",
+            "--remote",
+            "review+origin",
+            "--bookmark",
+            "unknown#missing",
+            "--allow-empty-description",
+        ],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(git(&publication, &["show-ref"]), refs);
 }

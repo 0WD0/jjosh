@@ -190,9 +190,7 @@ pub(crate) fn push(
                 "stale lease: expected remote ref at {expected}"
             ))),
             Expected::Unknown => match (old, update.new) {
-                (_, None) => Some(BString::from(
-                    "deletion requires an explicit lease",
-                )),
+                (_, None) => Some(BString::from("deletion requires an explicit lease")),
                 (None, Some(_)) => None,
                 (Some(old), Some(new)) if old == new => None,
                 (Some(old), Some(new)) if update.name.starts_with(b"refs/heads/") => {

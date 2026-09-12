@@ -3648,8 +3648,7 @@ pub fn prepare_push_refs(
     let to_tag_target = |name: &RefName, remote: &RemoteName, id: &CommitId| {
         let remote_matcher = StringMatcher::exact(remote);
         let oid = owned_oid_from_commit_id(id);
-        find_git_tag_oid_to_copy(repo.view(), &git_repo, name, &remote_matcher, &oid)
-            .unwrap_or(oid)
+        find_git_tag_oid_to_copy(repo.view(), &git_repo, name, &remote_matcher, &oid).unwrap_or(oid)
     };
     let ref_updates = itertools::chain(
         targets.bookmarks.iter().map(|(name, update)| GitRefUpdate {
@@ -3719,9 +3718,12 @@ pub fn import_push_results(
 
     let pushed: HashSet<&GitRefName> = push_stats.pushed.iter().map(AsRef::as_ref).collect();
     let pushed_bookmark_updates = || {
-        iter::zip(&targets.bookmarks, &canonical_updates[..targets.bookmarks.len()])
-            .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
-            .map(|((name, update), _)| (&**name, update))
+        iter::zip(
+            &targets.bookmarks,
+            &canonical_updates[..targets.bookmarks.len()],
+        )
+        .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
+        .map(|((name, update), _)| (&**name, update))
     };
     let pushed_tag_updates = || {
         iter::zip(&targets.tags, &canonical_updates[targets.bookmarks.len()..])

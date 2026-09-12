@@ -236,23 +236,39 @@ pub fn apply_josh_filtering(
         let old = existing.remove(&reference);
         let update = match old {
             Some(old) if old == new => continue,
-            Some(old) if filter::is_ancestor_of(transaction, old, new)? => {
-                RefUpdate::FastForward { old, new, reference }
-            }
-            Some(old) => RefUpdate::Forced { old, new, reference },
+            Some(old) if filter::is_ancestor_of(transaction, old, new)? => RefUpdate::FastForward {
+                old,
+                new,
+                reference,
+            },
+            Some(old) => RefUpdate::Forced {
+                old,
+                new,
+                reference,
+            },
             None => RefUpdate::New { new, reference },
         };
         updates.push(update);
     }
-    updates.extend(existing.into_iter().map(|(reference, old)| {
-        RefUpdate::Deleted { old, reference }
-    }));
+    updates.extend(
+        existing
+            .into_iter()
+            .map(|(reference, old)| RefUpdate::Deleted { old, reference }),
+    );
     // Complete ancestry classification before staging any canonical ref edits.
     for update in &updates {
         use josh_core::cache::Expected;
         match update {
-            RefUpdate::FastForward { old, new, reference }
-            | RefUpdate::Forced { old, new, reference } => {
+            RefUpdate::FastForward {
+                old,
+                new,
+                reference,
+            }
+            | RefUpdate::Forced {
+                old,
+                new,
+                reference,
+            } => {
                 transaction.update_ref(reference, Expected::At(*old), *new, "josh filter")?;
             }
             RefUpdate::New { new, reference } => {
@@ -261,7 +277,9 @@ pub fn apply_josh_filtering(
             RefUpdate::Deleted { old, reference } => {
                 transaction.delete_ref(reference, Expected::At(*old))?;
             }
-            RefUpdate::Rejected { .. } => unreachable!("local projection updates cannot be rejected"),
+            RefUpdate::Rejected { .. } => {
+                unreachable!("local projection updates cannot be rejected")
+            }
         }
     }
     Ok(updates)

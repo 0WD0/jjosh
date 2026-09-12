@@ -34,8 +34,8 @@ pub(crate) fn write_snapshot(objects_dir: &Path, snapshot: &Snapshot) -> anyhow:
     // the expected case below, and the default refresh mode re-lists the pack directory on every
     // miss — disable it; the first lookup still loads all indices present now, and loose-object
     // probes stat the filesystem directly either way.
-    let mut odb = gix_odb::at(objects_dir, gix_hash::Kind::Sha1)
-        .context("mem-odb pack write failed")?;
+    let mut odb =
+        gix_odb::at(objects_dir, gix_hash::Kind::Sha1).context("mem-odb pack write failed")?;
     odb.refresh = gix_odb::store::RefreshMode::Never;
 
     let to_pack: Vec<_> = snapshot
