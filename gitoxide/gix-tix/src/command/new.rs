@@ -54,7 +54,7 @@ pub(super) fn run(repository: gix::Repository, args: Args) -> Result<()> {
         bail!("the new commit would be empty; use --allow-empty to create it anyway");
     }
 
-    let explicit = super::reword::explicit_message(&args.edit, std::io::stdin())?;
+    let explicit = super::reword::explicit_message(&args.edit.message, args.edit.file.as_deref(), std::io::stdin())?;
     let outcome = if let Some(message) = explicit {
         let mut repository = crate::open_repository(&repository_path, bare, false)
             .or_raise(|| gix::error::message("could not reopen repository before creating commit"))?;
