@@ -187,7 +187,7 @@ impl Projection {
                 .map_err(|err| user_error_with_message("Failed to read source tree", err))?
                 .ok_or_else(|| user_error(format!("Source object {id} is not a tree")))?;
             // TreeReader::entries() skips malformed entries. Preflight must not.
-            let parsed = gix_object::TreeRef::from_bytes(&bytes, gix_hash::Kind::Sha1)
+            let parsed = josh_gix_object::TreeRef::from_bytes(&bytes, gix_hash::Kind::Sha1)
                 .map_err(|err| user_error_with_message("Malformed source Git tree", err))?;
             let mut names = HashSet::new();
             for entry in &parsed.entries {

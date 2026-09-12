@@ -39,7 +39,7 @@ impl std::fmt::Display for LinkMode {
 
 /// Discover metadata without silently dropping links whose marker cannot be read or parsed.
 pub(crate) fn find_link_files(
-    odb: &impl gix_object::Find,
+    odb: &impl josh_gix_object::Find,
     tree: gix_hash::ObjectId,
 ) -> anyhow::Result<Vec<(PathBuf, Filter)>> {
     let mut links = Vec::new();
@@ -60,7 +60,7 @@ pub(crate) fn find_link_files(
                     entry.oid
                 )
             })?;
-        if data.kind != gix_object::Kind::Blob {
+        if data.kind != josh_gix_object::Kind::Blob {
             return Err(anyhow!(
                 "Link metadata '{}' is not a blob",
                 marker.display()
@@ -79,7 +79,7 @@ pub(crate) fn find_link_files(
 
 /// Resolve link configuration independently of conflicts in ordinary project files.
 pub(crate) fn find_native_link_files(
-    odb: &impl gix_object::Find,
+    odb: &impl josh_gix_object::Find,
     commit: &jj_lib::commit::Commit,
 ) -> anyhow::Result<Vec<(PathBuf, Filter)>> {
     if let Some(id) = commit.tree_ids().as_resolved() {

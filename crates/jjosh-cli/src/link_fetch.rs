@@ -60,15 +60,19 @@ struct ProjectedMatch {
 fn projected_info(
     transaction: &Transaction,
     oid: gix_hash::ObjectId,
-) -> Result<(Option<ChangeId>, ProjectedContent), CommandError> {
+) -> Result<(ChangeId, ProjectedContent), CommandError> {
     let commit =
         josh_core::objects::CommitData::read(transaction.odb(), oid).map_err(user_error)?;
-    let parsed = commit.parsed().map_err(user_error)?;
+    let parsed = gix_object::CommitRef::from_bytes(commit.bytes(), gix_hash::Kind::Sha1)
+        .map_err(user_error)?;
     let author = parsed.author().map_err(user_error)?;
     let committer = parsed.committer().map_err(user_error)?;
-    let change_id = josh_core::trailers::commit_change_meta(&commit)
-        .0
-        .and_then(|id| ChangeId::try_from_reverse_hex(id));
+    let change_id =
+        jj_lib::git_backend::extract_change_id_from_commit(&parsed).unwrap_or_else(|| {
+            jj_lib::git_backend::synthetic_change_id_from_git_commit_id(&CommitId::from_bytes(
+                oid.as_bytes(),
+            ))
+        });
     Ok((
         change_id,
         ProjectedContent {
@@ -83,7 +87,7 @@ fn projected_info(
                 email: committer.email.to_owned().into(),
                 time: committer.time.to_owned(),
             },
-            message: commit.message_raw().map_err(user_error)?.to_owned().into(),
+            message: parsed.message.to_owned().into(),
         },
     ))
 }
@@ -95,9 +99,7 @@ async fn reuse_filtered_commit(
     filtered: gix_hash::ObjectId,
     matches: &mut Vec<ProjectedMatch>,
 ) -> Result<CommitId, CommandError> {
-    let (Some(change_id), content) = projected_info(transaction, filtered)? else {
-        return Ok(crate::interop::commit_id_from_josh_oid(filtered));
-    };
+    let (change_id, content) = projected_info(transaction, filtered)?;
     if let Some(previous) = matches
         .iter()
         .find(|previous| previous.change_id == change_id && previous.content == content)
