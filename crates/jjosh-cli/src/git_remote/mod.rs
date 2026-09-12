@@ -47,6 +47,41 @@ pub(crate) fn config_string(repo: &gix::Repository, key: &str) -> Result<Option<
         .transpose()
 }
 
+/// Resolve one project layout from native state and its configured named peers.
+pub(crate) fn project_mount(
+    git_path: &std::path::Path,
+    project: &str,
+) -> Result<RepoPathBuf, CommandError> {
+    let transaction = crate::interop::open_josh_transaction(git_path, true)?;
+    let mut recorded = false;
+    transaction.for_each_ref_prefixed(
+        &crate::native_project::project_ref_prefix(project),
+        |_, _| { recorded = true; Ok(()) },
+    ).map_err(user_error)?;
+    let mut mount = if recorded {
+        Some(crate::native_project::load_mount(&transaction, project).map_err(user_error)?)
+    } else {
+        None
+    };
+    let git = gix::open(git_path).map_err(user_error)?;
+    for remote in git.remote_names() {
+        let Ok(name) = std::str::from_utf8(&remote) else { continue };
+        if config_string(&git, &format!("remote.{name}.jjosh-project")).map_err(user_error)?
+            .as_deref() != Some(project)
+        {
+            continue;
+        }
+        if let Some(path) = config_string(&git, &format!("remote.{name}.jjosh-mount")).map_err(user_error)? {
+            let path = crate::native_project::parse_mount(&path).map_err(user_error)?;
+            if mount.as_ref().is_some_and(|existing| existing != &path) {
+                return Err(user_error(format!("Project {project} has inconsistent mounts in its named remotes")));
+            }
+            mount = Some(path);
+        }
+    }
+    mount.map(Ok).unwrap_or_else(|| crate::native_project::default_mount(project).map_err(user_error))
+}
+
 /// Bind layout identity to a named remote, never to a versioned transport marker.
 pub(crate) fn configure_attachment(
     repo_path: &std::path::Path,
@@ -99,7 +134,7 @@ pub(crate) fn raw_ref_prefix(repo: &gix::Repository, endpoint: &str) -> Result<S
 impl GitRemoteExtension for Extension {
     fn open(
         &self,
-        _command: &CommandHelper,
+        command: &CommandHelper,
         workspace: &WorkspaceCommandHelper,
         remote: &RemoteName,
     ) -> Result<Box<dyn GitRemoteSession>, CommandError> {
@@ -126,9 +161,9 @@ impl GitRemoteExtension for Extension {
             {
                 crate::native_project::parse_mount(&path).map_err(user_error)?
             } else {
-                crate::native_project::load_mount(&transaction, &name).map_err(user_error)?
+                project_mount(&git_path, &name)?
             };
-            let native = match crate::native_project::native_project_for_mount(&transaction, &mount)
+            let mut native = match crate::native_project::native_project_for_mount(&transaction, &mount)
                 .map_err(user_error)?
             {
                 Some(existing) if existing == name => true,
@@ -140,6 +175,19 @@ impl GitRemoteExtension for Extension {
                 }
                 None => false,
             };
+            if !native {
+                let url = if let Some(config) = &josh {
+                    gix::url::parse(config.url.as_str()).map_err(user_error)?
+                } else {
+                    git.find_remote(remote.as_str()).map_err(user_error)?
+                        .url(Direction::Fetch).cloned()
+                        .ok_or_else(|| user_error("Project remote has no fetch URL"))?
+                };
+                if url.scheme == gix::url::Scheme::File {
+                    let path = gix::path::from_bstr(url.path.as_ref());
+                    native = command.cwd().join(path).join(".jj").is_dir();
+                }
+            }
             if native && let Some(config) = &josh {
                 let filter = config.semantic_filter();
                 if filter != Filter::new()

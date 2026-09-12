@@ -278,8 +278,7 @@ fn attachment_mount(
     if let Some(mount) = mount {
         crate::native_project::parse_mount(mount).map_err(user_error)
     } else {
-        let transaction = open_josh_transaction(git_path, true)?;
-        crate::native_project::load_mount(&transaction, project).map_err(user_error)
+        crate::git_remote::project_mount(git_path, project)
     }
 }
 

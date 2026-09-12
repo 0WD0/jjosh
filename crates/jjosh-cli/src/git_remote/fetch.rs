@@ -296,6 +296,8 @@ pub(super) async fn run(
                 );
             }
         }
+        crate::native_project::record_mount(&transaction, &project.name, &project.mount)
+            .map_err(user_error)?;
         crate::native_project::record_imported_boundaries(
             &transaction,
             &project.name,
@@ -431,6 +433,8 @@ pub(super) async fn run(
                     Converted::native(RefTarget::normal(id.clone()))?,
                 );
             }
+            crate::native_project::record_mount(&transaction, &project.name, &project.mount)
+                .map_err(user_error)?;
             crate::native_project::record_imported_boundaries(
                 &transaction,
                 &project.name,
