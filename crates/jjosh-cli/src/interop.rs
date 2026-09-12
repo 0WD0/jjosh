@@ -97,11 +97,11 @@ pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), 
 
 /// Josh operates on Git histories. A native conflict's Git representation is
 /// transport data, not a resolved tree that can safely be filtered or pushed.
-pub(crate) async fn check_projectable_history(
-    workspace: &WorkspaceCommandHelper,
+pub(crate) async fn check_projectable_repo_history(
+    repo: &dyn jj_lib::repo::Repo,
     commit: &Commit,
 ) -> Result<(), CommandError> {
-    let store = workspace.repo().store();
+    let store = repo.store();
     if commit.id() == store.root_commit_id() {
         return Err(user_error("The root commit cannot be projected"));
     }
@@ -123,19 +123,13 @@ pub(crate) async fn check_projectable_history(
     Ok(())
 }
 
-/// Inspect received Git objects before Josh writes any projected refs. Native
-/// metadata must not be lazily synthesized merely to perform this check.
-pub(crate) fn check_projectable_remote(
+
+/// Validate explicitly received source objects without consulting ref namespaces.
+pub(crate) fn check_raw_projectable_history(
     transaction: &josh_core::cache::Transaction,
-    remote: &str,
+    roots: impl IntoIterator<Item = gix_hash::ObjectId>,
 ) -> Result<(), CommandError> {
-    let mut pending = Vec::new();
-    transaction
-        .for_each_ref_prefixed(&format!("refs/josh/remotes/{remote}/"), |_, id| {
-            pending.push(id);
-            Ok(())
-        })
-        .map_err(|err| user_error_with_message("Failed to inspect fetched source refs", err))?;
+    let mut pending: Vec<_> = roots.into_iter().collect();
     let mut visited = HashSet::new();
     while let Some(id) = pending.pop() {
         if !visited.insert(id) {

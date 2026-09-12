@@ -2,7 +2,7 @@ use std::io::Write as _;
 use std::path::{Component, Path, PathBuf};
 
 use crate::interop::{
-    check_projectable_history, check_projectable_remote, commit_as_josh_oid, open_josh_transaction,
+    check_projectable_repo_history, commit_as_josh_oid, open_josh_transaction,
     sha1_git_repo_path,
 };
 use jj_cli::cli_util::{CommandHelper, RevisionArg, WorkspaceCommandHelper};
@@ -22,10 +22,6 @@ enum Command {
     Status(StatusArgs),
     /// Configure projection remotes.
     Remote(RemoteArgs),
-    /// Fetch, project, and import remote history into Jujutsu.
-    Fetch(FetchArgs),
-    /// Reverse-project a selected Jujutsu revision and push it to a source branch.
-    Push(PushArgs),
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -92,6 +88,8 @@ struct RemoteArgs {
 enum RemoteCommand {
     /// Add or replace a projection remote.
     Add(RemoteAddArgs),
+    /// Attach a named Git remote to a project without changing recorded history.
+    Attach(RemoteAttachArgs),
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -102,44 +100,23 @@ struct RemoteAddArgs {
     url: String,
     #[command(flatten)]
     projection: FilterArgs,
+    /// Optional publication endpoint; otherwise use the source endpoint.
+    #[arg(long)]
+    push_url: Option<String>,
+    /// Mount the projected history as this project.
+    #[arg(long)]
+    project: Option<String>,
+    /// Project mount; defaults to its recorded native mount or project name.
+    #[arg(long, requires = "project")]
+    mount: Option<String>,
 }
 
 #[derive(clap::Args, Clone, Debug)]
-struct FetchArgs {
-    /// Projection remote to fetch.
-    #[arg(short, long, default_value = "origin")]
-    remote: String,
-}
-
-#[derive(clap::Args, Clone, Debug)]
-struct PushArgs {
-    /// Projection remote to push through.
-    #[arg(long, default_value = "origin")]
-    remote: String,
-
-    /// Destination branch in the unprojected source repository.
-    #[arg(long, required = true)]
-    to: String,
-
-    /// Exact revision or bookmark to publish; use @ for the current working commit.
-    #[arg(short = 'r', long, required = true)]
-    revision: RevisionArg,
-
-    /// Source branch supplying context for a new branch or unrelated-history import.
+struct RemoteAttachArgs {
+    name: String,
+    project: String,
     #[arg(long)]
-    base: Option<String>,
-
-    /// Merge the reverse-projected history with the source base.
-    #[arg(long)]
-    merge: bool,
-
-    /// Prepare the push without updating the remote.
-    #[arg(long)]
-    dry_run: bool,
-
-    /// Allow a non-fast-forward source branch update.
-    #[arg(long)]
-    force: bool,
+    mount: Option<String>,
 }
 
 pub(crate) async fn run(
@@ -150,8 +127,6 @@ pub(crate) async fn run(
     match args.command {
         Command::Status(args) => run_status(ui, command_helper, args).await,
         Command::Remote(args) => run_remote(ui, command_helper, args).await,
-        Command::Fetch(args) => run_fetch(ui, command_helper, args).await,
-        Command::Push(args) => run_push(ui, command_helper, args).await,
     }
 }
 
@@ -159,7 +134,7 @@ fn require_current_operation(command_helper: &CommandHelper) -> Result<(), Comma
     if !command_helper.is_at_head_operation() || command_helper.global_args().no_integrate_operation
     {
         return Err(user_error(
-            "Projection remote changes, fetch, and push require the current integrated operation",
+            "Projection configuration requires the current integrated operation",
         ));
     }
     Ok(())
@@ -203,7 +178,7 @@ async fn run_status(
         .resolve_single_rev(ui, &args.revision)
         .await?;
 
-    check_projectable_history(&workspace_command, &commit).await?;
+    check_projectable_repo_history(workspace_command.repo().as_ref(), &commit).await?;
 
     let git_repo_path = sha1_git_repo_path(&workspace_command)?;
     let filter = args.projection.resolve()?;
@@ -234,6 +209,7 @@ async fn run_remote(
 ) -> Result<(), CommandError> {
     match args.command {
         RemoteCommand::Add(args) => run_remote_add(ui, command_helper, args).await,
+        RemoteCommand::Attach(args) => run_remote_attach(ui, command_helper, args).await,
     }
 }
 
@@ -243,126 +219,99 @@ async fn run_remote_add(
     args: RemoteAddArgs,
 ) -> Result<(), CommandError> {
     require_current_operation(command_helper)?;
-    let workspace_command = recorded_workspace(ui, command_helper).await?;
-    let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let _git_lock = workspace_command.lock_git_import_export()?;
-
-    let filter = args.projection.resolve()?;
+    let workspace = recorded_workspace(ui, command_helper).await?;
+    let git_path = sha1_git_repo_path(&workspace)?;
+    let _git_lock = workspace.lock_git_import_export()?;
+    let git = gix::open(&git_path).map_err(user_error)?;
+    let project = args.project.or(
+        crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-project", args.name))
+            .map_err(user_error)?,
+    );
+    let mut filter = args.projection.resolve()?;
+    let attachment = if let Some(project) = project {
+        let project = crate::native_project::parse_project(&project).map_err(user_error)?;
+        let mount = args.mount.or(
+            crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-mount", args.name))
+                .map_err(user_error)?,
+        );
+        let mount = attachment_mount(&git_path, &project, mount.as_deref())?;
+        filter = filter.prefix(mount.as_internal_file_string());
+        Some((project, mount))
+    } else {
+        None
+    };
     josh_cli::remote_ops::configure_remote(
-        &git_repo_path,
+        &git_path,
         &args.name,
         &args.url,
         &josh_core::filter::spec(filter),
         None,
-        None,
+        args.push_url.as_deref(),
         None,
     )
     .map_err(|err| user_error_with_message("Failed to configure Josh projection remote", err))?;
-
+    if let Some((project, mount)) = attachment {
+        let read_only = args.push_url.is_none()
+            && git.config_snapshot()
+                .boolean(format!("remote.{}.jjosh-readOnly", args.name).as_str())
+                .unwrap_or(false);
+        crate::git_remote::configure_attachment(&git_path, &args.name, &project, &mount, read_only)
+            .map_err(user_error)?;
+    }
     writeln!(
         ui.status(),
         "Configured projection remote {}: {} through {}",
         args.name,
         args.url,
-        josh_core::filter::spec(filter)
+        josh_core::filter::spec(filter),
     )?;
     Ok(())
 }
 
-async fn run_fetch(
+fn attachment_mount(
+    git_path: &Path,
+    project: &str,
+    mount: Option<&str>,
+) -> Result<jj_lib::repo_path::RepoPathBuf, CommandError> {
+    if let Some(mount) = mount {
+        crate::native_project::parse_mount(mount).map_err(user_error)
+    } else {
+        let transaction = open_josh_transaction(git_path, true)?;
+        crate::native_project::load_mount(&transaction, project).map_err(user_error)
+    }
+}
+
+async fn run_remote_attach(
     ui: &mut Ui,
-    command_helper: &CommandHelper,
-    args: FetchArgs,
+    command: &CommandHelper,
+    args: RemoteAttachArgs,
 ) -> Result<(), CommandError> {
-    require_current_operation(command_helper)?;
-
-    // Synchronize native/Git working-copy state before the eventual transaction
-    // finish can update the colocated HEAD/index or rebase affected descendants.
-    let mut workspace_command = command_helper.workspace_helper(ui).await?;
-    let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let git_lock = workspace_command.lock_git_import_export()?;
-    let transaction = open_josh_transaction(&git_repo_path, false)?;
-    let fetch_args = josh_cli::commands::fetch::FetchArgs {
-        remote: args.remote.clone(),
-        rref: "HEAD".to_owned(),
-    };
-    let fetched = josh_cli::commands::fetch::fetch_unfiltered(&fetch_args, &transaction, false)
-        .map_err(|err| user_error_with_message("Failed to fetch the Josh source history", err))?;
-    check_projectable_remote(&transaction, &args.remote)?;
-    let updates = josh_cli::commands::fetch::filter_fetched(&fetched, &transaction)
-        .map_err(|err| user_error_with_message("Failed to filter the Josh source history", err))?;
-
-    let mut tx = workspace_command.start_transaction();
-    let git_settings = jj_lib::git::GitSettings::from_settings(tx.settings())?;
-    let remote_settings = tx.settings().remote_settings()?;
-    let import_options =
-        jj_cli::git_util::load_git_import_options(ui, &git_settings, &remote_settings)?;
-    let import_stats =
-        jj_lib::git::import_some_refs(tx.repo_mut(), &import_options, |kind, symbol| {
-            kind == jj_lib::git::GitRefKind::Bookmark && symbol.remote.as_str() == args.remote
-        })
-        .await?;
-    jj_cli::git_util::print_git_import_stats(ui, &tx, &import_stats)?;
-    let description = format!("fetch Josh projection from {}", args.remote);
-    tx.finish_with_git_import_export_lock(ui, description, &git_lock)
-        .await?;
-    writeln!(
-        ui.status(),
-        "Fetched {} projected ref update(s) from {}",
-        updates.len(),
-        args.remote
-    )?;
+    require_current_operation(command)?;
+    let workspace = recorded_workspace(ui, command).await?;
+    let git_path = sha1_git_repo_path(&workspace)?;
+    let _git_lock = workspace.lock_git_import_export()?;
+    let project = crate::native_project::parse_project(&args.project).map_err(user_error)?;
+    let mount = attachment_mount(&git_path, &project, args.mount.as_deref())?;
+    let git = gix::open(&git_path).map_err(user_error)?;
+    git.find_remote(args.name.as_str()).map_err(user_error)?;
+    let existing = crate::git_remote::config_string(&git, &format!("remote.{}.jjosh-project", args.name))
+        .map_err(user_error)?;
+    if existing.is_none()
+        && let Some(config) = josh_changes::remote_config::try_read_remote_config(&git_path, &args.name)
+            .map_err(user_error)?
+    {
+        let filter = config.semantic_filter().prefix(mount.as_internal_file_string());
+        josh_cli::remote_ops::configure_remote(
+            &git_path, &args.name, &config.url, &josh_core::filter::spec(filter),
+            config.forge, config.push_url.as_deref(), Some(config.gerrit_mode),
+        ).map_err(user_error)?;
+    }
+    let read_only = git.config_snapshot()
+        .boolean(format!("remote.{}.jjosh-readOnly", args.name).as_str())
+        .unwrap_or(false);
+    crate::git_remote::configure_attachment(&git_path, &args.name, &project, &mount, read_only)
+        .map_err(user_error)?;
+    writeln!(ui.status(), "Attached {} to {project} at {}", args.name, mount.as_internal_file_string())?;
     Ok(())
 }
 
-fn branch_ref(
-    transaction: &josh_core::cache::Transaction,
-    branch: &str,
-) -> Result<String, CommandError> {
-    if branch.starts_with('-') {
-        return Err(user_error("A source branch name cannot start with '-'"));
-    }
-    let reference = format!("refs/heads/{branch}");
-    // A qualified ref cannot be parsed as an option, and check-ref-format rejects
-    // revision expressions, refspec delimiters, and invalid path components.
-    transaction
-        .spawn_git(&["check-ref-format", &reference], &[])
-        .map_err(|err| user_error_with_message(format!("Invalid source branch {branch:?}"), err))?;
-    Ok(reference)
-}
-
-async fn run_push(
-    ui: &mut Ui,
-    command_helper: &CommandHelper,
-    args: PushArgs,
-) -> Result<(), CommandError> {
-    require_current_operation(command_helper)?;
-    let workspace_command = command_helper.workspace_helper(ui).await?;
-    let commit = workspace_command
-        .resolve_single_rev(ui, &args.revision)
-        .await?;
-    check_projectable_history(&workspace_command, &commit).await?;
-
-    let git_repo_path = sha1_git_repo_path(&workspace_command)?;
-    let _git_lock = workspace_command.lock_git_import_export()?;
-    let transaction = open_josh_transaction(&git_repo_path, false)?;
-    check_projectable_remote(&transaction, &args.remote)?;
-    let destination = branch_ref(&transaction, &args.to)?;
-    if let Some(base) = &args.base {
-        branch_ref(&transaction, base)?;
-    }
-    let source_oid = commit_as_josh_oid(&commit)?;
-    let push_args = josh_cli::commands::push::PushArgs {
-        remote: Some(args.remote),
-        refspecs: vec![format!("{source_oid}:{destination}")],
-        force: args.force,
-        atomic: false,
-        dry_run: args.dry_run,
-        base: args.base,
-        merge: args.merge,
-    };
-    // Josh owns source-aware reverse filtering and push status. No Git HEAD,
-    // temporary ref, local revision rewrite, or post-push fetch is involved.
-    josh_cli::commands::push::handle_push(&push_args, &transaction)
-        .map_err(|err| user_error_with_message("Failed to push the Josh projection", err))
-}

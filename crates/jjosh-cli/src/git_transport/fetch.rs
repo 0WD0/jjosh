@@ -29,7 +29,6 @@ pub(crate) fn fetch(
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Outcome> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
-    let repo = remote.repo();
     let mut remote = remote.with_fetch_tags(Tags::None);
     remote
         .replace_refspecs(std::iter::empty::<&str>(), Fetch)
@@ -61,13 +60,29 @@ pub(crate) fn fetch(
         });
     }
 
-    // Multiple refs can name the same object. Deduplicate wants, not ref identities.
-    let mut ids: Vec<_> = received
-        .iter()
-        .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned))
-        .collect();
+    let keep_paths = receive_objects(
+        remote,
+        received.iter().filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned)),
+        interrupt,
+    )?;
+    Ok(Outcome { advertised, received, keep_paths })
+}
+
+/// Receive explicit object IDs without ref destinations, including an initial pinned import.
+pub(crate) fn receive_objects(
+    remote: gix::Remote<'_>,
+    ids: impl IntoIterator<Item = gix::ObjectId>,
+    interrupt: &AtomicBool,
+) -> anyhow::Result<Vec<PathBuf>> {
+    ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
+    let repo = remote.repo();
+    let mut remote = remote.with_fetch_tags(Tags::None);
+    let mut ids: Vec<_> = ids.into_iter().collect();
     ids.sort_unstable();
     ids.dedup();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut hex = gix::hash::Kind::hex_buf();
     remote
         .replace_refspecs(
@@ -113,9 +128,5 @@ pub(crate) fn fetch(
         repo.find_header(id)
             .with_context(|| format!("Pinned Git object {id} is unavailable after receive"))?;
     }
-    Ok(Outcome {
-        advertised,
-        received,
-        keep_paths: keep_path.into_iter().collect(),
-    })
+    Ok(keep_path.into_iter().collect())
 }
