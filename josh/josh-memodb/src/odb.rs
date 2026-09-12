@@ -115,13 +115,16 @@ impl Odb {
 
     /// [`Odb::new`] over the objects directory `objects_dir`, opening a store of its own.
     pub fn at(mem: Arc<MemOdb>, objects_dir: &Path) -> std::io::Result<Self> {
-        Ok(Odb::new(mem, gix_odb::at(objects_dir)?.store()))
+        Ok(Odb::new(
+            mem,
+            gix_odb::at(objects_dir, gix_hash::Kind::Sha1)?.store(),
+        ))
     }
 
     /// Register `path` (an objects directory) as another place to read objects from, and one
     /// whose objects the write gate must not buffer.
     pub fn add_alternate(&self, path: &Path) -> std::io::Result<()> {
-        let store = gix_odb::at(path)?.store();
+        let store = gix_odb::at(path, gix_hash::Kind::Sha1)?.store();
         let mut fast = handle(store.clone());
         fast.refresh_never();
         let mut gate = gix_odb::Cache::from(store.to_handle());

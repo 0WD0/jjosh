@@ -626,7 +626,7 @@ impl Transaction {
             Ok(id) => Ok(Some(id.into())),
             Err(gix::revision::spec::parse::single::Error::RangedRev { .. }) => Ok(None),
             Err(gix::revision::spec::parse::single::Error::Parse(error)) => {
-                let operational_error = error.sources().any(|source| {
+                let operational_error = error.iter_errors().any(|source| {
                     matches!(
                         source.downcast_ref::<gix_object::find::existing::Error>(),
                         Some(gix_object::find::existing::Error::Find(_))
