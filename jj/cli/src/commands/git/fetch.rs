@@ -273,6 +273,9 @@ pub async fn cmd_git_fetch(
             let tags = expr.tag.to_matcher();
             let session = &remote_sessions[remote];
             observations.extend(session.fetch(ui, command, tx.repo_mut(), expr).await?);
+            // An empty selected result still observes a configured peer. Keep
+            // it addressable for explicit tracking and first publication.
+            tx.repo_mut().ensure_remote(remote);
             selections.push((*remote, bookmarks, tags));
         }
         git::import_remote_observations(
