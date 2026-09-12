@@ -39,7 +39,7 @@ fetch、track、整合、publish 仍是独立步骤。普通 =main= 与 =main#al
 - =#PROJECT= 是命名约定，不是权限或归属隔离；相同拼写的“字面名字”和“带 scope 的名字”无法共存。导入会拒绝已占用的项目名字空间。
 - 已登记的 link 用 =link update [PATH]= 读取版本化的 URL、target 和 source remote；未登记的额外 peer 仍需用 native fetch 显式指定来源。当前一个 link marker 只记录一个 fetch 来源，多个 peer 的观察仍是底层 native fetch 的能力。
 - native push/link push 仍显式给目标；不新增 =(scope, remote)= 配置、自动路由或短 remote 别名。保留既有 remote 名称及碰撞限制，不承诺任意项目名/远端名组合都不冲突。
-- 向来源发布必须走 =native push= 的转换；普通 =git push --all= 不理解这些名字的含义，仍可能发布 monorepo 坐标。不能把引用改名当作历史转换。
+- 向来源发布必须走 =native push= 或 =link push= 的转换；普通 =git push --all= 不理解这些名字的含义，仍可能发布 monorepo 坐标。不能把引用改名当作历史转换。
 - 原有 native 转换边界、私有保活引用以及按实际 URL/目标分支绑定的 lease 均不变。这个 demo 不宣称解决所有转换歧义、隐藏版本或外部发布恢复问题。
 
 * 验证

@@ -26,7 +26,7 @@ jj 和 Josh 的来源、pin、发布目标分别放在 [[file:jj/.link.josh][jj/
 
 #+begin_src sh
 jjosh link update
-jjosh new @ jj/main@jj-upstream josh/master@josh-upstream
+jjosh new @ main#jj@jj-upstream master#josh@josh-upstream
 #+end_src
 
 这里的 =new= 是一种整合选择，不是 update 的副作用。也可以只整合一个项目，或按当前修改图用 rebase/squash 接续。
@@ -64,14 +64,14 @@ jjosh git init --no-colocate --object-hash sha1 combined
 jjosh -R combined native import \
   --source ebox=/path/to/ebox \
   --source ekp=/path/to/ekp
-jjosh -R combined new @ ebox/workspace/default ekp/workspace/default
+jjosh -R combined new @ workspace/default#ebox workspace/default#ekp
 #+end_src
 
 已有目标仓库可以直接 import，不需要重新 init。每个 NAME 是当前实现中的 canonical 顶层目录和引用前缀，允许 ASCII 字母、数字、=-=、=_=；占用的目录或命名空间会被拒绝。
 
 导入保留选定当前 view 及其所需父历史：change ID、空提交、有序 merge 父边、当前 divergence、原生冲突树和冲突引用。目录与父 ID 映射会改变 commit ID；失效的提交签名会移除并报告。/不搬迁旧 operation/evolution 历史，也不包含未记录的磁盘修改。/
 
-源书签和 tag 默认叫 =NAME/原名=，remote 观察叫 =NAME/原名@NAME-原远端=。=NAME/workspace/default= 是导入时保留工作入口的普通书签，不是另一个已挂载 workspace。新建 native 实验仓库也可选择 [[file:docs/scoped-reference-convention-demo.org][=原名#NAME= 命名约定 demo]]；这不改变 jj 的引用模型。
+源书签和 tag 默认叫 =原名#NAME=，remote 观察叫 =原名#NAME@NAME-原远端=。=workspace/default#NAME= 是导入时保留工作入口的普通书签，不是另一个已挂载 workspace。新建 native 实验仓库也可选择 [[file:docs/scoped-reference-convention-demo.org][=原名#NAME= 命名约定 demo]]；这不改变 jj 的引用模型。
 
 ** 接收上游，也接收外部贡献
 
@@ -80,7 +80,7 @@ native 的获取来源和发布目标不绑定。可以从 Git 上游、贡献�
 #+begin_src sh
 jjosh -R combined native fetch ebox /path/to/other-jj-workspace \
   --branch topic --remote contributor
-jjosh -R combined new @ ebox/topic@ebox-contributor
+jjosh -R combined new @ topic#ebox@ebox-contributor
 
 jjosh -R combined native push ebox \
   --remote /path/to/ebox-fork.git --branch topic -r @
@@ -94,7 +94,7 @@ push 只导出 Ebox 的内容，裁剪对该项目没有变化的提交，不拆
 
 * 用 link 记录持续同步配置
 
-link 把来源、filter、raw pin 和发布目标放进版本化的 =PATH/.link.josh=。下面既可引入一个新来源，也可为具有已知共同历史的原生导入项目关联来源；占用项目不会被重做成源码快照。
+link 将来源 URL、filter、初始 raw pin、fetch target 和发布出口放进版本化的 =PATH/.link.josh=。项目名默认取 =PATH= 的末段（可由 =--name= 覆盖）；默认 source remote 名为 =upstream=，因此来源的 =main= 会成为普通 jj remote bookmark =main#项目名@项目名-upstream=。它既可引入新来源，也可为有共同历史的原生导入项目登记持续同步；已占用项目不会被重做成源码快照。
 
 #+begin_src sh
 jjosh link add ebox /path/to/ebox.git \
@@ -103,7 +103,7 @@ jjosh link add ebox /path/to/ebox.git \
   --push-target topic
 
 jjosh link update ebox --branch main
-jjosh new @ ebox/main@ebox-upstream
+jjosh new @ main#ebox@ebox-upstream
 jjosh link push ebox -r @
 #+end_src
 
@@ -115,7 +115,11 @@ jjosh link push ebox -r @
 - 只给其中一种：只获取那一种；选项可重复，支持 jj 名字模式。
 - 只更新选中引用，包括匹配的来源删除；未选择的观察保留。
 
-=link push= 默认选择 =@=，=--to= 覆盖配置的发布分支。它反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述和显式 =-r= 不会使空提交绕过裁剪。发布需要配置 =--push-url=。
+同一来源引用未变化时，重复 =link update= 保持其投影后的 bookmark target。若来源回到刚由本地发布的版本，提交带有效 =jj:change-id= header 且投影内容相同，update 会复用本地已发布 commit；随后来源后继会接在该 canonical 父边之后，避免仅因发布再取回而产生重复版本。相同 change ID 但投影内容不同仍按 jj 的 divergence 规则保留，不会为回环强行合并。
+
+没有有效 =jj:change-id= header 的 Git 提交会按 Git OID 合成 change ID。过滤或重写会改变 OID，因此设置 =git.write-change-id-header=false= 时，不保证取回后仍复用原本的本地 commit；这是 Josh 有损历史的边界，不应把它当作 round-trip 身份保证。
+
+=link push= 默认选择 =@=，=--to= 覆盖配置的发布分支。它反向映射所选目录，并裁剪整段导出历史中对该项目没有内容变化的提交；描述和显式 =-r= 不会使空提交绕过裁剪。发布需要配置 =--push-url=。成功发布后会按精确 URL 与目标分支记录 raw 位置；后续重写用 force-with-lease 校验该观察，失败或 =--dry-run= 不推进记录，=--force= 才绕过此保护。
 
 * 一份 canonical 树，多种构建布局
 
@@ -181,9 +185,9 @@ third-party/msquic = :/src/msquic
 
 * 真正需要记住的边界
 
-- *历史坐标不等于引用名字。* 当前 =jj/main@jj-upstream= 仍是普通 jj 引用。项目前缀不会阻止普通 Git push 发布 monorepo 坐标的提交；向来源发布要走 native/link/projection 的对应入口。
+- *历史坐标不等于引用名字。* 当前 =main#jj@jj-upstream= 仍是普通 jj 引用。项目前缀不会阻止普通 Git push 发布 monorepo 坐标的提交；向来源发布要走 native/link/projection 的对应入口。
 - *发布保护有区别。* native/link 按实际目标 URL 与分支记录 raw 位置；首次只允许创建或快进，已有观察时使用 force-with-lease。projection 使用普通非快进拒绝，没有同样的 lease 契约。=--force= 绕过相应保护。
-- *恢复本地操作不撤销发布。* =op restore= 不回滚远端或私有发布记录。非 colocated 仓库恢复引用后，先用 =git export= 同步物理 refs，再做 import。多个来源之间没有原子发布。
+- *恢复本地操作不撤销发布。* =op restore= 不回滚远端或私有发布记录。非 colocated 仓库恢复引用后，先用 =jjosh git export= 同步物理 refs，再做 import。多个来源之间没有原子发布。
 - *私有对应关系不是可随手删的缓存。* =refs/jjosh/native/NAME/= 同时保存转换边界并保活 raw/canonical 对象。旧 =jjosh-native-NAME= 伪远端用 =native migrate= 迁移，不手工改名或删除。
 - *格式升级不是开关。* sparse 的新工作副本和 operation-store 格式会拒绝旧二进制，reset 不降级。切换前退出旧 jj 进程；更早的 =simple_op_store_native_remotes=、=simple_op_store_sparse= 实验格式不能靠改类型标记升级。
 - *来源仍有外部边界。* 当前 native/link/projection 只支持 SHA-1 Git backend。gitlink 不递归展开，缺失历史要先补齐。projection 会获取原始历史，不是权限隔离。
