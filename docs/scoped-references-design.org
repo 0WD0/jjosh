@@ -1,339 +1,168 @@
-#+title: 给引用一个归属
-#+subtitle: jjosh 的 scoped 引用与多远端方案
-#+date: 2026-09-10
+#+title: 把项目归属变成引用身份
+#+subtitle: 结构化 scope 提案；尚未实现
 #+options: toc:2 num:nil
 
-一个 monorepo 可以同时有自己的 main、jj 的 main 和 Josh 的 main。每个项目又可以同时面对 upstream、自己的 fork 和协作者的 fork。
+本提案讨论 jjosh 是否需要超出普通引用名约定的能力，不是当前命令手册。
+当前可执行流程见 [[file:workflows.org][操作指南]]。下文的 typed scope、组件引用语法和 =--scope= 都是拟议接口。
 
-我们需要的不是更长的引用名字，也不是更大的 link 配置文件，而是把 jj 已有的引用与远端模型扩展到子项目。
+* 要解决的歧义
 
-#+begin_quote
-scope 区分引用和 remote 的归属；commit ID 区分版本；change ID 联系同一个 change 的不同版本。
+当前 =main#engine@engine-upstream= 足以表达常见工作流，但底层仍是普通名字和全局 remote：
 
-link 负责如何接入项目，不再负责另一套远端管理。
-#+end_quote
+- 字面根名字 =main#engine= 与“engine 项目的 main”无法同时表达。
+- 两个项目不能各自配置同名的 =upstream=，必须人为区分全局名字。
+- parser、显示和同步边界对一个字符串承担不同解释，不能靠继续约定前缀获得可靠隔离。
 
-本文是推荐方案，不是已经实现的功能。=#= 是推荐的引用分隔符；以下带 =--scope= 的命令也是拟议接口。本文不授权升级真实仓库或迁移、发布其引用。
+结构化 scope 只解决这些身份与选择问题。
+它不把 monorepo 拆成多个仓库，不按文件内容判定提交所有权，也不替用户隐藏 divergent change。
+如果普通名字没有造成实际障碍，现有使用方式不需要先等待这项重构。
 
-* 先把几件事分开
-
-| 概念 | 回答的问题 | 不负责什么 |
-|------+------------+------------|
-| scope | 这个引用、remote 属于哪个命名空间 | 给提交分配唯一项目所有权 |
-| bookmark / tag | 这个名字指向哪些具体版本 | 把同一 change 收敛成一个版本 |
-| remote | 与哪个远端交换哪些 refs | 决定 monorepo 的目录布局 |
-| 接入描述 | 如何转换来源树与历史 | 保存个人 URL、默认推送路由 |
-| change ID | 哪些 commits 是同一 change 的版本 | 唯一定位某个 raw 或映射版本 |
-
-=main#jj= 可以指向同时修改 jj 和 Josh 的整合提交。scope 限定引用身份，不限定目标提交的内容。仓库仍只有一套全局 DAG、heads、change ID 索引、workspaces 和 operation history。
-
-当前 =jj/main@jj-upstream= 把三个组件挤在字符串里，还与真正的根引用 =jj/main= 冲突。新的身份为：
+* 数据模型
 
 #+begin_example
-本地引用  (scope, kind, name)
-远端引用  (scope, kind, name, remote)
-连接配置  (scope, remote)
+Scope          = Root | Named(name)
+LocalRef       = (scope, kind, name)
+RemoteRef      = (scope, kind, name, remote)
+Connection     = (scope, remote)
+kind           = bookmark | tag
 #+end_example
 
-kind 保留 bookmark/tag 的区别。不引入每项目独立仓库、隐式当前项目、项目 UUID 或 change ID 到唯一 canonical commit 的注册表。
+scope 属于引用和连接配置，不属于 commit。
+=main#engine= 仍可指向同时修改 engine、应用和构建文件的整合提交。
+仓库保留唯一的 DAG、heads、workspaces、change ID 索引和 operation history。
 
-* 日常只需要一套远端命令
+View 按 scope 保存本地引用、远端观察和 tracking；引用目标继续使用完整 RefTarget，保留 adds/removes/absence。
+远端观察可以在没有可用连接配置时存在，例如从 native bundle 导入的状态。
+不得把冲突目标压成一个 OID，也不得要求“每个 scope 的每个 change 只有一个版本”。
 
-** 同一个 scope 可以有多个对等 remote
+项目挂载、filter、来源 base 是转换配置，不是引用身份。
+移动目录、修改 filter、scope rename 和 remote rename 是四种不同操作。
+本提案不附带任意历史布局搬迁或项目 UUID。
 
-假设项目已经接入，日常操作应当是：
+* 用户如何选择
 
-#+begin_src sh
-jjosh git remote add --scope jj upstream /repos/jj-upstream.git
-jjosh git remote add --scope jj origin /repos/jj-fork.git
-jjosh git remote add --scope jj review /repos/jj-review.git
+推荐显示形式仍为 =name[#scope][@remote]=，但 parser 和 formatter 必须按组件工作：
 
-jjosh git fetch --scope jj --remote upstream
-jjosh git fetch --scope jj --remote origin
-jjosh bookmark track 'main#jj@upstream'
-jjosh bookmark track 'main#jj@origin'
-
-jjosh log -r 'main#jj@upstream | main#jj@origin'
-jjosh new @ 'main#jj@upstream'
-jjosh bookmark set 'topic#jj' -r @
-jjosh git push --scope jj --remote origin --bookmark topic
-#+end_src
-
-upstream、origin、review 没有主从类型区别。两个 remote 都可以跟踪 =main#jj=，并按 jj 原来的三方引用合并规则更新它；不会更新根 main。
-
-同名 remote 可以存在于其他 scope。没有 =--scope= 的 Git 传输命令仍操作根，不从目录、唯一候选、书签目标的文件变化或 link 路径猜 scope。
-
-=git remote add/remove/rename/set-url/list= 都获得相同的 scope 选择。没有连接配置的远端观察仍可以存在，例如 native 导入的来源状态；看见 =main#jj@upstream= 不等于已经配置可访问的 upstream。
-
-** 命令选择规则要一致
-
-- =--scope jj= 建立这一条命令的引用范围。=--bookmark topic= 等名字模式只匹配该 scope 的名字组件。
-- 显式 scoped 参数必须与命令选定 scope 一致；不一致报错，不以其中一个偷偷覆盖另一个。
-- =--remote= 只在选定 scope 内匹配；=--all-remotes= 一类既有选择不扩张成所有 scopes。
-- 默认远端选择沿用 jj 的顺序：命令参数、所选 scope 的配置、该 scope 唯一的有效 remote、origin。根使用既有 =git.fetch/git.push=；命名 scope 的覆盖项放在 =scopes.<scope>.git.fetch/git.push=，不隐式继承根的路由。
-- 一次 =git push= 选择一个 scope，可以使用既有的 remote 选择能力；不按整合提交修改了哪些目录自动向多个项目分发。
-- remote rename 只改该 scope 的 remote 身份、观察及本地默认选择，不改 scope，也不重新 fetch。
-- remote remove 删除本地连接配置及当前相应远端观察，保留本地 bookmarks/tags 和项目接入描述；旧 operation 仍可读取。
-
-多个 remote 指向同一实际目标 ref 时，并没有多个独立的外部位置。一次发布计划中发现相同目标的重复更新，应先报告冲突，不能分别计算两份结果后依次覆盖。
-
-* 引用语法与查询范围
-
-推荐结构是 =name [ # scope ] [ @ remote ]=：
-
-| 写法 | 身份 |
-|------+------|
+| revset 收到的文本 | 拟议含义 |
+|------------------+----------|
 | =main= | 根本地引用 |
-| =main@origin= | 根 origin 观察 |
-| =main#jj= | jj scope 的本地引用 |
-| =main#jj@origin= | jj scope 的 origin 观察 |
-| =jj/main= | 根中名字恰为 jj/main 的引用 |
-| ="main#jj"= | 根中名字恰为 main#jj 的引用 |
-| ="feature#parser"#jj= | jj 中名字恰为 feature#parser 的引用 |
+| =main@origin= | 根 origin 的观察 |
+| =main#engine= | engine 的本地引用 |
+| =main#engine@origin= | engine 的 origin 观察 |
+| ="main#engine"= | 根中名字恰为 main#engine 的引用 |
+| ="feature#parser"#engine= | engine 中名字恰为 feature#parser 的引用 |
 
-引号示例是 revset 收到的文本；shell 仍需引用整个参数。parser 和 formatter 按组件处理，不能 split 字符串。scope 内不做路径规范化、大小写折叠或斜杠层级解释。
+表中的引号属于 revset 语法；shell 引用是另一层。不能通过 split 显示文本恢复身份。
+显式 scope 的引用解析失败就报错，不退回全局 commit/change ID。
+=@= 仍是工作副本，不新增按项目的工作副本 ID。
 
-显式 =#scope= 只限定引用：=deadbeef#jj= 找不到引用就报错，不退回全局 ID。普通未限定符号保留 jj 的引用、alias、ID 解析规则；同一 scope 内 tag/bookmark 同名的优先级也保持现状。工作副本仍是 =@=，不增加 =@#jj=。
+命令选择遵守以下契约：
 
-必须区分 /精确名字的默认归属/ 与 /浏览集合的默认范围/：
+- 精确名字省略 scope 时属于根；显式 =--scope engine= 才把该命令的未限定名字放入 engine。
+- 命令 scope 与参数中的显式 scope 冲突时拒绝，不让任一方静默覆盖另一方。
+- 修改或删除的名字模式限于所选 scope；跨 scope 批量修改必须显式选择范围。
+- 浏览集合默认保持全局。=bookmarks()=、tag 集合、日志、不可变历史和维护遍历不能漏掉子项目；组件过滤可显式缩小范围。
+- 模板、排序、去重、补全和 operation diff 使用完整身份。全局 trunk 策略不从多个项目的 main 中猜一个。
 
-#+begin_example
-main                                  根的精确引用
-bookmarks()                           所有 scopes 的 bookmarks
-bookmarks(scope="jj")                 jj 的 bookmarks
-bookmarks(glob:"release/*", scope="jj")
-bookmarks(scope="")                   根的 bookmarks
-#+end_example
+拟议的单项目传输以 =git fetch/push --scope engine --remote origin= 选择范围。
+=--remote= 和 =--all-remotes= 只在该 scope 内匹配；没有 =--scope= 时操作根。
+默认选择依次使用显式参数、scope 配置和该范围内的 jj 默认规则，命名 scope 不隐式继承根发布路由。
+当前按 =#PROJECT= 自动分发的批量发布若迁入新模型，必须显式定义跨 scope 选择，不能按提交修改了哪些目录分发。
 
-集合函数省略 scope 条件时保持全局语义；tag 和 remote 引用集合一致。空字符串在查询边界表示 Root，内部使用明确的 Root 类型。name、remote 和 scope 条件各自匹配组件，不匹配拼好的显示文本。
+* 版本不是名字的附属品
 
-bookmark/tag 列表默认展示所有 scopes，可以缩小范围。修改、删除等命令中的未限定名字或名字模式仍限根；跨 scope 的批量修改需要显式范围。不能因为引入 scope，让旧 =tags()=、默认不可变历史、日志和维护遍历漏掉子项目。
+change ID 联系一个 change 的不同版本，commit ID 标识具体版本；scope 不改变这个关系。
+两个 remote 可以各自指向同一 change 的不同版本，也可以出现本地引用冲突。这是两种不同状态。
+裸 change ID 的歧义处理保持 jj 现状，精确引用或 commit ID 用于选择版本。
 
-模板增加 scope 字段，排序、去重、补全与 operation diff 使用完整身份。全局 =trunk()= 策略中的根引用仍指根；不从几个项目的 main 中自动选择 trunk。
+设 C 同时修改项目 A、B，发布 A 得到 P，重新获取后得到 C'：
 
-* 接受 jj 的版本模型，不替它建立第二套身份系统
+- C' 与 C 的 change ID 相同，不足以证明整份提交等价。
+- A 子树相同，也不能证明 B 的修改已经发布或可以被替换。
+- 有明确且有效的转换边界时可以复用已知 canonical 版本；否则保留合法的多个版本。
+- 验收应检查未发布工作与父图是否正确，不能把“没有 divergence”本身作为目标。
 
-** divergence 不是异常映射状态
+native 导入要继续保留原生版本、空提交、有序父边、冲突树和引用冲突。
+Josh 过滤可以裁剪提交、调整父关系，历史中的 workspace/stored 定义还可能改变过滤语义；它不能冒充无损 native 导入。
+不带有效 change-id 头的 Git 提交依赖 OID 生成身份，改变 OID 不自动保留原生 change 身份。
 
-jj 的 change 不是独立对象，change ID 是 commit 的属性。多个可见 commits 具有同一 change ID，就构成 divergent change。可见性由全局图决定，不由 scope 决定。
+* 从版本到传输
 
-因此：
+引用选择、历史转换和发布授权是三层输入，必须分别表示：
 
-- 两个 remote 可以分别指向同一 change 的两个版本，两条引用各自正常，change 同时 divergent。
-- 一个本地 RefTarget 也可以发生冲突；引用冲突与 change divergence 是两件不同的事。
-- 精确 bookmark、remote ref 或 commit ID 选择具体目标，不消除其他版本。冲突引用仍可能选出多个目标。
-- 裸 change ID 按现有规则遇到 divergence 报错；=change_id(id)= 返回多个版本，offset 或 commit ID 用于进一步选择。
-- 不增加“每个 scope 每个 change 恰有一个版本”的不变量，也不让 =#scope= 暗中改变全局 change ID 解析。
+| 输入 | 作用 | 不能代替什么 |
+|------+------|--------------|
+| 用户选定的 canonical 版本与引用动作 | 决定发布内容 | 来源上下文 |
+| 具体 raw 历史、filter、base 与接续信息 | 重建来源坐标 | 目标当前位置 |
+| 实际 endpoint、完整 ref 与 expected-old | 校验覆盖授权 | 转换结果正确性 |
 
-scope 使引用归属更明确，不是用来遮住 divergence 的过滤器。
+** 获取
 
-** 接入与返回都可能产生另一个版本
+传输先接收明确选择的 raw refs 和对象，转换具体版本，再把结构化引用更新交给 jj tracking 合并。
+删除推断只覆盖本次完整观察的 scope、remote、kind 和名字范围；未请求或获取失败不等于远端删除。
 
-当前 native 导入逐个复制 backend commit，转换父 ID 和树的每个 conflict term，保留 change ID；来源已有的多个版本与 RefTarget 冲突也逐项保留。这是新模型应继承的基础，而不是先把 change ID 变成单值索引。
+转换产生同 change ID 的新版本，并不能直接授权 synthetic rewrite 替换旧整合版本。
+必须在进入引用合并前判定转换边界；不能将现有 raw Git 的新旧可达集合推断原封不动套到坐标变化上。
 
-设整合提交 C 同时修改项目 A、B。发布 A 得到 P；重新取回 A 并映射得到 C'。不能仅凭它们的 change ID 相同就断言 =C' = C=：P 可能没有 B 的修改，导出还可能裁剪只影响 B 的历史。
+根 Git scanner 的实际扫描集与已知观察候选集都要排除 scoped 私有状态，否则会把没扫描到的 scoped refs 当成删除。
+导入的 scoped =@git= 是来源观察，不得驱动当前 backend 的根分支。
 
-推荐契约是：允许 C' 成为另一个版本，按 jj 的规则保留、展示和处理；不为了“往返后没有 divergence”自动丢掉其中一个，也不把 C 的其他项目修改标成已发布。已有明确、有效的映射边界可以复用，但同 change ID、同项目子树都不是整份 commit 等价的证明。
+** 发布
 
-当前 =native_project::record_anchor/anchors/export_project= 保存 origin/published 对应关系，部分发布返回时会复用原整合提交。这是现有往返算法的选择，不能提升为 scoped 引用的身份规则。重构时应审查其单值正反向映射限制；不得把它原样扩张成新的全局 raw/canonical 配对表。
+对已有目标，逆转换必须保留目标过滤范围外的内容并使用正确的 raw 父图。
+对新目标，来源基线必须能由选定历史确定；存在歧义就要求选择具体版本，不能按 change ID 挑第一个候选。
+没有项目内变化时不应把远端退回一个较旧的等价投影版本。
 
-应保留的是正确的历史接续和未发布工作，不是所有往返都得到原 commit ID。原有回归场景也应按这个可观察契约判断，而不是把“没有 divergence”本身当成正确性。
+lease 按实际 endpoint 和完整 ref 记录 raw 身份。upstream 的 base、另一个 fork 的观察、刚收到的 advertisement 都不能授权覆盖当前目标。
+annotated tag 同时需要直接对象 ID 和 peeled commit；只比较后者会漏掉 annotation-only 更新。改变签名对象的目标不能继续宣称签名有效。
 
-** Josh 的有损历史不能冒充 native 的无损导入
+每个更新只有在收到明确成功结果后才能推进观察。多个逻辑 remote 指向同一个实际 ref 时，在准备阶段拒绝重复目的地。
+一个 remote 的多个 push URL 若不能逐 endpoint 转换、检查和记账，就必须明确拒绝，不能只处理第一个。
+这不提供跨 remote 的原子发布，也不允许 operation restore 撤销外部结果。
 
-普通 Josh 过滤可以折叠提交、调整父关系；一个 filter 表达式也可能按各提交中的 workspace/stored 定义解释。filter 字符串相同，不保证不同来源的过滤结果相同。
+* 配置与对象各归其位
 
-另外，Git backend 对没有有效 =change-id= 头的提交按 Git OID 生成 change ID。直接过滤 Git 对象、生成另一个 OID，不自动等于 native 导入那样保留 jj 身份。Josh 保留一个已有头，与从来源 jj metadata 复制身份，也是不同路径。
+Git config 是 URL、push URL、认证相关设置与 per-remote 选项的权威来源；转换文件只保存转换语义。
+连接仍通过 named remote 配置解析，保留 include/global 来源边界和未知配置项，不把它们展平写回本地。
+独立 projection 继续连接真实来源 endpoint，不引入本地 transport façade，也不因为配置了 filter 就自动获得项目 scope。
 
-因此，接入模式必须明确：native 路径保留原生版本、冲突和图；Josh 路径遵守所选过滤器的历史语义。不能为了统一接口，把 native 都送入会剪枝的普通过滤路径；也不能承诺任意有损过滤都能一一还原。
+Git 的 remote section 是扁平的。建议用稳定的内部 handle 对应 =(scope, remote)=，以显式 metadata 声明所有权：
+逻辑改名保持 handle 不变，创建前检查有效配置中是否碰撞，不能通过名字前缀接管用户 section。
+这是局部存储键，不是项目身份；代价是原生 Git 的 remote list 会看到内部 handle。
 
-** 需要来源上下文，不等于需要新的身份实体
+来源对象、浅边界和不可重建的转换对应关系由 backend/转换层保管。
+当前按 endpoint 隔离来源的做法应继续成立：完整和浅获取走同一流程，canonical 图保持闭合，不能把来源浅状态变成 monorepo 的全局 shallow。
+保活不要求把 raw commits 暴露为用户 heads；但可见文件与 canonical 对象也不足以恢复所有逆转换输入。
+可重算的缓存不能成为引用存在的前提，不可重建的 provenance 则不能被当成缓存随手删除。
 
-逆过滤仍需要具体原始历史，例如 =unapply_filter= 的 original target。change ID 不能从几个 raw 版本中唯一选一个，也不能恢复过滤掉的文件。这些是转换输入，不是第二套 change 身份。
+* 如何迁移而不重新解释历史
 
-本方案不增加强制持久化的 =RawCanonicalObservation=。采用已有职责划分：
+这不是给 View 加字段后就能完成的改动。切换需要覆盖：
 
-1. commits、父图和 change ID 表示各版本；RefTarget 表示逻辑引用目标。
-2. 传输层记录它实际看到的完整 Git ref 与 raw OID，包括与发布有关的目标观察。
-3. 转换层使用接入描述、具体输入 commits 和必要的历史边界；可以缓存有明确输入的计算结果。
+1. typed symbols、View 编码、全局遍历和引用合并；所有冲突项与 tracking 状态保持完整。
+2. parser/formatter、revset、模板、补全、命令范围和默认策略。
+3. Git 配置所有权、物理 refs 隔离、转换更新接口、逐 endpoint 发布记账。
+4. operation restore、native bundle 编码、能力标记与旧 writer 排除。
+5. 显式归属迁移和中断恢复；确认新状态成立后移除旧物理映射路径。
 
-某个原生接续边界若无法由保留的对象和转换输入重建，就保留为该算法的 provenance，而不是假装它是可随手丢弃的缓存。反过来，能重算的配对不能成为引用存在或 change 身份成立的前提。持久化与否按具体信息是否可导出决定，不按“每次观察必须有一对”决定。
-
-* link 只保留接入描述
-
-当前 =.link.josh= 同时携带 remote、target、push、push-target、pin 和 filter。这使一次 link 更像绑定一个来源及一个发布出口，而不是在 scope 内建立普通远端。
-
-新划分如下：
-
-| 内容 | 归属 |
-|------+------|
-| 显式 scope、挂载/filter、embedded/snapshot 模式、历史 pin | 可版本化的接入描述 |
-| URL、push URL、fetch refspec、远端专用 Git 配置 | 本地命名 Git remote |
-| 默认 fetch/push remote、默认选择模式 | 本地 jj 配置 |
-| 本地引用、远端引用、tracking | jj operation View |
-| 原始对象保活、传输观察、必要的历史接续信息 | 对应 backend / 转换层 |
-
-link add 仍负责接入、建立接入描述，可以顺便按显式参数初始化 scope 内的 upstream/origin；初始化完成后，URL 只有 remote 配置这一份权威副本。新增协作者 remote 不改 marker，rename/set-url 也不制造源码提交。
-
-marker 的 pin 是历史来源依据，不是永远追随的 fetch 分支，也不是推送目标的当前 lease。旧 source-branch、source-remote、target、push-target 要分别迁移成初始观察或本地选择配置，不继续作为另一套远端默认值。
-
-native 导入不能为统一形式而改写来源本身的 =.link.josh=。原生布局与接续描述放在仓库元数据中，随需要恢复它的 operation 状态保存；已有的版本化 link 描述仍从选定 revision 读取。两种入口统一产出转换所需描述，但不复制成两个互相竞争的权威配置。读取到冲突或重复 scope 的接入描述时，在传输前报错。
-
-scope 可以只有引用，没有接入描述或连接配置。此时 log、bookmark、tag、operation 操作仍成立；要求转换的 fetch/push 明确报缺少接入信息。导入他人的引用与描述不自动激活网络连接，更不复制可执行的 Git remote 配置。
-
-scope 默认名可以取初始挂载名，但之后不再从目录反推。移动目录、修改 filter、scope rename 是三种不同操作；这次不附带实现任意历史布局搬迁。
-
-* 配置仍交给 Git，不把 URL 抄进另一套数据库
-
-Git 的 remote 名是全仓库唯一的，逻辑上的 =upstream#jj= 与 =upstream#josh= 因而需要物理适配。
-
-推荐为命名 scope 的每个 remote 分配一个稳定、无碰撞的物理 Git remote handle。其 remote section 中显式记录逻辑 scope/name，普通 url、pushurl、refspec 等字段仍由 Git 管理。根 remote 保持原来的名字和配置。
-
-#+begin_example
-逻辑 (jj, upstream)  →  一个稳定的物理 remote handle
-逻辑 (josh, upstream) →  另一个物理 remote handle
-逻辑 (Root, origin)   →  origin
-#+end_example
-
-handle 只是适配 Git 扁平配置的局部存储键，不是项目 UUID。识别归属靠显式 metadata，不靠前缀；创建前检查所有有效配置来源和已有同名 section，不能把用户恰好同前缀的 remote 接管。逻辑 rename 保持 handle 稳定，避免改名时丢掉专用 Git 配置。
-
-传输调用仍传 /命名 remote/ 给 Git，不先读出一个 URL 然后退化成 =git fetch URL=。否则会漏掉 per-remote uploadpack/receivepack、认证 helper、URL rewrite、代理及其他 Git 自己解释的行为。配置保存遵守来源边界，不把 include/global 配置展平写回本地。
-
-代价是直接使用 =git remote= 会看到内部 handle；=jjosh git remote list --scope jj= 显示逻辑名字及有效连接。这比把两个配置文件互相同步更小，也比编码 scope/name 后依赖解析前缀更可靠。
-
-现有 jj remote rename/remove helper 对非默认 refspec 和额外配置有限制，不能只给函数加一个 scope 参数就宣布完成。scoped 路径需以自己的明确所有权边界管理 section 和私有 refs，保留未知的 Git 配置字段。
-
-独立 =projection= 维持现有契约：本地 Josh 的 =josh/remotes/NAME.josh= 保存真正的上游，普通 Git remote 则是本地过滤 facade；不能把 facade URL 重定向到 raw 上游来“统一配置”。proxy 的过滤 URL 又是另一种部署方式。这两者都不会因存在 filter 自动变成子项目 scope。
-
-* fetch 与 push 共用引用语义，各自经过转换边界
-
-** fetch：先得到版本，再更新引用
-
-推荐流程：
-
-#+begin_example
-(scope, remote, 明确选择的 refs)
-          ↓
-命名 Git remote → 私有 raw refs / 对象
-          ↓
-按接入描述转换具体 commits
-          ↓
-结构化 scoped 引用更新
-          ↓
-jj tracking 合并、heads 与正常版本处理
-#+end_example
-
-映射后的引用直接进入 scoped View，不再写成普通 =refs/remotes/jj-upstream/jj/main= 后让根 Git scanner 再猜一次。抽出当前 =import_refs_inner= 的引用更新部分供结构化更新复用；现有 =import_fetched_refs= 仍会扫描物理 refs，不是这个新接口。
-
-删除推断只覆盖这次明确请求并完整观察的 scope、remote、kind 和名字范围。未请求的 branch/tag 不算删除，传输失败也不是目标不存在。
-
-全局重写与维护仍使用 jj 的图，但 Git 导入的 synthetic predecessor / rewrite 推断不能原封不动套到坐标变换：当前算法以受更新 refs 的新旧可达集合和 change ID 推断重写。转换产生同 ID 的另一版本，本身不能证明旧整合版本应被它替换。先完成转换边界的版本判定，再进入正常引用合并；保留真正的多版本，不用 scope 隐藏它们。
-
-根 Git import/export 只扫描根及其物理 Git 状态。尤其要同时限制 =diff_refs_to_import= 的已知观察候选集和实际扫描集，否则缺席的 scoped refs 会被判删除。scoped raw refs 在私有 namespace 保活，不成为根 bookmarks、tags 或导出候选。
-
-根 =@git= 是当前 backend；导入的 scoped =@git= 只是来源 backend 的观察，不能驱动当前根 =refs/heads/*=。
-
-** push：发布所选版本，不发布一个 change 的抽象身份
-
-=git push --scope jj= 沿用 jj 的引用选择、冲突处理和发布结果报告，实际发送前把选定版本转换到来源坐标。不能去掉名字中的 =#jj= 后直接发送 monorepo commit ID。
-
-要区分三个输入：
-
-- 用户选定的具体 monorepo 版本及逻辑引用更新。
-- 重建来源历史的具体上下文。
-- 发布目标完整 ref 的预期 raw OID，或明确预期其不存在。
-
-后两者不是同一个概念。upstream 上的原始基线不自动代表 fork 的当前位置；lease 正确也不保证逆过滤保住了目标的过滤范围外内容。
-
-对于已有目标，用该目标的有效原始上下文完成重建并校验结果；普通子树过滤需要保留目标范围外内容，动态 filter 则依照其语义验证。不能仅把 original target 参数换成目标 tip 就声称成立，因为 Josh 逆过滤还会选择原始 parents。没有过滤内变化时不应把目标 ref 退回较旧的等价投影提交。
-
-对于新目标，明确使用选定历史可确定的来源基线；无法唯一确定时报告需要选择哪一个具体来源版本，不通过 change ID 挑第一个候选。
-
-raw 预期值来自对该实际目标的观察，不从 canonical OID、remote 标签或另一个 endpoint 的观察推断。连接配置改变、恢复旧 operation 或使用另一转换描述后，先确认现有 raw 观察仍能解释选定的逻辑远端状态；必要时重新 fetch，让用户基于新状态决定发布。不得保留旧逻辑状态却偷偷借最新 raw 值加强覆盖权限。
-
-这不要求持久化 raw/canonical 配对：可用当前转换输入重新检验具体 raw 版本与逻辑观察是否相容。若历史接续所需输入缺失，报缺失或歧义，而不是新建一个凭 change ID 猜出来的对应关系。
-
-传输层可复用 =git::push_updates= 的完整 GitRefUpdate 与逐 ref 结果，不能直接复用假定 raw 等于逻辑目标的 =push_refs= 记账。成功后按实际发布结果更新本 scope 的观察，失败项不前进；必要时返回版本与输入整合版本不同，不能盲记成输入 commit ID。
-
-fetch URL 与 push URL 保留 Git 语义，但不同 URL 不自动共享目标观察。日常 upstream/fork 使用两个对等 remote 最清楚。一个 remote 有多个有效 push destinations 时，必须逐目标计算与记账；当前实现不足以证明这种能力，scoped 转换发布应明确拒绝，不能只处理第一个结果。根和独立 projection 的既有行为不借此改写。
-
-annotated tag 的 raw tag 对象身份与 peeled commit 都要保留在传输边界；选择 tag 对象必须包含 scope/remote/kind，不能借同裸名 tag 的对象。改变目标后不能声称原签名仍有效。
-
-* 存储、恢复与迁移
-
-** View 增加引用子树，不增加每 scope 一个仓库
-
-#+begin_example
-View
-├── refs[Root]
-│   ├── local_bookmarks[name] → RefTarget
-│   ├── local_tags[name] → RefTarget
-│   └── remotes[name] → bookmarks / tags / tracking
-├── refs[Named(scope)]
-│   └── 相同的引用子树
-└── 全局 heads、workspaces 与 backend 同步状态
-#+end_example
-
-内存 API 使用带类型的 LocalRefSymbol 与 RemoteRefSymbol；RefName 继续只是名字。scope 内复用有序引用合并，全局消费者明确遍历全部子树。保留 RefTarget 的 adds/removes/absence 和 RemoteRef 的 New/Tracked，不把冲突压成一个 OID。
-
-本地引用与远端观察分别按现有 operation restore 选项恢复，覆盖所有 scopes。Git config 不随 operation 回滚；物理 Git 同步缓存仍是当前状态；外部 push 更不能撤销。必要的原生接入描述随 repo 部分恢复，读取它不重新连接远端。
-
-对象保活覆盖全部引用冲突项、原始历史和不可重建的接续信息；不能为了“不显示 raw 历史”把其对象交给 GC。另一方面，对象保活不等于把所有 raw commits 加进用户可见 heads。
-
-不同 scope 的同名引用独立合并；同一完整身份的并发更新按 jj 正常规则合并。scope rename 是显式身份迁移，目录移动不是 rename，修改 remote URL 也不是 rename。
-
-** 迁移必须切断旧的双重入口
-
-先升级表达能力，再迁移归属。旧 operation 中全部引用按字面根名字解码，不拿当前 marker 重新解释旧历史。新格式增加能力隔离，保留现有 sparse 等能力限制，并升级 native bundle 编码。
-
-迁移计划逐项列出：
-
-1. 哪些旧本地引用、远端观察和 tracking 移入哪个 scope；哪些仍是根。
-2. 哪些 link URL/目标选择变成哪些本地 remote 和默认项。
-3. 哪些接入描述、private refs 和必要 provenance 改存储键。
-4. 哪些旧 backing refs 删除或迁出根 scanner，避免下一次 import 复活为根引用。
-
-不能从 =jj/=、=jj-upstream= 或目录名猜完整归属；有歧义时要求显式映射。迁移不重写 commit 图、不合并 divergence、不发布、不刷新目标 lease。来源已含 scopes 时显式映射其根与命名 scope，不扁平化也不自动激活嵌套连接。
-
-成功切换后的持续同步入口只有 =git remote/fetch/push --scope=。=link update/push= 与 =native fetch/push= 的普通远端同步职责迁入它们，不保留第二套路由配置或静默兼容别名。native import/bundle 继续负责原生状态导入，包括 Git ref 传输无法表达的来源引用冲突；link add 继续负责接入与初始化。
-
-Git config、物理 refs 和 jj operation 不是跨存储原子事务。迁移需在同步锁与旧写入者排除条件下，持久化明确的迁移计划与阶段，发布 operation 前后都能按实际旧/新值恢复；只在确认新状态成立后删除旧入口。具体编码必须覆盖中断、重复执行和并发 operation heads，不以“一次 jj transaction”代替恢复协议。
-
-* 实现顺序与验收
-
-实现按依赖推进，最终作为完整切换交付：
-
-1. *引用核心。* typed scope、View/序列化、全局遍历、tracking/operation/bundle；不动提交身份。
-2. *用户表面。* parser、formatter、命令范围、revset、模板、补全和默认策略。
-3. *远端适配。* scope 内命名 remote、Git 配置所有权、根与私有 refs 隔离、结构化引用更新。
-4. *转换接入。* 把 native/link 的转换接进既有 fetch/push；审查单值对应关系和 synthetic rewrite；保留独立 projection。
-5. *归属迁移。* marker/config/backing refs 一次切换，移除旧同步入口，更新实际工作流文档。
-
-验收对象是行为，不是能否打印 =#jj=：
-
-- 根 =jj/main=、根字面 ="main#jj"=、scoped =main#jj= 共存；解析、修改、重开、显示再解析都不混淆。
-- 一个 scope 的 upstream/origin/review 独立配置、fetch、rename、remove；其他 scope 同名 remote 不受影响。
-- 两个 remote 持有同一 change 的不同版本时均可精确选择；本地引用冲突与 divergence 各自保留。
-- 部分项目发布再返回不丢其他项目工作、不凭 change ID 强制归并；真正相同的已知转换结果可以复用。
-- 普通根 Git 同步不删除 scoped 观察、不导出 scoped 本地 refs；部分 fetch 不删除未请求目标。
-- fork 有过滤范围外修改时发布不覆盖它；过期目标拒绝；无内容变化不倒退 raw ref；部分失败按目标记账。
-- 原生 conflict terms、来源 divergence、tracking、tag 身份经 import/bundle/operation restore 不丢失。
-- 全局 rebase、不可变历史、索引与 GC 覆盖所有 scopes；保活 raw 对象不污染可见图。
-- 迁移遇到歧义、中断或旧 writer 不静默继续；新操作不被旧程序写回丢 scope，旧 backing refs 不复活。
-
-这里只定义未来实现的验收条件，不宣称 scoped 功能已通过它们。本轮后续调研采用源码分析，不再增加运行实验。
-
-* 源码依据与现状界线
-
-- [[file:../jj/core/src/ref_name.rs][ref_name.rs]]：当前名字组件、RemoteRefSymbol 与组件引用格式。
-- [[file:../jj/lib/src/index.rs][index.rs]] 的 ResolvedChangeTargets、[[file:../jj/lib/src/repo.rs][repo.rs]] 的 resolve_change_id、[[file:../jj/lib/src/revset.rs][revset.rs]]：可见多版本、裸 change ID 与集合解析。
-- [[file:../jj/lib/src/git_backend.rs][git_backend.rs]]：已有 change-id 头及按 Git OID 生成 change ID 的读取路径。
-- [[file:../jj/lib/src/op_store.rs][op_store.rs]]、[[file:../jj/lib/src/view.rs][view.rs]]、[[file:../jj/cli/src/commands/operation/mod.rs][operation/mod.rs]]：引用状态、全局视图和恢复边界。
-- [[file:../jj/lib/src/git.rs][git.rs]]：import_refs_inner、diff_refs_to_import、record_synthetic_predecessors、remote 配置管理、push_refs 与 push_updates。
-- [[file:../jj/lib/src/git_subprocess.rs][git_subprocess.rs]]：实际按 named remote 调用 Git 和发布结果解析。
-- [[file:../crates/jjosh-cli/src/native_import.rs][native_import.rs]]、[[file:../crates/jjosh-cli/src/native_project.rs][native_project.rs]]：原生逐版本映射、冲突映射、origin/published 边界与当前部分发布策略。
-- [[file:../crates/jjosh-cli/src/link_fetch.rs][link_fetch.rs]]、[[file:../crates/jjosh-cli/src/link_metadata.rs][link_metadata.rs]]、[[file:../crates/jjosh-cli/src/link_refs.rs][link_refs.rs]]：当前 link 混合配置、过滤、物理观察及 raw 目标记录。
-- [[file:../josh/josh-core/src/history.rs][Josh history.rs]]：历史裁剪、unapply_filter 的具体原始上下文与 parent 选择。
-- [[file:../josh/josh-changes/src/remote_config.rs][Josh remote_config.rs]]：独立本地 projection 的配置与 transport metadata 边界。
-
-README 继续描述当前可运行的命令，不提前把本方案的 --scope 写成已有功能。实现之前，不删除现有必要的原始对象或对应关系，也不手工修改真实仓库的格式标记。
+旧 operation 的名字按字面根名字解码，不拿当前项目目录或配置重新解释旧历史。
+迁移计划要明确每个旧引用、观察、remote、默认项和 private ref 去向；有歧义时要求映射。
+迁移不重写提交图、不合并 divergence、不激活导入的连接，也不刷新发布 lease。
+
+Git config、物理 refs 和 jj operation 不是一个原子存储。
+恢复协议必须覆盖中断、重复执行、锁冲突和并发 operation heads；不能用“一次 jj transaction”代替跨存储恢复。
+旧格式不得在不认识 scope 的程序中被静默写回。
+
+* 实现是否成立，看这些结果
+
+- 根字面 =main#engine= 与 scoped main 共存，显示再解析无损；两个项目各自的 origin 可独立改名和删除。
+- 全局日志、不可变历史、rebase、索引和 GC 不漏掉任何 scope；同 change 多版本与引用冲突各自保留。
+- 获取部分 refs 不删除未选择观察，根 Git import/export 不复活或清空 scoped 私有状态。
+- 部分项目往返保留其他项目的未发布工作；相同 change ID 不触发未经证明的整体替换。
+- fork 的过滤范围外内容不丢失；stale lease、annotation-only 更新和重复目的地都被正确处理。
+- native import/bundle/operation restore 保留冲突、divergence 和 tracking；恢复本地状态不撤销远端发布。
+- 浅边界变化不导致 canonical 图缺父，也不丢失旧本地版本需要的逆转换依据。
+- 迁移在歧义、中断和旧 writer 面前明确停下，恢复后旧物理 refs 不再作为根引用出现。
+
+这些是未来实现的验收条件，不是已通过的测试报告。
+实现入口见 [[file:../jj/core/src/ref_name.rs][引用名字]]、[[file:../jj/lib/src/op_store.rs][operation View]]、[[file:../jj/lib/src/git.rs][Git 引用同步]]，以及 [[file:../crates/jjosh-cli/src/git_remote/][jjosh 远端扩展]]、[[file:../crates/jjosh-cli/src/source_repo.rs][来源对象库]]。
