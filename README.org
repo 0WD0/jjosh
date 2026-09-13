@@ -36,15 +36,16 @@ export PATH="$PWD/target/release:$PATH"
 * 接入一个 Git 项目
 
 假设来源 =/path/to/library.git= 有 =main= 分支，要把它的 =src/= 放到 monorepo 的 =packages/library/=。
-下面新建目标仓库；已有仓库从配置 remote 开始即可。
+下面新建并进入目标仓库；已有仓库先进入它的根目录，再从配置 remote 开始。后续命令都在目标仓库中执行。
 
 #+begin_src sh
 jjosh git init --no-colocate --object-hash sha1 mono
-jjosh -R mono describe -m 'Start monorepo'
-jjosh -R mono projection remote add library-upstream /path/to/library.git ':/src' \
+cd mono
+jjosh describe -m 'Start monorepo'
+jjosh projection remote add library-upstream /path/to/library.git ':/src' \
   --project library --mount packages/library --base main --read-only
-jjosh -R mono git fetch --remote library-upstream --branch main
-jjosh -R mono new @ main#library@library-upstream
+jjosh git fetch --remote library-upstream --branch main
+jjosh new @ main#library@library-upstream
 #+end_src
 
 这三步各有一个职责：
@@ -75,14 +76,14 @@ fetch 默认不跟踪新观察。需要让本地书签随它合并更新时，�
 目标 Git 仓库需已存在。为它配置独立 remote，便于把接收上游与发布修改分开：
 
 #+begin_src sh
-jjosh -R mono projection remote add library-origin /path/to/library-fork.git ':/src' \
+jjosh projection remote add library-origin /path/to/library-fork.git ':/src' \
   --project library --mount packages/library --base main --writable
 
-# 编辑 mono/packages/library/，然后为修改记录说明。
-jjosh -R mono describe -m 'Update library'
-jjosh -R mono bookmark create topic#library -r @
-jjosh -R mono git push --remote library-origin --bookmark topic#library --dry-run
-jjosh -R mono git push --remote library-origin --bookmark topic#library
+# 编辑 packages/library/，然后为修改记录说明。
+jjosh describe -m 'Update library'
+jjosh bookmark create topic#library -r @
+jjosh git push --remote library-origin --bookmark topic#library --dry-run
+jjosh git push --remote library-origin --bookmark topic#library
 #+end_src
 
 远端收到的是 =topic=，文件回到来源的 =src/=，不是 =packages/library/=。
@@ -97,12 +98,13 @@ jjosh -R mono git push --remote library-origin --bookmark topic#library
 
 * 保留一个 jj 项目的开发状态
 
-Git 过滤适合转换已记录的 Git 历史；要带入未发布 change、divergence 和原生冲突，使用 native import：
+Git 过滤适合转换已记录的 Git 历史；要带入未发布 change、divergence 和原生冲突，使用 native import。
+在目标仓库根目录执行下面的命令；只有第一条通过 =-R= 记录另一个来源仓库的工作文件：
 
 #+begin_src sh
 jjosh -R /path/to/library-work status
-jjosh -R mono native import --source library=/path/to/library-work
-jjosh -R mono new @ workspace/default#library
+jjosh native import --source library=/path/to/library-work
+jjosh new @ workspace/default#library
 #+end_src
 
 这是前面 Git 接入方式的替代入口，不能对同名已占用项目重复执行。

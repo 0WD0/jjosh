@@ -4,7 +4,8 @@
 
 本指南是一组连续的本地实验。命令只访问新建临时目录中的仓库，不需要网络，也不改真实项目。
 先按 [[file:../README.org][README]] 构建，把 =jjosh= 放入 PATH；随后在同一个 shell 中执行各段。
-路径、项目名和 remote 名都显式给出，换到实际项目时保留这些角色，不必沿用这些名字。
+每次开始操作一个仓库时先 =cd= 进入它，后续命令和文件路径都以当前目录为准。
+=$DEMO= 只用于切换实验目录、指定外部来源和检查远端，不需要在日常命令中反复指定仓库。
 
 * 准备一个来源和一个 fork
 
@@ -20,16 +21,19 @@ export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EM
 export JJ_CONFIG="$DEMO/jj.toml"
 printf '[user]\nname = "Demo"\nemail = "demo@example.com"\n[ui]\npager = "cat"\n' > "$JJ_CONFIG"
 
-git init -b main "$DEMO/source"
-mkdir "$DEMO/source/src"
-printf 'upstream context\n' > "$DEMO/source/upstream.txt"
+cd "$DEMO"
+git init -b main source
+cd source
+mkdir src
+printf 'upstream context\n' > upstream.txt
 for version in 1 2 3 4; do
-  printf 'version %s\n' "$version" > "$DEMO/source/src/value.txt"
-  git -C "$DEMO/source" add .
-  git -C "$DEMO/source" commit -m "Source version $version"
+  printf 'version %s\n' "$version" > src/value.txt
+  git add .
+  git commit -m "Source version $version"
 done
-git clone --bare "$DEMO/source" "$DEMO/upstream.git"
-git clone --bare "$DEMO/upstream.git" "$DEMO/fork.git"
+cd "$DEMO"
+git clone --bare source upstream.git
+git clone --bare upstream.git fork.git
 printf '实验目录：%s\n' "$DEMO"
 #+end_src
 
@@ -42,15 +46,16 @@ printf '实验目录：%s\n' "$DEMO"
 项目 =lib= 挂载到 =packages/lib/=。filter =:/src= 选来源目录，mount 选目标目录，不要把两者混成同一个路径参数。
 
 #+begin_src sh
-jjosh git init --no-colocate --object-hash sha1 "$DEMO/mono"
-printf 'monorepo notes\n' > "$DEMO/mono/notes.txt"
-jjosh -R "$DEMO/mono" describe -m 'Start monorepo'
+jjosh git init --no-colocate --object-hash sha1 mono
+cd mono
+printf 'monorepo notes\n' > notes.txt
+jjosh describe -m 'Start monorepo'
 
-jjosh -R "$DEMO/mono" projection remote add lib-upstream "$DEMO/upstream.git" ':/src' \
+jjosh projection remote add lib-upstream "$DEMO/upstream.git" ':/src' \
   --project lib --mount packages/lib --base main --read-only
-jjosh -R "$DEMO/mono" projection remote add lib-origin "$DEMO/fork.git" ':/src' \
+jjosh projection remote add lib-origin "$DEMO/fork.git" ':/src' \
   --project lib --mount packages/lib --base main --writable
-jjosh -R "$DEMO/mono" projection show lib
+jjosh projection show lib
 #+end_src
 
 此时只有绑定配置，没有源码接入提交。项目登记不依赖工作树里的描述文件，也不要求目录已经检出。
@@ -61,15 +66,13 @@ jjosh -R "$DEMO/mono" projection show lib
 ** 获取和整合
 
 #+begin_src sh
-jjosh -R "$DEMO/mono" git fetch --remote lib-upstream --branch main
-jjosh -R "$DEMO/mono" git fetch --remote lib-origin --branch main
-jjosh -R "$DEMO/mono" log -r 'main#lib@lib-upstream | main#lib@lib-origin'
-jjosh -R "$DEMO/mono" new @ main#lib@lib-upstream
-cat "$DEMO/mono/packages/lib/value.txt"
-cat "$DEMO/mono/notes.txt"
+jjosh git fetch --remote lib-upstream --branch main
+jjosh git fetch --remote lib-origin --branch main
+jjosh log -r 'main#lib@lib-upstream | main#lib@lib-origin'
+jjosh new @ main#lib@lib-upstream
 #+end_src
 
-文件分别显示 =version 4= 和 =monorepo notes=。来源的 =upstream.txt= 不在导入目录中。
+整合后，=packages/lib/value.txt= 的内容是 =version 4=，原有 =notes.txt= 保持 =monorepo notes=。来源的 =upstream.txt= 不在导入目录中。
 
 本地 =main=、=main#lib= 和两个 remote 上的 =main#lib= 是不同引用。
 需要跟踪某个观察时使用 =bookmark track=；未跟踪观察的更新不直接移动同名本地书签。
@@ -78,16 +81,12 @@ cat "$DEMO/mono/notes.txt"
 ** 同时修改项目和 monorepo，只发布项目
 
 #+begin_src sh
-printf 'library change\n' > "$DEMO/mono/packages/lib/value.txt"
-printf 'private integration notes\n' > "$DEMO/mono/notes.txt"
-jjosh -R "$DEMO/mono" describe -m 'Update library and integration notes'
-jjosh -R "$DEMO/mono" bookmark create topic#lib -r @
-jjosh -R "$DEMO/mono" git push --remote lib-origin --bookmark topic#lib --dry-run
-jjosh -R "$DEMO/mono" git push --remote lib-origin --bookmark topic#lib
-
-git -C "$DEMO/fork.git" show topic:src/value.txt
-git -C "$DEMO/fork.git" show topic:upstream.txt
-git -C "$DEMO/fork.git" ls-tree --name-only topic
+printf 'library change\n' > packages/lib/value.txt
+printf 'private integration notes\n' > notes.txt
+jjosh describe -m 'Update library and integration notes'
+jjosh bookmark create topic#lib -r @
+jjosh git push --remote lib-origin --bookmark topic#lib --dry-run
+jjosh git push --remote lib-origin --bookmark topic#lib
 #+end_src
 
 远端的值变成 =library change=，=upstream.txt= 保持 =upstream context=。
@@ -97,12 +96,11 @@ git -C "$DEMO/fork.git" ls-tree --name-only topic
 ** 再次获取与发布版本号
 
 #+begin_src sh
-jjosh -R "$DEMO/mono" git fetch --remote lib-origin --branch topic
-jjosh -R "$DEMO/mono" log -r 'topic#lib | topic#lib@lib-origin'
-jjosh -R "$DEMO/mono" tag set v1.0#lib -r topic#lib
-jjosh -R "$DEMO/mono" git push --remote lib-origin --tag v1.0#lib --dry-run
-jjosh -R "$DEMO/mono" git push --remote lib-origin --tag v1.0#lib
-git -C "$DEMO/fork.git" show v1.0:src/value.txt
+jjosh git fetch --remote lib-origin --branch topic
+jjosh log -r 'topic#lib | topic#lib@lib-origin'
+jjosh tag set v1.0#lib -r topic#lib
+jjosh git push --remote lib-origin --tag v1.0#lib --dry-run
+jjosh git push --remote lib-origin --tag v1.0#lib
 #+end_src
 
 =#lib= 不出现在远端公开名字里。多个项目可各有 =v1.0#PROJECT=；唯一可写绑定明确时，=git push --tag 'v1.0#*'= 可以分别发布。
@@ -115,25 +113,27 @@ git -C "$DEMO/fork.git" show v1.0:src/value.txt
 下面另建一个 monorepo，从同一来源只获取一层历史，不影响前面的实验。
 
 #+begin_src sh
-jjosh git init --no-colocate --object-hash sha1 "$DEMO/shallow-mono"
-printf 'host project\n' > "$DEMO/shallow-mono/host.txt"
-jjosh -R "$DEMO/shallow-mono" describe -m 'Host project'
-jjosh -R "$DEMO/shallow-mono" projection remote add lib-upstream "$DEMO/upstream.git" ':/src' \
+cd "$DEMO"
+jjosh git init --no-colocate --object-hash sha1 shallow-mono
+cd shallow-mono
+printf 'host project\n' > host.txt
+jjosh describe -m 'Host project'
+jjosh projection remote add lib-upstream "$DEMO/upstream.git" ':/src' \
   --project lib --mount packages/lib --base main --read-only
-jjosh -R "$DEMO/shallow-mono" git fetch --remote lib-upstream --branch main --depth 1
-jjosh -R "$DEMO/shallow-mono" new @ main#lib@lib-upstream
-jjosh -R "$DEMO/shallow-mono" git fetch --remote lib-upstream --branch main
+jjosh git fetch --remote lib-upstream --branch main --depth 1
+jjosh new @ main#lib@lib-upstream
+jjosh git fetch --remote lib-upstream --branch main
 #+end_src
 
 =--depth 1= 是真正的浅获取，不是先下载完整历史再隐藏它。
 普通后续 fetch 保持已有浅边界；以下再取一层，然后补全这份四提交来源：
 
 #+begin_src sh
-jjosh -R "$DEMO/shallow-mono" --config git.abandon-unreachable-commits=false \
+jjosh --config git.abandon-unreachable-commits=false \
   git fetch --remote lib-upstream --branch main --deepen 1
-jjosh -R "$DEMO/shallow-mono" --config git.abandon-unreachable-commits=false \
+jjosh --config git.abandon-unreachable-commits=false \
   git fetch --remote lib-upstream --branch main --unshallow
-jjosh -R "$DEMO/shallow-mono" log -r 'ancestors(main#lib@lib-upstream)'
+jjosh log -r 'ancestors(main#lib@lib-upstream)'
 #+end_src
 
 *现有限制：* 深化会改变转换后的父图。jj 默认可能放弃旧边界版本并重写本地后继，已观察到 root merge 错误。
@@ -149,16 +149,17 @@ jjosh -R "$DEMO/shallow-mono" log -r 'ancestors(main#lib@lib-upstream)'
 
 * 固定 OID 与一次性镜像
 
-分支名会移动，也可以请求一个完整的来源 commit ID。它不是 monorepo 转换后的 ID。
+回到前面的完整历史仓库。分支名会移动，也可以请求一个完整的来源 commit ID；它不是 monorepo 转换后的 ID。
 
 #+begin_src sh
+cd "$DEMO/mono"
 SOURCE_OID=$(git -C "$DEMO/upstream.git" rev-parse main)
-jjosh -R "$DEMO/mono" git fetch --remote lib-upstream --revision "$SOURCE_OID"
+jjosh git fetch --remote lib-upstream --revision "$SOURCE_OID"
 
 git clone --bare "$DEMO/upstream.git" "$DEMO/mirror.git"
-jjosh -R "$DEMO/mono" git fetch --remote lib-upstream --branch main \
+jjosh git fetch --remote lib-upstream --branch main \
   --fetch-url "$DEMO/mirror.git"
-jjosh -R "$DEMO/mono" git remote list
+jjosh git remote list
 #+end_src
 
 OID 获取输出 =Fetched revision RAW as CANONICAL=；用输出中的 canonical ID 做后续 revision 操作。
@@ -176,16 +177,19 @@ OID 获取输出 =Fetched revision RAW as CANONICAL=；用输出中的 canonical
 先把正在进行的工作记录在来源中；无需先为它创建一个 Git 发布分支。
 
 #+begin_src sh
-jjosh git init --no-colocate --object-hash sha1 "$DEMO/engine-work"
-printf 'unfinished engine work\n' > "$DEMO/engine-work/engine.txt"
-jjosh -R "$DEMO/engine-work" describe -m 'Engine work in progress'
-jjosh -R "$DEMO/engine-work" bookmark create main -r @
+cd "$DEMO"
+jjosh git init --no-colocate --object-hash sha1 engine-work
+cd engine-work
+printf 'unfinished engine work\n' > engine.txt
+jjosh describe -m 'Engine work in progress'
+jjosh bookmark create main -r @
 
-jjosh git init --no-colocate --object-hash sha1 "$DEMO/native-mono"
-jjosh -R "$DEMO/native-mono" native import \
+cd "$DEMO"
+jjosh git init --no-colocate --object-hash sha1 native-mono
+cd native-mono
+jjosh native import \
   --source engine="$DEMO/engine-work" --mount engine=packages/engine
-jjosh -R "$DEMO/native-mono" new workspace/default#engine
-cat "$DEMO/native-mono/packages/engine/engine.txt"
+jjosh new workspace/default#engine
 #+end_src
 
 =workspace/default#engine= 是指向来源工作入口的普通书签。
@@ -195,18 +199,17 @@ import 保留当前 view 中的原生版本、冲突和必要父图，但不是�
 之后可以继续接收这个本地 jj 来源的分支，同时向一个 Git fork 发布：
 
 #+begin_src sh
-jjosh -R "$DEMO/native-mono" git remote add engine-upstream "$DEMO/engine-work"
-jjosh -R "$DEMO/native-mono" projection remote attach engine-upstream engine --read-only
-jjosh -R "$DEMO/native-mono" git fetch --remote engine-upstream --branch main
+jjosh git remote add engine-upstream "$DEMO/engine-work"
+jjosh projection remote attach engine-upstream engine --read-only
+jjosh git fetch --remote engine-upstream --branch main
 
 git init --bare "$DEMO/engine-fork.git"
-jjosh -R "$DEMO/native-mono" git remote add engine-origin "$DEMO/engine-fork.git"
-jjosh -R "$DEMO/native-mono" projection remote attach engine-origin engine --writable
-printf 'engine ready for review\n' > "$DEMO/native-mono/packages/engine/engine.txt"
-jjosh -R "$DEMO/native-mono" describe -m 'Prepare engine review'
-jjosh -R "$DEMO/native-mono" bookmark create review#engine -r @
-jjosh -R "$DEMO/native-mono" git push --remote engine-origin --bookmark review#engine
-git -C "$DEMO/engine-fork.git" show review:engine.txt
+jjosh git remote add engine-origin "$DEMO/engine-fork.git"
+jjosh projection remote attach engine-origin engine --writable
+printf 'engine ready for review\n' > packages/engine/engine.txt
+jjosh describe -m 'Prepare engine review'
+jjosh bookmark create review#engine -r @
+jjosh git push --remote engine-origin --bookmark review#engine
 #+end_src
 
 attach 只登记连接与项目关系，不生成第二次导入。
@@ -217,13 +220,11 @@ attach 只登记连接与项目关系，不生成第二次导入。
 刚才的目标是非 colocated 工作树，可以把 engine 目录检出到工作副本根：
 
 #+begin_src sh
-jjosh -R "$DEMO/native-mono" sparse set root:packages/engine
-jjosh -R "$DEMO/native-mono" sparse map set packages/engine=.
-cat "$DEMO/native-mono/engine.txt"
-printf 'edited through sparse layout\n' > "$DEMO/native-mono/engine.txt"
-jjosh -R "$DEMO/native-mono" describe -m 'Edit engine through sparse layout'
-jjosh -R "$DEMO/native-mono" sparse reset
-cat "$DEMO/native-mono/packages/engine/engine.txt"
+jjosh sparse set root:packages/engine
+jjosh sparse map set packages/engine=.
+printf 'edited through sparse layout\n' > engine.txt
+jjosh describe -m 'Edit engine through sparse layout'
+jjosh sparse reset
 #+end_src
 
 恢复全量布局后，修改仍在 canonical 路径 =packages/engine/engine.txt=。
