@@ -10,6 +10,78 @@ use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::MutableRepo;
 use jj_lib::repo::Repo as _;
 use josh_core::cache::Transaction;
+
+/// Project content excludes historical access markers, regardless of their contents.
+pub(crate) fn local_project_filter(path: &Path) -> anyhow::Result<josh_core::filter::Filter> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Project path is not valid UTF-8"))?
+        .trim_matches('/');
+    anyhow::ensure!(!path.is_empty(), "Project path cannot be empty");
+    Ok(josh_core::filter::Filter::new()
+        .subdir(path)
+        .exclude(josh_core::filter::Filter::new().file(".link.josh"))
+        .prefix(path))
+}
+
+/// Literal source revisions must follow the same boundary rewrite as the input graph.
+pub(crate) fn map_source_ids(
+    filter: josh_core::filter::Filter,
+    pairs: &[(gix::ObjectId, gix::ObjectId)],
+) -> josh_core::filter::Filter {
+    use josh_core::filter::{Filter, Op, RevMatch, to_filter, to_op};
+    if pairs.iter().all(|(raw, normalized)| raw == normalized) {
+        return filter;
+    }
+    let ids: HashMap<_, _> = pairs.iter().copied().filter(|(raw, input)| raw != input).collect();
+    fn map_node(
+        filter: Filter,
+        ids: &HashMap<gix::ObjectId, gix::ObjectId>,
+        memo: &mut HashMap<gix::ObjectId, Filter>,
+    ) -> Filter {
+        let key = filter.id();
+        if let Some(mapped) = memo.get(&key) {
+            return *mapped;
+        }
+        let map_id = |id: &mut gix::ObjectId| {
+            if let Some(mapped) = ids.get(id) {
+                *id = *mapped;
+            }
+        };
+        let mut op = to_op(filter);
+        match &mut op {
+            Op::Rev(arms) => for (matcher, child) in arms {
+                match matcher {
+                    RevMatch::AncestorStrict(id) | RevMatch::AncestorInclusive(id) | RevMatch::Equal(id) => map_id(id),
+                    RevMatch::Default => {}
+                }
+                *child = map_node(*child, ids, memo);
+            },
+            Op::Unapply(id, child) => {
+                map_id(id);
+                *child = map_node(*child, ids, memo);
+            }
+            Op::Downstack(id) => map_id(id),
+            Op::Meta(_, child) | Op::Starlark(_, child) | Op::TreeId(_, child)
+            | Op::Exclude(child) | Op::Select(child) | Op::Pin(child) => {
+                *child = map_node(*child, ids, memo);
+            }
+            Op::Compose(children) | Op::Chain(children) => for child in children {
+                *child = map_node(*child, ids, memo);
+            },
+            Op::Subtract(left, right) => {
+                *left = map_node(*left, ids, memo);
+                *right = map_node(*right, ids, memo);
+            }
+            _ => {}
+        }
+        let mapped = to_filter(op);
+        memo.insert(key, mapped);
+        mapped
+    }
+    map_node(filter, &ids, &mut HashMap::new())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ProjectedSignature {
     name: Vec<u8>,
@@ -87,13 +159,13 @@ async fn find_existing_filtered_commit(
         .await
         .map_err(user_error)?
     {
-        let local_filter = crate::link_metadata::local_link_filter(path).map_err(user_error)?;
+        let local_filter = local_project_filter(path).map_err(user_error)?;
         for (id, state) in &targets.targets {
             if *state != ResolvedChangeState::Visible {
                 continue;
             }
             let candidate = gix_hash::ObjectId::try_from(id.as_bytes()).map_err(user_error)?;
-            let candidate = josh_core::filter_commit(transaction, local_filter.clone(), candidate)
+            let candidate = josh_core::filter_commit(transaction, local_filter, candidate)
                 .map_err(user_error)?;
             if candidate.is_null() {
                 continue;
@@ -122,12 +194,16 @@ enum ProjectedVisit {
 }
 
 pub(crate) async fn canonicalize_filtered_graph(
-    repo: &MutableRepo,
+    repo: &mut MutableRepo,
     transaction: &Transaction,
     path: &Path,
     filtered: gix_hash::ObjectId,
     matches: &mut ProjectedMatches,
+    reuse_existing: bool,
 ) -> Result<CommitId, CommandError> {
+    let mount = crate::native_project::parse_mount(
+        path.to_str().ok_or_else(|| user_error("Project mount must be UTF-8"))?,
+    ).map_err(user_error)?;
     let mut mapped: HashMap<gix_hash::ObjectId, CommitId> = HashMap::new();
     let mut pending = vec![ProjectedVisit::Read(filtered)];
     while let Some(visit) = pending.pop() {
@@ -146,8 +222,12 @@ pub(crate) async fn canonicalize_filtered_graph(
                 if mapped.contains_key(&id) {
                     continue;
                 }
-                let (change_id, content, reused) =
-                    find_existing_filtered_commit(repo, transaction, path, id, matches).await?;
+                let (change_id, content, reused) = if reuse_existing {
+                    find_existing_filtered_commit(repo, transaction, path, id, matches).await?
+                } else {
+                    let (change_id, content) = projected_info(transaction, id)?;
+                    (change_id, content, None)
+                };
                 let canonical = if let Some(reused) = reused {
                     reused
                 } else {
@@ -166,20 +246,26 @@ pub(crate) async fn canonicalize_filtered_graph(
                                 .map_err(user_error)?,
                         );
                     }
-                    let rewritten = if canonical_parents == original_parents {
-                        id
+                    if canonical_parents == original_parents {
+                        crate::interop::commit_id_from_josh_oid(id)
                     } else {
-                        josh_core::history::rewrite_commit(
-                            transaction.odb(),
-                            &commit,
-                            &canonical_parents,
-                            josh_core::filter::Rewrite::from_commit_data(&commit)
-                                .map_err(user_error)?,
-                            josh_core::history::GpgsigMode::Remove,
-                        )
-                        .map_err(user_error)?
-                    };
-                    crate::interop::commit_id_from_josh_oid(rewritten)
+                        // Reusing a local publication also inherits its other
+                        // projects. A project-only tree would otherwise encode
+                        // their deletion against the newly reused parent.
+                        let original_id = crate::interop::commit_id_from_josh_oid(id);
+                        let original = repo.store().get_commit_async(&original_id).await?;
+                        let mut intended = original.store_commit().as_ref().clone();
+                        intended.parents = canonical_parents.into_iter()
+                            .map(crate::interop::commit_id_from_josh_oid).collect();
+                        intended.secure_sig = None;
+                        let tree = crate::native_project::inherit_other_projects(repo, &mount, &intended)
+                            .await.map_err(user_error)?;
+                        intended.root_tree = tree.tree_ids().clone();
+                        intended.conflict_labels = tree.labels().as_merge().clone();
+                        let rewritten = repo.store().write_commit(intended, None).await?;
+                        repo.index_commits(std::slice::from_ref(&rewritten)).await?;
+                        rewritten.id().clone()
+                    }
                 };
                 matches
                     .entry(change_id)

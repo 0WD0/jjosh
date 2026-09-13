@@ -340,11 +340,10 @@ async fn without_path(store: &Store, tree_id: &TreeId, path: &RepoPath) -> Resul
             if last {
                 continue;
             }
-            if let Some(child) = &rewritten {
-                if child != empty {
+            if let Some(child) = &rewritten
+                && child != empty {
                     entries.push((entry.name().to_owned(), TreeValue::Tree(child.clone())));
                 }
-            }
         }
         rewritten = Some(if entries.is_empty() {
             empty.clone()

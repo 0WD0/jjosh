@@ -164,6 +164,15 @@ struct RemoteAddArgs {
     /// Project mount; defaults to its recorded native mount or project name.
     #[arg(long, requires = "project")]
     mount: Option<String>,
+    /// Source branch, full ref, or commit OID used as the authoritative base.
+    #[arg(long)]
+    base: Option<String>,
+    /// Fetch only; do not publish through this remote.
+    #[arg(long, conflicts_with = "writable")]
+    read_only: bool,
+    /// Allow publication through this remote.
+    #[arg(long)]
+    writable: bool,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -172,6 +181,15 @@ struct RemoteAttachArgs {
     project: String,
     #[arg(long)]
     mount: Option<String>,
+    /// Source branch, full ref, or commit OID used as the authoritative base.
+    #[arg(long)]
+    base: Option<String>,
+    /// Fetch only; do not publish through this remote.
+    #[arg(long, conflicts_with = "writable")]
+    read_only: bool,
+    /// Allow publication through this remote.
+    #[arg(long)]
+    writable: bool,
 }
 
 pub(crate) async fn run(
@@ -582,11 +600,25 @@ async fn run_remote_add(
     command_helper: &CommandHelper,
     args: RemoteAddArgs,
 ) -> Result<(), CommandError> {
+    let base = args
+        .base
+        .as_deref()
+        .map(crate::project_config::parse_base)
+        .transpose()
+        .map_err(user_error)?;
     require_current_operation(command_helper)?;
     let workspace = recorded_workspace(ui, command_helper).await?;
     let git_path = sha1_git_repo_path(&workspace)?;
     let _git_lock = workspace.lock_git_import_export()?;
     let git = gix::open(&git_path).map_err(user_error)?;
+    // Even an explicit override must not hide a malformed existing policy.
+    let existing_read_only =
+        crate::git_remote::remote_read_only(&git, jj_lib::ref_name::RemoteName::new(&args.name))
+            .map_err(user_error)?;
+    let existing_remote = git
+        .remote_names()
+        .iter()
+        .any(|name| std::str::from_utf8(name).is_ok_and(|name| name == args.name));
     let project = args.project.or(crate::git_remote::config_string(
         &git,
         &format!("remote.{}.jjosh-project", args.name),
@@ -610,17 +642,30 @@ async fn run_remote_add(
             Some(filter),
         )
         .map_err(user_error)?;
+        crate::project_config::validate_registration(&git_path, &project, &mount)
+            .map_err(user_error)?;
         Some((project, mount))
     } else {
         None
     };
-    let read_only =
-        crate::git_remote::remote_read_only(&git, jj_lib::ref_name::RemoteName::new(&args.name))
-            .map_err(user_error)?
-            && args.push_url.is_none();
-    let settings = attachment
-        .as_ref()
-        .map(|(project, mount)| crate::git_remote::attachment_settings(project, mount, read_only));
+    let read_only = if args.read_only {
+        true
+    } else if args.writable || args.push_url.is_some() {
+        false
+    } else if existing_remote {
+        existing_read_only
+    } else {
+        attachment.is_some()
+    };
+    let settings = if let Some((project, mount)) = &attachment {
+        crate::git_remote::attachment_settings(project, mount, read_only, base.as_deref())
+    } else {
+        let mut settings = vec![("jjosh-readOnly", if read_only { "true" } else { "false" })];
+        if let Some(base) = base.as_deref() {
+            settings.push(("jjosh-base", base));
+        }
+        settings
+    };
     josh_cli::remote_ops::configure_remote(
         &git_path,
         &args.name,
@@ -629,11 +674,12 @@ async fn run_remote_add(
         None,
         args.push_url.as_deref(),
         None,
-        settings
-            .as_ref()
-            .map_or(&[], |settings| settings.as_slice()),
+        &settings,
     )
     .map_err(|err| user_error_with_message("Failed to configure Josh projection remote", err))?;
+    if let Some((project, mount)) = &attachment {
+        crate::project_config::write_registration(&git_path, project, mount).map_err(user_error)?;
+    }
     writeln!(
         ui.status(),
         "Configured projection remote {}: {} through {}",
@@ -661,6 +707,12 @@ async fn run_remote_attach(
     command: &CommandHelper,
     args: RemoteAttachArgs,
 ) -> Result<(), CommandError> {
+    let base = args
+        .base
+        .as_deref()
+        .map(crate::project_config::parse_base)
+        .transpose()
+        .map_err(user_error)?;
     require_current_operation(command)?;
     let workspace = recorded_workspace(ui, command).await?;
     let git_path = sha1_git_repo_path(&workspace)?;
@@ -675,6 +727,13 @@ async fn run_remote_attach(
     let read_only =
         crate::git_remote::remote_read_only(&git, jj_lib::ref_name::RemoteName::new(&args.name))
             .map_err(user_error)?;
+    let read_only = if args.read_only {
+        true
+    } else if args.writable {
+        false
+    } else {
+        read_only
+    };
     let config = josh_changes::remote_config::try_read_remote_config(&git_path, &args.name)
         .map_err(user_error)?;
     let filter = config.as_ref().map(|config| {
@@ -688,6 +747,8 @@ async fn run_remote_attach(
     });
     crate::git_remote::validate_attachment(&git_path, &args.name, &project, &mount, filter)
         .map_err(user_error)?;
+    crate::project_config::validate_registration(&git_path, &project, &mount)
+        .map_err(user_error)?;
     if let Some(config) = config {
         josh_cli::remote_ops::configure_remote(
             &git_path,
@@ -697,13 +758,26 @@ async fn run_remote_attach(
             config.forge,
             config.push_url.as_deref(),
             Some(config.gerrit_mode),
-            &crate::git_remote::attachment_settings(&project, &mount, read_only),
+            &crate::git_remote::attachment_settings(
+                &project,
+                &mount,
+                read_only,
+                base.as_deref(),
+            ),
         )
         .map_err(user_error)?;
     } else {
-        crate::git_remote::configure_attachment(&git_path, &args.name, &project, &mount, read_only)
-            .map_err(user_error)?;
+        crate::git_remote::configure_attachment(
+            &git_path,
+            &args.name,
+            &project,
+            &mount,
+            read_only,
+            base.as_deref(),
+        )
+        .map_err(user_error)?;
     }
+    crate::project_config::write_registration(&git_path, &project, &mount).map_err(user_error)?;
     writeln!(
         ui.status(),
         "Attached {} to {project} at {}",

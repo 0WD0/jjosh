@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::io;
+use std::num::NonZeroU32;
 
 use clap_complete::ArgValueCandidates;
 use itertools::Itertools as _;
@@ -39,6 +40,7 @@ use crate::command_error::cli_error;
 use crate::command_error::user_error;
 use crate::commands::git::get_single_remote;
 use crate::complete;
+use crate::git_remote::GitRemoteFetchOptions;
 use crate::git_util::GitSubprocessUi;
 use crate::git_util::load_git_import_options;
 use crate::git_util::print_git_import_stats;
@@ -53,8 +55,8 @@ use crate::ui::Ui;
 /// `git.fetch` setting. If that is not configured and there are multiple
 /// remotes, the remote named "origin" will be used.
 ///
-/// If no branches nor tags are specified, fetches bookmarks and tags specified
-/// by the `remotes.<name>.fetch-bookmarks`/`fetch-tags` settings. If
+/// If no branches, tags, or revisions are specified, fetches bookmarks and tags
+/// specified by the `remotes.<name>.fetch-bookmarks`/`fetch-tags` settings. If
 /// `remotes.<name>.fetch-bookmarks` is not configured, the default fetch
 /// refspecs for the selected remotes are read from the Git configuration.
 ///
@@ -67,6 +69,7 @@ use crate::ui::Ui;
 /// commit. This is true in general; it is not specific to this command.
 #[derive(clap::Args, Clone, Debug)]
 #[command(group(clap::ArgGroup::new("specific").multiple(true)))]
+#[command(group(clap::ArgGroup::new("history").multiple(false)))]
 pub struct GitFetchArgs {
     /// Name of the branch to fetch (can be repeated)
     ///
@@ -96,6 +99,31 @@ pub struct GitFetchArgs {
     ///     https://docs.jj-vcs.dev/latest/revsets/#string-patterns
     #[arg(long = "tag", short, group = "specific", value_name = "TAG")]
     tags: Option<Vec<String>>,
+
+    /// Fetch a full source commit ID (can be repeated)
+    ///
+    /// Requires exactly one matching named remote. Does not fetch default
+    /// branches or tags unless they are explicitly selected.
+    #[arg(long = "revision", group = "specific", value_name = "OID")]
+    revisions: Vec<String>,
+
+    /// Limit fetched source history to this many commits
+    #[arg(long, group = "history", value_name = "N")]
+    depth: Option<NonZeroU32>,
+
+    /// Extend existing shallow source history by this many commits
+    #[arg(long, group = "history", value_name = "N")]
+    deepen: Option<NonZeroU32>,
+
+    /// Fetch the complete history of a shallow source
+    #[arg(long, group = "history")]
+    unshallow: bool,
+
+    /// Fetch from this URL once without changing the named remote
+    ///
+    /// Requires exactly one matching named remote.
+    #[arg(long, value_name = "URL")]
+    fetch_url: Option<String>,
 
     /// Fetch only tracked bookmarks and tags
     ///
@@ -132,6 +160,27 @@ pub async fn cmd_git_fetch(
         // into a temporary namespace.
         return Err(cli_error("--no-integrate-operation is not respected"));
     }
+    if command.git_remote_extension().is_none()
+        && (!args.revisions.is_empty()
+            || args.deepen.is_some()
+            || args.unshallow
+            || args.fetch_url.is_some())
+    {
+        return Err(user_error(
+            "--revision, --deepen, --unshallow, and --fetch-url require a remote extension",
+        ));
+    }
+    for revision in &args.revisions {
+        gix::ObjectId::from_hex(revision.as_bytes())
+            .map_err(|err| user_error(format!("Invalid source revision {revision:?}: {err}")))?;
+    }
+    let fetch_options = GitRemoteFetchOptions {
+        revisions: args.revisions.clone(),
+        depth: args.depth,
+        deepen: args.deepen,
+        unshallow: args.unshallow,
+        fetch_url: args.fetch_url.clone(),
+    };
     let mut workspace_command = command.workspace_helper(ui).await?;
     let remote_expr = if args.all_remotes {
         StringExpression::all()
@@ -164,6 +213,11 @@ pub async fn cmd_git_fetch(
     if matching_remotes.is_empty() {
         return Err(user_error("No git remotes to fetch from"));
     }
+    if (!args.revisions.is_empty() || args.fetch_url.is_some()) && matching_remotes.len() != 1 {
+        return Err(user_error(
+            "--revision and --fetch-url require exactly one matching named remote",
+        ));
+    }
 
     let mut remote_sessions = std::collections::HashMap::new();
     if let Some(extension) = command.git_remote_extension() {
@@ -180,10 +234,10 @@ pub async fn cmd_git_fetch(
         Some(workspace_command.lock_git_import_export()?)
     };
 
-    let mut tx = workspace_command.start_transaction();
-    let remote_settings = tx.settings().remote_settings()?;
+    let remote_settings = workspace_command.settings().remote_settings()?;
 
-    let is_specific = args.branches.is_some() || args.tags.is_some();
+    let is_specific =
+        args.branches.is_some() || args.tags.is_some() || !args.revisions.is_empty();
     let common_bookmark_expr = match &args.branches {
         Some(texts) => Some(parse_union_name_patterns(ui, texts)?),
         None => is_specific.then(StringExpression::none),
@@ -196,7 +250,7 @@ pub async fn cmd_git_fetch(
     if args.tracked {
         for remote in &matching_remotes {
             let bookmark = StringExpression::union_all(
-                tx.repo()
+                workspace_command.repo()
                     .view()
                     .local_remote_bookmarks(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
@@ -209,7 +263,7 @@ pub async fn cmd_git_fetch(
                     .collect(),
             );
             let tag = StringExpression::union_all(
-                tx.repo()
+                workspace_command.repo()
                     .view()
                     .local_remote_tags(remote)
                     .filter(|(_, targets)| targets.remote_ref.is_tracked())
@@ -226,7 +280,7 @@ pub async fn cmd_git_fetch(
             expansions.push((remote, expanded));
         }
     } else {
-        let git_repo = get_git_backend(tx.repo_mut().store())?.git_repo();
+        let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
         for remote in &matching_remotes {
             let bookmark = if let Some(expr) = &common_bookmark_expr {
                 expr.clone()
@@ -254,8 +308,9 @@ pub async fn cmd_git_fetch(
         }
     }
 
-    let git_settings = GitSettings::from_settings(tx.settings())?;
+    let git_settings = GitSettings::from_settings(workspace_command.settings())?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
+    let mut tx = workspace_command.start_transaction();
     let import_stats = if remote_sessions.is_empty() {
         let mut git_fetch = GitFetch::new(
             tx.repo_mut(),
@@ -264,7 +319,7 @@ pub async fn cmd_git_fetch(
         )?;
         for (remote, expanded) in expansions {
             let mut callback = GitSubprocessUi::new(ui);
-            git_fetch.fetch(remote, expanded, &mut callback, None)?;
+            git_fetch.fetch(remote, expanded, &mut callback, fetch_options.depth)?;
         }
         git_fetch.import_refs().await?
     } else {
@@ -275,7 +330,11 @@ pub async fn cmd_git_fetch(
             let bookmarks = expr.bookmark.to_matcher();
             let tags = expr.tag.to_matcher();
             let session = &remote_sessions[remote];
-            observations.extend(session.fetch(ui, command, tx.repo_mut(), expr).await?);
+            observations.extend(
+                session
+                    .fetch(ui, command, tx.repo_mut(), expr, &fetch_options)
+                    .await?,
+            );
             // An empty selected result still observes a configured peer. Keep
             // it addressable for explicit tracking and first publication.
             tx.repo_mut().ensure_remote(remote);

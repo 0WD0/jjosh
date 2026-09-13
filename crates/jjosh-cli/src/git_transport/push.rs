@@ -67,6 +67,7 @@ struct Transfer {
 pub(crate) fn prepare(
     repo: &gix::Repository,
     remote: gix::Remote<'_>,
+    objects: &gix::OdbHandle,
     updates: &[Update],
     options: &Options,
 ) -> Result<PreparedPush> {
@@ -151,12 +152,15 @@ pub(crate) fn prepare(
     );
 
     let mut advertised = HashMap::new();
+    let mut remote_objects = HashSet::new();
     for reference in handshake
         .refs
         .as_ref()
         .context("receive-pack omitted its ref advertisement")?
     {
         use protocol::handshake::Ref;
+        let (_, direct, peeled) = reference.unpack();
+        remote_objects.extend(direct.into_iter().chain(peeled).map(ToOwned::to_owned));
         let (name, id) = match reference {
             Ref::Direct {
                 full_ref_name,
@@ -186,7 +190,7 @@ pub(crate) fn prepare(
     }
 
     // A separate handle prevents replacement refs from changing raw object identity.
-    let mut objects = repo.objects.clone();
+    let mut objects = objects.clone();
     objects.ignore_replacements = true;
     objects.prevent_pack_unload();
     let mut outcome = Outcome {
@@ -259,7 +263,8 @@ pub(crate) fn prepare(
     let has_pack = commands.iter().any(|command| !command.new.is_null());
     wire::preflight(&handshake, &commands, &wire_options, has_pack)?;
     let pack = if has_pack {
-        Some(prepare_pack(&objects, hash, &commands)?)
+        Some(prepare_pack(&objects, hash, &commands, &remote_objects)
+            .context("Cannot prepare a complete publication pack; shallow sources require destination-owned ancestry or fetch --unshallow")?)
     } else {
         None
     };
@@ -337,11 +342,10 @@ impl PreparedPush {
             }
         }
         outcome.error = report.error.map(anyhow::Error::new);
-        if outcome.error.is_none() {
-            if let Some(Err(reason)) = report.unpack {
+        if outcome.error.is_none()
+            && let Some(Err(reason)) = report.unpack {
                 outcome.error = Some(anyhow::anyhow!("receive-pack unpack failed: {reason}"));
             }
-        }
         outcome
     }
 }
@@ -388,6 +392,7 @@ fn prepare_pack(
     objects: &gix::OdbHandle,
     hash: gix::hash::Kind,
     commands: &[wire::Command],
+    remote_objects: &HashSet<ObjectId>,
 ) -> Result<File> {
     let mut pending: Vec<_> = commands
         .iter()
@@ -405,6 +410,11 @@ fn prepare_pack(
     let mut visited = HashMap::new();
     let mut buffer = Vec::new();
     while let Some((id, expected_kind)) = pending.pop() {
+        // Advertised objects and their complete closure already belong to this
+        // receive-pack endpoint. Do not walk a shallow source past that frontier.
+        if remote_objects.contains(&id) {
+            continue;
+        }
         if let Some(kind) = visited.get(&id) {
             ensure!(
                 expected_kind.is_none_or(|expected| expected == *kind),
@@ -453,8 +463,8 @@ fn prepare_pack(
     let count =
         u32::try_from(visited.len()).context("push pack exceeds the u32 object count limit")?;
     let mut file = tempfile::tempfile().context("creating push pack spool")?;
-    // One base entry is compressed at a time: bounded by the largest individual
-    // object rather than total packed bytes. Every dependency is included; no deltas.
+    // One base entry is compressed at a time. Every dependency not already
+    // owned by the destination is included; no thin-pack deltas are generated.
     let entries = visited
         .into_keys()
         .map(|id| -> io::Result<Vec<gix_pack::data::output::Entry>> {

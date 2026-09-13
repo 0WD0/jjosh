@@ -1248,13 +1248,21 @@ fn native_fetch_grafts_by_change_id_onto_linked_suffix_history() {
 
     let dest = NativeRepo::new();
     dest.jj(&[
-        "link",
+        "projection",
+        "remote",
         "add",
-        "jj",
+        "jj-upstream",
         git_dir.to_str().unwrap(),
-        "--target",
+        ":/",
+        "--project",
+        "jj",
+        "--mount",
+        "jj",
+        "--base",
         "main",
     ]);
+    dest.jj(&["git", "fetch", "--remote", "jj-upstream", "--branch", "main"]);
+    dest.jj(&["new", "@", "main#jj@jj-upstream"]);
     let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
     assert_eq!(
         dest.change_id("main#jj@jj-upstream"),
@@ -1299,13 +1307,21 @@ fn native_fetch_records_a_new_version_when_filtered_ancestor_differs() {
 
     let dest = NativeRepo::new();
     dest.jj(&[
-        "link",
+        "projection",
+        "remote",
         "add",
-        "jj",
+        "jj-upstream",
         git_dir.to_str().unwrap(),
-        "--target",
+        ":/",
+        "--project",
+        "jj",
+        "--mount",
+        "jj",
+        "--base",
         "main",
     ]);
+    dest.jj(&["git", "fetch", "--remote", "jj-upstream", "--branch", "main"]);
+    dest.jj(&["new", "@", "main#jj@jj-upstream"]);
     let linked_main = dest.log("main#jj@jj-upstream", "commit_id");
     let main_change = source.change_id("main");
 

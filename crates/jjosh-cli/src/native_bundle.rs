@@ -589,14 +589,14 @@ pub(crate) async fn export(
     let mut working_copy_patterns = BTreeMap::new();
     for target in view.wc_sparse_patterns.values() {
         for id in target.iter().flatten() {
-            if !working_copy_patterns.contains_key(&id.hex()) {
+            if let std::collections::btree_map::Entry::Vacant(e) = working_copy_patterns.entry(id.hex()) {
                 let patterns = source.op_store.read_working_copy_patterns(id).await?;
                 patterns.validate()?;
                 ensure!(
                     patterns.id() == *id,
                     "working-copy patterns ID does not match its contents"
                 );
-                working_copy_patterns.insert(id.hex(), patterns);
+                e.insert(patterns);
             }
         }
     }

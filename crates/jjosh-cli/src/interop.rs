@@ -5,10 +5,8 @@ use std::sync::Arc;
 use jj_cli::cli_util::WorkspaceCommandHelper;
 use jj_cli::command_error::{CommandError, user_error, user_error_with_message};
 use jj_lib::commit::Commit;
-use jj_lib::merged_tree::MergedTree;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::repo::Repo as _;
-use jj_lib::store::Store;
 
 pub(crate) fn sha1_git_repo_path(
     workspace_command: &WorkspaceCommandHelper,
@@ -50,12 +48,6 @@ pub(crate) fn commit_id_from_josh_oid(oid: gix_hash::ObjectId) -> jj_lib::backen
     jj_lib::backend::CommitId::from_bytes(oid.as_bytes())
 }
 
-pub(crate) fn tree_from_josh_oid(store: Arc<Store>, tree_oid: gix_hash::ObjectId) -> MergedTree {
-    MergedTree::resolved(
-        store,
-        jj_lib::backend::TreeId::from_bytes(tree_oid.as_bytes()),
-    )
-}
 
 pub(crate) fn check_git_state(workspace: &WorkspaceCommandHelper) -> Result<(), CommandError> {
     let backend = jj_lib::git::get_git_backend(workspace.repo().store())?;

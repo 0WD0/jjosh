@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
@@ -6,6 +7,7 @@ use gix::bstr::ByteSlice as _;
 use jj_cli::cli_util::CommandHelper;
 use jj_cli::command_error::{CommandError, user_error};
 use jj_cli::git_remote::GitRemoteSession as _;
+use jj_cli::git_remote::GitRemoteFetchOptions;
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::git::{GitFetchRefExpression, GitRefKind, GitRemoteObservation};
@@ -133,15 +135,38 @@ fn install_refs(
 
 pub(super) async fn run(
     session: &Session,
-    _ui: &mut Ui,
+    ui: &mut Ui,
     command: &CommandHelper,
     repo: &mut MutableRepo,
     selection: GitFetchRefExpression,
+    options: &GitRemoteFetchOptions,
 ) -> Result<Vec<GitRemoteObservation>, CommandError> {
     let git = jj_lib::git::get_git_backend(repo.store())?.git_repo();
-    let endpoint = session
+    let configured_endpoint = session
         .endpoint_url(&git, gix::remote::Direction::Fetch)
         .map_err(user_error)?;
+    let endpoint = if let Some(url) = &options.fetch_url {
+        let url = jj_cli::git_util::absolute_git_url(command.cwd(), url)?;
+        super::remote_endpoint(
+            &git.remote_at(url.as_str()).map_err(user_error)?,
+            gix::remote::Direction::Fetch,
+            session.project.as_ref().is_some_and(|project| project.native),
+        ).map_err(user_error)?
+    } else {
+        configured_endpoint.clone()
+    };
+    let revisions: Vec<_> = options.revisions.iter().map(|value| {
+        let id = gix::ObjectId::from_hex(value.as_bytes()).map_err(user_error)?;
+        if id.kind() != git.object_hash() || id.is_null() {
+            return Err(user_error("Revision must be a non-null object ID using this repository's hash format"));
+        }
+        Ok(id)
+    }).collect::<Result<_, CommandError>>()?;
+    let changes_depth = options.depth.is_some() || options.deepen.is_some() || options.unshallow;
+    let reuse_history = !changes_depth;
+    if changes_depth && session.filter().is_none() {
+        return Err(user_error("Shallow source history requires a Git projection remote, not an ordinary or native JJ source"));
+    }
     // Ordinary identity remotes remain hash-agnostic and never open Josh's
     // SHA-1-only object/cache transaction or its projection lease ledger.
     let transaction = if session.project.is_some() || session.josh.is_some() {
@@ -249,6 +274,9 @@ pub(super) async fn run(
     };
     let mut annotations = BTreeMap::new();
     if let Some(path) = native_path {
+        if !revisions.is_empty() {
+            return Err(user_error("Literal Git revisions require a Git endpoint, not a native JJ workspace"));
+        }
         let transaction = transaction
             .as_ref()
             .expect("native project has a Josh transaction");
@@ -291,7 +319,7 @@ pub(super) async fn run(
             if peeled.kind == gix::objs::Kind::Commit && peeled.id.as_bytes() == commit.as_bytes() {
                 annotations.insert(
                     format!("refs/tags/{}", name.as_str()),
-                    crate::link_refs::CommitTag::read(&source_objects, id.detach())
+                    crate::remote_refs::CommitTag::read(&source_objects, id.detach())
                         .map_err(user_error)?,
                 );
             }
@@ -300,7 +328,7 @@ pub(super) async fn run(
             .project
             .as_ref()
             .expect("native project checked above");
-        let known = crate::native_project::anchors(repo, &transaction, &project.name)
+        let known = crate::native_project::anchors(repo, transaction, &project.name)
             .await
             .map_err(user_error)?;
         let imported = crate::native_import::import_source(
@@ -328,10 +356,10 @@ pub(super) async fn run(
                 );
             }
         }
-        crate::native_project::record_mount(&transaction, &project.name, &project.mount)
+        crate::native_project::record_mount(transaction, &project.name, &project.mount)
             .map_err(user_error)?;
         crate::native_project::record_imported_boundaries(
-            &transaction,
+            transaction,
             &project.name,
             &imported,
             source
@@ -344,11 +372,35 @@ pub(super) async fn run(
         .map_err(user_error)?;
         transaction.flush_mem_odb().map_err(user_error)?;
     } else {
+        let source_repo = session.filter().is_some()
+            .then(|| crate::source_repo::SourceRepo::open(&git, &configured_endpoint))
+            .transpose().map_err(user_error)?;
+        let raw_git = source_repo.as_ref().map_or(&git, |source| source.git());
+        if (options.deepen.is_some() || options.unshallow)
+            && raw_git.shallow_commits().map_err(user_error)?.is_none_or(|ids| ids.is_empty())
+        {
+            return Err(user_error("Cannot deepen a source that is not shallow; use --depth for its initial shallow fetch"));
+        }
+        let shallow = if let Some(depth) = options.depth {
+            gix::remote::fetch::Shallow::DepthAtRemote(depth)
+        } else if let Some(depth) = options.deepen {
+            gix::remote::fetch::Shallow::Deepen(depth.get())
+        } else if options.unshallow {
+            gix::remote::fetch::Shallow::undo()
+        } else {
+            gix::remote::fetch::Shallow::NoChange
+        };
         let raw_prefix = session.raw_prefix(&git, &endpoint).map_err(user_error)?;
+        if let Some(source) = &source_repo {
+            let prefix = session.raw_prefix(&git, &configured_endpoint).map_err(user_error)?;
+            source.migrate_context(&git, &prefix).map_err(user_error)?;
+        }
         let mut old_raw = BTreeMap::new();
-        for (name, id) in refs_prefixed(&git, &raw_prefix)? {
+        for (name, id) in refs_prefixed(raw_git, &raw_prefix)? {
             let source = &name[raw_prefix.len()..];
-            if source_ref(source).is_some_and(|(kind, name)| selected(kind, name)) {
+            if source_ref(source).is_some_and(|(kind, name)| selected(kind, name))
+                || source.strip_prefix("pins/").is_some_and(|pin| options.revisions.iter().any(|id| id.eq_ignore_ascii_case(pin)))
+            {
                 old_raw.insert(name.to_owned(), id);
                 converted
                     .entry(source.to_owned())
@@ -356,15 +408,19 @@ pub(super) async fn run(
             }
         }
         let outcome = crate::git_transport::fetch::fetch(
-            session
-                .remote(&git, gix::remote::Direction::Fetch)
-                .map_err(user_error)?,
+            if options.fetch_url.is_some() {
+                raw_git.remote_at(endpoint.as_str()).map_err(user_error)?
+            } else {
+                session.remote(raw_git, gix::remote::Direction::Fetch).map_err(user_error)?
+            },
             |reference| {
                 std::str::from_utf8(reference.unpack().0)
                     .ok()
                     .and_then(source_ref)
                     .is_some_and(|(kind, name)| selected(kind, name))
             },
+            &revisions,
+            shallow,
             &AtomicBool::new(false),
         )
         .map_err(user_error)?;
@@ -395,9 +451,14 @@ pub(super) async fn run(
             new_raw.insert(format!("{raw_prefix}{name}"), id);
             received.insert(name.to_owned(), id);
         }
+        for id in &revisions {
+            let name = format!("pins/{id}");
+            new_raw.insert(format!("{raw_prefix}{name}"), *id);
+            received.insert(name, *id);
+        }
         let mut commits = BTreeMap::new();
         for (name, direct) in &received {
-            let object = git
+            let object = raw_git
                 .find_object(*direct)
                 .map_err(user_error)?
                 .peel_tags_to_end()
@@ -409,35 +470,25 @@ pub(super) async fn run(
                     // but never manufacture an unsigned mirror of a signed tag.
                     annotations.insert(
                         name.clone(),
-                        crate::link_refs::CommitTag::read(&git, *direct).map_err(user_error)?,
+                        crate::remote_refs::CommitTag::read(raw_git, *direct).map_err(user_error)?,
                     );
                 }
                 commits.insert(name.clone(), object.id);
+            } else if name.starts_with("pins/") {
+                return Err(user_error(format!("Revision {direct} does not peel to a commit")));
             }
         }
         // No keep file is removed if raw publication fails. Even noncommit tag
         // objects retain their exact direct IDs in this private namespace.
-        install_refs(&git, &old_raw, &new_raw)?;
+        install_refs(raw_git, &old_raw, &new_raw)?;
         for path in outcome.keep_paths {
             std::fs::remove_file(path).map_err(user_error)?;
-        }
-        // Endpoint leases reflect the advertisement, not projection visibility.
-        if let Some(transaction) = &transaction {
-            for source in converted.keys() {
-                match advertised.get(source).copied().flatten() {
-                    Some(id) => {
-                        crate::link_refs::record_observation(transaction, &endpoint, source, id)?
-                    }
-                    None => crate::link_refs::record_absence(transaction, &endpoint, source)?,
-                }
-            }
-            transaction.flush_mem_odb().map_err(user_error)?;
         }
         if let Some(project) = session.project.as_ref().filter(|project| project.native) {
             let transaction = transaction
                 .as_ref()
                 .expect("native project has a Josh transaction");
-            let known = crate::native_project::anchors(repo, &transaction, &project.name)
+            let known = crate::native_project::anchors(repo, transaction, &project.name)
                 .await
                 .map_err(user_error)?;
             let ids: Vec<_> = commits
@@ -471,34 +522,39 @@ pub(super) async fn run(
                     Converted::native(RefTarget::normal(id.clone()))?,
                 );
             }
-            crate::native_project::record_mount(&transaction, &project.name, &project.mount)
+            crate::native_project::record_mount(transaction, &project.name, &project.mount)
                 .map_err(user_error)?;
             crate::native_project::record_imported_boundaries(
-                &transaction,
+                transaction,
                 &project.name,
                 &imported,
                 &ids,
             )
             .map_err(user_error)?;
         } else if let Some(filter) = session.filter() {
-            let transaction = transaction
-                .as_ref()
-                .expect("projection has a Josh transaction");
-            crate::interop::check_raw_projectable_history(&transaction, commits.values().copied())?;
-            let mut matches = crate::link_fetch::ProjectedMatches::new();
+            let source = source_repo.as_ref().expect("filtered fetch has an isolated source");
+            let source_tx = crate::interop::open_josh_transaction(source.path(), false)?;
+            let tips: Vec<_> = commits.values().copied().collect();
+            let normalized = source.normalize(&source_tx, &tips).map_err(user_error)?;
+            crate::interop::check_raw_projectable_history(&source_tx, normalized.tips.values().copied())?;
+            let filter = crate::projection_history::map_source_ids(filter, &normalized.pairs);
+            let mut matches = crate::projection_history::ProjectedMatches::new();
             for (name, raw) in &commits {
-                let filtered = josh_core::filter_commit(&transaction, filter.clone(), *raw)
+                let filtered = josh_core::filter_commit(&source_tx, filter, normalized.tips[raw])
                     .map_err(user_error)?;
                 if filtered.is_null() {
                     continue;
                 }
                 let canonical = if let Some(project) = &session.project {
-                    crate::link_fetch::canonicalize_filtered_graph(
+                    source_tx.flush_mem_odb().map_err(user_error)?;
+                    source.copy_complete_to(&git, &[filtered]).map_err(user_error)?;
+                    crate::projection_history::canonicalize_filtered_graph(
                         repo,
-                        &transaction,
+                        &source_tx,
                         Path::new(project.mount.as_internal_file_string()),
                         filtered,
                         &mut matches,
+                        reuse_history,
                     )
                     .await?
                 } else {
@@ -509,6 +565,27 @@ pub(super) async fn run(
                     Converted::native(RefTarget::normal(canonical))?,
                 );
             }
+            source_tx.flush_mem_odb().map_err(user_error)?;
+            let canonical: Vec<_> = converted.values().filter_map(|value| value.mirror).collect();
+            source.copy_complete_to(&git, &canonical).map_err(user_error)?;
+            source.record_normalized(&source_tx, &normalized).map_err(user_error)?;
+            // A one-shot mirror seeds source context, never the configured
+            // endpoint's publication lease. Later real observations take priority.
+            if let Some(project) = &session.project {
+                let prefix = session.raw_prefix(&git, &configured_endpoint).map_err(user_error)?;
+                if let [raw] = tips.as_slice() {
+                    let initial = format!("{prefix}bases/{}", project.name);
+                    if source_tx.resolve_ref(&initial).map_err(user_error)?.is_none() {
+                        source_tx.update_ref(&initial, josh_core::cache::Expected::Absent, *raw, "retain initial project context").map_err(user_error)?;
+                    }
+                }
+                for id in &revisions {
+                    let reference = format!("{prefix}pins/{id}");
+                    let old = source_tx.resolve_ref(&reference).map_err(user_error)?;
+                    source_tx.update_ref(&reference, old.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At), *id, "retain explicitly fetched revision").map_err(user_error)?;
+                }
+            }
+            source_tx.flush_mem_odb().map_err(user_error)?;
         } else {
             for (name, commit) in &commits {
                 converted.insert(
@@ -518,6 +595,15 @@ pub(super) async fn run(
                         mirror: Some(received[name]),
                     },
                 );
+            }
+        }
+        // Only a successfully converted selection advances publication leases.
+        if let Some(transaction) = &transaction {
+            for source in converted.keys().filter(|name| source_ref(name).is_some()) {
+                match advertised.get(source).copied().flatten() {
+                    Some(id) => crate::remote_refs::record_observation(transaction, &endpoint, source, id)?,
+                    None => crate::remote_refs::record_absence(transaction, &endpoint, source)?,
+                }
             }
         }
     }
@@ -538,6 +624,17 @@ pub(super) async fn run(
     // any canonical mirror. No raw commit is added to the destination's heads.
     if let Some(transaction) = &transaction {
         transaction.flush_mem_odb().map_err(user_error)?;
+    }
+    let pins: Vec<_> = converted.keys().filter(|name| name.starts_with("pins/")).cloned().collect();
+    for pin in pins {
+        let converted = converted.remove(&pin).expect("selected pinned revision");
+        let Some(id) = converted.target.as_normal() else {
+            return Err(user_error(format!("Revision {} has no content through this projection", &pin[5..])));
+        };
+        jj_lib::git::get_git_backend(repo.store())?.import_head_commits([id])?;
+        let commit = repo.store().get_commit_async(id).await?;
+        repo.add_head(&commit).await?;
+        writeln!(ui.status(), "Fetched revision {} as {}", &pin[5..], id.hex())?;
     }
     let mut mirrors = BTreeMap::new();
     let mut observations = Vec::with_capacity(converted.len());
