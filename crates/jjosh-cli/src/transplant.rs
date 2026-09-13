@@ -268,15 +268,14 @@ impl Projection {
         }
         let mut previous: Option<&PathBuf> = None;
         for destination in destinations.keys() {
-            if let Some(parent) = previous {
-                if destination.starts_with(parent) {
+            if let Some(parent) = previous
+                && destination.starts_with(parent) {
                     return Err(user_error(format!(
                         "Mapped file {} conflicts with descendant {}",
                         parent.display(),
                         destination.display()
                     )));
                 }
-            }
             previous = Some(destination);
         }
         Ok(())

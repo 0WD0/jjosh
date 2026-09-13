@@ -5,7 +5,6 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::ensure;
 use jj_lib::backend::CommitId;
-use jj_lib::backend::{self};
 use jj_lib::commit::Commit;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::View;
@@ -28,7 +27,7 @@ pub(crate) struct Imported {
 
 enum CommitVisit {
     Read(CommitId),
-    Write(CommitId, backend::Commit),
+    Write(CommitId),
 }
 
 /// Copy a recorded native view without publishing it or selecting a workspace.
@@ -103,10 +102,9 @@ pub(crate) async fn import_source(
                 let commit = source
                     .commits
                     .get(&id)
-                    .with_context(|| format!("missing source {scope} native commit {id}"))?
-                    .clone();
+                    .with_context(|| format!("missing source {scope} native commit {id}"))?;
                 if let Some(existing) =
-                    crate::native_project::existing_same_project_version(dest, mount, &commit)
+                    crate::native_project::existing_same_project_version(dest, mount, commit)
                         .await?
                 {
                     ids.insert(id.clone(), existing.clone());
@@ -121,11 +119,11 @@ pub(crate) async fn import_source(
                     !commit.parents.is_empty(),
                     "non-root native commit {id} has no parents"
                 );
-                let parents = commit.parents.clone();
-                pending.push(CommitVisit::Write(id, commit));
-                pending.extend(parents.into_iter().rev().map(CommitVisit::Read));
+                pending.push(CommitVisit::Write(id));
+                pending.extend(commit.parents.iter().rev().cloned().map(CommitVisit::Read));
             }
-            CommitVisit::Write(old_id, mut intended) => {
+            CommitVisit::Write(old_id) => {
+                let mut intended = source.commits[&old_id].clone();
                 for parent in &mut intended.parents {
                     *parent = ids[parent].clone();
                 }

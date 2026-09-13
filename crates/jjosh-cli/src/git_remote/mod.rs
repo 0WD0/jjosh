@@ -10,8 +10,8 @@ use gix::remote::Direction;
 use jj_cli::cli_util::{CommandHelper, WorkspaceCommandHelper};
 use jj_cli::command_error::{CommandError, user_error};
 use jj_cli::git_remote::{
-    GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemotePushOptions,
-    GitRemoteSession, RemoteFuture,
+    GitPreparedPush, GitPushRoute, GitPushRouter, GitRemoteExtension, GitRemoteFetchOptions,
+    GitRemotePushOptions, GitRemoteSession, RemoteFuture,
 };
 use jj_cli::ui::Ui;
 use jj_lib::git::{
@@ -248,12 +248,17 @@ pub(crate) fn attachment_settings<'a>(
     project: &'a str,
     mount: &'a jj_lib::repo_path::RepoPath,
     read_only: bool,
-) -> [(&'static str, &'a str); 3] {
-    [
+    base: Option<&'a str>,
+) -> Vec<(&'static str, &'a str)> {
+    let mut settings = vec![
         ("jjosh-project", project),
         ("jjosh-mount", mount.as_internal_file_string()),
         ("jjosh-readOnly", if read_only { "true" } else { "false" }),
-    ]
+    ];
+    if let Some(base) = base {
+        settings.push(("jjosh-base", base));
+    }
+    settings
 }
 
 /// Bind layout identity to an existing named remote.
@@ -263,6 +268,7 @@ pub(crate) fn configure_attachment(
     project: &str,
     mount: &jj_lib::repo_path::RepoPath,
     read_only: bool,
+    base: Option<&str>,
 ) -> Result<()> {
     let repo = gix::open(repo_path)?;
     repo.find_remote(remote)?;
@@ -270,7 +276,7 @@ pub(crate) fn configure_attachment(
         .map(|config| config.semantic_filter());
     validate_attachment(repo_path, remote, project, mount, filter)?;
     let mut config = repo.config_file_mut(repo.config_path(gix::config::Source::Local)?)?;
-    for (key, value) in attachment_settings(project, mount, read_only) {
+    for (key, value) in attachment_settings(project, mount, read_only, base) {
         config.set_raw_value(format!("remote.{remote}.{key}").as_str(), value)?;
     }
     config.commit()?;
@@ -349,14 +355,12 @@ impl GitRemoteExtension for Extension {
             let mount = project_mount(&git_path, &name)?;
             if let Some(owner) = crate::native_project::project_for_mount(&transaction, &mount)
                 .map_err(user_error)?
-            {
-                if owner != name {
+                && owner != name {
                     return Err(user_error(format!(
                         "Mount {} belongs to project {owner}, not {name}",
                         mount.as_internal_file_string(),
                     )));
                 }
-            }
             let mut native = crate::native_project::native_project_for_mount(&transaction, &mount)
                 .map_err(user_error)?
                 .is_some();
@@ -610,14 +614,15 @@ impl GitRemoteSession for Session {
         command: &'a CommandHelper,
         repo: &'a mut MutableRepo,
         selection: GitFetchRefExpression,
+        options: &'a GitRemoteFetchOptions,
     ) -> RemoteFuture<'a, Vec<GitRemoteObservation>> {
-        Box::pin(fetch::run(self, ui, command, repo, selection))
+        Box::pin(fetch::run(self, ui, command, repo, selection, options))
     }
 
     fn prepare_push<'a>(
         &'a self,
-        ui: &'a mut Ui,
-        command: &'a CommandHelper,
+        _ui: &'a mut Ui,
+        _command: &'a CommandHelper,
         repo: &'a mut MutableRepo,
         targets: &'a GitPushRefTargets,
         options: &'a GitPushOptions,
@@ -626,8 +631,6 @@ impl GitRemoteSession for Session {
     ) -> RemoteFuture<'a, Box<dyn GitPreparedPush>> {
         Box::pin(push::prepare(
             self,
-            ui,
-            command,
             repo,
             targets,
             options,

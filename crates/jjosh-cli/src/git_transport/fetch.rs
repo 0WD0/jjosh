@@ -26,6 +26,8 @@ pub(crate) struct Outcome {
 pub(crate) fn fetch(
     remote: gix::Remote<'_>,
     select: impl Fn(&Ref) -> bool,
+    revisions: &[gix::ObjectId],
+    shallow: gix::remote::fetch::Shallow,
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Outcome> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
@@ -52,19 +54,14 @@ pub(crate) fn fetch(
         .cloned()
         .collect();
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
-    if received.is_empty() {
-        return Ok(Outcome {
-            advertised,
-            received,
-            keep_paths: Vec::new(),
-        });
-    }
 
     let keep_paths = receive_objects(
         remote,
         received
             .iter()
-            .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned)),
+            .filter_map(|reference| reference.unpack().1.map(ToOwned::to_owned))
+            .chain(revisions.iter().copied()),
+        shallow,
         interrupt,
     )?;
     Ok(Outcome {
@@ -75,9 +72,10 @@ pub(crate) fn fetch(
 }
 
 /// Receive explicit object IDs without ref destinations, including an initial pinned import.
-pub(crate) fn receive_objects(
+fn receive_objects(
     remote: gix::Remote<'_>,
     ids: impl IntoIterator<Item = gix::ObjectId>,
+    shallow: gix::remote::fetch::Shallow,
     interrupt: &AtomicBool,
 ) -> anyhow::Result<Vec<PathBuf>> {
     ensure!(!interrupt.load(Ordering::Relaxed), "Git fetch interrupted");
@@ -117,6 +115,7 @@ pub(crate) fn receive_objects(
         "Object-only Git fetch unexpectedly mapped destination refs or unpinned objects"
     );
     let outcome = prepared
+        .with_shallow(shallow)
         .receive(Discard, interrupt)
         .context("Receiving advertisement-pinned Git objects")?;
     let (keep_path, edits) = match outcome.status {

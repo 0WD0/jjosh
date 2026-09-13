@@ -16,6 +16,7 @@
 //!
 //! Argument selection, tracking, import, and operation commits remain owned by jj.
 
+use std::num::NonZeroU32;
 use std::pin::Pin;
 
 use jj_lib::git::GitFetchRefExpression;
@@ -81,6 +82,16 @@ pub trait GitRemoteExtension {
     }
 }
 
+/// Source history and one-shot endpoint selection for a named remote fetch.
+#[derive(Clone, Debug, Default)]
+pub struct GitRemoteFetchOptions {
+    pub revisions: Vec<String>,
+    pub depth: Option<NonZeroU32>,
+    pub deepen: Option<NonZeroU32>,
+    pub unshallow: bool,
+    pub fetch_url: Option<String>,
+}
+
 /// Source-side context for a remote which reverses a history projection.
 #[derive(Clone, Debug, Default)]
 pub struct GitRemotePushOptions {
@@ -130,6 +141,7 @@ pub trait GitRemoteSession {
         command: &'a CommandHelper,
         repo: &'a mut MutableRepo,
         selection: GitFetchRefExpression,
+        options: &'a GitRemoteFetchOptions,
     ) -> RemoteFuture<'a, Vec<GitRemoteObservation>>;
 
     /// Completes conversion, object preparation, and transport preflight before any

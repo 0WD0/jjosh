@@ -1,48 +1,52 @@
 use jj_cli::command_error::CommandError;
 use jj_cli::command_error::user_error;
-use jj_cli::command_error::user_error_with_message;
 
-// Publication leases are keyed by the exact source URL and fully qualified ref.
-// Retain the existing key so leases established by previous jjosh pushes survive.
-pub fn push_tracking_ref(
+// Leases store object identities, not object reachability. In particular, a
+// shallow source's raw commit must never become a root in the canonical ODB.
+fn observation_key(
     transaction: &josh_core::cache::Transaction,
     remote: &str,
     destination: &str,
-) -> Result<String, CommandError> {
+) -> Result<gix_hash::ObjectId, CommandError> {
     let key = format!("{remote}\0{destination}");
-    let id = josh_core::objects::write_blob(transaction.odb(), key.as_bytes()).map_err(|err| {
-        user_error_with_message("Failed to identify the link push destination", err)
-    })?;
-    Ok(format!("refs/jjosh/link-push/{id}"))
+    josh_core::objects::write_blob(transaction.odb(), key.as_bytes()).map_err(user_error)
 }
 
-pub fn record_observation(
+fn save_observation(
     transaction: &josh_core::cache::Transaction,
     remote: &str,
     destination: &str,
-    commit: gix_hash::ObjectId,
+    value: &[u8],
 ) -> Result<(), CommandError> {
     if !destination.starts_with("refs/heads/") && !destination.starts_with("refs/tags/") {
-        return Err(user_error(
-            "A publication observation must identify a branch or tag",
-        ));
+        return Err(user_error("A publication observation must identify a branch or tag"));
     }
-    let reference = push_tracking_ref(transaction, remote, destination)?;
-    let previous = transaction.resolve_ref(&reference).map_err(|err| {
-        user_error_with_message("Failed to read the observed remote position", err)
-    })?;
-    transaction
-        .update_ref(
-            &reference,
-            previous.map_or(
-                josh_core::cache::Expected::Absent,
-                josh_core::cache::Expected::At,
-            ),
-            commit,
-            "jjosh link remote observation",
-        )
-        .and_then(|()| transaction.flush_mem_odb())
-        .map_err(|err| user_error_with_message("Failed to save the observed remote position", err))
+    let key = observation_key(transaction, remote, destination)?;
+    let reference = format!("refs/jjosh/observations/{key}");
+    let previous = transaction.resolve_ref(&reference).map_err(user_error)?;
+    let value = josh_core::objects::write_blob(transaction.odb(), value).map_err(user_error)?;
+    transaction.update_ref(
+        &reference,
+        previous.map_or(josh_core::cache::Expected::Absent, josh_core::cache::Expected::At),
+        value,
+        "observe remote object identity",
+    ).map_err(user_error)?;
+    // Renewing an observation upgrades its previous on-disk representation.
+    // Never reset an existing lease merely because the storage format changed.
+    let old = format!("refs/jjosh/link-push/{key}");
+    if let Some(value) = transaction.resolve_ref(&old).map_err(user_error)? {
+        transaction.delete_ref(&old, josh_core::cache::Expected::At(value)).map_err(user_error)?;
+    }
+    transaction.flush_mem_odb().map_err(user_error)
+}
+
+pub(crate) fn record_observation(
+    transaction: &josh_core::cache::Transaction,
+    remote: &str,
+    destination: &str,
+    object: gix_hash::ObjectId,
+) -> Result<(), CommandError> {
+    save_observation(transaction, remote, destination, object.to_string().as_bytes())
 }
 
 /// Missing ledger state is not evidence that the remote reference is absent.
@@ -52,31 +56,38 @@ pub(crate) fn observation(
     destination: &str,
 ) -> Result<crate::git_transport::push::Expected, CommandError> {
     use crate::git_transport::push::Expected;
-    let reference = push_tracking_ref(transaction, remote, destination)?;
+    let key = observation_key(transaction, remote, destination)?;
+    if let Some(id) = transaction.resolve_ref(&format!("refs/jjosh/observations/{key}")).map_err(user_error)? {
+        let (kind, bytes) = transaction.odb().read(id).map_err(user_error)?;
+        if kind != gix_object::Kind::Blob {
+            return Err(user_error("Remote observation is not an identity record"));
+        }
+        return if &bytes[..] == b"absent" {
+            Ok(Expected::Absent)
+        } else {
+            let id = gix_hash::ObjectId::from_hex(&bytes).map_err(user_error)?;
+            if id.is_null() {
+                return Err(user_error("Remote observation contains a null object identity"));
+            }
+            Ok(Expected::At(id))
+        };
+    }
     let absent = gix_object::compute_hash(
-        gix_hash::Kind::Sha1,
-        gix_object::Kind::Blob,
-        b"jjosh-remote-absent\n",
-    )
-    .map_err(user_error)?;
-    Ok(
-        match transaction.resolve_ref(&reference).map_err(user_error)? {
-            None => Expected::Unknown,
-            Some(id) if id == absent => Expected::Absent,
-            Some(id) => Expected::At(id),
-        },
-    )
+        gix_hash::Kind::Sha1, gix_object::Kind::Blob, b"jjosh-remote-absent\n",
+    ).map_err(user_error)?;
+    Ok(match transaction.resolve_ref(&format!("refs/jjosh/link-push/{key}")).map_err(user_error)? {
+        None => Expected::Unknown,
+        Some(id) if id == absent => Expected::Absent,
+        Some(id) => Expected::At(id),
+    })
 }
 
-/// Records a successfully observed absence, independently of projected visibility.
 pub(crate) fn record_absence(
     transaction: &josh_core::cache::Transaction,
     remote: &str,
     destination: &str,
 ) -> Result<(), CommandError> {
-    let absent = josh_core::objects::write_blob(transaction.odb(), b"jjosh-remote-absent\n")
-        .map_err(user_error)?;
-    record_observation(transaction, remote, destination, absent)
+    save_observation(transaction, remote, destination, b"absent")
 }
 
 /// A commit tag chain, with its original annotation bytes in outer-to-inner order.

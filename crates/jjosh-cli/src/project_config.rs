@@ -109,8 +109,24 @@ fn read_setting(
     .flatten()
 }
 
-/// Register ownership without creating a remote or selecting a conversion mode.
-pub(crate) fn register(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
+/// Normalize an explicit source context without resolving or fetching it.
+pub(crate) fn parse_base(value: &str) -> Result<String> {
+    if let Ok(oid) = gix_hash::ObjectId::from_hex(value.as_bytes()) {
+        return Ok(format!("pins/{oid}"));
+    }
+    let reference = if value.starts_with("refs/") {
+        value.to_owned()
+    } else {
+        ensure!(!value.is_empty(), "Source base cannot be empty");
+        format!("refs/heads/{value}")
+    };
+    gix_validate::reference::name_partial(reference.as_bytes().into())
+        .with_context(|| format!("Invalid source base {value:?}"))?;
+    Ok(reference)
+}
+
+/// Validate all recorded and remote-derived ownership without writing any state.
+pub(crate) fn validate_registration(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
     native_project::validate_project(name)?;
     native_project::parse_mount(mount.as_internal_file_string())?;
     let git = gix::open(git_path)?;
@@ -118,73 +134,82 @@ pub(crate) fn register(git_path: &Path, name: &str, mount: &RepoPath) -> Result<
         git.object_hash() == gix::hash::Kind::Sha1,
         "Project registration requires SHA-1"
     );
-    let transaction = crate::interop::open_josh_transaction(git_path, false)
+    let transaction = crate::interop::open_josh_transaction(git_path, true)
         .map_err(|error| anyhow::anyhow!(error.error))?;
     let registered = native_project::list_registered_projects(&transaction)?;
     let native = native_project::list_native_projects(&transaction)?;
     let names: BTreeSet<_> = registered.into_iter().chain(native).collect();
-    for existing in &names {
-        let existing_mount = native_project::load_mount(&transaction, existing)?;
-        ensure!(
-            existing != name || existing_mount.as_ref() == mount,
-            "Project {name} is already mounted at {}",
-            existing_mount.as_internal_file_string()
-        );
-        ensure!(
-            existing == name || existing_mount.as_ref() != mount,
-            "Mount {} is already used by project {existing}",
-            mount.as_internal_file_string()
+    let mut mounts = BTreeMap::new();
+    for existing in names {
+        native_project::validate_project(&existing)?;
+        mounts.insert(
+            existing.clone(),
+            native_project::load_mount(&transaction, &existing)?,
         );
     }
-    let mut remote_mounts = BTreeMap::new();
     let mut remote_projects = BTreeSet::new();
     for remote in git.remote_names() {
         let remote = std::str::from_utf8(&remote).context("Remote name is not UTF-8")?;
-        let Some(project) =
-            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-project"))?
-        else {
+        let project =
+            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-project"))?;
+        let configured_mount =
+            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-mount"))?;
+        let Some(project) = project else {
+            ensure!(
+                configured_mount.is_none(),
+                "Remote {remote} has a project mount without a project identity"
+            );
             continue;
         };
         native_project::validate_project(&project)?;
         remote_projects.insert(project.clone());
-        if let Some(value) =
-            crate::git_remote::config_string(&git, &format!("remote.{remote}.jjosh-mount"))?
-        {
+        if let Some(value) = configured_mount {
             let existing = native_project::parse_mount(&value)?;
-            if let Some(previous) = remote_mounts.insert(project.clone(), existing.clone()) {
+            if let Some(previous) = mounts.insert(project.clone(), existing.clone()) {
                 ensure!(
                     previous == existing,
-                    "Project {project} has conflicting remote mounts"
-                );
-            }
-            if names.contains(&project) {
-                ensure!(
-                    native_project::load_mount(&transaction, &project)? == existing,
-                    "Project {project} has conflicting registered and remote mounts"
+                    "Project {project} has conflicting registered or remote mounts"
                 );
             }
         }
     }
+    // Resolve omitted mounts only after collecting every explicit peer.
     for project in remote_projects {
-        let existing = match remote_mounts.remove(&project) {
-            Some(mount) => mount,
-            None if names.contains(&project) => native_project::load_mount(&transaction, &project)?,
-            None => native_project::default_mount(&project)?,
-        };
+        if let std::collections::btree_map::Entry::Vacant(entry) = mounts.entry(project) {
+            let mount = native_project::default_mount(entry.key())?;
+            entry.insert(mount);
+        }
+    }
+    if let Some(existing) = mounts.get(name) {
         ensure!(
-            project != name || existing.as_ref() == mount,
-            "Project {name} is mounted at {} in its named remotes",
+            existing.as_ref() == mount,
+            "Project {name} is already mounted at {}",
             existing.as_internal_file_string()
         );
-        ensure!(
-            project == name || existing.as_ref() != mount,
-            "Mount {} belongs to project {project} in its named remotes",
-            mount.as_internal_file_string()
-        );
+    } else {
+        mounts.insert(name.to_owned(), mount.to_owned());
     }
+    native_project::check_mounts_disjoint(
+        mounts
+            .iter()
+            .map(|(project, mount)| (project.as_str(), mount.as_ref())),
+    )?;
+    Ok(())
+}
+
+/// Persist ownership after validation, independently of any remote configuration.
+pub(crate) fn write_registration(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
+    let transaction = crate::interop::open_josh_transaction(git_path, false)
+        .map_err(|error| anyhow::anyhow!(error.error))?;
     native_project::record_mount(&transaction, name, mount)?;
     transaction.flush_mem_odb()?;
     Ok(())
+}
+
+/// Register ownership without creating a remote or selecting a conversion mode.
+pub(crate) fn register(git_path: &Path, name: &str, mount: &RepoPath) -> Result<()> {
+    validate_registration(git_path, name, mount)?;
+    write_registration(git_path, name, mount)
 }
 
 /// Inspect local configuration only. Broken entries remain visible alongside
@@ -322,8 +347,8 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
             .map(|config| josh_core::filter::spec(config.semantic_filter()));
         let relevant =
             has_sidecar || project.is_some() || configured_mount.is_some() || base.is_some();
-        if relevant && configured.contains(&name) {
-            if let Some(remote) = collect(
+        if relevant && configured.contains(&name)
+            && let Some(remote) = collect(
                 &mut issues,
                 &name,
                 git.find_remote(name.as_str()).map_err(Into::into),
@@ -342,7 +367,6 @@ pub(crate) fn inspect(git_path: &Path) -> Result<Inventory> {
                     }
                 }
             }
-        }
         if project.is_none() && configured_mount.is_some() {
             diagnose(
                 &mut issues,
